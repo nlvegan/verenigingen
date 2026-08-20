@@ -787,6 +787,7 @@ class BulkInvoiceGenerationService(StatefulService):
         updated_count = 0
 
         for member_name in member_names:
+            wrote_for_member = False
             try:
                 if not DocumentExistenceValidator.check_document_exists("Member", member_name):
                     frappe.log_error(
@@ -821,13 +822,41 @@ class BulkInvoiceGenerationService(StatefulService):
                                 "Individual Invoice Payment History Update",
                             )
 
-                    updated_count += 1
+                    wrote_for_member = True
 
             except Exception as e:
                 frappe.log_error(
                     f"Error updating payment history for member {member_name}: {str(e)}",
                     "Bulk Payment History Member Update",
                 )
+
+            if not wrote_for_member:
+                continue
+
+            # Per MEMBER, and the reason is locks, not durability (#411).
+            #
+            # add_or_update_entry takes `SELECT ... FROM tabMember WHERE name = %s
+            # FOR UPDATE` on each call, and a row lock is held until the
+            # transaction ends. The history manager's own commit used to release it
+            # immediately; now that the manager correctly leaves the transaction
+            # alone, committing once at the END of this loop would accumulate an
+            # X-lock on every member in the batch and hold them all for the whole
+            # run -- while _get_invoice_with_retry sleeps up to 6s per
+            # not-yet-visible invoice inside that window. A concurrent writer to
+            # one of those members would wait and then take a 1205, which does NOT
+            # roll back and leaves the victim running against a broken transaction.
+            #
+            # OUTSIDE the per-member handler above, deliberately. A commit that
+            # raises is not a per-member problem: it is a deadlock (1213) or a lost
+            # connection (2006), and in both the whole transaction is already gone.
+            # Logging it and moving to the next member would let every later member
+            # "succeed" against a discarded transaction -- the exact shape #408 was
+            # filed about. Let it propagate and end the run.
+            #
+            # This is a scheduled job, not hook context, so committing here is ours
+            # to do -- and it bounds the lock to one member.
+            frappe.db.commit()
+            updated_count += 1
 
         return updated_count
 

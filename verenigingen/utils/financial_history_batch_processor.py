@@ -35,11 +35,16 @@ class FinancialHistoryBatchProcessor:
     contention while maintaining per-member atomicity.
 
     CAVEAT on "per-member atomicity": each member's work is wrapped in a savepoint,
-    but member_financial_history_manager commits on its first successful save
-    (:286), which destroys that savepoint -- so in practice the scoped rollback
-    only covers a failure BEFORE the first successful operation. What does hold
-    unconditionally is that a failure never escalates into a transaction-wide
-    rollback of other members or the caller. #411 tracks the inner commit.
+    and since #411 the history manager no longer commits inside it. One inner
+    commit remains on a path this one reaches: Member._get_invoice_with_retry
+    (payment_mixin.py:546) commits between attempts when an invoice is not yet
+    visible, deliberately, to get a fresh read view -- #421. When that retry fires the
+    savepoint is gone and the scoped rollback below is a no-op for anything
+    already applied.
+
+    So the guarantee to rely on is still the narrower one, which holds
+    unconditionally: a failure never escalates into a transaction-wide rollback of
+    other members or of the caller.
     """
 
     # Class-level batch queues (shared across instances)
@@ -191,13 +196,12 @@ class FinancialHistoryBatchProcessor:
         # run plus whatever the caller had in flight -- and the dispatch loop swallows
         # the exception, so the run still reports success.
         #
-        # What this does NOT deliver, despite the docstring above: full per-member
-        # atomicity. member_financial_history_manager commits on its first successful
-        # save (:286), which destroys the savepoint -- measured firing on every
-        # successful batch. Past that point the scoped rollback is a no-op and this
-        # member's earlier operations stay applied. The guarantee is the narrower one:
-        # a failure here NEVER escalates beyond the member that caused it. #411 tracks
-        # the inner commit.
+        # Still not FULL per-member atomicity, despite the docstring above. The
+        # history manager's own commit is gone (#411), but Member._get_invoice_with_retry
+        # (payment_mixin.py:546, #421) commits between attempts when an invoice is not
+        # yet visible; on that path the savepoint is destroyed and the scoped rollback
+        # below cannot undo what was already applied. The guarantee is the narrower
+        # one: a failure here NEVER escalates beyond the member that caused it.
         #
         # Explicit savepoint rather than the savepoint() context manager, which catches
         # Exception and would swallow the re-raise the caller's error accounting needs.
@@ -233,9 +237,10 @@ class FinancialHistoryBatchProcessor:
 
             # No commit: this queue is drained INLINE from
             # add_invoice_to_payment_history(), i.e. hook context, where durability
-            # belongs to the request or job that owns the transaction. (The manager
-            # one frame down still commits -- see #411 -- which is why releasing the
-            # savepoint has to tolerate it being already gone.)
+            # belongs to the request or job that owns the transaction. The history
+            # manager one frame down no longer commits either (#411) -- but releasing
+            # the savepoint still tolerates it being gone, because the invoice-retry
+            # path can commit before we get here.
             cls._release_savepoint(sp)
 
         except Exception as e:
@@ -318,22 +323,28 @@ class FinancialHistoryBatchProcessor:
     def _release_savepoint(save_point):
         """Release a savepoint, tolerating one that no longer exists.
 
-        Inner code can end the transaction -- member_financial_history_manager
-        commits after `update_child_table` (:286) -- and MariaDB discards every
-        savepoint when it does, so RELEASE then raises 1305. The member's work is
-        already durable at that point, so there is nothing to release.
+        Inner code can still end the transaction -- Member._get_invoice_with_retry
+        (payment_mixin.py:546, #421) commits between attempts to get a fresh read view --
+        and MariaDB discards every savepoint when it does, so RELEASE then raises
+        1305. The member's work is already durable at that point, so there is
+        nothing to release.
+
+        This used to fire on EVERY successful batch, because the history manager
+        committed after `update_child_table`. That commit is gone (#411), so a 1305
+        here now means some OTHER inner path committed -- which is worth the log
+        line rather than being routine noise.
         """
         try:
             frappe.db.release_savepoint(save_point)
         except Exception as release_error:
             if _mysql_error_code(release_error) != SAVEPOINT_DOES_NOT_EXIST:
                 raise
-            # Measured: this fires on EVERY successful batch, because the manager
-            # commits on the first successful operation. .error(), not .debug():
-            # bare loggers default to ERROR under `bench run-tests`, so a .debug()
-            # here would be invisible exactly where it matters.
+            # .error(), not .debug(): bare loggers default to ERROR under
+            # `bench run-tests`, so a .debug() here would be invisible exactly where
+            # it matters.
             frappe.logger("financial_batch").error(
-                f"savepoint {save_point} already released by an inner commit (#411)"
+                f"savepoint {save_point} already released by an inner commit "
+                "(the invoice-retry path in payment_mixin still has one -- #421)"
             )
 
     @staticmethod

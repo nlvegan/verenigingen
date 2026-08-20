@@ -16,8 +16,6 @@ from typing import Any, Callable, Dict, List, Optional
 import frappe
 from frappe.utils import now
 
-from verenigingen.utils.secure_operations import secure_document_operation
-
 
 class MemberFinancialHistoryManager:
     """
@@ -282,8 +280,33 @@ class MemberFinancialHistoryManager:
                 self.member.flags.ignore_version = True
 
                 # Use Frappe's native update_child_table() - no timestamp conflicts!
+                #
+                # Deliberately does NOT commit. This runs in ordinary request and
+                # hook context -- the financial-history batch queue is drained
+                # INLINE from add_invoice_to_payment_history(), and the fee-change
+                # recorder reaches this from a document save. A transaction-wide
+                # commit here flushed whatever the caller had half-finished, and
+                # took every savepoint with it (MariaDB discards them all on
+                # commit), so FinancialHistoryBatchProcessor's per-member scoped
+                # rollback silently became a no-op and its RELEASE raised 1305.
+                #
+                # Durability belongs to the owning request or scheduled job, which
+                # commits at its own boundary. The one caller that wanted it sooner
+                # -- bulk_invoice_generation_service, a scheduler job that already
+                # committed its invoices before writing history -- now commits for
+                # itself, where the decision is visible. #411.
+                #
+                # TRADE-OFF, stated because it is not free: add_or_update_entry takes
+                # `SELECT ... FOR UPDATE` on the member row, and a row lock lives
+                # until the transaction ends. That commit used to release it on the
+                # spot; without it the lock is held for the rest of the caller's
+                # request. That is the correct transactional semantic -- you cannot
+                # hold a lock for consistency AND release it early without ending the
+                # transaction -- but it is longer contention than before, so a caller
+                # that loops over many members must commit per member rather than
+                # once at the end. bulk_update_payment_history does exactly that, and
+                # says so. The one inner commit still left on this path is #421.
                 self.member.update_child_table(self.history_field)
-                frappe.db.commit()
                 return True
 
             except Exception as e:

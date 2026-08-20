@@ -23,12 +23,17 @@ Two guards, because one alone is not enough:
 
 import ast
 import inspect
+import re
 
 import frappe
 
 from verenigingen.tests.utils.base import VereningingenTestCase
-from verenigingen.utils import financial_history_batch_processor as batch_module
+from verenigingen.utils import (
+    financial_history_batch_processor as batch_module,
+    member_financial_history_manager as history_module,
+)
 from verenigingen.utils.financial_history_batch_processor import FinancialHistoryBatchProcessor
+from verenigingen.utils.member_financial_history_manager import get_payment_history_manager
 
 DB_ALIASES = {"db", "database"}
 
@@ -38,6 +43,106 @@ SCOPED_METHODS = (
     "_rollback_to_savepoint",
     "_release_savepoint",
 )
+
+TRANSACTION_ENDERS = ("commit", "rollback", "begin")
+
+# SQL that ends a transaction without going through frappe.db.commit(). The guard
+# below reads `frappe.db.sql("COMMIT")` too, because an AST check that only knows
+# the method name is defeated by spelling the same thing as a string.
+_TRANSACTION_ENDING_SQL = re.compile(
+    r"^\s*(commit|rollback(?!\s+to)|start\s+transaction|begin\s*;?\s*$)", re.IGNORECASE
+)
+
+
+def _transaction_enders(tree, *, only_in=None):
+    """Every call in `tree` that can end the caller's transaction.
+
+    Written once and used by both guards below, so the two cannot drift apart --
+    the first version of this was duplicated and the copies already disagreed
+    about which evasions they caught.
+
+    Catches, each because a previous version missed it:
+
+    * ``frappe.db.commit()`` / ``rollback()`` / ``begin()`` -- begin issues START
+      TRANSACTION, which implicitly commits in MariaDB and discards every
+      savepoint (this repo's ImplicitCommitError class);
+    * the aliased ``db = frappe.db; db.commit()``;
+    * a bare name bound to the method: ``commit = frappe.db.commit; commit()``;
+    * ``getattr(frappe.db, "commit")()``;
+    * ``frappe.db.sql("COMMIT")`` and friends, where the method name never appears.
+
+    Still blind, and stated rather than implied: a commit inside a helper this
+    module calls. No AST check on one module can see that. The behavioural
+    savepoint test is what covers that direction.
+    """
+    bound = {}  # local name -> the transaction-ending method it holds
+
+    def _is_db(value):
+        return (isinstance(value, ast.Attribute) and value.attr == "db") or (
+            isinstance(value, ast.Name) and value.id in DB_ALIASES
+        )
+
+    def _method_of(node):
+        """Return the ender name this expression denotes, or None."""
+        if isinstance(node, ast.Attribute) and node.attr in TRANSACTION_ENDERS and _is_db(node.value):
+            return node.attr
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "getattr"
+            and len(node.args) == 2
+            and _is_db(node.args[0])
+            and isinstance(node.args[1], ast.Constant)
+            and node.args[1].value in TRANSACTION_ENDERS
+        ):
+            return node.args[1].value
+        return None
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            held = _method_of(node.value)
+            if held:
+                bound[node.targets[0].id] = held
+
+    scopes = (
+        [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name in only_in]
+        if only_in
+        else [tree]
+    )
+    for scope in scopes:
+        where = scope.name if isinstance(scope, ast.FunctionDef) else "<module>"
+        for call in ast.walk(scope):
+            if not isinstance(call, ast.Call):
+                continue
+            name = None
+            if isinstance(call.func, ast.Attribute):
+                if call.func.attr in TRANSACTION_ENDERS and _is_db(call.func.value):
+                    name = call.func.attr
+                elif call.func.attr in ("sql", "sql_ddl") and _is_db(call.func.value):
+                    first = call.args[0] if call.args else None
+                    if (
+                        isinstance(first, ast.Constant)
+                        and isinstance(first.value, str)
+                        and _TRANSACTION_ENDING_SQL.match(first.value)
+                    ):
+                        name = f'sql("{first.value.strip()[:20]}")'
+            elif isinstance(call.func, ast.Name) and call.func.id in bound:
+                name = f"{bound[call.func.id]}() via {call.func.id}"
+            else:
+                held = _method_of(call.func)
+                if held:
+                    name = f"{held}() via getattr"
+            if not name:
+                continue
+            # A SCOPED rollback is the point of the batch handlers -- but
+            # `save_point=None` is the transaction-wide path (frappe's rollback()
+            # branches on `if save_point:`), so a literal None must NOT count.
+            if name == "rollback" and any(
+                kw.arg == "save_point" and not (isinstance(kw.value, ast.Constant) and kw.value.value is None)
+                for kw in call.keywords
+            ):
+                continue
+            yield where, call.lineno, name
 
 
 class TestFinancialBatchTransactionScope(VereningingenTestCase):
@@ -92,39 +197,18 @@ class TestFinancialBatchTransactionScope(VereningingenTestCase):
         if someone restored the bare rollback. This assertion is what actually pins
         the savepoint invariant.
         """
-        tree = ast.parse(inspect.getsource(batch_module))
-        offenders = []
-
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.FunctionDef) or node.name not in SCOPED_METHODS:
-                continue
-            for call in ast.walk(node):
-                if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Attribute):
-                    continue
-                if call.func.attr not in ("commit", "rollback"):
-                    continue
-                # Receiver must look like a database handle: `frappe.db.x()` and the
-                # aliased `db = frappe.db; db.x()`, which walked past an earlier check.
-                value = call.func.value
-                is_frappe_db = isinstance(value, ast.Attribute) and value.attr == "db"
-                is_alias = isinstance(value, ast.Name) and value.id in DB_ALIASES
-                if not (is_frappe_db or is_alias):
-                    continue
-                # A scoped rollback is the point -- but `save_point=None` is the
-                # transaction-wide path (frappe's rollback() branches on `if
-                # save_point:`), so a literal None must NOT count as scoped.
-                if call.func.attr == "rollback" and any(
-                    kw.arg == "save_point"
-                    and not (isinstance(kw.value, ast.Constant) and kw.value.value is None)
-                    for kw in call.keywords
-                ):
-                    continue
-                offenders.append(f"{node.name}:{call.lineno} frappe.db.{call.func.attr}()")
+        offenders = [
+            f"{where}:{lineno} frappe.db.{name}"
+            for where, lineno, name in _transaction_enders(
+                ast.parse(inspect.getsource(batch_module)), only_in=SCOPED_METHODS
+            )
+        ]
 
         self.assertEqual(
             offenders,
             [],
-            "a per-member batch handler must confine itself to its savepoint: "
+            "a per-member batch handler must confine itself to its savepoint "
+            "(`begin()` counts: START TRANSACTION implicitly commits in MariaDB): "
             f"{offenders}. A transaction-wide rollback discards every other member "
             "processed in the same run and the caller's in-flight work -- and the "
             "dispatch loop swallows the exception, so the run still reports success. "
@@ -165,4 +249,98 @@ class TestFinancialBatchTransactionScope(VereningingenTestCase):
             frappe.db.exists("Member", member.name),
             "a vanished savepoint escalated into a transaction-wide rollback and took "
             "the caller's uncommitted work with it",
+        )
+
+
+class TestHistoryManagerLeavesTheTransactionAlone(VereningingenTestCase):
+    """#411. The batch processor's savepoints are only worth as much as the code
+    they wrap: ``MemberFinancialHistoryManager._save_with_retry`` used to end in a
+    transaction-wide ``frappe.db.commit()``, and MariaDB discards every savepoint
+    when a transaction commits.
+
+    So the scoped rollback one frame up became a no-op, and #408 had to teach both
+    ``_release_savepoint`` and ``_rollback_to_savepoint`` to tolerate a savepoint
+    that had silently vanished. That defensiveness stays -- other code can still
+    commit -- but the manager itself is now the thing being pinned.
+    """
+
+    def _member(self):
+        member = frappe.get_doc(
+            {
+                "doctype": "Member",
+                "first_name": "HistScope",
+                "last_name": f"Caller{frappe.generate_hash(length=6)}",
+                "email": f"histscope-{frappe.generate_hash(length=8)}@example.invalid",
+                "birth_date": "1990-01-01",
+            }
+        ).insert()
+        self.track_doc("Member", member.name)
+        return member
+
+    def test_a_callers_savepoint_survives_a_history_write(self):
+        """The invariant, stated as the caller experiences it.
+
+        A savepoint is the one thing a commit cannot leave behind: MariaDB drops
+        all of them the moment the transaction ends. So RELEASE succeeding is
+        proof no commit happened inside -- there is no way to fake it, and no way
+        for the assertion to pass vacuously while the commit is still there.
+        """
+        member = self._member()
+        save_point = f"hist_scope_{frappe.generate_hash(length=8)}"
+        frappe.db.savepoint(save_point)
+
+        manager = get_payment_history_manager(member)
+        wrote = manager.add_or_update_entry(
+            "ACC-SINV-HISTSCOPE-0001",
+            lambda: {
+                # Matches entry_id: if Member Payment History.invoice ever gains a
+                # link/reqd check, a mismatched row would make update_child_table
+                # throw and this test fail for a reason unrelated to commits.
+                "invoice": "ACC-SINV-HISTSCOPE-0001",
+                "posting_date": frappe.utils.nowdate(),
+                "amount": 1.0,
+                "outstanding_amount": 0.0,
+                "payment_status": "Paid",
+                "transaction_type": "Membership Invoice",
+            },
+            "invoice",
+        )
+        self.assertTrue(wrote, "the history write itself failed, so this proves nothing about commits")
+
+        try:
+            frappe.db.release_savepoint(save_point)
+        except Exception as e:
+            self.fail(
+                f"the caller's savepoint {save_point} did not survive a history write ({e}). "
+                "MariaDB discards every savepoint on commit, so this means the manager "
+                "ended the caller's transaction -- flushing whatever the caller had in "
+                "flight and disarming every scoped rollback above it (#411)."
+            )
+
+    def test_the_history_manager_never_ends_the_transaction(self):
+        """Source guard, for the same reason #408 needed one.
+
+        ``_save_with_retry`` is reached through several paths, and a behavioural
+        test only covers the one it drives. This pins the invariant itself --
+        including the two evasions that walked past the first version of the
+        batch-processor guard: a ``save_point=None`` rollback (frappe branches on
+        ``if save_point:``, so None IS the transaction-wide path) and the aliased
+        ``db = frappe.db; db.commit()``.
+        """
+        offenders = [
+            f"line {lineno}: frappe.db.{name}"
+            for _where, lineno, name in _transaction_enders(ast.parse(inspect.getsource(history_module)))
+        ]
+
+        self.assertEqual(
+            offenders,
+            [],
+            "member_financial_history_manager must not end the caller's transaction: "
+            "(`begin()` counts -- it issues START TRANSACTION, which implicitly commits "
+            "in MariaDB and discards every savepoint, the ImplicitCommitError class) "
+            f"{offenders}. It is reached from ordinary request and hook paths -- the "
+            "batch queue is drained INLINE from add_invoice_to_payment_history() -- so "
+            "a commit here flushes a caller's half-finished work and destroys every "
+            "savepoint above it. Durability is the owning request or job's decision; "
+            "if one caller genuinely needs it sooner, it commits for itself (#411).",
         )
