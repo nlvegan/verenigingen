@@ -44,7 +44,19 @@ on:
 
 concurrency:
   group: server-tests-${{ github.ref }}
-  cancel-in-progress: true
+  # Cancel a superseded PR run; never cancel a trunk run.
+  #
+  # This suite takes about an hour. Merges into develop have landed 10-90
+  # minutes apart, so with an unconditional `true` the run that verifies the
+  # merge which just landed was killed by the next merge -- and the trunk went
+  # unverified across a whole merge burst, silently, because a cancelled run
+  # is not a failed one.
+  #
+  # PRs are unaffected: `github.ref` is `refs/pull/<n>/merge` for pull_request
+  # events, so it never equals a trunk ref and those runs still cancel on a new
+  # push. main is included for the same reason develop is -- both are push
+  # triggers above.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
