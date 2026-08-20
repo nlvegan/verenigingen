@@ -445,14 +445,26 @@ class TestERPNextIntegrationComprehensive(VereningingenTestCase):
         payment.save()
         payment.submit()
 
-        # Verify Payment Entry GL entries
+        # Verify Payment Entry GL entries.
+        # Scoped by company for the same reason the Sales Invoice query above is:
+        # `voucher_no` is not unique across the suite. Orphaned GL Entries outlive
+        # their deleted voucher while the naming series counter rolls back with the
+        # test transaction, so a later Payment Entry reuses the name and inherits
+        # them. Unscoped, this query returned 8 rows against an expected 2 on three
+        # unrelated branches (#346, #365, #379) -- the fix one function above was
+        # never applied here.
         payment_gl_entries = frappe.get_all(
             "GL Entry",
-            filters={"voucher_no": payment.name},
+            filters={"voucher_no": payment.name, "company": payment.company},
             fields=["account", "debit", "credit", "party", "party_type"]
         )
 
-        self.assertEqual(len(payment_gl_entries), 2, "Payment Entry should create 2 GL entries")
+        self.assertEqual(
+            len(payment_gl_entries),
+            2,
+            f"Payment Entry should create 2 GL entries, got "
+            f"{[e.account for e in payment_gl_entries]}",
+        )
 
         # Verify accounting equation for payment
         payment_debits = sum(entry.debit for entry in payment_gl_entries)

@@ -38,7 +38,7 @@ import frappe
 from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+from verenigingen.tests.support.sepa_test_company import get_eur_bank_account, get_eur_test_company
 from verenigingen.verenigingen_payments.mollie.services.dues_payment_processor import DuesPaymentProcessor
 
 
@@ -230,6 +230,20 @@ class DuesSweepTestBase(EnhancedTestCase):
         super().setUpClass()
         cls.company = get_eur_test_company()
         cls.clearing_account = _ensure_clearing_gl_account(cls.company)
+        # test_clearing_account_company_mismatch_falls_back exercises the
+        # processor's LAST-RESORT fallback, which is `Company.default_bank_account`
+        # (dues_payment_processor._create_payment_entry_for_dues). Nothing else here
+        # guarantees that field: `get_eur_test_company`'s usability contract covers
+        # currency, fiscal year, receivable and income accounts, not the bank
+        # default, which is set only as a side effect of `get_eur_bank_account`.
+        #
+        # So the test passed or failed on whether some OTHER module in the shard had
+        # called that helper first. The middle fallback (an account named "%Mollie%")
+        # does not save it either: `_ensure_clearing_gl_account` above only creates
+        # the Mollie-named account when the company has NO Bank account at all, and
+        # this company has ten. Both escapes are accidents of shard packing, which
+        # is why this failed on #346/#365/#379 and passed locally.
+        get_eur_bank_account(cls.company)
         cls.income_account = frappe.db.get_value(
             "Account", {"company": cls.company, "account_type": "Income Account", "is_group": 0}, "name"
         )
