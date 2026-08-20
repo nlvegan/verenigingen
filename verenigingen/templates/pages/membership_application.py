@@ -1,5 +1,15 @@
-"""
-Enhanced context for membership application page with flexible contribution system
+"""Whitelisted helpers that outlive their page.
+
+The /membership_application template was removed: it posted to
+`submit_enhanced_application`, which has never existed in this module — the
+template was written pointing at the wrong one and the module it meant was later
+deleted. The page could not submit an application on any day of its life.
+
+This module survives the template because `get_dues_schedules_for_membership_type`
+below is `allow_guest` and is called by the LIVE form,
+templates/pages/apply_for_membership.html, by dotted path. Moving these helpers to
+`api/` would change that path, so they stay here until a change that updates the
+caller too. `get_context` was deleted with the template.
 """
 
 import frappe
@@ -13,49 +23,6 @@ from verenigingen.utils.security.api_security_framework import public_api
 from verenigingen.utils.settings_utils import populate_income_calculator_context
 
 
-def get_context(context):
-    """Get context for enhanced membership application page"""
-
-    # Set page properties
-    context.no_cache = 1
-    context.show_sidebar = False
-    context.title = _("Apply for Membership")
-
-    # Check if user is already a member
-    if frappe.session.user != "Guest":
-        existing_member = get_current_user_member_name()
-        if existing_member:
-            context.already_member = True
-            context.member_name = existing_member
-            return context
-
-    # Get verenigingen settings
-    settings = frappe.get_single("Verenigingen Settings")
-    context.settings = {
-        "enable_chapter_management": settings.enable_chapter_management,
-        "company_name": frappe.get_value("Company", settings.company, "company_name"),
-    }
-
-    # Get organization logo from Brand Settings
-    from verenigingen.verenigingen.doctype.brand_settings.brand_settings import get_organization_logo
-
-    context.organization_logo = get_organization_logo()
-
-    # Get all active membership types with contribution options
-    service = get_membership_application_service()
-    context.membership_types = service.get_membership_types_with_contributions()
-
-    # Add income calculator settings (global defaults)
-    populate_income_calculator_context(context, settings)
-
-    # Basic context setup
-    context.already_member = False
-
-    return context
-
-
-@frappe.whitelist()
-@public_api
 def get_membership_type_details(membership_type_name: str):
     """Get detailed contribution options for a specific membership type."""
     if not membership_type_name:
