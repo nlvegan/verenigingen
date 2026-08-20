@@ -18,10 +18,6 @@ terms                        # page renders name="terms_accepted" with no id. No
 gdpr_consent                 # page renders name="privacy_accepted" with no id. Same as above.
 confirm_accuracy             # no element anywhere, and nothing validates it live. This checkbox appears never to have existed.
 
-# --- a rename away from working ---
-contact_number               # page renders #mobile_no. Member.contact_number is stored empty on every application.
-additional_notes             # page renders #volunteer_comments. The motivation text never reaches Member.notes.
-
 # --- the page renders no such control at all ---
 middle_name                  # tussenvoegsel is the Dutch-installation field the page actually offers
 address_line2                #
