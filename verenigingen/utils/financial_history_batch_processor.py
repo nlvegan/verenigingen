@@ -163,10 +163,26 @@ class FinancialHistoryBatchProcessor:
         This eliminates per-operation database locks by doing all operations
         for a member in one transaction.
         """
+        if not frappe.db.exists("Member", member_name):
+            # The member was deleted between queueing and this flush. That is an
+            # expected race for a queue drained up to 5 minutes later, not a failure,
+            # and it must not reach the except-clause below.
+            frappe.logger("financial_batch").info(f"Skipping payment batch for missing member {member_name}")
+            return
+
+        # Roll back to a SAVEPOINT, not the whole transaction. This method promises
+        # per-member atomicity; a bare frappe.db.rollback() delivers the opposite,
+        # discarding every OTHER member already processed in this run plus whatever
+        # the caller had in flight. Explicit savepoint rather than the savepoint()
+        # context manager, which catches Exception and would swallow the re-raise the
+        # caller's error accounting depends on.
+        sp = "fin_hist_pay_" + frappe.generate_hash(length=10)
+        frappe.db.savepoint(sp)
         try:
             # Load member fresh from database to avoid timestamp conflicts
             member = frappe.get_doc("Member", member_name)
             if not member.customer:
+                frappe.db.release_savepoint(sp)
                 return  # Skip members without customer records
 
             from verenigingen.utils.member_financial_history_manager import get_payment_history_manager
@@ -190,10 +206,14 @@ class FinancialHistoryBatchProcessor:
                 elif operation == "remove":
                     manager.remove_entry(invoice_name, "invoice")
 
-            frappe.db.commit()
+            frappe.db.release_savepoint(sp)
 
         except Exception as e:
-            frappe.db.rollback()
+            # Undo only THIS member's operations; leave siblings and the caller's
+            # transaction intact. No commit here either: durability belongs to the
+            # scheduled job / request that owns the transaction, and committing
+            # mid-hook would flush a caller's half-finished work.
+            frappe.db.rollback(save_point=sp)
             raise e
 
     @classmethod
@@ -201,11 +221,21 @@ class FinancialHistoryBatchProcessor:
         """
         Process all expense operations for a single member atomically.
         """
+        if not frappe.db.exists("Member", member_name):
+            # Same expected race as the payment path: deleted between queueing and
+            # this flush, and not a reason to unwind anyone else's work.
+            frappe.logger("financial_batch").info(f"Skipping expense batch for missing member {member_name}")
+            return
+
+        # Savepoint, not a transaction-wide rollback -- see _process_member_payment_batch.
+        sp = "fin_hist_exp_" + frappe.generate_hash(length=10)
+        frappe.db.savepoint(sp)
         try:
             # Load member fresh from database to avoid timestamp conflicts
 
             member = frappe.get_doc("Member", member_name)
             if not hasattr(member, "volunteer_expenses"):
+                frappe.db.release_savepoint(sp)
                 return  # Skip members without expense capability
 
             from verenigingen.utils.member_financial_history_manager import get_expense_history_manager
@@ -241,10 +271,10 @@ class FinancialHistoryBatchProcessor:
                     if payment_updates:
                         manager.update_entry_field(expense_name, payment_updates, "expense_claim")
 
-            frappe.db.commit()
+            frappe.db.release_savepoint(sp)
 
         except Exception as e:
-            frappe.db.rollback()
+            frappe.db.rollback(save_point=sp)
             raise e
 
     @classmethod
@@ -254,6 +284,19 @@ class FinancialHistoryBatchProcessor:
             cls._process_payment_batches()
         if cls._expense_queue:
             cls._process_expense_batches()
+
+    @classmethod
+    def reset_queues(cls):
+        """Drop every queued operation without processing it (testing/shutdown).
+
+        The queues are class-level and therefore PROCESS-global: entries outlive the
+        transaction that created them. A test whose transaction is rolled back leaves
+        entries naming Members that no longer exist, and the next caller to drain the
+        queue processes them. Test base classes call this per method so one test's
+        residue cannot reach another's flush.
+        """
+        cls._payment_queue.clear()
+        cls._expense_queue.clear()
 
     @classmethod
     def get_queue_status(cls):
