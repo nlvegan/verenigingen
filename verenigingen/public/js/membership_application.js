@@ -820,7 +820,10 @@ class _MembershipApplication {
 			tussenvoegsel: $('#tussenvoegsel').val() || '',
 			last_name: $('#last_name').val() || '',
 			email: $('#email').val() || '',
-			contact_number: $('#contact_number').val() || '',
+			// apply_for_membership renders #mobile_no; #contact_number is what the
+			// older membership_application / personal_details / volunteer-apply
+			// pages call it. Read both rather than breaking one to fix the other.
+			contact_number: $('#contact_number').val() || $('#mobile_no').val() || '',
 			birth_date: $('#birth_date').val() || '',
 			pronouns: $('#pronouns').val() || '',
 
@@ -862,7 +865,9 @@ class _MembershipApplication {
 			transfer_account_name: $('#transfer_account_name').val() || '',
 
 			// Step 7: Final Confirmation
-			additional_notes: $('#additional_notes').val() || '',
+			// The motivation textarea is #volunteer_comments on this page; it lands
+			// in Member.notes, which is what the approver reads.
+			additional_notes: $('#additional_notes').val() || $('#volunteer_comments').val() || '',
 			terms: $('#terms').is(':checked'),
 			gdpr_consent: $('#gdpr_consent').is(':checked'),
 			confirm_accuracy: $('#confirm_accuracy').is(':checked'),
