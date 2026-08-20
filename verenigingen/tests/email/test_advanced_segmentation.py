@@ -414,7 +414,8 @@ class TestSegmentDonationHistoryBug(SegmentationCohortMixin, EnhancedTestCase):
 
     verenigingen/email/advanced_segmentation.py:271-303 builds:
 
-        EXISTS (SELECT 1 FROM `tabDonation` d WHERE d.donor = m.name AND d.docstatus = 1)
+        EXISTS (SELECT 1 FROM `tabDonation` d WHERE d.donor = m.name
+                AND d.docstatus < 2)
 
     where `m` is `tabMember`. But `Donation.donor` is a Link to **Donor**
     (verenigingen/verenigingen/doctype/donation/donation.json), whose names are
@@ -427,7 +428,13 @@ class TestSegmentDonationHistoryBug(SegmentationCohortMixin, EnhancedTestCase):
     The correct join goes through Donor.member (Donor has a `member` Link field):
         EXISTS (SELECT 1 FROM `tabDonation` d
                 INNER JOIN `tabDonor` dn ON d.donor = dn.name
-                WHERE dn.member = m.name AND d.docstatus = 1)
+                WHERE dn.member = m.name AND d.docstatus < 2)
+
+    Issue #350 relaxed the docstatus predicate here from "= 1" to "< 2" (Donation
+    is not submittable, so "= 1" matched nothing). That changed NOTHING about
+    this bug: the `d.donor = m.name` join still compares a Donor name to a Member
+    name, so both segments remain broken and these tests remain expected
+    failures.
     """
 
     def setUp(self):
