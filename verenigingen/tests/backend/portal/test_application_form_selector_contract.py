@@ -26,28 +26,45 @@ ID_SELECTOR = re.compile(r"""\$\(\s*['"]#([A-Za-z0-9_-]+)['"]\s*\)""")
 PAYLOAD_KEY = re.compile(r"\s*([a-z_][a-z0-9_]*)\s*:", re.IGNORECASE)
 
 
+# Both halves of the submitted payload. `getAllFormData()` merges them in this
+# order and the second one WINS, so guarding only the first left the two values
+# that carry money — the payment method and the contribution amount —
+# unguarded. That is where #420 lived.
+COLLECTOR_FUNCTIONS = ("collectFormDataDirectly", "getAdditionalFormData")
+
+
 def parse_collector_fields():
-    """Map each payload field of collectFormDataDirectly() to the ids it reads.
+    """Map each payload field of the collector functions to the ids it reads.
 
     Keyed by field rather than by id because several fields read a fallback
     chain (`$('#a').val() || $('#b').val()`); such a field is only broken when
     *none* of its ids resolve.
+
+    A field appearing in both functions is merged, which matches runtime: its
+    value can come from either read.
     """
+    fields = {}
+    for function_name in COLLECTOR_FUNCTIONS:
+        for name, ids in _parse_one(function_name).items():
+            fields.setdefault(name, []).extend(ids)
+    return {name: sorted(set(ids)) for name, ids in fields.items() if ids}
+
+
+def _parse_one(function_name):
     source = COLLECTOR_JS.read_text(encoding="utf-8")
-    start = source.find("\tcollectFormDataDirectly() {")
+    start = source.find("\t%s() {" % function_name)
     if start == -1:
         # str.index would raise with the whole 4500-line file in the message.
         raise AssertionError(
-            f"collectFormDataDirectly() not found in {COLLECTOR_JS.name}. If it was "
-            "renamed or moved, point this parser at its new home — do not delete "
-            "the guard."
+            f"{function_name}() not found in {COLLECTOR_JS.name}. If it was renamed "
+            "or moved, point this parser at its new home — do not delete the guard."
         )
     literal = source.find("return {", start)
     end = source.find("\n\t}\n", literal)
     if literal == -1 or end == -1:
         raise AssertionError(
-            "collectFormDataDirectly() no longer returns a single object literal; "
-            "this parser needs updating to match."
+            f"{function_name}() no longer returns a single object literal; this "
+            "parser needs updating to match."
         )
 
     fields = {}
@@ -60,7 +77,7 @@ def parse_collector_fields():
         if field is not None:
             fields[field].extend(ID_SELECTOR.findall(line))
 
-    return {name: sorted(set(ids)) for name, ids in fields.items() if ids}
+    return fields
 
 
 def load_baseline():
@@ -104,6 +121,9 @@ class TestApplicationFormSelectorContract(EnhancedTestCase):
         self.assertGreaterEqual(len(self.fields), 25, "collector parse looks empty")
         self.assertIn("email", self.fields)
         self.assertIn("email", self.rendered_ids)
+        # A field only getAdditionalFormData declares — proves the second half is
+        # parsed. Without this, dropping it from COLLECTOR_FUNCTIONS is silent.
+        self.assertIn("selected_dues_schedule", self.fields)
         self.assertIn("bank_account_name", self.fields)
         # A fallback chain must be read as one field with several ids.
         self.assertGreater(len(self.fields["bank_account_name"]), 1)

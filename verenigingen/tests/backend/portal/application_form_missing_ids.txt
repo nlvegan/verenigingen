@@ -27,5 +27,5 @@ application_source_details   #
 transfer_iban                # bank-transfer branch; the page collects IBAN once, via #iban
 transfer_account_name        #
 
-# --- works despite the missing id ---
-payment_method               # falls back to input[name="payment_method_selection"]:checked, which the page does render. Listed because the id itself is absent; delete this line only if that fallback goes too.
+# --- the id is absent but a name-based read covers it ---
+payment_method               # #payment_method does not render; the collector falls back to input[name="payment_method"]:checked, which does. NOTE: this entry previously claimed the fallback was name="payment_method_selection" and that the field therefore "works" -- both false. payment_method_selection renders 0 times, and until #420 the collector's correct read was overwritten downstream by getAdditionalFormData. A wrong explanation in a baseline is a search query nobody runs.
