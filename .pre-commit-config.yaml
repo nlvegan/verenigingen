@@ -328,6 +328,37 @@ repos:
         verbose: true
         exclude: '^(scripts/validation/archived/|scripts/validation/tests/|verenigingen/tests/)'
 
+      - id: secure-operation-result-validator
+        name: 🔐 Unchecked secure_document_operation Result
+        description: >-
+          `secure_document_operation` does NOT raise for an ordinary failed write — it
+          catches the exception and returns `success=False`. A caller that ignores the
+          return value is told nothing and carries on as if the row was written. Every
+          instance found so far had exception handling wrapped around it that could
+          never fire for THAT failure mode (a handler is still live for the three
+          things outside its try: justification validation, the bypass_validations
+          role gate, and a re-raised non-resumable DB error): a reversal Journal Entry that never
+          reached the ledger was reported as a completed refund and then claimed the
+          idempotency key forever (#379), the same shape on the forward path makes a
+          donation impossible to reverse (#381), and an access REVOCATION left the
+          user holding the role profile while reporting it removed. A result that is
+          returned is fine, since the caller gets it and the responsibility with it.
+          Genuinely best-effort writes should still read `.success` and log, then mark
+          the call `# secure-op-ok: best-effort|caller-verifies|false-positive`.
+          Flags DISCARDED, UNCHECKED, TRUTHINESS (`if secure_document_operation(...)`
+          is ALWAYS true — the result class defines no `__bool__`) and BAD_OPT_OUT (an
+          unrecognised or missing pragma reason, since on a rule with no baseline an
+          unpoliced pragma is the only way it can quietly die).
+          NO BASELINE, deliberately: the full sweep of all 206 non-test call sites
+          found exactly three violations and all three are fixed, so this starts at
+          zero and any hit is a real regression rather than inherited debt.
+        entry: python scripts/validation/secure_operation_result_validator.py
+        language: system
+        pass_filenames: true
+        files: '^verenigingen/.*\.py$'
+        stages: [pre-commit]
+        exclude: '^verenigingen/tests/'
+
       - id: deprecated-function-checker
         name: 🚨 Deprecated Function Usage Check
         description: Check for usage of deprecated functions using Codanna
