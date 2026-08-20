@@ -29,12 +29,216 @@ Tiered Validation Rules:
   - ALL mocks blocked - must test real permission boundaries
 """
 
+import ast
+import io
 import os
 import re
 import sys
 import argparse
+import tokenize
+import warnings
+from collections import Counter, namedtuple
 from pathlib import Path
-from typing import List, Dict, Tuple, Optional
+from typing import Dict, Iterator, List, Tuple
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+DEFAULT_BASELINE = Path(__file__).with_name("test_quality_baseline.txt")
+
+# Mirrors error_swallow_validator.py. Without this, --update-baseline walks agent
+# worktrees: measured 12,574 test files against 1,398, the difference being copies
+# under .claude/worktrees/. A locally regenerated baseline then cannot match CI's.
+PRUNE_DIRS = {"node_modules", ".git", "__pycache__", "worktrees", ".claude", "archived"}
+
+# A single violation, in the form the baseline is keyed on. `qualname` is resolved
+# from the AST, not by scanning backwards for `def ` -- see _scope_map.
+Finding = namedtuple("Finding", "path lineno qualname kind message")
+
+
+def _rel(path) -> str:
+    """Repo-relative path, whatever form the caller passed.
+
+    pre-commit passes bare repo-relative paths; the whole-tree walk produced
+    './'-prefixed ones. Without normalising here, every key the hook computes is
+    absent from the baseline and reads as a brand-new violation.
+    """
+    try:
+        return str(Path(path).resolve().relative_to(REPO_ROOT))
+    except ValueError:
+        return str(path)
+
+
+def iter_test_files(root: str = ".") -> Iterator[str]:
+    """Yield test files under `root`, skipping vendor and worktree copies.
+
+    This is a strict SUPERSET of what the pre-commit hook sees -- the hook's
+    `exclude` in .pre-commit-config.yaml drops `scripts/.*` and `*debug*`, which are
+    scanned here. That direction is deliberate and must be preserved: the hook can
+    then never compute a key the baseline does not cover, which would read as a
+    brand-new violation on untouched code. Narrowing this walk to match the hook
+    would invert that, and a later widening of the hook would break every branch.
+    """
+    enforcer = TestQualityEnforcer()
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in PRUNE_DIRS]
+        for name in filenames:
+            candidate = os.path.join(dirpath, name)
+            if enforcer._is_test_file(candidate):
+                yield candidate
+
+
+def _scope_map(content: str) -> List[Tuple[str, int, int]]:
+    """Return (qualified name, first line, last line) for every function.
+
+    Replaces a backward scan for `def `, which got four things wrong: it attributed
+    decorator lines to the PREVIOUS function (and mock findings land on decorator
+    lines by construction), attributed module-level code to the last `def` seen,
+    bled from an outer function into a nested one, and never qualified by class.
+
+    The nested case was not cosmetic: a bypass written in an allowlisted
+    `_ensure_user` was reported against a nested `_apply_role_profile`, which is not
+    allowlisted -- so the old helper manufactured a violation.
+
+    Ranges include `decorator_list`, so a finding on `@patch(...)` belongs to the
+    function it decorates.
+    """
+    try:
+        # Parsing someone else's source re-emits their SyntaxWarnings (e.g. an
+        # invalid escape in a non-raw string). That is their file's business, not
+        # a finding, and it would pollute this tool's output.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            tree = ast.parse(content)
+    except SyntaxError:
+        return []
+
+    scopes: List[Tuple[str, int, int]] = []
+
+    def walk(node, prefix):
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                qn = f"{prefix}{child.name}"
+                start = min(
+                    [child.lineno] + [d.lineno for d in getattr(child, "decorator_list", [])]
+                )
+                scopes.append((qn, start, child.end_lineno or start))
+                walk(child, f"{qn}.")
+            elif isinstance(child, ast.ClassDef):
+                walk(child, f"{prefix}{child.name}.")
+            else:
+                walk(child, prefix)
+
+    walk(tree, "")
+    return scopes
+
+
+def _qualname_for(scopes: List[Tuple[str, int, int]], lineno: int) -> str:
+    """Innermost function containing `lineno`, or '<module>'."""
+    best = None
+    for qn, start, end in scopes:
+        if start <= lineno <= end:
+            if best is None or (start >= best[1] and end <= best[2]):
+                best = (qn, start, end)
+    return best[0] if best else "<module>"
+
+
+def _protected_spans(content: str) -> Dict[int, List[Tuple[int, int]]]:
+    """Per-line column spans covered by a comment or a string literal.
+
+    Used to drop a match that lies ENTIRELY inside one of these. The distinction
+    matters more than it looks: 14 of this file's 18 patterns require a quote --
+    every database mock, every never-mock pattern, and `set_user("Administrator")`
+    -- so they match inside a STRING token by construction. Suppressing any match
+    that merely touches a string would silence 58 of 120 real findings and leave
+    every false-positive test passing.
+
+    A quote-requiring pattern's match STARTS at the call (`patch(`, `set_user(`),
+    outside the string, so it survives. A bare mention inside a literal, e.g.
+    `banned = ["NO ignore_permissions=True"]`, is contained and is dropped.
+    """
+    spans: Dict[int, List[Tuple[int, int]]] = {}
+
+    def add(line: int, start: int, end: int):
+        spans.setdefault(line, []).append((start, end))
+
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(content).readline))
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        # Unparseable file: fall back to the line-based docstring tracker rather
+        # than returning no protection at all, which would turn every documented
+        # example of a banned pattern into a finding.
+        for lineno in TestQualityEnforcer._docstring_line_numbers(None, content.split("\n")):
+            add(lineno, 0, 10**6)
+        return spans
+
+    for tok in tokens:
+        if tok.type not in (tokenize.STRING, tokenize.COMMENT):
+            continue
+        (srow, scol), (erow, ecol) = tok.start, tok.end
+        if srow == erow:
+            add(srow, scol, ecol)
+        else:
+            # Multi-line string: the first and last lines are partly covered, the
+            # ones between entirely.
+            add(srow, scol, 10**6)
+            for line in range(srow + 1, erow):
+                add(line, 0, 10**6)
+            add(erow, 0, ecol)
+    return spans
+
+
+def counts_of(findings) -> Dict[str, int]:
+    """Collapse findings to the baseline's `path::qualname::kind` -> count."""
+    return Counter(f"{f.path}::{f.qualname}::{f.kind}" for f in findings)
+
+
+def regressions(counts: Dict[str, int], baseline: Dict[str, int]) -> Dict[str, int]:
+    """Keys that are new, or whose count rose above the baseline.
+
+    Fires upward only. A file absent from a partial (pre-commit) scan contributes
+    no key at all, so a partial scan can never read as "count decreased".
+    """
+    return {k: v for k, v in counts.items() if v > baseline.get(k, 0)}
+
+
+def load_baseline(path: Path) -> Dict[str, int]:
+    out: Dict[str, int] = {}
+    if not path.exists():
+        return out
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        key, _, count = line.rpartition("::")
+        if key and count.isdigit():
+            out[key] = int(count)
+    return out
+
+
+def write_baseline(path: Path, counts: Dict[str, int]) -> None:
+    header = [
+        "# Known test-quality violations -- the ratchet baseline for",
+        "# scripts/validation/test_quality_enforcer.py. Format:",
+        "#     <path>::<qualified function>::<kind>::<count>",
+        "#",
+        "# A change fails only if it introduces a key NOT covered here, or raises the",
+        "# count for a key already listed. Line numbers are deliberately absent --",
+        "# they rot on any edit above them.",
+        "#",
+        "# This file should only ever SHRINK. Do not regenerate it to make a new",
+        "# finding go away; fix the test instead. The one legitimate reason it may",
+        "# GROW is a change to the enforcer's own detection rules, which must land in",
+        "# the same commit as the regeneration.",
+        "#",
+        "# UNDERSTATES the real debt: _check_all_mocks_blocked still honours an",
+        "# unpoliced escape hatch (`# Mock justified:` / `# External service` /",
+        "# `# Infrastructure` within 3 lines), used 361 times across 77 files. Whatever",
+        "# those suppress is invisible here. Policing them would change these counts and",
+        "# so must not be entangled with generating this file.",
+        "",
+    ]
+    body = [f"{k}::{v}" for k, v in sorted(counts.items())]
+    path.write_text("\n".join(header + body) + "\n", encoding="utf-8")
 
 
 class TestTier:
@@ -50,6 +254,11 @@ class TestQualityEnforcer:
     def __init__(self):
         self.errors = []
         self.warnings = []
+        # Structured twin of self.errors, carrying the baseline key. self.errors
+        # stays the human-readable channel; nothing downstream parses it.
+        self.findings: List[Finding] = []
+        self._scopes: List[Tuple[str, int, int]] = []
+        self._protected: Dict[int, List[Tuple[int, int]]] = {}
 
         # Database operation mock patterns (blocked in Tier 2+)
         self.database_mocks = [
@@ -159,6 +368,10 @@ class TestQualityEnforcer:
             with open(file_path, "r", encoding="utf-8") as f:
                 content = f.read()
 
+            # Resolved once per file: both are needed by every check below.
+            self._scopes = _scope_map(content)
+            self._protected = _protected_spans(content)
+
             # Determine which tier this test belongs to
             tier = self._determine_test_tier(file_path)
             file_valid = True
@@ -258,19 +471,47 @@ class TestQualityEnforcer:
                 result.add(idx)
         return result
 
+    def _match_is_protected(self, line_num: int, match) -> bool:
+        """True when the match lies ENTIRELY inside a comment or string literal.
+
+        Containment, not overlap. A pattern that requires a quote --
+        `patch("frappe.db.sql")`, `set_user("Administrator")` -- starts at the call,
+        outside the literal, so it is never protected. A bare mention inside a
+        literal is.
+        """
+        for start, end in self._protected.get(line_num, ()):
+            if match.start() >= start and match.end() <= end:
+                return True
+        return False
+
+    def _search(self, pattern: str, line: str, line_num: int):
+        """re.search, ignoring matches that are only quoted or commented text."""
+        match = re.search(pattern, line, re.IGNORECASE)
+        if match is not None and self._match_is_protected(line_num, match):
+            return None
+        return match
+
+    def _record(self, file_path: str, line_num: int, kind: str, message: str) -> None:
+        """Append to both the human channel and the structured, keyed one."""
+        self.errors.append(message)
+        self.findings.append(
+            Finding(
+                path=_rel(file_path),
+                lineno=line_num,
+                qualname=_qualname_for(self._scopes, line_num),
+                kind=kind,
+                message=message,
+            )
+        )
+
     def _check_database_mocks(self, file_path: str, content: str) -> bool:
         """Check for database operation mocks (blocked in Tier 2 integration tests)"""
         valid = True
         lines = content.split("\n")
-        docstring_lines = self._docstring_line_numbers(lines)
 
         for line_num, line in enumerate(lines, 1):
-            # Skip docstring content — examples like "@patch('frappe.db.exists')"
-            # mentioned in module-level explanatory docstrings are not actual mocks.
-            if line_num in docstring_lines:
-                continue
             for pattern in self.database_mocks:
-                if re.search(pattern, line, re.IGNORECASE):
+                if self._search(pattern, line, line_num):
                     # Check if this is an allowed configuration access pattern
                     is_allowed = any(
                         re.search(allowed_pattern, line, re.IGNORECASE)
@@ -278,14 +519,18 @@ class TestQualityEnforcer:
                     )
 
                     if not is_allowed:
-                        self.errors.append(
+                        self._record(
+                            file_path,
+                            line_num,
+                            "DATABASE MOCK",
                             f"{file_path}:{line_num}: DATABASE MOCK in integration test: {line.strip()}\n"
                             f"  -> Database operations must not be mocked in integration tests\n"
                             f"  -> Use real database operations with Enhanced Test Factory\n"
                             f"  -> Move to tests/unit/ if testing isolated service logic\n"
-                            f"  -> See docs/test_remediation_plan/TESTING_STANDARDS.md"
+                            f"  -> See docs/test_remediation_plan/TESTING_STANDARDS.md",
                         )
                         valid = False
+                        break
 
         return valid
 
@@ -300,7 +545,6 @@ class TestQualityEnforcer:
         """
         valid = True
         lines = content.split("\n")
-        docstring_lines = self._docstring_line_numbers(lines)
         mock_pattern = r"(?<![A-Za-z0-9_])@?patch\s*\("
 
         # Patterns that name external infrastructure or Frappe runtime context
@@ -361,14 +605,7 @@ class TestQualityEnforcer:
         )
 
         for line_num, line in enumerate(lines, 1):
-            stripped = line.strip()
-            if stripped.startswith("#"):
-                continue
-            if line_num in docstring_lines:
-                # Don't flag @patch examples mentioned inside docstrings.
-                continue
-
-            if not re.search(mock_pattern, line, re.IGNORECASE):
+            if not self._search(mock_pattern, line, line_num):
                 continue
 
             # For multi-line patch(...) calls, the target string sits on a
@@ -403,12 +640,15 @@ class TestQualityEnforcer:
             if is_infrastructure and justification_found:
                 continue
 
-            self.errors.append(
+            self._record(
+                file_path,
+                line_num,
+                "MOCK",
                 f"{file_path}:{line_num}: MOCK in security test: {line.strip()}\n"
                 f"  -> Security tests must not mock the auth/permission boundary itself\n"
                 f"  -> Infrastructure mocks (HTTP, IP, secret retrieval) are allowed\n"
                 f"     when annotated with # Mock justified: <reason>\n"
-                f"  -> See docs/test_remediation_plan/TESTING_STANDARDS.md (Tier 3)"
+                f"  -> See docs/test_remediation_plan/TESTING_STANDARDS.md (Tier 3)",
             )
             valid = False
 
@@ -418,22 +658,23 @@ class TestQualityEnforcer:
         """Check for business logic mocks that should never be allowed"""
         valid = True
         lines = content.split('\n')
-        docstring_lines = self._docstring_line_numbers(lines)
 
         for line_num, line in enumerate(lines, 1):
-            if line_num in docstring_lines:
-                continue
             for pattern in self.never_mock_patterns:
-                if re.search(pattern, line, re.IGNORECASE):
-                    self.errors.append(
+                if self._search(pattern, line, line_num):
+                    self._record(
+                        file_path,
+                        line_num,
+                        "BUSINESS LOGIC MOCK PROHIBITED",
                         f"{file_path}:{line_num}: BUSINESS LOGIC MOCK PROHIBITED: {line.strip()}\n"
                         f"  -> Business logic and validation functions must NEVER be mocked\n"
                         f"  -> This defeats the purpose of integration testing\n"
                         f"  -> Use real business logic to catch actual bugs\n"
-                        f"  -> See docs/testing/TESTING_STANDARDS.md for correct patterns"
+                        f"  -> See docs/testing/TESTING_STANDARDS.md for correct patterns",
                     )
                     valid = False
-                    
+                    break
+
         return valid
 
     def _check_permission_bypasses(self, file_path: str, content: str) -> bool:
@@ -456,7 +697,6 @@ class TestQualityEnforcer:
         # Pre-compute docstring line numbers via the shared helper, which
         # correctly handles single-line """text""" docstrings (the previous
         # inline tracker flipped the flag once and stayed "inside" forever).
-        docstring_lines = self._docstring_line_numbers(lines)
 
         # Mock-assertion patterns that mention ignore_permissions=True as a
         # called-with argument, not as a real bypass (e.g. asserting that
@@ -468,12 +708,6 @@ class TestQualityEnforcer:
         ]
 
         for line_num, line in enumerate(lines, 1):
-            stripped_line = line.strip()
-
-            # Skip documentation lines (comments and docstrings)
-            if stripped_line.startswith('#') or line_num in docstring_lines:
-                continue
-
             # Skip mock-call assertions — these reference ignore_permissions=True
             # as the expected argument to a mocked function, not as a real bypass.
             if any(p.search(line) for p in mock_assertion_patterns):
@@ -494,9 +728,14 @@ class TestQualityEnforcer:
                 continue
 
             for pattern in self.permission_bypasses:
-                if re.search(pattern, line, re.IGNORECASE):
-                    # Check if in allowed context
-                    context = self._find_function_context(lines, line_num)
+                if self._search(pattern, line, line_num):
+                    # The allowlist below matches on the BARE function name, as it
+                    # always has; only the baseline key is qualified. Resolving via
+                    # the AST also fixes the case where a bypass in an allowlisted
+                    # outer function was attributed to a nested helper that is not
+                    # allowlisted -- a violation the old backward scan invented.
+                    qualname = _qualname_for(self._scopes, line_num)
+                    context = qualname.rsplit(".", 1)[-1]
 
                     # Check if context is allowed (static list or pattern match).
                     # Test setup helpers come in many naming conventions in this
@@ -536,15 +775,24 @@ class TestQualityEnforcer:
                     )
 
                     if not is_allowed:
-                        self.errors.append(
+                        self._record(
+                            file_path,
+                            line_num,
+                            "PERMISSION BYPASS",
                             f"{file_path}:{line_num}: PERMISSION BYPASS detected in test logic: {line.strip()}\n"
                             f"  -> Found in context: {context}\n"
                             f"  -> Permission bypasses only allowed in test setup/teardown/factory methods\n"
                             f"  -> Test actual permission boundaries instead of bypassing them\n"
-                            f"  -> See docs/testing/TESTING_STANDARDS.md for correct patterns"
+                            f"  -> See docs/testing/TESTING_STANDARDS.md for correct patterns",
                         )
                         valid = False
-                        
+
+                    # One finding per line. `ignore_permissions\s*=\s*True` is a
+                    # strict superset of the .insert/.save/.delete variants below
+                    # it, so without this every such site was reported twice --
+                    # 53 of 174 raw findings on develop.
+                    break
+
         return valid
 
     def _check_mock_justifications(self, file_path: str, content: str) -> bool:
@@ -660,6 +908,19 @@ class TestQualityEnforcer:
                 
         return all_valid
 
+    def report_warnings(self):
+        """Print only the warnings channel.
+
+        The ratchet reports errors itself, keyed and diffed against the baseline,
+        so it needs the warnings half separately.
+        """
+        if not self.warnings:
+            return
+        print("\n🟡 TEST QUALITY WARNINGS:")
+        print("=" * 60)
+        for warning in self.warnings:
+            print(f"\nWARNING: {warning}")
+
     def report_results(self):
         """Print validation results"""
         if self.errors:
@@ -699,30 +960,74 @@ def main():
         action='store_true',
         help='Treat warnings as errors'
     )
-    
+    parser.add_argument(
+        '--baseline',
+        type=Path,
+        default=DEFAULT_BASELINE,
+        help='Ratchet baseline of already-known violations',
+    )
+    parser.add_argument(
+        '--update-baseline',
+        action='store_true',
+        help='Rewrite the baseline from a full scan (ignores any files given)',
+    )
+
     args = parser.parse_args()
-    
+
     enforcer = TestQualityEnforcer()
-    
+
+    # Deliberately ignores args.files: pre-commit passes only the changed files, and
+    # regenerating from those would truncate the baseline to whatever happened to be
+    # in the last commit.
+    if args.update_baseline:
+        enforcer.validate_files(sorted(iter_test_files(str(REPO_ROOT))))
+        counts = counts_of(enforcer.findings)
+        write_baseline(args.baseline, counts)
+        print(
+            f"baseline written: {len(counts)} keys, "
+            f"{sum(counts.values())} findings, {len(enforcer.findings)} raw"
+        )
+        sys.exit(0)
+
     if args.files:
         files_to_check = args.files
     else:
-        # Find all test files if none provided
-        files_to_check = []
-        for root, dirs, files in os.walk('.'):
-            for file in files:
-                file_path = os.path.join(root, file)
-                if enforcer._is_test_file(file_path):
-                    files_to_check.append(file_path)
-    
-    success = enforcer.validate_files(files_to_check)
-    enforcer.report_results()
-    
-    # Exit with error code if validation failed
-    if not success or (args.strict and enforcer.warnings):
+        files_to_check = sorted(iter_test_files(str(REPO_ROOT)))
+
+    enforcer.validate_files(files_to_check)
+
+    baseline = load_baseline(args.baseline)
+    new = regressions(counts_of(enforcer.findings), baseline)
+
+    if new:
+        print("\n🔴 NEW TEST QUALITY VIOLATIONS (not in the baseline):")
+        print("=" * 60)
+        by_key = {}
+        for finding in enforcer.findings:
+            by_key.setdefault(
+                f"{finding.path}::{finding.qualname}::{finding.kind}", []
+            ).append(finding)
+        for key, count in sorted(new.items()):
+            known = baseline.get(key, 0)
+            print(f"\n{key}  (now {count}, baseline {known})")
+            for finding in by_key.get(key, []):
+                print(f"  {finding.path}:{finding.lineno}")
+        print(
+            "\nFIX REQUIRED: fix the test, or -- only when the enforcer's own rules "
+            "changed --\nregenerate with: python scripts/validation/test_quality_enforcer.py "
+            "--update-baseline"
+        )
+
+    if enforcer.warnings:
+        enforcer.report_warnings()
+
+    if new or (args.strict and enforcer.warnings):
         sys.exit(1)
-    else:
-        sys.exit(0)
+    print(
+        f"✅ No new test quality violations "
+        f"({sum(baseline.values())} known, recorded in {args.baseline.name})"
+    )
+    sys.exit(0)
 
 
 if __name__ == '__main__':

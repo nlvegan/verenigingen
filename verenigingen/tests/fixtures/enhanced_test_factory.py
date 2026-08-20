@@ -1182,26 +1182,27 @@ class EnhancedTestDataFactory:
         if with_volunteer_skills:
             # Deterministic skill selection
             all_skills = [
-                "Technical|Web Development",
-                "Technical|Graphic Design",
-                "Communication|Writing",
-                "Leadership|Team Leadership",
-                "Financial|Fundraising",
-                "Organizational|Event Planning",
-                "Other|Photography",
+                {"name": "Web Development", "category": "Technical"},
+                {"name": "Graphic Design", "category": "Technical"},
+                {"name": "Writing", "category": "Communication"},
+                {"name": "Team Leadership", "category": "Leadership"},
+                {"name": "Fundraising", "category": "Financial"},
+                {"name": "Event Planning", "category": "Organizational"},
+                {"name": "Photography", "category": "Other"},
             ]
 
             # Select skills deterministically based on sequence
             num_skills = (seq % 3) + 4  # 4-6 skills
             skills = all_skills[:num_skills]
+            skill_level = ["1 - Beginner", "2 - Basic", "3 - Intermediate", "4 - Advanced", "5 - Expert"][seq % 5]
 
             volunteer_data = {
                 "interested_in_volunteering": True,
                 "volunteer_availability": ["Weekly", "Monthly", "Quarterly"][seq % 3],
                 "volunteer_experience_level": ["Beginner", "Intermediate", "Experienced"][seq % 3],
                 "volunteer_areas": ["events", "communications"],
-                "volunteer_skills": skills,
-                "volunteer_skill_level": str(((seq % 5) + 1)),  # 1-5
+                "volunteer_skills": [dict(skill, level=skill_level) for skill in skills],
+                "volunteer_skill_level": skill_level,
                 "volunteer_availability_time": "Weekends and evenings",
                 "volunteer_comments": f"Test volunteer application {seq}",
             }
@@ -1942,6 +1943,29 @@ class EnhancedTestDataFactory:
         return scenario
 
 
+def allocate_free_region_code():
+    """Allocate a Region code that is actually free.
+
+    region_code is UNIQUE and capped at 5 chars (^[A-Z0-9]{2,5}$), so the space is
+    small enough to collide and has to be checked rather than assumed. Tests derived
+    codes from a slice of a microsecond counter -- "R" + 4 digits is 10,000 values,
+    "TR" + 3 is 1,000, and one site used only 10 -- and CI failed with "Region Code
+    R7655 already exists". [A-Z0-9]**4 is 1.68M and the existence check makes it
+    certain instead of merely unlikely.
+
+    This is check-then-insert with no retry on the insert itself, which is safe
+    because each CI shard runs against its own site. test_data_factory's
+    create_test_region additionally retries on DuplicateEntryError; use that one if
+    a shared-site race is ever possible.
+    """
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    for _ in range(100):
+        code = "R" + "".join(random.choice(alphabet) for _ in range(4))
+        if not frappe.db.exists("Region", {"region_code": code}):
+            return code
+    raise RuntimeError("allocate_free_region_code: could not allocate a free region_code")
+
+
 class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
     """
     🔍 Business Logic Validation Framework - Production Issue Discovery
@@ -2004,11 +2028,16 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
     # it": the invoice's `customer_address` still referenced the Address (#328).
     DRAIN_PRIORITY_BY_DOCTYPE = {
         # Transaction documents first: they reference parties and addresses.
+        # Order WITHIN a tier is undefined (the sort is stable, so it falls back to
+        # tracking order) -- give a doctype its own tier if it must precede a peer.
         "Sales Invoice": 6,
         "Payment Entry": 6,
         "Journal Entry": 6,
         "Bank Transaction": 6,
         "Direct Debit Batch": 6,
+        # An Expense Claim is cancelled before deletion, and the cancel posts GL
+        # against its employee as party -- so it must drain before the Employee.
+        "Expense Claim": 6,
         # Then the domain records.
         "Membership": 5,
         "Member": 5,
@@ -2534,8 +2563,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 FinancialHistoryBatchProcessor,
             )
 
-            FinancialHistoryBatchProcessor._payment_queue.clear()
-            FinancialHistoryBatchProcessor._expense_queue.clear()
+            FinancialHistoryBatchProcessor.reset_queues()
         except Exception as e:  # pragma: no cover - defensive
             logger.warning(f"Financial batch queue reset failed: {e}")
 
@@ -3982,6 +4010,23 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         created = getattr(self, "created_records", None)
         if isinstance(created, list):
             created.append({"doctype": doctype, "name": name})
+
+    def unique_seed_name(self, tag):
+        """A document name no other row in the suite can already own.
+
+        ``db_insert`` autonames only ``if not self.name``, so presetting the name
+        keeps a directly-seeded row out of the shared naming series. That matters
+        for any series-named doctype other rows reference BY NAME: a submitted
+        document's GL / Payment Ledger Entries can outlive it while the series
+        counter rolls back with the test transaction, so a later row drawing the
+        same name inherits the orphans and can no longer be deleted -- seen in CI
+        as "is linked with Payment Ledger Entry".
+        """
+        return f"TEST-SEED-{tag[:12].replace(' ', '-').upper()}-{frappe.generate_hash(length=10)}"
+
+    def unique_region_code(self):
+        """Allocate a Region code that is actually free. See allocate_free_region_code."""
+        return allocate_free_region_code()
 
     def create_test_member(self, *args, **kwargs):
         """Convenience method for creating test members.
@@ -6999,7 +7044,7 @@ class SecureTestDataFactory:
                 {
                     "doctype": "Region",
                     "region_name": region_name,
-                    "region_code": f"TR{self.get_next_sequence('region_code'):03d}",
+                    "region_code": allocate_free_region_code(),
                     "country": "Netherlands",
                     "is_active": 1,
                 }
@@ -7085,23 +7130,24 @@ class SecureTestDataFactory:
         }
         if with_volunteer_skills:
             all_skills = [
-                "Technical|Web Development",
-                "Technical|Graphic Design",
-                "Communication|Writing",
-                "Leadership|Team Leadership",
-                "Financial|Fundraising",
-                "Organizational|Event Planning",
-                "Other|Photography",
+                {"name": "Web Development", "category": "Technical"},
+                {"name": "Graphic Design", "category": "Technical"},
+                {"name": "Writing", "category": "Communication"},
+                {"name": "Team Leadership", "category": "Leadership"},
+                {"name": "Fundraising", "category": "Financial"},
+                {"name": "Event Planning", "category": "Organizational"},
+                {"name": "Photography", "category": "Other"},
             ]
             num_skills = (seq % 3) + 4
             skills = all_skills[:num_skills]
+            skill_level = ["1 - Beginner", "2 - Basic", "3 - Intermediate", "4 - Advanced", "5 - Expert"][seq % 5]
             volunteer_data = {
                 "interested_in_volunteering": True,
                 "volunteer_availability": ["Weekly", "Monthly", "Quarterly"][seq % 3],
                 "volunteer_experience_level": ["Beginner", "Intermediate", "Experienced"][seq % 3],
                 "volunteer_areas": ["events", "communications"],
-                "volunteer_skills": skills,
-                "volunteer_skill_level": str(((seq % 5) + 1)),
+                "volunteer_skills": [dict(skill, level=skill_level) for skill in skills],
+                "volunteer_skill_level": skill_level,
                 "volunteer_availability_time": "Weekends and evenings",
                 "volunteer_comments": f"Test volunteer application {seq}",
             }

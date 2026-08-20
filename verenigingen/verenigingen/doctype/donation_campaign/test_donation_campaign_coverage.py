@@ -66,7 +66,7 @@ class TestDonationCampaignCoverage(EnhancedTestCase):
             mode.insert()
         return name
 
-    def _make_paid_donation(self, campaign_name, donor, amount, anonymous=0):
+    def _make_paid_donation(self, campaign_name, donor, amount, anonymous=0, cancelled=False):
         donation = frappe.new_doc("Donation")
         donation.donor = donor.name
         donation.amount = amount
@@ -78,6 +78,11 @@ class TestDonationCampaignCoverage(EnhancedTestCase):
         donation.anonymous = anonymous
         with patch("frappe.sendmail"):
             donation.insert()
+        if cancelled:
+            # Donation is not submittable, so .cancel() is not a supported route;
+            # this is how a docstatus-2 Donation actually comes into existence.
+            frappe.db.set_value("Donation", donation.name, "docstatus", 2, update_modified=False)
+            donation.reload()
         return donation
 
     # ------------------------------------------------------------------
@@ -181,25 +186,37 @@ class TestDonationCampaignCoverage(EnhancedTestCase):
         campaign = self._make_campaign(show_donor_list=0)
         self.assertEqual(campaign.get_top_donors(), [])
 
-    def test_get_recent_donations_returns_list(self):
-        """get_recent_donations returns a list (Donation is not submittable, so
-        its docstatus=1 filter yields no rows — documents that behavior)."""
+    def test_get_recent_donations_lists_the_campaign_donation(self):
+        """get_recent_donations returns the campaign's donations.
+
+        Donation is not submittable, so every row stays at docstatus 0. The old
+        docstatus=1 filter made this list empty for every campaign (#350).
+        """
         campaign = self._make_campaign()
         donor = self._make_donor()
-        self._make_paid_donation(campaign.name, donor, 100)
+        donation = self._make_paid_donation(campaign.name, donor, 100)
+        self._make_paid_donation(campaign.name, donor, 60, cancelled=True)
         result = campaign.get_recent_donations()
-        # Donation has no docstatus workflow (always 0); the docstatus=1 filter
-        # means this list is empty in practice.
-        self.assertIsInstance(result, list)
+        self.assertEqual(
+            [row.name for row in result],
+            [donation.name],
+            "expected exactly the live donation: the cancelled one must be excluded",
+        )
+        self.assertEqual(result[0].amount, 100)
 
-    def test_get_top_donors_returns_list_when_shown(self):
-        """get_top_donors returns a list when show_donor_list is on (docstatus=1
-        filter means empty for non-submittable Donation)."""
+    def test_get_top_donors_aggregates_the_campaign_donation(self):
+        """get_top_donors aggregates unsubmitted donations (#350)."""
         campaign = self._make_campaign(show_donor_list=1)
         donor = self._make_donor()
         self._make_paid_donation(campaign.name, donor, 100)
+        self._make_paid_donation(campaign.name, donor, 40)
+        self._make_paid_donation(campaign.name, donor, 75, cancelled=True)
         result = campaign.get_top_donors()
-        self.assertIsInstance(result, list)
+        self.assertEqual([row.donor for row in result], [donor.name])
+        self.assertEqual(
+            float(result[0].total_amount), 140.0, "the cancelled donation leaked into the donor total"
+        )
+        self.assertEqual(result[0].donation_count, 2)
 
     # ------------------------------------------------------------------
     # get_campaign_url()
@@ -291,23 +308,26 @@ class TestDonationCampaignCoverage(EnhancedTestCase):
         the precondition (dimension value present) so the guarded branch is reached,
         then that the call returns the expected shape without raising.
 
-        Note: Donation is not submittable, so the method's docstatus=1 donation
-        filter returns nothing -> total_income stays 0. This documents (does not
-        endorse) the controller's current behavior; see the flagged follow-up.
+        The donation half of the result is asserted too: Donation is not
+        submittable, so the old docstatus=1 filter made total_income permanently
+        0 for every campaign (#350).
         """
         campaign = self._make_campaign()
         donor = self._make_donor()
-        self._make_paid_donation(campaign.name, donor, 250)
+        donation = self._make_paid_donation(campaign.name, donor, 250)
+        self._make_paid_donation(campaign.name, donor, 125, cancelled=True)
         # Precondition: the dimension value is set, so the has_field-guarded branch
         # is actually exercised (otherwise the fix path is never reached).
         self.assertTrue(campaign.accounting_dimension_value)
         with self.assertNoErrorLog():
             entries = campaign.get_accounting_entries()
         self.assertIsInstance(entries["gl_entries"], list)
-        self.assertIsInstance(entries["donations"], list)
-        # docstatus=1 filter on a non-submittable doctype -> no donation rows.
-        self.assertEqual(entries["donations"], [])
-        self.assertEqual(entries["total_income"], 0)
+        self.assertEqual(
+            [row.name for row in entries["donations"]],
+            [donation.name],
+            "expected exactly the live donation: the cancelled one must be excluded",
+        )
+        self.assertEqual(float(entries["total_income"]), 250.0)
 
     # ------------------------------------------------------------------
     # get_active_campaigns() staticmethod

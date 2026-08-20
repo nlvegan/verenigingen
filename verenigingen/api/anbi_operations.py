@@ -237,12 +237,18 @@ def generate_anbi_report(from_date, to_date, include_bsn=False) -> OperationResu
         # Get donations marked for ANBI reporting
         # Note: ANBI tracking is via separate ANBI Donation Agreement DocType
         # Use anbi_agreement_number field to identify ANBI-eligible donations
+        # WHY "docstatus < 2" and not "= 1": Donation is not submittable (no
+        # is_submittable in its DocType JSON), so a donation created by any normal
+        # path sits at docstatus 0 forever and "= 1" made this report empty on
+        # every deployment (#350). docstatus 2 still has to be excluded: nothing
+        # guards Document._submit()/_cancel() on a non-submittable doctype, so
+        # cancelled rows do exist and must stay out of a tax figure.
         donations = frappe.get_all(
             "Donation",
             filters={
                 "anbi_agreement_number": ["is", "set"],
                 "donation_date": ["between", [from_date, to_date]],
-                "docstatus": 1,
+                "docstatus": ["<", 2],
             },
             fields=[
                 "name",
@@ -441,7 +447,10 @@ def get_anbi_statistics(from_date=None, to_date=None) -> OperationResult[Dict[st
     try:
         # Note: ANBI tracking is via separate ANBI Donation Agreement DocType
         # Use anbi_agreement_number field to identify ANBI-eligible donations
-        filters = {"anbi_agreement_number": ["is", "set"], "docstatus": 1}
+        # "docstatus < 2", not "= 1": Donation is not submittable, so every row is
+        # docstatus 0 and "= 1" made this Belastingdienst figure always zero (#350).
+        # Cancelled (docstatus 2) rows must still be excluded from a tax total.
+        filters = {"anbi_agreement_number": ["is", "set"], "docstatus": ["<", 2]}
 
         if from_date and to_date:
             filters["donation_date"] = ["between", [from_date, to_date]]
@@ -457,7 +466,7 @@ def get_anbi_statistics(from_date=None, to_date=None) -> OperationResult[Dict[st
             FROM `tabDonation`
             WHERE anbi_agreement_number IS NOT NULL
             AND anbi_agreement_number != ''
-            AND docstatus = 1
+            AND docstatus < 2
             %s
         """
                 % ("AND donation_date BETWEEN %s AND %s" if from_date and to_date else ""),
@@ -639,7 +648,7 @@ def send_consent_requests(filters: dict | str | None = None) -> OperationResult[
             AND donor.donor_email IS NOT NULL
             AND donor.donor_email != ''
             AND donation.paid = 1
-            AND donation.docstatus = 1
+            AND donation.docstatus < 2
             LIMIT 100
         """,
             as_dict=1,

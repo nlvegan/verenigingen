@@ -206,6 +206,11 @@ class TestFinancialBatchQueueIsolation(EnhancedTestCase):
     test_volunteer_expenses_history_restore, ...) worked around it by clearing
     the queues in their own setUp/tearDown; EnhancedTestCase now resets them
     centrally so the footgun cannot bite any future test.
+
+    The transaction-wide rollback itself has since been fixed at source -- the
+    per-member handlers confine themselves to a savepoint and skip a member that
+    no longer exists -- so this reset is now defence in depth rather than the only
+    protection.
     """
 
     @staticmethod
@@ -274,40 +279,48 @@ class TestFinancialBatchQueueIsolation(EnhancedTestCase):
         }
         BP._last_processed.clear()
 
-    def test_stale_entry_rolls_back_caller_unless_queue_is_reset(self):
-        """Paired assertion proving the mechanism AND the fix (not a no-op).
+    def test_stale_entry_no_longer_rolls_back_the_caller(self):
+        """The queue reset is now defence in depth, not the only protection.
 
-        Negative control: with a dangling entry present and NOT reset, draining
-        it processes a now-missing Member -> _process_member_payment_batch's
-        transaction-wide frappe.db.rollback() wipes the caller's uncommitted
-        marker. Positive: with the per-method reset applied first, the same
-        contamination is gone, so the drain is inert and the marker survives.
-        If someone removed the reset, the second arm would fail exactly as the
-        first demonstrates."""
+        This test used to open with a NEGATIVE CONTROL asserting the bug: drain a
+        dangling entry without resetting, and _process_member_payment_batch's
+        transaction-wide frappe.db.rollback() wiped the caller's uncommitted marker.
+        That control started failing once the processor was fixed to (a) skip a
+        member that no longer exists -- an expected race for a queue drained up to
+        five minutes later -- and (b) roll back to a SAVEPOINT, so a failure cannot
+        escape the member that caused it.
+
+        Asserting the bug still reproduces would pin the footgun as a requirement,
+        so both arms now assert the caller survives: once with the stale entry
+        processed, once with it reset away first.
+        See tests/payment/test_financial_batch_transaction_scope.py."""
         BP = self._batch()
 
-        # --- Negative control: the bug reproduces without the reset ---
-        marker_bug = f"BatchIsoBug-{self.uid}"
-        self._insert_uncommitted_marker(marker_bug)
-        self._inject_stale_entry("NONEXISTENT-MEMBER-BUG")
-        # The batch error handler logs "Financial History Batch Error"; permit it.
-        self.expectErrorLog("Financial History Batch Error")
-        BP._maybe_process_batches()
-        self.assertFalse(
-            frappe.db.exists("Item", marker_bug),
-            "bug demo: draining a stale entry rolls back the caller's uncommitted work",
-        )
-
-        # --- Fix: the per-method reset neutralises the same contamination ---
-        marker_fixed = f"BatchIsoFixed-{self.uid}"
-        self._insert_uncommitted_marker(marker_fixed)
-        self.track_doc("Item", marker_fixed)
-        self._inject_stale_entry("NONEXISTENT-MEMBER-FIXED")
-        self._reset_financial_history_batch_queue()  # the fix under test
+        # --- Stale entry processed, NOT reset: the caller must be untouched ---
+        marker_unreset = f"BatchIsoUnreset-{self.uid}"
+        self._insert_uncommitted_marker(marker_unreset)
+        self.track_doc("Item", marker_unreset)
+        self._inject_stale_entry("NONEXISTENT-MEMBER-UNRESET")
         BP._maybe_process_batches()
         self.assertTrue(
-            frappe.db.exists("Item", marker_fixed),
-            "with the reset the stale entry is gone, so nothing rolls back the caller",
+            frappe.db.exists("Item", marker_unreset),
+            "draining a stale entry rolled back the caller's uncommitted work -- the "
+            "per-member rollback escaped its savepoint",
+        )
+
+        # --- Reset first: the queue is empty, so nothing is processed at all ---
+        marker_reset = f"BatchIsoReset-{self.uid}"
+        self._insert_uncommitted_marker(marker_reset)
+        self.track_doc("Item", marker_reset)
+        self._inject_stale_entry("NONEXISTENT-MEMBER-RESET")
+        self._reset_financial_history_batch_queue()
+        BP._maybe_process_batches()
+        self.assertTrue(
+            frappe.db.exists("Item", marker_reset),
+            "with the reset the stale entry is gone, so nothing touches the caller",
+        )
+        self.assertEqual(
+            self._queue_depth(BP._payment_queue), 0, "reset must leave the queue empty"
         )
 
 

@@ -29,8 +29,9 @@ OOS (out of scope, with reason):
 
 Tests run as Administrator (EnhancedTestCase), which holds delete perms.
 
-Run with:
-    bench --site veg11.veganisme.org run-tests --app verenigingen \
+Run with (a test site -- this module deletes Payment Entries and invoices, and
+veg11.veganisme.org is the LIVE site served out of the working tree):
+    bench --site test_site_1 run-tests --app verenigingen \
         --module verenigingen.tests.e_boekhouden.test_cleanup_utils_coverage
 """
 
@@ -297,6 +298,7 @@ class TestCleanupListHelpersSuccess(_CleanupCoverageBase):
         pe.received_amount = 1
         pe.paid_to = account
         pe.paid_from = account
+        pe.name = self.unique_seed_name("PE")
         pe.db_insert()  # stays draft (docstatus=0), so helper deletes without cancel
         return pe.name
 
@@ -311,6 +313,7 @@ class TestCleanupListHelpersSuccess(_CleanupCoverageBase):
         doc = frappe.new_doc(doctype)
         for k, v in fields.items():
             setattr(doc, k, v)
+        doc.name = self.unique_seed_name(doctype)
         doc.db_insert()
         return doc.name
 

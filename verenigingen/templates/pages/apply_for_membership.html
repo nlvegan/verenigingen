@@ -498,7 +498,7 @@
                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                                         {% for skill in category.skills %}
                                         <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="{{ category.name }}|{{ skill }}" class="form-input w-auto">
+                                            <input type="checkbox" name="volunteer_skills[]" value="{{ category.skill_category }}|{{ skill }}" class="form-input w-auto">
                                             <span class="text-sm">{{ skill }}</span>
                                         </label>
                                         {% endfor %}
@@ -514,7 +514,7 @@
                                     <div class="flex space-x-2 mb-2">
                                         <select id="custom-skill-category" class="form-input flex-none w-32">
                                             {% for category in skill_categories %}
-                                            <option value="{{ category.name }}">{{ category.name }}</option>
+                                            <option value="{{ category.skill_category }}">{{ category.name }}</option>
                                             {% endfor %}
                                             <option value="Other">{{ _("Other") }}</option>
                                         </select>
@@ -534,11 +534,11 @@
                                 <label for="volunteer_skill_level" class="input-label">{{ _("Overall Experience Level") }}</label>
                                 <select class="form-input" id="volunteer_skill_level" name="volunteer_skill_level">
                                     <option value="">{{ _("Select your overall experience level...") }}</option>
-                                    <option value="1">{{ _("1 - Beginner (Learning and eager to help)") }}</option>
-                                    <option value="2">{{ _("2 - Basic (Some experience in volunteer work)") }}</option>
-                                    <option value="3">{{ _("3 - Intermediate (Solid experience in several areas)") }}</option>
-                                    <option value="4">{{ _("4 - Advanced (Experienced with leadership capabilities)") }}</option>
-                                    <option value="5">{{ _("5 - Expert (Highly experienced, can mentor others)") }}</option>
+                                    <option value="1 - Beginner">{{ _("1 - Beginner (Learning and eager to help)") }}</option>
+                                    <option value="2 - Basic">{{ _("2 - Basic (Some experience in volunteer work)") }}</option>
+                                    <option value="3 - Intermediate">{{ _("3 - Intermediate (Solid experience in several areas)") }}</option>
+                                    <option value="4 - Advanced">{{ _("4 - Advanced (Experienced with leadership capabilities)") }}</option>
+                                    <option value="5 - Expert">{{ _("5 - Expert (Highly experienced, can mentor others)") }}</option>
                                 </select>
                             </div>
                         </div>
