@@ -206,6 +206,7 @@ class TestCleanupCancelledPaymentGLEntries(_CleanupTestBase):
         pe.paid_to = account
         pe.paid_from = account
         pe.docstatus = 2  # cancelled
+        pe.name = self.unique_seed_name("PE")
         pe.db_insert()
         ge = frappe.new_doc("GL Entry")
         ge.posting_date = frappe.utils.today()
@@ -245,6 +246,7 @@ class TestCleanupOrphanedBankTransactions(_CleanupTestBase):
         bt.reference_number = "EB-CLEANUP-TEST-ORPHAN"
         bt.deposit = 1
         bt.company = company
+        bt.name = self.unique_seed_name("BT")
         bt.db_insert()
         frappe.db.commit()
         self.assertTrue(frappe.db.exists("Bank Transaction", bt.name))
@@ -449,7 +451,8 @@ class TestCleanupOrphanedReferences(_CleanupTestBase):
         # Invoice -> cleanup_orphaned_gl_entries must remove it.
         company = self._persist_isolated_company()
         account = frappe.db.get_value(
-            "Account", {"company": company, "is_group": 0, "root_type": "Asset", "account_type": "Bank"},
+            "Account",
+            {"company": company, "is_group": 0, "root_type": "Asset", "account_type": "Bank"},
             "name",
         ) or frappe.db.get_value(
             "Account", {"company": company, "is_group": 0, "root_type": "Expense"}, "name"
@@ -463,6 +466,7 @@ class TestCleanupOrphanedReferences(_CleanupTestBase):
         pe.paid_to = account
         pe.paid_from = account
         pe.docstatus = 1
+        pe.name = self.unique_seed_name("PE")
         pe.db_insert()
         per = frappe.new_doc("Payment Entry Reference")
         per.parent = pe.name
@@ -496,6 +500,7 @@ class TestCleanupLinkedBankTransactions(_CleanupTestBase):
         bt.reference_number = "EB-LINKED-PE-TEST"
         bt.deposit = 1
         bt.company = company
+        bt.name = self.unique_seed_name("BT")
         bt.db_insert()
         link = frappe.new_doc("Bank Transaction Payments")
         link.parent = bt.name
