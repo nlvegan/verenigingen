@@ -4,131 +4,24 @@
 """
 Billing services for membership dues processing.
 
-Services:
-- BillingDateService: Date management for dues schedules
-- BulkInvoiceGenerationService: Bulk invoice generation with parallel processing
-- DuesScheduleLifecycleService: Schedule lifecycle (pause/resume/cancel)
-- DuesSchedulePermissionService: Permission management for schedules
-- DuesScheduleValidationService: Validation logic for schedules
-- FeeChangeTrackingService: Fee change history tracking
-- InvoiceErrorHandlerService: Error handling for invoice generation
-- InvoiceGenerationOrchestrator: Single-schedule invoice generation pipeline
-- InvoiceGenerator: Individual invoice generation
-- ProgressiveDuesService: Income-based progressive dues calculation
-- TemplateConfigurationService: Template value loading and validation
-- TemplateCreationService: Template and schedule creation
+Import from the submodule that defines what you need, not from this package:
+
+    from verenigingen.services.billing.billing_date_service import BillingDateService
+
+This __init__ deliberately imports nothing. It used to re-export thirteen
+submodules, which made `import verenigingen.services.billing.<anything>` run
+all thirteen first. CPython takes the submodule lock before the package lock
+(importlib._bootstrap._find_and_load acquires the lock for the full dotted
+name, then _find_and_load_unlocked re-enters the import of a parent whose spec
+is still _initializing), so under a threaded web worker one thread could hold
+the package lock inside this file while a second held a submodule lock and
+waited for the package - a cycle CPython reports as
+
+    _frozen_importlib._DeadlockError: deadlock detected by
+    _ModuleLock('verenigingen.services.billing.template_configuration_service')
+
+Note this is 3.13+ behaviour: python 3.12's _find_and_load_unlocked re-imports
+the parent only when it is absent from sys.modules, so the cycle never closed.
+
+test_billing_package_init.py keeps this file honest.
 """
-
-from verenigingen.services.billing.billing_date_service import (
-    BillingDateService,
-    get_billing_date_service,
-)
-from verenigingen.services.billing.bulk_invoice_generation_service import (
-    BulkGenerationResult,
-    BulkInvoiceGenerationService,
-    ChunkResult,
-    EligibilityDetails,
-    get_bulk_invoice_generation_service,
-    process_invoice_chunk,
-)
-from verenigingen.services.billing.coverage_overlap_detector import (
-    OverlapCheckResult,
-    check_coverage_overlap,
-    find_exact_coverage_invoice,
-    find_overlapping_invoices,
-    get_member_coverage_gaps,
-)
-from verenigingen.services.billing.dues_schedule_lifecycle_service import (
-    DuesScheduleLifecycleService,
-    get_dues_schedule_lifecycle_service,
-)
-from verenigingen.services.billing.dues_schedule_permission_service import (
-    DuesSchedulePermissionService,
-    PermissionResult,
-    get_dues_schedule_permission_service,
-    get_permission_query_conditions,
-    has_permission,
-)
-from verenigingen.services.billing.dues_schedule_validation_service import (
-    DuesScheduleValidationService,
-    get_dues_schedule_validation_service,
-)
-from verenigingen.services.billing.duplicate_invoice_detector import (
-    DuplicateInvoiceDetectionResult,
-    DuplicateInvoiceDetector,
-)
-from verenigingen.services.billing.fee_change_tracking_service import (
-    FeeChangeTrackingService,
-    get_fee_change_tracking_service,
-)
-from verenigingen.services.billing.invoice_error_handler_service import (
-    InvoiceErrorHandlerService,
-    get_invoice_error_handler_service,
-)
-from verenigingen.services.billing.invoice_generation_orchestrator import (
-    InvoiceGenerationOrchestrator,
-)
-from verenigingen.services.billing.progressive_dues_service import (
-    ProgressiveDuesResult,
-    ProgressiveDuesService,
-    get_progressive_dues_service,
-)
-from verenigingen.services.billing.template_configuration_service import (
-    TemplateConfigurationService,
-    get_template_configuration_service,
-)
-from verenigingen.services.billing.template_creation_service import (
-    TemplateCreationService,
-    get_template_creation_service,
-)
-
-__all__ = [
-    # Billing date service
-    "BillingDateService",
-    "get_billing_date_service",
-    # Bulk invoice generation
-    "BulkGenerationResult",
-    "BulkInvoiceGenerationService",
-    "ChunkResult",
-    "EligibilityDetails",
-    "get_bulk_invoice_generation_service",
-    "process_invoice_chunk",
-    # Coverage overlap detection (standalone functions)
-    "OverlapCheckResult",
-    "check_coverage_overlap",
-    "find_overlapping_invoices",
-    "find_exact_coverage_invoice",
-    "get_member_coverage_gaps",
-    # Lifecycle management
-    "DuesScheduleLifecycleService",
-    "get_dues_schedule_lifecycle_service",
-    # Permission management
-    "DuesSchedulePermissionService",
-    "PermissionResult",
-    "get_dues_schedule_permission_service",
-    "get_permission_query_conditions",
-    "has_permission",
-    # Duplicate invoice detection (schedule-based)
-    "DuplicateInvoiceDetector",
-    "DuplicateInvoiceDetectionResult",
-    # Fee change tracking
-    "FeeChangeTrackingService",
-    "get_fee_change_tracking_service",
-    # Invoice error handling
-    "InvoiceErrorHandlerService",
-    "get_invoice_error_handler_service",
-    # Invoice generation orchestrator
-    "InvoiceGenerationOrchestrator",
-    # Progressive dues
-    "ProgressiveDuesResult",
-    "ProgressiveDuesService",
-    "get_progressive_dues_service",
-    # Validation
-    "DuesScheduleValidationService",
-    "get_dues_schedule_validation_service",
-    # Template services
-    "TemplateCreationService",
-    "get_template_creation_service",
-    "TemplateConfigurationService",
-    "get_template_configuration_service",
-]
