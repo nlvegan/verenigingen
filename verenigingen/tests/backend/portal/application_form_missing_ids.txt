@@ -1,0 +1,35 @@
+# Payload fields of `collectFormDataDirectly()` in
+# verenigingen/public/js/membership_application.js whose element ids the
+# rendered /apply_for_membership page does NOT contain, so they transmit '' or
+# false on every application. Baseline for
+# test_application_form_selector_contract.py. Format:
+#     <payload field>  # why it is still here
+#
+# This file should only ever SHRINK. The test fails BOTH ways: a field that
+# breaks without being listed here, and a field listed here that has started
+# working. Do not add a line to make a new finding go away — point the reader
+# at the id the page renders, or give the page the id the reader expects.
+#
+# Origin: #412. #201 was one instance of this class.
+
+# --- needs a product decision, not a rename ---
+newsletter_opt_in            # no such control; the page uses #opt_out_optional_emails, which IS read. Sending false here defeats data.get("newsletter_opt_in", 1), so every member is stored 0. Deleting the key changes stored values.
+terms                        # page renders name="terms_accepted" with no id. No server code reads terms/gdpr_consent/confirm_accuracy, so acceptance is gated in the browser but never recorded.
+gdpr_consent                 # page renders name="privacy_accepted" with no id. Same as above.
+confirm_accuracy             # no element anywhere, and nothing validates it live. This checkbox appears never to have existed.
+
+# --- a rename away from working ---
+contact_number               # page renders #mobile_no. Member.contact_number is stored empty on every application.
+additional_notes             # page renders #volunteer_comments. The motivation text never reaches Member.notes.
+
+# --- the page renders no such control at all ---
+middle_name                  # tussenvoegsel is the Dutch-installation field the page actually offers
+address_line2                #
+state                        #
+application_source           # stored on Member as the acquisition channel; always ''
+application_source_details   #
+transfer_iban                # bank-transfer branch; the page collects IBAN once, via #iban
+transfer_account_name        #
+
+# --- works despite the missing id ---
+payment_method               # falls back to input[name="payment_method_selection"]:checked, which the page does render. Listed because the id itself is absent; delete this line only if that fallback goes too.
