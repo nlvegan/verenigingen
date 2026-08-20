@@ -411,7 +411,9 @@ class TestMemberEventsCoverage(EnhancedTestCase):
         exist; the factory's auto-create path is unreliable here, so we make one
         explicitly with a unique code.
         """
-        code = f"E{frappe.generate_hash(length=4)}"[:5].upper()
+        # A hex hash slice is 65,536 values against a UNIQUE column and unchecked;
+        # the allocator verifies the code is actually free.
+        code = self.unique_region_code()
         region = frappe.get_doc(
             {
                 "doctype": "Region",

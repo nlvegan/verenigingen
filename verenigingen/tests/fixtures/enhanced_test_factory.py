@@ -2562,8 +2562,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 FinancialHistoryBatchProcessor,
             )
 
-            FinancialHistoryBatchProcessor._payment_queue.clear()
-            FinancialHistoryBatchProcessor._expense_queue.clear()
+            FinancialHistoryBatchProcessor.reset_queues()
         except Exception as e:  # pragma: no cover - defensive
             logger.warning(f"Financial batch queue reset failed: {e}")
 

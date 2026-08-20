@@ -18,6 +18,14 @@ from typing import Any, Dict, List, Set
 import frappe
 from frappe.utils import get_datetime, now
 
+SAVEPOINT_DOES_NOT_EXIST = 1305  # MariaDB: SAVEPOINT ... does not exist
+
+
+def _mysql_error_code(exc):
+    """First positional arg of a MySQLdb-style error, or None."""
+    args = getattr(exc, "args", None)
+    return args[0] if args else None
+
 
 class FinancialHistoryBatchProcessor:
     """
@@ -25,6 +33,13 @@ class FinancialHistoryBatchProcessor:
 
     Operations are queued and processed in batches to reduce database
     contention while maintaining per-member atomicity.
+
+    CAVEAT on "per-member atomicity": each member's work is wrapped in a savepoint,
+    but member_financial_history_manager commits on its first successful save
+    (:286), which destroys that savepoint -- so in practice the scoped rollback
+    only covers a failure BEFORE the first successful operation. What does hold
+    unconditionally is that a failure never escalates into a transaction-wide
+    rollback of other members or the caller. #411 tracks the inner commit.
     """
 
     # Class-level batch queues (shared across instances)
@@ -163,10 +178,36 @@ class FinancialHistoryBatchProcessor:
         This eliminates per-operation database locks by doing all operations
         for a member in one transaction.
         """
+        if not frappe.db.exists("Member", member_name):
+            # The member was deleted between queueing and this flush -- an expected
+            # race, since entries accumulate across jobs within the batching window
+            # before one drain processes them all. Not a failure, and it must not
+            # reach the except-clause below.
+            frappe.logger("financial_batch").info(f"Skipping payment batch for missing member {member_name}")
+            return
+
+        # Roll back to a SAVEPOINT, never the whole transaction. A bare
+        # frappe.db.rollback() discards every OTHER member already processed in this
+        # run plus whatever the caller had in flight -- and the dispatch loop swallows
+        # the exception, so the run still reports success.
+        #
+        # What this does NOT deliver, despite the docstring above: full per-member
+        # atomicity. member_financial_history_manager commits on its first successful
+        # save (:286), which destroys the savepoint -- measured firing on every
+        # successful batch. Past that point the scoped rollback is a no-op and this
+        # member's earlier operations stay applied. The guarantee is the narrower one:
+        # a failure here NEVER escalates beyond the member that caused it. #411 tracks
+        # the inner commit.
+        #
+        # Explicit savepoint rather than the savepoint() context manager, which catches
+        # Exception and would swallow the re-raise the caller's error accounting needs.
+        sp = "fin_hist_pay_" + frappe.generate_hash(length=10)
+        frappe.db.savepoint(sp)
         try:
             # Load member fresh from database to avoid timestamp conflicts
             member = frappe.get_doc("Member", member_name)
             if not member.customer:
+                cls._release_savepoint(sp)
                 return  # Skip members without customer records
 
             from verenigingen.utils.member_financial_history_manager import get_payment_history_manager
@@ -190,22 +231,40 @@ class FinancialHistoryBatchProcessor:
                 elif operation == "remove":
                     manager.remove_entry(invoice_name, "invoice")
 
-            frappe.db.commit()
+            # No commit: this queue is drained INLINE from
+            # add_invoice_to_payment_history(), i.e. hook context, where durability
+            # belongs to the request or job that owns the transaction. (The manager
+            # one frame down still commits -- see #411 -- which is why releasing the
+            # savepoint has to tolerate it being already gone.)
+            cls._release_savepoint(sp)
 
         except Exception as e:
-            frappe.db.rollback()
-            raise e
+            # Undo only THIS member's operations; leave siblings and the caller's
+            # transaction intact.
+            cls._rollback_to_savepoint(sp, member_name)
+            raise
 
     @classmethod
     def _process_member_expense_batch(cls, member_name: str, operations: Dict[str, Dict]):
         """
         Process all expense operations for a single member atomically.
         """
+        if not frappe.db.exists("Member", member_name):
+            # Same expected race as the payment path, and not a reason to unwind
+            # anyone else's work.
+            frappe.logger("financial_batch").info(f"Skipping expense batch for missing member {member_name}")
+            return
+
+        # Savepoint, never a transaction-wide rollback, and NOT full per-member
+        # atomicity -- see _process_member_payment_batch for what that buys.
+        sp = "fin_hist_exp_" + frappe.generate_hash(length=10)
+        frappe.db.savepoint(sp)
         try:
             # Load member fresh from database to avoid timestamp conflicts
 
             member = frappe.get_doc("Member", member_name)
             if not hasattr(member, "volunteer_expenses"):
+                cls._release_savepoint(sp)
                 return  # Skip members without expense capability
 
             from verenigingen.utils.member_financial_history_manager import get_expense_history_manager
@@ -241,11 +300,11 @@ class FinancialHistoryBatchProcessor:
                     if payment_updates:
                         manager.update_entry_field(expense_name, payment_updates, "expense_claim")
 
-            frappe.db.commit()
+            cls._release_savepoint(sp)
 
-        except Exception as e:
-            frappe.db.rollback()
-            raise e
+        except Exception:
+            cls._rollback_to_savepoint(sp, member_name)
+            raise
 
     @classmethod
     def force_process_all(cls):
@@ -254,6 +313,67 @@ class FinancialHistoryBatchProcessor:
             cls._process_payment_batches()
         if cls._expense_queue:
             cls._process_expense_batches()
+
+    @staticmethod
+    def _release_savepoint(save_point):
+        """Release a savepoint, tolerating one that no longer exists.
+
+        Inner code can end the transaction -- member_financial_history_manager
+        commits after `update_child_table` (:286) -- and MariaDB discards every
+        savepoint when it does, so RELEASE then raises 1305. The member's work is
+        already durable at that point, so there is nothing to release.
+        """
+        try:
+            frappe.db.release_savepoint(save_point)
+        except Exception as release_error:
+            if _mysql_error_code(release_error) != SAVEPOINT_DOES_NOT_EXIST:
+                raise
+            # Measured: this fires on EVERY successful batch, because the manager
+            # commits on the first successful operation. .error(), not .debug():
+            # bare loggers default to ERROR under `bench run-tests`, so a .debug()
+            # here would be invisible exactly where it matters.
+            frappe.logger("financial_batch").error(
+                f"savepoint {save_point} already released by an inner commit (#411)"
+            )
+
+    @staticmethod
+    def _rollback_to_savepoint(save_point, member_name):
+        """Undo only this member's work, and never escalate if that is impossible.
+
+        If inner code committed (see _release_savepoint), the savepoint is gone and
+        this raises 1305. Escalating to a bare frappe.db.rollback() is exactly the
+        behaviour these handlers exist to avoid -- it would discard every other
+        member and the caller's in-flight work -- and it would be useless anyway,
+        since the committed rows cannot be rolled back. Report it and let the
+        ORIGINAL exception propagate rather than masking it with the 1305.
+        """
+        try:
+            frappe.db.rollback(save_point=save_point)
+        except Exception as rollback_error:
+            if _mysql_error_code(rollback_error) != SAVEPOINT_DOES_NOT_EXIST:
+                # 1213 (deadlock) and 2006 (server gone) reach here too, and they are
+                # a different situation: the whole transaction is already gone, so
+                # continuing to feed members into it would let each one "succeed"
+                # against a discarded transaction. Only the benign case is swallowed.
+                raise
+            frappe.logger("financial_batch").error(
+                f"Could not roll back to {save_point} for {member_name}: {rollback_error}. "
+                "An inner commit had already made this member's work durable, so there "
+                "was nothing scoped left to undo; NOT escalated to a full rollback."
+            )
+
+    @classmethod
+    def reset_queues(cls):
+        """Drop every queued operation without processing it (testing/shutdown).
+
+        The queues are class-level and therefore PROCESS-global: entries outlive the
+        transaction that created them. A test whose transaction is rolled back leaves
+        entries naming Members that no longer exist, and the next caller to drain the
+        queue processes them. Test base classes call this per method so one test's
+        residue cannot reach another's flush.
+        """
+        cls._payment_queue.clear()
+        cls._expense_queue.clear()
 
     @classmethod
     def get_queue_status(cls):
