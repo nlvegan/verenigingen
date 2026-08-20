@@ -93,10 +93,20 @@ class TestFindForSubscriptionPayment(EnhancedTestCase):
         self.assertEqual(found.name, donation.name)
 
     def test_metadata_donation_id_missing_record_returns_none(self):
-        # donation_id in metadata points to a nonexistent Donation -> DoesNotExist
-        # is caught and None returned. The handler reports this via frappe.logger()
-        # (file log), not the Error Log doctype, so no Error Log row is written.
-        payment = _payment(subscription_id="sub_2", metadata={"donation_id": "DON-NOPE-0001"})
+        # donation_id in metadata names a Donation that does not exist. The
+        # handler no longer gives up there -- it falls back to the subscription
+        # id (a metadata id naming a deleted donation must not cost us the
+        # charge), and None here means THAT lookup also found nothing. The
+        # subscription id is randomised so "nothing carries it" is guaranteed
+        # rather than true by luck: a leaked row with a fixed literal would make
+        # this assert the opposite of what it says.
+        #
+        # The fall-through is reported via frappe.logger().error() (file log),
+        # not the Error Log doctype, so no Error Log row is written.
+        payment = _payment(
+            subscription_id=f"sub_meta_missing_{frappe.generate_hash(length=8)}",
+            metadata={"donation_id": "DON-NOPE-0001"},
+        )
         with self.assertNoErrorLog():
             result = self.lookup.find_for_subscription_payment("tr_meta_missing", payment=payment)
         self.assertIsNone(result)
@@ -111,7 +121,9 @@ class TestFindForSubscriptionPayment(EnhancedTestCase):
         self.assertEqual(found.name, donation.name)
 
     def test_subscription_id_no_match_returns_none(self):
-        payment = _payment(subscription_id="sub_unmatched_zzz", metadata={})
+        # Randomised for the same reason as the test above: a fixed literal that
+        # is asserted to match nothing is one leaked row away from being wrong.
+        payment = _payment(subscription_id=f"sub_unmatched_{frappe.generate_hash(length=8)}", metadata={})
         with self.assertNoErrorLog():
             self.assertIsNone(self.lookup.find_for_subscription_payment("tr_nomatch", payment=payment))
 
@@ -253,3 +265,100 @@ class TestCheckProcessingStatus(EnhancedTestCase):
             status = check_payment_processing_status(donation, "tr_wrap_status")
         self.assertIn("all_complete", status)
         self.assertIn("payment_entry_created", status)
+
+
+class TestSubscriptionLookupPayloadShapes(EnhancedTestCase):
+    """The three shapes a charge actually arrives in, and the origin it must resolve to."""
+
+    def setUp(self):
+        super().setUp()
+        self.lookup = DonationLookup()
+        # Every subscription id below is per-test. The production fallback orders
+        # `creation asc`, so ONE leaked donation carrying the same literal and an
+        # earlier creation wins permanently on that site -- and test_site_1
+        # already holds a donation with mollie_subscription_id 'sub_u'. A fixed
+        # literal here is a test that passes until someone else's row outlives a
+        # run.
+        self.tag = frappe.generate_hash(length=8)
+
+    def _setup_donation(self, **kwargs):
+        """Build a Donor + Donation inline (mirrors _setup_donor/_setup_donation in
+        test_donation_subscription_activation.py). create_test_donation()'s optional-field
+        whitelist does not pass through mollie_subscription_id or recurring_origin_donation,
+        so those go straight onto the doc instead of through the factory helper.
+        """
+        donor = frappe.new_doc("Donor")
+        donor.donor_name = f"Lookup Donor {frappe.generate_hash(length=6)}"
+        donor.donor_email = f"lookup.{frappe.generate_hash(length=6)}@example.org"
+        donor.donor_type = "Individual"
+        donor.preferred_communication_method = "Email"
+        donor.flags.ignore_validate = True
+        donor.insert(ignore_permissions=True)
+        self.track_test_record("Donor", donor.name)
+
+        donation = frappe.new_doc("Donation")
+        donation.donor = donor.name
+        donation.donation_date = frappe.utils.today()
+        donation.amount = kwargs.pop("amount", 42.0)
+        donation.mode_of_payment = "Mollie"
+        donation.status = kwargs.pop("status", "One-time")
+        donation.company = frappe.get_list("Company", limit=1)[0].name
+        donation.payment_id = kwargs.pop("payment_id", f"tr_lookup_{frappe.generate_hash(length=10)}")
+        donation.paid = kwargs.pop("paid", 0)
+        for field, value in kwargs.items():
+            setattr(donation, field, value)
+        donation.flags.ignore_validate = True
+        donation.insert(ignore_permissions=True)
+        self.track_test_record("Donation", donation.name)
+        return donation
+
+    def test_resolves_from_a_plain_snake_case_dict(self):
+        origin = self._setup_donation(mollie_subscription_id=f"sub_shape_a_{self.tag}")
+        payment = {
+            "id": "tr_a",
+            "subscription_id": f"sub_shape_a_{self.tag}",
+            "metadata": {"donation_id": origin.name},
+        }
+        self.assertEqual(self.lookup.find_for_subscription_payment("tr_a", payment=payment).name, origin.name)
+
+    def test_resolves_from_a_camel_case_dict(self):
+        # This is the SDK Payment's own shape: a dict subclass with camelCase keys.
+        origin = self._setup_donation(mollie_subscription_id=f"sub_shape_b_{self.tag}")
+        payment = {
+            "id": "tr_b",
+            "subscriptionId": f"sub_shape_b_{self.tag}",
+            "metadata": {"donation_id": origin.name},
+        }
+        self.assertEqual(self.lookup.find_for_subscription_payment("tr_b", payment=payment).name, origin.name)
+
+    def test_metadata_null_falls_back_to_the_subscription_id(self):
+        # Measured: sub_5euSBaLzqF has no metadata, so its charges carry
+        # metadata: null. The old code raised AttributeError here.
+        origin = self._setup_donation(mollie_subscription_id=f"sub_shape_c_{self.tag}")
+        payment = {"id": "tr_c", "subscriptionId": f"sub_shape_c_{self.tag}", "metadata": None}
+        self.assertEqual(self.lookup.find_for_subscription_payment("tr_c", payment=payment).name, origin.name)
+
+    def test_metadata_naming_an_absent_donation_falls_back_rather_than_giving_up(self):
+        origin = self._setup_donation(mollie_subscription_id=f"sub_shape_d_{self.tag}")
+        payment = {
+            "id": "tr_d",
+            "subscriptionId": f"sub_shape_d_{self.tag}",
+            "metadata": {"donation_id": "Assoc-Dnt-does-not-exist"},
+        }
+        self.assertEqual(self.lookup.find_for_subscription_payment("tr_d", payment=payment).name, origin.name)
+
+    def test_never_returns_a_charge_donation(self):
+        # The ordering defect: Donation sorts modified DESC, so without an
+        # explicit order and an origin-only filter this returns the newest charge.
+        origin = self._setup_donation(mollie_subscription_id=f"sub_shape_e_{self.tag}")
+        charge = self._setup_donation(
+            mollie_subscription_id=f"sub_shape_e_{self.tag}", recurring_origin_donation=origin.name
+        )
+        charge.db_set("payment_id", f"tr_earlier_charge_{frappe.generate_hash(length=8)}")
+        payment = {"id": "tr_e", "subscriptionId": f"sub_shape_e_{self.tag}", "metadata": None}
+        self.assertEqual(self.lookup.find_for_subscription_payment("tr_e", payment=payment).name, origin.name)
+
+    def test_no_subscription_id_is_not_a_subscription_payment(self):
+        self.assertIsNone(
+            self.lookup.find_for_subscription_payment("tr_f", payment={"id": "tr_f", "metadata": None})
+        )

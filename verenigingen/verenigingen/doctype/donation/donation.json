@@ -53,6 +53,7 @@
   "mollie_mandate_id",
   "column_break_mollie_1",
   "mollie_subscription_id",
+  "recurring_origin_donation",
   "anbi_section",
   "periodic_donation_agreement",
   "anbi_agreement_number",
@@ -129,7 +130,8 @@
    "depends_on": "eval: doc.paid == 1",
    "fieldname": "payment_id",
    "fieldtype": "Data",
-   "label": "Payment ID"
+   "label": "Payment ID",
+   "unique": 1
   },
   {
    "depends_on": "eval:doc.mode_of_payment == 'Bank Transfer' || doc.mode_of_payment == 'iDEAL' || doc.mode_of_payment == 'Credit Card' || doc.mode_of_payment == 'PayPal'",
@@ -375,6 +377,14 @@
    "label": "Mollie Subscription ID",
    "length": 140,
    "read_only": 1
+  },
+  {
+   "fieldname": "recurring_origin_donation",
+   "fieldtype": "Link",
+   "label": "Recurring Origin Donation",
+   "options": "Donation",
+   "read_only": 1,
+   "description": "Set on donations created from a Mollie subscription charge. Points at the donation the donor originally made. Empty on that original."
   },
   {
    "fieldname": "mollie_mandate_id",

@@ -11,6 +11,11 @@ from typing import Any, Dict, Optional
 import frappe
 from frappe import _
 
+from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
+    read_payment_field,
+    read_payment_metadata,
+)
+
 
 class DonationLookup:
     """
@@ -26,56 +31,64 @@ class DonationLookup:
     def find_for_subscription_payment(
         self, payment_id: str, payment: Optional[Any] = None, with_lock: bool = False
     ) -> Optional[Any]:
-        """
-        Find donation record for subscription payments by looking at payment metadata.
+        """Find the ORIGIN donation for a subscription-generated charge.
+
+        Mollie copies a subscription's metadata onto every charge it generates,
+        so a donation subscription's charge normally carries
+        ``metadata.donation_id`` outright. When the subscription has no metadata
+        the charge carries ``metadata: null`` (measured: sub_5euSBaLzqF), and the
+        subscription id is the only join left.
+
+        Returns the donation the donor originally made -- never one of the
+        donations created from earlier charges. ``Donation`` sorts
+        ``modified DESC``, so an unordered lookup on ``mollie_subscription_id``
+        would return the most recently touched charge and every charge would be
+        copied from the previous copy.
 
         Args:
             payment_id: Mollie payment ID
-            payment: Full Mollie payment object (can be None if not available yet)
+            payment: Full Mollie payment object or dict (None when unavailable)
             with_lock: If True, acquire FOR UPDATE lock
 
         Returns:
             Donation document or None if not found
         """
-        # If payment object is available, check if this is a subscription payment
-        if payment and (not hasattr(payment, "subscription_id") or not payment.subscription_id):
+        if not payment:
             return None
 
-        # If payment object is available, get donation_id from payment metadata
-        if payment:
-            metadata = getattr(payment, "metadata", {})
-            donation_id = metadata.get("donation_id")
+        subscription_id = read_payment_field(payment, "subscription_id", "subscriptionId")
+        if not subscription_id:
+            return None
 
-            if donation_id:
-                frappe.logger().info(f"Found donation_id in subscription payment metadata: {donation_id}")
-                try:
-                    if with_lock:
-                        # Acquire row-level lock
-                        frappe.db.sql(
-                            "SELECT name FROM `tabDonation` WHERE name = %s FOR UPDATE",
-                            (donation_id,),
-                        )
-                    return frappe.get_doc("Donation", donation_id)
-                except frappe.DoesNotExistError:
-                    frappe.logger().error(f"Donation {donation_id} from metadata not found")
-                    return None
-
-            # Fallback: try to find by subscription_id (if donation has it stored)
-            frappe.logger().info(f"Trying fallback lookup by subscription_id: {payment.subscription_id}")
-            donation_name = frappe.db.get_value(
-                "Donation", {"mollie_subscription_id": payment.subscription_id}, "name"
+        donation_id = read_payment_metadata(payment).get("donation_id")
+        if donation_id:
+            frappe.logger().info(f"Found donation_id in subscription payment metadata: {donation_id}")
+            if frappe.db.exists("Donation", donation_id):
+                return self._locked(donation_id, with_lock)
+            # Not fatal: the subscription id below is an independent join, and a
+            # metadata id naming a deleted donation should not cost us the charge.
+            frappe.logger().error(
+                f"Donation {donation_id} from payment {payment_id} metadata not found; "
+                f"falling back to subscription {subscription_id}"
             )
-            if donation_name:
-                if with_lock:
-                    frappe.db.sql(
-                        "SELECT name FROM `tabDonation` WHERE name = %s FOR UPDATE",
-                        (donation_name,),
-                    )
-                return frappe.get_doc("Donation", donation_name)
 
-        # If no payment object or no subscription info found, return None
-        # This is normal for first payments that haven't been processed yet
+        frappe.logger().info(f"Trying fallback lookup by subscription_id: {subscription_id}")
+        donation_name = frappe.db.get_value(
+            "Donation",
+            {"mollie_subscription_id": subscription_id, "recurring_origin_donation": ["is", "not set"]},
+            "name",
+            order_by="creation asc",
+        )
+        if donation_name:
+            return self._locked(donation_name, with_lock)
+
         return None
+
+    def _locked(self, donation_name: str, with_lock: bool) -> Any:
+        """Return the donation, optionally holding a row lock on it."""
+        if with_lock:
+            frappe.db.sql("SELECT name FROM `tabDonation` WHERE name = %s FOR UPDATE", (donation_name,))
+        return frappe.get_doc("Donation", donation_name)
 
     def find_by_payment_id(self, payment_id: str, with_lock: bool = False) -> Optional[Any]:
         """

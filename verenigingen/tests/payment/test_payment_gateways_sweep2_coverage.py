@@ -454,6 +454,10 @@ class TestActivateDirectExtra(EnhancedTestCase):
         fake_settings = types.SimpleNamespace(
             get_next_payment_date_for_scheduled_months=fake_next_payment_date,
             quarterly_yearly_payment_months="9,12",
+            # The subscription payload also carries a webhookUrl (#345); a stub
+            # narrower than the object it fakes turns that into an "error" result
+            # that reads as a start-date failure.
+            get_webhook_url=lambda: "https://example.invalid/webhook?env=test",
         )
         with patch.object(frappe, "get_single", return_value=fake_settings):
             result = pg._activate_direct_subscription_after_first_payment(gw, payment)

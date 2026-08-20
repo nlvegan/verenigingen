@@ -66,6 +66,38 @@ class TestManualPaymentConfirmation(EnhancedTestCase):
             frappe.db.get_value("Donation", donation.name, "payment_id"), "MANUAL-REF-001"
         )
 
+    def test_duplicate_reference_is_rejected_without_marking_the_donation_paid(self):
+        """A repeated reference must fail cleanly, not half-commit.
+
+        payment_id is unique (#345), so an operator reusing a reference now
+        raises 1062 inside this endpoint. The bug this guards: with db_set("paid")
+        running first, paid=1 was already written when the duplicate raised;
+        MariaDB does not roll back on 1062 and the except-branch returns
+        success:False without undoing it, so the request's own commit landed
+        paid=1 on a donation the caller had been told failed.
+        """
+        self.expectErrorLog("Payment Confirmation")
+        reference = f"MANUAL-DUP-{frappe.generate_hash(length=8)}"
+
+        first = self.create_test_donation(paid=0, mode_of_payment="Bank Transfer")
+        self.assertTrue(pg.manual_payment_confirmation(first.name, reference)["success"])
+
+        second = self.create_test_donation(paid=0, mode_of_payment="Bank Transfer")
+        result = pg.manual_payment_confirmation(second.name, reference)
+
+        self.assertFalse(result["success"], "a reused payment reference must not report success")
+        self.assertIn(first.name, result["message"], "the error should name the donation that owns it")
+
+        # The point of the fix: nothing was written to the loser.
+        self.assertEqual(
+            frappe.db.get_value("Donation", second.name, "paid"),
+            0,
+            "paid must not be set when the reference was rejected",
+        )
+        self.assertIsNone(frappe.db.get_value("Donation", second.name, "payment_id"))
+        # ...and the winner is untouched.
+        self.assertEqual(frappe.db.get_value("Donation", first.name, "payment_id"), reference)
+
 
 class TestCancelMemberSubscriptionOwnership(EnhancedTestCase):
     """cancel_member_subscription enforces self-service ownership."""

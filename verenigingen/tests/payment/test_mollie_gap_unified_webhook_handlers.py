@@ -65,7 +65,18 @@ def _make_service(idempotency_manager=None):
 
 
 def _persist_donation(payment_id, with_payment_row=False):
-    """Create a real draft Donation (Donation is not submittable)."""
+    """Create a real draft Donation (Donation is not submittable).
+
+    Drops any donation already holding this payment_id first. The services under
+    test here commit (that is what "_atomic" means), which defeats the
+    rollback() in tearDown, so these rows outlive the run. That was harmless
+    until payment_id became unique (#345): the leaked row now makes the NEXT run
+    of this module fail with a duplicate-key error, so the module has to clear
+    its own path rather than assume a clean table.
+    """
+    for stale in frappe.get_all("Donation", filters={"payment_id": payment_id}, pluck="name"):
+        frappe.delete_doc("Donation", stale, force=True, ignore_permissions=True, delete_permanently=True)
+
     donor = frappe.new_doc("Donor")
     donor.donor_name = "Gap Test Donor"
     donor.donor_type = "Individual"
@@ -231,6 +242,34 @@ class TestHandlePartialProcessing(FrappeTestCase):
         self.assertEqual(calls, ["financial", "status", "history"])
         # The status message references the actual created JE name.
         self.assertIn("JE-1", result["message"])
+
+    def test_a_journal_entry_failure_is_not_reported_as_success(self):
+        """The same half-booking defect as _handle_new_payment_processing.
+
+        _create_donation_financial_entries returns a TRUTHY dict when the Bank
+        Transaction landed and the Journal Entry did not. Before this fix,
+        `results` still ended up non-empty (the "Journal Entry creation failed
+        (partial)" string is itself appended to it), so `"success" if results
+        else "error"` reported success anyway.
+        """
+        donation = _persist_donation("tr_partial_je_fail")
+        state = PaymentIdempotencyCheckResult("tr_partial_je_fail")
+        # Nothing processed yet -- financial_entries is the only missing piece
+        # under test; leaving payment_history/donation_status missing too would
+        # let their own "updated" results paper over the financial failure.
+        state.payment_history_updated = True
+        state.donation_status_updated = True
+
+        self.svc._create_donation_financial_entries = lambda *a, **k: {
+            "bank_transaction_name": "BT-partial",
+            "journal_entry_name": None,
+            "partial_success": True,
+        }
+
+        with self._patch_fetch_and_find(donation):
+            result = self.svc._handle_partial_processing("tr_partial_je_fail", {}, state, 0.0)
+
+        self.assertEqual(result["status"], "error", "a missing Journal Entry must fail the webhook")
 
     def test_partial_no_donation_errors(self):
         state = PaymentIdempotencyCheckResult("tr_partial_nodon")

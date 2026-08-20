@@ -73,6 +73,24 @@ from verenigingen.utils.security.api_security_framework import (
 
 class Donation(Document):
     def validate(self):
+        # MariaDB permits many NULLs in a unique index but only one '', and most
+        # donations have no Mollie payment at all, so an empty payment_id must be
+        # absent rather than blank.
+        #
+        # This is defence-in-depth, not the mechanism: because payment_id is
+        # declared unique, base_document.get_valid_dict() already maps '' to None
+        # on the way to the database (verified with bank_reference, an otherwise
+        # identical non-unique Data field, which keeps its ''). What this line
+        # adds is the in-memory doc: later hooks and any code reading
+        # self.payment_id after validate() see None rather than ''. It is also
+        # what keeps the invariant true if the unique flag is ever removed.
+        #
+        # It does NOT cover db_set() callers, which bypass both validate() and
+        # get_valid_dict() and must pass None themselves.
+        # See patches/v2_2/enforce_unique_donation_payment_id.
+        if not self.payment_id:
+            self.payment_id = None
+
         if not self.donor or not frappe.db.exists("Donor", self.donor):
             # for web forms
             user_type = frappe.db.get_value("User", frappe.session.user, "user_type")
@@ -276,6 +294,15 @@ class Donation(Document):
 
     def after_insert(self):
         """Called after donation is created"""
+        # A donation created from a Mollie subscription charge is not a new
+        # donation from the donor's point of view -- they were thanked when they
+        # set the subscription up. The per-period receipt is
+        # send_payment_confirmation_email, which on_update still sends. Guarding
+        # on the field rather than a flag means no future insert path can
+        # forget it.
+        if self.recurring_origin_donation:
+            return
+
         # Send confirmation email for new donations using EmailService
         frappe.enqueue(
             "verenigingen.verenigingen.doctype.donation.donation.send_donation_confirmation_email",
@@ -395,13 +422,15 @@ def get_anbi_donations_for_reporting(from_date, to_date):
 def generate_anbi_agreement_number():
     """Generate next ANBI agreement number"""
     # Get the latest ANBI agreement number
-    latest = frappe.db.sql("""
+    latest = frappe.db.sql(
+        """
         SELECT anbi_agreement_number
         FROM `tabDonation`
         WHERE anbi_agreement_number IS NOT NULL
         ORDER BY creation DESC
         LIMIT 1
-    """)
+    """
+    )
 
     if latest and latest[0][0]:
         try:

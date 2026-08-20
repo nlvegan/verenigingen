@@ -303,17 +303,21 @@ class TestMollieRemoteCreatesAreIdempotent(unittest.TestCase):
     def test_the_scanner_actually_finds_the_known_call_sites(self):
         """CONTROL. A scan that silently matches nothing would make every other
         test in this class pass vacuously -- the exact failure the repo's
-        verification rules call out. Pin the two keyed donation sites by name."""
+        verification rules call out. Pin the keyed donation site by name.
+
+        This used to pin two sites, one in each of
+        ``_activate_direct_subscription_after_first_payment`` and
+        ``_activate_donation_subscription_after_first_payment``. Both now route
+        through the extracted ``_get_or_create_subscription``, so there is one
+        keyed create where there were two -- the coverage did not shrink, the
+        duplication did. If that extraction is ever unwound back into two call
+        sites, this control goes red and forces a conscious update.
+        """
         keyed = {call.site for call in self.calls if call.idempotency_key}
         expected = {
             (
                 "verenigingen_payments/utils/payment_gateways.py",
-                "_activate_direct_subscription_after_first_payment",
-                "subscriptions",
-            ),
-            (
-                "verenigingen_payments/utils/payment_gateways.py",
-                "_activate_donation_subscription_after_first_payment",
+                "_get_or_create_subscription",
                 "subscriptions",
             ),
         }
@@ -784,6 +788,10 @@ CANONICAL_MOLLIE_PAYMENT = {
     "sequenceType": "first",
     "customerId": "cst_INVARIANTTEST",
     "subscriptionId": "sub_INVARIANTTEST",
+    # Carried so the branch-parity tests below compare a VALUE and not two Nones:
+    # without it, a dict branch that mistakenly read "mandate_id" instead of
+    # "mandateId" would agree with the object branch on None and pass.
+    "mandateId": "mdt_INVARIANTTEST",
     "metadata": {"donation_id": "DON-INVARIANT", "subscription_setup": "true"},
 }
 
@@ -817,6 +825,7 @@ def _object_style_payment():
         sequence_type=CANONICAL_MOLLIE_PAYMENT["sequenceType"],
         customer_id=CANONICAL_MOLLIE_PAYMENT["customerId"],
         subscription_id=CANONICAL_MOLLIE_PAYMENT["subscriptionId"],
+        mandate_id=CANONICAL_MOLLIE_PAYMENT["mandateId"],
         metadata=dict(CANONICAL_MOLLIE_PAYMENT["metadata"]),
     )
 
@@ -933,6 +942,10 @@ class TestNormalisedPaymentDictContract(EnhancedTestCase):
         self.assertEqual(normalised["sequence_type"], "first")
         self.assertEqual(normalised["customer_id"], "cst_INVARIANTTEST")
         self.assertEqual(normalised["subscription_id"], "sub_INVARIANTTEST")
+        # Same defect, found later: a recurring charge's Donation stores
+        # mollie_mandate_id, and this dict is what the webhook hands the booking
+        # path, so the missing key made it None on every charge.
+        self.assertEqual(normalised["mandate_id"], "mdt_INVARIANTTEST")
         self.assertEqual(normalised["paid_at"], "2025-04-10T09:00:05+00:00")
         self.assertEqual(normalised["created_at"], "2025-04-10T09:00:00+00:00")
         self.assertEqual(normalised["amount"], {"value": "25.00", "currency": "EUR"})

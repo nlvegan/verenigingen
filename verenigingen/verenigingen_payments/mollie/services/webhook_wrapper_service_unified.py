@@ -443,6 +443,62 @@ class UnifiedWebhookWrapperService:
                     f"Falling back to donation processor"
                 )
 
+            # A recurring donation charge has no Donation yet, and STEP 1 below
+            # is keyed on Donation.payment_id -- it would ask about a record that
+            # does not exist. Materialise it first, then FALL THROUGH: the charge
+            # now carries its own payment_id, so everything below works on it
+            # unchanged.
+            #
+            # Do not return from here. check_payment_processing_state is also the
+            # only discovery of pending refunds and chargebacks on this webhook
+            # (Mollie signals a refund by re-posting the same payment id), so an
+            # early return would strand every refund of every recurring charge
+            # while first payments kept theirs. Issue #345.
+            from .recurring_donation_charge import (
+                RecurringChargeOriginMissing,
+                ensure_donation_for_recurring_charge,
+            )
+
+            # self._fetch_payment_from_mollie rather than the `payment` bound
+            # inside the classification try: that name is unbound when
+            # classification raised, and the branch must still run in that case.
+            # The normalised dict is a shape read_payment_field handles.
+            #
+            # The cost is one extra Mollie GET on EVERY donation / unknown /
+            # classification-failed webhook, not just on charges: the argument is
+            # evaluated before the service can decline. That is the price of not
+            # trusting a `payment` that may be unbound, and it is why the fetch is
+            # guarded below rather than left to the outer handler.
+            try:
+                charge_payment = self._fetch_payment_from_mollie(payment_id)
+            except MolliePaymentError as fetch_error:
+                # Mollie is unreachable. STEP 1's include_mollie_api check hits the
+                # same outage and returns 503 + Retry-After, which is the designed
+                # degradation; do not pre-empt it with a generic 500. Not a
+                # swallow: Mollie re-delivers either way, and the charge is booked
+                # on the retry.
+                self.logger.error(f"Charge fetch for {payment_id} failed, deferring to STEP 1: {fetch_error}")
+                charge_payment = None
+
+            if charge_payment is not None:
+                try:
+                    charge_donation = ensure_donation_for_recurring_charge(charge_payment)
+                    if charge_donation:
+                        self.logger.info(
+                            f"💶 Recurring charge {payment_id} booked to donation {charge_donation}"
+                        )
+                except RecurringChargeOriginMissing as e:
+                    # Money received and unattributable. Report failure so Mollie
+                    # re-delivers rather than swallowing it into a 200.
+                    duration = time.time() - start_time
+                    record_operation_performance("unified_webhook_processing", duration, False)
+                    return {
+                        "status": "error",
+                        "message": str(e),
+                        "payment_id": payment_id,
+                        "duration_seconds": duration,
+                    }
+
             # STEP 1: UNIFIED IDEMPOTENCY CHECK - single source of truth
             self.logger.info(f"🔍 STEP 1: Unified idempotency check for {payment_id}")
             processing_state = self.idempotency_manager.check_payment_processing_state(
@@ -666,6 +722,23 @@ class UnifiedWebhookWrapperService:
                     "payment_id": payment_id,
                 }
 
+            # A partial result is TRUTHY: the Bank Transaction landed and the
+            # Journal Entry did not. Letting it through returns 200, Mollie never
+            # re-delivers, and the donor is debited against half a booking.
+            # Reported as an error so the delivery is retried -- both creators are
+            # idempotent per payment id, so a retry completes the missing half
+            # rather than duplicating the finished one.
+            if financial_result.get("partial_success"):
+                return {
+                    "status": "error",
+                    "message": (
+                        f"Payment {payment_id} recorded a Bank Transaction "
+                        f"({financial_result.get('bank_transaction_name')}) but no Journal Entry"
+                    ),
+                    "payment_id": payment_id,
+                    "bank_transaction": financial_result.get("bank_transaction_name"),
+                }
+
             journal_entry_name = financial_result.get("journal_entry_name")
             bank_transaction_name = financial_result.get("bank_transaction_name")
 
@@ -800,6 +873,13 @@ class UnifiedWebhookWrapperService:
             # Process missing components based on unified state
             results = []
             journal_entry_name = None
+            # A Bank Transaction with no Journal Entry is half a booking, not a
+            # completed component -- the same defect as in
+            # _handle_new_payment_processing. Tracked separately from `results`
+            # because "Journal Entry creation failed (partial)" being a non-empty
+            # string does not make `results` falsy, so it could not fail the
+            # overall status on its own.
+            financial_entries_incomplete = False
 
             if "financial_entries" in missing_components:
                 # Create Bank Transaction + Journal Entry using new architecture
@@ -813,8 +893,10 @@ class UnifiedWebhookWrapperService:
                         journal_entry_name = financial_result.get("journal_entry_name")
                     else:
                         results.append("Journal Entry creation failed (partial)")
+                        financial_entries_incomplete = True
                 else:
                     results.append("Financial entries creation failed")
+                    financial_entries_incomplete = True
 
             # NOTE: subscription activation is deliberately NOT called here.
             # This branch is currently unreachable -- needs_payment_processing()
@@ -862,7 +944,7 @@ class UnifiedWebhookWrapperService:
                     results.append(f"Backfilled {refund_history_count} refund payment history entries")
 
             result = {
-                "status": "success" if results else "error",
+                "status": "success" if results and not financial_entries_incomplete else "error",
                 "message": f"Partial processing completed: {', '.join(results)}",
                 "payment_id": payment_id,
                 "components_processed": results,
@@ -1173,6 +1255,11 @@ class UnifiedWebhookWrapperService:
                     "sequence_type": payment.get("sequenceType") or payment.get("sequence_type"),
                     "customer_id": payment.get("customerId") or payment.get("customer_id"),
                     "subscription_id": payment.get("subscriptionId") or payment.get("subscription_id"),
+                    # Same omission, same shape of bug: a recurring charge's
+                    # Donation records mollie_mandate_id, and this dict is what
+                    # the webhook hands the booking path, so without it every
+                    # charge booked from a webhook stored None for the mandate.
+                    "mandate_id": payment.get("mandateId") or payment.get("mandate_id"),
                 }
             else:
                 # Handle object format
@@ -1197,6 +1284,7 @@ class UnifiedWebhookWrapperService:
                     "sequence_type": getattr(payment, "sequence_type", None),
                     "customer_id": getattr(payment, "customer_id", None),
                     "subscription_id": getattr(payment, "subscription_id", None),
+                    "mandate_id": getattr(payment, "mandate_id", None),
                 }
         except Exception as e:
             self.logger.error(f"Failed to fetch payment {payment_id} from Mollie: {e}")
@@ -1352,11 +1440,23 @@ class UnifiedWebhookWrapperService:
             # it. Without a retry that donor holds a subscription this system
             # cannot see. The cost of guessing wrong is a bounded number of
             # re-deliveries that refuse identically.
+            #
+            # The two *_bad_request / *_key_conflict names come from
+            # payment_gateways._permanent_refusal_reason: Mollie answered 400, so
+            # the request as sent is unacceptable and every redelivery sends the
+            # identical request. Retrying one runs the full 10-attempt / 26-hour
+            # ladder against a refusal that cannot change.
             reason = (result or {}).get("reason")
             return {
                 "status": "error",
                 "permanent": reason
-                in ("invalid_interval", "missing_subscription_details", "missing_customer_id"),
+                in (
+                    "invalid_interval",
+                    "missing_subscription_details",
+                    "missing_customer_id",
+                    "idempotency_key_conflict",
+                    "mollie_bad_request",
+                ),
                 "reason": reason,
                 "message": (result or {}).get("message") or f"activation failed: {result}",
             }

@@ -17,6 +17,7 @@ Following Enhanced Test Factory patterns with proper field validation.
 
 import unittest
 from decimal import Decimal
+from types import SimpleNamespace
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -34,6 +35,8 @@ from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
     get_mollie_currency,
     is_long_interval,
     is_valid_mollie_interval,
+    read_payment_field,
+    read_payment_metadata,
     validate_mollie_amount,
     validate_mollie_interval,
 )
@@ -659,6 +662,54 @@ class TestMollieIntervalValidation(FrappeTestCase):
     def test_validate_returns_the_trimmed_interval(self):
         """Surrounding whitespace is stripped rather than sent to Mollie verbatim."""
         self.assertEqual(validate_mollie_interval("  3 months  "), "3 months")
+
+
+class TestPaymentFieldReaders(FrappeTestCase):
+    """read_payment_field / read_payment_metadata — every shape a Mollie payment arrives in.
+
+    Measured against the API: a subscription-generated charge carries
+    sequenceType/subscriptionId/customerId/mandateId, and the subscription's
+    metadata copied verbatim -- INCLUDING copying nothing. sub_5euSBaLzqF has no
+    metadata, and its charges arrive with `metadata: null`, not `{}`.
+    """
+
+    def test_reads_camel_case_key_from_dict(self):
+        # The SDK Payment is a dict subclass whose keys are camelCase.
+        payment = {"id": "tr_x", "sequenceType": "recurring", "subscriptionId": "sub_x"}
+        self.assertEqual(read_payment_field(payment, "sequence_type", "sequenceType"), "recurring")
+        self.assertEqual(read_payment_field(payment, "subscription_id", "subscriptionId"), "sub_x")
+
+    def test_reads_snake_case_key_from_normalised_dict(self):
+        # _fetch_payment_from_mollie returns snake_case.
+        payment = {"id": "tr_x", "sequence_type": "recurring", "subscription_id": "sub_x"}
+        self.assertEqual(read_payment_field(payment, "sequence_type", "sequenceType"), "recurring")
+        self.assertEqual(read_payment_field(payment, "subscription_id", "subscriptionId"), "sub_x")
+
+    def test_reads_attribute_from_object(self):
+        payment = SimpleNamespace(sequence_type="recurring", subscription_id="sub_x")
+        self.assertEqual(read_payment_field(payment, "sequence_type", "sequenceType"), "recurring")
+
+    def test_absent_field_is_none_in_every_shape(self):
+        for payment in ({}, {"id": "tr_x"}, SimpleNamespace(id="tr_x")):
+            with self.subTest(shape=type(payment).__name__):
+                self.assertIsNone(read_payment_field(payment, "subscription_id", "subscriptionId"))
+
+    def test_metadata_null_becomes_empty_dict(self):
+        # The bug this exists to prevent: getattr(payment, "metadata", {}) returns
+        # None, not {}, when the property exists and its value is null -- and
+        # None.get("donation_id") raises.
+        self.assertEqual(read_payment_metadata({"metadata": None}), {})
+        self.assertEqual(read_payment_metadata(SimpleNamespace(metadata=None)), {})
+
+    def test_metadata_dict_is_returned_as_is(self):
+        self.assertEqual(
+            read_payment_metadata({"metadata": {"donation_id": "Assoc-Dnt-2025-00752"}}),
+            {"donation_id": "Assoc-Dnt-2025-00752"},
+        )
+
+    def test_metadata_non_dict_is_not_trusted(self):
+        # Mollie's metadata is free-form; a string would break every .get() caller.
+        self.assertEqual(read_payment_metadata({"metadata": "donation"}), {})
 
 
 def run_tests():
