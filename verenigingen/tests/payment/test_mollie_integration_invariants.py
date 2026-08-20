@@ -107,7 +107,7 @@ def _mollie_source_files():
                 yield rel, path
 
 
-def _parse(path: str) -> ast.Module:
+def _parse_module(path: str) -> ast.Module:
     with open(path, "r", encoding="utf-8") as handle:
         return ast.parse(handle.read(), filename=path)
 
@@ -283,7 +283,7 @@ def _scan_mollie_creates():
     calls = []
     for rel, path in _mollie_source_files():
         visitor = _MollieCreateVisitor(rel)
-        visitor.visit(_parse(path))
+        visitor.visit(_parse_module(path))
         calls.extend(visitor.calls)
     return calls
 
@@ -504,7 +504,7 @@ def _scan_mollie_resource_stubs():
     stubs = []
     for rel, path in _all_python_files():
         try:
-            tree = _parse(path)
+            tree = _parse_module(path)
         except SyntaxError:
             continue
         for node in ast.walk(tree):
@@ -703,7 +703,7 @@ def _scan_metadata_keys():
     reads, writes = {}, {}
     for rel, path in _mollie_source_files():
         visitor = _MetadataKeyVisitor(rel)
-        visitor.visit(_parse(path))
+        visitor.visit(_parse_module(path))
         for key, sites in visitor.reads.items():
             reads.setdefault(key, []).extend(sites)
         for key, sites in visitor.writes.items():
@@ -846,7 +846,7 @@ def _payment_data_reader_keys():
         "services",
         "webhook_wrapper_service_unified.py",
     )
-    tree = _parse(path)
+    tree = _parse_module(path)
     class_node = next(
         node
         for node in tree.body
@@ -1142,7 +1142,7 @@ class TestDonateFormKeysHaveWriters(unittest.TestCase):
         for path in DONATION_READER_FILES:
             rel = os.path.relpath(path, PACKAGE_ROOT).replace(os.sep, "/")
             visitor = _FormDataReadVisitor(rel)
-            visitor.visit(_parse(path))
+            visitor.visit(_parse_module(path))
             for key, sites in visitor.reads.items():
                 cls.reads.setdefault(key, []).extend(sites)
 
