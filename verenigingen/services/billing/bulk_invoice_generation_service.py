@@ -829,6 +829,20 @@ class BulkInvoiceGenerationService(StatefulService):
                     "Bulk Payment History Member Update",
                 )
 
+        # Durability is decided HERE, not inside the history manager (#411).
+        #
+        # This runs in a scheduled job (hooks/scheduler.py -> generate_dues_invoices)
+        # which already committed the invoices themselves further up, before calling
+        # this. Without a commit of our own the history rows would ride on the job
+        # runner's final commit -- and anything raising between here and the end of
+        # the job (coverage-gap detection, the blocked-members summary) would discard
+        # every history row while leaving the invoices they describe committed.
+        #
+        # One commit for the whole batch, not one per invoice as the manager used to
+        # do: the loop above swallows per-member and per-invoice failures, so there
+        # is no partial state to preserve mid-loop.
+        frappe.db.commit()
+
         return updated_count
 
     def get_parallel_status(self) -> Dict:

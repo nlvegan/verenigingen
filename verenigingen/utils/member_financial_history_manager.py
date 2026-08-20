@@ -282,8 +282,22 @@ class MemberFinancialHistoryManager:
                 self.member.flags.ignore_version = True
 
                 # Use Frappe's native update_child_table() - no timestamp conflicts!
+                #
+                # Deliberately does NOT commit. This runs in ordinary request and
+                # hook context -- the financial-history batch queue is drained
+                # INLINE from add_invoice_to_payment_history(), and the fee-change
+                # recorder reaches this from a document save. A transaction-wide
+                # commit here flushed whatever the caller had half-finished, and
+                # took every savepoint with it (MariaDB discards them all on
+                # commit), so FinancialHistoryBatchProcessor's per-member scoped
+                # rollback silently became a no-op and its RELEASE raised 1305.
+                #
+                # Durability belongs to the owning request or scheduled job, which
+                # commits at its own boundary. The one caller that wanted it sooner
+                # -- bulk_invoice_generation_service, a scheduler job that already
+                # committed its invoices before writing history -- now commits for
+                # itself, where the decision is visible. #411.
                 self.member.update_child_table(self.history_field)
-                frappe.db.commit()
                 return True
 
             except Exception as e:

@@ -27,8 +27,12 @@ import inspect
 import frappe
 
 from verenigingen.tests.utils.base import VereningingenTestCase
-from verenigingen.utils import financial_history_batch_processor as batch_module
+from verenigingen.utils import (
+    financial_history_batch_processor as batch_module,
+    member_financial_history_manager as history_module,
+)
 from verenigingen.utils.financial_history_batch_processor import FinancialHistoryBatchProcessor
+from verenigingen.utils.member_financial_history_manager import get_payment_history_manager
 
 DB_ALIASES = {"db", "database"}
 
@@ -165,4 +169,108 @@ class TestFinancialBatchTransactionScope(VereningingenTestCase):
             frappe.db.exists("Member", member.name),
             "a vanished savepoint escalated into a transaction-wide rollback and took "
             "the caller's uncommitted work with it",
+        )
+
+
+class TestHistoryManagerLeavesTheTransactionAlone(VereningingenTestCase):
+    """#411. The batch processor's savepoints are only worth as much as the code
+    they wrap: ``MemberFinancialHistoryManager._save_with_retry`` used to end in a
+    transaction-wide ``frappe.db.commit()``, and MariaDB discards every savepoint
+    when a transaction commits.
+
+    So the scoped rollback one frame up became a no-op, and #408 had to teach both
+    ``_release_savepoint`` and ``_rollback_to_savepoint`` to tolerate a savepoint
+    that had silently vanished. That defensiveness stays -- other code can still
+    commit -- but the manager itself is now the thing being pinned.
+    """
+
+    def _member(self):
+        member = frappe.get_doc(
+            {
+                "doctype": "Member",
+                "first_name": "HistScope",
+                "last_name": f"Caller{frappe.generate_hash(length=6)}",
+                "email": f"histscope-{frappe.generate_hash(length=8)}@example.invalid",
+                "birth_date": "1990-01-01",
+            }
+        ).insert()
+        self.track_doc("Member", member.name)
+        return member
+
+    def test_a_callers_savepoint_survives_a_history_write(self):
+        """The invariant, stated as the caller experiences it.
+
+        A savepoint is the one thing a commit cannot leave behind: MariaDB drops
+        all of them the moment the transaction ends. So RELEASE succeeding is
+        proof no commit happened inside -- there is no way to fake it, and no way
+        for the assertion to pass vacuously while the commit is still there.
+        """
+        member = self._member()
+        save_point = f"hist_scope_{frappe.generate_hash(length=8)}"
+        frappe.db.savepoint(save_point)
+
+        manager = get_payment_history_manager(member)
+        wrote = manager.add_or_update_entry(
+            "ACC-SINV-HISTSCOPE-0001",
+            lambda: {
+                "invoice": None,
+                "posting_date": frappe.utils.nowdate(),
+                "amount": 1.0,
+                "outstanding_amount": 0.0,
+                "payment_status": "Paid",
+                "transaction_type": "Membership Invoice",
+            },
+            "invoice",
+        )
+        self.assertTrue(wrote, "the history write itself failed, so this proves nothing about commits")
+
+        try:
+            frappe.db.release_savepoint(save_point)
+        except Exception as e:
+            self.fail(
+                f"the caller's savepoint {save_point} did not survive a history write ({e}). "
+                "MariaDB discards every savepoint on commit, so this means the manager "
+                "ended the caller's transaction -- flushing whatever the caller had in "
+                "flight and disarming every scoped rollback above it (#411)."
+            )
+
+    def test_the_history_manager_never_ends_the_transaction(self):
+        """Source guard, for the same reason #408 needed one.
+
+        ``_save_with_retry`` is reached through several paths, and a behavioural
+        test only covers the one it drives. This pins the invariant itself --
+        including the two evasions that walked past the first version of the
+        batch-processor guard: a ``save_point=None`` rollback (frappe branches on
+        ``if save_point:``, so None IS the transaction-wide path) and the aliased
+        ``db = frappe.db; db.commit()``.
+        """
+        tree = ast.parse(inspect.getsource(history_module))
+        offenders = []
+
+        for call in ast.walk(tree):
+            if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Attribute):
+                continue
+            if call.func.attr not in ("commit", "rollback"):
+                continue
+            value = call.func.value
+            is_frappe_db = isinstance(value, ast.Attribute) and value.attr == "db"
+            is_alias = isinstance(value, ast.Name) and value.id in DB_ALIASES
+            if not (is_frappe_db or is_alias):
+                continue
+            if call.func.attr == "rollback" and any(
+                kw.arg == "save_point" and not (isinstance(kw.value, ast.Constant) and kw.value.value is None)
+                for kw in call.keywords
+            ):
+                continue
+            offenders.append(f"line {call.lineno}: frappe.db.{call.func.attr}()")
+
+        self.assertEqual(
+            offenders,
+            [],
+            "member_financial_history_manager must not end the caller's transaction: "
+            f"{offenders}. It is reached from ordinary request and hook paths -- the "
+            "batch queue is drained INLINE from add_invoice_to_payment_history() -- so "
+            "a commit here flushes a caller's half-finished work and destroys every "
+            "savepoint above it. Durability is the owning request or job's decision; "
+            "if one caller genuinely needs it sooner, it commits for itself (#411).",
         )

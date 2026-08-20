@@ -268,8 +268,19 @@ class TestPaymentHistoryRaceCondition(EnhancedTestCase):
         self.assertIn(invoices[-1].name, payment_history_invoices,
                       "The most recently added invoice should remain in payment history")
 
-    def test_database_commit_behavior(self):
-        """Test that the batch processor commits when persisting payment history"""
+    def test_the_inline_drain_does_not_commit(self):
+        """#411. Draining the queue must not end the caller's transaction.
+
+        This test used to assert the opposite -- "Database commits should occur
+        during processing" -- and so pinned the defect in place. The queue is
+        drained INLINE from add_invoice_to_payment_history(), which is ordinary
+        request and hook context: a commit there flushes whatever the caller had
+        half-finished and destroys every savepoint above it, including the
+        per-member ones the batch processor takes for its own rollback scoping.
+
+        Persisting and committing are different things. The entry must still be
+        written -- asserted below -- it just rides the caller's commit.
+        """
         invoice = self.create_test_sales_invoice(
             customer=self.test_member.customer,
             is_membership_invoice=1,
@@ -278,7 +289,6 @@ class TestPaymentHistoryRaceCondition(EnhancedTestCase):
 
         self.test_member.add_invoice_to_payment_history(invoice.name)
 
-        # Count commits during batch processing (the batch processor commits per member)
         commit_count = [0]
         original_commit = frappe.db.commit
 
@@ -291,12 +301,13 @@ class TestPaymentHistoryRaceCondition(EnhancedTestCase):
 
         self.test_member.reload()
 
-        # Verify commits occurred during batch processing
-        self.assertGreater(commit_count[0], 0, "Database commits should occur during processing")
+        self.assertEqual(commit_count[0], 0,
+                         f"the inline drain issued {commit_count[0]} transaction-wide "
+                         "commit(s); durability belongs to the owning request or job (#411)")
 
-        # Verify invoice was successfully added
+        # ... and the entry is still there, within the caller's open transaction.
         self.assertIsNotNone(self._find_entry(invoice.name),
-                             "Invoice should be committed to payment history")
+                             "Invoice should be written to payment history")
 
     def test_logging_output_verification(self):
         """Test that proper logging occurs during batch processing scenarios"""
