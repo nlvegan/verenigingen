@@ -134,6 +134,7 @@ def get_skill_categories(settings):
                 skill_categories.append(
                     {
                         "name": cat.category_name,
+                        "skill_category": cat.category_name,
                         "skills": skills,
                         "order": cat.display_order or 0,
                     }
@@ -145,6 +146,7 @@ def get_skill_categories(settings):
         skill_categories = [
             {
                 "name": _("Technical Skills"),
+                "skill_category": "Technical",
                 "skills": [
                     _("Web Development"),
                     _("Graphic Design"),
@@ -157,6 +159,7 @@ def get_skill_categories(settings):
             },
             {
                 "name": _("Communication Skills"),
+                "skill_category": "Communication",
                 "skills": [
                     _("Writing"),
                     _("Public Speaking"),
@@ -169,6 +172,7 @@ def get_skill_categories(settings):
             },
             {
                 "name": _("Organizational Skills"),
+                "skill_category": "Organizational",
                 "skills": [
                     _("Project Management"),
                     _("Event Planning"),
@@ -181,6 +185,7 @@ def get_skill_categories(settings):
             },
             {
                 "name": _("Leadership Skills"),
+                "skill_category": "Leadership",
                 "skills": [
                     _("Team Leadership"),
                     _("Mentoring"),
@@ -193,6 +198,7 @@ def get_skill_categories(settings):
             },
             {
                 "name": _("Financial Skills"),
+                "skill_category": "Financial",
                 "skills": [
                     _("Accounting"),
                     _("Bookkeeping"),

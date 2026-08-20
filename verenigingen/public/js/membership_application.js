@@ -884,19 +884,23 @@ class _MembershipApplication {
 	}
 
 	getVolunteerSkills() {
-		const skills = [];
-		$('.skill-row').each(function () {
-			const skillName = $(this).find('input[name="skill_name[]"]').val();
-			const skillLevel = $(this).find('select[name="skill_level[]"]').val();
+		// The page renders one checkbox per offered skill, valued "<category>|<skill>",
+		// plus a single page-wide proficiency select. Keys must stay `name`/`category`/
+		// `level`: that is what create_volunteer_from_member reads, and anything else
+		// is silently stored as the skill "Unknown".
+		const level = document.getElementById('volunteer_skill_level');
+		const checked = document.querySelectorAll('input[name="volunteer_skills[]"]:checked');
 
-			if (skillName && skillName.trim() && skillLevel) {
-				skills.push({
-					skill_name: skillName.trim(),
-					skill_level: skillLevel
-				});
-			}
-		});
-		return skills;
+		return Array.from(checked)
+			.map((box) => {
+				const separator = box.value.indexOf('|');
+				return {
+					name: (separator === -1 ? box.value : box.value.slice(separator + 1)).trim(),
+					category: separator === -1 ? '' : box.value.slice(0, separator).trim(),
+					level: level ? level.value : ''
+				};
+			})
+			.filter((skill) => skill.name);
 	}
 
 	bindAgeCalculation() {
@@ -1614,59 +1618,6 @@ class _MembershipApplication {
 			.on('change', function () {
 				$('#volunteer-details').toggle($(this).is(':checked'));
 			});
-
-		// Set up volunteer skill add button
-		this.setupVolunteerSkills();
-	}
-
-	setupVolunteerSkills() {
-		// Add event handler for the add skill button
-		$(document)
-			.off('click', '.add-skill')
-			.on('click', '.add-skill', (e) => {
-				e.preventDefault();
-				this.addSkillRow();
-			});
-
-		// Add event handler for remove skill buttons
-		$(document)
-			.off('click', '.remove-skill')
-			.on('click', '.remove-skill', (e) => {
-				e.preventDefault();
-				$(e.target).closest('.skill-row').remove();
-			});
-	}
-
-	addSkillRow() {
-		const _skillContainer = $('.skill-row').parent();
-		const newSkillRow = `
-            <div class="skill-row" style="margin-bottom: 10px;">
-                <div class="row">
-                    <div class="col-md-6">
-                        <input type="text" class="form-control" name="skill_name[]"
-                               placeholder="${frappe._('Skill name (e.g. Event Planning, IT Support)')}" />
-                    </div>
-                    <div class="col-md-4">
-                        <select class="form-control" name="skill_level[]">
-                            <option value="">${frappe._('Level')}</option>
-                            <option value="Beginner">${frappe._('Beginner')}</option>
-                            <option value="Intermediate">${frappe._('Intermediate')}</option>
-                            <option value="Advanced">${frappe._('Advanced')}</option>
-                            <option value="Expert">${frappe._('Expert')}</option>
-                        </select>
-                    </div>
-                    <div class="col-md-2">
-                        <button type="button" class="btn btn-sm btn-danger remove-skill">−</button>
-                    </div>
-                </div>
-            </div>
-        `;
-
-		// Find the existing skill rows and add after the last one
-		const lastSkillRow = $('.skill-row').last();
-		lastSkillRow.after(newSkillRow);
-
-		console.log('Added new skill row');
 	}
 
 	setupPaymentStep() {

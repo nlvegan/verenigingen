@@ -19,6 +19,8 @@ Pages covered:
   - member_portal.py
 """
 
+import re
+
 import frappe
 from frappe.utils import now_datetime, today
 
@@ -263,6 +265,51 @@ class TestPageApplyForMembership(PortalPageTestBase):
         self.assertTrue(cats)
         names = [c["name"] for c in cats]
         self.assertTrue(any("Technical" in n for n in names))
+
+    def test_rendered_skill_inputs_match_what_the_form_javascript_reads(self):
+        """The page is the only producer of volunteer skills, and nothing checks
+        the two ends agree.
+
+        `getVolunteerSkills()` in membership_application.js queries
+        `input[name="volunteer_skills[]"]:checked` and `#volunteer_skill_level`.
+        It once queried `.skill-row` / `skill_name[]` instead — selectors this
+        page has never rendered — so every skill an applicant ticked was dropped
+        in the browser and no volunteer record ever got one (#201).
+        """
+        html = self._render_apply_page()
+
+        self.assertIn('name="volunteer_skills[]"', html)
+        self.assertIn('id="volunteer_skill_level"', html)
+
+    def test_every_category_and_level_the_page_offers_is_a_declared_select_option(self):
+        """The wire values are stored straight into Volunteer Skill.
+
+        `create_volunteer_from_member` coerces anything the Select does not
+        declare to a fallback, silently, so a page offering "Technical Skills"
+        (the translated heading) rather than "Technical" (the option) files
+        every skill under "Other" without any error.
+        """
+        from verenigingen.utils.select_options import get_select_options
+
+        html = self._render_apply_page()
+
+        categories = {
+            value.split("|")[0]
+            for value in re.findall(r'name="volunteer_skills\[\]" value="([^"]+)"', html)
+        }
+        self.assertTrue(categories, "page rendered no skill checkboxes to check")
+        self.assertLessEqual(categories, set(get_select_options("Volunteer Skill", "skill_category")))
+
+        level_select = re.search(r'id="volunteer_skill_level".*?</select>', html, re.S)
+        levels = {v for v in re.findall(r'<option value="([^"]*)"', level_select.group(0)) if v}
+        self.assertTrue(levels, "page rendered no proficiency options to check")
+        self.assertLessEqual(levels, set(get_select_options("Volunteer Skill", "proficiency_level")))
+
+    def _render_apply_page(self):
+        from frappe.website.serve import get_response_content
+
+        with self.as_user("Guest"):
+            return get_response_content("apply_for_membership")
 
 
 class TestPageMembershipApplication(PortalPageTestBase):
