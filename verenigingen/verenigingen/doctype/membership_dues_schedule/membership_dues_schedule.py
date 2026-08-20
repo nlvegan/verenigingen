@@ -5,11 +5,11 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import getdate, today
 
-from verenigingen.services.billing import DuplicateInvoiceDetector
 from verenigingen.services.billing.billing_period_calculator import (
     calculate_billing_period,
     calculate_next_invoice_date,
 )
+from verenigingen.services.billing.duplicate_invoice_detector import DuplicateInvoiceDetector
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import (
     OperationType,

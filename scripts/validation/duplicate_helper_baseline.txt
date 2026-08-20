@@ -1,0 +1,87 @@
+# Private module-level helpers defined in more than one file -- the ratchet
+# baseline for scripts/validation/duplicate_helper_validator.py. Format:
+#     <helper name>::<number of files defining it>
+#
+# A change fails only if it duplicates a helper that was not duplicated before,
+# or adds a copy of one already listed. Consolidating never fails the gate.
+#
+# This file should only ever SHRINK. It is a to-do list, not a permission slip:
+# each line is a place where a future fix can be applied to one copy and missed
+# in the others -- which happened four times on 2026-08-19 alone (#392, #394,
+# #399, and a merge collision between two branches fixing the same test).
+#
+# A high count here does NOT mean the copies are clones; same name, unrelated
+# bodies is common (13 `_payment` helpers share 6% similarity). Run with
+# --report for the similarity view before consolidating anything.
+
+_abort_on_duplicates::2
+_add_chapter_with_documents::2
+_bank_account_currency::2
+_bare_gateway::2
+_bare_processor::3
+_bare_service::2
+_build_chapter_info::2
+_cleanup_thread_context::2
+_company::2
+_create_payment_entry::2
+_create_thread_context::2
+_data::2
+_ensure_bank_account::2
+_ensure_current_fiscal_year::5
+_ensure_mollie_named_account::3
+_ensure_region::4
+_ensure_test_region::3
+_fake_service::2
+_future_date::2
+_get_email_config_service::2
+_get_service::2
+_get_test_company::3
+_has_multi_profile_support::2
+_insert_test_doc::6
+_invoice::2
+_make_balance_transaction::2
+_make_client::3
+_make_eur_invoice::2
+_make_event::2
+_make_gateway::2
+_make_migration_doc::4
+_make_mock_je::2
+_make_mollie_client::2
+_make_mutation::2
+_make_processor::2
+_make_request::2
+_make_schedule::2
+_make_service::4
+_make_settings::2
+_make_unsubmitted_donation::2
+_mandate::2
+_member_csv_row::2
+_mr::2
+_next_id::2
+_next_weekday::3
+_non_group::2
+_ok::2
+_ours::2
+_patch_sdk::5
+_payment::13
+_pdf::3
+_persist_company::3
+_persist_customer::2
+_persist_eur_company::8
+_persist_ledger_mapping::2
+_persist_supplier::2
+_ponto_account::2
+_publish_progress::2
+_release_redis_lock::2
+_render_with_user::2
+_row::2
+_safe_log_error::2
+_safe_savepoint_name::2
+_sanitize_error_message::3
+_sched_stub::3
+_sdk_payment::2
+_settings::2
+_unique_email::7
+_unwrap::2
+_validate_role_assignment_inputs::2
+_with_user::2
