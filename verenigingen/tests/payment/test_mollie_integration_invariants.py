@@ -144,6 +144,16 @@ class _EnclosingFunctionVisitor(ast.NodeVisitor):
 # Mollie SDK resource collections. A call is a remote create iff it looks like
 # ``<anything>.<resource>.create(...)``; this deliberately does NOT match local
 # helpers such as ``bank_tx_creator.create(...)`` or ``AuditContext.create(...)``.
+#
+# Hand-written, but no longer unchecked: ``TestTheResourceListMatchesTheSdk``
+# derives the creatable resources from the installed SDK and fails if this set
+# omits one. A resource missing here is not a weak assertion somewhere -- it is
+# a family of remote creates that no test in this module can see at all.
+# Two names came from that check, neither with a call site in this app today --
+# they were latent gaps, not live holes: ``client_links`` (creatable since the
+# SDK gained Mollie Connect) and ``onboarding``, which is worse in kind. See
+# ``_sdk_creatable_resource_accessors`` for why ``onboarding`` escaped the first
+# version of the derivation.
 _MOLLIE_RESOURCES = frozenset(
     {
         "payments",
@@ -158,6 +168,8 @@ _MOLLIE_RESOURCES = frozenset(
         "profiles",
         "terminals",
         "payment_links",
+        "client_links",
+        "onboarding",
         "settlements",
     }
 )
@@ -440,6 +452,179 @@ class TestMollieRemoteCreatesAreIdempotent(unittest.TestCase):
                     "payment, so the FIRST donor's subscription would be returned "
                     "to all later ones. It must be derived from the payment.",
                 )
+
+
+def _sdk_creatable_resource_accessors():
+    """Every attribute name a caller can reach a CREATABLE Mollie resource through.
+
+    Read from the installed SDK, because ``_MOLLIE_RESOURCES`` above is the
+    *input* to the scanner: a resource missing from it is not one weak
+    assertion, it is a whole family of call sites that no test in this class can
+    see. ``ResourceCreateMixin.create``'s signature is already read at runtime
+    two hundred lines below for precisely this reason -- the resource list was
+    the half still hand-maintained, with nothing to notice an SDK upgrade adding
+    a creatable resource.
+
+    Two ways to reach a resource, and both have to be collected:
+
+    * off the client -- ``Client.__init__`` binds ``self.payments = Payments(self)``,
+      so instantiating one (no credentials, no network) and reading its instance
+      dict gives every client-level name;
+    * off an object -- ``Customer.subscriptions`` is a property returning
+      ``CustomerSubscriptions(self.client, self)``. Those properties carry no
+      return annotation, so the class is read out of their source with ast.
+
+    One accessor name can front several resource classes: ``payments`` is
+    ``Payments`` on the client and ``SubscriptionPayments`` on a subscription.
+    So this maps name -> {class names}, and a name counts as creatable when ANY
+    class behind it is. Collapsing it to one class per name silently drops
+    ``payments`` and ``refunds`` from the creatable set -- measured while
+    writing this, not hypothesised.
+    """
+    import mollie.api.objects
+    import mollie.api.resources
+    from mollie.api.client import Client
+    from mollie.api.resources.base import ResourceBase
+
+    accessors = {}
+
+    def record(name, cls):
+        if isinstance(cls, type) and issubclass(cls, ResourceBase):
+            accessors.setdefault(name, set()).add(cls.__name__)
+
+    for name, value in vars(Client()).items():
+        record(name, type(value))
+
+    objects_dir = mollie.api.objects.__path__[0]
+    for entry in sorted(os.listdir(objects_dir)):
+        if not entry.endswith(".py"):
+            continue
+        for node in ast.walk(_parse_module(os.path.join(objects_dir, entry))):
+            if not isinstance(node, ast.FunctionDef):
+                continue
+            if not any(isinstance(d, ast.Name) and d.id == "property" for d in node.decorator_list):
+                continue
+            for inner in ast.walk(node):
+                if (
+                    isinstance(inner, ast.Return)
+                    and isinstance(inner.value, ast.Call)
+                    and isinstance(inner.value.func, ast.Name)
+                ):
+                    record(node.name, getattr(mollie.api.resources, inner.value.func.id, None))
+
+    def is_creatable(cls_name):
+        # Deliberately NOT `issubclass(cls, ResourceCreateMixin)`, which is the
+        # obvious predicate and is wrong. `Onboarding` subclasses ResourceGetMixin
+        # and defines its own `create()` that calls `perform_api_call(REST_CREATE)`
+        # -- a remote create by every meaning that matters here, invisible to the
+        # mixin check. It is also the worse case: its `create()` does not even
+        # ACCEPT `idempotency_key`, so a call to it is non-idempotent by
+        # construction and there is no fix the ratchet below could ask for.
+        #
+        # Measured across SDK 4.0.0: 5 classes define `create`, 4 are
+        # ResourceCreateMixin subclasses, Onboarding is the sole exception.
+        cls = getattr(mollie.api.resources, cls_name, None)
+        return isinstance(cls, type) and callable(getattr(cls, "create", None))
+
+    return {
+        name: sorted(classes)
+        for name, classes in accessors.items()
+        if any(is_creatable(cls_name) for cls_name in classes)
+    }
+
+
+# The accessors this app actually creates through. Checked BY NAME, because a
+# bare count cannot distinguish "the derivation works" from "the derivation lost
+# three families and gained none". Measured: a single plausible SDK refactor
+# (`return PaymentCaptures(...)` -> `return resources.PaymentCaptures(...)`, which
+# the ast walk below matches on ast.Name) silently drops `captures`, `mandates`
+# and `shipments` while a `len(...) >= 8` floor stays green.
+#
+# Deliberately NOT the full derived set: pyproject pins `mollie-api-python>=3.6.0`
+# with no upper bound, so an older resolved SDK legitimately lacks `client_links`
+# and would fail an equality assertion for no defect. These five have existed
+# throughout that range and are the only ones with live create sites here.
+REQUIRED_CREATABLE_ACCESSORS = frozenset({"customers", "subscriptions", "payments", "mandates", "refunds"})
+
+# _MOLLIE_RESOURCES names these although the SDK cannot create them. Recorded, so
+# that a NEW dead entry fails while these three do not -- the same rot-check the
+# unkeyed ratchet gets. Without it the list would quietly accumulate names that
+# describe nothing, which is the failure this module argues about elsewhere.
+KNOWN_NOT_CREATABLE = frozenset({"chargebacks", "settlements", "terminals"})
+
+
+class TestTheResourceListMatchesTheSdk(unittest.TestCase):
+    """The scanner's blind spot, checked against the SDK rather than by memory.
+
+    ``_MOLLIE_RESOURCES`` decides what counts as a remote create at all. Every
+    assertion in ``TestMollieRemoteCreatesAreIdempotent`` is scoped by it, so a
+    creatable resource it omits is invisible to the ratchet, to the
+    deterministic-key check and to the control that claims the scanner still
+    sees anything.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        """The non-vacuity guard lives HERE, not in a sibling test.
+
+        As a test method it would fail alone and leave the coverage assertion
+        below reporting a spurious green off an empty derivation -- unittest does
+        not skip siblings. Raising in setUpClass errors every test in the class
+        together, so a broken derivation cannot look like a passing invariant.
+        """
+        cls.creatable = _sdk_creatable_resource_accessors()
+        missing = REQUIRED_CREATABLE_ACCESSORS - set(cls.creatable)
+        if missing:
+            raise AssertionError(
+                f"the SDK derivation lost {sorted(missing)}; it returned "
+                f"{sorted(cls.creatable)}. Either the SDK moved its resources (Client "
+                "no longer binds them in __dict__, or the object properties no longer "
+                "return a resource class by bare name) or the walk is broken -- and "
+                "every assertion in this class would otherwise pass while checking a "
+                "smaller SDK than the one that ships."
+            )
+
+    def test_every_creatable_sdk_resource_is_in_the_scanners_resource_list(self):
+        """A creatable resource the scanner does not know is a family of call
+        sites nothing here can see.
+
+        Asserted in ONE direction only, and the reason is version tolerance, not
+        that the other direction is harmless: `mollie-api-python>=3.6.0` is
+        unpinned above, so the derived set legitimately differs between resolved
+        SDKs and an equality assertion would go red on a version difference
+        rather than a defect. Over-inclusion is covered separately by
+        ``test_the_resource_list_has_not_rotted``.
+        """
+        missing = {name: self.creatable[name] for name in set(self.creatable) - _MOLLIE_RESOURCES}
+        self.assertEqual(
+            missing,
+            {},
+            "The installed Mollie SDK can create resource(s) that _MOLLIE_RESOURCES "
+            "does not list, so `<anything>."
+            + "|".join(sorted(missing) or ["<none>"])
+            + ".create(...)` is invisible to every test in "
+            "TestMollieRemoteCreatesAreIdempotent:\n"
+            + "\n".join(f"  {name} -> {', '.join(classes)}" for name, classes in sorted(missing.items()))
+            + "\n\nAdd the accessor name(s) to _MOLLIE_RESOURCES.",
+        )
+
+    def test_the_resource_list_has_not_rotted(self):
+        """Every name in _MOLLIE_RESOURCES must still mean something.
+
+        The three in KNOWN_NOT_CREATABLE are deliberate -- matching a call that
+        cannot exist is harmless. A FOURTH such name is not deliberate, it is a
+        typo or a resource the SDK dropped, and it would sit there forever
+        looking like coverage.
+        """
+        dead = (_MOLLIE_RESOURCES - set(self.creatable)) - KNOWN_NOT_CREATABLE
+        self.assertEqual(
+            dead,
+            set(),
+            f"_MOLLIE_RESOURCES names {sorted(dead)}, which the installed SDK cannot "
+            "create and which is not one of the three recorded list-only resources. "
+            "Either it is a typo, or the SDK dropped it -- remove it, or add it to "
+            "KNOWN_NOT_CREATABLE with a reason.",
+        )
 
 
 # ===========================================================================
