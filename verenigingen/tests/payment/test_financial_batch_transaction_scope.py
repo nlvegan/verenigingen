@@ -30,6 +30,8 @@ from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.utils import financial_history_batch_processor as batch_module
 from verenigingen.utils.financial_history_batch_processor import FinancialHistoryBatchProcessor
 
+DB_ALIASES = {"db", "database"}
+
 SCOPED_METHODS = (
     "_process_member_payment_batch",
     "_process_member_expense_batch",
@@ -75,26 +77,12 @@ class TestFinancialBatchTransactionScope(VereningingenTestCase):
         """A member deleted between queueing and the flush is an expected race for a
         queue drained minutes later, so it must not raise (the caller logs an Error
         Log per raised batch, which is noise for a routine race)."""
-        FinancialHistoryBatchProcessor.reset_queues()
-        FinancialHistoryBatchProcessor._payment_queue["Assoc-Member-GONE-1234"]["INV-GONE"] = {
-            "operation": "add_update",
-            "timestamp": frappe.utils.now(),
-            "data": {},
-        }
-        FinancialHistoryBatchProcessor._expense_queue["Assoc-Member-GONE-1234"]["EXP-GONE"] = {
-            "operation": "add_update",
-            "timestamp": frappe.utils.now(),
-            "data": {},
-        }
-
         FinancialHistoryBatchProcessor._process_member_payment_batch(
             "Assoc-Member-GONE-1234", {"INV-GONE": {"operation": "add_update", "data": {}}}
         )
         FinancialHistoryBatchProcessor._process_member_expense_batch(
             "Assoc-Member-GONE-1234", {"EXP-GONE": {"operation": "add_update", "data": {}}}
         )
-
-        FinancialHistoryBatchProcessor.reset_queues()
 
     def test_per_member_handlers_never_end_the_whole_transaction(self):
         """Neither handler may call transaction-wide commit/rollback.
@@ -115,12 +103,22 @@ class TestFinancialBatchTransactionScope(VereningingenTestCase):
                     continue
                 if call.func.attr not in ("commit", "rollback"):
                     continue
-                # frappe.db.<attr>(...)
+                # Receiver must look like a database handle: `frappe.db.x()` and the
+                # aliased `db = frappe.db; db.x()`, which walked past an earlier check.
                 value = call.func.value
-                if not (isinstance(value, ast.Attribute) and value.attr == "db"):
+                is_frappe_db = isinstance(value, ast.Attribute) and value.attr == "db"
+                is_alias = isinstance(value, ast.Name) and value.id in DB_ALIASES
+                if not (is_frappe_db or is_alias):
                     continue
-                if call.func.attr == "rollback" and any(kw.arg == "save_point" for kw in call.keywords):
-                    continue  # scoped rollback is the point
+                # A scoped rollback is the point -- but `save_point=None` is the
+                # transaction-wide path (frappe's rollback() branches on `if
+                # save_point:`), so a literal None must NOT count as scoped.
+                if call.func.attr == "rollback" and any(
+                    kw.arg == "save_point"
+                    and not (isinstance(kw.value, ast.Constant) and kw.value.value is None)
+                    for kw in call.keywords
+                ):
+                    continue
                 offenders.append(f"{node.name}:{call.lineno} frappe.db.{call.func.attr}()")
 
         self.assertEqual(

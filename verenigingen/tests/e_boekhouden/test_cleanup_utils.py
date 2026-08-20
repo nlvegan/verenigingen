@@ -119,6 +119,7 @@ class _CleanupTestBase(EnhancedTestCase):
         ge.cost_center = cost_center
         ge.voucher_type = voucher_type
         ge.voucher_no = voucher_no
+        ge.name = self.unique_seed_name("GLE")
         ge.db_insert()
         return ge.name
 
@@ -217,6 +218,7 @@ class TestCleanupCancelledPaymentGLEntries(_CleanupTestBase):
         ge.cost_center = cost_center
         ge.voucher_type = "Payment Entry"
         ge.voucher_no = pe.name
+        ge.name = self.unique_seed_name("GLE")
         ge.db_insert()
         frappe.db.commit()
         return pe.name, ge.name
@@ -371,6 +373,7 @@ class TestCleanupChartOfAccountsForceMode(_CleanupTestBase):
         ge.cost_center = cost_center
         ge.voucher_type = "Journal Entry"
         ge.voucher_no = "EBKH-CLEANUP-FORCE-VOUCHER"
+        ge.name = self.unique_seed_name("GLE")
         ge.db_insert()
         return ge.name
 

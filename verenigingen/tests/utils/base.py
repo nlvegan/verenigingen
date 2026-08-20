@@ -164,8 +164,10 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
             )
 
             FinancialHistoryBatchProcessor.reset_queues()
-        except Exception:  # pragma: no cover - never break the test lifecycle
-            pass
+        except Exception as e:  # never break the test lifecycle over this
+            # print, not logger.warning: bare loggers default to ERROR under
+            # `bench run-tests`, so a warning here would be discarded entirely.
+            print(f"Financial batch queue reset failed: {e}")
 
         self._test_docs = []
         self._original_session_user = frappe.session.user

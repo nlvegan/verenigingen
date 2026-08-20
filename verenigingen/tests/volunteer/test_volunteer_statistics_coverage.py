@@ -149,7 +149,7 @@ class TestVolunteerStatisticsCoverage(EnhancedTestCase):
                     }
                 ],
             }
-        ).insert(ignore_permissions=True)
+        ).insert()
         # Drained highest-first. Cancelling a submitted Expense Claim reads its
         # employee as the GL party, so the claim must outrank the Employee (2)
         # it points at -- see DRAIN_PRIORITY_BY_DOCTYPE.

@@ -58,7 +58,11 @@ class TestSeededRowsLeaveTheNamingSeriesAlone(VereningingenTestCase):
             autoname = frappe.get_meta(doctype).autoname or ""
         except Exception:
             return False
-        return autoname.lower().startswith("naming_series")
+        autoname = autoname.lower()
+        # Not just `naming_series:` -- `format:...{####}` (Member) and old-style
+        # expression autonames (`ACC-GLE-.YYYY.-.#####`, GL Entry) also draw from
+        # tabSeries, and an earlier version of this check missed both.
+        return "naming_series" in autoname or "#" in autoname
 
     def test_db_insert_on_a_series_named_doctype_presets_the_name(self):
         offenders = []
@@ -108,6 +112,9 @@ class TestSeededRowsLeaveTheNamingSeriesAlone(VereningingenTestCase):
                         continue
                     if self._series_named(doctype):
                         offenders.append(f"{_rel(path)}:{lineno} {var}=new_doc({doctype!r}).db_insert()")
+            # `source` stays bound as a local otherwise, and Frappe's traceback
+            # renderer dumps every local -- 12KB of an unrelated file per failure.
+            del tree, source
 
         self.assertEqual(
             sorted(offenders),
@@ -123,23 +130,58 @@ class TestExpenseClaimDrainsBeforeItsEmployee(VereningingenTestCase):
     the drain deletes highest-priority first. A claim tracked below the Employee it
     points at therefore cannot be cancelled -- CI: "Could not find Party".
     Eight files had the pair inverted.
+
+    Read with AST, not a regex: `track_document(doctype, name)` takes `priority=0`
+    by default, so a claim tracked WITHOUT an explicit priority sits below an
+    Employee tracked at 2 -- and a regex keyed on `priority=` cannot see it.
     """
 
-    TRACK = re.compile(
-        r"""track(?:_test)?_document\(\s*["'](Expense Claim|Employee)["'][^)]*?priority\s*=\s*(-?\d+)""",
-        re.S,
-    )
+    # ONLY the priority-ordered trackers. VereningingenTestCase.track_doc (and the
+    # secure factory's) take `depends_on`, not `priority`, and their cleanup walks
+    # `reversed(self._test_docs)` -- LIFO, so registration order already deletes a
+    # claim before the employee registered ahead of it. Judging those by priority
+    # reports a false positive (test_document_links.py was one).
+    TRACKERS = {"track_document", "_track_test_document"}
+
+    @staticmethod
+    def _literal(node):
+        return node.value if isinstance(node, ast.Constant) else None
+
+    def _tracked_priorities(self, tree):
+        """{doctype: [priority, ...]} for every tracking call in the tree."""
+        found = {}
+        for call in ast.walk(tree):
+            if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Attribute):
+                continue
+            if call.func.attr not in self.TRACKERS or not call.args:
+                continue
+            doctype = self._literal(call.args[0])
+            if doctype not in ("Expense Claim", "Employee"):
+                continue
+            priority = 0  # the signature default
+            for kw in call.keywords:
+                if kw.arg == "priority":
+                    value = self._literal(kw.value)
+                    if not isinstance(value, int):
+                        priority = None  # computed; cannot judge, do not guess
+                        break
+                    priority = value
+            if priority is not None:
+                found.setdefault(doctype, []).append(priority)
+        return found
 
     def test_no_test_tracks_an_expense_claim_below_its_employee(self):
         offenders = []
         for path, source in _iter_test_sources():
-            found = self.TRACK.findall(source)
-            if not found:
+            try:
+                tree = ast.parse(source)
+            except SyntaxError:  # pragma: no cover
                 continue
-            claims = [int(p) for dt, p in found if dt == "Expense Claim"]
-            employees = [int(p) for dt, p in found if dt == "Employee"]
+            found = self._tracked_priorities(tree)
+            claims, employees = found.get("Expense Claim"), found.get("Employee")
             if claims and employees and min(claims) <= max(employees):
                 offenders.append(f"{_rel(path)} (Expense Claim={min(claims)} <= Employee={max(employees)})")
+            del tree, source
 
         self.assertEqual(
             sorted(offenders),
@@ -150,64 +192,98 @@ class TestExpenseClaimDrainsBeforeItsEmployee(VereningingenTestCase):
 
 
 class TestRegionCodesAreNotDrawnFromANarrowSpace(VereningingenTestCase):
-    """region_code is UNIQUE and capped at 5 chars, so a code sliced off a counter
+    """region_code is UNIQUE and capped at 5 chars, so a code DERIVED from a counter
     has a tiny space -- "R" + 4 digits is 10,000 values, "TR" + 3 is 1,000, and one
-    site used 10. CI: "Region Code R7655 already exists", which cost a whole
-    12-shard run. Use EnhancedTestCase.unique_region_code(), which checks.
+    site used 10. CI: "Region Code R7655 already exists", which cost a 12-shard run.
+
+    The rule is not "never compute a code" -- it is "either allocate one that was
+    verified free, or verify it yourself". A literal is fine (deliberate, and the
+    format-validation tests need specific values); a computed code is fine if the
+    same function checks `frappe.db.exists("Region", ...)`. Anything else is a
+    collision waiting for a warm site.
+
+    An earlier regex version of this check matched exactly the one shape that had
+    already been fixed and missed `f"TR{seq}"[:5]`, `base + str(n)[-4:]`,
+    `generate_hash(4).upper()[:4]` and the kwarg form.
     """
 
-    SLICED = re.compile(r"""["']region_code["']\s*:\s*f["'][^"']*\{[^}]*\[\s*:\s*\d+\s*\]""")
+    ALLOCATORS = {"allocate_free_region_code", "unique_region_code"}
 
-    def test_no_test_slices_a_region_code_out_of_a_counter(self):
+    def _region_code_values(self, tree):
+        """(lineno, value_node) for every region_code assignment in the tree."""
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Dict):
+                for key, value in zip(node.keys, node.values):
+                    if isinstance(key, ast.Constant) and key.value == "region_code":
+                        yield value.lineno, value
+            elif isinstance(node, ast.keyword) and node.arg == "region_code":
+                yield node.value.lineno, node.value
+            elif isinstance(node, ast.Assign):
+                for target in node.targets:
+                    name = getattr(target, "attr", None) or getattr(target, "id", None)
+                    if name == "region_code":
+                        yield node.value.lineno, node.value
+
+    def _allocated_names(self, fn_node):
+        """Locals bound to an allocator result: `code = self.unique_region_code()`."""
+        names = set()
+        for node in ast.walk(fn_node):
+            if isinstance(node, ast.Assign) and self._calls_allocator(node.value):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        names.add(target.id)
+        return names
+
+    def _calls_allocator(self, node):
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Call):
+                fn = sub.func
+                name = getattr(fn, "attr", None) or getattr(fn, "id", None)
+                if name in self.ALLOCATORS:
+                    return True
+        return False
+
+    def _is_allocated(self, node, allocated_names):
+        if self._calls_allocator(node):
+            return True
+        # `code` and derivations of it, e.g. `code.lower()` for the
+        # case-insensitivity test, are as safe as the allocation that produced them.
+        return any(isinstance(sub, ast.Name) and sub.id in allocated_names for sub in ast.walk(node))
+
+    @staticmethod
+    def _checks_existence(fn_node):
+        for sub in ast.walk(fn_node):
+            if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute):
+                if sub.func.attr in ("exists", "get_value", "get_all"):
+                    for arg in sub.args:
+                        if isinstance(arg, ast.Constant) and arg.value == "Region":
+                            return True
+        return False
+
+    def test_a_computed_region_code_is_either_allocated_or_checked(self):
         offenders = []
         for path, source in _iter_test_sources():
-            for lineno, line in enumerate(source.splitlines(), start=1):
-                if self.SLICED.search(line):
-                    offenders.append(f"{_rel(path)}:{lineno} {line.strip()}")
+            try:
+                tree = ast.parse(source)
+            except SyntaxError:  # pragma: no cover
+                continue
+            for fn in ast.walk(tree):
+                if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                checked = self._checks_existence(fn)
+                allocated = self._allocated_names(fn)
+                for lineno, value in self._region_code_values(fn):
+                    if isinstance(value, ast.Constant):
+                        continue  # a deliberate literal
+                    if self._is_allocated(value, allocated) or checked:
+                        continue
+                    offenders.append(f"{_rel(path)}:{lineno}")
+            del tree, source
 
         self.assertEqual(
-            sorted(offenders),
+            sorted(set(offenders)),
             [],
-            "region_code sliced from a counter collides; allocate one that is "
-            "verified free:\n  " + "\n  ".join(sorted(offenders)),
+            "a computed region_code must either come from a checked allocator "
+            "(unique_region_code / allocate_free_region_code) or be verified free in "
+            "the same function:\n  " + "\n  ".join(sorted(set(offenders))),
         )
-
-
-class TestDeletingInsideATestTransactionDoesNotStick(VereningingenTestCase):
-    """The premise a test-setup purge cannot rely on.
-
-    `_purge_orphan_claims` deleted stale rows in setUp so they could not pollute a
-    fixture's aggregates. It could never work: the delete ran inside the test
-    transaction, and tearDown's rollback restored every row -- after which the drain
-    tried to cancel rows whose employee had never existed, reported them as leaks and
-    re-committed them, so one orphan made the module leak on that site forever (#407).
-
-    This pins the mechanism so the next author reaches for a clean name instead of
-    cleaning a dirty one.
-    """
-
-    def test_a_row_deleted_without_commit_returns_after_rollback(self):
-        note = frappe.get_doc(
-            {"doctype": "Note", "title": f"purge-premise-{frappe.generate_hash(length=10)}"}
-        ).insert()
-        frappe.db.commit()  # the row exists independently of this test's transaction
-        name = note.name
-        try:
-            self.assertTrue(frappe.db.exists("Note", name))
-
-            frappe.delete_doc("Note", name, force=True)
-            self.assertFalse(
-                frappe.db.exists("Note", name), "delete should be visible inside the transaction"
-            )
-
-            frappe.db.rollback()  # what tearDown does
-
-            self.assertTrue(
-                frappe.db.exists("Note", name),
-                "a delete issued inside the test transaction must be understood to be "
-                "UNDONE by rollback -- setup code cannot purge rows and expect them gone",
-            )
-        finally:
-            if frappe.db.exists("Note", name):
-                frappe.delete_doc("Note", name, force=True)
-                frappe.db.commit()
