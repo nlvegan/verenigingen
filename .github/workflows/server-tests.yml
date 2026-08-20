@@ -43,41 +43,41 @@ on:
         default: true
 
 concurrency:
-  group: server-tests-${{ github.ref }}
-  # Cancel a superseded PR run; never cancel a trunk run.
+  # A trunk push gets a group of its OWN, so no merge can cancel the run that is
+  # verifying the merge before it. A pull_request keeps the per-ref group and so
+  # keeps cancelling its own superseded runs.
   #
-  # What is lost without this is per-merge ATTRIBUTION, not verification. Of the
-  # last 40 develop runs, 16 concluded `cancelled`, and every one of those 16
-  # commits is a git-ancestor of a later develop commit whose run did conclude --
-  # so the trunk HEAD was always tested, as part of a superset. What you cannot
-  # do is say which merge broke it. The 08-12/13 chain is the case that matters:
-  # five merges cancelled in a row, the terminal run red, and no way to tell
-  # which of the five did it.
+  # What was lost before this is per-merge ATTRIBUTION, not verification. Of the
+  # last 40 develop runs, 16 concluded `cancelled`, and all 16 of those commits
+  # are git-ancestors of a later develop commit whose run did conclude -- the
+  # head was always tested, as part of a superset. What you could not do is say
+  # WHICH merge broke it. The 08-12/13 chain is the case that matters: five
+  # merges cancelled in a row, terminal run red, no way to attribute it.
   #
-  # `queue: max` is not optional here. With cancel-in-progress false, GitHub
-  # holds at most ONE pending run per group and cancels older pending ones, so
-  # gating the flag alone would trade cancelled-while-running for
-  # cancelled-while-pending and add queueing latency on top. Simulated against
-  # the real run history at the measured median duration (36.5 min, n=24 -- not
-  # the "about an hour" this comment first claimed): flag alone gives 4 still
-  # cancelled and 12 runs delayed by up to 36 min; with `queue: max`, 0.
+  # Why the group and not just `cancel-in-progress`. With cancel-in-progress
+  # false, GitHub keeps at most ONE pending run per group and cancels older
+  # pending ones, so gating the flag alone trades cancelled-while-running for
+  # cancelled-while-pending and adds queueing latency on top -- simulated against
+  # the real history at the measured median duration (36.5 min over 24 completed
+  # runs, not the "about an hour" first claimed here): 4 still cancelled, 12
+  # delayed by up to 36 min. `queue: max` would raise that limit, and is
+  # documented, but this instance REJECTS the key -- pushing it produced a run
+  # that died in 1 second with zero jobs ("workflow file issue"), which is what a
+  # validation error looks like. Measured, not assumed. A per-commit group needs
+  # no pending semantics at all: two trunk runs are never in the same group.
   #
-  # The burst case is the one to keep in mind: 6 of 39 gaps between develop runs
-  # are under a minute, and on 2026-08-16 five pushes landed in 25 seconds.
-  # Those serialise now. That is the deliberate trade -- attribution for
-  # latency -- and `queue: max` is what keeps the tail of a burst from being
-  # dropped instead of merely delayed.
+  # Cost, stated: trunk runs now go in parallel rather than replacing each other.
+  # 6 of 39 gaps between develop runs are under a minute -- five pushes landed
+  # within 25 seconds on 2026-08-16 -- so a burst can put several 14-job suites
+  # in flight at once. Those queue for runners at the ACCOUNT level, which
+  # delays them rather than cancelling them, and can slow PR feedback during a
+  # burst. That is the trade: runner contention for attribution.
   #
-  # PRs are unaffected: `github.ref` is `refs/pull/<n>/merge` for pull_request
-  # events, verified against this repo's own run history (PR runs on one branch
-  # cancel each other; PR and develop runs overlap without cancelling), so they
-  # never share a group with a trunk run.
-  #
-  # `main` is named because it is a push trigger above. It does not exist in this
-  # repo today, so the clause is currently inert -- kept so the workflow does not
-  # need editing if it is ever created.
-  cancel-in-progress: ${{ github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/main' }}
-  queue: max
+  # `github.ref` is `refs/pull/<n>/merge` for pull_request events, verified
+  # against this repo's own history (PR runs on one branch cancel each other; PR
+  # and develop runs overlap without cancelling), so PR and trunk never collide.
+  group: server-tests-${{ github.ref }}${{ github.event_name == 'push' && format('-{0}', github.sha) || '' }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
