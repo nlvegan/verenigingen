@@ -28,17 +28,19 @@ class TestRegion(EnhancedTestCase):
     # Helpers (privileged creation lives here, never in test bodies)
     # ------------------------------------------------------------------
     def _make_region(self, save=True, **overrides):
-        """Build (and optionally save) a Region with a guaranteed-unique
-        name + code. Overrides win over the generated defaults."""
+        """Build (and optionally save) a Region with a unique name + code.
+        Overrides win over the generated defaults."""
         suffix = self.get_unique_suffix()
         data = {
             "doctype": "Region",
             "region_name": f"Test Region {suffix}",
-            # region_code must be 2-5 [A-Z0-9]; take 4 digits of the suffix
-            "region_code": f"R{suffix.replace('-', '')[:4]}",
             "country": "Netherlands",
         }
         data.update(overrides)
+        # Allocated only when the caller has not pinned one: the allocation costs a
+        # db.exists, and six tests pass region_code= explicitly.
+        if "region_code" not in data:
+            data["region_code"] = self.unique_region_code()
         region = frappe.get_doc(data)
         if save:
             region.insert(ignore_permissions=True)
@@ -96,9 +98,10 @@ class TestRegion(EnhancedTestCase):
     def test_region_code_uniqueness_case_insensitive(self):
         """Because the code is upper-cased before the uniqueness check, a
         lowercase duplicate must still collide with an existing upper code."""
-        base = self._make_region(region_code="UNQ1")
-        dup = self._make_region(save=False, region_code="unq1")
-        with self.assertRaises(frappe.ValidationError):
+        code = self.unique_region_code()
+        self._make_region(region_code=code)
+        dup = self._make_region(save=False, region_code=code.lower())
+        with self.assertRaisesRegex(frappe.ValidationError, "already exists"):
             dup.insert(ignore_permissions=True)
 
     # ------------------------------------------------------------------
@@ -429,7 +432,7 @@ class TestRegion(EnhancedTestCase):
             {
                 "doctype": "Region",
                 "region_name": f"Test Region {unique_suffix}",
-                "region_code": f"TR{unique_suffix[:3]}",
+                "region_code": self.unique_region_code(),
                 "country": "Netherlands",
             }
         )
@@ -451,8 +454,10 @@ class TestRegion(EnhancedTestCase):
     def test_region_code_uniqueness(self):
         """Test that duplicate region codes are prevented"""
         unique_suffix = self.get_unique_suffix()
-        # Region code must be 2-5 chars, use first 2 digits of timestamp
-        code = f"D{unique_suffix[:1]}"
+        # One free code, deliberately reused below: this test asserts the
+        # UNIQUE constraint fires. The old f"D{suffix[:1]}" had TEN possible
+        # values, so region1.save() itself could collide with a leftover row.
+        code = self.unique_region_code()
 
         # Create first region
         region1 = frappe.get_doc(
@@ -473,8 +478,11 @@ class TestRegion(EnhancedTestCase):
             }
         )
 
-        # Should fail due to duplicate code
-        with self.assertRaises(frappe.ValidationError):
+        # Should fail due to duplicate code. assertRaisesRegex, not assertRaises:
+        # the DB's UNIQUE index on region_code raises a ValidationError subclass too,
+        # so a bare assertRaises passes even with validate_region_code's uniqueness
+        # branch disabled -- verified by mutation. Pin the controller's own message.
+        with self.assertRaisesRegex(frappe.ValidationError, "already exists"):
             region2.save()
 
     def test_postal_code_patterns(self):
@@ -485,7 +493,7 @@ class TestRegion(EnhancedTestCase):
             {
                 "doctype": "Region",
                 "region_name": f"Postal Test Region {unique_suffix}",
-                "region_code": f"PT{unique_suffix[:3]}",
+                "region_code": self.unique_region_code(),
                 "postal_code_patterns": "1000-1999, 2500, 3000-3099",
             }
         )
@@ -505,7 +513,7 @@ class TestRegion(EnhancedTestCase):
             {
                 "doctype": "Region",
                 "region_name": f"Coordinator Region {unique_suffix}",
-                "region_code": f"CR{unique_suffix[:3]}",
+                "region_code": self.unique_region_code(),
                 "regional_coordinator": coordinator.name,
             }
         )
