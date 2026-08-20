@@ -34,10 +34,13 @@ class TestRegion(EnhancedTestCase):
         data = {
             "doctype": "Region",
             "region_name": f"Test Region {suffix}",
-            "region_code": self.unique_region_code(),
             "country": "Netherlands",
         }
         data.update(overrides)
+        # Allocated only when the caller has not pinned one: the allocation costs a
+        # db.exists, and six tests pass region_code= explicitly.
+        if "region_code" not in data:
+            data["region_code"] = self.unique_region_code()
         region = frappe.get_doc(data)
         if save:
             region.insert(ignore_permissions=True)
@@ -95,9 +98,10 @@ class TestRegion(EnhancedTestCase):
     def test_region_code_uniqueness_case_insensitive(self):
         """Because the code is upper-cased before the uniqueness check, a
         lowercase duplicate must still collide with an existing upper code."""
-        base = self._make_region(region_code="UNQ1")
-        dup = self._make_region(save=False, region_code="unq1")
-        with self.assertRaises(frappe.ValidationError):
+        code = self.unique_region_code()
+        self._make_region(region_code=code)
+        dup = self._make_region(save=False, region_code=code.lower())
+        with self.assertRaisesRegex(frappe.ValidationError, "already exists"):
             dup.insert(ignore_permissions=True)
 
     # ------------------------------------------------------------------
@@ -474,8 +478,11 @@ class TestRegion(EnhancedTestCase):
             }
         )
 
-        # Should fail due to duplicate code
-        with self.assertRaises(frappe.ValidationError):
+        # Should fail due to duplicate code. assertRaisesRegex, not assertRaises:
+        # the DB's UNIQUE index on region_code raises a ValidationError subclass too,
+        # so a bare assertRaises passes even with validate_region_code's uniqueness
+        # branch disabled -- verified by mutation. Pin the controller's own message.
+        with self.assertRaisesRegex(frappe.ValidationError, "already exists"):
             region2.save()
 
     def test_postal_code_patterns(self):

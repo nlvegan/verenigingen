@@ -511,6 +511,13 @@ class TestSEPABatchProcessorAddHelpers(_BatchPipelineBase):
         A far-future date puts the whole window ahead of every existing posting_date,
         which is what actually makes the empty branch deterministic.
         verify_invoicing is disabled to keep this focused on the empty branch."""
+        # Pin the fixture assumption separately from the behaviour. Both of
+        # create_dues_collection_batch's None paths (empty-eligible-list, and
+        # delete-the-empty-batch) look identical to assertIsNone, so without this a
+        # future failure would say "returns not None" instead of naming the real
+        # cause -- that the window stopped being empty.
+        self.assertEqual(self.processor.get_existing_unpaid_sepa_invoices("2999-01-01"), [])
+
         result = self.processor.create_dues_collection_batch(
             collection_date="2999-01-01", verify_invoicing=False
         )
