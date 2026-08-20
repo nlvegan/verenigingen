@@ -1343,12 +1343,24 @@ class UnifiedWebhookWrapperService:
             # duplicate guard: this read cannot close the window where Mollie
             # created the subscription but the response was lost, because nothing
             # local was written in that case. The actual protection is in
-            # payment_gateways._get_or_create_subscription, which asks Mollie
-            # what already carries this payment's fingerprint
-            # (metadata.payment_id) before creating anything; the deterministic
-            # Idempotency-Key sits in front of that as a fast path and could not
-            # do the job alone, because Mollie evicts keys after an hour against
-            # a retry ladder that runs twenty-six. That remote check is also why
+            # payment_gateways._get_or_create_subscription: it asks Mollie what
+            # already carries this payment's fingerprint (metadata.payment_id)
+            # and adopts it. That listing runs FIRST and unconditionally; the
+            # deterministic Idempotency-Key is the backstop BEHIND it, not a fast
+            # path in front of it, and it could not do the job alone because
+            # Mollie evicts keys after an hour against a retry ladder that runs
+            # twenty-six.
+            #
+            # Residual, stated because it is on exactly this path:
+            # _find_subscription_for_payment returns None both when nothing
+            # matched and when the listing itself raised, and the caller cannot
+            # tell those apart. So if the listing is failing AND the key has
+            # expired -- attempts 8-10, at T+2h/4h/26h -- the guard degrades to
+            # nothing and a retry can create a second live subscription. That
+            # tradeoff is deliberate (a listing outage must not block a
+            # first-time donor) and is recorded at _find_subscription_for_payment.
+            #
+            # That remote check is also why
             # no row lock is taken here: holding a transaction open across a
             # gateway round-trip would extend the tabSeries lock this request
             # already holds, for no correctness gain.
@@ -1437,12 +1449,13 @@ class UnifiedWebhookWrapperService:
             # connection -- into a generic error dict, so the exception type is
             # not visible here and unclassifiable failures have to be guessed.
             # Guessing "retry" is the right guess now that the create adopts any
-            # subscription already carrying this payment's fingerprint, with a
-            # deterministic Idempotency-Key in front of that: a re-delivery
-            # re-attempts rather than duplicating. Stated at its real strength --
-            # if Mollie's own subscription listing is failing too, the adopt
-            # degrades to the key and so to its one-hour cache, which is written
-            # down at _find_subscription_for_payment rather than assumed away.
+            # subscription already carrying this payment's fingerprint, with the
+            # deterministic Idempotency-Key as a backstop behind that adopt: a
+            # re-delivery re-attempts rather than duplicating. At its real
+            # strength, which is not unconditional -- if Mollie's own subscription
+            # listing is failing too, the adopt returns the same None it returns
+            # for "nothing matched", falls through to the key, and past the key's
+            # one hour has nothing left. See the fuller note above.
             # Retrying is still the one case that recovers the worst failure
             # mode there is -- Mollie created the subscription but the response
             # was lost, so nothing local recorded it. Without a retry that donor
@@ -1472,9 +1485,12 @@ class UnifiedWebhookWrapperService:
         except Exception as e:
             # A failed subscription must not roll back a payment the donor has
             # already made -- the money is banked either way. Retryable for the
-            # same reason as above: the Idempotency-Key makes re-delivery safe,
-            # and it is what recovers a create that succeeded at Mollie while the
-            # response was lost. Either way the donation stays queryable as an
+            # same reason as above, and with the same limit: what makes a
+            # re-delivery safe is the adopt-by-fingerprint in
+            # _get_or_create_subscription, backed by the Idempotency-Key -- not
+            # the key on its own, which Mollie evicts after an hour. That is also
+            # what recovers a create that succeeded at Mollie while the response
+            # was lost. Either way the donation stays queryable as an
             # unfulfilled recurring intent -- see _update_donation_status.
             frappe.log_error(
                 f"Error activating donation subscription for {donation.name} "
