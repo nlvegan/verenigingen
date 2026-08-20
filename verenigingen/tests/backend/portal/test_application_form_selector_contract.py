@@ -1,8 +1,10 @@
 """Ratchet: the public application form must not read element ids the page lacks.
 
-#201 was one instance of a class. `collectFormDataDirectly()` builds the entire
-payload that `submit_application` receives, by reading element ids out of
-/apply_for_membership. Nothing has ever checked that those ids exist, so a field
+#201 was one instance of a class. The payload `submit_application` receives is built
+by `getAllFormData()`, which merges `collectFormDataDirectly()` and then
+`getAdditionalFormData()` — **second wins** — from element ids read out of
+/apply_for_membership. Believing the first function was the whole payload is what
+let #420 live: the two values carrying money sat in the other half. Nothing has ever checked that those ids exist, so a field
 whose id is wrong does not raise, does not log, and does not fail a test — it
 just transmits '' or false forever. Fourteen of the thirty-one fields were in
 that state when this guard was written (#412).
@@ -40,8 +42,11 @@ def parse_collector_fields():
     chain (`$('#a').val() || $('#b').val()`); such a field is only broken when
     *none* of its ids resolve.
 
-    A field appearing in both functions is merged, which matches runtime: its
-    value can come from either read.
+    A field appearing in both functions has its ids unioned here, which does NOT
+    match runtime — `Object.assign` makes `getAdditionalFormData` the sole source
+    for such a field, so a union could report healthy while the page transmits ''.
+    `test_no_field_is_declared_by_both_collectors` keeps that set empty, which is
+    what makes the union safe.
     """
     fields = {}
     for function_name in COLLECTOR_FUNCTIONS:
@@ -155,6 +160,40 @@ class TestApplicationFormSelectorContract(EnhancedTestCase):
             f"{BASELINE.name}: " + ", ".join(fixed),
         )
 
+    def test_no_field_is_declared_by_both_collectors(self):
+        """Union-merging ids across the two functions is only safe while this holds.
+
+        At runtime the second function wins outright. If a field ever read an id in
+        both, and only the first one resolved, `_broken()` would call it healthy
+        while the page transmitted ''.
+        """
+        both = sorted(
+            set(_parse_one("collectFormDataDirectly")) & set(_parse_one("getAdditionalFormData"))
+        )
+        overlapping_ids = [
+            name
+            for name in both
+            if _parse_one("collectFormDataDirectly")[name] and _parse_one("getAdditionalFormData")[name]
+        ]
+
+        self.assertEqual(
+            overlapping_ids,
+            [],
+            "these fields read ids in both collectors; the union in "
+            "parse_collector_fields() can now mask a break in the losing one: "
+            + ", ".join(overlapping_ids),
+        )
+
+    def test_each_collector_is_defined_exactly_once(self):
+        """`_parse_one` takes the FIRST match, and this file has duplicate method
+        names across its classes (`getData` x6, `bindPaymentEvents` x2). A second
+        definition of a collector would silently shadow the guard."""
+        source = COLLECTOR_JS.read_text(encoding="utf-8")
+
+        for function_name in COLLECTOR_FUNCTIONS:
+            with self.subTest(function=function_name):
+                self.assertEqual(source.count("\t%s() {" % function_name), 1)
+
     def test_the_baseline_names_only_fields_that_still_exist(self):
         """Guards against a rename leaving a dead entry behind."""
         unknown = sorted(self.baseline - set(self.fields))
@@ -162,6 +201,6 @@ class TestApplicationFormSelectorContract(EnhancedTestCase):
         self.assertEqual(
             unknown,
             [],
-            f"{BASELINE.name} names payload fields collectFormDataDirectly() no "
-            "longer has: " + ", ".join(unknown),
+            f"{BASELINE.name} names payload fields the collectors no longer have: "
+            + ", ".join(unknown),
         )

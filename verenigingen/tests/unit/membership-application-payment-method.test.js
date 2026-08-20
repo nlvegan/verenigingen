@@ -15,7 +15,8 @@
 
 require('../../public/js/membership_application.js');
 
-const { getPaymentMethod } = window.MembershipApplication.prototype;
+const proto = window.MembershipApplication.prototype;
+const { getPaymentMethod } = proto;
 
 /** Render the payment radios the way apply_for_membership.html does. */
 function renderPaymentRadios(checkedValue) {
@@ -60,5 +61,41 @@ describe('getPaymentMethod', () => {
 		renderPaymentRadios(null);
 
 		expect(getPaymentMethod.call({ paymentMethod: 'Mollie', state: { get: () => '' } })).toBe('Mollie');
+	});
+});
+
+describe('getAdditionalFormData', () => {
+	afterEach(() => {
+		document.body.innerHTML = '';
+	});
+
+	// The altitude that matters. getAllFormData() merges this function SECOND,
+	// so whatever it puts under `payment_method` is what gets submitted — a
+	// correct getPaymentMethod() is worth nothing if the caller stops asking it.
+	// #420 was exactly that, and a suite testing only the helper stayed green
+	// through a verbatim reintroduction of it.
+	it('carries the checked radio into the payload it contributes', () => {
+		renderPaymentRadios('sepa_direct_debit');
+
+		const payload = proto.getAdditionalFormData.call({
+			paymentMethod: '',
+			state: { get: () => '' },
+			getPaymentMethod: proto.getPaymentMethod
+		});
+
+		expect(payload.payment_method).toBe('sepa_direct_debit');
+	});
+
+	it('does not let stale state outrank the applicant', () => {
+		renderPaymentRadios('mollie');
+
+		const payload = proto.getAdditionalFormData.call({
+			paymentMethod: '',
+			// what showPaymentMethodFallback() seeds on this page
+			state: { get: (key) => (key === 'payment_method' ? 'Bank Transfer' : '') },
+			getPaymentMethod: proto.getPaymentMethod
+		});
+
+		expect(payload.payment_method).toBe('mollie');
 	});
 });

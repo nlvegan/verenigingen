@@ -1,5 +1,6 @@
-# Payload fields of `collectFormDataDirectly()` in
-# verenigingen/public/js/membership_application.js whose element ids the
+# Payload fields of the two collectors that build the submitted payload --
+# `collectFormDataDirectly()` and `getAdditionalFormData()` in
+# verenigingen/public/js/membership_application.js -- whose element ids the
 # rendered /apply_for_membership page does NOT contain, so they transmit '' or
 # false on every application. Baseline for
 # test_application_form_selector_contract.py. Format:
