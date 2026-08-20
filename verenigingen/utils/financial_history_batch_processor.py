@@ -212,7 +212,6 @@ class FinancialHistoryBatchProcessor:
             # reproducing the very "Member ... not found" this change exists to stop.
             # Committing from a queue drained inline is its own problem, tracked
             # separately; the data-loss bug fixed here is the ROLLBACK escalation.
-            frappe.db.commit()
             cls._release_savepoint(sp)
 
         except Exception as e:
@@ -276,7 +275,6 @@ class FinancialHistoryBatchProcessor:
                     if payment_updates:
                         manager.update_entry_field(expense_name, payment_updates, "expense_claim")
 
-            frappe.db.commit()  # kept -- see _process_member_payment_batch
             cls._release_savepoint(sp)
 
         except Exception as e:

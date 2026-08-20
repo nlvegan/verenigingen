@@ -113,7 +113,7 @@ class TestFinancialBatchTransactionScope(VereningingenTestCase):
             for call in ast.walk(node):
                 if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Attribute):
                     continue
-                if call.func.attr != "rollback":
+                if call.func.attr not in ("commit", "rollback"):
                     continue
                 # frappe.db.<attr>(...)
                 value = call.func.value
@@ -126,10 +126,13 @@ class TestFinancialBatchTransactionScope(VereningingenTestCase):
         self.assertEqual(
             offenders,
             [],
-            "a per-member batch handler must never issue a transaction-wide "
-            f"rollback: {offenders}. It discards every other member processed in the "
-            "same run and the caller's in-flight work, and the dispatch loop above "
-            "swallows the exception, so the run still reports success.",
+            "a per-member batch handler must confine itself to its savepoint: "
+            f"{offenders}. A transaction-wide rollback discards every other member "
+            "processed in the same run and the caller's in-flight work -- and the "
+            "dispatch loop swallows the exception, so the run still reports success. "
+            "A transaction-wide commit flushes a caller's half-finished transaction; "
+            "this queue is drained INLINE from add_invoice_to_payment_history(), so "
+            "that is hook context.",
         )
 
     def test_a_vanished_savepoint_does_not_escalate_to_a_full_rollback(self):
