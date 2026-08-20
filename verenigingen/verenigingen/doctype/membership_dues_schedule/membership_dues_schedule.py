@@ -637,13 +637,28 @@ class MembershipDuesSchedule(Document):
             self.custom_last_invoice_failure_date = None
             self.custom_last_invoice_error = None
             self.custom_requires_manual_review = 0
-            secure_document_operation(
+            clear_result = secure_document_operation(
                 operation="save",
                 doc=self,
                 justification=f"Successful invoice generation for {self.name} - resetting error tracking",
                 required_permissions=["Membership Dues Schedule:write"],
                 validate_business_rules=False,
             )
+            if not clear_result.success:
+                # Deliberately best-effort -- see the except below; a cleanup failure
+                # must not undo a successful invoice run. But it has to be VISIBLE:
+                # secure_document_operation returns success=False rather than
+                # raising, so the except never fired for this, the actual failure
+                # mode. Stale counters make a schedule that just succeeded still look
+                # failed, and it can then be auto-advanced or flagged for manual
+                # review on the strength of failures that are over.
+                error_msg = "; ".join(clear_result.errors) if clear_result.errors else "Unknown error"
+                frappe.log_error(
+                    f"Failed to clear retry tracking for {self.name} after a SUCCESSFUL invoice "
+                    f"generation: {error_msg}. Its retry/deadlock counters and manual-review flag "
+                    f"remain set from earlier failures.",
+                    "Retry Tracking Cleanup Error",
+                )
         except Exception as e:
             # Don't let retry tracking cleanup break invoice generation success
             frappe.log_error(

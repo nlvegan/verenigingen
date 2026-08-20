@@ -120,6 +120,7 @@ class _SweepBase(EnhancedTestCase):
         bt.reference_number = ref
         bt.deposit = 1
         bt.company = self.company
+        bt.name = self.unique_seed_name("BT")
         bt.db_insert()
         link = frappe.new_doc("Bank Transaction Payments")
         link.parent = bt.name
@@ -187,6 +188,7 @@ class TestCleanupOrphanedBankTransactionsLinkedToDeletedPE(_SweepBase):
         bt.reference_number = "EB-SWEEP-DEAD-PE"
         bt.deposit = 1
         bt.company = self.company
+        bt.name = self.unique_seed_name("BT")
         bt.db_insert()
         link = frappe.new_doc("Bank Transaction Payments")
         link.parent = bt.name

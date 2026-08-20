@@ -148,6 +148,27 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
     def setUp(self):
         """Set up test-specific environment"""
         super().setUp()
+
+        # BATCH-QUEUE ISOLATION: the FinancialHistoryBatchProcessor's queues are
+        # class-level and therefore PROCESS-global, and add_invoice_to_payment_history()
+        # drains them INLINE. An entry left by a prior (rolled-back) test names a Member
+        # that no longer exists, and processing it used to issue a transaction-wide
+        # rollback that wiped THIS test's uncommitted setUp data -- surfacing four frames
+        # later as "Member ... not found" from an unrelated reload().
+        # EnhancedTestCase has done this since the queue was found to be process-global;
+        # this base class is its sibling and never got it, which is why
+        # test_payment_system_functionality (a VereningingenTestCase) still failed in CI.
+        try:
+            from verenigingen.utils.financial_history_batch_processor import (
+                FinancialHistoryBatchProcessor,
+            )
+
+            FinancialHistoryBatchProcessor.reset_queues()
+        except Exception as e:  # never break the test lifecycle over this
+            # print, not logger.warning: bare loggers default to ERROR under
+            # `bench run-tests`, so a warning here would be discarded entirely.
+            print(f"Financial batch queue reset failed: {e}")
+
         self._test_docs = []
         self._original_session_user = frappe.session.user
         # Track test start time for error monitoring
