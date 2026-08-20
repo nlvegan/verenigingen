@@ -3986,6 +3986,25 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         if isinstance(created, list):
             created.append({"doctype": doctype, "name": name})
 
+    def unique_region_code(self):
+        """Allocate a Region code that is actually free.
+
+        region_code is UNIQUE and capped at 5 chars (^[A-Z0-9]{2,5}$), so the space
+        is small enough to collide and has to be checked rather than assumed. Tests
+        derived codes from a slice of a microsecond counter -- "R" + 4 digits is
+        10,000 values, "TR" + 3 is 1,000, and one site used only 10 -- and CI failed
+        with "Region Code R7655 already exists". [A-Z0-9]**4 is 1.68M and the
+        existence check makes it certain instead of merely unlikely.
+        """
+        import random
+
+        alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        for _ in range(100):
+            code = "R" + "".join(random.choice(alphabet) for _ in range(4))
+            if not frappe.db.exists("Region", {"region_code": code}):
+                return code
+        raise RuntimeError("unique_region_code: could not allocate a free region_code")
+
     def create_test_member(self, *args, **kwargs):
         """Convenience method for creating test members.
 
