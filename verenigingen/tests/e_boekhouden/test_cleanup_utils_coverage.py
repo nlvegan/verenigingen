@@ -282,6 +282,18 @@ class TestCleanupListHelpersSuccess(_CleanupCoverageBase):
             "Account", {"company": company, "is_group": 0, "root_type": "Asset"}, "name"
         )
 
+    def _unique_seed_name(self, tag):
+        """A name no other row in the suite can already own.
+
+        ``db_insert`` autonames only ``if not self.name``, so presetting the name
+        keeps these seeded rows out of the shared naming series entirely. That
+        matters: a submitted invoice's Payment Ledger / GL Entries can outlive the
+        invoice while the series counter rolls back with the test transaction, so a
+        later row drawing ACC-SINV-2026-00002 inherits the orphans and can no longer
+        be deleted -- observed in CI as "is linked with Payment Ledger Entry".
+        """
+        return f"TEST-CLEANUP-{tag[:12].replace(' ', '-').upper()}-{frappe.generate_hash(length=10)}"
+
     def _make_draft_payment_entry(self):
         """A docstatus=0 (draft) Payment Entry on the isolated company.
 
@@ -297,6 +309,7 @@ class TestCleanupListHelpersSuccess(_CleanupCoverageBase):
         pe.received_amount = 1
         pe.paid_to = account
         pe.paid_from = account
+        pe.name = self._unique_seed_name("PE")
         pe.db_insert()  # stays draft (docstatus=0), so helper deletes without cancel
         return pe.name
 
@@ -311,6 +324,7 @@ class TestCleanupListHelpersSuccess(_CleanupCoverageBase):
         doc = frappe.new_doc(doctype)
         for k, v in fields.items():
             setattr(doc, k, v)
+        doc.name = self._unique_seed_name(doctype)
         doc.db_insert()
         return doc.name
 
