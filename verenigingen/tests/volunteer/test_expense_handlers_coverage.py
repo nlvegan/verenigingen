@@ -165,7 +165,10 @@ class TestExpenseHandlersCoverage(EnhancedTestCase):
             }
         )
         ec.insert(ignore_permissions=True)
-        self._track_test_document("Expense Claim", ec.name, priority=1)
+        # Drained highest-first. Cancelling a submitted Expense Claim reads its
+        # employee as the GL party, so the claim must outrank the Employee (2)
+        # it points at -- see DRAIN_PRIORITY_BY_DOCTYPE.
+        self._track_test_document("Expense Claim", ec.name, priority=6)
         return ec
 
     def _make_department(self, company, approver_user):

@@ -194,7 +194,8 @@ class TestDonorService(VereningingenTestCase):
 
     def test_get_donor_donation_summary_shape(self):
         summary = self.service.get_donor_donation_summary(self.donor.name)
-        # The draft donation is docstatus 0 -> not counted (filter docstatus=1).
+        # The service's backing Donation is never inserted (see setUp), so this
+        # donor genuinely has no donation rows.
         self.assertIn("total_donations", summary)
         self.assertIn("total_amount", summary)
         self.assertIn("purpose_breakdown", summary)
