@@ -128,9 +128,26 @@ before repeating them.**
 
 ## Not done
 
-**veg11 is not deployed.** The live site is served from the working tree at
-`apps/verenigingen`, still at `4cc0c502`; `git pull` there *is* a deploy and was not asked
-for. Merged work is on develop, not on the live site.
+**veg11 is now running #409 and #413 — I did not deploy it.** The live site is served from
+the working tree at `apps/verenigingen`, and `git pull` there *is* a deploy, so I
+deliberately never ran one. But the tree moved during the session on its own: it read
+`4cc0c502` early and `adae1ddf` by the end, and both merge commits are ancestors of that:
+
+```
+5b5ec383 IS in the live tree
+166ba2a7 IS in the live tree
+```
+
+So the skills fix and the selector ratchet are live. **Do not assume the live tree is where
+you last saw it** — check before reasoning about what is deployed:
+
+```bash
+git -C ~/frappe-bench/apps/verenigingen log --oneline -1
+```
+
+Practical consequence: the volunteering step is still switched off on veg11
+(`enable_volunteer_signup = 0`), so the skills fix is deployed but dormant. #423 and #432 are
+not merged, so **the payment-method defect is live on the deployed site**.
 
 #423 cannot go green until #433 is fixed or its shard re-packs. Phases 2-5 of the spec are
 unstarted; Phase 5 (migrate the collector to `FormData`) is blocked on Phase 0 landing.
