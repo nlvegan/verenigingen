@@ -1342,10 +1342,14 @@ class UnifiedWebhookWrapperService:
             # Cheap short-circuit for the common retry. It is NOT the real
             # duplicate guard: this read cannot close the window where Mollie
             # created the subscription but the response was lost, because nothing
-            # local was written in that case. The actual protection is the
-            # deterministic Idempotency-Key on the create itself (see
-            # _activate_direct_subscription_after_first_payment) -- which is also
-            # why no row lock is taken here: holding a transaction open across a
+            # local was written in that case. The actual protection is in
+            # payment_gateways._get_or_create_subscription, which asks Mollie
+            # what already carries this payment's fingerprint
+            # (metadata.payment_id) before creating anything; the deterministic
+            # Idempotency-Key sits in front of that as a fast path and could not
+            # do the job alone, because Mollie evicts keys after an hour against
+            # a retry ladder that runs twenty-six. That remote check is also why
+            # no row lock is taken here: holding a transaction open across a
             # gateway round-trip would extend the tabSeries lock this request
             # already holds, for no correctness gain.
             existing = frappe.db.get_value("Donation", donation.name, "mollie_subscription_id")
@@ -1432,14 +1436,18 @@ class UnifiedWebhookWrapperService:
             # The builder collapses every internal failure -- including a dropped
             # connection -- into a generic error dict, so the exception type is
             # not visible here and unclassifiable failures have to be guessed.
-            # Guessing "retry" is the right guess now that the create carries a
-            # deterministic Idempotency-Key: a re-delivery cannot double-charge
-            # the donor, it can only re-attempt, and it is the one case that
-            # recovers the worst failure mode there is -- Mollie created the
-            # subscription but the response was lost, so nothing local recorded
-            # it. Without a retry that donor holds a subscription this system
-            # cannot see. The cost of guessing wrong is a bounded number of
-            # re-deliveries that refuse identically.
+            # Guessing "retry" is the right guess now that the create adopts any
+            # subscription already carrying this payment's fingerprint, with a
+            # deterministic Idempotency-Key in front of that: a re-delivery
+            # re-attempts rather than duplicating. Stated at its real strength --
+            # if Mollie's own subscription listing is failing too, the adopt
+            # degrades to the key and so to its one-hour cache, which is written
+            # down at _find_subscription_for_payment rather than assumed away.
+            # Retrying is still the one case that recovers the worst failure
+            # mode there is -- Mollie created the subscription but the response
+            # was lost, so nothing local recorded it. Without a retry that donor
+            # holds a subscription this system cannot see. The cost of guessing
+            # wrong is a bounded number of re-deliveries that refuse identically.
             #
             # The two *_bad_request / *_key_conflict names come from
             # payment_gateways._permanent_refusal_reason: Mollie answered 400, so

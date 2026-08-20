@@ -144,6 +144,14 @@ class _EnclosingFunctionVisitor(ast.NodeVisitor):
 # Mollie SDK resource collections. A call is a remote create iff it looks like
 # ``<anything>.<resource>.create(...)``; this deliberately does NOT match local
 # helpers such as ``bank_tx_creator.create(...)`` or ``AuditContext.create(...)``.
+#
+# Hand-written, but no longer unchecked: ``TestTheResourceListMatchesTheSdk``
+# derives the creatable resources from the installed SDK and fails if this set
+# omits one. A resource missing here is not a weak assertion somewhere -- it is
+# a family of remote creates that no test in this module can see at all.
+# ``client_links`` was exactly that: creatable since the SDK gained Mollie
+# Connect, absent here, unused by this app today and therefore silently
+# unprotected the day someone used it.
 _MOLLIE_RESOURCES = frozenset(
     {
         "payments",
@@ -158,6 +166,7 @@ _MOLLIE_RESOURCES = frozenset(
         "profiles",
         "terminals",
         "payment_links",
+        "client_links",
         "settlements",
     }
 )
@@ -440,6 +449,133 @@ class TestMollieRemoteCreatesAreIdempotent(unittest.TestCase):
                     "payment, so the FIRST donor's subscription would be returned "
                     "to all later ones. It must be derived from the payment.",
                 )
+
+
+def _sdk_creatable_resource_accessors():
+    """Every attribute name a caller can reach a CREATABLE Mollie resource through.
+
+    Read from the installed SDK, because ``_MOLLIE_RESOURCES`` above is the
+    *input* to the scanner: a resource missing from it is not one weak
+    assertion, it is a whole family of call sites that no test in this class can
+    see. ``ResourceCreateMixin.create``'s signature is already read at runtime
+    two hundred lines below for precisely this reason -- the resource list was
+    the half still hand-maintained, with nothing to notice an SDK upgrade adding
+    a creatable resource.
+
+    Two ways to reach a resource, and both have to be collected:
+
+    * off the client -- ``Client.__init__`` binds ``self.payments = Payments(self)``,
+      so instantiating one (no credentials, no network) and reading its instance
+      dict gives every client-level name;
+    * off an object -- ``Customer.subscriptions`` is a property returning
+      ``CustomerSubscriptions(self.client, self)``. Those properties carry no
+      return annotation, so the class is read out of their source with ast.
+
+    One accessor name can front several resource classes: ``payments`` is
+    ``Payments`` on the client and ``SubscriptionPayments`` on a subscription.
+    So this maps name -> {class names}, and a name counts as creatable when ANY
+    class behind it is. Collapsing it to one class per name silently drops
+    ``payments`` and ``refunds`` from the creatable set -- measured while
+    writing this, not hypothesised.
+    """
+    import mollie.api.objects
+    import mollie.api.resources
+    from mollie.api.client import Client
+    from mollie.api.resources.base import ResourceBase, ResourceCreateMixin
+
+    accessors = {}
+
+    def record(name, cls):
+        if isinstance(cls, type) and issubclass(cls, ResourceBase):
+            accessors.setdefault(name, set()).add(cls.__name__)
+
+    for name, value in vars(Client()).items():
+        record(name, type(value))
+
+    objects_dir = mollie.api.objects.__path__[0]
+    for entry in sorted(os.listdir(objects_dir)):
+        if not entry.endswith(".py"):
+            continue
+        for node in ast.walk(_parse_module(os.path.join(objects_dir, entry))):
+            if not isinstance(node, ast.FunctionDef):
+                continue
+            if not any(isinstance(d, ast.Name) and d.id == "property" for d in node.decorator_list):
+                continue
+            for inner in ast.walk(node):
+                if (
+                    isinstance(inner, ast.Return)
+                    and isinstance(inner.value, ast.Call)
+                    and isinstance(inner.value.func, ast.Name)
+                ):
+                    record(node.name, getattr(mollie.api.resources, inner.value.func.id, None))
+
+    def is_creatable(cls_name):
+        cls = getattr(mollie.api.resources, cls_name, None)
+        return isinstance(cls, type) and issubclass(cls, ResourceCreateMixin)
+
+    return {
+        name: sorted(classes)
+        for name, classes in accessors.items()
+        if any(is_creatable(cls_name) for cls_name in classes)
+    }
+
+
+class TestTheResourceListMatchesTheSdk(unittest.TestCase):
+    """The scanner's blind spot, checked against the SDK rather than by memory.
+
+    ``_MOLLIE_RESOURCES`` decides what counts as a remote create at all. Every
+    assertion in ``TestMollieRemoteCreatesAreIdempotent`` is scoped by it, so a
+    creatable resource it omits is invisible to the ratchet, to the
+    deterministic-key check and to the control that claims the scanner still
+    sees anything.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.creatable = _sdk_creatable_resource_accessors()
+
+    def test_the_sdk_scan_finds_the_resources_it_is_looking_for(self):
+        """CONTROL. An empty or near-empty derivation would make the coverage
+        assertion below pass while checking nothing -- the failure mode this
+        module exists to catch, applied to itself."""
+        self.assertGreaterEqual(
+            len(self.creatable),
+            8,
+            "Derived only "
+            f"{sorted(self.creatable)} creatable Mollie resource accessor(s) from the "
+            "installed SDK. Either the SDK moved its resources (Client no longer "
+            "binds them in __dict__, or the object properties no longer return a "
+            "resource class by name) or this derivation is broken -- in which case "
+            "the coverage assertion below is vacuous.",
+        )
+        self.assertIn(
+            "subscriptions",
+            self.creatable,
+            "The derivation lost `subscriptions`, the one resource this whole " "module was written about.",
+        )
+
+    def test_every_creatable_sdk_resource_is_in_the_scanners_resource_list(self):
+        """A creatable resource the scanner does not know is a family of call
+        sites nothing here can see.
+
+        Asserted in ONE direction only. ``_MOLLIE_RESOURCES`` may name resources
+        the SDK cannot create (``chargebacks``, ``settlements``, ``terminals``
+        are list-only today): matching a call that cannot exist costs nothing,
+        while removing them would make the list churn every time Mollie makes a
+        resource creatable. Under-inclusion is the direction that hides defects.
+        """
+        missing = {name: self.creatable[name] for name in set(self.creatable) - _MOLLIE_RESOURCES}
+        self.assertEqual(
+            missing,
+            {},
+            "The installed Mollie SDK can create resource(s) that _MOLLIE_RESOURCES "
+            "does not list, so `<anything>."
+            + "|".join(sorted(missing) or ["<none>"])
+            + ".create(...)` is invisible to every test in "
+            "TestMollieRemoteCreatesAreIdempotent:\n"
+            + "\n".join(f"  {name} -> {', '.join(classes)}" for name, classes in sorted(missing.items()))
+            + "\n\nAdd the accessor name(s) to _MOLLIE_RESOURCES.",
+        )
 
 
 # ===========================================================================
