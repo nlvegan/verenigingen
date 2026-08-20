@@ -600,63 +600,41 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
             frappe.delete_doc("Customer", member.customer, force=True)
         frappe.delete_doc("Member", member_name, force=True)
 
-    @unittest.skip("Volunteer record creation issues - needs investigation")
-    def test_volunteer_skills_array_format(self):
-        """Test that volunteer skills in array format are properly processed"""
-        print("\n🧪 Testing volunteer skills array format processing...")
+    def test_ticked_skills_reach_the_volunteer_record(self):
+        """A skill ticked on the application form must survive to the Volunteer.
 
-        # Create application data with skills in array format (as sent by the form)
+        The keys below are the ones getVolunteerSkills() builds and
+        create_volunteer_from_member reads; the pairing is what #201 broke.
+        Anything else is stored as the skill "Unknown", so assert the stored
+        category and level too, not only that some row appeared.
+        """
         skills_data = self.application_data.copy()
-        skills_data["volunteer_skills"] = [
-            {"skill_name": "Event Planning", "skill_level": "Advanced"},
-            {"skill_name": "Python Programming", "skill_level": "Intermediate"},
-            {"skill_name": "Public Speaking", "skill_level": "Expert"},
-        ]
         skills_data["email"] = f"skills_{self.test_email}"
+        skills_data["volunteer_skills"] = [
+            {"name": "Web Development", "category": "Technical", "level": "3 - Intermediate"},
+            {"name": "Public Speaking", "category": "Communication", "level": "5 - Expert"},
+        ]
 
-        # Submit application
         result = submit_application(**skills_data)
         member_name = result["data"]["member_record"]
+        self.track_doc("Member", member_name)
 
-        # Verify member was created
-        member = frappe.get_doc("Member", member_name)
-        self.assertEqual(member.interested_in_volunteering, 1)
+        volunteers = frappe.get_all("Volunteer", filters={"member": member_name}, pluck="name")
+        self.assertEqual(len(volunteers), 1)
+        self.track_doc("Volunteer", volunteers[0])
+        volunteer = frappe.get_doc("Volunteer", volunteers[0])
 
-        # Check if volunteer record was created with skills
-        volunteers = frappe.get_all("Volunteer", filters={"member": member_name})
-        self.assertEqual(len(volunteers), 1, "Should create exactly one volunteer record")
-
-        volunteer = frappe.get_doc("Volunteer", volunteers[0].name)
-
-        # Check that skills were added to volunteer record
-        skills = volunteer.skills_and_qualifications
-        self.assertGreater(len(skills), 0, "Volunteer should have skills")
-
-        # Verify specific skills
-        skill_names = [skill.volunteer_skill for skill in skills]
-        self.assertIn("Event Planning", skill_names)
-        self.assertIn("Python Programming", skill_names)
-        self.assertIn("Public Speaking", skill_names)
-
-        # Verify proficiency levels were mapped correctly
-        for skill in skills:
-            if skill.volunteer_skill == "Event Planning":
-                self.assertEqual(skill.proficiency_level, "4 - Advanced")
-            elif skill.volunteer_skill == "Python Programming":
-                self.assertEqual(skill.proficiency_level, "3 - Intermediate")
-            elif skill.volunteer_skill == "Public Speaking":
-                self.assertEqual(skill.proficiency_level, "5 - Expert")
-
-        print("✅ Volunteer skills processed correctly")
-        print(f"   Skills added: {len(skills)}")
-        for skill in skills:
-            print(f"   - {skill.volunteer_skill}: {skill.proficiency_level} ({skill.skill_category})")
-
-        # Clean up
-        frappe.delete_doc("Volunteer", volunteer.name, force=True)
-        if member.customer:
-            frappe.delete_doc("Customer", member.customer, force=True)
-        frappe.delete_doc("Member", member_name, force=True)
+        stored = {
+            row.volunteer_skill: (row.skill_category, row.proficiency_level)
+            for row in volunteer.skills_and_qualifications
+        }
+        self.assertEqual(
+            stored,
+            {
+                "Web Development": ("Technical", "3 - Intermediate"),
+                "Public Speaking": ("Communication", "5 - Expert"),
+            },
+        )
 
     def test_volunteer_skills_empty_array(self):
         """Test that empty volunteer skills array doesn't cause errors"""

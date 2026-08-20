@@ -15,6 +15,9 @@
  * cannot drift apart silently.
  */
 
+const fs = require('fs');
+const path = require('path');
+
 require('../../public/js/membership_application.js');
 
 const { getVolunteerSkills } = window.MembershipApplication.prototype;
@@ -76,5 +79,27 @@ describe('getVolunteerSkills', () => {
 		renderSkillsStep([['Technical', 'Web Development', true]], '');
 
 		expect(getVolunteerSkills.call({})).toEqual([{ name: 'Web Development', category: 'Technical', level: '' }]);
+	});
+});
+
+describe('the page this collector reads', () => {
+	// The markup above is a copy, and a copy agrees with the page only by
+	// spelling. #201 was exactly that: the collector queried `.skill-row` and
+	// `skill_name[]`, selectors apply_for_membership.html has never rendered,
+	// and nothing anywhere compared the two. Read the real template.
+	const template = fs.readFileSync(path.join(__dirname, '../../templates/pages/apply_for_membership.html'), 'utf8');
+
+	it.each(['name="volunteer_skills[]"', 'id="volunteer_skill_level"'])(
+		'renders %s, which getVolunteerSkills() queries',
+		(hook) => {
+			expect(template).toContain(hook);
+		}
+	);
+
+	it('gives every skill checkbox a "<category>|<skill>" value', () => {
+		const checkbox = template.match(/name="volunteer_skills\[\]"[^>]*value="([^"]+)"/);
+
+		expect(checkbox).not.toBeNull();
+		expect(checkbox[1]).toContain('|');
 	});
 });
