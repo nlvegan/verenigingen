@@ -156,6 +156,7 @@ class TestMigrationControllerAccounts(EnhancedTestCase):
         ge.cost_center = cost_center
         ge.voucher_type = "Journal Entry"
         ge.voucher_no = "EBKH-NONEXISTENT-VOUCHER"
+        ge.name = self.unique_seed_name("GLE")
         ge.db_insert()
         frappe.db.commit()
         self.assertTrue(frappe.db.exists("GL Entry", {"account": acct}))

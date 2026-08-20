@@ -263,13 +263,27 @@ class InvoiceErrorHandlerService(StatelessService):
                 # Flag for manual review (serious validation issues)
                 # Use secure operation to flag for manual review
                 schedule_doc.custom_requires_manual_review = 1
-                secure_document_operation(
+                review_flag_result = secure_document_operation(
                     operation="save",
                     doc=schedule_doc,
                     justification=f"Schedule {schedule_doc.name} flagged for manual review after {retry_count} failures",
                     required_permissions=["Membership Dues Schedule:write"],
                     bypass_validations=["link_validation"],
                 )
+                if not review_flag_result.success:
+                    # This write IS the escalation. Without it the schedule is
+                    # returned as "skipped" but carries no flag, so it re-enters the
+                    # retry loop indefinitely and no human is ever told -- the one
+                    # outcome this branch exists to prevent. secure_document_operation
+                    # does not raise, so nothing else here would notice.
+                    error_msg = review_flag_result.errors[0] if review_flag_result.errors else "Unknown error"
+                    self.logger.error(f"Failed to flag {schedule_doc.name} for manual review: {error_msg}")
+                    frappe.log_error(
+                        f"Schedule {schedule_doc.name} failed invoice generation {retry_count} times and "
+                        f"could NOT be flagged for manual review: {error_msg}. It will keep retrying and "
+                        f"will not appear in the manual-review queue.",
+                        "Manual Review Flag Not Set",
+                    )
                 return {"action_taken": "skipped", "retry_count": retry_count}
         else:
             # Track failure and retry next time

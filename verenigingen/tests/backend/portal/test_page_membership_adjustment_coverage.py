@@ -11,7 +11,8 @@ and test_membership_type_change_integration) does NOT exercise:
   - get_member_fee_history: returns a combined list (dues schedules + amendment
     requests), capped at 10, newest first.
   - get_minimum_fee: quarterly branch + student-status branch.
-  - can_member_adjust_fee: happy (enabled, under limit) + max-reached branch.
+  - can_member_adjust_fee: happy (enabled, under limit), max-reached branch, and
+    the 365-day rolling window's exclusion side (stale requests do not count).
   - submit_fee_adjustment_request: HAPPY PATH (creates an amendment), same-amount
     no_change short-circuit, above-maximum throw, reason-required throw,
     effective-date-in-the-past throw.
@@ -26,7 +27,7 @@ get_fee_calculation_info, _calculate_type_change_effective_date.
 """
 
 import frappe
-from frappe.utils import add_days, now_datetime, today
+from frappe.utils import add_days, getdate, now_datetime, today
 
 from verenigingen.templates.pages import membership_adjustment
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -44,10 +45,15 @@ class TestMembershipAdjustmentCoverage(EnhancedTestCase):
         frappe.conf["developer_mode"] = 1
         # Ensure fee adjustment is enabled with predictable limits so the
         # can_member_adjust_fee / submit paths behave deterministically.
+        # enable_member_fee_adjustment / max_fee_adjustments_per_year /
+        # maximum_fee_multiplier are real Verenigingen Settings fields, so these
+        # assignments persist. adjustment_reason_required is NOT a field and is not
+        # assigned here: it is the module constant
+        # membership_adjustment.ADJUSTMENT_REASON_REQUIRED (issue #356). Assigning a
+        # nonexistent field would be a silent no-op that save() discards.
         settings = frappe.get_single("Verenigingen Settings")
         settings.enable_member_fee_adjustment = 1
         settings.max_fee_adjustments_per_year = 2
-        settings.adjustment_reason_required = 1
         settings.maximum_fee_multiplier = 10
         settings.save(ignore_permissions=True)
         frappe.db.commit()
@@ -69,6 +75,11 @@ class TestMembershipAdjustmentCoverage(EnhancedTestCase):
                     "email": email,
                     "first_name": first_name,
                     "last_name": last_name,
+                    # User.username is UNIQUE and Frappe derives it from first_name,
+                    # so every user here would claim "adj" and the second insert in a
+                    # run dies on "Duplicate entry 'adj' for key 'username'". Pin it
+                    # to the already-unique local part of the email instead.
+                    "username": email.split("@")[0],
                     "send_welcome_email": 0,
                     "roles": [{"role": "Verenigingen Member"}],
                 }
@@ -224,6 +235,62 @@ class TestMembershipAdjustmentCoverage(EnhancedTestCase):
         self.assertFalse(ok)
         self.assertIn("maximum", msg.lower())
 
+    def test_fee_adjustments_older_than_365_days_do_not_count(self):
+        """ROLLING WINDOW, exclusion side: member-requested Fee Changes created
+        more than 365 days ago must NOT count toward the per-year cap.
+
+        Both layers filter on `creation >= today - 365`: can_member_adjust_fee
+        here, and ContributionAmendmentRequest.validate_adjustment_frequency in
+        the doctype. Dropping either filter turns the cap into a lifetime limit
+        and permanently locks members out of self-service.
+
+        Control: test_can_member_adjust_fee_max_reached seeds the SAME two
+        requests without backdating and asserts they DO block, so a pass here is
+        only possible because of the age filter.
+        """
+        member, email, _mt, membership = self._member_with_active_membership(minimum_amount=10.0)
+        # Seed exactly the cap (max_fee_adjustments_per_year=2, set in setUp).
+        stale_creation = add_days(now_datetime(), -400)
+        for i in range(2):
+            req = self._make_amendment_request(
+                member=member.name,
+                membership=membership.name,
+                amendment_type="Fee Change",
+                current_amount=50.0,
+                requested_amount=50.0 + (i + 1),
+                reason=f"stale bump {i}",
+                status="Applied",
+                requested_by_member=1,
+                effective_date=today(),
+            )
+            frappe.db.set_value(
+                "Contribution Amendment Request",
+                req.name,
+                "creation",
+                stale_creation,
+                update_modified=False,
+            )
+            # The backdate is the whole premise; a silent no-op would make this
+            # test fail for the wrong reason.
+            self.assertLess(
+                getdate(frappe.db.get_value("Contribution Amendment Request", req.name, "creation")),
+                getdate(add_days(today(), -365)),
+            )
+        frappe.db.commit()
+
+        original_user = frappe.session.user
+        try:
+            frappe.set_user(email)
+            result = membership_adjustment.submit_fee_adjustment_request(
+                new_amount=75.0, reason="third adjustment; the earlier two are out of the window"
+            )
+        finally:
+            frappe.set_user(original_user)
+        self.assertTrue(result.get("success"), msg=result)
+        car = frappe.get_doc("Contribution Amendment Request", result["amendment_id"])
+        self.assertEqual(car.member, member.name)
+        self.assertEqual(car.status, "Pending Approval")
+
     # ---- get_member_fee_history -----------------------------------------
 
     def test_member_fee_history_returns_combined_list(self):
@@ -340,16 +407,24 @@ class TestMembershipAdjustmentCoverage(EnhancedTestCase):
             frappe.set_user(original_user)
 
     def test_submit_fee_adjustment_reason_required_throws(self):
-        """adjustment_reason_required=1 + blank reason is rejected."""
+        """ADJUSTMENT_REASON_REQUIRED + a blank reason is rejected.
+
+        The amount must clear the minimum-fee check, which runs earlier in
+        submit_fee_adjustment_request: the previous version of this test passed
+        25.0 against a fixture whose minimum resolves to 30, so it was really
+        asserting the minimum-fee throw and would have stayed green with the
+        reason check deleted. Assert on the message so the throw is attributable.
+        """
         member, email, _mt, _membership = self._member_with_active_membership(minimum_amount=10.0)
         original_user = frappe.session.user
         try:
             frappe.set_user(email)
-            with self.assertRaises(frappe.ValidationError):
-                # Valid different amount, but empty reason.
-                membership_adjustment.submit_fee_adjustment_request(new_amount=25.0, reason="   ")
+            with self.assertRaises(frappe.ValidationError) as raised:
+                # Valid different amount, comfortably above the minimum, but empty reason.
+                membership_adjustment.submit_fee_adjustment_request(new_amount=75.0, reason="   ")
         finally:
             frappe.set_user(original_user)
+        self.assertIn("reason", str(raised.exception).lower())
 
     def test_submit_fee_adjustment_past_effective_date_throws(self):
         """An effective_date in the past is rejected."""
@@ -365,6 +440,108 @@ class TestMembershipAdjustmentCoverage(EnhancedTestCase):
                 )
         finally:
             frappe.set_user(original_user)
+
+    # ---- enable_member_fee_adjustment kill switch -----------------------
+
+    def _ensure_fee_adjustment_setting(self, value):
+        """Persist enable_member_fee_adjustment, restoring the old value after.
+
+        Restores via addCleanup rather than tearDown: cleanups run after the
+        base-class teardown drain, which has been observed to discard restores
+        made in tearDown.
+        """
+        previous = frappe.db.get_single_value("Verenigingen Settings", "enable_member_fee_adjustment")
+
+        def _restore_setting():
+            settings = frappe.get_single("Verenigingen Settings")
+            settings.enable_member_fee_adjustment = previous
+            settings.save(ignore_permissions=True)
+            frappe.db.commit()
+
+        self.addCleanup(_restore_setting)
+        settings = frappe.get_single("Verenigingen Settings")
+        settings.enable_member_fee_adjustment = value
+        settings.save(ignore_permissions=True)
+        frappe.db.commit()
+
+    def test_disabling_member_fee_adjustment_blocks_the_portal_endpoint(self):
+        """The kill switch: enable_member_fee_adjustment=0 stops a member
+        submitting a fee change through the real portal endpoint.
+
+        This is the property that did not hold while the setting was a phantom
+        field: assigning it was a silent no-op that save() discarded, so
+        get_fee_adjustment_settings() always fell back to the getattr default 1
+        and can_member_adjust_fee() could never refuse.
+
+        Control: test_disabling_is_what_blocks_it_not_the_fixture below runs the
+        identical call with the flag at 1 and gets an amendment.
+        """
+        member, email, _mt, _membership = self._member_with_active_membership(minimum_amount=10.0)
+        self._ensure_fee_adjustment_setting(0)
+
+        original_user = frappe.session.user
+        try:
+            frappe.set_user(email)
+            with self.assertRaises(frappe.ValidationError) as raised:
+                membership_adjustment.submit_fee_adjustment_request(
+                    new_amount=75.0, reason="should never be accepted"
+                )
+        finally:
+            frappe.set_user(original_user)
+        self.assertIn("not enabled", str(raised.exception))
+
+        # No amendment may have been created by the refused call.
+        self.assertEqual(
+            frappe.db.count(
+                "Contribution Amendment Request",
+                filters={"member": member.name, "amendment_type": "Fee Change"},
+            ),
+            0,
+        )
+
+        # Guard against the silent-no-op trap that hid this bug: prove the 0
+        # actually reached the database rather than a throwaway Python attribute.
+        self.assertEqual(
+            frappe.db.get_single_value("Verenigingen Settings", "enable_member_fee_adjustment"), 0
+        )
+
+    def test_disabling_is_what_blocks_it_not_the_fixture(self):
+        """CONTROL for the test above: with the flag explicitly at 1 the very same
+        call succeeds, so the refusal is attributable to the setting alone."""
+        member, email, _mt, _membership = self._member_with_active_membership(minimum_amount=10.0)
+        self._ensure_fee_adjustment_setting(1)
+
+        original_user = frappe.session.user
+        try:
+            frappe.set_user(email)
+            result = membership_adjustment.submit_fee_adjustment_request(
+                new_amount=75.0, reason="accepted while the switch is on"
+            )
+        finally:
+            frappe.set_user(original_user)
+        self.assertTrue(result.get("success"), msg=result)
+        self.assertIn("amendment_id", result)
+
+    def test_enable_member_fee_adjustment_is_a_real_persisted_field(self):
+        """Regression guard for the phantom-field class itself.
+
+        A nonexistent field assigns silently and save() drops it, so a plain
+        round-trip through the database is what distinguishes a real field from
+        a throwaway attribute.
+        """
+        meta = frappe.get_meta("Verenigingen Settings")
+        field = meta.get_field("enable_member_fee_adjustment")
+        self.assertIsNotNone(field, "enable_member_fee_adjustment is not on Verenigingen Settings")
+        self.assertEqual(field.fieldtype, "Check")
+
+        self._ensure_fee_adjustment_setting(0)
+        self.assertEqual(
+            frappe.db.get_single_value("Verenigingen Settings", "enable_member_fee_adjustment"), 0
+        )
+        self._ensure_fee_adjustment_setting(1)
+        self.assertEqual(
+            frappe.db.get_single_value("Verenigingen Settings", "enable_member_fee_adjustment"), 1
+        )
 
     # ---- submit_membership_type_change_request --------------------------
 

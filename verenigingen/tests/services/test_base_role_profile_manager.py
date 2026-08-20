@@ -416,6 +416,59 @@ class TestBaseRoleProfileManager(VereningingenTestCase):
         assigned = self._assigned_profiles(user)
         self.assertNotIn(profile, assigned)
 
+    def test_strip_role_profile_raises_when_the_save_fails(self):
+        """A revocation that did not happen must not be reported as if it had.
+
+        `secure_document_operation` does NOT raise -- it returns `success=False`.
+        The result was discarded here, so a failed save left the user still holding
+        the role profile while the caller returned
+        `success=True, action="removed_pending_recalc"`.
+
+        That is the same reported-state-versus-reality gap the caller's own comment
+        records having already fixed once ("Previously this path claimed the profile
+        was removed while leaving it assigned"); the fix was to call this method,
+        which then reintroduced it one layer down.
+
+        The failing result is injected at the collaborator boundary -- contriving a
+        genuine User.save() failure would test ERPNext, not this contract.
+        """
+        import verenigingen.services.member.account.base_role_profile_manager as mod
+        from verenigingen.utils.secure_operations import SecureOperationResult
+
+        profile = self._make_role_profile()
+        team = self._make_team(default_profile=profile)
+        user = self._make_system_user()
+        self.team_manager.assign_role_profile(user, team)
+
+        failed = SecureOperationResult(success=False, operation_id="test-strip-fail")
+        failed.add_error("Simulated User save failure")
+        original = mod.secure_document_operation
+        mod.secure_document_operation = lambda **kwargs: failed
+        self.addCleanup(lambda: setattr(mod, "secure_document_operation", original))
+
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self.team_manager._strip_role_profile(user, profile)
+
+        message = str(ctx.exception)
+        self.assertIn(profile, message, "the refusal must name the profile that is still assigned")
+        self.assertIn(user, message)
+        self.assertIn("Simulated User save failure", message, "the underlying reason must survive")
+
+    def test_strip_role_profile_does_not_raise_when_the_save_succeeds(self):
+        """Control for the test above: the happy path must stay quiet.
+
+        Without this, a `_strip_role_profile` that raised unconditionally would
+        satisfy the assertion above.
+        """
+        profile = self._make_role_profile()
+        team = self._make_team(default_profile=profile)
+        user = self._make_system_user()
+        self.team_manager.assign_role_profile(user, team)
+
+        self.team_manager._strip_role_profile(user, profile)
+
+        self.assertNotIn(profile, self._assigned_profiles(user))
+
     # =================================================================
     # get_entities_requiring_role_profile / get_entities_using_role_profile
     # =================================================================

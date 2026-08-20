@@ -148,6 +148,27 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
     def setUp(self):
         """Set up test-specific environment"""
         super().setUp()
+
+        # BATCH-QUEUE ISOLATION: the FinancialHistoryBatchProcessor's queues are
+        # class-level and therefore PROCESS-global, and add_invoice_to_payment_history()
+        # drains them INLINE. An entry left by a prior (rolled-back) test names a Member
+        # that no longer exists, and processing it used to issue a transaction-wide
+        # rollback that wiped THIS test's uncommitted setUp data -- surfacing four frames
+        # later as "Member ... not found" from an unrelated reload().
+        # EnhancedTestCase has done this since the queue was found to be process-global;
+        # this base class is its sibling and never got it, which is why
+        # test_payment_system_functionality (a VereningingenTestCase) still failed in CI.
+        try:
+            from verenigingen.utils.financial_history_batch_processor import (
+                FinancialHistoryBatchProcessor,
+            )
+
+            FinancialHistoryBatchProcessor.reset_queues()
+        except Exception as e:  # never break the test lifecycle over this
+            # print, not logger.warning: bare loggers default to ERROR under
+            # `bench run-tests`, so a warning here would be discarded entirely.
+            print(f"Financial batch queue reset failed: {e}")
+
         self._test_docs = []
         self._original_session_user = frappe.session.user
         # Track test start time for error monitoring
@@ -244,6 +265,102 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 print(f"     - {doc['doctype']}: {doc['name']}")
                 print(f"       Error: {error[:100]}{'...' if len(error) > 100 else ''}")
 
+    # Ledgers that key rows to a parent by (voucher_type, voucher_no) and are NOT
+    # removed when that parent is deleted. Deliberately data-driven rather than a
+    # list of voucher doctypes: the set of things that post to the ledger grows
+    # with every erpnext release, and a stale allowlist fails open -- silently
+    # stranding rows again.
+    LEDGER_DOCTYPES = ("GL Entry", "Payment Ledger Entry")
+
+    def _has_ledger_rows(self, doctype, name):
+        """True when deleting this document would strand ledger rows behind it."""
+        return any(
+            frappe.db.exists(ledger, {"voucher_type": doctype, "voucher_no": name})
+            for ledger in self.LEDGER_DOCTYPES
+        )
+
+    def _cancel_if_submitted(self, doctype, name):
+        """Cancel a submitted document so the delete below can remove it.
+
+        `frappe.model.delete_doc` runs `check_permission_and_not_submitted(doc)`
+        BEFORE its `if not force:` guard, so `force=True` does NOT bypass the
+        submitted check -- a submitted document simply cannot be force-deleted.
+        Every submitted Membership a test created therefore survived cleanup and
+        was recorded as a leak: 24 per run in
+        tests/membership/test_contribution_amendment_request alone, and the reason
+        the retired tests/payment/test_self_service_fee_adjustment carried a
+        9-record entry in known_test_leaks.txt.
+
+        `is_submittable`, NOT `docstatus == 1` alone: erpnext calls `gle.submit()`
+        on GL Entry, which is `is_submittable = 0`, and cancelling those raises.
+        Child rows inherit docstatus from their parent too.
+
+        LEDGER-BEARING VOUCHERS ARE LEFT ALONE. Cancelling one does not remove its
+        ledger rows -- it WRITES MORE. Measured on a real submitted Payment Entry:
+
+            after submit   2 GL Entry, 1 Payment Ledger Entry
+            after cancel   4 GL Entry, 2 Payment Ledger Entry   (reversals)
+            after delete   4 GL Entry, 2 Payment Ledger Entry   (parent gone)
+
+        `delete_doc` does not take the ledger rows with it, so cancel-then-delete
+        turns one honestly-reported submitted parent into six ORPHANED ledger rows
+        pointing at a voucher_no that no longer exists -- and the drain only walks
+        tracked documents, so it never tracked those rows, never counted them and
+        reported the cleanup as a success. That is strictly worse than the leak it
+        replaces: a stranded Payment Ledger Entry is what made a later Sales
+        Invoice undeletable in #328, and it is what broke
+        e_boekhouden/test_cleanup_utils_coverage on CI. The name is reused because
+        `delete_doc` calls `revert_series_if_last()`, which DECREMENTS the naming
+        series when the deleted document is the last in it: the cancelled parent
+        goes, the series rewinds, the ledger rows stay, and the next Payment Entry
+        is handed the same name and is born already linked to them.
+
+        So: skip the cancel when the document already has ledger rows, and let the
+        delete fail and the leak be reported under its own name. Checked BEFORE
+        cancelling rather than after, so erpnext's on_cancel -- which mutates OTHER
+        documents -- never runs for these at all, and the fix does not depend on a
+        savepoint surviving an inner commit.
+
+        Wrapped in a savepoint because `_save` writes docstatus=2 BEFORE
+        `run_post_save_methods()` fires on_cancel and check_no_back_links_exist().
+        A failure part-way would otherwise leave a cancelled-but-undeleted record
+        whose on_cancel side effects already ran -- strictly worse than the
+        submitted leak it replaces, since erpnext's cancel mutates OTHER
+        documents. On any failure we roll back and return, leaving the document
+        submitted so the delete fails and the caller records an ordinary leak:
+        exactly the behaviour that existed before this method.
+
+        EnhancedTestCase._remove_drained_record carries the same logic. The two
+        bases are siblings (both derive from FrappeTestCase) and neither can
+        inherit the other's teardown, so the rule is stated in both places rather
+        than shared -- see the note in tests/utils/leak_guard.py.
+        """
+        if not (
+            frappe.get_meta(doctype).is_submittable
+            and frappe.db.get_value(doctype, name, "docstatus") == 1
+        ):
+            return
+
+        if self._has_ledger_rows(doctype, name):
+            return
+
+        savepoint = f"cleanup_{frappe.generate_hash(length=8)}"
+        frappe.db.savepoint(savepoint)
+        try:
+            doc = frappe.get_doc(doctype, name)
+            doc.flags.ignore_permissions = True
+            doc.flags.ignore_links = True
+            doc.cancel()
+        except Exception as cancel_error:
+            print(f"Could not cancel {doctype} {name} before delete: {cancel_error}")
+            try:
+                frappe.db.rollback(save_point=savepoint)
+            except Exception:
+                # The savepoint is gone -- an inner commit dropped it, or a deadlock
+                # rolled the whole transaction back (MySQL 1305). Nothing left to
+                # undo; fall through and let the delete record the real leak.
+                pass
+
     def _cleanup_document_with_retry(self, doc_info, max_retries=3, retry_delay=0.5):
         """Clean up document with retry logic for lock timeouts.
 
@@ -256,6 +373,7 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 if frappe.db.exists(doc_info["doctype"], doc_info["name"]):
                     # Ensure any pending transactions are rolled back before cleanup
                     frappe.db.rollback()
+                    self._cancel_if_submitted(doc_info["doctype"], doc_info["name"])
                     frappe.delete_doc(doc_info["doctype"], doc_info["name"], force=True)
                     # Commit the deletion to release locks
                     frappe.db.commit()

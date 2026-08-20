@@ -1257,7 +1257,7 @@ class TestDonorPortalRecurringList(EnhancedTestCase):
         origin = self._setup_origin_and_charges(member.email)
 
         # get_recurring_donations calls Mollie per row (directly, and again via
-        # is_recurring_donation_active); patch that boundary so this does not
+        # get_recurring_donation_state); patch that boundary so this does not
         # depend on the gateway.
         with patch(
             "verenigingen.templates.pages.manage_donations.get_mollie_subscription_info",

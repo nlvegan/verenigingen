@@ -500,13 +500,26 @@ class TestSEPABatchProcessorAddHelpers(_BatchPipelineBase):
 
     def test_create_dues_collection_batch_returns_none_without_invoices(self):
         """With no unpaid SEPA invoices the create path returns None (and creates
-        no batch). Use a far-PAST collection_date so the eligibility window (which
-        ends at collection_date) deterministically contains no invoices regardless
-        of what sibling tests leave on the shared DB -- a today() date would
-        intermittently match real invoices and take the other branch.
+        no batch).
+
+        Use a far-FUTURE collection_date. The eligibility window is `posting_date >=
+        collection_date - lookback_days` and has NO upper bound (see
+        SEPAMandateService.get_sepa_invoices_with_mandates), so a far-PAST date is the
+        most permissive value there is, not the safest: it admits every invoice ever
+        posted, including whatever sibling tests leave on the shared DB. Measured on
+        test_site_1, `1900-01-01` matched 3 eligible invoices and this assertion failed.
+        A far-future date puts the whole window ahead of every existing posting_date,
+        which is what actually makes the empty branch deterministic.
         verify_invoicing is disabled to keep this focused on the empty branch."""
+        # Pin the fixture assumption separately from the behaviour. Both of
+        # create_dues_collection_batch's None paths (empty-eligible-list, and
+        # delete-the-empty-batch) look identical to assertIsNone, so without this a
+        # future failure would say "returns not None" instead of naming the real
+        # cause -- that the window stopped being empty.
+        self.assertEqual(self.processor.get_existing_unpaid_sepa_invoices("2999-01-01"), [])
+
         result = self.processor.create_dues_collection_batch(
-            collection_date="1900-01-01", verify_invoicing=False
+            collection_date="2999-01-01", verify_invoicing=False
         )
         self.assertIsNone(result)
 

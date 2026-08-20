@@ -10,7 +10,10 @@ Tests the entire journey from application submission to termination with full en
 import unittest
 
 import frappe
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import (
+    EnhancedTestCase,
+    allocate_free_region_code,
+)
 from frappe.utils import add_days, add_months, today, random_string, now_datetime
 from verenigingen.tests.utils.setup_helpers import TestEnvironmentSetup
 from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
@@ -65,7 +68,9 @@ class TestMemberLifecycleComplete(EnhancedTestCase):
                 "doctype": "Region",
                 "name": region_name,
                 "region_name": region_name,
-                "region_code": f"T{cls.test_id[:2].upper()}",
+                # 2 chars off a random id is a 1,296-value space against a UNIQUE
+                # column; allocate one verified free instead.
+                "region_code": allocate_free_region_code(),
                 "country": "Netherlands",
                 "is_active": 1,
                 "postal_code_patterns": "1000-9999"})
