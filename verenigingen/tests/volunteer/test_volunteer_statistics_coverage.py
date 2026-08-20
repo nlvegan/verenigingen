@@ -73,37 +73,48 @@ class TestVolunteerStatisticsCoverage(EnhancedTestCase):
             first_name="Stat", last_name=prefix.title(), birth_date="1990-01-01"
         )
         volunteer = self.create_test_volunteer(member_name=member.name)
-        emp = frappe.get_doc(
-            {
-                "doctype": "Employee",
-                "first_name": f"Stat{frappe.generate_hash(length=5)}",
-                "gender": "Other",
-                "date_of_birth": "1990-01-01",
-                "date_of_joining": "2020-01-01",
-                "status": "Active",
-                "company": company,
-            }
-        ).insert(ignore_permissions=True)
-        self._track_test_document("Employee", emp.name, priority=2)
-        # ISOLATION: Employee uses a sequential autoname (HR-EMP-#####). On this
-        # bench the next-assigned name can collide with STALE/orphaned Expense
-        # Claims left by prior data whose employee was deleted -- they'd leak
-        # into this volunteer's aggregates. The employee was just inserted, so
-        # any Expense Claim already referencing its name is a pre-existing orphan
-        # and is safe to purge for a clean per-test baseline.
-        self._purge_orphan_claims(emp.name)
+        emp = self._employee_without_stale_claims(company)  # tracked by the helper
         volunteer.db_set("employee_id", emp.name, update_modified=False)
         volunteer.reload()
         return volunteer, emp, company
 
-    def _purge_orphan_claims(self, employee_name):
-        """Delete any Expense Claims already attached to a freshly-created
-        Employee name (stale rows from sequential-autoname reuse)."""
-        orphans = frappe.get_all("Expense Claim", filters={"employee": employee_name}, pluck="name")
-        for ec_name in orphans:
-            # Force docstatus to 0 so a (stale) submitted row can be deleted.
-            frappe.db.set_value("Expense Claim", ec_name, "docstatus", 0, update_modified=False)
-            frappe.delete_doc("Expense Claim", ec_name, force=True, ignore_permissions=True)
+    def _employee_without_stale_claims(self, company, attempts=5):
+        """Insert a real Employee whose name carries no pre-existing Expense Claims.
+
+        Employee autonames sequentially (HR-EMP-#####), so a freshly-drawn name can
+        already be referenced by STALE claims left behind when an earlier employee of
+        that name was deleted -- those rows would land in this volunteer's aggregates.
+
+        The previous approach DELETED those claims, which cannot work: the delete ran
+        inside the test transaction, tearDown's rollback undid it and resurrected every
+        purged row, and the drain then tried to cancel rows whose employee had never
+        existed -- reporting them as leaks and re-committing them. One orphan therefore
+        made this module leak on that site forever (#407). Committing the purge instead
+        would persist this test's own fixtures, trading a resurrection bug for a leak.
+
+        So take a clean name rather than clean a dirty one: keep inserting real
+        Employees (each tracked, each drained) until one comes up unreferenced. On a
+        fresh CI site the first attempt always succeeds.
+        """
+        for _ in range(attempts):
+            emp = frappe.get_doc(
+                {
+                    "doctype": "Employee",
+                    "first_name": f"Stat{frappe.generate_hash(length=5)}",
+                    "gender": "Other",
+                    "date_of_birth": "1990-01-01",
+                    "date_of_joining": "2020-01-01",
+                    "status": "Active",
+                    "company": company,
+                }
+            ).insert()
+            self._track_test_document("Employee", emp.name, priority=2)
+            if not frappe.db.exists("Expense Claim", {"employee": emp.name}):
+                return emp
+        self.skipTest(
+            f"no Employee name free of stale Expense Claims after {attempts} attempts; "
+            "the site carries orphaned claims (see #407)"
+        )
 
     def _make_claim(
         self, emp, company, *, claimed, sanctioned, status, docstatus=0, posting_date=None
