@@ -90,7 +90,7 @@ class _ResourceCollection:
             raise self._get_result
         return self._get_result if self._get_result is not None else _Obj(id=resource_id)
 
-    def create(self, data=None):
+    def create(self, data=None, idempotency_key="", **params):
         self._rec.append((self._name, "create", data))
         return _Obj(id=f"{self._name}_new", data=data)
 
@@ -168,7 +168,7 @@ class _PaymentsCollection:
             raise self._sdk._payments_get_raises
         return self._sdk._payment if self._sdk._payment is not None else _Obj(id=payment_id)
 
-    def create(self, data):
+    def create(self, data=None, idempotency_key="", **params):
         self._sdk.calls.append(("payments", "create", data))
         return _Obj(id="tr_created", data=data)
 
@@ -183,7 +183,7 @@ class _CustomersCollection:
             return self._sdk._customer
         return _Customer(customer_id, self._sdk.calls)
 
-    def create(self, data):
+    def create(self, data=None, idempotency_key="", **params):
         self._sdk.calls.append(("customers", "create", data))
         return _Obj(id="cst_created", data=data)
 

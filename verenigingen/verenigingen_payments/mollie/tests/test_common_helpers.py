@@ -623,6 +623,28 @@ class TestMollieIntervalValidation(FrappeTestCase):
             with self.subTest(interval=interval):
                 self.assertFalse(is_valid_mollie_interval(interval))
 
+    def test_refuses_intervals_above_mollies_documented_maximum(self):
+        """Mollie: "The maximum interval is one year (12 months, 52 weeks, or 365 days)."
+
+        This predicate is also the permanent-refusal classifier, so an interval it
+        wrongly calls valid is sent, 422'd, and then treated as a TRANSIENT failure
+        -- ten webhook re-deliveries for a refusal that can never change.
+        """
+        for interval in ["13 months", "24 months", "53 weeks", "366 days", "1000 days"]:
+            with self.subTest(interval=interval):
+                self.assertFalse(
+                    is_valid_mollie_interval(interval),
+                    f"{interval!r} exceeds Mollie's documented one-year maximum",
+                )
+
+    def test_accepts_the_boundary_of_the_documented_maximum(self):
+        """Control for the test above: the bound is inclusive, so exactly one year
+        in each unit must still pass. Without this, tightening the check to
+        something stricter than Mollie's rule would go unnoticed."""
+        for interval in ["12 months", "52 weeks", "365 days"]:
+            with self.subTest(interval=interval):
+                self.assertTrue(is_valid_mollie_interval(interval), f"{interval!r} is exactly one year")
+
     def test_validate_throws_on_a_year_unit_and_says_what_to_use_instead(self):
         with self.assertRaises(frappe.ValidationError) as cm:
             validate_mollie_interval("1 year")

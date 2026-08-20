@@ -184,7 +184,15 @@ def convert_frequency_to_mollie_interval(frequency: str) -> str:
 # An annual subscription is "12 months". (tests/contracts/mollie-contracts.json carries
 # a near-identical pattern, but nothing loads that file, and it admits "0 months" --
 # it is documentation, not the authority for this grammar.)
-MOLLIE_INTERVAL_PATTERN = re.compile(r"^[1-9][0-9]* (day|days|week|weeks|month|months)$")
+MOLLIE_INTERVAL_PATTERN = re.compile(r"^([1-9][0-9]*) (day|days|week|weeks|month|months)$")
+
+# Mollie also documents an upper bound: "The maximum interval is one year
+# (12 months, 52 weeks, or 365 days)."
+# This matters beyond tidiness because this predicate doubles as the
+# permanent-refusal classifier: an interval it calls valid is sent to Mollie,
+# 422s, and is then treated as a TRANSIENT failure -- buying ten webhook
+# re-deliveries for a refusal that can never change.
+MOLLIE_INTERVAL_MAXIMUM = {"day": 365, "week": 52, "month": 12}
 
 
 def is_valid_mollie_interval(interval: Any) -> bool:
@@ -192,7 +200,12 @@ def is_valid_mollie_interval(interval: Any) -> bool:
     if not isinstance(interval, str):
         return False
 
-    return bool(MOLLIE_INTERVAL_PATTERN.match(interval.strip()))
+    match = MOLLIE_INTERVAL_PATTERN.match(interval.strip())
+    if not match:
+        return False
+
+    count, unit = int(match.group(1)), match.group(2).rstrip("s")
+    return count <= MOLLIE_INTERVAL_MAXIMUM[unit]
 
 
 def validate_mollie_interval(interval: Any, context: str = "") -> str:

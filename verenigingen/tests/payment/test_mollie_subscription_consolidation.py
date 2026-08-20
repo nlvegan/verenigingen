@@ -114,7 +114,7 @@ class _FakeMandates:
         self._existing = existing or []
         self._list_raises = list_raises
 
-    def create(self, data=None):
+    def create(self, data=None, idempotency_key="", **params):
         if self._raises:
             raise RuntimeError("simulated Mollie mandate failure")
         self._recorder.mandates_created.append(data)
@@ -133,7 +133,7 @@ class _FakeSubscriptions:
         self._recorder = recorder
         self._sub_status = sub_status
 
-    def create(self, data=None):
+    def create(self, data=None, idempotency_key="", **params):
         self._recorder.subscriptions_created.append(data)
         # Mollie echoes the pinned mandate back on the subscription object.
         return _FakeSubscription(status=self._sub_status, mandate_id=(data or {}).get("mandateId"))
@@ -187,7 +187,7 @@ class _FakeCustomers:
             self._mandate_list_raises,
         )
 
-    def create(self, data=None):
+    def create(self, data=None, idempotency_key="", **params):
         self._recorder.customers_created.append(data)
         self._counter += 1
         return self._build(f"cst_FAKE{self._counter}")
@@ -227,7 +227,7 @@ class _RaisingCustomers:
     def get(self, customer_id):
         raise RuntimeError("simulated Mollie API failure")
 
-    def create(self, data=None):
+    def create(self, data=None, idempotency_key="", **params):
         raise RuntimeError("simulated Mollie API failure")
 
 

@@ -105,7 +105,7 @@ class _Payments:
         self._raise_on_get = raise_on_get
         self.last_create_data = None
 
-    def create(self, data):
+    def create(self, data=None, idempotency_key="", **params):
         self.last_create_data = data
         return self._created
 
@@ -125,7 +125,7 @@ class _Subscriptions:
         self._sub = sub or _Subscription()
         self._raise_on_create = raise_on_create
 
-    def create(self, data=None):
+    def create(self, data=None, idempotency_key="", **params):
         if self._raise_on_create:
             raise self._raise_on_create
         return self._sub
@@ -427,6 +427,9 @@ class TestActivateDirectExtra(EnhancedTestCase):
         payment = types.SimpleNamespace(
             id="tr_q",
             customer_id="cst_q",
+            # A real Mollie payment carries paidAt; the start date is anchored to
+            # it so two attempts for the same payment build the same payload.
+            paid_at="2026-04-10T09:00:00+00:00",
             metadata={
                 "subscription_setup": "true",
                 "subscription_interval": "3 months",
@@ -436,8 +439,20 @@ class TestActivateDirectExtra(EnhancedTestCase):
             },
         )
         # Mock justified: Mollie Settings start-date calc is a config-boundary read.
+        # The stub mirrors the real signature INCLUDING `anchor`, and records it:
+        # the start date must be computed from the payment, not the clock, or two
+        # webhook attempts for one payment send different payloads and Mollie 400s
+        # the retry instead of replaying it (see the startDate comment in
+        # _activate_direct_subscription_after_first_payment). A stub narrower than
+        # the method it fakes hides that -- as this one did.
+        seen_anchor = {}
+
+        def fake_next_payment_date(min_months_ahead=2, anchor=None):
+            seen_anchor["anchor"] = anchor
+            return "2026-09-01"
+
         fake_settings = types.SimpleNamespace(
-            get_next_payment_date_for_scheduled_months=lambda min_months_ahead=2: "2026-09-01",
+            get_next_payment_date_for_scheduled_months=fake_next_payment_date,
             quarterly_yearly_payment_months="9,12",
         )
         with patch.object(frappe, "get_single", return_value=fake_settings):
@@ -447,6 +462,16 @@ class TestActivateDirectExtra(EnhancedTestCase):
         # subscription id is persisted on the donation that owns the field.
         self.assertEqual(
             frappe.db.get_value("Donation", donation.name, "mollie_subscription_id"), "sub_q"
+        )
+        # The start date must be anchored to the PAYMENT. Anchoring to the clock
+        # makes the payload differ between two attempts for the same payment, and
+        # Mollie answers a reused idempotency key with changed parameters with a
+        # 400 rather than replaying the original create.
+        self.assertEqual(
+            seen_anchor.get("anchor"),
+            frappe.utils.getdate("2026-04-10T09:00:00+00:00"),
+            "the subscription start date must be computed from the payment's own "
+            "timestamp, not from today",
         )
 
     def test_exception_path_returns_error(self):

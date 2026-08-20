@@ -118,7 +118,7 @@ class _SubCollection:
                 return s
         return _Sub(sub_id=subscription_id)
 
-    def create(self, data=None):
+    def create(self, data=None, idempotency_key="", **params):
         self._recorder.subscriptions_created.append((self._customer_id, data))
         if self._raise_on_create:
             # Simulate the Mollie SDK rejecting the create (e.g. revoked mandate,
