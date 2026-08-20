@@ -30,7 +30,12 @@ from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.utils import financial_history_batch_processor as batch_module
 from verenigingen.utils.financial_history_batch_processor import FinancialHistoryBatchProcessor
 
-SCOPED_METHODS = ("_process_member_payment_batch", "_process_member_expense_batch")
+SCOPED_METHODS = (
+    "_process_member_payment_batch",
+    "_process_member_expense_batch",
+    "_rollback_to_savepoint",
+    "_release_savepoint",
+)
 
 
 class TestFinancialBatchTransactionScope(VereningingenTestCase):
@@ -108,7 +113,7 @@ class TestFinancialBatchTransactionScope(VereningingenTestCase):
             for call in ast.walk(node):
                 if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Attribute):
                     continue
-                if call.func.attr not in ("commit", "rollback"):
+                if call.func.attr != "rollback":
                     continue
                 # frappe.db.<attr>(...)
                 value = call.func.value
@@ -121,8 +126,42 @@ class TestFinancialBatchTransactionScope(VereningingenTestCase):
         self.assertEqual(
             offenders,
             [],
-            "per-member batch handlers must confine themselves to a savepoint: "
-            f"{offenders}. A bare frappe.db.rollback() discards every other member "
-            "processed in the same run and the caller's in-flight work; a bare "
-            "frappe.db.commit() flushes a caller's half-finished transaction.",
+            "a per-member batch handler must never issue a transaction-wide "
+            f"rollback: {offenders}. It discards every other member processed in the "
+            "same run and the caller's in-flight work, and the dispatch loop above "
+            "swallows the exception, so the run still reports success.",
+        )
+
+    def test_a_vanished_savepoint_does_not_escalate_to_a_full_rollback(self):
+        """Inner code can end the transaction, taking every savepoint with it.
+
+        member_financial_history_manager commits after update_child_table (:286),
+        and MariaDB discards all savepoints on commit -- so the scoped rollback
+        raises 1305 "SAVEPOINT ... does not exist". CI caught exactly this, with the
+        1305 masking the original error.
+
+        The handler must then do NOTHING: escalating to a bare frappe.db.rollback()
+        would discard the caller's work (the very bug being fixed) and could not undo
+        the committed rows anyway.
+        """
+        member = frappe.get_doc(
+            {
+                "doctype": "Member",
+                "first_name": "SavepointGone",
+                "last_name": f"Caller{frappe.generate_hash(length=6)}",
+                "email": f"spgone-{frappe.generate_hash(length=8)}@example.invalid",
+                "birth_date": "1990-01-01",
+            }
+        ).insert()
+        self.track_doc("Member", member.name)
+
+        # a savepoint name that was never created -- what a post-commit rollback sees
+        FinancialHistoryBatchProcessor._rollback_to_savepoint(
+            f"never_created_{frappe.generate_hash(length=8)}", "Assoc-Member-IRRELEVANT"
+        )
+
+        self.assertTrue(
+            frappe.db.exists("Member", member.name),
+            "a vanished savepoint escalated into a transaction-wide rollback and took "
+            "the caller's uncommitted work with it",
         )
