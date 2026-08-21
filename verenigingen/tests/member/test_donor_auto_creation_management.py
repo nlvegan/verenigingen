@@ -299,10 +299,17 @@ class TestDonorAutoCreationManagement(VereningingenTestCase):
     def test_get_donations_gl_accounts_returns_real_income_accounts(self):
         """REGRESSION: the endpoint must surface the site's income accounts.
 
-        ERPNext stores income accounts under account_type == "Income Account"
-        (there is no "Income" account_type). Before the fix the endpoint filtered
-        on "Income" and therefore returned an EMPTY list on every site that has
-        income accounts, silently breaking the donations-account selector.
+        Historical note, corrected: this docstring used to say "ERPNext stores
+        income accounts under account_type == 'Income Account'". That is false --
+        the standard chart of accounts leaves `account_type` EMPTY on income
+        leaves, which carry `root_type = "Income"` (#442). What the older fix did
+        correct is that a bare `"Income"` is not a valid `account_type` at all, so
+        the selector really was returning an empty list.
+
+        This test provisions its account through `_get_or_create_income_account`,
+        which sets `account_type` explicitly, so it can only ever see the shape the
+        OLD filter could already find. `test_get_donations_gl_accounts_surfaces_
+        untyped_income_leaves` below is the one that covers the other shape.
         """
         income_account, _company, _cash = self._income_account()
         if not income_account:
@@ -317,11 +324,14 @@ class TestDonorAutoCreationManagement(VereningingenTestCase):
         )
 
     def test_check_test_accounts_lists_income_accounts(self):
-        """REGRESSION mirror: with the old wrong "Income" account_type filter,
+        """REGRESSION mirror: with the old wrong bare-"Income" account_type filter,
         income_accounts was ALWAYS empty. check_test_accounts caps the list at
         limit=10 (no order_by), so on a site with >10 income accounts our specific
-        one need not appear — assert the list is non-empty instead, since empty vs
-        non-empty is exactly what the "Income Account" fix restored."""
+        one need not appear -- assert the list is non-empty instead.
+
+        Deliberately weak, and worth knowing why: `len >= 1` passes under BOTH the
+        account_type and the root_type filter, so this test does not bind #442's
+        change at all. It binds only the older empty-list regression."""
         income_account, _company, _cash = self._income_account()
         if not income_account:
             self.skipTest("No income account provisioned on this site")
