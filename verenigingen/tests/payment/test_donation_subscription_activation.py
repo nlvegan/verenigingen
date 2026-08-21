@@ -640,25 +640,56 @@ class TestDonationSubscriptionActivation(EnhancedTestCase):
 
     def test_the_happy_path_still_succeeds_and_writes_donor_history(self):
         """Control for the test above: without the injected failure the same run
-        answers success and the entry actually lands.
+        answers success, and the WEBHOOK's own write is what lands.
 
-        Without this, 'the webhook returns error' would be equally consistent with
-        'the new check is wrong and fails always'.
+        Without a control, "the webhook returns error" would be equally consistent
+        with "the new check is wrong and fails always".
+
+        Asserting the row merely EXISTS would prove nothing, and the first version of
+        this test made exactly that mistake. `donor_history` has three writers, and
+        the webhook's is the last of them:
+
+        1. `Donation.after_insert` -> `donation_history_manager.on_donation_insert`
+        2. `Donation.on_update`    -> `...on_donation_update`, which fires from the
+           `donation.save()` inside `_update_donation_status` -- i.e. immediately
+           BEFORE `_update_donor_record` runs
+        3. `_update_donor_record` itself, the code under test
+
+        So the row is already present and already populated by the time the webhook
+        writes. Stubbing the webhook's write to a no-op leaves the assertion green.
+
+        The one field that separates them is `donation_date`. The hook copies
+        `Donation.donation_date`; the webhook writes Mollie's `paid_at`. The fixture
+        set both to 2025-04-10, which is why nothing discriminated. Repointing the
+        donation's own date makes the assertion bind writer 3 alone.
         """
+        mollie_paid_date = "2025-04-10"  # what the fake payment reports as paidAt
+        donation_own_date = "2024-01-02"  # deliberately different
+        frappe.db.set_value("Donation", self.donation_name, "donation_date", donation_own_date)
+        frappe.db.commit()
+
         result = self._run_webhook()
         self.assertEqual(result["status"], "success", f"Unexpected result: {result}")
-        self.assertEqual(result.get("history_failures", []), [])
+        # The success payload never sets this key; comparing it to [] cannot fail.
+        self.assertNotIn("history_failures", result)
 
         donor_id = frappe.db.get_value("Donation", self.donation_name, "donor")
-        refs = frappe.get_all(
+        row = frappe.get_all(
             "Donation History",
-            filters={"parent": donor_id, "parenttype": "Donor"},
-            pluck="donation_reference",
+            filters={
+                "parent": donor_id,
+                "parenttype": "Donor",
+                "donation_reference": self.donation_name,
+            },
+            fields=["donation_date"],
         )
-        self.assertIn(
-            self.donation_name,
-            refs,
-            "the happy path must actually write the donor_history entry",
+        self.assertEqual(len(row), 1, "exactly one donor_history row for this donation")
+        self.assertEqual(
+            str(row[0]["donation_date"]),
+            mollie_paid_date,
+            "donor_history must carry Mollie's paid_at, which only _update_donor_record "
+            f"writes -- {donation_own_date} would mean the doc-event hook's value survived "
+            "and the webhook's own write did nothing",
         )
 
     def test_a_redelivery_after_a_history_failure_does_not_double_book(self):
@@ -687,8 +718,18 @@ class TestDonationSubscriptionActivation(EnhancedTestCase):
             "Bank Transaction", filters={"reference_number": self.payment_id}, pluck="name"
         )
 
+        self.assertEqual(len(journal_entries), 1, f"the re-delivery double-booked: {journal_entries}")
+        # Row count alone is not proof of what posted -- this repo already knows
+        # docstatus is not evidence a JE posted (#382). Assert on the ledger.
+        gl_debit = frappe.db.sql(
+            """SELECT COALESCE(SUM(debit), 0) FROM `tabGL Entry`
+               WHERE voucher_type = 'Journal Entry' AND voucher_no = %s AND is_cancelled = 0""",
+            journal_entries[0],
+        )[0][0]
         self.assertEqual(
-            len(journal_entries), 1, f"the re-delivery double-booked: {journal_entries}"
+            float(gl_debit),
+            float(self.amount),
+            f"the ledger must carry the charge once, not twice; got {gl_debit}",
         )
         self.assertEqual(
             len(bank_transactions), 1, f"the re-delivery duplicated the Bank Transaction: {bank_transactions}"

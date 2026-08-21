@@ -757,9 +757,18 @@ class UnifiedWebhookWrapperService:
             # or raises, a TimestampMismatchError surviving five attempts, an
             # `update_child_table` that fails three retries, and anything caught by
             # the manager's outer `except Exception`. Discarding that answered 200
-            # to Mollie, so the delivery was never retried and the entry was lost
-            # permanently; per #425 `donor_history` has no integrity sweep to
-            # repair it afterwards either (#449).
+            # to Mollie, so the delivery was never retried (#449).
+            #
+            # How much is lost depends on the table, and is smaller than it looks
+            # for one of them. `donor_history` has THREE writers: Donation's
+            # `after_insert` and `on_update` doc events both call
+            # DonationHistoryManager, and `on_update` fires from the `donation.save()`
+            # in _update_donation_status just above -- so on the measured
+            # first-payment path the row is already present and already correct, and
+            # this write adds only Mollie's paid_at date. It is NOT the sole writer,
+            # and an earlier version of this comment wrongly said the entry was lost
+            # permanently. Where it IS the only writer is the case where that save
+            # itself failed, which _update_donation_status silently swallows.
             #
             # Asking Mollie to re-deliver is safe here: the money-side steps are
             # each individually idempotent on the payment id
@@ -788,9 +797,35 @@ class UnifiedWebhookWrapperService:
                 donation, payment_id, processing_state.pending_refunds
             )
 
+            # Same defect as the history writes above, and it has to be detected HERE
+            # rather than where the result dict is decorated below -- that block runs
+            # after the early return and an append there would be dead code.
+            #
+            # A failed refund booking answered 200, so Mollie never re-delivered and
+            # the GL permanently overstated income. The CORRECT handling already
+            # existed verbatim in _handle_fully_processed_payment -- but
+            # is_fully_processed() is permanently false for donations (#344), so that
+            # handler is dead code and this was the only reachable path. Mollie
+            # signals a refund by re-posting the same payment id, which is how every
+            # donation refund arrives.
+            failed_refunds = [r for r in (refund_results or []) if r.get("status") == "error"]
+            if failed_refunds:
+                self.logger.error(f"{len(failed_refunds)} refund booking(s) failed for {payment_id}")
+                history_failures.append(f"{len(failed_refunds)} refund booking(s)")
+
             # A history write that failed must not be reported as success: the
-            # financial entries are already booked and idempotent, so a non-2xx
-            # buys a re-delivery that can only complete what is missing (#449).
+            # financial entries are already booked and idempotent, so a non-2xx buys
+            # a re-delivery that cannot double-book (measured: one JE, one Bank
+            # Transaction, and a GL debit of the charge amount rather than twice it).
+            #
+            # Deliberately NOT claiming the re-delivery "completes what is missing".
+            # Measured counter-example: if the Journal Entry stayed at docstatus 0,
+            # the re-delivery adopts the draft (the creator's idempotency filter is
+            # `docstatus != 2`) and then reconciles the Bank Transaction against it,
+            # producing a bank line marked Reconciled against an unposted JE with no
+            # GL entries -- and reporting success, which ends the retry ladder. That
+            # is #383's mechanism reached through the JE creator; pre-existing, but a
+            # re-delivery can make a visibly broken state a silently broken one.
             if history_failures:
                 return {
                     "status": "error",
@@ -803,6 +838,7 @@ class UnifiedWebhookWrapperService:
                     "journal_entry": journal_entry_name,
                     "donation_id": donation.name,
                     "history_failures": history_failures,
+                    "refund_failures": failed_refunds,
                     "duration_seconds": time.time() - start_time,
                 }
 
@@ -820,12 +856,8 @@ class UnifiedWebhookWrapperService:
             # Include refund processing results if any
             if refund_results:
                 result["refunds_processed"] = refund_results
-                failed_refunds = [r for r in refund_results if r.get("status") == "error"]
-                if failed_refunds:
-                    result["refund_failures"] = failed_refunds
-                    self.logger.warning(
-                        f"⚠️ {len(failed_refunds)} refunds failed during new payment processing"
-                    )
+                # Failures are detected and reported above, before the early return;
+                # reaching here means there were none.
 
             if activation:
                 result["subscription_activation"] = activation
@@ -2031,7 +2063,10 @@ class UnifiedWebhookWrapperService:
                     f"✅ Updated Member {member_name} payment history for donation {donation.name}"
                 )
             else:
-                self.logger.warning(f"⚠️ Member payment history update returned False for {donation.name}")
+                # `.error`, not `.warning`, for the same reason as the donor path
+                # above: a bare frappe logger defaults to level ERROR under
+                # `bench run-tests`, so a warning here is discarded entirely.
+                self.logger.error(f"member payment history update returned False for {donation.name}")
 
             return success
 
