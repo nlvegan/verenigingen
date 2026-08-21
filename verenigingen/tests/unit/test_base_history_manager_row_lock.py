@@ -61,6 +61,25 @@ class TestBaseHistoryManagerLocksItsParentRow(VereningingenTestCase):
         donor = self._commit(self.create_test_donor())
         donation = self.create_test_donation(donor=donor.name)
 
+        # Donation.after_insert already ran on_donation_insert -> add_donation_entry,
+        # so the row is written and the Donor row locked before this test does
+        # anything. Clear it and COMMIT, which both drops that row and releases every
+        # lock the insert took -- otherwise the assertion at the end of this test is
+        # satisfied by the hook and would hold even if add_donation_entry locked
+        # nothing.
+        frappe.db.delete("Donation History", {"parent": donor.name})
+        frappe.db.commit()
+
+        # ... which also gives this module the control the probe needs. The
+        # instrument's own falsifiability test lives in the sibling module and is not
+        # collected here, so without this line a probe that regressed to always-True
+        # would leave all three tests below green.
+        self.assertFalse(
+            row_is_locked_from_another_connection("Donor", donor.name),
+            "the probe reports a lock on a row nothing has locked yet, so it cannot be "
+            "trusted to report the manager's",
+        )
+
         result = DonationHistoryManager.add_donation_entry(donor.name, donation)
         self.assertTrue(
             result.get("success"),
@@ -69,9 +88,11 @@ class TestBaseHistoryManagerLocksItsParentRow(VereningingenTestCase):
         # A callback that skips the save still reports success, and the lock is taken
         # either way -- so without this the assertion below could pass on a write that
         # never happened.
-        self.assertTrue(
-            frappe.db.exists("Donation History", {"parent": donor.name, "donation_reference": donation.name}),
-            "no donor_history row was written, so nothing here exercised the read-modify-write",
+        self.assertEqual(
+            frappe.db.count("Donation History", {"parent": donor.name, "donation_reference": donation.name}),
+            1,
+            "add_donation_entry wrote no donor_history row, so nothing here exercised "
+            "the read-modify-write",
         )
 
         self.assertTrue(
@@ -136,3 +157,56 @@ class TestBaseHistoryManagerLocksItsParentRow(VereningingenTestCase):
             f"Volunteer {volunteer.name} is still lockable by another connection after "
             "AssignmentHistoryManager rewrote its assignment_history (#436).",
         )
+
+    def test_the_lock_is_taken_before_anything_is_read_or_written(self):
+        """The property the three tests above cannot see.
+
+        They assert at end-of-transaction, so they say only that *a* lock exists by
+        then -- a lock moved to after ``safe_child_table_update`` keeps all three
+        green while reintroducing the exact lost update #436 is about.
+
+        So hold the Donor row from a second connection first and let the manager run
+        into it. If the lock precedes the read, nothing is written; if it were taken
+        after the write, the child row would already be there when the wait times out
+        -- 1205 does not roll back.
+        """
+        donor = self._commit(self.create_test_donor())
+        donation = self.create_test_donation(donor=donor.name)
+        frappe.db.delete("Donation History", {"parent": donor.name})
+        frappe.db.commit()
+
+        # Otherwise this test waits out innodb_lock_wait_timeout, which is 50s here.
+        original_timeout = frappe.db.sql("SELECT @@session.innodb_lock_wait_timeout")[0][0]
+        self.addCleanup(frappe.db.sql, f"SET SESSION innodb_lock_wait_timeout = {int(original_timeout)}")
+        frappe.db.sql("SET SESSION innodb_lock_wait_timeout = 2")
+
+        # A second connection holds the row for the duration of the call below.
+        # Released in `finally`, not addCleanup: the harness teardown runs BEFORE
+        # cleanups and would try to delete this Donor while the row is still held.
+        holder = frappe.db.create_connection()
+        try:
+            holder_cursor = holder.cursor()
+            holder_cursor.execute("SELECT name FROM `tabDonor` WHERE name = %s FOR UPDATE", (donor.name,))
+            holder_cursor.fetchall()
+
+            with self.assertRaises(
+                frappe.QueryTimeoutError,
+                msg="losing the race for the parent row was reported as an ordinary result "
+                "instead of raised -- and every call site in chapter/managers/member_manager.py "
+                "discards that result, so the membership change would commit with no history row",
+            ):
+                DonationHistoryManager.add_donation_entry(donor.name, donation)
+
+            self.assertEqual(
+                frappe.db.count("Donation History", {"parent": donor.name}),
+                0,
+                "a donor_history row was written even though the parent row was already "
+                "held by somebody else -- the lock is being taken AFTER the read-modify-write, "
+                "which is the lost update #436 is about",
+            )
+        finally:
+            holder.rollback()
+            holder.close()
+            # This transaction took a 1205, which does not roll back -- drop whatever
+            # locks it is still sitting on before the harness tries to delete rows.
+            frappe.db.rollback()

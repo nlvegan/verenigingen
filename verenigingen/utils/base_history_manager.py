@@ -6,6 +6,7 @@
 from typing import Callable, Optional
 
 import frappe
+from frappe.exceptions import QueryDeadlockError, QueryTimeoutError
 from frappe.model.document import Document
 
 from verenigingen.utils.history_manager_utils import (
@@ -111,6 +112,27 @@ class BaseHistoryManager:
                     )
 
                 return save_result
+
+        except (QueryDeadlockError, QueryTimeoutError):
+            # Contention on the lock above is NOT an ordinary "history update failed".
+            # Before that lock existed this branch was unreachable, and the handler
+            # below would fold it into HistoryOperationResult(success=False) -- which
+            # the five call sites in chapter/managers/member_manager.py discard
+            # entirely, so a Chapter save would commit the membership change with no
+            # history row and report nothing.
+            #
+            # 1213 (deadlock) has already rolled the transaction back, so carrying on
+            # would let every later iteration "succeed" against a discarded
+            # transaction -- the shape bulk_invoice_generation_service documents at
+            # its own commit. 1205 (lock wait) does not roll back, but the write did
+            # not happen, and the caller is the only frame that can decide whether to
+            # retry or abort. Let both reach it.
+            #
+            # Imported by name rather than reached through `frappe.`: an except clause
+            # that resolves its classes through a patchable namespace raises
+            # "catching classes that do not inherit from BaseException" under any test
+            # that mocks frappe -- test_base_history_manager.py does exactly that.
+            raise
 
         except Exception as e:
             log_history_error(
