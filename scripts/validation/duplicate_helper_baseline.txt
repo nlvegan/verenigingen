@@ -1,6 +1,6 @@
-# Private helpers -- module-level functions AND methods -- defined in more than
-# one file. The ratchet
-# baseline for scripts/validation/duplicate_helper_validator.py. Format:
+# Private helpers -- module-level functions AND methods -- defined in more
+# than one file. The ratchet baseline for
+# scripts/validation/duplicate_helper_validator.py. Format:
 #     <helper name>::<number of files defining it>
 #
 # A change fails only if it duplicates a helper that was not duplicated before,
