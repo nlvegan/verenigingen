@@ -15,8 +15,8 @@ regression I had introduced and would have merged.
 | #418 | the Mollie resource list, checked against the installed SDK (#415) | `4a069f0a` |
 | #422 | the history manager stops ending the caller's transaction (#411) | `e7be9cf0` |
 
-`develop` is at **`e7be9cf0`**. The live tree is still at `adae1ddf` — **three merges
-behind, not deployed.**
+`develop` is at **`e7be9cf0`** and **RED** — see "The trunk I turned red" below. The live
+tree is still at `adae1ddf`, three merges behind, **not deployed**.
 
 | issue | |
 |---|---|
@@ -85,6 +85,33 @@ history: 4 still cancelled, 12 delayed by up to 36 min.
 `ResourceGetMixin`, defines its own `create()` calling `perform_api_call(REST_CREATE)`,
 and does not even accept `idempotency_key`. A remote create that is non-idempotent by
 construction, invisible to the check I had just written to find exactly that.
+
+## The trunk I turned red
+
+Both trunk runs after my merges failed, on **two different pre-existing fixture defects**,
+neither of them in the code I merged:
+
+| run | shard | failure | issue |
+|---|---|---|---|
+| `4a069f0a` (#418) | 12 | `No company with a current Fiscal Year and Income Account found` | #431 |
+| `e7be9cf0` (#422) | 4 | `'TEB Bank One - TEBPC' account is already used by ...` | #395 |
+
+The same control holds for both, and it is strong: **the failing shard contains none of the
+test modules that PR edited** — 0 occurrences, checked per module — and each victim passes
+standalone on the merge commit *and* on the commit before it (14/14 and 50/50). What the
+merges changed is the *seating*: shard bins are packed by measured runtime, so editing any
+test file re-packs all twelve, and a latent fixture collision moves next to a new neighbour.
+
+**This was predicted and I merged anyway.** Before merging #418 I wrote that the shard
+failure "isn't mine" and noted the packing risk in the same breath. Both halves were true,
+and the second one is the one that mattered: in a repo with six open fixture-ownership
+defects (#390, #392, #394, #395, #406, #431), merging three test-touching PRs in a row is
+a near-guaranteed re-pack, and a re-pack is a coin flip on latent collisions.
+
+**The lesson is about sequencing, not attribution.** "Not caused by my code" was the right
+answer to the wrong question. The right question was whether landing it would expose
+something else, and I had the evidence to answer that before merging. Fix the fixture
+family first, or merge one test-touching PR at a time and watch the trunk run between.
 
 ## Findings worth keeping
 
@@ -163,7 +190,12 @@ pointer to a sibling.
 
 ## Next
 
-- **Deploy.** The live tree is 3 merges behind at `adae1ddf`.
+- **The trunk is red on two counts.** #431 (borrowed company) and #395 (Bank Account
+  claiming another fixture's GL account). Neither is in merged code; both are latent
+  fixture-ownership defects that a shard re-pack surfaced. These come first — a red trunk
+  makes every later red shard unreadable.
+- **Do not deploy `develop` while it is red.** The live tree is 3 merges behind at
+  `adae1ddf`.
 - **#421** is the reason per-member atomicity still does not hold. It is load-bearing —
   under REPEATABLE READ the invoice retry cannot see another session's insert without
   ending the transaction — so it needs a mechanism, not a deletion. Three directions are
