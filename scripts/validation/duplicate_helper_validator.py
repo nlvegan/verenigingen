@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ratchet on private module-level helpers defined in more than one file.
+"""Ratchet on private helpers -- functions AND methods -- defined in more than one file.
 
 A copy-pasted helper is where a fix goes to die. When the same helper exists in
 eight files, fixing it in one -- with a comment explaining exactly why the fix was
@@ -125,9 +125,6 @@ def _private_helpers(path: str) -> List[Tuple[str, str]]:
     return out
 
 
-# Kept so anything importing the old name keeps working.
-_module_level_helpers = _private_helpers
-
 
 def _by_name(root: str) -> Dict[str, List[Tuple[str, str]]]:
     found: Dict[str, List[Tuple[str, str]]] = defaultdict(list)
@@ -163,20 +160,31 @@ def clone_families(root: str = None):
             continue
         exact = clones = 0
         best = 0.0
+        worst = 1.0
         for i in range(len(copies)):
             for j in range(i + 1, len(copies)):
                 a, b = copies[i][1], copies[j][1]
-                if a and a == b:
+                # Two bodies that both failed to unparse are "" == "", and
+                # SequenceMatcher("", "").ratio() is 1.0 -- which would invent a
+                # perfect clone family out of two parse failures. None today, but
+                # the scan now walks 1948 definitions instead of 190.
+                if not a or not b:
+                    worst = 0.0
+                    continue
+                if a == b:
                     exact += 1
                     best = 1.0
                     continue
                 ratio = difflib.SequenceMatcher(None, a, b).ratio()
                 best = max(best, ratio)
+                worst = min(worst, ratio)
                 if ratio >= CLONE_RATIO:
                     clones += 1
         if exact + clones:
             dirs = sorted({os.path.dirname(_rel(p)) for p, _ in copies})
-            families.append((exact + clones, len(copies), exact, round(best, 2), name, dirs))
+            families.append(
+                (exact + clones, len(copies), exact, round(best, 2), name, dirs, round(worst, 3))
+            )
     families.sort(key=lambda f: (-f[0], -f[1]))
     return families
 
@@ -206,9 +214,9 @@ def load_baseline(path: Path) -> Dict[str, int]:
 
 def write_baseline(path: Path, counts: Dict[str, int]) -> None:
     header = [
-        "# Private helpers -- module-level functions AND methods -- defined in more than",
-        "# one file. The ratchet",
-        "# baseline for scripts/validation/duplicate_helper_validator.py. Format:",
+        "# Private helpers -- module-level functions AND methods -- defined in more",
+        "# than one file. The ratchet baseline for",
+        "# scripts/validation/duplicate_helper_validator.py. Format:",
         "#     <helper name>::<number of files defining it>",
         "#",
         "# A change fails only if it duplicates a helper that was not duplicated before,",
@@ -246,27 +254,35 @@ def main() -> int:
 
     if args.drift:
         # The band worth triaging. A family whose copies are still byte-identical is
-        # merely duplicated; one that is >=90% similar with NO exact pair has been
-        # EDITED IN ONE PLACE and not the others -- which is the exact shape of #394
-        # (two copies fixed, a third missed), #399 (a sibling query 40 lines down) and
-        # #444 (@shared_fixture added to one of three). The comment explaining the fix
-        # is sitting in one copy; its siblings carry the bug.
-        drifted = [f for f in clone_families() if f[2] == 0 and f[3] >= CLONE_RATIO]
-        print(f"{'pairs':>5} {'files':>5} {'best':>5}  helper")
-        for pairs, files, _exact, best, name, dirs in drifted:
-            print(f"{pairs:>5} {files:>5} {best:>5}  {name}")
+        # merely duplicated; one where EVERY pair is >=90% similar and NO pair is
+        # identical has been EDITED IN ONE PLACE and not the others -- the shape of
+        # #394 (two copies fixed, a third missed), #399 (a sibling query 40 lines
+        # below its fixed twin) and #444.
+        #
+        # The filter is on the WORST pair, deliberately. Filtering on the best one
+        # is nearly free for a large family and says almost nothing: `_make_member`
+        # has 45 copies and 990 pairs, of which 1% reach 0.90 and the minimum
+        # similarity is 0.05 -- 45 independently written fixtures, not a fix that
+        # landed once. Keying on the worst pair drops it, and takes the band from
+        # 89 families to a set where the inference is actually true.
+        drifted = [f for f in clone_families() if f[2] == 0 and f[6] >= CLONE_RATIO]
+        print(f"{'pairs':>5} {'files':>5} {'worst':>6} {'best':>6}  helper")
+        for pairs, files, _exact, best, name, dirs, worst in drifted:
+            # `best` is rounded to 2dp, so a 0.997 family printed as 1.00 under a
+            # header promising "no exact pair". Show 3dp.
+            print(f"{pairs:>5} {files:>5} {worst:>6.3f} {best:>6.3f}  {name}")
             for d in dirs[:4]:
-                print(f"{'':>22}{d}/")
+                print(f"{'':>26}{d}/")
         print(
-            f"\n{len(drifted)} families are near-identical with no exact pair. "
-            "Each is a fix that may already have landed in one copy."
+            f"\n{len(drifted)} families in which EVERY copy is >={CLONE_RATIO:.0%} similar to "
+            "every other and none is identical -- i.e. an edit landed in one of them."
         )
         return 0
 
     if args.report:
         families = clone_families()
         print(f"{'pairs':>5} {'files':>5} {'exact':>5} {'best':>5}  helper")
-        for pairs, files, exact, best, name, dirs in families:
+        for pairs, files, exact, best, name, dirs, _worst in families:
             print(f"{pairs:>5} {files:>5} {exact:>5} {best:>5}  {name}")
             for d in dirs[:4]:
                 print(f"{'':>28}{d}/")

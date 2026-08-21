@@ -28,6 +28,78 @@ def _census(files: dict):
         return dhv.census(str(root))
 
 
+def _drift(files: dict):
+    """Build a temp tree and return the --drift band: {name: (worst, best)}."""
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        for rel, src in files.items():
+            p = root / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(src)
+        return {
+            f[4]: (f[6], f[3])
+            for f in dhv.clone_families(str(root))
+            if f[2] == 0 and f[6] >= dhv.CLONE_RATIO
+        }
+
+
+class DriftBandTest(unittest.TestCase):
+    """`--drift` claims each family is "an edit that landed in one copy".
+
+    It is only allowed to say that when EVERY pair is near-identical and none is
+    exact. Filtering on the best pair instead of the worst made the claim nearly
+    free for large families: `_make_member` has 45 copies and 990 pairs, of which
+    1% reach 0.90 and the minimum similarity is 0.05 -- 45 independently written
+    fixtures, printed under a header saying a fix had landed in one of them.
+    """
+
+    # 11 lines so a one-line edit is a small ratio change, not a large one.
+    _BODY = "\n".join(f"    x{i} = {i}" for i in range(10))
+
+    def _fn(self, tail):
+        return f"def _helper():\n{self._BODY}\n    return {tail}\n"
+
+    def test_a_near_identical_pair_with_no_exact_pair_is_reported(self):
+        band = _drift({"a.py": self._fn("1"), "b.py": self._fn("2")})
+        self.assertIn("_helper", band)
+
+    def test_a_byte_identical_family_is_NOT_reported(self):
+        """Identical copies are duplication, not drift -- nothing landed anywhere."""
+        same = self._fn("1")
+        self.assertEqual({}, _drift({"a.py": same, "b.py": same}))
+
+    def test_an_unrelated_pair_is_NOT_reported(self):
+        a = "def _helper():\n    return sum(range(10))\n"
+        b = "def _helper():\n" + "\n".join(f"    y{i} = {i} * 3" for i in range(12)) + "\n"
+        self.assertEqual({}, _drift({"a.py": a, "b.py": b}))
+
+    def test_one_dissimilar_copy_disqualifies_the_whole_family(self):
+        """The regression this filter exists for. Two copies drifted by one line,
+        plus a third that is unrelated: keying on the BEST pair still reports the
+        family, because the good pair carries it. Keying on the worst does not."""
+        odd = "def _helper():\n" + "\n".join(f"    z{i} = {i} ** 2" for i in range(14)) + "\n"
+        files = {"a.py": self._fn("1"), "b.py": self._fn("2"), "c.py": odd}
+
+        self.assertEqual({}, _drift(files), "the unrelated third copy must disqualify it")
+
+        # Control: the best-pair filter -- the old behaviour -- DOES report it, so
+        # this test discriminates between the two aggregations rather than merely
+        # passing.
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            for rel, src in files.items():
+                (root / rel).write_text(src)
+            by_best = [
+                f[4] for f in dhv.clone_families(str(root)) if f[2] == 0 and f[3] >= dhv.CLONE_RATIO
+            ]
+        self.assertEqual(["_helper"], by_best)
+
+    def test_two_unparseable_bodies_are_not_a_perfect_clone_family(self):
+        """SequenceMatcher("", "").ratio() is 1.0, so two parse failures would
+        otherwise be reported as a flawless drift family."""
+        self.assertEqual({}, _drift({"a.py": "", "b.py": ""}))
+
+
 class WhatCountsTest(unittest.TestCase):
     def test_a_private_helper_in_two_files_is_counted(self):
         src = "def _persist_company():\n    pass\n"
