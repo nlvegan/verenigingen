@@ -13,10 +13,10 @@ had nothing to do with it. The through-line:
 
 | | |
 |---|---|
-| `develop` | `a6859a76` (picked up **#441** mid-session) |
-| Open, CI re-running | **#438** — the #424 fix, merged onto the fixed base as `f7b08b15` |
-| Closed as superseded | **#446** — my fix for the shard-4 collision; **#441** landed the same fix first |
-| Opened from reviewing #441 | **#447** — #441's regression test skips under the very condition it guards |
+| `develop` | `df43b092` (picked up **#441** and **#440** mid-session) |
+| **Merged** | **#438** — the #424 fix. 12/12 shards green. Closes #424 |
+| Open | **#446** — reopened and repurposed: #441's regression test skips under the very condition it guards |
+| Closed | **#447** — the same fix, folded back into #446 so one PR carries one line of thinking |
 | Issues filed | **#436** — `BaseHistoryManager` takes no row lock at all |
 | Commented | **#443** — an 18-site census of the scan-then-claim shape |
 | Memory written | `lock-probe-second-connection-2026-08-21.md` |
@@ -169,26 +169,21 @@ Against #441 as merged, the seeded/pre-fix cell is a **skip** — the one cell t
 
 **The superseded PR was repurposed, not discarded.** #446 lost the race on the fix itself, but
 the idea it was built on — *own the account instead of competing for one* — is the one #441
-had no equivalent for, and it is what #447 carries. Losing a race is not the same as being
-wrong, and the useful question when it happens is not "who was first" but "what does the
-merged version still not do".
+had no equivalent for, and it is what #446 now carries, one level down. Losing a race is not
+the same as being wrong, and the useful question when it happens is not "who was first" but
+"what does the merged version still not do".
 
-Worth being explicit about why #447 is a new branch rather than a reopened #446, since the
-instinct to reuse the branch is reasonable:
-
-- #446 branches from `e7be9cf0`, **before** #441, and rewrites the same three methods #441
-  rewrote — reopening it means resolving a conflict against a fix that already works, to no
-  benefit.
-- What survives from #446 is **one helper**, not its diff. `_make_foreign_bank_gl()` is ~20
-  lines; the rest of #446 is now redundant with #441.
-- The two PRs also say different things. #446 said "this fixture races for a scarce
-  resource"; #447 says "the regression test for that goes silent under the condition it
-  guards". Landing the second under the first's title would bury it.
+It went back onto #446 rather than staying as a separate PR (#447, closed): **one PR number
+for one line of thinking**, so the comparison that produced the fix stays attached to the
+work it came out of, comments and all. Mechanically the branch was reset to current develop
+and the single surviving commit cherry-picked onto it, so its diff is the fix and nothing
+else — the pre-#441 rewrite it originally carried is gone rather than conflict-resolved.
+The force-push is visible on the PR; the original approach is preserved in its comments.
 
 ## What is left
 
-- **#438** — CI re-running on `f7b08b15`. Green ⇒ merge (already approved). The only failure
-  on the previous run was the shard-4 collision #441 has since fixed.
+- ~~**#438**~~ — **merged** as `df43b092`, 12/12 shards green including shard 4, which
+  confirms the triage: the earlier red was develop's, and #441 fixed it. #424 is closed.
 - **#436** — `BaseHistoryManager._with_doc` does `get_doc` → mutate → `safe_child_table_update`
   with **no row lock anywhere**. `DonationHistoryManager` writes the same `donor_history`
   table through it, so #424 serializes the Mollie webhook against itself while
@@ -203,7 +198,7 @@ instinct to reuse the branch is reasonable:
   previously-unreachable failure branch reachable: contention on the Donor row could not
   occur while no lock was being taken. No HTTP call is held under that lock (checked), so
   the window is DB-only work. Unfiled.
-- **#447** — awaiting CI. Everything in the section above.
+- **#446** — reopened, rebuilt on `df43b092`, awaiting CI. Everything in the section above.
   The `_unclaimed_foreign_bank_gl()` residual I noted on #446 and #443 is **withdrawn**:
   measured, 18–27 free accounts per site, so that skip is not reachable. The comment on #443
   says so; the one on #446 does not, and should be corrected if anyone leans on it.
