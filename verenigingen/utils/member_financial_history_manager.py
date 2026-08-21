@@ -71,6 +71,12 @@ class MemberFinancialHistoryManager:
                 # meant that lock matched zero rows on that path and silently
                 # took no lock at all -- a FOR UPDATE that matches nothing is not
                 # an error. #424.
+                #
+                # get_value has two shapes that lock nothing just as quietly: a
+                # Single (get_values_from_single ignores for_update) and a doc whose
+                # name EQUALS its doctype (get_values treats that as the Single form
+                # and emits no SQL at all). Neither is reachable from the callers --
+                # every one holds a saved Member or Donor, both series/format-named.
                 frappe.db.get_value(self.doc.doctype, self.doc.name, "name", for_update=True)
 
                 # Reload document to get latest version

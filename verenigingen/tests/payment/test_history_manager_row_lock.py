@@ -108,10 +108,12 @@ class TestHistoryManagerLocksTheRowItRewrites(VereningingenTestCase):
         )
 
     def test_the_probe_tells_a_locked_row_from_a_free_one(self):
-        """The instrument, before anything is concluded with it.
+        """The instrument itself, made falsifiable.
 
         Without this control, "the donor row is locked" and "the probe reports
-        True for everything" look identical.
+        True for everything" look identical. unittest runs methods in alphabetical
+        order, so this one runs LAST -- which is fine, because a control that
+        breaks reddens the run either way; what it must never be is absent.
         """
         locked = self._donor()
         free = self._donor()
