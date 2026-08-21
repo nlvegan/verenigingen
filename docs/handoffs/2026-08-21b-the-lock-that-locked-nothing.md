@@ -167,6 +167,24 @@ Against #441 as merged, the seeded/pre-fix cell is a **skip** — the one cell t
 > The rule this repo already has — a check without a control proves nothing — has a corollary:
 > a control that can be skipped by the condition under test is not a control.
 
+**The superseded PR was repurposed, not discarded.** #446 lost the race on the fix itself, but
+the idea it was built on — *own the account instead of competing for one* — is the one #441
+had no equivalent for, and it is what #447 carries. Losing a race is not the same as being
+wrong, and the useful question when it happens is not "who was first" but "what does the
+merged version still not do".
+
+Worth being explicit about why #447 is a new branch rather than a reopened #446, since the
+instinct to reuse the branch is reasonable:
+
+- #446 branches from `e7be9cf0`, **before** #441, and rewrites the same three methods #441
+  rewrote — reopening it means resolving a conflict against a fix that already works, to no
+  benefit.
+- What survives from #446 is **one helper**, not its diff. `_make_foreign_bank_gl()` is ~20
+  lines; the rest of #446 is now redundant with #441.
+- The two PRs also say different things. #446 said "this fixture races for a scarce
+  resource"; #447 says "the regression test for that goes silent under the condition it
+  guards". Landing the second under the first's title would bury it.
+
 ## What is left
 
 - **#438** — CI re-running on `f7b08b15`. Green ⇒ merge (already approved). The only failure
