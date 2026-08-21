@@ -42,7 +42,7 @@ from unittest.mock import patch
 
 import frappe
 
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 from verenigingen.verenigingen_payments.mollie.services.webhook_wrapper_service_unified import (
     UnifiedWebhookWrapperService,
 )
@@ -170,6 +170,20 @@ class TestMollieDonationFinancialChain(EnhancedTestCase):
         self.fake_sdk = _FakeSDKClient(self.fake_payment)
 
     # ------------------------------------------------------------------ setup
+    # These three build shared accounting masters on a shared company: two GL
+    # accounts, a Bank and the Bank Account linked to the clearing account. The
+    # captured-insert drain claims every row a test inserts and deletes it at
+    # teardown, so an undecorated build site hands the whole set to whichever test
+    # ran first and takes it from every later class in the shard (#330, #444).
+    #
+    # Measured on a purged `test_site_4`, same fixtures, same names:
+    #
+    #   this module, undecorated       -> 17/17 green, all three fixtures GONE
+    #   test_recurring_donation_charge -> 37/37 green, all three SURVIVE
+    #                                     (its copies already carry the decorator)
+    #
+    # The decorator was the only difference.
+    @shared_fixture
     def _setup_mollie_clearing_account(self):
         """Create/find a Bank-type GL account to act as the Mollie clearing
         account on the EUR test company (config validation requires Bank type;
@@ -191,6 +205,7 @@ class TestMollieDonationFinancialChain(EnhancedTestCase):
         acct.insert(ignore_permissions=True)
         return acct.name
 
+    @shared_fixture
     def _setup_mollie_bank_account(self, gl_account):
         """Create the ERPNext Bank Account linked to the clearing GL account so
         BankTransactionCreator.get_mollie_bank_account_config() resolves it."""
@@ -212,6 +227,7 @@ class TestMollieDonationFinancialChain(EnhancedTestCase):
         ba.insert(ignore_permissions=True)
         return ba.name
 
+    @shared_fixture
     def _setup_donation_income_account(self):
         """Create/find a donation income account (company currency) and point
         Verenigingen Settings.unrestricted_donation_account at it so the JE

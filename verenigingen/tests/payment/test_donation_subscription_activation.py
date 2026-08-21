@@ -37,7 +37,7 @@ from urllib.parse import urlparse
 import frappe
 from mollie.api.error import BadRequestError
 
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 from verenigingen.verenigingen_payments.mollie.services.webhook_wrapper_service_unified import (
     UnifiedWebhookWrapperService,
 )
@@ -355,6 +355,20 @@ class TestDonationSubscriptionActivation(EnhancedTestCase):
         self.live_subscriptions = {}
 
     # ------------------------------------------------------------------ setup
+    # These three build shared accounting masters on a shared company: two GL
+    # accounts, a Bank and the Bank Account linked to the clearing account. The
+    # captured-insert drain claims every row a test inserts and deletes it at
+    # teardown, so an undecorated build site hands the whole set to whichever test
+    # ran first and takes it from every later class in the shard (#330, #444).
+    #
+    # Measured on a purged `test_site_4`, same fixtures, same names:
+    #
+    #   this module, undecorated       -> 17/17 green, all three fixtures GONE
+    #   test_recurring_donation_charge -> 37/37 green, all three SURVIVE
+    #                                     (its copies already carry the decorator)
+    #
+    # The decorator was the only difference.
+    @shared_fixture
     def _setup_mollie_clearing_account(self):
         name = frappe.get_value(
             "Account", {"company": COMPANY, "account_name": "Mollie Clearing Subact Test"}, "name"
@@ -373,6 +387,7 @@ class TestDonationSubscriptionActivation(EnhancedTestCase):
         acct.insert(ignore_permissions=True)
         return acct.name
 
+    @shared_fixture
     def _setup_mollie_bank_account(self, gl_account):
         existing = frappe.get_value("Bank Account", {"account": gl_account}, "name")
         if existing:
@@ -392,6 +407,7 @@ class TestDonationSubscriptionActivation(EnhancedTestCase):
         ba.insert(ignore_permissions=True)
         return ba.name
 
+    @shared_fixture
     def _setup_donation_income_account(self):
         name = frappe.get_value(
             "Account", {"company": COMPANY, "account_name": "Donation Income Subact Test"}, "name"
