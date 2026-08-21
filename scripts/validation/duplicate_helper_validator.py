@@ -22,14 +22,22 @@ is fine for a ratchet: the value is that adding a NINTH `_persist_eur_company`
 fails, whatever the existing eight are. Use `--report` for the similarity view when
 deciding what to consolidate.
 
-Restricted to PRIVATE (leading-underscore) module-level functions on purpose. Frappe
-requires `execute` in every report, `get_context` in every page, `run_tests` in every
-suite -- counting those reports 273 names whose top four are framework contract, not
-duplication. The underscore restriction is what makes this 71 real names.
+Restricted to PRIVATE (leading-underscore) helpers on purpose. Frappe requires
+`execute` in every report, `get_context` in every page, `run_tests` in every suite --
+counting those reports 273 names whose top four are framework contract, not
+duplication. The underscore restriction is what keeps this to real names.
+
+METHODS COUNT, since 2026-08-21. Restricting the scan to module-level functions is
+what let the same defect redden trunk twice: `_get_company_with_current_fy` existed in
+three files -- one already fixed, with a comment naming the exact error string -- and
+all three copies were METHODS, so the ratchet was blind to every one of them (#445).
+The three Mollie/donation fixture helpers in #444 were methods too. That change takes
+the census from 71 names / 190 definitions to 567 / 1948.
 
 Usage:
     python scripts/validation/duplicate_helper_validator.py              # ratchet check
     python scripts/validation/duplicate_helper_validator.py --report     # clone families
+    python scripts/validation/duplicate_helper_validator.py --drift      # the work-list
     python scripts/validation/duplicate_helper_validator.py --update-baseline
 """
 
@@ -72,8 +80,19 @@ def _iter_python_files(root: str):
                 yield os.path.join(dirpath, name)
 
 
-def _module_level_helpers(path: str) -> List[Tuple[str, str]]:
-    """(name, source) for each private module-level function in `path`."""
+def _private_helpers(path: str) -> List[Tuple[str, str]]:
+    """(name, source) for each private helper in `path`, module-level OR method.
+
+    Methods count. Restricting this to module-level functions is what let the
+    2026-08-21 red trunk happen twice: `_get_company_with_current_fy` existed in
+    THREE files -- one of them already fixed, with a comment naming the exact error
+    string -- and every copy was a METHOD, so the ratchet could not see any of them
+    (#445). The same was true of the three Mollie/donation fixture helpers in #444.
+
+    Only one nesting level down, and only inside a class. A closure defined inside a
+    function is scoped to that function and cannot be the copy-paste hazard this
+    ratchet exists for.
+    """
     try:
         with open(path, encoding="utf-8", errors="replace") as handle:
             source = handle.read()
@@ -85,24 +104,36 @@ def _module_level_helpers(path: str) -> List[Tuple[str, str]]:
     except (SyntaxError, ValueError, OSError):
         return []
 
-    out = []
-    for node in tree.body:
+    def _emit(node, out):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
+            return
+        # Dunders stay excluded: `__init__` in 400 classes is Python's contract,
+        # not duplication -- the same reason `execute`/`get_context` are excluded.
         if not node.name.startswith("_") or node.name.startswith("__"):
-            continue
+            return
         try:
             out.append((node.name, ast.unparse(node)))
         except Exception:
             out.append((node.name, ""))
+
+    out: List[Tuple[str, str]] = []
+    for node in tree.body:
+        _emit(node, out)
+        if isinstance(node, ast.ClassDef):
+            for child in node.body:
+                _emit(child, out)
     return out
+
+
+# Kept so anything importing the old name keeps working.
+_module_level_helpers = _private_helpers
 
 
 def _by_name(root: str) -> Dict[str, List[Tuple[str, str]]]:
     found: Dict[str, List[Tuple[str, str]]] = defaultdict(list)
     for path in _iter_python_files(root):
         seen_here = set()
-        for name, body in _module_level_helpers(path):
+        for name, body in _private_helpers(path):
             # Count FILES, not definitions: a helper redefined inside one module is a
             # different (and more obvious) problem.
             if name in seen_here:
@@ -175,7 +206,8 @@ def load_baseline(path: Path) -> Dict[str, int]:
 
 def write_baseline(path: Path, counts: Dict[str, int]) -> None:
     header = [
-        "# Private module-level helpers defined in more than one file -- the ratchet",
+        "# Private helpers -- module-level functions AND methods -- defined in more than",
+        "# one file. The ratchet",
         "# baseline for scripts/validation/duplicate_helper_validator.py. Format:",
         "#     <helper name>::<number of files defining it>",
         "#",
@@ -189,7 +221,9 @@ def write_baseline(path: Path, counts: Dict[str, int]) -> None:
         "#",
         "# A high count here does NOT mean the copies are clones; same name, unrelated",
         "# bodies is common (13 `_payment` helpers share 6% similarity). Run with",
-        "# --report for the similarity view before consolidating anything.",
+        "# --report for the similarity view before consolidating anything, and --drift",
+        "# for the band that matters most: near-identical copies with NO exact pair,",
+        "# i.e. a fix that already landed in one of them.",
         "",
     ]
     body = [f"{name}::{count}" for name, count in sorted(counts.items())]
@@ -203,7 +237,31 @@ def main() -> int:
     parser.add_argument(
         "--report", action="store_true", help="show clone families instead of ratcheting"
     )
+    parser.add_argument(
+        "--drift",
+        action="store_true",
+        help="near-identical copies with NO exact pair -- where a fix landed once",
+    )
     args = parser.parse_args()
+
+    if args.drift:
+        # The band worth triaging. A family whose copies are still byte-identical is
+        # merely duplicated; one that is >=90% similar with NO exact pair has been
+        # EDITED IN ONE PLACE and not the others -- which is the exact shape of #394
+        # (two copies fixed, a third missed), #399 (a sibling query 40 lines down) and
+        # #444 (@shared_fixture added to one of three). The comment explaining the fix
+        # is sitting in one copy; its siblings carry the bug.
+        drifted = [f for f in clone_families() if f[2] == 0 and f[3] >= CLONE_RATIO]
+        print(f"{'pairs':>5} {'files':>5} {'best':>5}  helper")
+        for pairs, files, _exact, best, name, dirs in drifted:
+            print(f"{pairs:>5} {files:>5} {best:>5}  {name}")
+            for d in dirs[:4]:
+                print(f"{'':>22}{d}/")
+        print(
+            f"\n{len(drifted)} families are near-identical with no exact pair. "
+            "Each is a fix that may already have landed in one copy."
+        )
+        return 0
 
     if args.report:
         families = clone_families()
