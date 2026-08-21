@@ -416,14 +416,19 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
                 for n in ast.walk(fn)
             )
 
-        bases, copies = {}, collections.defaultdict(list)
+        # (module, class) -> base names. Keyed by module as well as name because
+        # 253 class names in this app are defined in more than one module; a
+        # global name -> bases map would resolve some of them to the wrong class
+        # and could fail the gate on a copy that is not exposed at all.
+        bases = {}
+        copies = collections.defaultdict(list)
         for path in sorted(root.rglob("*.py")):
             try:
                 tree = ast.parse(path.read_text(), filename=str(path))
             except (SyntaxError, UnicodeDecodeError):
                 continue
             for cls in [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]:
-                bases[cls.name] = [ast.unparse(b).split("[")[0] for b in cls.bases]
+                bases[(str(path), cls.name)] = [ast.unparse(b).split("[")[0] for b in cls.bases]
                 for fn in cls.body:
                     if isinstance(fn, ast.FunctionDef) and fn.name.startswith("_"):
                         copies[fn.name].append(
@@ -437,21 +442,37 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
                             )
                         )
 
-        def reaches_drained_base(cls_name, seen=None):
+        def reaches_drained_base(module, cls_name, seen=None):
+            """Does this class inherit from `EnhancedTestCase`?
+
+            Resolves each base in its OWN module first, and only then repo-wide --
+            and repo-wide only when the name is unambiguous. An ambiguous name
+            resolves to nothing, so the gate under-reports rather than failing CI
+            on a class it guessed wrong about.
+            """
             seen = seen or set()
-            if cls_name in seen:
+            if (module, cls_name) in seen:
                 return False
-            seen.add(cls_name)
+            seen.add((module, cls_name))
             if cls_name == "EnhancedTestCase":
                 return True
-            return any(reaches_drained_base(b, seen) for b in bases.get(cls_name, []))
+
+            for base in bases.get((module, cls_name), []):
+                if (module, base) in bases:
+                    if reaches_drained_base(module, base, seen):
+                        return True
+                    continue
+                elsewhere = [m for (m, c) in bases if c == base]
+                if len(elsewhere) == 1 and reaches_drained_base(elsewhere[0], base, seen):
+                    return True
+            return False
 
         flagged = []
         for name, found in sorted(copies.items()):
             if len({c[0] for c in found}) < 2 or not any(c[3] for c in found):
                 continue
             for path, cls, line, shared, ins, susp in found:
-                if not shared and ins and not susp and reaches_drained_base(cls):
+                if not shared and ins and not susp and reaches_drained_base(str(root.parent / path), cls):
                     flagged.append(f"{name}  <-  {path}:{line} ({cls})")
         return flagged
 
