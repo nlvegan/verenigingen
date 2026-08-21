@@ -270,12 +270,17 @@ class DonationJournalEntryCreator:
                 income_account = frappe.db.get_value("Company", company, "default_income_account")
 
             if not income_account:
-                # Last resort - find any income account
+                # Last resort - find any income account.
+                # Keyed on root_type, NOT account_type: ERPNext's standard chart of
+                # accounts leaves account_type EMPTY on the Income subtree, so the
+                # account_type filter matched only rows something else had typed by
+                # hand and this "last resort" could not actually find a standard
+                # income account (#442).
                 income_account = frappe.db.get_value(
                     "Account",
                     {
                         "company": company,
-                        "account_type": "Income Account",
+                        "root_type": "Income",
                         "is_group": 0,
                     },
                     "name",
