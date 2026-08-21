@@ -49,10 +49,37 @@ class WhatCountsTest(unittest.TestCase):
         src = "def __getattr__(name):\n    pass\n"
         self.assertEqual({}, _census({"a.py": src, "b.py": src}))
 
-    def test_methods_are_not_module_level_helpers(self):
-        """A method is scoped by its class; the copy-paste unit here is the
-        module-level helper."""
+    def test_methods_ARE_counted(self):
+        """Inverted on 2026-08-21. This used to assert that a method is scoped by
+        its class and so is not the copy-paste unit. That was wrong, and it is why
+        the same defect reddened trunk twice: `_get_company_with_current_fy` lived
+        in three files -- one already fixed, with a comment naming the exact error
+        string -- and every copy was a METHOD, invisible to this census. So were
+        the three Mollie/donation fixture helpers of #444 (#445)."""
         src = "class T:\n    def _helper(self):\n        pass\n"
+        self.assertEqual({"_helper": 2}, _census({"a.py": src, "b.py": src}))
+
+    def test_a_method_and_a_module_level_function_of_the_same_name_collide(self):
+        """Deliberate: the point of the census is that a fix applied to one of them
+        can be missed in the other, and that is just as true across the class
+        boundary as within it."""
+        as_method = "class T:\n    def _shared(self):\n        pass\n"
+        as_function = "def _shared():\n    pass\n"
+        self.assertEqual({"_shared": 2}, _census({"a.py": as_method, "b.py": as_function}))
+
+    def test_a_closure_inside_a_function_is_NOT_counted(self):
+        """The boundary the scan stops at. A function defined inside another
+        function is scoped to that call and cannot be the copy-paste hazard this
+        exists for -- and builder callbacks like `build_entry` are defined this way
+        all over the payment code, so counting them would be pure noise."""
+        src = "def outer():\n    def _inner():\n        pass\n    return _inner\n"
+        self.assertEqual({}, _census({"a.py": src, "b.py": src}))
+
+    def test_a_method_nested_in_a_class_in_a_function_is_NOT_counted(self):
+        """Same boundary, stated for the shape the test suites actually use: a
+        throwaway class defined inside a test method (a fake SDK, a probe) is local
+        to that test."""
+        src = "def outer():\n    class T:\n        def _inner(self):\n            pass\n    return T\n"
         self.assertEqual({}, _census({"a.py": src, "b.py": src}))
 
     def test_two_helpers_in_the_SAME_file_are_one_file(self):
