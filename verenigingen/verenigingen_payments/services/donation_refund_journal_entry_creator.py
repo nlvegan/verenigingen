@@ -174,11 +174,19 @@ class DonationRefundJournalEntryCreator:
 
             if not income_account:
                 # Last resort - find any income account.
+                #
                 # Keyed on root_type, NOT account_type: ERPNext's standard chart of
                 # accounts leaves account_type EMPTY on the Income subtree, so the
                 # account_type filter matched only rows something else had typed by
                 # hand and this "last resort" could not actually find a standard
                 # income account (#442).
+                #
+                # `order_by` is explicit and ascending because this picks an account
+                # nobody configured: the default is `creation DESC`, so the answer
+                # would otherwise be "whichever income account was made most
+                # recently" and could change between two donations. A bare
+                # `order_by="name"` would NOT fix that -- frappe appends the
+                # direction, so it sorts DESC.
                 income_account = frappe.db.get_value(
                     "Account",
                     {
@@ -187,7 +195,22 @@ class DonationRefundJournalEntryCreator:
                         "is_group": 0,
                     },
                     "name",
+                    order_by="name asc",
                 )
+                if income_account:
+                    # Widening this filter is a trade: before #442 it matched nothing
+                    # on a standard chart, so a misconfigured deployment failed loudly
+                    # with "Donation income account not configured" and booked nothing.
+                    # Now it books -- which is better for the donor's money and worse
+                    # for visibility, so the misconfiguration has to be said out loud
+                    # rather than disappear into a correct-looking Journal Entry.
+                    frappe.log_error(
+                        f"No donation income account is configured for {company}: neither "
+                        f"Verenigingen Settings.unrestricted_donation_account nor the company "
+                        f"default_income_account is set. Falling back to {income_account}, "
+                        f"which nobody chose for donations.",
+                        "Donation Income Account Not Configured",
+                    )
 
             if not clearing_account:
                 return {"error": "Mollie clearing account not configured"}
