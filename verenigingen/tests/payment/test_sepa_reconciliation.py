@@ -392,6 +392,11 @@ class TestReconBaseCleansUpAfterItself(ReconBase):
         trunk went red (#395). Mildly ironic in a test whose whole point is that
         a fixture must own rather than borrow.
         """
+        # `if a`, not just pluck: most Bank Accounts on a test site are party
+        # accounts with no `account` link (measured: 400 of 410 on test_site_5), and
+        # a None in the list makes this `NOT IN (NULL, ...)`, which is
+        # NULL-propagating and matches ZERO rows -- turning the helper into a
+        # permanent, silent `skipTest`. It looks removable and is not.
         claimed = [a for a in frappe.get_all("Bank Account", pluck="account") if a]
         return frappe.db.get_value(
             "Account",
@@ -399,7 +404,7 @@ class TestReconBaseCleansUpAfterItself(ReconBase):
                 "company": ["!=", self._company],
                 "account_type": "Bank",
                 "is_group": 0,
-                "name": ["not in", claimed or [""]],
+                "name": ["not in", claimed],
             },
             ["name", "company"],
             as_dict=True,
@@ -411,8 +416,17 @@ class TestReconBaseCleansUpAfterItself(ReconBase):
         On CI this happened by co-tenancy -- some other suite's Bank Account got
         there first. Here it is made to happen, so the assertion discriminates.
         """
-        target = self._unclaimed_foreign_bank_gl()
-        if not target:
+        # Chosen with the PRE-FIX query, not with the helper under test: picking the
+        # target with the SUT would make the assertion partly self-referential.
+        # (ERPNext's own company test records leave 14 unclaimed bank GL leaves on a
+        # fresh site, so the skip below is a guard, not the normal path.)
+        target = frappe.db.get_value(
+            "Account",
+            {"company": ["!=", self._company], "account_type": "Bank", "is_group": 0},
+            ["name", "company"],
+            as_dict=True,
+        )
+        if not target or frappe.db.get_value("Bank Account", {"account": target.name}, "name"):
             self.skipTest("needs a foreign, unclaimed bank GL account to claim")
 
         competitor = self._make_decoy_bank_account_(target)
