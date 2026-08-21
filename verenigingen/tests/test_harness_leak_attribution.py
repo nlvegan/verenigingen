@@ -416,17 +416,29 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
                 for n in ast.walk(fn)
             )
 
-        # (module, class) -> base names. Keyed by module as well as name because
-        # 253 class names in this app are defined in more than one module; a
-        # global name -> bases map would resolve some of them to the wrong class
-        # and could fail the gate on a copy that is not exposed at all.
+        # (module, class) -> base names, plus (module, local name) -> (module, real
+        # name) for every `from X import Y as Z`. Both are needed:
+        #
+        # * 253 class names in this app are defined in more than one module, so a
+        #   global name -> bases map resolves some of them to the wrong class;
+        # * `BaseTestCase` is a CLASS in tests/utils/test_utils.py (an
+        #   EnhancedTestCase subclass) and an ALIAS for VereningingenTestCase in
+        #   tests/base_test_case.py. Six modules import the alias. Resolving by
+        #   ClassDef alone finds only the class -- unambiguously, and wrongly --
+        #   and would fail CI on six classes that are not drained at all.
         bases = {}
+        aliases = {}
         copies = collections.defaultdict(list)
         for path in sorted(root.rglob("*.py")):
             try:
                 tree = ast.parse(path.read_text(), filename=str(path))
             except (SyntaxError, UnicodeDecodeError):
                 continue
+            for node in tree.body:
+                if isinstance(node, ast.ImportFrom) and node.module:
+                    for alias in node.names:
+                        local = alias.asname or alias.name
+                        aliases[(str(path), local)] = (node.module, alias.name)
             for cls in [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]:
                 bases[(str(path), cls.name)] = [ast.unparse(b).split("[")[0] for b in cls.bases]
                 for fn in cls.body:
@@ -458,10 +470,31 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
                 return True
 
             for base in bases.get((module, cls_name), []):
+                # 1. defined in this very module
                 if (module, base) in bases:
                     if reaches_drained_base(module, base, seen):
                         return True
                     continue
+                # 2. imported into this module -- follow the alias to its real name,
+                #    which is the only way to tell `BaseTestCase` (the class) from
+                #    `BaseTestCase` (an alias for a class that is NOT drained).
+                target = aliases.get((module, base))
+                if target:
+                    real_module_suffix, real_name = target
+                    if real_name == "EnhancedTestCase":
+                        return True
+                    candidates = [
+                        m
+                        for (m, c) in bases
+                        if c == real_name
+                        and m.endswith(real_module_suffix.replace(".", "/") + ".py")
+                    ]
+                    if len(candidates) == 1 and reaches_drained_base(
+                        candidates[0], real_name, seen
+                    ):
+                        return True
+                    continue
+                # 3. last resort: repo-wide, and only when unambiguous
                 elsewhere = [m for (m, c) in bases if c == base]
                 if len(elsewhere) == 1 and reaches_drained_base(elsewhere[0], base, seen):
                     return True
