@@ -13,7 +13,12 @@ node_modules
 
 CLAUDE.md
 TEST_SUMMARY.md
-.claude
+# `.claude/*` rather than `.claude`: git cannot re-include anything under an
+# EXCLUDED DIRECTORY, so the negation below only works if the directory itself is
+# not excluded. Repo-local skills are shared team knowledge rather than
+# per-developer configuration, so they are versioned and reviewed.
+.claude/*
+!.claude/skills/
 # Cypress test artifacts
 cypress/videos/
 cypress/screenshots/
