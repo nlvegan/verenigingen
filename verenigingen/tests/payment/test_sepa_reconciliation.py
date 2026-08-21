@@ -357,17 +357,11 @@ class TestReconBaseCleansUpAfterItself(ReconBase):
         account happened to be the newest match. So plant a decoy that a borrow
         would prefer, and require the owned one anyway.
         """
-        # A company that already has a Bank-type GL account: `is_company_account`
-        # makes `account` mandatory, and the decoy needs that flag to be the row
-        # a borrowing lookup would prefer.
-        decoy_gl = frappe.db.get_value(
-            "Account",
-            {"company": ["!=", self._company], "account_type": "Bank", "is_group": 0},
-            ["name", "company"],
-            as_dict=True,
-        )
+        decoy_gl = self._unclaimed_foreign_bank_gl()
         if not decoy_gl:
-            self.skipTest("needs another company with a bank account to tell owning from borrowing")
+            self.skipTest(
+                "needs another company with an unclaimed bank GL account to tell owning from borrowing"
+            )
 
         decoy = self._make_decoy_bank_account_(decoy_gl)
 
@@ -380,6 +374,56 @@ class TestReconBaseCleansUpAfterItself(ReconBase):
             frappe.db.get_value("Bank Account", account, "account"),
             frappe.db.get_value("Company", self._company, "default_bank_account"),
             "the resolved Bank Account is not the one keyed on this company's default GL account",
+        )
+
+    def _unclaimed_foreign_bank_gl(self):
+        """A Bank-type GL account of another company that no Bank Account claims.
+
+        `is_company_account` makes `account` mandatory, and the decoy needs that
+        flag to be the row a borrowing lookup would prefer -- hence Bank-type,
+        another company.
+
+        The "no Bank Account claims it" half is the part this used to get wrong.
+        erpnext's `Bank Account.validate_account` permits exactly one Bank Account
+        per GL account, and the lookup asked only "Bank-type, someone else's
+        company" -- a different key from the one that must be unique. So the first
+        time a sibling fixture claimed the account this picked, the decoy insert
+        died with "'TEB Bank One - TEBPC' account is already used by ...", and
+        trunk went red (#395). Mildly ironic in a test whose whole point is that
+        a fixture must own rather than borrow.
+        """
+        claimed = [a for a in frappe.get_all("Bank Account", pluck="account") if a]
+        return frappe.db.get_value(
+            "Account",
+            {
+                "company": ["!=", self._company],
+                "account_type": "Bank",
+                "is_group": 0,
+                "name": ["not in", claimed or [""]],
+            },
+            ["name", "company"],
+            as_dict=True,
+        )
+
+    def test_the_decoy_lookup_skips_a_gl_account_another_bank_account_claims(self):
+        """#395: seed the competitor, because a site where none exists proves nothing.
+
+        On CI this happened by co-tenancy -- some other suite's Bank Account got
+        there first. Here it is made to happen, so the assertion discriminates.
+        """
+        target = self._unclaimed_foreign_bank_gl()
+        if not target:
+            self.skipTest("needs a foreign, unclaimed bank GL account to claim")
+
+        competitor = self._make_decoy_bank_account_(target)
+        self.assertEqual(frappe.db.get_value("Bank Account", competitor.name, "account"), target.name)
+
+        after = self._unclaimed_foreign_bank_gl()
+        self.assertNotEqual(
+            after.name if after else None,
+            target.name,
+            "the lookup returned a GL account that is already claimed -- inserting a second "
+            "Bank Account against it is what erpnext's validate_account rejects",
         )
 
     def _make_decoy_bank_account_(self, decoy_gl):

@@ -201,8 +201,15 @@ class DuesCreationTestBase(EnhancedTestCase):
             ensure_mollie_bank_gl_account,
         )
 
+        # order_by, not an unordered pick: a company can have several Bank
+        # accounts, and which one this returned varied with what sibling suites
+        # had created and drained -- which is half of why the Bank Account below
+        # collided (#395).
         clearing = frappe.db.get_value(
-            "Account", {"company": company, "account_type": "Bank", "is_group": 0}, "name"
+            "Account",
+            {"company": company, "account_type": "Bank", "is_group": 0},
+            "name",
+            order_by="name",
         ) or ensure_mollie_bank_gl_account(company)
         income = frappe.db.get_value(
             "Account", {"company": company, "account_type": "Income Account", "is_group": 0}, "name"
@@ -214,6 +221,16 @@ class DuesCreationTestBase(EnhancedTestCase):
         # Account via its `account` link to the clearing GL account. On a site
         # where no such Bank Account exists yet, create one (plus its Bank parent)
         # idempotently so the BT-creation branch is exercisable on ANY site.
+        #
+        # The account_name carries the clearing account so that the docname
+        # erpnext derives (`<account_name> - <bank>`) is keyed on the same thing
+        # the guard checks. The fixed name "Mollie Clearing" was not: the guard
+        # asked "does a Bank Account point at THIS GL account?" while the PRIMARY
+        # key was "Mollie Clearing - Mollie Test Bank", so the first time
+        # `clearing` resolved to a different GL account than the previous class
+        # had used, the guard found nothing and the insert died with
+        # `Duplicate entry 'Mollie Clearing - Mollie Test Bank' for key 'PRIMARY'`
+        # -- taking out six classes in setUpClass rather than one test (#395).
         if clearing and not frappe.db.get_value("Bank Account", {"account": clearing}, "name"):
             if not frappe.db.exists("Bank", "Mollie Test Bank"):
                 frappe.get_doc({"doctype": "Bank", "bank_name": "Mollie Test Bank"}).insert(
@@ -222,7 +239,7 @@ class DuesCreationTestBase(EnhancedTestCase):
             frappe.get_doc(
                 {
                     "doctype": "Bank Account",
-                    "account_name": "Mollie Clearing",
+                    "account_name": f"Mollie Clearing {clearing}",
                     "account": clearing,
                     "bank": "Mollie Test Bank",
                     "company": company,
