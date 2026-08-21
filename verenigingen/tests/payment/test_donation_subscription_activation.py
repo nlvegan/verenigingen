@@ -584,6 +584,121 @@ class TestDonationSubscriptionActivation(EnhancedTestCase):
             "A retry must not change the recorded subscription id",
         )
 
+    # ------------------------------------------ a failed history write is not a 200
+
+    def _fail_donor_history_only(self):
+        """Patch that fails the donor_history write and leaves every other one real.
+
+        The manager is a collaborator here, not the code under test: what is under
+        test is the WEBHOOK's handling of a False return. Failing only the Donor
+        path keeps the donation and member writes real, so the assertion below
+        discriminates on which table failed rather than on "everything broke".
+        """
+        from verenigingen.utils.member_financial_history_manager import (
+            MemberFinancialHistoryManager,
+        )
+
+        real = MemberFinancialHistoryManager.add_or_update_entry
+
+        def failing(manager_self, *args, **kwargs):
+            if manager_self.doc.doctype == "Donor":
+                return False
+            return real(manager_self, *args, **kwargs)
+
+        return patch.object(MemberFinancialHistoryManager, "add_or_update_entry", failing)
+
+    def test_a_failed_donor_history_write_is_not_reported_as_success(self):
+        """REGRESSION (#449): the webhook must not answer 200 when the history
+        write failed.
+
+        `add_or_update_entry` returns False -- it does not raise -- for a builder
+        that returns None or raises, a TimestampMismatchError surviving five
+        attempts, an `update_child_table` failing three retries, and anything its
+        outer `except Exception` catches. `_update_donor_record` computed that flag
+        and then returned True unconditionally, and the caller discarded even that,
+        so every one of those became `{"status": "success"}` -> HTTP 200 -> Mollie
+        never re-delivers -> the donation is missing from `donor_history`
+        permanently. Per #425 nothing repairs it afterwards.
+        """
+        with self._fail_donor_history_only():
+            result = self._run_webhook()
+
+        self.assertEqual(
+            result["status"],
+            "error",
+            "A failed donor_history write must surface as an error so the API layer "
+            f"returns non-2xx and Mollie re-delivers; got {result}",
+        )
+        self.assertIn("donor_history", result.get("history_failures", []))
+
+        # The money must still have been booked -- that is what makes asking for a
+        # re-delivery the right answer rather than a dangerous one.
+        self.assertTrue(
+            result.get("journal_entry"),
+            f"the Journal Entry should still exist for the retry to be safe; got {result}",
+        )
+
+    def test_the_happy_path_still_succeeds_and_writes_donor_history(self):
+        """Control for the test above: without the injected failure the same run
+        answers success and the entry actually lands.
+
+        Without this, 'the webhook returns error' would be equally consistent with
+        'the new check is wrong and fails always'.
+        """
+        result = self._run_webhook()
+        self.assertEqual(result["status"], "success", f"Unexpected result: {result}")
+        self.assertEqual(result.get("history_failures", []), [])
+
+        donor_id = frappe.db.get_value("Donation", self.donation_name, "donor")
+        refs = frappe.get_all(
+            "Donation History",
+            filters={"parent": donor_id, "parenttype": "Donor"},
+            pluck="donation_reference",
+        )
+        self.assertIn(
+            self.donation_name,
+            refs,
+            "the happy path must actually write the donor_history entry",
+        )
+
+    def test_a_redelivery_after_a_history_failure_does_not_double_book(self):
+        """The safety claim behind returning non-2xx, measured rather than argued.
+
+        `is_fully_processed()` is permanently false for donations (#344), so every
+        re-delivery lands back on the new-payment path -- the code says so itself.
+        Asking Mollie to retry is therefore only safe if the money-side steps are
+        individually idempotent. They claim to be, on the payment id:
+        `bank_transaction_creator._check_existing_by_reference` matches
+        `Bank Transaction.reference_number`, and the donation Journal Entry creator
+        matches `Journal Entry.cheque_no` (that doctype has no `reference_no`).
+
+        So: fail the history write, then re-deliver cleanly, and count the rows.
+        """
+        with self._fail_donor_history_only():
+            first = self._run_webhook()
+        self.assertEqual(first["status"], "error", f"setup for this test did not fail: {first}")
+
+        second = self._run_webhook()
+
+        journal_entries = frappe.get_all(
+            "Journal Entry", filters={"cheque_no": self.payment_id, "docstatus": ["!=", 2]}, pluck="name"
+        )
+        bank_transactions = frappe.get_all(
+            "Bank Transaction", filters={"reference_number": self.payment_id}, pluck="name"
+        )
+
+        self.assertEqual(
+            len(journal_entries), 1, f"the re-delivery double-booked: {journal_entries}"
+        )
+        self.assertEqual(
+            len(bank_transactions), 1, f"the re-delivery duplicated the Bank Transaction: {bank_transactions}"
+        )
+        self.assertEqual(
+            second["status"],
+            "success",
+            f"the re-delivery should complete what was missing; got {second}",
+        )
+
     def test_transient_activation_failure_asks_mollie_to_retry(self):
         """If Mollie errors while creating the subscription, the webhook must NOT
         report success.

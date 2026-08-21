@@ -750,20 +750,61 @@ class UnifiedWebhookWrapperService:
             # Step 4: Update donation status and metadata
             self._update_donation_status(donation, payment_data)
 
-            # Step 5: Update donation payment history (atomic)
-            self._update_donation_payment_history_atomic(donation, payment_data, journal_entry_name)
+            # Steps 5-7: the three financial-history tables.
+            #
+            # Their results are collected rather than discarded. Each of these
+            # returns False -- it does not raise -- for a builder that returns None
+            # or raises, a TimestampMismatchError surviving five attempts, an
+            # `update_child_table` that fails three retries, and anything caught by
+            # the manager's outer `except Exception`. Discarding that answered 200
+            # to Mollie, so the delivery was never retried and the entry was lost
+            # permanently; per #425 `donor_history` has no integrity sweep to
+            # repair it afterwards either (#449).
+            #
+            # Asking Mollie to re-deliver is safe here: the money-side steps are
+            # each individually idempotent on the payment id
+            # (`bank_transaction_creator._check_existing_by_reference` and the
+            # donation Journal Entry creator's own idempotency check), so a retry
+            # cannot double-book even though the top-level `is_fully_processed()`
+            # gate is broken for donations (#344) and every re-delivery therefore
+            # lands back on this path.
+            #
+            # All three answer True when there is nothing to do -- no donor, no
+            # member, an entry already present -- so False here means a real failure.
+            history_failures = []
 
-            # Step 6: Update Donor record (subscription IDs, donor_history)
-            self._update_donor_record(donation, payment_data)
+            if not self._update_donation_payment_history_atomic(donation, payment_data, journal_entry_name):
+                history_failures.append("donation payment history")
 
-            # Step 7: Update Member payment history (for ALL donations)
-            self._update_member_payment_history(donation, payment_data, journal_entry_name)
+            if not self._update_donor_record(donation, payment_data):
+                history_failures.append("donor_history")
+
+            if not self._update_member_payment_history(donation, payment_data, journal_entry_name):
+                history_failures.append("member payment history")
 
             # Check for pending refunds even during new payment processing
             # Refunds may exist if payment was processed then immediately refunded
             refund_results = self._process_pending_refunds(
                 donation, payment_id, processing_state.pending_refunds
             )
+
+            # A history write that failed must not be reported as success: the
+            # financial entries are already booked and idempotent, so a non-2xx
+            # buys a re-delivery that can only complete what is missing (#449).
+            if history_failures:
+                return {
+                    "status": "error",
+                    "message": (
+                        f"Payment {payment_id} booked, but "
+                        f"{', '.join(history_failures)} could not be written"
+                    ),
+                    "payment_id": payment_id,
+                    "bank_transaction": bank_transaction_name,
+                    "journal_entry": journal_entry_name,
+                    "donation_id": donation.name,
+                    "history_failures": history_failures,
+                    "duration_seconds": time.time() - start_time,
+                }
 
             # Return success result
             result = {
@@ -1909,6 +1950,15 @@ class UnifiedWebhookWrapperService:
                 if success:
                     fields_updated.append("donor_history")
                     self.logger.info(f"✅ Updated Donor {donor.name} history for donation {donation.name}")
+                else:
+                    # `.error`, not `.warning`: a bare frappe logger defaults to level
+                    # ERROR under `bench run-tests`, so a warning here is discarded
+                    # entirely and the failure would be invisible to the suite too.
+                    self.logger.error(
+                        f"donor_history update returned False for Donor {donor.name}, "
+                        f"donation {donation.name}"
+                    )
+                    return False
 
             return True
 
