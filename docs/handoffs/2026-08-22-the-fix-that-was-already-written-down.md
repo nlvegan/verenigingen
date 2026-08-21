@@ -14,10 +14,10 @@ below my own fix.
 | #441 | Bank Account fixtures keyed on what erpnext constrains (#395) | `a6859a76` |
 | #440 | the company and income account owned rather than scanned for (#431) | `deb7a885` |
 
-**`develop` is at `deb7a885` and the trunk is GREEN.** The run on `a6859a76` — after the
-first merge, before the second — was **12/12 shards**, the first clean Server Tests on
-`develop` since the streak began. #440's own final run was 12/12 and 43/43 checks. The
-post-`deb7a885` run was in flight when this was written; it is the one outstanding check.
+**The trunk is GREEN, on every commit today.** Three consecutive Server Tests runs on
+`develop` at **12/12 shards**: `a6859a76` (the first clean run since the streak began),
+`deb7a885`, and `df43b092` — the last being Foppe's merge of #438, which closes #424.
+#440's own final run was 12/12 and 43/43 checks. Nothing red anywhere.
 
 Merge order was not arbitrary. #440 was red on shard 4 for #395's defect — the thing #441
 fixes — while #441's shard 4 was green on the same base. Landing #441 first made #440's
@@ -27,7 +27,7 @@ only failure disappear instead of leaving the trunk red through two re-packs.
 |---|---|
 | `docs/verenigingen-test-harness-skill` | repo-local skill, pushed, **no PR opened** |
 
-The live tree is still at `adae1ddf`, **not deployed** — 8 merges / 41 commits behind.
+The live tree is still at `adae1ddf`, **not deployed** — 9 merges behind.
 
 | issue | |
 |---|---|
@@ -37,6 +37,26 @@ The live tree is still at `adae1ddf`, **not deployed** — 8 merges / 41 commits
 | #443 | 34 Bank Account creation sites, 16 guarding on a key that is not constrained |
 | #444 | `_setup_mollie_*`: byte-identical trio, `@shared_fixture` in one file only |
 | #445 | the duplicate-helper ratchet cannot see methods; 72 method families have drifted |
+
+## #419 is proven, incidentally
+
+The 2026-08-21 handoff left one thing open: the per-commit concurrency group on push was
+*"not yet proven — no merge burst has happened under the new group. The check is a develop
+run that overlaps the next merge and reaches a conclusion."* Today's three merges inside
+one hour produced exactly that:
+
+```
+08:51:23  deb7a885 Server Tests created
+08:58:51  #438 merged as df43b092        <- 7.5 minutes into the run
+08:58:54  df43b092 Server Tests created
+09:40:41  deb7a885 Server Tests CONCLUDED -> success, 12/12
+10:15:18  df43b092 Server Tests concluded -> success, 12/12
+```
+
+The earlier run kept going for 42 minutes after the next merge had queued its own, and
+reached a conclusion. Under the shared group it would have been cancelled and `deb7a885`
+would have gone unverified. Per-merge attribution survives a merge burst. Close #419's
+follow-up.
 
 ## The two root causes
 
@@ -199,11 +219,11 @@ re-include anything under an excluded **directory**. Verified with a control tha
 
 ## Next
 
-- **Confirm the trunk run on `deb7a885`.** It was still running at write time. Both
-  merges re-packed all twelve bins, and there are six open fixture-ownership defects
-  (#390, #392, #394, #406, #443, #444) that a re-pack can surface. If it goes red, the
-  first move is the containment control below, not a bisect.
-- **The live tree is 8 merges / 41 commits behind at `adae1ddf`.** Deploying is now a decision
+- **Three re-packs today surfaced nothing.** All twelve bins were re-packed by each of
+  the three merges and the trunk stayed green throughout — which is a data point about the
+  remaining fixture-ownership defects (#390, #392, #394, #406, #443, #444), not a clean
+  bill of health for them. They are latent, and a fourth re-pack can still find one.
+- **The live tree is 9 merges behind at `adae1ddf`.** Deploying is now a decision
   someone should make deliberately rather than by drift.
 - **#443 is the sharpest of the new ones**: 16 of 34 Bank Account creation sites guard on
   a key that is not the constrained one. `test_payment_entry_creation_service.py:762` makes
