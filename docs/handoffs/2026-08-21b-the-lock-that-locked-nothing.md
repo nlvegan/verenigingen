@@ -16,6 +16,7 @@ had nothing to do with it. The through-line:
 | `develop` | `a6859a76` (picked up **#441** mid-session) |
 | Open, CI re-running | **#438** — the #424 fix, merged onto the fixed base as `f7b08b15` |
 | Closed as superseded | **#446** — my fix for the shard-4 collision; **#441** landed the same fix first |
+| Opened from reviewing #441 | **#447** — #441's regression test skips under the very condition it guards |
 | Issues filed | **#436** — `BaseHistoryManager` takes no row lock at all |
 | Commented | **#443** — an 18-site census of the scan-then-claim shape |
 | Memory written | `lock-probe-second-connection-2026-08-21.md` |
@@ -123,6 +124,49 @@ the newest foreign bank GL account produced the same `ValidationError` on the sa
 trivially achievable by making it test nothing. Reverting `_owned_bank_account` to a
 borrowing lookup still failed on *"resolved a foreign Bank Account -- still borrowing"*.
 
+## What #441 could still learn from #446
+
+Asked to compare the two fixes rather than just concede the race. One thing survived, and
+it is not the thing I had flagged.
+
+**What I flagged and then withdrew.** Closing #446 I claimed a residual: #441's
+`_unclaimed_foreign_bank_gl()` returns `None` when every foreign bank GL account is claimed,
+and the test then skips silently. True in principle; measured, it is not a path CI reaches —
+**18 to 27 unclaimed foreign bank GL accounts** on each of `test_site_1`, `2`, `3` and `5`.
+An argument from reading, retracted by one query.
+
+**What survived is one level down.** #441's *new* regression test picks the account it plants
+its competitor on with the **pre-fix query** — newest foreign bank GL, claimed or not — and
+skips when that one is already claimed:
+
+```python
+if not target or frappe.db.get_value("Bank Account", {"account": target.name}, "name"):
+    self.skipTest("needs a foreign, unclaimed bank GL account to claim")
+```
+
+That is exactly the co-tenancy it exists to guard. Seeding a Bank Account onto the newest
+foreign bank GL on `test_site_3` — the CI condition — turns it from a run into a **skip**,
+with the bug live and the run green.
+
+Fix ported from #446: **create the target instead of finding one.** Nothing can claim an
+account that did not exist a moment ago, so the skip disappears rather than narrowing, and
+it owes nothing to the helper under test — which was #441's stated reason for not picking the
+target with the SUT. It is also the stronger target: created moments ago it is the newest
+bank GL on the site, so a `creation DESC` lookup blind to claims *must* return it.
+
+All four cells measured, not inferred:
+
+| | correct lookup | pre-fix lookup |
+|---|---|---|
+| unseeded | passes | fails |
+| seeded (CI condition) | passes | fails |
+
+Against #441 as merged, the seeded/pre-fix cell is a **skip** — the one cell that matters.
+
+> **A guard that selects its own target with the buggy query inherits the bug's blind spot.**
+> The rule this repo already has — a check without a control proves nothing — has a corollary:
+> a control that can be skipped by the condition under test is not a control.
+
 ## What is left
 
 - **#438** — CI re-running on `f7b08b15`. Green ⇒ merge (already approved). The only failure
@@ -141,9 +185,10 @@ borrowing lookup still failed on *"resolved a foreign Bank Account -- still borr
   previously-unreachable failure branch reachable: contention on the Donor row could not
   occur while no lock was being taken. No HTTP call is held under that lock (checked), so
   the window is DB-only work. Unfiled.
-- **`#441`'s residual**: `_unclaimed_foreign_bank_gl()` returns `None` when every foreign
-  bank GL account is claimed, and the test then skips — green, assertion never run. Noted on
-  #446 and #443.
+- **#447** — awaiting CI. Everything in the section above.
+  The `_unclaimed_foreign_bank_gl()` residual I noted on #446 and #443 is **withdrawn**:
+  measured, 18–27 free accounts per site, so that skip is not reachable. The comment on #443
+  says so; the one on #446 does not, and should be corrected if anyone leans on it.
 
 ## For whoever picks this up
 
