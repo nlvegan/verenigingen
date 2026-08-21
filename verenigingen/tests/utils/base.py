@@ -54,6 +54,12 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
     Don't use for: business logic validation, production issue discovery, field safety
     """
 
+    #: The harness-owned company pinned on `Verenigingen Settings` by `setUpClass`.
+    #: Declared here so a subclass that forgets `super().setUpClass()` gets the
+    #: explanatory error from `_owned_company_and_income_account()` rather than a
+    #: bare AttributeError.
+    settings_company = None
+
     @classmethod
     def setUpClass(cls):
         """Set up class-level test environment"""
@@ -109,7 +115,10 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # make every untracked row a test creates durable.
         from verenigingen.tests.support.verenigingen_settings import own_settings_company
 
-        own_settings_company(cls)
+        # Kept on the class so subclasses can build fixtures under the SAME company
+        # rather than scanning for one that happens to look usable -- see #431 for
+        # what borrowing costs, and #394 for the class it belongs to.
+        cls.settings_company = own_settings_company(cls)
 
     @classmethod
     def tearDownClass(cls):
@@ -1460,6 +1469,49 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         invoice.save()
         self.track_doc("Sales Invoice", invoice.name)
         return invoice
+
+    def _owned_company_and_income_account(self):
+        """(company, income_account) for the company this class OWNS.
+
+        Three modules grew their own `_get_company_with_current_fy()`, each of
+        which scanned every Company on the site for one that happened to have
+        both a current Fiscal Year and an account with
+        `account_type = "Income Account"`. Both halves were wrong (#431):
+
+        * **The scan borrowed.** Which company won depended on what else had run
+          first in the same shard. Shard bins are packed by measured runtime, so
+          editing any test file re-packs all of them -- meaning any PR could
+          redden a module it never touched. It did, on trunk. #394 is the class;
+          #390 is why a company another suite has drained cannot be repaired.
+        * **The filter keyed on the wrong field.** ERPNext's standard chart of
+          accounts leaves `account_type` empty on income leaves; they carry
+          `root_type = "Income"`. Measured on a test site, `_Test Company 1` has
+          five income leaves and **zero** rows matching that filter. So the
+          helper only resolved when a sibling suite had already planted such a
+          row. `Sales Invoice` requires neither: `validate_account_head`
+          (erpnext/controllers/accounts_controller.py) asks only that the account
+          belong to the invoice's company and not be a group.
+
+        One of the three copies had already been fixed for the second half, with
+        a comment naming the exact symptom -- and its two siblings kept the bug
+        for as long as the fix went unsearched. Hence one helper here rather than
+        three there.
+
+        Neither of the scan's two checks needs repeating: `setUpClass` pins the
+        harness-owned company on `Verenigingen Settings` (so fixtures agree with
+        the company production code resolves) and runs
+        `ensure_test_fiscal_year_for_all_companies()`, which guarantees an
+        unrestricted Fiscal Year covering today for every company on the site.
+        """
+        company = self.settings_company
+        if not company:
+            raise RuntimeError(
+                "No harness-owned Company is pinned on `Verenigingen Settings`. before_tests "
+                "(verenigingen/tests/setup/__init__.py) creates one; run the suite through "
+                "`bench run-tests` so that hook fires. This deliberately will NOT fall back to "
+                "scanning for a company nobody here owns -- see #431 for what that costs."
+            )
+        return company, self._get_or_create_income_account(company)
 
     def _get_or_create_income_account(self, company):
         """Get or create a basic income account for testing"""
