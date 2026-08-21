@@ -58,6 +58,23 @@ class BaseHistoryManager:
                     errors=[f"{cls.PARENT_DOCTYPE} {doc_name} not found"],
                 )
 
+            # Lock the parent row BEFORE loading it, because everything below is a
+            # read-modify-write: the callback mutates the child table on this
+            # in-memory copy and safe_child_table_update writes it back. Without the
+            # lock two writers both read, both compute, and the second write wins --
+            # and update_child_table does not touch the parent row, so nothing else
+            # in this path takes that lock on our behalf.
+            #
+            # donor_history is why this is not theoretical: MemberFinancialHistoryManager
+            # locks the Donor row (#424) while DonationHistoryManager took nothing, and
+            # an unlocked writer does not queue behind a locked one. #436.
+            #
+            # PARENT_DOCTYPE is Donor / Member / Volunteer for the three subclasses --
+            # none of them Single, all series-named -- so neither of get_value's two
+            # silently-lockless shapes (a Single, or a name equal to its doctype)
+            # applies here.
+            frappe.db.get_value(cls.PARENT_DOCTYPE, doc_name, "name", for_update=True)
+
             doc = frappe.get_doc(cls.PARENT_DOCTYPE, doc_name)
 
             with recursion_guard(doc, cls.RECURSION_FLAG) as should_proceed:

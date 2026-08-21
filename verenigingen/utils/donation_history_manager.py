@@ -268,6 +268,23 @@ def sync_all_donor_histories():
         else:
             error_count += 1
 
+        # Per DONOR, and the reason is locks, not durability -- the same trade-off
+        # bulk_update_payment_history had to make (#411).
+        #
+        # sync_donation_history now locks the Donor row it is about to rewrite
+        # (#436), and a row lock lives until the transaction ends. This loop is
+        # unbounded -- every Donor on the site -- so committing once at the end
+        # would hold an X-lock on every Donor row for the whole run, and an
+        # ordinary donor.save() elsewhere would block behind it. The child-row
+        # locks this loop already took accumulate the same way; the difference is
+        # that the parent row is one this transaction does not otherwise write,
+        # so it newly blocks writers that were never in its way before.
+        #
+        # Safe to commit here: this is an admin endpoint that owns its request,
+        # and the sync is idempotent, so a run that dies half way leaves the
+        # donors it finished correct rather than half-written.
+        frappe.db.commit()
+
     return {
         "success": True,
         "donors_processed": len(donors),
