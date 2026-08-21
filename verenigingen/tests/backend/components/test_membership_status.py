@@ -78,6 +78,8 @@ class TestMembershipStatusComprehensive(VereningingenTestCase):
             self.track_doc("Item", item.name)
         return item_code
 
+    # Fixture Resolution Tests
+
     def test_invoice_accounts_resolve_without_a_planted_account_type(self):
         """The account resolution must not depend on what ran before us.
 
@@ -133,7 +135,19 @@ class TestMembershipStatusComprehensive(VereningingenTestCase):
         invoice.save()
         invoice.submit()
         self.track_doc("Sales Invoice", invoice.name)
-        self.assertEqual(invoice.docstatus, 1)
+
+        # Not `assertEqual(invoice.docstatus, 1)`: `submit()` sets that in memory
+        # before this line and `db_update()` runs before `on_submit`, so docstatus
+        # is not proof that anything posted -- this repo has a whole issue about
+        # that. Assert on the ledger, and on the ACCOUNT, which is what the helper
+        # actually resolved.
+        self.assertTrue(
+            frappe.db.exists(
+                "GL Entry", {"voucher_no": invoice.name, "account": income_account}
+            ),
+            f"no GL Entry posted to {income_account}; erpnext substituted a default, "
+            f"so this test would pass even if the helper resolved nothing usable",
+        )
 
     # Status Transition Lifecycle Tests
 

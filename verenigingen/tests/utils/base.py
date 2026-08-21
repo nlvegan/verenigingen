@@ -1546,9 +1546,12 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         if not parent_account:
             # No Income accounts exist - this shouldn't happen with a properly set up company
             raise frappe.ValidationError(
-                f"No Income group accounts found for company {company}. "
-                "ERPNext may not be properly configured. "
-                "Ensure a Chart of Accounts is set up with Income accounts."
+                f"No Income group accounts found for company {company}. On a test site this "
+                "almost never means 'ERPNext is misconfigured' -- it means another suite "
+                "drained this company's chart of accounts, and per #390 a partially-drained "
+                "company can NOT be repaired by rebuilding it: Company.on_update skips "
+                "create_default_accounts() while any account for it survives. Find what "
+                "deleted the accounts; do not add a fallback here."
             )
 
         # Create new income account under existing parent

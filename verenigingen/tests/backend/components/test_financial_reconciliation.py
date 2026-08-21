@@ -104,7 +104,7 @@ class TestFinancialReconciliationComprehensive(VereningingenTestCase):
         # but it must be one this class OWNS. "Fall back to any company that has a
         # current Fiscal Year" is what this used to do, and it is why the module
         # died in setUp on trunk (#431).
-        self.test_company, _ = self._owned_company_and_income_account()
+        self.test_company, income_account = self._owned_company_and_income_account()
 
         def acct(account_type):
             return frappe.db.get_value(
@@ -113,7 +113,13 @@ class TestFinancialReconciliationComprehensive(VereningingenTestCase):
                 "name",
             )
 
-        income_account = acct("Income Account")
+        # `membership_revenue` deliberately does NOT go through `acct()`. It is the
+        # one entry here that reaches a real Sales Invoice item (see
+        # `_make_invoice_for`), and `acct("Income Account")` is exactly the filter
+        # this module's helper was deleted for: on a site where nothing has planted
+        # an `account_type = "Income Account"` row it returns None, and erpnext then
+        # silently substitutes the company default. The others are read only by
+        # mocked assertions.
         self.accounts = {
             "membership_revenue": income_account,
             "accounts_receivable": acct("Receivable"),
