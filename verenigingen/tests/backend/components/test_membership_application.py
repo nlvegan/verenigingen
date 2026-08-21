@@ -723,6 +723,9 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         opposite of the helper's defaults, so a real destination would show.
         """
         meta = frappe.get_meta("Member")
+        # Control: without it, a get_meta that stopped resolving fields would make
+        # every assertIsNone below pass for the wrong reason.
+        self.assertIsNotNone(meta.get_field("email"))
         for fieldname in ("newsletter_opt_in", "transfer_iban", "transfer_account_name"):
             self.assertIsNone(
                 meta.get_field(fieldname),
@@ -742,6 +745,9 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         self.track_doc("Member", member.name)
 
         stored = frappe.db.get_value("Member", member.name, "*")
+        # Control: `stored` must be a column map. If it ever came back a row tuple,
+        # the assertNotIn loop below would be vacuously true.
+        self.assertIn("email", stored)
         for fieldname in ("newsletter_opt_in", "transfer_iban", "transfer_account_name"):
             self.assertNotIn(fieldname, stored, f"tabMember gained a {fieldname} column")
 

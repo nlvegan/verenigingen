@@ -19,7 +19,7 @@ confirm_accuracy             # no element anywhere, and nothing validates it liv
 
 # --- the page renders no such control at all ---
 middle_name                  # tussenvoegsel is the Dutch-installation field the page actually offers
-application_source           # stored on Member as the acquisition channel; always ''
+application_source           # NOT stored: Member has no such field and no table on the live site has the column, so both assignments in application_helpers are silent no-ops. Phase 3 adds the field and the page control; until then the page renders neither #application_source nor a name= equivalent.
 application_source_details   #
 
 # --- works despite the missing id ---

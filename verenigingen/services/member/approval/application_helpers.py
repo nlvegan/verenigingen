@@ -578,7 +578,11 @@ def create_member_from_application(data, application_id, address=None):
             "interested_in_volunteering": data.get("interested_in_volunteering", 0),
             # Convert opt-out preference to opt-in field (inverted logic)
             "accepts_optional_communications": 0 if data.get("opt_out_optional_emails") else 1,
-            "application_source": data.get("application_source", "Website"),
+            # No default: Member has no application_source field yet, so this is
+            # inert today -- but the moment Phase 3 adds the column, "Website"
+            # would record an acquisition channel nobody chose. Absence must mean
+            # "not recorded", never an invented source.
+            "application_source": data.get("application_source"),
             "notes": data.get("additional_notes", ""),
             "payment_method": map_payment_method(data.get("payment_method", "")),
             "current_chapter_display": data.get("selected_chapter", ""),
@@ -684,7 +688,8 @@ def update_member_from_reapplication(member_name, data, application_id, address=
     member.interested_in_volunteering = data.get("interested_in_volunteering", 0)
     # Convert opt-out preference to opt-in field (inverted logic)
     member.accepts_optional_communications = 0 if data.get("opt_out_optional_emails") else 1
-    member.application_source = data.get("application_source", "Website")
+    # No default -- see create_member_from_application.
+    member.application_source = data.get("application_source")
     member.payment_method = map_payment_method(data.get("payment_method", ""))
     member.current_chapter_display = data.get("selected_chapter", "")
 
