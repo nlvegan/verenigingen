@@ -576,7 +576,6 @@ def create_member_from_application(data, application_id, address=None):
             "selected_membership_type": data.get("selected_membership_type"),
             "application_dues_schedule": data.get("selected_dues_schedule"),
             "interested_in_volunteering": data.get("interested_in_volunteering", 0),
-            "newsletter_opt_in": data.get("newsletter_opt_in", 1),
             # Convert opt-out preference to opt-in field (inverted logic)
             "accepts_optional_communications": 0 if data.get("opt_out_optional_emails") else 1,
             "application_source": data.get("application_source", "Website"),
@@ -683,7 +682,6 @@ def update_member_from_reapplication(member_name, data, application_id, address=
     # Update application-specific fields
     member.selected_membership_type = data.get("selected_membership_type")
     member.interested_in_volunteering = data.get("interested_in_volunteering", 0)
-    member.newsletter_opt_in = data.get("newsletter_opt_in", 1)
     # Convert opt-out preference to opt-in field (inverted logic)
     member.accepts_optional_communications = 0 if data.get("opt_out_optional_emails") else 1
     member.application_source = data.get("application_source", "Website")
