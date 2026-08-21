@@ -835,8 +835,8 @@ class BulkInvoiceGenerationService(StatefulService):
 
             # Per MEMBER, and the reason is locks, not durability (#411).
             #
-            # add_or_update_entry takes `SELECT ... FROM tabMember WHERE name = %s
-            # FOR UPDATE` on each call, and a row lock is held until the
+            # add_or_update_entry locks the row it is about to rewrite -- a Member
+            # row on this path -- on each call, and a row lock is held until the
             # transaction ends. The history manager's own commit used to release it
             # immediately; now that the manager correctly leaves the transaction
             # alone, committing once at the END of this loop would accumulate an

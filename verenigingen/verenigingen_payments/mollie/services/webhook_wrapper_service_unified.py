@@ -1877,7 +1877,7 @@ class UnifiedWebhookWrapperService:
 
                 # Use centralized history manager for atomic child table updates
                 history_manager = MemberFinancialHistoryManager(
-                    member_doc=donor,
+                    doc=donor,
                     history_field_name="donor_history",
                     max_entries=30,
                 )
