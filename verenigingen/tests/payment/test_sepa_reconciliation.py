@@ -416,18 +416,21 @@ class TestReconBaseCleansUpAfterItself(ReconBase):
         On CI this happened by co-tenancy -- some other suite's Bank Account got
         there first. Here it is made to happen, so the assertion discriminates.
         """
-        # Chosen with the PRE-FIX query, not with the helper under test: picking the
-        # target with the SUT would make the assertion partly self-referential.
-        # (ERPNext's own company test records leave 14 unclaimed bank GL leaves on a
-        # fresh site, so the skip below is a guard, not the normal path.)
-        target = frappe.db.get_value(
-            "Account",
-            {"company": ["!=", self._company], "account_type": "Bank", "is_group": 0},
-            ["name", "company"],
-            as_dict=True,
-        )
-        if not target or frappe.db.get_value("Bank Account", {"account": target.name}, "name"):
-            self.skipTest("needs a foreign, unclaimed bank GL account to claim")
+        # The target is CREATED, not found. Picking it with the SUT would make the
+        # assertion self-referential, but picking it with the pre-fix query -- the
+        # newest foreign bank GL, claimed or not -- made this test skip whenever that
+        # one was already claimed, which is EXACTLY the co-tenancy that reddened
+        # shard 4. Measured: seed a Bank Account onto the newest foreign bank GL and
+        # this test goes from a run to a skip, silently, while the bug it guards is
+        # live. Creating the account owes nothing to the helper and cannot skip.
+        #
+        # It is also strictly the stronger target: created moments ago, it is the
+        # NEWEST bank GL account on the site, so the pre-fix `creation DESC` lookup
+        # must return it -- the mutation cannot dodge this assertion by finding
+        # something else first.
+        target = self._make_foreign_bank_gl()
+        if not target:
+            self.skipTest("needs another company with a bank account to hang a decoy on")
 
         competitor = self._make_decoy_bank_account_(target)
         self.assertEqual(frappe.db.get_value("Bank Account", competitor.name, "account"), target.name)
@@ -439,6 +442,38 @@ class TestReconBaseCleansUpAfterItself(ReconBase):
             "the lookup returned a GL account that is already claimed -- inserting a second "
             "Bank Account against it is what erpnext's validate_account rejects",
         )
+
+    def _make_foreign_bank_gl(self):
+        """A Bank-type leaf account of ANOTHER company, created rather than borrowed.
+
+        Only the place is borrowed -- an existing foreign bank account's parent,
+        which is what proves that company has a chart to hang this on. The account
+        itself is new, so nothing can already claim it: erpnext permits exactly one
+        Bank Account per GL account, and a test that needs a FREE one cannot get
+        there by guarding a lookup, only by owning what it uses.
+
+        Returns None when no other company has a bank account at all, which is a
+        genuine "cannot tell owning from borrowing here" rather than a lost race.
+        """
+        host = frappe.db.get_value(
+            "Account",
+            {"company": ["!=", self._company], "account_type": "Bank", "is_group": 0},
+            ["parent_account", "company"],
+            as_dict=True,
+        )
+        if not host:
+            return None
+
+        gl = frappe.new_doc("Account")
+        gl.account_name = f"Decoy Bank GL {frappe.generate_hash(length=6)}"
+        gl.parent_account = host.parent_account
+        gl.company = host.company
+        gl.account_type = "Bank"
+        gl.is_group = 0
+        gl.insert(ignore_permissions=True)
+        # Registered before any Bank Account is hung off it, so LIFO deletes that first.
+        self.addCleanup(frappe.delete_doc, "Account", gl.name, force=True)
+        return frappe._dict(name=gl.name, company=gl.company)
 
     def _make_decoy_bank_account_(self, decoy_gl):
         """A rival `is_company_account` row that a borrowing lookup would prefer."""
