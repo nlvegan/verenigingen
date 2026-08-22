@@ -7,6 +7,7 @@ from verenigingen.utils.security.api_security_framework import (
     critical_api,
     high_security_api,
 )
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 @frappe.whitelist()
@@ -161,6 +162,21 @@ def execute_safe_termination(
             results["message"] = "Termination completed successfully"
 
         return results
+
+    # #475. This endpoint has no savepoint of its own, so on a 1205 the steps that already ran
+    # are still live and Frappe would commit them at request end while the caller was handed an
+    # HTTP 200 saying "please try again". That is what the rollback is for -- NOT for the
+    # log_error below it, which lands either way: tabError Log is MyISAM and therefore
+    # non-transactional (measured on test_site_1 and veg11). Then re-raise so the class
+    # survives; `@critical_api` logs and re-raises rather than converting, so this really does
+    # reach Frappe as an error.
+    except NON_RESUMABLE_DB_ERRORS:
+        frappe.db.rollback()
+        frappe.log_error(
+            f"Non-resumable DB error during termination of member {member_name}",
+            "Member Termination Error",
+        )
+        raise
 
     except frappe.PermissionError as e:
         return {
