@@ -18,7 +18,7 @@ from unittest.mock import patch
 import frappe
 from mollie.api.error import RequestError
 
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen.doctype.periodic_donation_agreement.periodic_donation_agreement import (
     PeriodicDonationAgreement,
 )
@@ -807,7 +807,6 @@ class TestRecurringChargeWebhookWiring(EnhancedTestCase):
 
     # --- fixtures -------------------------------------------------------------------
 
-    @shared_fixture
     def _setup_mollie_clearing_account(self):
         name = frappe.get_value(
             "Account", {"company": COMPANY, "account_name": "Mollie Clearing Subact Test"}, "name"
@@ -826,7 +825,6 @@ class TestRecurringChargeWebhookWiring(EnhancedTestCase):
         acct.insert(ignore_permissions=True)
         return acct.name
 
-    @shared_fixture
     def _setup_mollie_bank_account(self, gl_account):
         existing = frappe.get_value("Bank Account", {"account": gl_account}, "name")
         if existing:
@@ -846,7 +844,6 @@ class TestRecurringChargeWebhookWiring(EnhancedTestCase):
         ba.insert(ignore_permissions=True)
         return ba.name
 
-    @shared_fixture
     def _setup_donation_income_account(self):
         name = frappe.get_value(
             "Account", {"company": COMPANY, "account_name": "Donation Income Subact Test"}, "name"

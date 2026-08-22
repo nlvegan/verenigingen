@@ -341,6 +341,174 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
                 f"the captured-insert drain will claim its rows for one test",
             )
 
+    def test_no_shared_fixture_helper_is_decorated_in_one_copy_and_not_its_clone(self):
+        """A helper family must not disagree with itself about being shared.
+
+        `test_the_shared_master_helpers_are_declared_shared` above enforces six
+        names ON `EnhancedTestCase`, so a helper copied into a test module is not
+        covered by it at all. That is how #444 happened: three Mollie/donation
+        account helpers existed in three modules, `@shared_fixture` in ONE of them,
+        and whichever module ran first decided whether the accounts survived.
+
+        Measured on a purged `test_site_4` with the fixtures deleted first (a run
+        with them already present proves nothing -- they were never captured
+        inserts, so the drain never touched them):
+
+        ==============================================  ==========  ==============
+        module                                          decorated?  after the run
+        ==============================================  ==========  ==============
+        test_donation_subscription_activation           no          all three GONE
+        test_recurring_donation_charge                  yes         all three kept
+        ==============================================  ==========  ==============
+
+        Both were green. The decorator was the only difference.
+
+        Deliberately narrow, so that it stays at zero and stays believable. A copy
+        is only flagged when ALL of these hold:
+
+        * some other module defines the same private helper name WITH the
+          decorator -- i.e. the fix landed once and its clone was missed;
+        * this copy actually calls `.insert(`, so there are rows to claim;
+        * it does not build them under `suspend_insert_capture()` instead;
+        * its class reaches `EnhancedTestCase`, which is the only base that
+          installs the captured-insert hook. `VereningingenTestCase` is a SIBLING
+          of it, not a subclass, so an undecorated helper there is exposed to
+          nothing -- two of the six raw name-divergences on develop were that, and
+          a third was two unrelated methods that merely share a name.
+        """
+        flagged = self._divergent_shared_fixture_copies()
+        self.assertEqual(
+            [],
+            flagged,
+            "these helpers are @shared_fixture in one module and undecorated in "
+            "another that inserts rows into a drained class:\n  "
+            + "\n  ".join(flagged),
+        )
+
+    # -- the AST walk behind the gate above ---------------------------------
+
+    def _divergent_shared_fixture_copies(self):
+        import ast
+        import collections
+
+        import verenigingen
+
+        root = pathlib.Path(verenigingen.__file__).parent
+
+        def is_shared(fn):
+            return any(
+                (d.attr if isinstance(d, ast.Attribute) else getattr(d, "id", None))
+                == "shared_fixture"
+                for d in fn.decorator_list
+            )
+
+        def inserts(fn):
+            return any(
+                isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Attribute)
+                and n.func.attr == "insert"
+                for n in ast.walk(fn)
+            )
+
+        def suspends(fn):
+            return any(
+                isinstance(n, ast.With) and "suspend_insert_capture" in ast.unparse(n.items)
+                for n in ast.walk(fn)
+            )
+
+        # (module, class) -> base names, plus (module, local name) -> (module, real
+        # name) for every `from X import Y as Z`. Both are needed:
+        #
+        # * 253 class names in this app are defined in more than one module, so a
+        #   global name -> bases map resolves some of them to the wrong class;
+        # * `BaseTestCase` is a CLASS in tests/utils/test_utils.py (an
+        #   EnhancedTestCase subclass) and an ALIAS for VereningingenTestCase in
+        #   tests/base_test_case.py. Six modules import the alias. Resolving by
+        #   ClassDef alone finds only the class -- unambiguously, and wrongly --
+        #   and would fail CI on six classes that are not drained at all.
+        bases = {}
+        aliases = {}
+        copies = collections.defaultdict(list)
+        for path in sorted(root.rglob("*.py")):
+            try:
+                tree = ast.parse(path.read_text(), filename=str(path))
+            except (SyntaxError, UnicodeDecodeError):
+                continue
+            for node in tree.body:
+                if isinstance(node, ast.ImportFrom) and node.module:
+                    for alias in node.names:
+                        local = alias.asname or alias.name
+                        aliases[(str(path), local)] = (node.module, alias.name)
+            for cls in [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]:
+                bases[(str(path), cls.name)] = [ast.unparse(b).split("[")[0] for b in cls.bases]
+                for fn in cls.body:
+                    if isinstance(fn, ast.FunctionDef) and fn.name.startswith("_"):
+                        copies[fn.name].append(
+                            (
+                                path.relative_to(root.parent),
+                                cls.name,
+                                fn.lineno,
+                                is_shared(fn),
+                                inserts(fn),
+                                suspends(fn),
+                            )
+                        )
+
+        def reaches_drained_base(module, cls_name, seen=None):
+            """Does this class inherit from `EnhancedTestCase`?
+
+            Resolves each base in its OWN module first, and only then repo-wide --
+            and repo-wide only when the name is unambiguous. An ambiguous name
+            resolves to nothing, so the gate under-reports rather than failing CI
+            on a class it guessed wrong about.
+            """
+            seen = seen or set()
+            if (module, cls_name) in seen:
+                return False
+            seen.add((module, cls_name))
+            if cls_name == "EnhancedTestCase":
+                return True
+
+            for base in bases.get((module, cls_name), []):
+                # 1. defined in this very module
+                if (module, base) in bases:
+                    if reaches_drained_base(module, base, seen):
+                        return True
+                    continue
+                # 2. imported into this module -- follow the alias to its real name,
+                #    which is the only way to tell `BaseTestCase` (the class) from
+                #    `BaseTestCase` (an alias for a class that is NOT drained).
+                target = aliases.get((module, base))
+                if target:
+                    real_module_suffix, real_name = target
+                    if real_name == "EnhancedTestCase":
+                        return True
+                    candidates = [
+                        m
+                        for (m, c) in bases
+                        if c == real_name
+                        and m.endswith(real_module_suffix.replace(".", "/") + ".py")
+                    ]
+                    if len(candidates) == 1 and reaches_drained_base(
+                        candidates[0], real_name, seen
+                    ):
+                        return True
+                    continue
+                # 3. last resort: repo-wide, and only when unambiguous
+                elsewhere = [m for (m, c) in bases if c == base]
+                if len(elsewhere) == 1 and reaches_drained_base(elsewhere[0], base, seen):
+                    return True
+            return False
+
+        flagged = []
+        for name, found in sorted(copies.items()):
+            if len({c[0] for c in found}) < 2 or not any(c[3] for c in found):
+                continue
+            for path, cls, line, shared, ins, susp in found:
+                if not shared and ins and not susp and reaches_drained_base(str(root.parent / path), cls):
+                    flagged.append(f"{name}  <-  {path}:{line} ({cls})")
+        return flagged
+
 
 class DrainCancelsSubmittedDocumentsTest(unittest.TestCase):
     """`force=True` does not bypass the submitted check.
