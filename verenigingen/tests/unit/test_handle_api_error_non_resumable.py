@@ -112,7 +112,7 @@ class TestHandleApiErrorAbandonsTheHalfAppliedWork(VereningingenTestCase):
 
         @handle_api_error
         def endpoint():
-            frappe.get_doc({"doctype": "ToDo", "description": marker}).insert(ignore_permissions=True)
+            frappe.get_doc({"doctype": "ToDo", "description": marker}).insert()
             # Visible to this connection immediately; only a rollback removes it.
             assert frappe.db.exists("ToDo", {"description": marker})
             raise _deadlock()
@@ -134,7 +134,7 @@ class TestHandleApiErrorAbandonsTheHalfAppliedWork(VereningingenTestCase):
 
         @handle_api_error
         def endpoint():
-            frappe.get_doc({"doctype": "ToDo", "description": marker}).insert(ignore_permissions=True)
+            frappe.get_doc({"doctype": "ToDo", "description": marker}).insert()
             raise RuntimeError("ordinary failure")
 
         result = endpoint()

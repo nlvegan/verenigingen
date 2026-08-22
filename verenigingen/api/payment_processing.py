@@ -271,9 +271,7 @@ def send_overdue_payment_reminders(
             )
 
         if not frappe.has_permission("Member", "read"):
-            return OperationResult.fail(
-                _("You don't have permission to access member data"), http_status=403
-            )
+            return OperationResult.fail(_("You don't have permission to access member data"), http_status=403)
 
         # Additional financial operation permission check
         user_roles = frappe.get_roles(frappe.session.user)
