@@ -72,6 +72,7 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 class VerenigingenException(frappe.ValidationError):
@@ -484,6 +485,33 @@ def handle_api_error(func: Callable) -> Callable:
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
+        except NON_RESUMABLE_DB_ERRORS as e:
+            # #481, the sixth boundary of the #470/#475 class. A 1205/1213 must not become a
+            # return value here: with nothing propagating, the request ends on its SUCCESS
+            # path and Frappe commits whatever the endpoint already wrote -- six of the 50
+            # endpoints wearing this decorator write in-frame, one of them the public
+            # membership form. Hence the rollback, which is for the half-applied work and NOT
+            # for the log_error below it: tabError Log is MyISAM and therefore
+            # non-transactional, so that row lands either way (measured on test_site_1).
+            #
+            # Then re-raise, so the caller can tell a retryable deadlock from an ordinary
+            # failure. Every frame above this one was checked before relying on that: the
+            # api_security_framework wrapper backing critical_api/high_security_api/
+            # standard_api/public_api logs its audit event and re-raises
+            # (api_security_framework.py:1044), and no other decorator in the stack catches
+            # the wrapped call -- so this really does reach the client.
+            frappe.db.rollback()
+            log_error(
+                e,
+                context={
+                    "function": func.__name__,
+                    "args": str(args)[:200],
+                    "kwargs": str(kwargs)[:200],
+                    "traceback": traceback.format_exc(),
+                },
+                module=func.__module__,
+            )
+            raise
         except VerenigingenException as e:
             # Known application errors - return structured OperationResult
             # Capture trace_id for correlation between logs and API responses
