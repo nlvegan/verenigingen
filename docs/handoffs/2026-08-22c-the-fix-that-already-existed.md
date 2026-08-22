@@ -9,6 +9,10 @@ specified a fix, and measuring the specified fix is what showed it was wrong.** 
 for a patch that already existed. #458's proposal, keyed on the worst pair, silently drops
 the case CLAUDE.md leads with.
 
+And then CI found something neither of us had: **the clone comparison gave different
+answers on different machines**, on a byte-identical tree. That had been true of `--drift`
+before this PR touched it.
+
 > The question that paid for itself twice: **before implementing the fix an issue asks
 > for, check whether it is already there — and measure the proposed rule against the
 > cases it was written to catch, not against its own description.**
@@ -109,20 +113,20 @@ to block only when **every** copy is >=90% similar to every other.
 
 I replayed the last 400 commits, reading blobs from git rather than checking each one out,
 with the denominator being commits that add a `.py` file under `verenigingen/` (n=129).
-Built independently of the reviewer's replay, it puts the current rule at **60.5%** against
-their **61%** — the harnesses agree.
+Built independently of the reviewer's replay, it puts the current rule at **61.2%** against
+their **61%**.
 
 | rule | fires | Mollie trio (#444) | `_persist_eur_company` (#394) | 45x `_make_member` |
 |---|---|---|---|---|
-| name only (before) | **60.5%** | blocks | blocks | **blocks** |
+| name only (before) | **61.2%** | blocks | blocks | **blocks** |
 | worst pair >= 0.90 (proposed) | 26.4% | blocks | **LOST -> advisory** | advisory |
-| **>= 25% of pairs >= 0.90 (shipped)** | **34.1%** | blocks | blocks | advisory |
-| best pair >= 0.90 | 46.5% | blocks | blocks | **blocks** |
+| **>= 25% of pairs >= 0.90 (shipped)** | **35.7%** | blocks | blocks | advisory |
+| best pair >= 0.90 | 47.3% | blocks | blocks | **blocks** |
 
-**`_persist_eur_company` has 17 copies and 136 pairs, of which 50 reach 0.90 and one is
+**`_persist_eur_company` has 17 copies and 136 pairs, of which 43 reach 0.90 and one is
 byte-identical — yet its worst pair is 0.13.** A worst-pair rule calls that a name collision
 and stops blocking it. It is the case CLAUDE.md opens with. The share separates the two
-cleanly: 0.5% for `_make_member`, 3.8% for `_make_donor`, 36.8% for `_persist_eur_company`,
+cleanly: 0.5% for `_make_member`, 3.8% for `_make_donor`, 32% for `_persist_eur_company`,
 100% for the three Mollie helpers.
 
 **25% is a knob, not a boundary, and the docstring says so.** 342 of 568 families sit at
@@ -136,13 +140,53 @@ pulls in 38 more families (`_ensure_company`, `_make_account`, ...).
 exactly the blocking the validator just stopped doing — a new copy of a name collision is
 *supposed* to be recorded rather than removed. The baseline now marks each clone family
 inline and that step compares the **marked** total, which also makes the file readable as
-the triage list: **168 of 568 families block**.
+the triage list: **170 of 568 families block**.
 
 **The working-tree change left uncommitted on that branch crashed the gate's failure path.**
 `for p, _ in _by_name(...)` unpacked what its own change had made 3-tuples, so the gate
 would have raised `ValueError` at the exact moment it fired. It was never run in a state
 where it fired. That work — `--drift` comparing normalised bodies, 89 families to 35 — is
 now committed rather than sitting unsaved in a dead session's scratch directory.
+
+### The comparison gave different answers on different machines
+
+The most valuable thing this PR found, and CI found it, not me.
+
+CI regenerated the baseline and got percentages this box did not: `_root` at 50% against
+33% here, `_ensure_accounts` 31% against 24%, `_setup_sepa_test_configuration` unmarked
+against 100%. I chased two wrong explanations before the right one, and both were ruled
+out by measurement rather than argument:
+
+1. **Tree drift.** develop had indeed moved twice — but `git diff HEAD origin/develop --
+   verenigingen` was empty, and the exact ref CI checked out (`refs/pull/458/merge`,
+   `ca662f83`) is **byte-identical to HEAD across the whole tree**.
+2. **Python version** (3.12.3 here, 3.12.14 there). Ruled out by running the same
+   computation under 3.12.3 and 3.14.0: identical to six decimal places.
+
+The actual cause is two things that compound:
+
+- **`difflib.SequenceMatcher(None, a, b).ratio()` is not symmetric.** It indexes the
+  SECOND sequence and applies the autojunk heuristic to that one alone. On this tree
+  `_make_role` has a pair scoring **0.887 one way and 0.825 the other** — straddling
+  CLONE_RATIO — and `_persist_eur_company` one at 0.434 versus 0.137.
+- **`os.walk` yields in filesystem order**, which differs between machines, and that order
+  decided which way round each pair got compared.
+
+Every number in CI's diff reproduces here just by shuffling the copies: `_root` takes
+0.167 / 0.333 / 0.500 across eight shuffles, and CI got 0.500.
+
+**This predates the blocking rule.** `--drift` and `--report` share the comparison, so the
+"89 families -> 35" figure already shipped in this PR was order-dependent too, as was my
+own 34.1%. Fixed by sorting the walk and comparing each pair in a canonical order. Verified
+three ways: a single value across eight random orders (control: the raw comparison still
+varies), the baseline regenerates identically, and it is byte-identical under 3.12.3 and
+3.14.0.
+
+**The general lesson: CI disagreeing with a local run on a byte-identical tree is a
+determinism bug in your code, not an environment difference.** The instinct here — and
+CLAUDE.md's own environment-parity section trains it — is to reach for "CI has different
+credentials / a different version / a different tree". Prove the tree identical first, and
+the remaining explanation is your own non-determinism.
 
 ### Controls
 
@@ -159,6 +203,15 @@ My first attempt at it was not R1 at all — it compared a worst-*similarity* ag
 *share* threshold, and killed the wrong test. A mutation has to be the rule you rejected,
 not merely a change in that direction.
 
+The determinism tests needed the same treatment and failed it first time. I wrote two
+tests asserting the comparison is symmetric and order-independent, on bodies I asserted
+were asymmetric — **they were not**, so both passed on any implementation at all. There is
+now a control test pinning that the chosen bodies really do disagree under the raw
+comparison, and a third mutation (unsorting the walk) for the other half of the fix. The
+order test also had to operate on crafted normalised bodies, because `ast.unparse`
+collapses the straddling pair to 0.9007 / 0.9043 — same side of the threshold, nothing to
+detect.
+
 **Four cells, run in place** — never from `/tmp`, where `REPO_ROOT` is `parents[2]` of the
 validator's own path and it scans somewhere else, which looks exactly like a control
 agreeing with you:
@@ -170,7 +223,7 @@ agreeing with you:
 | + a 6th, unrelated `_make_member` | **0 — reported, not blocked** |
 | that same tree, judged by the old name-only rule | 1 |
 
-Tests 25 -> 33, all green.
+Tests 25 -> 37, all green.
 
 ### What the relaxation does NOT buy
 
@@ -245,4 +298,12 @@ frappe.db.sql("SHOW INDEX FROM `tabDonation` WHERE Column_name='payment_id'")
 git ls-tree -r <sha> -- verenigingen | git cat-file --batch
 
 # a mutation must BE the rejected rule, not merely a change in its direction
+
+# CI disagreeing on a byte-identical tree is YOUR non-determinism, not the environment
+git fetch origin '+refs/pull/<n>/merge:refs/remotes/origin/prmerge'
+git diff --stat HEAD origin/prmerge          # empty => the tree is not the variable
+
+# difflib.SequenceMatcher.ratio() is NOT symmetric -- it indexes the SECOND sequence
+difflib.SequenceMatcher(None, a, b).ratio() != difflib.SequenceMatcher(None, b, a).ratio()
+# ... and os.walk is unsorted, so which way round a pair got compared varied by machine
 ```
