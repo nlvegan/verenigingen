@@ -119,8 +119,15 @@ class MollieBase(BTRBase):
         acc.insert(ignore_permissions=True)
         return acc.name
 
-    def _ensure_company_cost_center(self):
+    def _ensure_eur_company_cost_center(self):
         """Ensure the EUR test company has a default cost center.
+
+        NOT named ``_ensure_company_cost_center``: ``EnhancedTestCase`` defines a
+        method of that name and calls it as ``self._ensure_company_cost_center(
+        company_name)`` from ``_ensure_master_data``, which every ``setUp`` runs. A
+        same-named helper here overrides it with an incompatible signature, so the
+        harness raised "takes 1 positional argument but 2 were given" and EVERY test
+        in this module errored in setUp -- the settlement regression tests included.
 
         ERPNext Journal Entry validation requires a cost center for P&L (Expense)
         accounts and auto-fills it from the company default. Real deployments set
@@ -611,7 +618,7 @@ class TestCreateReconciliationMollieBranchProduction(MollieBase):
         so it never returns and its result is never bound. Retryability must be decided
         on whether accounting was posted, not on whether that call returned."""
         self.expectErrorLog("stl_FEEBOOM", "Mollie Settlement Reconciliation")
-        self._ensure_company_cost_center()
+        self._ensure_eur_company_cost_center()
         clearing = self._make_gl_account("Mollie Clearing FeeBoom", root_type="Asset", account_type="Bank")
         it = self._make_member_with_invoice(first_name="MollieFeeBoom", grand_total=30.0)
         # Mollie kept 1.50 in fees, so the settlement payout is 28.50 -> the fee
@@ -703,7 +710,7 @@ class TestSettlementIdempotency(MollieBase):
         """No payment resolved to an invoice -> nothing was reconciled -> there are no
         fees to book. The arithmetic says otherwise: ``0 - 30.00`` is a 30.00 "fee",
         i.e. the WHOLE settlement expensed as Mollie charges, once per scheduled run."""
-        self._ensure_company_cost_center()
+        self._ensure_eur_company_cost_center()
         clearing = self._make_gl_account("Mollie Clearing NoMatch", root_type="Asset", account_type="Bank")
         fees = self._make_gl_account("Payment Processing Fees NoMatch", root_type="Expense")
         settlement_id = f"stl_NOMATCH_{frappe.generate_hash(length=6)}"
@@ -740,7 +747,7 @@ class TestSettlementIdempotency(MollieBase):
         """The settlement really did reconcile (invoice 30.00, payout 28.50 -> 1.50 of
         fees). On a re-run every payment is skipped as a ``duplicate``, which does NOT
         add to ``total_reconciled``, so the fee arithmetic re-books the full 28.50."""
-        self._ensure_company_cost_center()
+        self._ensure_eur_company_cost_center()
         clearing = self._make_gl_account("Mollie Clearing Rerun", root_type="Asset", account_type="Bank")
         fees = self._make_gl_account("Payment Processing Fees Rerun", root_type="Expense")
         it = self._make_member_with_invoice(first_name="MollieRerun", grand_total=30.0)
@@ -1031,7 +1038,7 @@ class TestSettlementSubmitPermission(MollieBase):
         settlement that has ALREADY posted -- the exact half-posted state this fix
         exists to prevent -- so the check has to be a precondition."""
         self.expectErrorLog("Insufficient permissions to submit")
-        self._ensure_company_cost_center()
+        self._ensure_eur_company_cost_center()
         clearing = self._make_gl_account("Mollie Clearing NoJESubmit", root_type="Asset", account_type="Bank")
         fees = self._make_gl_account("Payment Processing Fees NoJESubmit", root_type="Expense")
         it = self._make_member_with_invoice(first_name="MollieNoJESubmit", grand_total=30.0)
@@ -1282,7 +1289,7 @@ class TestCreateMollieFeeEntry(MollieBase):
     def test_full_path_creates_balanced_journal_entry(self):
         """Regression for the missing-company bug: a positive Mollie fee must book a
         balanced, submitted Journal Entry (clearing debited, fees credited)."""
-        self._ensure_company_cost_center()
+        self._ensure_eur_company_cost_center()
         clearing = self._make_gl_account("Mollie Clearing JE", root_type="Asset", account_type="Bank")
         fees = self._make_gl_account("Payment Processing Fees JE", root_type="Expense")
         bt = self._make_bank_transaction(deposit=10.0, date=today(), bank_account=self._eur_bank_account)
@@ -1297,7 +1304,7 @@ class TestCreateMollieFeeEntry(MollieBase):
         self.assertGreater(rows[fees].credit_in_account_currency, 0)
 
     def test_negative_fee_inverts_entry(self):
-        self._ensure_company_cost_center()
+        self._ensure_eur_company_cost_center()
         clearing = self._make_gl_account("Mollie Clearing Neg", root_type="Asset", account_type="Bank")
         fees = self._make_gl_account("Payment Processing Fees Neg", root_type="Expense")
         bt = self._make_bank_transaction(deposit=10.0, date=today(), bank_account=self._eur_bank_account)
