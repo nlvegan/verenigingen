@@ -104,8 +104,15 @@ class TestTerminationAbandonsOnNonResumableError(VereningingenTestCase):
         """Patch the Chapter save the termination helpers make.
 
         ``chapter_doc.save()`` is the call #459 established takes both row locks, which
-        makes it the realistic deadlock site -- and it is reached from inside the innermost
-        of ``end_board_positions_safe``'s three nested handlers.
+        makes it the realistic deadlock site.
+
+        It is reached inside the **middle** of ``end_board_positions_safe``'s three nested
+        handlers -- the loop that saves the chapters. The innermost handler wraps the
+        marking loop, which only does ``frappe.get_doc``, and single-guard mutation showed
+        it has no behavioural coverage at all: the ratchet is the only thing holding it.
+        Same for ``disable_chapter_memberships_safe``'s savepoint block, where operation 4
+        re-raises first. Defence in depth, not tested depth -- said plainly here so the
+        mutation table is not read as covering more than it does.
         """
         from verenigingen.verenigingen.doctype.chapter.chapter import Chapter
 
@@ -261,23 +268,42 @@ class TestTerminationAbandonsOnNonResumableError(VereningingenTestCase):
 
 
 class TestEverySwallowInTheTerminationPackage(VereningingenTestCase):
-    """The ratchet. Thirty-seven handlers were fixed; this is what stops the thirty-eighth.
+    """The ratchet. Forty-four handlers were guarded; this is what stops the forty-fifth.
 
     Scoped to ``services/termination/`` rather than the app, because that is the package
     this work audited. A wider scope would be a claim about code nobody has read.
+
+    What it does and does not enforce: that every catch-all is preceded by a
+    ``NON_RESUMABLE_DB_ERRORS`` clause whose body is a bare ``raise``, or carries the
+    exemption marker. It cannot check that an exemption's stated *reason* is true -- that
+    stays a human claim, and one of the four was wrong on the first pass.
     """
 
-    @staticmethod
-    def _catches_bare_exception(handler):
+    CATCH_ALLS = ("Exception", "BaseException")
+
+    @classmethod
+    def _catches_bare_exception(cls, handler):
         if handler.type is None:
             return True
         types = handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
-        return any(isinstance(t, ast.Name) and t.id == "Exception" for t in types)
+        return any(isinstance(t, ast.Name) and t.id in cls.CATCH_ALLS for t in types)
 
     @staticmethod
     def _reraises_non_resumable(handler):
+        """A guard counts only if its body is a bare ``raise``.
+
+        Checking the handler TYPE alone is what this test originally did, and it accepted
+        `except NON_RESUMABLE_DB_ERRORS: frappe.log_error(...); return False` -- which is
+        precisely the #470 defect wearing the right clause. A ratchet that can be satisfied
+        by the bug it exists to block is worse than none, because the docstring above it
+        starts telling people they are covered.
+        """
         types = handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
-        return any(isinstance(t, ast.Name) and t.id == "NON_RESUMABLE_DB_ERRORS" for t in types)
+        if not any(isinstance(t, ast.Name) and t.id == "NON_RESUMABLE_DB_ERRORS" for t in types):
+            return False
+        return (
+            len(handler.body) == 1 and isinstance(handler.body[0], ast.Raise) and handler.body[0].exc is None
+        )
 
     def _unguarded(self, source, tree):
         lines = source.splitlines()
@@ -325,6 +351,13 @@ class TestEverySwallowInTheTerminationPackage(VereningingenTestCase):
             "try:\n    f()\nexcept Exception:\n    pass\nexcept NON_RESUMABLE_DB_ERRORS:\n    raise\n",
             "try:\n    f()\nexcept (ValueError, Exception):\n    pass\n",
             "try:\n    f()\nexcept:\n    pass\n",
+            # `except BaseException` is a catch-all too, and catches these two just as well.
+            "try:\n    f()\nexcept BaseException:\n    pass\n",
+            # A guard in name only. Both of these were ACCEPTED before the skeptical review
+            # on this PR measured them -- the walker read the clause and never the body.
+            "try:\n    f()\nexcept NON_RESUMABLE_DB_ERRORS:\n    pass\nexcept Exception:\n    pass\n",
+            "try:\n    f()\nexcept NON_RESUMABLE_DB_ERRORS:\n    log()\n    return False\n"
+            "except Exception:\n    pass\n",
         )
         for source in planted:
             with self.subTest(source=source):

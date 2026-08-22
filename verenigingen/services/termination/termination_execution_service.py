@@ -372,7 +372,7 @@ class TerminationExecutionService(StatelessService):
         """
         try:
             frappe.db.release_savepoint(savepoint_name)
-        except Exception as cleanup_error:  # non-resumable-ok: cleanup after the failure
+        except Exception as cleanup_error:  # non-resumable-ok: RELEASE SAVEPOINT takes no row locks
             self.logger.warning(
                 f"Savepoint {savepoint_name} could not be released "
                 f"(likely already released by an inner commit): {cleanup_error}"

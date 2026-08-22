@@ -11,8 +11,10 @@ that did not survive. So every catch-all here re-raises those two first, before 
 handling. See ``verenigingen/utils/transaction_errors`` for what each one destroys.
 
 Enforced across the whole ``services/termination`` package by
-``tests/unit/test_termination_non_resumable_errors.py``, so a handler added later cannot
-quietly omit it. #470.
+``tests/unit/test_termination_non_resumable_errors.py``: a catch-all added later must
+carry the guard, and the guard's body must be a bare ``raise``. What that cannot check is
+whether an exemption's stated reason is true, so the four exemptions in
+``termination_execution_service`` remain a human claim. #470.
 """
 
 import frappe
