@@ -20,6 +20,7 @@ from verenigingen.utils.security.api_security_framework import (
     standard_api,
     utility_api,
 )
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
@@ -458,6 +459,12 @@ def bulk_suspend_members(
                     "success": False,
                     "error": suspend_result.get("error", "Unknown error"),
                 }
+            # #475. Without this the loop below keeps suspending the remaining members on a
+            # transaction the server has already discarded -- the #470 shape, one frame up.
+            # There is no partial result worth reporting after a 1213: everything the loop
+            # did so far is gone, so a details list naming successes would be fiction.
+            except NON_RESUMABLE_DB_ERRORS:
+                raise
             except Exception as e:
                 return {"member": member_name, "success": False, "error": str(e)}
 
@@ -498,6 +505,18 @@ def bulk_suspend_members(
                 error_code="BULK_SUSPENSION_FAILED",
                 data=results,
             )
+    # #475: guarding process_member_suspension alone would be a no-op -- this frame catches
+    # everything it re-raises. Roll back before logging, so the log_error is not itself issued
+    # on the discarded transaction. A third frame (@handle_api_error) still converts this to an
+    # OperationResult; that decorator is app-wide and is tracked separately.
+    except NON_RESUMABLE_DB_ERRORS:
+        frappe.db.rollback()
+        frappe.log_error(
+            f"Non-resumable DB error in bulk_suspend_members\n{traceback.format_exc()}",
+            "Suspension API Exception",
+        )
+        raise
+
     except Exception as e:
         frappe.log_error(
             f"Exception in bulk_suspend_members: {str(e)}\n{traceback.format_exc()}",
