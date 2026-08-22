@@ -829,6 +829,184 @@ class TestSettlementIdempotency(MollieBase):
 
 
 # =============================================================================
+# A settlement only PARTLY allocated to invoices (residual of issue #194)
+# =============================================================================
+class TestPartiallyAllocatedSettlement(MollieBase):
+    """A settlement whose payments are only partly matched to invoices must book no
+    fees and must not be reported as reconciled.
+
+    ``mollie_fees = total_reconciled - settlement_amount`` and ``total_reconciled``
+    counts only the payments THIS run matched to an invoice. 292a8d5c closed the
+    degenerate all-or-nothing case (``processed_count == 0`` no longer books an
+    entry), but the partial case is the same arithmetic: with 1 of 2 payments
+    matched, the value of the UNMATCHED payment is indistinguishable from a Mollie
+    charge, and the difference is inserted and SUBMITTED as a
+    payment-processing-fees expense.
+
+    It compounds, because that Journal Entry is the settlement-level idempotency
+    key (``_existing_settlement_fee_entry``): once the fabricated entry is on the
+    ledger the settlement short-circuits forever, so the payments that never
+    matched can never be booked.
+
+    The real fee is a fact about the settlement -- what Mollie was paid minus what
+    Mollie paid out -- and is knowable from the settlement payload regardless of
+    which invoices we found. What invoice matching decides is whether the
+    settlement is COMPLETE, and therefore whether it is safe to close it out.
+    """
+
+    def _fee_journal_entries(self, settlement_id):
+        return frappe.get_all(
+            "Journal Entry",
+            filters={"user_remark": ["like", f"%{settlement_id}%"], "docstatus": 1},
+            fields=["name", "total_debit"],
+        )
+
+    def _bt_comments(self, bank_transaction_name):
+        return [
+            (c.get("content") or "")
+            for c in frappe.get_all(
+                "Comment",
+                filters={
+                    "reference_doctype": "Bank Transaction",
+                    "reference_name": bank_transaction_name,
+                },
+                fields=["content"],
+            )
+        ]
+
+    def _match(self, settlement_id, amount):
+        return {
+            "type": "mollie_settlement",
+            "reference": settlement_id,
+            "confidence": 0.98,
+            "match_reason": "Mollie settlement exact match",
+            "settlement_data": {"id": settlement_id, "amount": {"value": amount, "currency": "EUR"}},
+        }
+
+    def _partial_setup(self, tag):
+        """Two payments worth 50.00 gross, payout 48.50 (1.50 of real Mollie fees).
+        Only the 30.00 payment carries a resolvable invoice reference."""
+        self._ensure_eur_company_cost_center()
+        clearing = self._make_gl_account(f"Mollie Clearing {tag}", root_type="Asset", account_type="Bank")
+        fees = self._make_gl_account(f"Payment Processing Fees {tag}", root_type="Expense")
+        matched = self._make_member_with_invoice(first_name=f"MolliePart{tag}", grand_total=30.0)
+        settlement_id = f"stl_{tag}_{frappe.generate_hash(length=6)}"
+        bt = self._make_bank_transaction(
+            deposit=48.50, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        return clearing, fees, matched, settlement_id, bt
+
+    def test_partial_settlement_books_no_fee_entry(self):
+        """1 of 2 payments matched -> the 20.00 that did not match is booked as
+        18.50 of "Mollie fees" (30.00 reconciled - 48.50 payout). The real fee is
+        1.50, and it cannot be booked yet because the settlement is not complete."""
+        clearing, fees, matched, settlement_id, bt = self._partial_setup("NOFEE")
+        payments = [
+            self._mollie_payment(value="30.00", invoice_id=matched["invoice"].name),
+            self._mollie_payment(value="20.00", description="grocery store purchase"),
+        ]
+
+        with self._mollie_settings(clearing_account=clearing, fees_account=fees):
+            with self._stub_client(payments=payments):
+                result = self.mgr.process_mollie_settlement(
+                    bt, settlement_id, self._match(settlement_id, "48.50")["settlement_data"]
+                )
+
+        self.assertEqual(result["processed_count"], 1)
+        booked = self._fee_journal_entries(settlement_id)
+        self.assertEqual(
+            booked,
+            [],
+            "one payment of two was matched, so the settlement is not closed out and "
+            "there is nothing to book; the entries here expense the unmatched payment "
+            f"as a Mollie charge: {booked}",
+        )
+
+    def test_partial_settlement_is_not_reported_as_reconciled(self):
+        """The deposit is marked Reconciled even though only 30.00 of the 48.50 was
+        allocated. The SEPA batch branch of the same method gates exactly this
+        (``allocated_total == deposit_total``); the settlement branch does not."""
+        clearing, fees, matched, settlement_id, bt = self._partial_setup("STATUS")
+        payments = [
+            self._mollie_payment(value="30.00", invoice_id=matched["invoice"].name),
+            self._mollie_payment(value="20.00", description="grocery store purchase"),
+        ]
+
+        with self._mollie_settings(clearing_account=clearing, fees_account=fees):
+            with self._stub_client(payments=payments):
+                ok = self.mgr.create_reconciliation(self._txn_dict(bt), self._match(settlement_id, "48.50"))
+
+        bt.reload()
+        comments = self._bt_comments(bt.name)
+        self.assertFalse(
+            ok,
+            "create_reconciliation reported success for a settlement it only partly allocated",
+        )
+        self.assertNotEqual(
+            bt.status,
+            "Reconciled",
+            "a deposit whose payments are only partly allocated to invoices must stay "
+            f"visible; comments={comments}",
+        )
+        self.assertTrue(
+            any(btr.PaymentReconciliationManager.RETRY_COMMENT_MARKER in c for c in comments),
+            f"nothing on the transaction says the settlement is incomplete; comments={comments}",
+        )
+
+    def test_completing_a_partial_settlement_books_the_true_fee_once(self):
+        """Run 1 matches only the 30.00 payment; run 2, with the second reference now
+        resolvable, matches the 20.00 one. On run 2 the first payment is a
+        ``duplicate``, so ``total_reconciled`` sees 20.00 alone and the arithmetic
+        gives a 28.50 "fee". The settlement's fee is 1.50 -- gross 50.00 minus the
+        48.50 payout -- and must be booked exactly once, when it completes.
+
+        Only the stub's payload changes between runs, and the payment ids do not:
+        the second payment's invoice reference is unresolvable on run 1 and
+        resolvable on run 2, which is what "the invoice showed up later" looks like
+        at this boundary.
+        """
+        clearing, fees, matched, settlement_id, bt = self._partial_setup("COMPLETE")
+        late = self._make_member_with_invoice(first_name="MollieLate", grand_total=20.0)
+        first = self._mollie_payment(value="30.00", invoice_id=matched["invoice"].name)
+        second_id = f"tr_{frappe.generate_hash(length=10)}"
+        unresolved = self._mollie_payment(
+            payment_id=second_id, value="20.00", description="grocery store purchase"
+        )
+        resolved = self._mollie_payment(payment_id=second_id, value="20.00", invoice_id=late["invoice"].name)
+
+        with self._mollie_settings(clearing_account=clearing, fees_account=fees):
+            with self._stub_client(payments=[first, unresolved]):
+                self.mgr.create_reconciliation(self._txn_dict(bt), self._match(settlement_id, "48.50"))
+            after_first = self._fee_journal_entries(settlement_id)
+            with self._stub_client(payments=[first, resolved]):
+                # A fresh manager, as the next scheduled run would use.
+                btr.PaymentReconciliationManager().create_reconciliation(
+                    self._txn_dict(bt), self._match(settlement_id, "48.50")
+                )
+            after_second = self._fee_journal_entries(settlement_id)
+
+        self.assertEqual(after_first, [], f"nothing to book while the settlement is partial: {after_first}")
+        self.assertEqual(
+            len(after_second),
+            1,
+            f"the completing run must book the settlement fee exactly once: {after_second}",
+        )
+        self.assertEqual(
+            flt(after_second[0].total_debit, 2),
+            1.50,
+            "the fee is the settlement gross (50.00) minus the payout (48.50); the "
+            "amount booked here is whatever the LAST run happened to reconcile: "
+            f"{after_second}",
+        )
+        bt.reload()
+        self.assertEqual(
+            bt.status,
+            "Reconciled",
+            f"the completed settlement must close the deposit; comments={self._bt_comments(bt.name)}",
+        )
+
+
+# =============================================================================
 # Settlement processing when the acting user cannot SUBMIT (issue #210)
 # =============================================================================
 class TestSettlementSubmitPermission(MollieBase):
