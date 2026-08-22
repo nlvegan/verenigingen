@@ -56,14 +56,22 @@ class TestTheStatusReachesTheResponse(VereningingenTestCase):
         be a far larger change than #481 asks for, and no other assertion here would see it."""
         self._endpoint_returning(OperationResult.fail("just a failure"))()
 
-        self.assertIsNone(frappe.local.response.get("http_status_code"))
+        # assertNotIn, not assertIsNone: writing the key with a None value would satisfy
+        # assertIsNone while still being the wrong behaviour, so the weaker assertion could
+        # not tell the ``if status:`` guard from its absence.
+        self.assertNotIn("http_status_code", frappe.local.response)
 
-    def test_a_success_is_left_alone(self):
-        """CONTROL. ``OperationResult.ok`` can carry an http_status too; a success must never
-        be delivered as an error."""
-        self._endpoint_returning(OperationResult.ok({"count": 1}))()
+    def test_a_success_carrying_a_status_is_still_delivered_as_a_success(self):
+        """CONTROL for the ``success`` guard specifically.
 
-        self.assertIsNone(frappe.local.response.get("http_status_code"))
+        Constructed directly rather than via ``ok()``, which never sets ``http_status`` -- so
+        an ``ok()`` result cannot tell the success guard from the ``if status:`` check below
+        it, and this control would have been satisfied by a version with no success guard at
+        all. ``chain()`` propagates ``http_status`` (``operation_result.py:432``), so a
+        successful result carrying one is reachable."""
+        self._endpoint_returning(OperationResult(success=True, data={"count": 1}, http_status=200))()
+
+        self.assertNotIn("http_status_code", frappe.local.response)
 
     def test_the_status_from_handle_api_error_reaches_the_response_too(self):
         """Composition. ``handle_api_error`` builds the 403 and the security wrapper delivers
