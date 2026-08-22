@@ -365,6 +365,44 @@ class TestBulkSuspensionStopsOnTheClass(VereningingenTestCase):
             "the loop kept suspending members after a non-resumable error",
         )
 
+    def test_the_bulk_frame_rolls_back_before_it_logs(self):
+        """Binds the OUTER frame, which the loop-stopping test above does not reach.
+
+        Mutation found this gap: reverting the outer guard alone left ``attempted``
+        unchanged -- the inner guard already stopped the loop -- so that test passes on it
+        and the guard would have been held by nothing.
+
+        What the outer frame actually owns is the rollback: without it the
+        ``frappe.log_error`` below it is issued on the discarded transaction, and Frappe
+        commits the partial suspensions at request end.
+
+        ``@handle_api_error`` still converts the re-raise into an OperationResult one frame
+        further up, so the exception is not observable from the public name; the rollback is.
+        """
+        from verenigingen.api import suspension_api
+
+        rollbacks = []
+        real_rollback = frappe.db.rollback
+
+        def spy_rollback(*args, **kwargs):
+            rollbacks.append(args)
+            return real_rollback(*args, **kwargs)
+
+        def explode(member_name, **_kwargs):
+            raise _deadlock()
+
+        names = [m.name for m in self.members]
+        with patch(
+            "verenigingen.utils.termination_integration.suspend_member_safe", side_effect=explode
+        ):
+            with patch.object(frappe.db, "rollback", spy_rollback):
+                suspension_api.bulk_suspend_members(names, "reporting boundary (#475)")
+
+        self.assertTrue(
+            rollbacks,
+            "the bulk frame logged and returned without ending the discarded transaction",
+        )
+
     def test_an_ordinary_failure_still_lets_the_bulk_loop_finish(self):
         """CONTROL. One member failing for an ordinary reason must not abort the other 49 --
         that per-member isolation is the point of the endpoint."""
