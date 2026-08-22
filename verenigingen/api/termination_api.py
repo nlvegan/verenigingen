@@ -61,6 +61,21 @@ def execute_safe_termination(
 
         results = {"success": True, "actions_taken": [], "errors": []}
 
+        # Take the member's row lock BEFORE the first step, for the reason spelled out in
+        # TerminationExecutionService.execute_system_updates -- this is the second
+        # implementation of that termination and it takes the same two kinds of lock.
+        #
+        # Here the inversion was unconditional rather than data-dependent: this path has
+        # no DisableChapterMemberships equivalent at all, so nothing locks a Member row
+        # before step 3 ends board positions (Volunteer), and step 6's member.save() was
+        # always the first Member lock. Measured in tests/unit/test_history_lock_order.py.
+        # #459.
+        #
+        # frappe.db.exists above guarantees the row is there, so this really locks
+        # something; get_value on a missing name would emit WHERE name='' and silently
+        # lock nothing.
+        frappe.db.get_value("Member", member_name, "name", for_update=True)
+
         # Continue processing termination
         member = frappe.get_doc("Member", member_name)
 

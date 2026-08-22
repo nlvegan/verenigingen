@@ -74,6 +74,19 @@ class BaseHistoryManager:
             # none of them Single, all series-named -- so neither of get_value's two
             # silently-lockless shapes (a Single, or a name equal to its doctype)
             # applies here.
+            #
+            # CANONICAL LOCK ORDER: Donor -> Member -> Volunteer.
+            # A caller that ends up taking two of these three in one transaction MUST
+            # take them in that order, or it deadlocks against a caller that takes them
+            # the other way round. It is alphabetical purely so that it is memorable.
+            #
+            # Three paths take more than one kind: Chapter._handle_document_changes,
+            # TerminationExecutionService.execute_system_updates, and
+            # api.termination_api.execute_safe_termination. All three are pinned by
+            # tests/unit/test_history_lock_order.py, which measures the acquisitions
+            # rather than reading them; that module's docstring also records how the
+            # list of three was derived, and why no static search of this can be
+            # exhaustive. Add a path there before adding one here.
             frappe.db.get_value(cls.PARENT_DOCTYPE, doc_name, "name", for_update=True)
 
             doc = frappe.get_doc(cls.PARENT_DOCTYPE, doc_name)
