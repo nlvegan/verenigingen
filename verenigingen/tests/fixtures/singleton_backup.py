@@ -67,6 +67,8 @@ from typing import Any, Dict, List, Optional
 import frappe
 from frappe.utils.password import get_decrypted_password, set_encrypted_password
 
+from verenigingen.tests.harness_logger import get_harness_logger
+
 
 class SingletonBackup:
     """
@@ -198,7 +200,14 @@ class SingletonBackup:
             )
 
         except Exception as e:
-            frappe.logger().error(f"SingletonBackup: Failed to restore {doctype_name}: {e}")
+            # get_harness_logger, NOT frappe.logger(): a failed restore leaves a
+            # single carrying whatever this test set, for every test that follows
+            # it in the shard. That is a contamination vector, and through
+            # frappe.logger() it announced itself only in logs/frappe.log, which
+            # CI does not surface (#433).
+            get_harness_logger("singleton-backup").error(
+                "SingletonBackup: Failed to restore %s: %s", doctype_name, e
+            )
 
 
 @contextmanager

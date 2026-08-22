@@ -11,6 +11,7 @@ Tests the Python controller methods directly, not just doctype CRUD
 import frappe
 from frappe.utils import add_days, today
 
+from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.tests.utils.base import VereningingenUnitTestCase
 from verenigingen.tests.utils.factories import TestDataBuilder
 from verenigingen.tests.utils.setup_helpers import TestEnvironmentSetup
@@ -39,8 +40,13 @@ class TestMemberController(VereningingenUnitTestCase):
         try:
             self.builder.cleanup()
         except Exception as e:
-            # Log error but don't fail test teardown
-            frappe.logger().error(f"Cleanup error in test: {str(e)}")
+            # get_harness_logger, NOT frappe.logger(): the latter reaches no log CI
+            # surfaces, so this message did not exist where it was needed -- and
+            # the builder's Member delete failing here is precisely what leaves a
+            # submitted Membership behind for the drain to trip over (#433).
+            get_harness_logger("member-controller").error(
+                "Cleanup error in %s: %s", self._testMethodName, e
+            )
         super().tearDown()
 
     def _get_test_membership_type(self):
