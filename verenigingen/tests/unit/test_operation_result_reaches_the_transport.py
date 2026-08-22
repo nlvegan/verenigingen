@@ -90,6 +90,38 @@ class TestTheStatusReachesTheResponse(VereningingenTestCase):
         self.assertEqual(403, frappe.local.response.get("http_status_code"))
 
 
+class TestAnInnerFailureDoesNotColourTheOuterResponse(VereningingenTestCase):
+    """These endpoints call each other, and the response status is one shared slot.
+
+    ``volunteer_application.submit_volunteer_application`` is exactly this shape: it calls
+    the ``submit_application`` endpoint, recovers from a failure, and deliberately returns
+    ``OperationResult.ok(...)`` carrying a ``membership_application_error``. If the wrapper
+    only ever *sets* the status, the inner 4xx is still sitting in
+    ``frappe.local.response`` when the outer success is serialised, and
+    ``frappe/utils/response.py:150`` consumes it -- so a recovered failure ships a success
+    body with an error status.
+    """
+
+    def setUp(self):
+        super().setUp()
+        frappe.local.response.pop("http_status_code", None)
+        self.addCleanup(frappe.local.response.pop, "http_status_code", None)
+
+    def test_an_outer_success_clears_an_inner_failures_status(self):
+        @critical_api(operation_type=OperationType.FINANCIAL)
+        def inner():
+            return OperationResult.fail("inner blew up", http_status=400)
+
+        @critical_api(operation_type=OperationType.FINANCIAL)
+        def outer():
+            inner()  # recovered from, exactly as volunteer_application does
+            return OperationResult.ok({"recovered": True})
+
+        outer()
+
+        self.assertNotIn("http_status_code", frappe.local.response)
+
+
 class TestTheStatusSurvivesTheFlattener(VereningingenTestCase):
     """``payment_processing``'s three flattened endpoints lift ``error`` to the top level.
 

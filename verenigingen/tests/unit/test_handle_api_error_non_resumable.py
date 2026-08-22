@@ -95,41 +95,68 @@ class TestHandleApiErrorKeepsTheClass(VereningingenTestCase):
         self.assertEqual(result.http_status, 400)
 
 
-class TestHandleApiErrorAbandonsTheHalfAppliedWork(VereningingenTestCase):
-    """The durability half, which is the one an operator actually feels.
+class TestHandleApiErrorLeavesTheTransactionToItsCaller(VereningingenTestCase):
+    """The guard re-raises and does NOT roll back, which is the opposite of the five #475
+    guards and was decided by measurement rather than by consistency.
 
-    Asserted on a real persisted row rather than on a call to ``frappe.db.rollback``: the
-    defect is that the work *survives*, and a mock of the rollback would be satisfied by a
-    guard that called it on the wrong connection or after the commit.
+    Where the exception escapes, a rollback here is redundant -- ``frappe/app.py:147`` already
+    does ``db.rollback(chain=True)`` in the request path's ``except``, before
+    ``sync_database()`` can commit, and ``background_jobs.py:296`` does the same for a job
+    (both classes derive straight from ``Exception``, so they reach it).
+
+    Where it does NOT escape, a rollback here is destructive: eight production callers of
+    these endpoints swallow with ``except Exception`` and carry on. On a 1205, where only the
+    failing statement was rolled back, discarding their transaction would leave them
+    committing nothing while reporting the work done -- a lying success this PR would have
+    introduced. That is the specific regression this class exists to prevent, so the assertion
+    is that the caller's row is STILL THERE.
     """
 
     def setUp(self):
         super().setUp()
         self.expectErrorLog("QueryDeadlockError", "endpoint")
 
-    def test_a_row_written_before_the_deadlock_does_not_survive_the_decorator(self):
-        marker = f"481-half-applied-{frappe.generate_hash(length=8)}"
+    def test_the_callers_transaction_is_not_discarded_under_it(self):
+        marker = f"481-caller-work-{frappe.generate_hash(length=8)}"
+        frappe.get_doc({"doctype": "ToDo", "description": marker}).insert()
 
         @handle_api_error
         def endpoint():
-            frappe.get_doc({"doctype": "ToDo", "description": marker}).insert()
-            # Visible to this connection immediately; only a rollback removes it.
-            assert frappe.db.exists("ToDo", {"description": marker})
             raise _deadlock()
 
         with self.assertRaises(frappe.QueryDeadlockError):
             endpoint()
 
-        self.assertFalse(
+        self.assertTrue(
             frappe.db.exists("ToDo", {"description": marker}),
-            "the endpoint's half-applied write survived the guard, so Frappe would commit it "
-            "at request end",
+            "the guard rolled back its caller's transaction; an in-process caller that "
+            "swallows this would then commit nothing while reporting success",
         )
 
-    def test_an_ordinary_exception_does_not_discard_the_transaction(self):
-        """CONTROL. Rolling back on every error would silently undo work for the 44 endpoints
-        that return a structured failure and keep going -- a much larger change than #481 asks
-        for, and one that no assertion above would notice."""
+    def test_the_guard_also_logs_the_failure_with_its_context(self):
+        """The guard has three effects and the other two are pinned above; without this the
+        ``log_error`` is bound by nothing. ``expectErrorLog`` is a tearDown TOLERANCE, not an
+        assertion -- deleting the log call left all seven tests green until this was added."""
+        before = frappe.db.count("Error Log")
+
+        @handle_api_error
+        def endpoint():
+            raise _deadlock()
+
+        with self.assertRaises(frappe.QueryDeadlockError):
+            endpoint()
+
+        self.assertGreater(
+            frappe.db.count("Error Log"),
+            before,
+            "the guard re-raised without recording the function/args context that the "
+            "request-boundary log does not carry",
+        )
+
+    def test_an_ordinary_exception_also_leaves_the_transaction_alone(self):
+        """CONTROL. Pins that the transaction handling is the same on both paths, so the test
+        above cannot be satisfied by a guard that treats non-resumable errors specially in
+        some other way."""
         marker = f"481-ordinary-{frappe.generate_hash(length=8)}"
 
         @handle_api_error
@@ -144,7 +171,6 @@ class TestHandleApiErrorAbandonsTheHalfAppliedWork(VereningingenTestCase):
             frappe.db.exists("ToDo", {"description": marker}),
             "an ordinary error must leave the transaction alone",
         )
-        frappe.db.rollback()
 
 
 class TestTheClassSurvivesTheWholeDecoratorStack(VereningingenTestCase):

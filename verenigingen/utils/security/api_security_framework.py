@@ -855,6 +855,11 @@ def _apply_operation_result_http_status(result) -> None:
     the status is; only a raised exception reaches the rollback at ``app.py:147``.
     """
     if getattr(result, "success", True):
+        # Clear, do not merely skip. These endpoints call each other: an outer one that
+        # recovers from an inner one's failure would otherwise emit a success body under the
+        # inner 4xx, because frappe/utils/response.py:150 consumes whatever is left here and
+        # the outer frame never gets to overrule it.
+        frappe.local.response.pop("http_status_code", None)
         return
     status = getattr(result, "http_status", None)
     if status:

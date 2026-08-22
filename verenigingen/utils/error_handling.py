@@ -479,11 +479,12 @@ def handle_api_error(func: Callable) -> Callable:
         This decorator returns OperationResult objects, which can be converted
         to dict via .to_dict() by the standard_api decorator or similar wrappers.
 
-        The ONE exception is a non-resumable DB error (MariaDB 1205/1213): those roll
-        back and propagate instead of becoming a return value, because a caller cannot
-        retry what it cannot distinguish and the alternative is Frappe committing
-        half-applied work at request end (#481). Callers that treat every failure as a
-        returned OperationResult must handle the raise.
+        The ONE exception is a non-resumable DB error (MariaDB 1205/1213): those
+        propagate instead of becoming a return value, because a caller cannot retry what
+        it cannot distinguish and the alternative is Frappe committing half-applied work
+        at request end (#481). Callers that treat every failure as a returned
+        OperationResult must handle the raise. Note this applies to 39 of the 50 endpoints
+        wearing this decorator; the other 11 catch the class themselves one frame below.
     """
     from verenigingen.utils.operation_result import OperationResult
 
@@ -494,19 +495,31 @@ def handle_api_error(func: Callable) -> Callable:
         except NON_RESUMABLE_DB_ERRORS as e:
             # #481, the sixth boundary of the #470/#475 class. A 1205/1213 must not become a
             # return value here: with nothing propagating, the request ends on its SUCCESS
-            # path and Frappe commits whatever the endpoint already wrote -- six of the 50
-            # endpoints wearing this decorator write in-frame, one of them the public
-            # membership form. Hence the rollback, which is for the half-applied work and NOT
-            # for the log_error below it: tabError Log is MyISAM and therefore
-            # non-transactional, so that row lands either way (measured on test_site_1).
+            # path and Frappe commits whatever the endpoint already wrote.
             #
-            # Then re-raise, so the caller can tell a retryable deadlock from an ordinary
-            # failure. Every frame above this one was checked before relying on that: the
-            # api_security_framework wrapper backing critical_api/high_security_api/
-            # standard_api/public_api logs its audit event and re-raises
-            # (api_security_framework.py:1044), and no other decorator in the stack catches
-            # the wrapped call -- so this really does reach the client.
-            frappe.db.rollback()
+            # Re-raise ONLY -- deliberately no frappe.db.rollback() here, unlike the five
+            # #475 guards, and the difference is which frame this is. Measured:
+            #
+            #   * exception escapes to the request boundary -> frappe/app.py:147 already does
+            #     db.rollback(chain=True) (its `except`, before sync_database() can commit);
+            #   * escapes inside a background job -> background_jobs.py:296 does the same, and
+            #     both classes derive straight from Exception so they reach it;
+            #   * caught by an in-process caller -> a rollback here would discard THAT
+            #     caller's transaction under its feet. Eight production callers of these
+            #     endpoints swallow with `except Exception` (assign_member_to_chapter has
+            #     five), and on a 1205 -- where only the failing statement was rolled back --
+            #     they would commit nothing while reporting the work done.
+            #
+            # So the rollback is redundant on the two paths where it would help and
+            # destructive on the one where it would act. Those eight callers still need their
+            # own guard; that is a frame above this one and is tracked separately.
+            #
+            # NOTE the guard cannot fire for 11 of the 50 endpoints: they wrap their whole
+            # body in `except Exception` that returns, catching the class one frame BELOW
+            # this decorator (submit_application, the three payment_processing endpoints, and
+            # seven others). They need the suspension_api.py pattern -- an
+            # `except NON_RESUMABLE_DB_ERRORS: raise` ahead of the broad handler -- and are
+            # tracked separately. This guard covers the other 39.
             log_error(
                 e,
                 context={

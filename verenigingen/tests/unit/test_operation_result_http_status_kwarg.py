@@ -23,6 +23,7 @@ carries the field at all. It pins exactly one thing: that no caller spells the f
 
 import ast
 import os
+import tempfile
 
 from verenigingen.tests.utils.base import VereningingenTestCase
 
@@ -30,22 +31,27 @@ BUILDERS = {"fail", "ok", "from_exception"}
 WRONG = "http_status_code"
 
 
-def _app_root():
+def _app_package_root():
     import verenigingen
 
-    return os.path.dirname(os.path.dirname(os.path.abspath(verenigingen.__file__)))
+    return os.path.dirname(os.path.abspath(verenigingen.__file__))
 
 
-def _offending_call_sites():
-    """Every ``<something>.fail/ok/from_exception(..., http_status_code=...)`` in the app.
+def _offending_call_sites(root):
+    """Every ``<something>.fail/ok/from_exception(..., http_status_code=...)`` under ``root``.
+
+    Returns ``(hits, files_scanned)``. The count is returned, not discarded, because a sweep
+    that silently walks nothing is indistinguishable from a clean tree -- this repo has
+    already shipped a discovery pass that reported "0 found" for every target *and* for its
+    control, and the only reason that was caught was the control.
 
     Matched on the attribute name rather than on the receiver being literally
     ``OperationResult``: the builders are also reached through aliases and subclasses, and a
     receiver-name match would have missed those while looking thorough.
     """
-    root = _app_root()
     hits = []
-    for dirpath, dirnames, filenames in os.walk(os.path.join(root, "verenigingen")):
+    scanned = 0
+    for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in ("__pycache__", "node_modules")]
         for filename in filenames:
             if not filename.endswith(".py"):
@@ -53,12 +59,13 @@ def _offending_call_sites():
             path = os.path.join(dirpath, filename)
             if os.path.abspath(path) == os.path.abspath(__file__):
                 # This module carries the known-bad spelling on purpose, in the
-                # characterisation test below and in the detector's own control.
+                # characterisation test below.
                 continue
             try:
                 tree = ast.parse(open(path, encoding="utf-8").read())
             except (SyntaxError, UnicodeDecodeError):
                 continue
+            scanned += 1
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
                     continue
@@ -66,13 +73,14 @@ def _offending_call_sites():
                     continue
                 if any(kw.arg == WRONG for kw in node.keywords):
                     hits.append(f"{os.path.relpath(path, root)}:{node.lineno}")
-    return sorted(hits)
+    return sorted(hits), scanned
 
 
 class TestNoCallSiteLosesItsHttpStatusToMetadata(VereningingenTestCase):
     def test_no_operation_result_builder_is_called_with_http_status_code(self):
-        offenders = _offending_call_sites()
+        offenders, scanned = _offending_call_sites(_app_package_root())
 
+        self.assertGreater(scanned, 100, "the sweep walked almost nothing; it cannot have checked the app")
         self.assertEqual(
             [],
             offenders,
@@ -80,20 +88,25 @@ class TestNoCallSiteLosesItsHttpStatusToMetadata(VereningingenTestCase):
             "metadata and never reads; the field is `http_status`:\n  " + "\n  ".join(offenders),
         )
 
-    def test_the_detector_can_actually_find_one(self):
-        """CONTROL. An AST walk that matches nothing passes for free, and a passing sweep is
-        the exact shape of the '0 found for all four targets, and for the control too' failure
-        this repo has already shipped once. Parse a known-bad snippet and require a hit."""
-        tree = ast.parse("OperationResult.fail('x', http_status_code=403)\n")
-        found = [
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr in BUILDERS
-            and any(kw.arg == WRONG for kw in node.keywords)
-        ]
-        self.assertEqual(1, len(found))
+    def test_the_sweep_finds_a_planted_offender(self):
+        """CONTROL, and it must drive the REAL sweep.
+
+        The first version of this control re-implemented the matcher inline over a hardcoded
+        snippet, so it never touched the file walk it exists to protect: breaking the root
+        path so the ratchet scanned zero files left BOTH tests green. It now plants a file and
+        makes ``_offending_call_sites`` walk to it.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            os.makedirs(os.path.join(tmp, "pkg"))
+            with open(os.path.join(tmp, "pkg", "bad.py"), "w", encoding="utf-8") as handle:
+                handle.write("OperationResult.fail('x', http_status_code=403)\n")
+            with open(os.path.join(tmp, "pkg", "good.py"), "w", encoding="utf-8") as handle:
+                handle.write("OperationResult.fail('x', http_status=403)\n")
+
+            offenders, scanned = _offending_call_sites(tmp)
+
+        self.assertEqual(["pkg/bad.py:1"], offenders)
+        self.assertEqual(2, scanned)
 
 
 class TestWhyTheRatchetExists(VereningingenTestCase):
