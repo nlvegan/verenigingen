@@ -584,6 +584,102 @@ class TestDonationSubscriptionActivation(EnhancedTestCase):
             "A retry must not change the recorded subscription id",
         )
 
+    # --------------------------------------- a failed status update is not a 200
+
+    def _fail_the_status_save_only(self):
+        """Patch that fails the `donation.save()` inside `_update_donation_status`.
+
+        `save` is the collaborator; the code under test is the production body of
+        `_update_donation_status` and its caller's handling of the outcome. The
+        wrapper swaps `save` on the very donation instance production is about to
+        use and then calls the real method, so the try/except under test runs
+        unmodified. Nothing else in the delivery is touched -- the Bank
+        Transaction, the Journal Entry and the two other history tables stay
+        real, which is what makes the assertions below discriminate on *this*
+        step rather than on "everything broke".
+        """
+        svc_cls = type(self.service)
+        real = svc_cls._update_donation_status
+
+        def wrapper(svc_self, donation, payment_data):
+            def boom(*args, **kwargs):
+                raise RuntimeError("injected: Donation.save failed")
+
+            donation.save = boom  # type: ignore[method-assign]
+            return real(svc_self, donation, payment_data)
+
+        return patch.object(svc_cls, "_update_donation_status", wrapper)
+
+    def test_a_failed_status_update_is_not_reported_as_success(self):
+        """REGRESSION (#464): the webhook must not answer 200 when the donation
+        was left unpaid.
+
+        `_update_donation_status` caught its own exception and returned None, and
+        the caller discarded even that. So a failing `donation.save()` produced
+        `{"status": "success"}` -> HTTP 200 -> Mollie never re-delivers, while the
+        donation stays `paid = 0` and `status = One-time` and the Mollie
+        subscription goes on charging the donor every month. `paid` and `status`
+        are what every report and every reconciliation read.
+
+        Asking for a re-delivery is safe for the same reason it is in #449: the
+        money-side steps are each idempotent on the payment id, measured as one
+        Journal Entry, one Bank Transaction and a GL debit of the charge amount
+        rather than twice it.
+        """
+        with self._fail_the_status_save_only():
+            result = self._run_webhook()
+
+        self.assertEqual(
+            result["status"],
+            "error",
+            "A failed donation status update must surface as an error so the API "
+            f"layer returns non-2xx and Mollie re-delivers; got {result}",
+        )
+        failures = result.get("history_failures", [])
+        self.assertTrue(
+            any(f.startswith("donation status") for f in failures),
+            f"the failing step must be named in history_failures; got {failures}",
+        )
+        # The cause must travel with it -- a bare label sends whoever reads the
+        # webhook log back to the server log to find out what broke.
+        self.assertTrue(
+            any("injected: Donation.save failed" in f for f in failures),
+            f"the failure reason must reach the response; got {failures}",
+        )
+
+        # The failure has to be REAL, not merely reported: assert the database
+        # state the donor is left in. Without this the test would pass against a
+        # fix that flags an error it did not actually suffer.
+        self.assertEqual(
+            frappe.db.get_value("Donation", self.donation_name, "paid"),
+            0,
+            "the injected failure must genuinely leave the donation unpaid",
+        )
+
+        # The money must still be booked -- that is what makes asking for a
+        # re-delivery the right answer rather than a dangerous one.
+        self.assertTrue(
+            result.get("journal_entry"),
+            f"the Journal Entry should still exist for the retry to be safe; got {result}",
+        )
+
+    def test_the_happy_path_still_marks_the_donation_paid(self):
+        """Control for the test above.
+
+        Without it, "the webhook returns error" would be equally consistent with
+        "the new check is wrong and fails on every delivery". Asserts the same two
+        fields from the other side.
+        """
+        result = self._run_webhook()
+
+        self.assertEqual(result["status"], "success", f"Unexpected result: {result}")
+        self.assertNotIn("history_failures", result)
+        self.assertEqual(
+            frappe.db.get_value("Donation", self.donation_name, "paid"),
+            1,
+            "an undisturbed delivery must leave the donation paid",
+        )
+
     # ------------------------------------------ a failed history write is not a 200
 
     def _fail_donor_history_only(self):

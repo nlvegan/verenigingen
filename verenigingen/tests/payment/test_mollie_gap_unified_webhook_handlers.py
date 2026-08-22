@@ -395,8 +395,11 @@ class TestUpdateDonationStatus(FrappeTestCase):
 
     def test_subscription_marks_recurring_and_paid(self):
         donation = _persist_donation("tr_status_recur")
-        self.svc._update_donation_status(
-            donation, {"id": "tr_status_recur", "metadata": {"subscription_id": "sub_1"}}
+        self.assertIsNone(
+            self.svc._update_donation_status(
+                donation, {"id": "tr_status_recur", "metadata": {"subscription_id": "sub_1"}}
+            ),
+            "a successful status update must report no failure reason",
         )
         donation.reload()
         self.assertEqual(donation.status, "Recurring")
@@ -409,16 +412,25 @@ class TestUpdateDonationStatus(FrappeTestCase):
         self.assertEqual(donation.status, "One-time")
         self.assertEqual(donation.paid, 1)
 
-    def test_save_failure_is_swallowed(self):
-        """Status-update errors must not bubble (webhook keeps processing)."""
+    def test_save_failure_is_caught_but_answered_false(self):
+        """Status-update errors must not bubble -- the delivery has already booked
+        money and the remaining steps must run -- but they must be REPORTED.
+
+        Returning None here is what let the webhook answer 200 over a donation left
+        `paid = 0` while Mollie kept charging the donor (#464). "Does not raise" is
+        satisfied by both the broken and the fixed version, so it cannot bind the
+        contract on its own; the return value is what discriminates.
+        """
         donation = _persist_donation("tr_status_boom")
 
         def boom():
             raise RuntimeError("save failed")
 
         donation.save = boom  # type: ignore[method-assign]
-        # Should not raise.
-        self.svc._update_donation_status(donation, {"id": "tr_status_boom", "metadata": {}})
+        # Should not raise...
+        result = self.svc._update_donation_status(donation, {"id": "tr_status_boom", "metadata": {}})
+        # ...and must hand the caller the cause rather than silence.
+        self.assertIn("save failed", result or "", "the failure reason must reach the caller")
 
 
 class TestUpdateDonationPaymentHistoryAtomic(FrappeTestCase):

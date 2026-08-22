@@ -747,8 +747,25 @@ class UnifiedWebhookWrapperService:
             # subscription id and can mark the donation Recurring.
             activation = self._activate_donation_subscription(donation, payment_data)
 
-            # Step 4: Update donation status and metadata
-            self._update_donation_status(donation, payment_data)
+            # Step 4: Update donation status and metadata.
+            #
+            # Collected here rather than appended further down: `history_failures`
+            # is consumed by an early return below, so an append placed after that
+            # return would be dead code -- the mistake this file has already made
+            # once. The list is opened here so this step and the three history
+            # writes share one exit.
+            #
+            # Treated as retryable, like the history writes: this catches both a
+            # transient save failure and a permanent one, and nothing at this point
+            # can tell them apart. A permanent failure costs a full 26-hour Mollie
+            # retry ladder that cannot succeed, which is the cheaper of the two
+            # wrong answers -- the other one is a donor charged monthly against a
+            # donation nothing ever marks paid.
+            history_failures = []
+
+            status_failure = self._update_donation_status(donation, payment_data)
+            if status_failure:
+                history_failures.append(f"donation status ({status_failure})")
 
             # Steps 5-7: the three financial-history tables.
             #
@@ -780,8 +797,6 @@ class UnifiedWebhookWrapperService:
             #
             # All three answer True when there is nothing to do -- no donor, no
             # member, an entry already present -- so False here means a real failure.
-            history_failures = []
-
             if not self._update_donation_payment_history_atomic(donation, payment_data, journal_entry_name):
                 history_failures.append("donation payment history")
 
@@ -980,8 +995,11 @@ class UnifiedWebhookWrapperService:
             # "donation_status" is among the missing components).
 
             if "donation_status" in missing_components:
-                self._update_donation_status(donation, payment_data)
-                results.append("Donation status updated")
+                status_failure = self._update_donation_status(donation, payment_data)
+                if status_failure:
+                    results.append(f"Donation status update failed: {status_failure}")
+                else:
+                    results.append("Donation status updated")
 
             if "payment_history" in missing_components:
                 # Try to get existing journal entry name from database if not created above.
@@ -1580,7 +1598,24 @@ class UnifiedWebhookWrapperService:
             }
 
     def _update_donation_status(self, donation, payment_data):
-        """Update donation status based on payment data."""
+        """Update donation status based on payment data.
+
+        Returns None when the donation was saved, and the failure reason when it
+        was not. The exception is still caught -- a webhook delivery that got this
+        far has already booked the money, so the remaining steps must run -- but
+        the failure is now ANSWERED rather than discarded: the caller reports a
+        non-2xx so Mollie re-delivers (#464). Swallowed into None, a failing save
+        left the donation `paid = 0` and `status = One-time` while the Mollie
+        subscription went on charging the donor every month, and told Mollie
+        everything was fine.
+
+        Returning the REASON rather than a bare False is the difference from the
+        three history writers alongside it, which answer True/False and sit in
+        `scripts/validation/error_swallow_baseline.txt` as grandfathered
+        log-and-swallow sites. A bool tells the caller only that something broke;
+        the cause dies in the log, where on CI it dies with the database. Carrying
+        it out means it reaches the webhook response and Mollie's own delivery log.
+        """
         try:
             # Reload first: _create_donation_financial_entries -> the Journal
             # Entry creator writes Donation.journal_entry via frappe.db.set_value
@@ -1613,9 +1648,11 @@ class UnifiedWebhookWrapperService:
             # Save donation
             donation.save()
             self.logger.info(f"✅ Updated donation {donation.name} status")
+            return None
 
         except Exception as e:
             self.logger.error("Error updating donation status", error=e)
+            return str(e) or type(e).__name__
 
     def _update_donation_payment_history(self, donation, payment_data, payment_entry_name):
         """Update donation payment history with payment details."""
