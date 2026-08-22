@@ -1,4 +1,4 @@
-# Handoff — 2026-08-22e: the ratchet that accepted the bug it blocks
+# Handoff — 2026-08-22f: the ratchet that accepted the bug it blocks
 
 Fixed #470 and merged it as **#474**. The issue asked for a three-line change in one
 handler; the handler it named was the wrong one, and the ratchet I built to stop the
