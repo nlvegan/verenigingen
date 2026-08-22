@@ -1422,8 +1422,8 @@ class CleanupManagerFinishesWhatItStartedTest(unittest.TestCase):
 
         The old `raise` was destructive but loud -- an exception in `tearDown`
         errors the test. Collecting the failure and continuing trades that for
-        silence unless it is announced, and four of the five callers discard the
-        returned list. `frappe.logger()` would not do: it writes only to
+        silence unless it is announced, and all eight call sites discard the returned
+        list (five tearDowns, three mid-test). `frappe.logger()` would not do: it writes only to
         `logs/frappe.log`, which CI never uploads (#485).
 
         Asserted on the record rather than on captured stderr: the harness
@@ -1433,7 +1433,7 @@ class CleanupManagerFinishesWhatItStartedTest(unittest.TestCase):
         That the handler writes to stderr at all is pinned separately, by
         `test_harness_logger.test_writes_to_stderr_not_stdout`.
         """
-        from verenigingen.tests.harness_logger import LOGGER_NAME, get_harness_logger
+        from verenigingen.tests.harness_logger import LOGGER_NAME
         from verenigingen.tests.utils.factories import TestCleanupManager
 
         parent = _territory("zzmgr-reported")
@@ -1445,16 +1445,12 @@ class CleanupManagerFinishesWhatItStartedTest(unittest.TestCase):
         manager = TestCleanupManager()
         manager.register("Territory", parent.name)
 
-        # Configure the logger BEFORE assertLogs: it snapshots and restores
-        # `handlers`, but `harness_logger`'s `_CONFIGURED_FLAG` stays set, so a logger
-        # first configured INSIDE the block never gets its stderr handler back --
-        # every later harness message in the process falls through to
-        # `logging.lastResort`, unformatted, with the explicit level (and
-        # VERENIGINGEN_TEST_LOG_LEVEL) silently dead. Latent only because the other
-        # test in this class sorts first and configures it; that is order-dependence,
-        # which is the thing this file exists to stop.
-        get_harness_logger("test-cleanup-manager")
-
+        # No "configure the logger first" line here on purpose. `assertLogs` really does
+        # take the handler away and cannot put a "configured once" flag back, but that is
+        # fixed at the source now -- `harness_logger._configured_logger` guards on
+        # whether OUR handler is still attached, and
+        # `AssertLogsMustNotDegradeTheLoggerTest` pins it. A workaround here would only
+        # protect the author who knew to write it.
         with self.assertLogs(LOGGER_NAME, level="ERROR") as logged:
             manager.cleanup()
 

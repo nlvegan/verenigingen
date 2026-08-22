@@ -226,16 +226,23 @@ class TestCleanupManager:
           documents at length. What this class is actually handed is Chapter, Member,
           Membership, Membership Type, Team, Team Role, plus two names that are not
           DocTypes on any test site (`Verenigingen Volunteer` and `Volunteer Expense`
-          -- see the registrations at `:418` and `:543`, and #491). `SEPA Mandate` is
-          in none of them: `with_sepa_mandate` is a no-op stub that registers nothing.
+          -- registered by `with_volunteer_profile` and `with_expense`, see #491).
+          `SEPA Mandate` is in none of them: `with_sepa_mandate` is a no-op stub that
+          registers nothing.
           Checked against `tabDocType`: of the six real ones only Membership is
           submittable, and none post GL or Payment Ledger rows, so there is nothing
           for the carve-out to protect yet. Register a voucher and there will be --
           that is #482, which has to fix the drains together.
-        - **A lock-timeout retry.** `_cleanup_document_with_retry` retries
-          `QueryTimeoutError` three times at 0.5s; this returns the error on the first
-          one. Not a regression -- the old code raised -- but the omission is
+        - **A lock-timeout retry.** `VereningingenTestCase._cleanup_document_with_retry`
+          retries `QueryTimeoutError` three times at 0.5s; this returns the error on the
+          first one. Not a regression -- the old code raised -- but the omission is
           deliberate rather than overlooked.
+        - **`ignore_permissions` / `ignore_links` on the cancel**, which
+          `_cancel_if_submitted` sets and explains at length. Not needed here yet:
+          `_sort_by_dependencies` plus `reversed` yields Membership -> Membership Type ->
+          Member -> Chapter, so a Membership is cancelled BEFORE its Membership Type is
+          deleted and the #433 link hazard does not arise. It arises the moment that
+          order changes.
         """
         errors = []
 
@@ -275,15 +282,33 @@ class TestCleanupManager:
 
         `is_submittable`, not `docstatus == 1` alone: erpnext calls `gle.submit()` on
         GL Entry, which is `is_submittable = 0`, and cancelling one of those raises --
-        `base.py:359` documents the same guard at length. Nothing this class is handed
-        today reaches it, which is exactly why the guard is cheaper than the bug.
-        """
-        if not DocumentExistenceValidator.check_document_exists(item["doctype"], item["name"]):
-            return None
+        `VereningingenTestCase._cancel_if_submitted` documents the same guard at length.
+        Nothing this class is handed today reaches it, which is exactly why the guard is
+        cheaper than the bug.
 
+        The shape is a class of 13 under `verenigingen/tests`: `docstatus == 1` leading
+        to a cancel. This is the one fixed; the other 12 were assessed and left. Eleven
+        are on doctypes that really are submittable (Membership, Sales Invoice, Donation,
+        Bank Transaction); the twelfth,
+        `EnhancedTestCase._cleanup_document_with_retry`, is generic over its argument
+        and so has the same latent hole -- but it has zero callers.
+        """
         savepoint = f"testcleanup_{frappe.generate_hash(length=8)}"
-        frappe.db.savepoint(savepoint)
+        # Whether the savepoint exists, tracked rather than assumed: undoing to a
+        # savepoint that was never created raises 1305, and the undo now WARNS on
+        # failure, so assuming it would turn "the existence check raised" into a
+        # spurious warning about a savepoint nobody set.
+        savepoint_taken = False
         try:
+            # Inside the try, both of them: an existence check and a savepoint are
+            # ordinary statements that can raise a deadlock or a lost connection, and
+            # anything raised out of this method skips the caller's
+            # `super().tearDown()` -- the #483 defect verbatim, on the two paths its
+            # first fix left outside.
+            if not DocumentExistenceValidator.check_document_exists(item["doctype"], item["name"]):
+                return None
+            frappe.db.savepoint(savepoint)
+            savepoint_taken = True
             # Check if document is submitted and needs to be cancelled first
             if (
                 frappe.get_meta(item["doctype"]).is_submittable
@@ -292,7 +317,8 @@ class TestCleanupManager:
                 frappe.get_doc(item["doctype"], item["name"]).cancel()
             frappe.delete_doc(item["doctype"], item["name"], force=True)
         except Exception as e:
-            rollback_cleanup_attempt(savepoint, e)
+            if savepoint_taken:
+                rollback_cleanup_attempt(savepoint, e)
             return {"doctype": item["doctype"], "name": item["name"], "error": str(e)}
 
         release_cleanup_savepoint(savepoint)

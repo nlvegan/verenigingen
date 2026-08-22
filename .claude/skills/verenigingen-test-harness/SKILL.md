@@ -64,9 +64,12 @@ Before writing one, name the constraint out loud:
 - `Company.default_bank_account` is a Link to **Account**, not to Bank Account. Guards
   that read it as a Bank Account are dead branches that can never be true.
 
-`scripts/validation/duplicate_helper_validator.py` will not help you find the sibling
-copies: it counts **private module-level functions**, so methods are invisible to it
-(#445).
+`scripts/validation/duplicate_helper_validator.py` may not help you find the sibling
+copies, but **not** because methods are invisible to it -- that was true until #445 was
+fixed (`275a906a`) and this file said so for a month afterwards. It sees module-level
+functions **and** methods. What it cannot see is a copy that is not a function at all
+(inline code in an `except`), or a duplicated *explanation* under two different helper
+names: it keys on the name.
 
 ## Own the fixture; never scan for one
 
@@ -146,3 +149,21 @@ surface, not that it is a good practice worth restating.
 That test also produced the first correction — the NULL-`account` figure above was written
 from one site and read as universal. It is now stated as a range, because the variance is
 the point.
+
+**2026-08-23, one correction, found by a review of a change that copied it.** The
+`duplicate_helper_validator` sentence above said methods were invisible to the ratchet.
+That was true when it was written and **stopped being true when #445 was fixed**
+(`275a906a`) -- the validator's own docstring has read "functions AND methods" since.
+Measured: `_private_helpers` on `tests/utils/base.py` returns 31 helpers and finds
+`_rollback_cleanup_savepoint` among them.
+
+The cost was not the stale line itself. A new module in PR #492 quoted this file as its
+authority for a design decision, so the wrong mechanism got copied into fresh code and a
+**closed** issue was cited to justify it. The conclusion ("the ratchet will not find these
+copies") was still right, for two different reasons -- inline code is not a function, and
+the ratchet keys on the name.
+
+So: **when a fix closes a blind spot, retire the sentence describing it.** A skill file is
+read as current fact by everyone who loads it, and a stale line here is copied outward
+rather than merely believed. Nothing about this was findable by grep -- both copies said
+it confidently.
