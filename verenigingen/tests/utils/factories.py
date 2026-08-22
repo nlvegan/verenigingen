@@ -13,6 +13,7 @@ from datetime import datetime
 import frappe
 from frappe.utils import random_string, today
 
+from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
@@ -181,30 +182,90 @@ class TestCleanupManager:
         if dependencies:
             self._dependencies[f"{doctype}:{name}"] = dependencies
 
-    def cleanup(self, rollback_on_error=True):
-        """Clean up all registered documents in reverse order"""
+    def cleanup(self):
+        """Delete every registered document in reverse order. Returns the failures.
+
+        ONE UNDELETABLE DOCUMENT MUST NOT ABANDON THE REST OF THE CLEANUP. This
+        method used to roll the whole transaction back and RAISE on the first
+        document it could not delete, so every document still registered behind it
+        was left on the site (#483).
+
+        The raise cost more than this loop. Four of the five `tearDown`s that call
+        `TestDataBuilder.cleanup()` call it BEFORE `super().tearDown()` and do not
+        wrap it, so the exception skipped the base class's entire teardown as well:
+        the drain, the Error Log capture, the leak report and the mock restoration.
+        Three suites also call it mid-test, where a transaction-wide rollback
+        discards the test's own `setUp` -- and any uncommitted `setUpClass` fixture
+        the class still needs, which is the #330 failure mode (measured in CI when
+        the drain's rollback was widened that way: 6 of 12 shards red).
+
+        So: a savepoint per document, and the failures come back as a list. The
+        `rollback_on_error` parameter is gone rather than kept and ignored -- no
+        caller ever passed it, and a parameter that no longer does what it says is
+        how this repo has been misled before.
+
+        NOT DONE HERE, on purpose: the cancel below has neither the
+        `is_submittable` check nor the ledger carve-out that
+        `VereningingenTestCase._cancel_if_submitted` documents at length. Of the
+        doctypes this class is actually handed -- Chapter, Member, Membership,
+        Verenigingen Volunteer, Team, Team Role, Membership Type, SEPA Mandate --
+        only Membership is submittable and none of them post GL or Payment Ledger
+        rows, so there is nothing here for the carve-out to protect yet. Register a
+        voucher and there will be: that is #482, which has to fix all the drains
+        together.
+        """
         errors = []
 
         # Sort by dependencies and timestamp
         sorted_stack = self._sort_by_dependencies()
 
         for item in reversed(sorted_stack):
-            try:
-                if DocumentExistenceValidator.check_document_exists(item["doctype"], item["name"]):
-                    # Check if document is submitted and needs to be cancelled first
-                    doc = frappe.get_doc(item["doctype"], item["name"])
-                    if hasattr(doc, "docstatus") and doc.docstatus == 1:
-                        doc.cancel()
-                    frappe.delete_doc(item["doctype"], item["name"], force=True)
-            except Exception as e:
-                errors.append({"doctype": item["doctype"], "name": item["name"], "error": str(e)})
-
-                if rollback_on_error:
-                    # Rollback and stop cleanup
-                    frappe.db.rollback()
-                    raise Exception(f"Cleanup failed: {errors}")
+            error = self._delete_registered_document(item)
+            if error:
+                errors.append(error)
+                # Announced, not just returned: four of the five callers discard the
+                # return value, and the old raise was at least loud. get_harness_logger
+                # rather than frappe.logger(), whose records reach only
+                # logs/frappe.log -- a file CI never uploads (#485).
+                get_harness_logger("test-cleanup-manager").error(
+                    "Could not delete %s %s: %s", error["doctype"], error["name"], error["error"]
+                )
 
         return errors
+
+    @staticmethod
+    def _delete_registered_document(item):
+        """Delete one registered document. Returns an error dict, or None on success.
+
+        The savepoint undoes this attempt and nothing else. `delete_doc` runs
+        `on_trash` before it removes anything and a failure part-way through can
+        leave the document mutated, so the attempt has to be undone -- but undoing
+        it with `frappe.db.rollback()` discards every uncommitted row in the
+        connection, including rows this cleanup does not own.
+        """
+        if not DocumentExistenceValidator.check_document_exists(item["doctype"], item["name"]):
+            return None
+
+        savepoint = f"testcleanup_{frappe.generate_hash(length=8)}"
+        frappe.db.savepoint(savepoint)
+        try:
+            # Check if document is submitted and needs to be cancelled first
+            doc = frappe.get_doc(item["doctype"], item["name"])
+            if doc.docstatus == 1:
+                doc.cancel()
+            frappe.delete_doc(item["doctype"], item["name"], force=True)
+        except Exception as e:
+            try:
+                frappe.db.rollback(save_point=savepoint)
+            except Exception:
+                # The savepoint is gone -- an inner commit dropped it, or a deadlock
+                # rolled the whole transaction back (MySQL 1305). Nothing left to
+                # undo, and raising here would replace the real cleanup failure with
+                # an untriageable "SAVEPOINT ... does not exist".
+                pass
+            return {"doctype": item["doctype"], "name": item["name"], "error": str(e)}
+
+        return None
 
     def _sort_by_dependencies(self):
         """Sort cleanup stack considering dependencies"""
