@@ -475,17 +475,31 @@ class TestBulkSuspensionStopsOnTheClass(VereningingenTestCase):
         ``frappe.log_error`` below it is issued on the discarded transaction, and Frappe
         commits the partial suspensions at request end.
 
-        ``@handle_api_error`` still converts the re-raise into an OperationResult one frame
-        further up, so the exception is not observable from the public name; the rollback is.
+        **Rewritten by #481, which changed the frame above.** This test used to say
+        "``@handle_api_error`` still converts the re-raise into an OperationResult one frame
+        further up, so the exception is not observable from the public name" -- that WAS the
+        sixth boundary, and it is now fixed, so the class does escape and is asserted here.
+
+        The rewrite also had to keep the assertion discriminating, which a bare "some rollback
+        happened" no longer is: ``@handle_api_error`` now rolls back too, so deleting this
+        frame's rollback would still leave one and the test would pass on the mutation it
+        exists to catch. What is asserted instead is the ORDER the test is named for -- a
+        rollback before *this* frame's ``log_error``. The decorator's rollback runs after that
+        log, so it cannot satisfy this. Verified by mutation both ways.
         """
         from verenigingen.api import suspension_api
 
-        rollbacks = []
+        events = []
         real_rollback = frappe.db.rollback
+        real_log_error = frappe.log_error
 
         def spy_rollback(*args, **kwargs):
-            rollbacks.append(args)
+            events.append("rollback")
             return real_rollback(*args, **kwargs)
+
+        def spy_log_error(*args, **kwargs):
+            events.append("log_error")
+            return real_log_error(*args, **kwargs)
 
         def explode(member_name, **_kwargs):
             raise _deadlock()
@@ -495,11 +509,19 @@ class TestBulkSuspensionStopsOnTheClass(VereningingenTestCase):
             "verenigingen.utils.termination_integration.suspend_member_safe", side_effect=explode
         ):
             with patch.object(frappe.db, "rollback", spy_rollback):
-                suspension_api.bulk_suspend_members(names, "reporting boundary (#475)")
+                with patch.object(frappe, "log_error", spy_log_error):
+                    with self.assertRaises(frappe.QueryDeadlockError):
+                        suspension_api.bulk_suspend_members(names, "reporting boundary (#475)")
 
-        self.assertTrue(
-            rollbacks,
+        self.assertIn(
+            "rollback",
+            events,
             "the bulk frame logged and returned without ending the discarded transaction",
+        )
+        self.assertEqual(
+            "rollback",
+            events[0],
+            f"this frame logged before it rolled back; event order was {events}",
         )
 
     def test_an_ordinary_failure_still_lets_the_bulk_loop_finish(self):

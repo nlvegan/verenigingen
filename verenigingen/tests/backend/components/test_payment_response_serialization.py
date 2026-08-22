@@ -56,7 +56,7 @@ class TestPaymentResponseSerialization(unittest.TestCase):
 
     def test_failure_envelope_is_flattened(self):
         envelope = _as_critical_api_emits(
-            OperationResult.fail("You don't have permission", http_status_code=403)
+            OperationResult.fail("You don't have permission", http_status=403)
         )
         self.assertIn("error", envelope)  # precondition: nested error object
         flat = _flatten_api_response(envelope)
@@ -67,7 +67,7 @@ class TestPaymentResponseSerialization(unittest.TestCase):
     def test_response_is_json_serializable(self):
         for result in (
             OperationResult.ok(data={"count": 1, "file_url": "/f"}, message="ok"),
-            OperationResult.fail("nope", http_status_code=500),
+            OperationResult.fail("nope", http_status=500),
         ):
             json.dumps(_flatten_api_response(_as_critical_api_emits(result)))  # must not raise
 

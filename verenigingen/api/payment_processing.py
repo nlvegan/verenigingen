@@ -267,12 +267,12 @@ def send_overdue_payment_reminders(
         # Critical Security Fix: Add explicit permission validation
         if not frappe.has_permission("Sales Invoice", "read"):
             return OperationResult.fail(
-                _("You don't have permission to access overdue payment data"), http_status_code=403
+                _("You don't have permission to access overdue payment data"), http_status=403
             )
 
         if not frappe.has_permission("Member", "read"):
             return OperationResult.fail(
-                _("You don't have permission to access member data"), http_status_code=403
+                _("You don't have permission to access member data"), http_status=403
             )
 
         # Additional financial operation permission check
@@ -288,7 +288,7 @@ def send_overdue_payment_reminders(
                 _("You don't have permission to send payment reminders. Required roles: {0}").format(
                     ", ".join(required_roles)
                 ),
-                http_status_code=403,
+                http_status=403,
             )
 
         # Validate inputs
@@ -354,7 +354,7 @@ def send_overdue_payment_reminders(
             title="Payment Processing - Send Reminders Failed",
         )
         return OperationResult.fail(
-            _("Failed to send payment reminders: {0}").format(str(e)), http_status_code=500
+            _("Failed to send payment reminders: {0}").format(str(e)), http_status=500
         )
 
 
@@ -375,7 +375,7 @@ def export_overdue_payments(
         # Validate format parameter
         if format not in ["CSV", "XLSX"]:
             return OperationResult.fail(
-                _("Invalid export format. Supported formats: CSV, XLSX"), http_status_code=400
+                _("Invalid export format. Supported formats: CSV, XLSX"), http_status=400
             )
 
         data = get_data(filters)
@@ -445,7 +445,7 @@ def export_overdue_payments(
 
         except Exception as e:
             log_error(e, {"operation": "export_overdue_payments", "context": "Payment Export Error"})
-            return OperationResult.fail(_("Export failed: {0}").format(str(e)), http_status_code=500)
+            return OperationResult.fail(_("Export failed: {0}").format(str(e)), http_status=500)
 
     except Exception as e:
         frappe.log_error(
@@ -453,7 +453,7 @@ def export_overdue_payments(
             title="Payment Processing - Export Failed",
         )
         return OperationResult.fail(
-            _("Failed to export overdue payments: {0}").format(str(e)), http_status_code=500
+            _("Failed to export overdue payments: {0}").format(str(e)), http_status=500
         )
 
 
@@ -481,7 +481,7 @@ def execute_bulk_payment_action(
         if action not in valid_actions:
             return OperationResult.fail(
                 _("Invalid action. Valid actions: {0}").format(", ".join(valid_actions)),
-                http_status_code=400,
+                http_status=400,
             )
 
         from verenigingen.verenigingen.report.overdue_member_payments.overdue_member_payments import get_data
@@ -541,7 +541,7 @@ def execute_bulk_payment_action(
             title="Payment Processing - Bulk Action Failed",
         )
         return OperationResult.fail(
-            _("Failed to execute bulk payment action: {0}").format(str(e)), http_status_code=500
+            _("Failed to execute bulk payment action: {0}").format(str(e)), http_status=500
         )
 
 
