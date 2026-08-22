@@ -163,12 +163,13 @@ def execute_safe_termination(
 
         return results
 
-    # #475. This endpoint has no savepoint of its own, so on a 1205 the steps that already
-    # ran are live and Frappe would commit them at request end while the caller was handed
-    # an HTTP 200 saying "please try again". Roll back FIRST -- that also ends the discarded
-    # transaction, which is what makes the log_error below a write that can actually land --
-    # then re-raise so the class survives. `@critical_api` logs and re-raises (it does not
-    # convert), so this really does reach Frappe as an error rather than a 200.
+    # #475. This endpoint has no savepoint of its own, so on a 1205 the steps that already ran
+    # are still live and Frappe would commit them at request end while the caller was handed an
+    # HTTP 200 saying "please try again". That is what the rollback is for -- NOT for the
+    # log_error below it, which lands either way: tabError Log is MyISAM and therefore
+    # non-transactional (measured on test_site_1 and veg11). Then re-raise so the class
+    # survives; `@critical_api` logs and re-raises rather than converting, so this really does
+    # reach Frappe as an error.
     except NON_RESUMABLE_DB_ERRORS:
         frappe.db.rollback()
         frappe.log_error(

@@ -103,6 +103,18 @@ def suspend_member(
             return OperationResult.fail(
                 _("Failed to suspend member: {0}").format(error_msg), error_code="SUSPENSION_FAILED"
             )
+    # #475: same class as bulk_suspend_members below. suspend_member_safe re-raises a
+    # 1205/1213 (#470), and this catch-all turned it back into an HTTP 200 with the class
+    # gone. Roll back first -- unlike the bulk endpoint this one has no @handle_api_error,
+    # so without the rollback Frappe commits the half-applied suspension at request end.
+    except NON_RESUMABLE_DB_ERRORS:
+        frappe.db.rollback()
+        frappe.log_error(
+            f"Non-resumable DB error in suspend_member for {{member_name}}\n{{traceback.format_exc()}}",
+            "Suspension API Exception",
+        )
+        raise
+
     except Exception as e:
         frappe.log_error(
             f"Exception in suspend_member for {member_name}: {str(e)}\n{traceback.format_exc()}",
@@ -188,6 +200,18 @@ def unsuspend_member(member_name: str, unsuspension_reason) -> OperationResult[D
                     _("Failed to unsuspend member: {0}").format(error_msg),
                     error_code="UNSUSPENSION_FAILED",
                 )
+    # #475: same class as bulk_suspend_members below. suspend_member_safe re-raises a
+    # 1205/1213 (#470), and this catch-all turned it back into an HTTP 200 with the class
+    # gone. Roll back first -- unlike the bulk endpoint this one has no @handle_api_error,
+    # so without the rollback Frappe commits the half-applied suspension at request end.
+    except NON_RESUMABLE_DB_ERRORS:
+        frappe.db.rollback()
+        frappe.log_error(
+            f"Non-resumable DB error in unsuspend_member for {{member_name}}\n{{traceback.format_exc()}}",
+            "Suspension API Exception",
+        )
+        raise
+
     except Exception as e:
         frappe.log_error(
             f"Exception in unsuspend_member for {member_name}: {str(e)}\n{traceback.format_exc()}",
@@ -505,10 +529,10 @@ def bulk_suspend_members(
                 error_code="BULK_SUSPENSION_FAILED",
                 data=results,
             )
-    # #475: guarding process_member_suspension alone would be a no-op -- this frame catches
-    # everything it re-raises. Roll back before logging, so the log_error is not itself issued
-    # on the discarded transaction. A third frame (@handle_api_error) still converts this to an
-    # OperationResult; that decorator is app-wide and is tracked separately.
+    # #475. The inner guard already stops the loop; what THIS frame owns is the rollback.
+    # @handle_api_error one frame up swallows the re-raise and returns an OperationResult, so
+    # the exception never escapes the request -- without this rollback frappe/app.py commits
+    # the partial suspensions on the way out. That decorator is app-wide and is tracked as #481.
     except NON_RESUMABLE_DB_ERRORS:
         frappe.db.rollback()
         frappe.log_error(

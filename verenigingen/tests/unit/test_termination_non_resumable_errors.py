@@ -258,6 +258,15 @@ class TestEverySwallowInTheTerminationPackage(VereningingenTestCase):
     ``NON_RESUMABLE_DB_ERRORS`` clause whose body is a bare ``raise``, or carries the
     exemption marker. It cannot check that an exemption's stated *reason* is true -- that
     stays a human claim, and one of the four was wrong on the first pass.
+
+    **It also cannot see how a guarded handler REPORTS the error.** Measured while fixing
+    #475: delete the ``except NON_RESUMABLE_DB_ERRORS`` branch from
+    ``TerminationExecutionService.execute`` and this module still passes 10/10, because the
+    remaining catch-all's ``non-resumable-ok`` marker stays a true statement -- the handler
+    really does end in ``_handle_error``, which really does re-raise. It just re-raises a
+    ``ValidationError``. Only the behavioural tests in
+    ``test_termination_reporting_boundaries`` hold that boundary. Read this paragraph before
+    trusting a green run here as coverage of anything but handler SHAPE.
     """
 
     CATCH_ALLS = ("Exception", "BaseException")

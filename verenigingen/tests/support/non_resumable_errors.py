@@ -8,9 +8,14 @@ They had a copy each of `_deadlock()`, which the duplicate ratchet reported. Its
 explicit that recording is the worse exit -- the file is "a to-do list, not a permission
 slip" -- so this consolidates instead.
 
-The messages match what MariaDB actually emits, because some handlers downstream still
-match on the string rather than the class; a test raising these with a made-up message would
-pass while production missed the error.
+These carry the bare MariaDB message, which is NOT what production raises: Frappe wraps the
+driver exception (``raise frappe.QueryDeadlockError(e) from e``,
+``frappe/database/database.py:278``), so a real one stringifies as
+``"(1213, 'Deadlock found when trying to get lock; try restarting transaction')"`` -- errno
+included. Anything matching on ``"1213"`` / ``"1205"`` in the message (as
+``services/billing/billing_constants.py`` does) therefore sees a real error and NOT one of
+these. Use these to exercise handlers that switch on the CLASS, which is every handler
+``NON_RESUMABLE_DB_ERRORS`` guards; do not use them to test a string matcher.
 """
 
 import frappe

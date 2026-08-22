@@ -95,12 +95,20 @@ class TestTerminationExecutionServiceReportsTheClass(VereningingenTestCase):
         Reverting to Approved is what enables the operator's retry; a guard that returned
         before the recovery would trade one defect for another.
 
-        The failure has to land *after* ``status = "Executed"`` is saved, or there is nothing
-        to revert and the assertion would pass on a service that never recovered at all. So
-        the audit entry that follows the save is what explodes -- and only the success one:
-        ``_handle_error`` writes its own "Execution Failed" entry through the same method, and
-        exploding on that too would break the recovery rather than test it.
+        **This test was vacuous on its first version and the mutation that caught it is worth
+        recording.** It let ``_rollback_savepoint`` run for real, and that call *itself* undoes
+        the ``status = "Executed"`` save -- so the assertion was already satisfied before
+        ``_record_failure_for_retry`` was reached, and deleting that call left the test green.
+        It asserted an outcome the code under test did not produce.
+
+        So the savepoint rollback is stubbed out here, which is not a convenience: it is the
+        post-1213 reality this recovery exists for. ``transaction_errors`` records that a 1213
+        discards the savepoints too, so ``rollback(save_point=...)`` raises 1305 and undoes
+        nothing -- leaving the status written and the revert the only thing that can clear it.
         """
+        from verenigingen.services.termination.termination_execution_service import (
+            TerminationExecutionService,
+        )
         from verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request import (  # noqa: E501
             MembershipTerminationRequest,
         )
@@ -108,21 +116,21 @@ class TestTerminationExecutionServiceReportsTheClass(VereningingenTestCase):
         real_add_audit_entry = MembershipTerminationRequest.add_audit_entry
 
         def explode_on_the_success_entry(doc, action, *args, **kwargs):
+            # Only the success entry: _record_failure_for_retry writes its own "Execution
+            # Failed" entry through this same method, and exploding on that too would break
+            # the recovery rather than test it.
             if action == "Termination Executed":
                 raise _deadlock()
             return real_add_audit_entry(doc, action, *args, **kwargs)
 
-        from verenigingen.services.termination.termination_execution_service import (
-            TerminationExecutionService,
-        )
-
         service = TerminationExecutionService()
-        succeeding_updates = patch.object(
+        with patch.object(
             TerminationExecutionService,
             "execute_system_updates",
             return_value={"actions_taken": [], "errors": []},
-        )
-        with succeeding_updates, patch.object(
+        ), patch.object(
+            TerminationExecutionService, "_rollback_savepoint", lambda self, name: None
+        ), patch.object(
             MembershipTerminationRequest, "add_audit_entry", explode_on_the_success_entry
         ):
             with self.assertRaises(frappe.QueryDeadlockError):
@@ -133,6 +141,17 @@ class TestTerminationExecutionServiceReportsTheClass(VereningingenTestCase):
             "Approved",
             "the status revert that enables retry was lost when the guard re-raised",
         )
+        # The audit row rides the SAME save() as the revert -- add_entry only appends -- so
+        # this is the other half of the one recovery, not a second one. An operator who sees a
+        # request bounced back to Approved with no entry has no way to learn why.
+        self.assertTrue(
+            frappe.db.exists(
+                "Termination Audit Entry",
+                {"parent": self.request.name, "action": "Execution Failed"},
+            ),
+            "the failure was never audited, so the reverted request carries no reason",
+        )
+
 
 
 class TestMijnRoodSyncReportsTheClass(VereningingenTestCase):
@@ -300,6 +319,28 @@ class TestSafeChildTableUpdateReportsTheClass(VereningingenTestCase):
             with self.assertRaises(frappe.QueryDeadlockError):
                 update(doc, "payment_history", "deadlock (#475)", "Member:write")
 
+    def test_the_class_survives_the_helper_so_with_doc_can_see_it(self):
+        """The composition, and the reason #460's guard existed at all.
+
+        The direct test above says nothing about the call the fix was written for.
+        ``BaseHistoryManager._with_doc`` has had ``except NON_RESUMABLE_DB_ERRORS: raise``
+        since #460, but it wraps the callback -- the actual write happens in
+        ``safe_child_table_update``, INSIDE that try and behind its own catch-all. So the
+        guard was dead for exactly the write it names. Revert the helper's guard and this
+        reddens while the direct test still passes.
+        """
+        from verenigingen.utils.chapter_membership_history_manager import (
+            ChapterMembershipHistoryManager,
+        )
+
+        with patch.object(
+            frappe.model.document.Document, "update_child_table", side_effect=_deadlock()
+        ):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                ChapterMembershipHistoryManager._with_doc(
+                    self.member.name, "deadlock composition (#475)", lambda doc: None
+                )
+
     def test_an_ordinary_write_failure_is_still_a_failed_result(self):
         """CONTROL. Returning ``HistoryOperationResult(success=False)`` for ordinary errors is
         what every history caller is written against."""
@@ -308,6 +349,70 @@ class TestSafeChildTableUpdateReportsTheClass(VereningingenTestCase):
             result = update(doc, "payment_history", "control", "Member:write")
 
         self.assertFalse(result.success)
+
+
+class TestSingleSuspensionEndpointsReportTheClass(VereningingenTestCase):
+    """The siblings of boundary 3, in the file boundary 5 edits.
+
+    Found by the skeptical review applying the repo's own rule -- a finding is a class, not
+    an instance. ``suspend_member`` and ``unsuspend_member`` sit two and one functions above
+    ``bulk_suspend_members``, call the same ``*_safe`` helpers #470 made re-raise, and each
+    ended in a bare ``except Exception`` returning ``INTERNAL_ERROR`` over HTTP 200.
+
+    These carry ``@critical_api`` but NOT ``@handle_api_error``, so unlike the bulk endpoint
+    nothing converts the re-raise further up -- which is exactly why the rollback matters
+    here: without it Frappe commits the half-applied suspension at request end.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.member = self.create_test_member()
+        frappe.db.commit()
+        self.addCleanup(frappe.db.commit)
+
+    @staticmethod
+    def _exploding(helper, error):
+        return patch(f"verenigingen.utils.termination_integration.{helper}", side_effect=error)
+
+    def test_a_deadlock_suspending_one_member_is_not_answered_with_a_200(self):
+        from verenigingen.api.suspension_api import suspend_member
+
+        with self._exploding("suspend_member_safe", _deadlock()):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                suspend_member(self.member.name, "reporting boundary (#475)")
+
+    def test_an_ordinary_suspension_failure_is_still_a_structured_result(self):
+        """CONTROL."""
+        from verenigingen.api.suspension_api import suspend_member
+
+        self.expectErrorLog("Suspension API Exception")
+        with self._exploding("suspend_member_safe", Exception("ordinary failure")):
+            result = suspend_member(self.member.name, "control")
+
+        # @critical_api serialises the OperationResult via to_dict(), so what a caller of the
+        # decorated name receives is a NESTED dict, not the object -- the shape #118 was about.
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"]["code"], "INTERNAL_ERROR")
+
+    def test_a_deadlock_unsuspending_one_member_is_not_answered_with_a_200(self):
+        from verenigingen.api.suspension_api import unsuspend_member
+
+        with self._exploding("unsuspend_member_safe", _deadlock()):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                unsuspend_member(self.member.name, "reporting boundary (#475)")
+
+    def test_an_ordinary_unsuspension_failure_is_still_a_structured_result(self):
+        """CONTROL."""
+        from verenigingen.api.suspension_api import unsuspend_member
+
+        self.expectErrorLog("Suspension API Exception")
+        with self._exploding("unsuspend_member_safe", Exception("ordinary failure")):
+            result = unsuspend_member(self.member.name, "control")
+
+        # @critical_api serialises the OperationResult via to_dict(), so what a caller of the
+        # decorated name receives is a NESTED dict, not the object -- the shape #118 was about.
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"]["code"], "INTERNAL_ERROR")
 
 
 class TestBulkSuspensionStopsOnTheClass(VereningingenTestCase):

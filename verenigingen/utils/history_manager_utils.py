@@ -242,6 +242,11 @@ def safe_child_table_update(
                             success=True,
                             message=f"Child table updated after cleanup: {cleanup_result.message}",
                         )
+                    # Defence in depth, NOT tested depth: mutation shows no test binds this
+                    # one. Reaching it needs the first update_child_table to raise a
+                    # link-shaped ValidationError, auto_cleanup on, cleanup to find
+                    # something, and the retry to then deadlock. Said plainly so the guard
+                    # above is not read as covering it.
                     except NON_RESUMABLE_DB_ERRORS:
                         raise
                     except Exception as retry_error:
