@@ -945,5 +945,396 @@ class VereningingenBaseReportsLeaksTest(unittest.TestCase):
         self.assertRegex(buf.getvalue(), rf"TEST-LEAK \S+ Territory::{self.leaked_name}\b")
 
 
+def _base_probe():
+    """A real `VereningingenTestCase` whose `setUp` is never run.
+
+    Same trick as `_probe()` above, for the OTHER base: the drain
+    (`_cleanup_document_with_retry` / `_cancel_if_submitted`) is a method on the
+    real class and reads real class state (`LEDGER_DOCTYPES`), so subclassing gets
+    it honestly, while never calling `setUp` keeps the harness -- and its
+    master-data seeding -- out of these tests. "runTest" is the one methodName
+    `TestCase` accepts without the method existing.
+    """
+    from verenigingen.tests.utils.base import VereningingenTestCase
+
+    class _BaseDrainProbe(VereningingenTestCase):
+        # Deliberately NO test_* methods -- see _DrainProbe above.
+        pass
+
+    return _BaseDrainProbe("runTest")
+
+
+class DrainDoesNotDiscardRowsItHasNotReachedTest(unittest.TestCase):
+    """Cleaning up one tracked document must not destroy the next one.
+
+    `_cleanup_document_with_retry` issued a transaction-wide `frappe.db.rollback()`
+    immediately before EVERY delete, so the first tracked document drained
+    discarded every row the test had not committed -- including the link targets
+    the REMAINING documents still needed. Measured on test_site_1: a Membership
+    Type read `exists=True` at drain entry and `skipped` by the time the drain
+    reached it (#433).
+
+    `EnhancedTestCase`'s two drains already have the right shape --
+    `_drain_tracked_documents` and `_drain_captured_inserts` roll back ONCE before
+    their loop and commit ONCE after it. This one was the odd sibling.
+    """
+
+    def setUp(self):
+        self.created = []
+
+    def tearDown(self):
+        for doctype, name in reversed(self.created):
+            try:
+                frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+
+    def test_draining_one_document_leaves_an_uncommitted_sibling_alone(self):
+        """Both rows are uncommitted on purpose -- that is the whole failure mode.
+
+        A committed row survives any rollback, so a test that commits its fixtures
+        cannot see this defect at all. That is exactly why the module ran green
+        locally while the same code leaked in CI.
+        """
+        bystander = frappe.get_doc(
+            {
+                "doctype": "Territory",
+                "territory_name": f"zzdrain-bystander-{frappe.generate_hash(length=6)}",
+                "parent_territory": "All Territories",
+            }
+        ).insert()
+        target = frappe.get_doc(
+            {
+                "doctype": "Territory",
+                "territory_name": f"zzdrain-target-{frappe.generate_hash(length=6)}",
+                "parent_territory": "All Territories",
+            }
+        ).insert()
+        # NOT committed. The drain's own commit (after a successful delete) is what
+        # persists these, so tearDown has to be able to find them either way.
+        self.created.append(("Territory", bystander.name))
+        self.created.append(("Territory", target.name))
+
+        doc_info = {"doctype": "Territory", "name": target.name, "cleanup_status": None}
+        _base_probe()._cleanup_document_with_retry(doc_info)
+
+        self.assertEqual("success", doc_info["cleanup_status"])
+        self.assertFalse(frappe.db.exists("Territory", target.name))
+        self.assertTrue(
+            frappe.db.exists("Territory", bystander.name),
+            "the drain rolled the whole transaction back before its delete and "
+            "discarded a row the rest of the drain still had to clean up",
+        )
+
+
+class CancelFailureMustNotBecomeALeakTest(unittest.TestCase):
+    """Cancelling is the means; removing the row is the end.
+
+    A submitted document cannot be force-deleted (`delete_doc` runs
+    `check_permission_and_not_submitted` BEFORE its `if not force:` guard), so the
+    drain cancels first. When that cancel raises, the row survived teardown and
+    landed in whatever shard ran next -- the cross-shard contamination the drain
+    exists to prevent (#433).
+
+    The cancel can fail for reasons that have nothing to do with the document
+    being drained. `Membership.on_cancel` pauses the member's dues schedule, and
+    saving that schedule re-validates ITS OWN `membership_type` link -- so a
+    Membership Type that is already gone by teardown makes the cancel raise
+    `LinkValidationError`, exactly as CI reported it:
+
+        Could not cancel Membership MEMB-26-08-0169 before delete:
+          Could not find Membership Type: Test Membership Type XH1L0LOu
+    """
+
+    def setUp(self):
+        self.created = []
+        self.membership_type = None
+
+    def tearDown(self):
+        for doctype, name in reversed(self.created):
+            try:
+                if frappe.db.get_value(doctype, name, "docstatus") == 1:
+                    frappe.db.set_value(doctype, name, "docstatus", 2, update_modified=False)
+                frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+
+    def _submitted_membership(self):
+        """A real, committed, submitted Membership with a dues schedule behind it."""
+        suffix = frappe.generate_hash(length=8)
+
+        membership_type = frappe.get_doc(
+            {
+                "doctype": "Membership Type",
+                "membership_type_name": f"zzleak Type {suffix}",
+                "amount": 100,
+                "currency": "EUR",
+            }
+        ).insert()
+        self.created.append(("Membership Type", membership_type.name))
+        self.membership_type = membership_type.name
+
+        member = frappe.get_doc(
+            {
+                "doctype": "Member",
+                "first_name": "Zzleak",
+                "last_name": "Drain",
+                "email": f"zzleak.{suffix}@example.com",
+                "contact_number": "+31612345678",
+                "payment_method": "Bank Transfer",
+                "status": "Active",
+            }
+        ).insert()
+        self.created.append(("Member", member.name))
+
+        membership = frappe.get_doc(
+            {
+                "doctype": "Membership",
+                "member": member.name,
+                "membership_type": membership_type.name,
+                "start_date": frappe.utils.add_days(frappe.utils.today(), -180),
+                "renewal_date": frappe.utils.add_days(frappe.utils.today(), 185),
+                "status": "Active",
+            }
+        )
+        membership.insert()
+        membership.submit()
+        self.created.append(("Membership", membership.name))
+        frappe.db.commit()
+        return membership.name
+
+    def _delete_the_membership_type_row(self):
+        """Remove the link target the way teardown does: the row simply stops existing.
+
+        Raw row delete rather than `delete_doc`, because `delete_doc` refuses while
+        a submitted Membership links to it -- and the state under test is precisely
+        the one where it is gone anyway. The document cache has to be cleared too,
+        or `frappe.get_doc` keeps handing back the deleted doc and the cancel
+        succeeds for the wrong reason.
+        """
+        frappe.db.delete("Membership Type", {"name": self.membership_type})
+        frappe.clear_document_cache("Membership Type", self.membership_type)
+        frappe.db.commit()
+
+    def test_the_control_a_cancellable_membership_is_removed(self):
+        """Without this, a green run above could mean "the fixture never submitted"."""
+        name = self._submitted_membership()
+        self.assertEqual(1, frappe.db.get_value("Membership", name, "docstatus"))
+
+        doc_info = {"doctype": "Membership", "name": name, "cleanup_status": None}
+        _base_probe()._cleanup_document_with_retry(doc_info)
+
+        self.assertEqual("success", doc_info["cleanup_status"])
+        self.assertFalse(frappe.db.exists("Membership", name))
+
+    def test_a_submitted_row_whose_cancel_raises_is_still_removed(self):
+        name = self._submitted_membership()
+        self._delete_the_membership_type_row()
+
+        doc_info = {"doctype": "Membership", "name": name, "cleanup_status": None}
+        _base_probe()._cleanup_document_with_retry(doc_info)
+
+        self.assertEqual(
+            "success",
+            doc_info["cleanup_status"],
+            f"cleanup reported {doc_info['cleanup_status']}: {doc_info.get('cleanup_error')}",
+        )
+        self.assertFalse(
+            frappe.db.exists("Membership", name),
+            "a submitted row the drain could not cancel survived teardown and will "
+            "contaminate whatever shard runs next",
+        )
+
+    def test_a_ledger_bearing_voucher_is_still_left_submitted(self):
+        """The carve-out the force-delete must NOT widen into.
+
+        Cancelling a voucher that has posted does not remove its GL/Payment Ledger
+        rows -- it WRITES reversals -- and `delete_doc` does not take them with the
+        parent, so forcing one of those through would turn an honestly-reported
+        leak into orphaned ledger rows pointing at a `voucher_no` that no longer
+        exists (#328). `_has_ledger_rows` is stubbed rather than posting a real
+        voucher: the branch under test is the guard, not the accounting.
+        """
+        name = self._submitted_membership()
+        self._delete_the_membership_type_row()
+
+        probe = _base_probe()
+        probe._has_ledger_rows = lambda doctype, docname: True
+
+        doc_info = {"doctype": "Membership", "name": name, "cleanup_status": None}
+        probe._cleanup_document_with_retry(doc_info)
+
+        self.assertEqual("failed", doc_info["cleanup_status"])
+        self.assertEqual(1, frappe.db.get_value("Membership", name, "docstatus"))
+
+
+class CustomerCleanupMustNotStrandLedgerRowsTest(unittest.TestCase):
+    """A posted invoice force-deleted out from under its GL rows is worse than a leak.
+
+    `_cleanup_member_customers` -> `_cleanup_customer_dependencies` forces
+    `docstatus = 2` on every Sales Invoice / Payment Entry belonging to a tracked
+    Member's Customer and force-deletes it. `delete_doc` does NOT take the
+    voucher's GL / Payment Ledger rows with it unless
+    `Accounts Settings.delete_linked_ledger_entries` is on, and 0 is that field's
+    doctype default (measured 0 here). `revert_series_if_last` then rewinds the
+    naming series, so the NEXT invoice issued that name is born already linked to
+    the leftovers (#328) -- measured worker-free, one reused ACC-SINV name
+    carrying 2, then 4, then 6 GL Entry rows over three consecutive runs.
+
+    **An orphan count is the wrong instrument for this** and reads 0 either way:
+    once the name is reused the rows have a live parent again. This asserts on the
+    specific voucher instead.
+
+    Everything here is COMMITTED on purpose: that is the only state in which the
+    delete survives the rollback that follows it in `tearDown`.
+    """
+
+    def setUp(self):
+        self.created = []
+        self.vouchers = []
+
+    def tearDown(self):
+        for doctype, name in reversed(self.created):
+            try:
+                if frappe.db.get_value(doctype, name, "docstatus") == 1:
+                    frappe.db.set_value(doctype, name, "docstatus", 2, update_modified=False)
+                    frappe.clear_document_cache(doctype, name)
+                frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        # The rows delete_doc will not take with it, whichever way this test went.
+        for voucher in self.vouchers:
+            for ledger in ("GL Entry", "Payment Ledger Entry"):
+                try:
+                    frappe.db.delete(ledger, {"voucher_no": voucher})
+                except Exception:
+                    pass
+        frappe.db.commit()
+
+    def test_a_posted_invoice_is_not_deleted_out_from_under_its_gl_rows(self):
+        probe = _base_probe()
+        probe._test_docs = []
+
+        suffix = frappe.generate_hash(length=8)
+        member = frappe.get_doc(
+            {
+                "doctype": "Member",
+                "first_name": "Zzstrand",
+                "last_name": suffix,
+                "email": f"zzstrand.{suffix}@example.com",
+                "contact_number": "+31612345678",
+                "payment_method": "Bank Transfer",
+                "status": "Active",
+            }
+        ).insert()
+        self.created.append(("Member", member.name))
+
+        invoice = probe.create_test_sales_invoice(member=member.name)
+        invoice.submit()
+        frappe.db.commit()
+        self.created.append(("Sales Invoice", invoice.name))
+        self.vouchers.append(invoice.name)
+
+        gl_before = frappe.db.count(
+            "GL Entry", {"voucher_type": "Sales Invoice", "voucher_no": invoice.name}
+        )
+        self.assertGreater(gl_before, 0, "fixture did not post: nothing to strand, nothing to prove")
+
+        # The method under test finds the customer through the TRACKED Member.
+        probe._test_docs = [{"doctype": "Member", "name": member.name, "cleanup_status": None}]
+        probe._cleanup_member_customers()
+
+        gl_after = frappe.db.count(
+            "GL Entry", {"voucher_type": "Sales Invoice", "voucher_no": invoice.name}
+        )
+        self.assertFalse(
+            gl_after and not frappe.db.exists("Sales Invoice", invoice.name),
+            f"the invoice is gone and {gl_after} GL Entry row(s) still name it -- the series "
+            "will rewind and hand that name to the next invoice, which is then born owning "
+            "rows it never posted (#328)",
+        )
+        # The intended outcome, not merely the absence of the bad one: the voucher
+        # and its rows go together. Leaving the voucher instead would be a leak
+        # nothing here tracks, which is why this cleanup finishes the delete.
+        self.assertFalse(frappe.db.exists("Sales Invoice", invoice.name))
+        self.assertEqual(0, gl_after)
+
+
+class ClassFixturesSurviveTheDrainRollbackTest(unittest.TestCase):
+    """A test's teardown may discard the TEST's rows. Not the CLASS's.
+
+    `setUpClass` fixtures are routinely left uncommitted -- `FrappeTestCase`'s only
+    rollback is one `addClassCleanup(_rollback_db)`, so they are cleaned up at the
+    end of the class and nothing before that is supposed to touch them.
+
+    The drain's transaction-wide rollback is reached only when a tracked document
+    still exists, which is why a class whose tests track nothing has always been
+    safe. Making that rollback unconditional -- an easy thing to do while moving
+    it out of the per-document loop -- kills those fixtures after the FIRST test
+    and every later test in the class dies on `_validate_links`. Measured in CI:
+    6 of 12 shards red exactly that way, e.g.
+
+        Could not find Chapter: Test Chapter 1 - 68755102
+
+    So this pins the CONDITION, not the placement. It is the #330 failure mode and
+    it is one line away at all times.
+    """
+
+    def setUp(self):
+        self.seen = []
+        self.fixture = None
+
+    def tearDown(self):
+        if self.fixture:
+            try:
+                frappe.delete_doc("Territory", self.fixture, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+
+    def test_an_uncommitted_setupclass_fixture_outlives_the_first_teardown(self):
+        from verenigingen.tests.utils.base import VereningingenTestCase
+
+        outer = self
+
+        # Defined INSIDE the method: unittest collects TestCase subclasses by type,
+        # so a module-level class with test_* methods would be run by the loader
+        # as well as by this test.
+        class _TwoTestsSharingAClassFixture(VereningingenTestCase):
+            @classmethod
+            def setUpClass(cls):
+                super().setUpClass()
+                # Deliberately NOT committed -- that is the state under test, and
+                # the state most setUpClass fixtures in this app are in.
+                cls.fixture = frappe.get_doc(
+                    {
+                        "doctype": "Territory",
+                        "territory_name": f"zzclassfix-{frappe.generate_hash(length=6)}",
+                        "parent_territory": "All Territories",
+                    }
+                ).insert().name
+                outer.fixture = cls.fixture
+
+            def test_a_first(self):
+                # Tracks nothing, like the six classes CI went red on.
+                outer.seen.append(bool(frappe.db.exists("Territory", self.fixture)))
+
+            def test_b_second(self):
+                outer.seen.append(bool(frappe.db.exists("Territory", self.fixture)))
+
+        result = unittest.TestResult()
+        unittest.TestLoader().loadTestsFromTestCase(_TwoTestsSharingAClassFixture).run(result)
+
+        self.assertEqual([], result.errors + result.failures)
+        self.assertEqual(
+            [True, True],
+            outer.seen,
+            "a teardown discarded a fixture its setUpClass owns; every test after the "
+            "first in that class now fails link validation on it",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
