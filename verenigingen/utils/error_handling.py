@@ -478,6 +478,12 @@ def handle_api_error(func: Callable) -> Callable:
     Note:
         This decorator returns OperationResult objects, which can be converted
         to dict via .to_dict() by the standard_api decorator or similar wrappers.
+
+        The ONE exception is a non-resumable DB error (MariaDB 1205/1213): those roll
+        back and propagate instead of becoming a return value, because a caller cannot
+        retry what it cannot distinguish and the alternative is Frappe committing
+        half-applied work at request end (#481). Callers that treat every failure as a
+        returned OperationResult must handle the raise.
     """
     from verenigingen.utils.operation_result import OperationResult
 
