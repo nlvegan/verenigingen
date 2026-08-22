@@ -24,6 +24,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, getdate, today
 
+from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.verenigingen_payments.services.sepa_xml_adapter import (
     BatchValidationSummary,
     SEPAXMLAdapter,
@@ -301,7 +302,10 @@ class TestSEPAXMLAdapterIntegration(FrappeTestCase):
             settings.save()
             frappe.db.commit()
         except Exception as e:
-            frappe.logger().warning(f"SEPA test configuration setup failed: {str(e)}")
+            # get_harness_logger, NOT frappe.logger(): the settings written here are
+            # what the assertions below depend on; a bare logger sends the reason to
+            # logs/frappe.log, which CI does not upload.
+            get_harness_logger("sepa-xml-adapter").warning("SEPA test configuration setup failed: %s", e)
 
     def test_prefetch_mandate_data(self):
         """Test bulk prefetching of mandate data"""

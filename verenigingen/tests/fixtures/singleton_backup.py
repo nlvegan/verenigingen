@@ -147,19 +147,21 @@ class SingletonBackup:
 
             self._password_backups[doctype_name] = password_values
 
-            frappe.logger().debug(
-                f"SingletonBackup: Backed up {doctype_name} "
+            get_harness_logger("singleton-backup").debug(
+                f"Backed up {doctype_name} "
                 f"({len(field_values)} fields, {len(password_values)} passwords)"
             )
 
         except Exception as e:
-            frappe.logger().warning(f"SingletonBackup: Failed to backup {doctype_name}: {e}")
+            get_harness_logger("singleton-backup").warning(
+                "Failed to backup %s: %s", doctype_name, e
+            )
 
     def _restore_singleton(self, doctype_name: str) -> None:
         """Restore a single singleton DocType."""
         if doctype_name not in self._backups:
-            frappe.logger().warning(
-                f"SingletonBackup: No backup found for {doctype_name}, skipping restore"
+            get_harness_logger("singleton-backup").warning(
+                "No backup found for %s, skipping restore", doctype_name
             )
             return
 
@@ -187,15 +189,17 @@ class SingletonBackup:
                         fieldname=fieldname,
                     )
                 except Exception as e:
-                    frappe.logger().warning(
-                        f"SingletonBackup: Failed to restore password field "
-                        f"{doctype_name}.{fieldname}: {e}"
+                    get_harness_logger("singleton-backup").warning(
+                        "Failed to restore password field %s.%s: %s",
+                        doctype_name,
+                        fieldname,
+                        e,
                     )
 
             frappe.db.commit()
 
-            frappe.logger().debug(
-                f"SingletonBackup: Restored {doctype_name} "
+            get_harness_logger("singleton-backup").debug(
+                f"Restored {doctype_name} "
                 f"({len(field_values)} fields, {len(password_values)} passwords)"
             )
 

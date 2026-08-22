@@ -37,12 +37,33 @@ from verenigingen.tests.harness_logger import (
 )
 
 # The harness files whose swallowed setup failures started #291/#309. Others in
-# `tests/` log for their own debugging; these log about master data every other
-# test depends on.
+# `tests/` log for their own debugging; these log about a failure OTHER tests
+# depend on -- missing master data, a leaked row, a mutated Single, a guard that
+# stopped guarding. That is the entry test: cross-test consequence, not "this
+# file happens to be clean". A module whose swallowed failure only makes its own
+# assertions vacuous stays off the list; #490 tracks those separately.
+#
+# Add a file here only once it has ZERO bare `frappe.logger()` calls, or this
+# test fails on it immediately.
 HARNESS_FILES = (
     "verenigingen/tests/fixtures/enhanced_test_factory.py",
     "verenigingen/tests/setup/__init__.py",
     "verenigingen/tests/utils/__init__.py",
+    # A Single restored wrongly carries one test's value into every later test in
+    # the shard, and said so nowhere (#433, fixed in #486).
+    "verenigingen/tests/fixtures/singleton_backup.py",
+    # The guard every test's tearDown runs through. If its capture breaks it stops
+    # reporting Error Log rows for the whole suite (#433, fixed in #486).
+    "verenigingen/tests/utils/error_log_guard.py",
+    # A builder cleanup failure leaves submitted rows behind that redden LATER
+    # tests in the same shard -- the #433 leak itself (fixed in #486).
+    "verenigingen/tests/backend/unit/controllers/test_member_controller.py",
+    # A leaked customer/mandate on the SHARED Mollie test account outlives the
+    # run and affects every later run against it (fixed in #486).
+    "verenigingen/verenigingen_payments/mollie/tests/test_recurring_charge_live.py",
+    # Fixture rows this suite fails to delete stay resident on the site and break
+    # later tests, exactly as in #330.
+    "verenigingen/tests/payment/test_sepa_race_condition_manager.py",
 )
 
 

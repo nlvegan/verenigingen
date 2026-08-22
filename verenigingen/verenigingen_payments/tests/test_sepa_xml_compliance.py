@@ -28,6 +28,7 @@ from typing import Any, Dict, Optional
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.verenigingen_payments.services.sepa_configuration_service import sepa_config_service
 from verenigingen.verenigingen_payments.services.sepa_xml_generation_service import sepa_xml_service
 from verenigingen.verenigingen_payments.utils.sepa_utilities import SEPAUtilities, SEPAXMLValidator
@@ -65,7 +66,9 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
             frappe.db.commit()
 
         except Exception as e:
-            frappe.logger().warning(f"SEPA test configuration setup failed: {str(e)}")
+            # get_harness_logger, NOT frappe.logger(): the settings written here are
+            # what every test in this class depends on.
+            get_harness_logger("sepa-xml-compliance").warning("SEPA test configuration setup failed: %s", e)
 
     def setUp(self):
         """Set up each test with fresh batch data"""
@@ -633,7 +636,10 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
                 )
             return None
         except Exception as e:
-            frappe.logger().warning(f"Could not extract XML content: {str(e)}")
+            # get_harness_logger, NOT frappe.logger(): returning None here closes the
+            # `if xml_content:` gate in nine test methods, so this message is the only
+            # record that those tests asserted nothing.
+            get_harness_logger("sepa-xml-compliance").warning("Could not extract XML content: %s", e)
             return None
 
     def _validate_pain_008_structure(self, xml_content: str):

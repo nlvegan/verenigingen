@@ -25,6 +25,7 @@ import frappe
 from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.harness_logger import get_harness_logger
 
 # Import API methods to test
 from verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch import (
@@ -55,7 +56,10 @@ class TestDirectDebitBatchAPIRegression(EnhancedTestCase):
                 settings.save()
 
         except Exception as e:
-            frappe.logger().warning(f"Test environment setup warning: {str(e)}")
+            # get_harness_logger, NOT frappe.logger(): a failed environment setup is
+            # the #291/#309 failure mode -- every later assertion runs against master
+            # data that was never created, and the reason went to logs/frappe.log.
+            get_harness_logger("api-regression").warning("Test environment setup failed: %s", e)
 
     def setUp(self):
         """Set up each test with fresh data"""

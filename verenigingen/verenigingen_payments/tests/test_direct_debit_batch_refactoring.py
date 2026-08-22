@@ -29,6 +29,7 @@ from frappe.utils import nowdate, nowtime, random_string, today
 
 # Import the Enhanced Test Factory
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.verenigingen_payments.services.batch_processing_service import batch_processing_service
 from verenigingen.verenigingen_payments.services.batch_validation_service import batch_validation_service
 
@@ -90,7 +91,10 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
             frappe.clear_document_cache("Verenigingen Settings", "Verenigingen Settings")
 
         except Exception as e:
-            frappe.logger().warning(f"Could not set up SEPA configuration: {str(e)}")
+            # get_harness_logger, NOT frappe.logger(): every test in this class runs
+            # against the SEPA configuration this sets up, so a silent failure here
+            # is what makes the rest of the file pass vacuously.
+            get_harness_logger("ddb-refactoring").warning("Could not set up SEPA configuration: %s", e)
 
     def setUp(self):
         """Set up each test with fresh data"""

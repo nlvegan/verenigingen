@@ -21,6 +21,7 @@ import string
 import frappe
 
 from verenigingen.setup import webhook_user_setup as w
+from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 SETTINGS_DOCTYPE = "Verenigingen Payments Settings"
@@ -100,7 +101,12 @@ class TestWebhookUserSetup(VereningingenTestCase):
         # The comment above notes this suite has been pointed at the live site before.
         site = getattr(frappe.local, "site", "") or ""
         if not (site.startswith("test_site") or site.endswith(".localhost") or frappe.conf.get("developer_mode")):
-            frappe.logger().warning(f"Refusing to sweep webhook users on non-test site {site!r}")
+            # get_harness_logger, NOT frappe.logger(): this is the only record that
+            # the sweep was skipped entirely, and a bare logger drops .warning() on
+            # level under bench run-tests.
+            get_harness_logger("webhook-user-setup").warning(
+                "Refusing to sweep webhook users on non-test site %r", site
+            )
             return
         for email in frappe.get_all("User", filters={"email": ["like", "webhook-user%"]}, pluck="name"):
             cls._delete_webhook_user(email)
