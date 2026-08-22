@@ -23,7 +23,7 @@ before this PR touched it.
 |---|---|---|
 | #467 | handoff 2026-08-22b | merged |
 | #456 | `Donation.payment_id` unique index | **closed** — fix already existed; veg11 migrated |
-| #458 | the ratchet blocks clone families, not name collisions | pushed, awaiting merge |
+| #458 | the ratchet blocks clone families, not name collisions | **merged** `1dfcb224` |
 
 **veg11 was migrated** (not redeployed — see below).
 
@@ -233,7 +233,7 @@ blocks**. The previous handoff described `30b3429d`, the #424 lock fix, as hard-
 `_drop` does not. That commit is half-unblocked, not unblocked. The headline rate change is
 real but narrower in practice than it reads.
 
-## develop moved twice underneath this PR
+## develop moved three times underneath this PR
 
 CI tests the **merged** tree; a local worktree tests the branch. Two separate red runs came
 from that gap alone, neither reproducible locally until develop was merged in:
@@ -241,6 +241,9 @@ from that gap alone, neither reproducible locally until develop was merged in:
 1. #438's `test_history_manager_row_lock.py` added a third `_drop`.
 2. #468 (`fix/459-lock-order-canonical`) landed `test_history_lock_order.py` mid-CI-run,
    adding `_row` (5th copy) and `_seat_on_board` (2nd).
+3. #471, a docs handoff — which mattered only because it proved the point: it changed
+   **nothing** under `verenigingen/`, and CI still disagreed. That is what ruled tree
+   drift out and sent the search to the comparison itself.
 
 The second is worth reading closely, because the ratchet **passed** on it — both names are
 collisions and were reported without blocking, which is the change working exactly as
@@ -271,7 +274,12 @@ be.
   was authorised, the redeploy was not. `bench migrate` and `git checkout` are separate
   decisions and this session only took the first. Re-check the gap before asserting
   anything about what veg11 serves — it drifts on its own.
-- **#458's residual friction is undecided** (the *Baseline is in sync* chore above).
+- **#458's residual friction is undecided** (the *Baseline is in sync* chore above). It is
+  now merged, so this is a follow-up question, not a blocker.
+- **The other two ratchets share the walk but not the comparison.** `error_swallow_validator`
+  and `test_quality_enforcer` use the same `PRUNE_DIRS` walk; neither does pairwise
+  similarity, so neither has the asymmetry bug — but nobody has checked whether their
+  output order affects their baselines. Worth ten minutes.
 - **The most faithful rule was measured and not implemented:** fail only when a copy in a
   **changed** file is near-identical to a pre-existing one — 36.4%, and that understates it
   because the replay only considered newly *added* files. It needs the validator to consult
