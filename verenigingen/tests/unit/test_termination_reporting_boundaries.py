@@ -40,16 +40,10 @@ from unittest.mock import patch
 import frappe
 from frappe.utils import today
 
+from verenigingen.tests.support.non_resumable_errors import deadlock as _deadlock
+from verenigingen.tests.support.non_resumable_errors import lock_wait_timeout as _timeout
 from verenigingen.tests.support.termination_request import create_termination_request
 from verenigingen.tests.utils.base import VereningingenTestCase
-
-
-def _deadlock():
-    return frappe.QueryDeadlockError("Deadlock found when trying to get lock; try restarting transaction")
-
-
-def _timeout():
-    return frappe.QueryTimeoutError("Lock wait timeout exceeded; try restarting transaction")
 
 
 class TestTerminationExecutionServiceReportsTheClass(VereningingenTestCase):

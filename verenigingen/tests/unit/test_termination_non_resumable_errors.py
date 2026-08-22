@@ -37,6 +37,7 @@ from unittest.mock import patch
 import frappe
 from frappe.utils import today
 
+from verenigingen.tests.support.non_resumable_errors import deadlock as _deadlock
 from verenigingen.tests.support.termination_request import create_termination_request
 from verenigingen.tests.utils.base import VereningingenTestCase
 
@@ -51,10 +52,6 @@ TERMINATION_PACKAGE = pathlib.Path(__file__).resolve().parents[2] / "services" /
 # *after* the failure -- error recovery and savepoint cleanup, where re-raising would
 # replace the original error with a secondary one. Those sites carry this marker.
 EXEMPTION_MARKER = "non-resumable-ok:"
-
-
-def _deadlock():
-    return frappe.QueryDeadlockError("Deadlock found when trying to get lock; try restarting transaction")
 
 
 class TestTerminationAbandonsOnNonResumableError(VereningingenTestCase):
