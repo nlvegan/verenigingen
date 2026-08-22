@@ -37,6 +37,7 @@ from unittest.mock import patch
 import frappe
 from frappe.utils import today
 
+from verenigingen.tests.support.termination_request import create_termination_request
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 # What `update_member_status_safe`'s status_mapping gives a Voluntary termination. Asserting
@@ -81,24 +82,7 @@ class TestTerminationAbandonsOnNonResumableError(VereningingenTestCase):
         frappe.db.commit()
         self.addCleanup(frappe.db.commit)
 
-        self.request = self._termination_request()
-
-    def _termination_request(self):
-        request = frappe.get_doc(
-            {
-                "doctype": "Membership Termination Request",
-                "member": self.member.name,
-                "termination_type": "Voluntary",
-                "termination_reason": "non-resumable swallow (#470)",
-                "member_request_date": today(),
-                "termination_date": today(),
-                "end_board_positions": 1,
-            }
-        )
-        request.insert()
-        self.track_doc("Membership Termination Request", request.name)
-        frappe.db.commit()
-        return request
+        self.request = create_termination_request(self, self.member.name, "non-resumable swallow (#470)")
 
     def _exploding_chapter_save(self, error):
         """Patch the Chapter save the termination helpers make.

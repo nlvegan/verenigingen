@@ -74,6 +74,7 @@ from unittest.mock import patch
 import frappe
 from frappe.utils import today
 
+from verenigingen.tests.support.termination_request import create_termination_request
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 # Lower rank must be acquired first. Doctypes absent here take no history-manager lock.
@@ -309,7 +310,7 @@ class TestHistoryLockOrder(VereningingenTestCase):
         doc.save()
         frappe.db.commit()
 
-        request = self._termination_request(f.board_member.name)
+        request = create_termination_request(self, f.board_member.name, "lock order (#459)")
 
         with ParentLockRecorder() as recorder:
             TerminationExecutionService().execute_system_updates(request)
@@ -319,23 +320,6 @@ class TestHistoryLockOrder(VereningingenTestCase):
         self.assertIn("Member", recorder.doctypes, f"no Member lock taken: {recorder.locks}")
         self.assertIn("Volunteer", recorder.doctypes, f"no Volunteer lock taken: {recorder.locks}")
         self._assert_canonical(recorder, "the real termination operation list")
-
-    def _termination_request(self, member_name):
-        request = frappe.get_doc(
-            {
-                "doctype": "Membership Termination Request",
-                "member": member_name,
-                "termination_type": "Voluntary",
-                "termination_reason": "lock order (#459)",
-                "member_request_date": today(),
-                "termination_date": today(),
-                "end_board_positions": 1,
-            }
-        )
-        request.insert()
-        self.track_doc("Membership Termination Request", request.name)
-        frappe.db.commit()
-        return request
 
     def test_a_termination_with_no_chapter_membership_still_locks_member_first(self):
         """Where the ordering is decided by data, not by the operation list.
@@ -379,7 +363,7 @@ class TestHistoryLockOrder(VereningingenTestCase):
             "Member lock and this test cannot see the inversion",
         )
 
-        request = self._termination_request(f.board_member.name)
+        request = create_termination_request(self, f.board_member.name, "lock order (#459)")
 
         with ParentLockRecorder() as recorder:
             TerminationExecutionService().execute_system_updates(request)
