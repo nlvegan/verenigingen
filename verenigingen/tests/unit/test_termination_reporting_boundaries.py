@@ -210,6 +210,27 @@ class TestMijnRoodSyncReportsTheClass(VereningingenTestCase):
             with self.assertRaises(frappe.QueryDeadlockError):
                 self.service._check_and_handle_termination(event, {}, {"id": 1}, changed)
 
+    def test_the_class_survives_the_service_so_mijnrood_can_see_it(self):
+        """The composition, through BOTH real frames -- the point of landing them together.
+
+        The two tests above patch ``TerminationExecutionService.execute`` itself, so they
+        pin this frame's handler while saying nothing about whether a real 1213 ever
+        arrives here as itself. It does not, unless boundary 1 is also fixed: the service's
+        ``_handle_error`` ends in ``frappe.throw``. So this drives the genuine service --
+        exploding inside ``execute_system_updates``, below its handler -- and asserts the
+        class is still a deadlock two frames later. Revert either fix alone and this reddens.
+        """
+        from verenigingen.services.termination.termination_execution_service import (
+            TerminationExecutionService,
+        )
+
+        event, changed, _unused = self._handle_over(_deadlock())
+        with patch.object(
+            TerminationExecutionService, "execute_system_updates", side_effect=_deadlock()
+        ):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                self.service._check_and_handle_termination(event, {}, {"id": 1}, changed)
+
     def test_an_ordinary_execution_failure_is_still_reported_as_a_result_dict(self):
         """CONTROL. A failed execution that is not a DB error must still leave the created
         request recorded and let the dispatcher mark the event -- that is the whole reason
