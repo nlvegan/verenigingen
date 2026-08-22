@@ -100,10 +100,11 @@ class TestFinancialReconciliationComprehensive(VereningingenTestCase):
         EUR test company so the invoices below validate.
         """
         # These tests do not exercise SEPA currency validation (all SEPA batch
-        # logic is mocked), so any company with a current Fiscal Year + a usable
-        # chart of accounts works. The ERPNext default "_Test Company" has a
-        # current Fiscal Year on the test site; fall back to any company that does.
-        self.test_company, _ = self._get_company_with_current_fy()
+        # logic is mocked), so any company with a usable chart of accounts works --
+        # but it must be one this class OWNS. "Fall back to any company that has a
+        # current Fiscal Year" is what this used to do, and it is why the module
+        # died in setUp on trunk (#431).
+        self.test_company, income_account = self._owned_company_and_income_account()
 
         def acct(account_type):
             return frappe.db.get_value(
@@ -112,7 +113,13 @@ class TestFinancialReconciliationComprehensive(VereningingenTestCase):
                 "name",
             )
 
-        income_account = acct("Income Account")
+        # `membership_revenue` deliberately does NOT go through `acct()`. It is the
+        # one entry here that reaches a real Sales Invoice item (see
+        # `_make_invoice_for`), and `acct("Income Account")` is exactly the filter
+        # this module's helper was deleted for: on a site where nothing has planted
+        # an `account_type = "Income Account"` row it returns None, and erpnext then
+        # silently substitutes the company default. The others are read only by
+        # mocked assertions.
         self.accounts = {
             "membership_revenue": income_account,
             "accounts_receivable": acct("Receivable"),
@@ -122,30 +129,6 @@ class TestFinancialReconciliationComprehensive(VereningingenTestCase):
             "refund_liability": "Refund Liability",
             "bad_debt_expense": "Bad Debt Expense",
         }
-
-    def _get_company_with_current_fy(self):
-        """Return (company, income_account) for a company with a current Fiscal Year.
-
-        Returns a tuple to match the identically-named helper in
-        test_membership_status.py and test_chapter_assignment_comprehensive.py
-        (avoids a same-name/different-return-type trap across the suite).
-        """
-        from erpnext.accounts.utils import get_fiscal_year
-
-        candidates = ["_Test Company"] + frappe.get_all("Company", pluck="name")
-        for company in candidates:
-            try:
-                get_fiscal_year(date=today(), company=company, as_dict=True)
-            except Exception:
-                continue
-            income = frappe.db.get_value(
-                "Account",
-                {"account_type": "Income Account", "company": company, "is_group": 0},
-                "name",
-            )
-            if income:
-                return company, income
-        raise RuntimeError("No company with a current Fiscal Year and Income Account found")
 
     def _ensure_membership_item(self):
         """Get-or-create a non-stock Item usable for membership invoices."""

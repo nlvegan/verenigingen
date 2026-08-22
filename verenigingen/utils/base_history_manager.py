@@ -6,6 +6,7 @@
 from typing import Callable, Optional
 
 import frappe
+from frappe.exceptions import QueryDeadlockError, QueryTimeoutError
 from frappe.model.document import Document
 
 from verenigingen.utils.history_manager_utils import (
@@ -58,6 +59,36 @@ class BaseHistoryManager:
                     errors=[f"{cls.PARENT_DOCTYPE} {doc_name} not found"],
                 )
 
+            # Lock the parent row BEFORE loading it, because everything below is a
+            # read-modify-write: the callback mutates the child table on this
+            # in-memory copy and safe_child_table_update writes it back. Without the
+            # lock two writers both read, both compute, and the second write wins --
+            # and update_child_table does not touch the parent row, so nothing else
+            # in this path takes that lock on our behalf.
+            #
+            # donor_history is why this is not theoretical: MemberFinancialHistoryManager
+            # locks the Donor row (#424) while DonationHistoryManager took nothing, and
+            # an unlocked writer does not queue behind a locked one. #436.
+            #
+            # PARENT_DOCTYPE is Donor / Member / Volunteer for the three subclasses --
+            # none of them Single, all series-named -- so neither of get_value's two
+            # silently-lockless shapes (a Single, or a name equal to its doctype)
+            # applies here.
+            #
+            # CANONICAL LOCK ORDER: Donor -> Member -> Volunteer.
+            # A caller that ends up taking two of these three in one transaction MUST
+            # take them in that order, or it deadlocks against a caller that takes them
+            # the other way round. It is alphabetical purely so that it is memorable.
+            #
+            # Three paths take more than one kind: Chapter._handle_document_changes,
+            # TerminationExecutionService.execute_system_updates, and
+            # api.termination_api.execute_safe_termination. All three are pinned by
+            # tests/unit/test_history_lock_order.py, which measures the acquisitions
+            # rather than reading them; that module's docstring also records how the
+            # list of three was derived, and why no static search of this can be
+            # exhaustive. Add a path there before adding one here.
+            frappe.db.get_value(cls.PARENT_DOCTYPE, doc_name, "name", for_update=True)
+
             doc = frappe.get_doc(cls.PARENT_DOCTYPE, doc_name)
 
             with recursion_guard(doc, cls.RECURSION_FLAG) as should_proceed:
@@ -94,6 +125,27 @@ class BaseHistoryManager:
                     )
 
                 return save_result
+
+        except (QueryDeadlockError, QueryTimeoutError):
+            # Contention on the lock above is NOT an ordinary "history update failed".
+            # Before that lock existed this branch was unreachable, and the handler
+            # below would fold it into HistoryOperationResult(success=False) -- which
+            # the five call sites in chapter/managers/member_manager.py discard
+            # entirely, so a Chapter save would commit the membership change with no
+            # history row and report nothing.
+            #
+            # 1213 (deadlock) has already rolled the transaction back, so carrying on
+            # would let every later iteration "succeed" against a discarded
+            # transaction -- the shape bulk_invoice_generation_service documents at
+            # its own commit. 1205 (lock wait) does not roll back, but the write did
+            # not happen, and the caller is the only frame that can decide whether to
+            # retry or abort. Let both reach it.
+            #
+            # Imported by name rather than reached through `frappe.`: an except clause
+            # that resolves its classes through a patchable namespace raises
+            # "catching classes that do not inherit from BaseException" under any test
+            # that mocks frappe -- test_base_history_manager.py does exactly that.
+            raise
 
         except Exception as e:
             log_history_error(

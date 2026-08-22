@@ -750,20 +750,97 @@ class UnifiedWebhookWrapperService:
             # Step 4: Update donation status and metadata
             self._update_donation_status(donation, payment_data)
 
-            # Step 5: Update donation payment history (atomic)
-            self._update_donation_payment_history_atomic(donation, payment_data, journal_entry_name)
+            # Steps 5-7: the three financial-history tables.
+            #
+            # Their results are collected rather than discarded. Each of these
+            # returns False -- it does not raise -- for a builder that returns None
+            # or raises, a TimestampMismatchError surviving five attempts, an
+            # `update_child_table` that fails three retries, and anything caught by
+            # the manager's outer `except Exception`. Discarding that answered 200
+            # to Mollie, so the delivery was never retried (#449).
+            #
+            # How much is lost depends on the table, and is smaller than it looks
+            # for one of them. `donor_history` has THREE writers: Donation's
+            # `after_insert` and `on_update` doc events both call
+            # DonationHistoryManager, and `on_update` fires from the `donation.save()`
+            # in _update_donation_status just above -- so on the measured
+            # first-payment path the row is already present and already correct, and
+            # this write adds only Mollie's paid_at date. It is NOT the sole writer,
+            # and an earlier version of this comment wrongly said the entry was lost
+            # permanently. Where it IS the only writer is the case where that save
+            # itself failed, which _update_donation_status silently swallows.
+            #
+            # Asking Mollie to re-deliver is safe here: the money-side steps are
+            # each individually idempotent on the payment id
+            # (`bank_transaction_creator._check_existing_by_reference` and the
+            # donation Journal Entry creator's own idempotency check), so a retry
+            # cannot double-book even though the top-level `is_fully_processed()`
+            # gate is broken for donations (#344) and every re-delivery therefore
+            # lands back on this path.
+            #
+            # All three answer True when there is nothing to do -- no donor, no
+            # member, an entry already present -- so False here means a real failure.
+            history_failures = []
 
-            # Step 6: Update Donor record (subscription IDs, donor_history)
-            self._update_donor_record(donation, payment_data)
+            if not self._update_donation_payment_history_atomic(donation, payment_data, journal_entry_name):
+                history_failures.append("donation payment history")
 
-            # Step 7: Update Member payment history (for ALL donations)
-            self._update_member_payment_history(donation, payment_data, journal_entry_name)
+            if not self._update_donor_record(donation, payment_data):
+                history_failures.append("donor_history")
+
+            if not self._update_member_payment_history(donation, payment_data, journal_entry_name):
+                history_failures.append("member payment history")
 
             # Check for pending refunds even during new payment processing
             # Refunds may exist if payment was processed then immediately refunded
             refund_results = self._process_pending_refunds(
                 donation, payment_id, processing_state.pending_refunds
             )
+
+            # Same defect as the history writes above, and it has to be detected HERE
+            # rather than where the result dict is decorated below -- that block runs
+            # after the early return and an append there would be dead code.
+            #
+            # A failed refund booking answered 200, so Mollie never re-delivered and
+            # the GL permanently overstated income. The CORRECT handling already
+            # existed verbatim in _handle_fully_processed_payment -- but
+            # is_fully_processed() is permanently false for donations (#344), so that
+            # handler is dead code and this was the only reachable path. Mollie
+            # signals a refund by re-posting the same payment id, which is how every
+            # donation refund arrives.
+            failed_refunds = [r for r in (refund_results or []) if r.get("status") == "error"]
+            if failed_refunds:
+                self.logger.error(f"{len(failed_refunds)} refund booking(s) failed for {payment_id}")
+                history_failures.append(f"{len(failed_refunds)} refund booking(s)")
+
+            # A history write that failed must not be reported as success: the
+            # financial entries are already booked and idempotent, so a non-2xx buys
+            # a re-delivery that cannot double-book (measured: one JE, one Bank
+            # Transaction, and a GL debit of the charge amount rather than twice it).
+            #
+            # Deliberately NOT claiming the re-delivery "completes what is missing".
+            # Measured counter-example: if the Journal Entry stayed at docstatus 0,
+            # the re-delivery adopts the draft (the creator's idempotency filter is
+            # `docstatus != 2`) and then reconciles the Bank Transaction against it,
+            # producing a bank line marked Reconciled against an unposted JE with no
+            # GL entries -- and reporting success, which ends the retry ladder. That
+            # is #383's mechanism reached through the JE creator; pre-existing, but a
+            # re-delivery can make a visibly broken state a silently broken one.
+            if history_failures:
+                return {
+                    "status": "error",
+                    "message": (
+                        f"Payment {payment_id} booked, but "
+                        f"{', '.join(history_failures)} could not be written"
+                    ),
+                    "payment_id": payment_id,
+                    "bank_transaction": bank_transaction_name,
+                    "journal_entry": journal_entry_name,
+                    "donation_id": donation.name,
+                    "history_failures": history_failures,
+                    "refund_failures": failed_refunds,
+                    "duration_seconds": time.time() - start_time,
+                }
 
             # Return success result
             result = {
@@ -779,12 +856,8 @@ class UnifiedWebhookWrapperService:
             # Include refund processing results if any
             if refund_results:
                 result["refunds_processed"] = refund_results
-                failed_refunds = [r for r in refund_results if r.get("status") == "error"]
-                if failed_refunds:
-                    result["refund_failures"] = failed_refunds
-                    self.logger.warning(
-                        f"⚠️ {len(failed_refunds)} refunds failed during new payment processing"
-                    )
+                # Failures are detected and reported above, before the early return;
+                # reaching here means there were none.
 
             if activation:
                 result["subscription_activation"] = activation
@@ -1342,10 +1415,26 @@ class UnifiedWebhookWrapperService:
             # Cheap short-circuit for the common retry. It is NOT the real
             # duplicate guard: this read cannot close the window where Mollie
             # created the subscription but the response was lost, because nothing
-            # local was written in that case. The actual protection is the
-            # deterministic Idempotency-Key on the create itself (see
-            # _activate_direct_subscription_after_first_payment) -- which is also
-            # why no row lock is taken here: holding a transaction open across a
+            # local was written in that case. The actual protection is in
+            # payment_gateways._get_or_create_subscription: it asks Mollie what
+            # already carries this payment's fingerprint (metadata.payment_id)
+            # and adopts it. That listing runs FIRST and unconditionally; the
+            # deterministic Idempotency-Key is the backstop BEHIND it, not a fast
+            # path in front of it, and it could not do the job alone because
+            # Mollie evicts keys after an hour against a retry ladder that runs
+            # twenty-six.
+            #
+            # Residual, stated because it is on exactly this path:
+            # _find_subscription_for_payment returns None both when nothing
+            # matched and when the listing itself raised, and the caller cannot
+            # tell those apart. So if the listing is failing AND the key has
+            # expired -- attempts 8-10, at T+2h/4h/26h -- the guard degrades to
+            # nothing and a retry can create a second live subscription. That
+            # tradeoff is deliberate (a listing outage must not block a
+            # first-time donor) and is recorded at _find_subscription_for_payment.
+            #
+            # That remote check is also why
+            # no row lock is taken here: holding a transaction open across a
             # gateway round-trip would extend the tabSeries lock this request
             # already holds, for no correctness gain.
             existing = frappe.db.get_value("Donation", donation.name, "mollie_subscription_id")
@@ -1432,14 +1521,19 @@ class UnifiedWebhookWrapperService:
             # The builder collapses every internal failure -- including a dropped
             # connection -- into a generic error dict, so the exception type is
             # not visible here and unclassifiable failures have to be guessed.
-            # Guessing "retry" is the right guess now that the create carries a
-            # deterministic Idempotency-Key: a re-delivery cannot double-charge
-            # the donor, it can only re-attempt, and it is the one case that
-            # recovers the worst failure mode there is -- Mollie created the
-            # subscription but the response was lost, so nothing local recorded
-            # it. Without a retry that donor holds a subscription this system
-            # cannot see. The cost of guessing wrong is a bounded number of
-            # re-deliveries that refuse identically.
+            # Guessing "retry" is the right guess now that the create adopts any
+            # subscription already carrying this payment's fingerprint, with the
+            # deterministic Idempotency-Key as a backstop behind that adopt: a
+            # re-delivery re-attempts rather than duplicating. At its real
+            # strength, which is not unconditional -- if Mollie's own subscription
+            # listing is failing too, the adopt returns the same None it returns
+            # for "nothing matched", falls through to the key, and past the key's
+            # one hour has nothing left. See the fuller note above.
+            # Retrying is still the one case that recovers the worst failure
+            # mode there is -- Mollie created the subscription but the response
+            # was lost, so nothing local recorded it. Without a retry that donor
+            # holds a subscription this system cannot see. The cost of guessing
+            # wrong is a bounded number of re-deliveries that refuse identically.
             #
             # The two *_bad_request / *_key_conflict names come from
             # payment_gateways._permanent_refusal_reason: Mollie answered 400, so
@@ -1464,9 +1558,12 @@ class UnifiedWebhookWrapperService:
         except Exception as e:
             # A failed subscription must not roll back a payment the donor has
             # already made -- the money is banked either way. Retryable for the
-            # same reason as above: the Idempotency-Key makes re-delivery safe,
-            # and it is what recovers a create that succeeded at Mollie while the
-            # response was lost. Either way the donation stays queryable as an
+            # same reason as above, and with the same limit: what makes a
+            # re-delivery safe is the adopt-by-fingerprint in
+            # _get_or_create_subscription, backed by the Idempotency-Key -- not
+            # the key on its own, which Mollie evicts after an hour. That is also
+            # what recovers a create that succeeded at Mollie while the response
+            # was lost. Either way the donation stays queryable as an
             # unfulfilled recurring intent -- see _update_donation_status.
             frappe.log_error(
                 f"Error activating donation subscription for {donation.name} "
@@ -1853,7 +1950,7 @@ class UnifiedWebhookWrapperService:
 
                 # Use centralized history manager for atomic child table updates
                 history_manager = MemberFinancialHistoryManager(
-                    member_doc=donor,
+                    doc=donor,
                     history_field_name="donor_history",
                     max_entries=30,
                 )
@@ -1885,6 +1982,15 @@ class UnifiedWebhookWrapperService:
                 if success:
                     fields_updated.append("donor_history")
                     self.logger.info(f"✅ Updated Donor {donor.name} history for donation {donation.name}")
+                else:
+                    # `.error`, not `.warning`: a bare frappe logger defaults to level
+                    # ERROR under `bench run-tests`, so a warning here is discarded
+                    # entirely and the failure would be invisible to the suite too.
+                    self.logger.error(
+                        f"donor_history update returned False for Donor {donor.name}, "
+                        f"donation {donation.name}"
+                    )
+                    return False
 
             return True
 
@@ -1957,7 +2063,10 @@ class UnifiedWebhookWrapperService:
                     f"✅ Updated Member {member_name} payment history for donation {donation.name}"
                 )
             else:
-                self.logger.warning(f"⚠️ Member payment history update returned False for {donation.name}")
+                # `.error`, not `.warning`, for the same reason as the donor path
+                # above: a bare frappe logger defaults to level ERROR under
+                # `bench run-tests`, so a warning here is discarded entirely.
+                self.logger.error(f"member payment history update returned False for {donation.name}")
 
             return success
 
