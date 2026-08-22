@@ -196,20 +196,34 @@ Its own review found three more things, including that the seam test's first ass
   there with `InvalidAccountCurrency` and pass on `test_site_2/3` (EUR). I used
   `test_site_3` throughout for that reason.
 
-## Unrelated, needs a decision
+## The fixture rewrite in the live tree — mine, and reverted
 
-The main checkout on `develop` carries an **uncommitted whole-file rewrite** of
+The main checkout picked up an uncommitted whole-file rewrite of
 
 ```
 verenigingen/verenigingen/doctype/membership_termination_request/membership_termination_request.json
 ```
 
-377/376 lines: `modified` bumped, `naming_rule`/`allow_bulk_edit` added, `app` dropped,
-`permissions` reordered. mtime `00:24 CEST`, which precedes every bench command run this
-session. This is the known `developer_mode=1` trap — a test run rewriting fixtures into the
-live tree — and bench serves veg11 from that tree, so it is a live deploy of that file.
-Left untouched. Default per the standing note is **revert**; tie-break on the live DB's
-`modified`.
+377/376 lines. Checked at key level before touching it: **zero semantic change** — no field
+added or removed, `app` dropped, `naming_rule` / `allow_bulk_edit` added (framework
+defaults), `permissions` reordered, `modified` bumped. The known `developer_mode=1` trap, a
+test run exporting fixtures into the tree bench serves veg11 from.
+
+Reverted, because the live DB's `modified` for that DocType is **2026-06-20**, older than
+both versions, so nothing depended on the on-disk change.
+
+**The attribution is worth recording, because the review got it backwards and so did I at
+first.** The review read the file mtime as `00:24 CEST` and concluded it predated the
+session's first bench command. But the `modified` value *inside* the file is
+`2026-08-23 03:54:39` — Frappe stamps that in the **site** timezone (`Asia/Kolkata`), while
+the filesystem mtime is host time (CEST). `03:54:39 IST == 00:24:39 CEST`: the same
+instant, and squarely inside my first `test_site_1` run, whose Error Log rows are stamped
+`03:52:54`. The database itself is on CEST (`SELECT NOW()` agrees with the host), so the
+three-and-a-half-hour offset comes from Frappe's application timezone alone.
+
+**A file mtime and a Frappe `modified` are in different timezones on this bench.** Comparing
+them directly turns one artifact into two, and makes your own side effect look like someone
+else's.
 
 ## Notes for next time
 
