@@ -626,6 +626,9 @@ class TestDonationSubscriptionActivation(EnhancedTestCase):
         Journal Entry, one Bank Transaction and a GL debit of the charge amount
         rather than twice it.
         """
+        # The injected save failure is logged by production code on purpose; mark it
+        # expected so the harness's Error Log guard does not read it as a defect.
+        self.expectErrorLog("Mollie Integration Error")
         with self._fail_the_status_save_only():
             result = self._run_webhook()
 
@@ -678,6 +681,68 @@ class TestDonationSubscriptionActivation(EnhancedTestCase):
             frappe.db.get_value("Donation", self.donation_name, "paid"),
             1,
             "an undisturbed delivery must leave the donation paid",
+        )
+
+    def test_a_redelivery_after_a_status_failure_does_not_double_book(self):
+        """The safety claim for THIS failure mode, measured rather than borrowed.
+
+        Its sibling below measures the same thing for a failed history write, but
+        the two paths are not interchangeable. When the status save is what failed,
+        `Donation.on_update` never fires on the first delivery and DOES fire on the
+        second -- and that hook is one of `donor_history`'s three writers. So this
+        path has a duplicate-row mechanism the history-failure test cannot cover,
+        and it has to be counted here rather than argued from the other test.
+        """
+        self.expectErrorLog("Mollie Integration Error")
+        with self._fail_the_status_save_only():
+            first = self._run_webhook()
+        self.assertEqual(first["status"], "error", f"setup for this test did not fail: {first}")
+
+        second = self._run_webhook()
+
+        journal_entries = frappe.get_all(
+            "Journal Entry", filters={"cheque_no": self.payment_id, "docstatus": ["!=", 2]}, pluck="name"
+        )
+        bank_transactions = frappe.get_all(
+            "Bank Transaction", filters={"reference_number": self.payment_id}, pluck="name"
+        )
+        self.assertEqual(len(journal_entries), 1, f"the re-delivery double-booked: {journal_entries}")
+        self.assertEqual(
+            len(bank_transactions), 1, f"the re-delivery duplicated the Bank Transaction: {bank_transactions}"
+        )
+
+        # Row count is not evidence of what posted (#382) -- assert on the ledger.
+        gl_debit = frappe.db.sql(
+            """SELECT COALESCE(SUM(debit), 0) FROM `tabGL Entry`
+               WHERE voucher_type = 'Journal Entry' AND voucher_no = %s AND is_cancelled = 0""",
+            journal_entries[0],
+        )[0][0]
+        self.assertEqual(
+            float(gl_debit),
+            float(self.amount),
+            f"the ledger must carry the charge once, not twice; got {gl_debit}",
+        )
+
+        # The mechanism unique to this path: the hook that did not fire the first
+        # time fires the second, so donor_history is where a duplicate would land.
+        history = frappe.get_all(
+            "Donation History",
+            filters={"parent": self.donor, "parenttype": "Donor", "parentfield": "donor_history"},
+            fields=["name", "donation_reference"],
+        )
+        # Bind the row to THIS donation, so an unrelated fixture row cannot satisfy
+        # the count and an absent row cannot pass as "no duplicate".
+        mine = [r for r in history if r.donation_reference == self.donation_name]
+        self.assertEqual(
+            len(mine), 1, f"donor_history must carry this donation exactly once; got {history}"
+        )
+
+        # And the retry is CORRECTIVE: it repairs the state the failure left behind.
+        self.assertEqual(second["status"], "success", f"the re-delivery should complete: {second}")
+        self.assertEqual(
+            frappe.db.get_value("Donation", self.donation_name, "paid"),
+            1,
+            "the re-delivery must leave the donation paid -- that is what makes the retry worth asking for",
         )
 
     # ------------------------------------------ a failed history write is not a 200

@@ -271,6 +271,46 @@ class TestHandlePartialProcessing(FrappeTestCase):
 
         self.assertEqual(result["status"], "error", "a missing Journal Entry must fail the webhook")
 
+    def test_a_status_update_failure_is_not_reported_as_success(self):
+        """#464's defect in the sibling handler, and the same shape as the Journal
+        Entry case above.
+
+        `results` is a list of prose. Appending "Donation status update failed: ..."
+        leaves it TRUTHY, so `"success" if results ... else "error"` went on
+        reporting success over a recorded failure -- a handler recording a failure
+        and still answering 200 is the whole of #464.
+        """
+        donation = _persist_donation("tr_partial_status_fail")
+        state = PaymentIdempotencyCheckResult("tr_partial_status_fail")
+        # donation_status is the only missing piece under test; leaving the others
+        # missing would let their own "updated" results paper over this failure.
+        state.payment_history_updated = True
+        state.payment_entry_exists = True  # "financial_entries" already done
+
+        self.svc._update_donation_status = lambda *a, **k: "boom: save failed"
+
+        with self._patch_fetch_and_find(donation):
+            result = self.svc._handle_partial_processing("tr_partial_status_fail", {}, state, 0.0)
+
+        self.assertEqual(result["status"], "error", "a failed status update must fail the webhook")
+        self.assertIn("donation status", result.get("component_failures", []))
+
+    def test_a_partial_run_with_no_failures_still_succeeds(self):
+        """Control for the test above: without an injected failure the same call
+        answers success, so the new check cannot be failing unconditionally."""
+        donation = _persist_donation("tr_partial_status_ok")
+        state = PaymentIdempotencyCheckResult("tr_partial_status_ok")
+        state.payment_history_updated = True
+        state.payment_entry_exists = True  # "financial_entries" already done
+
+        self.svc._update_donation_status = lambda *a, **k: None
+
+        with self._patch_fetch_and_find(donation):
+            result = self.svc._handle_partial_processing("tr_partial_status_ok", {}, state, 0.0)
+
+        self.assertEqual(result["status"], "success", f"unexpected: {result}")
+        self.assertEqual(result.get("component_failures"), [])
+
     def test_partial_no_donation_errors(self):
         state = PaymentIdempotencyCheckResult("tr_partial_nodon")
         with self.svc_fetch_returns({"status": "paid"}), self._patch_find(None):
@@ -430,7 +470,8 @@ class TestUpdateDonationStatus(FrappeTestCase):
         # Should not raise...
         result = self.svc._update_donation_status(donation, {"id": "tr_status_boom", "metadata": {}})
         # ...and must hand the caller the cause rather than silence.
-        self.assertIn("save failed", result or "", "the failure reason must reach the caller")
+        self.assertIsNotNone(result, "a failed status update must not answer None -- that is the bug")
+        self.assertIn("save failed", result, "the failure reason must reach the caller")
 
 
 class TestUpdateDonationPaymentHistoryAtomic(FrappeTestCase):

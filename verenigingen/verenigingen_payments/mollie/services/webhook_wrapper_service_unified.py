@@ -785,7 +785,9 @@ class UnifiedWebhookWrapperService:
             # this write adds only Mollie's paid_at date. It is NOT the sole writer,
             # and an earlier version of this comment wrongly said the entry was lost
             # permanently. Where it IS the only writer is the case where that save
-            # itself failed, which _update_donation_status silently swallows.
+            # itself failed -- which used to be swallowed silently and is now
+            # reported by _update_donation_status above (#464), so that case ends in
+            # a re-delivery rather than in a 200.
             #
             # Asking Mollie to re-deliver is safe here: the money-side steps are
             # each individually idempotent on the payment id
@@ -968,6 +970,14 @@ class UnifiedWebhookWrapperService:
             # string does not make `results` falsy, so it could not fail the
             # overall status on its own.
             financial_entries_incomplete = False
+            # Components that RAN AND FAILED, tracked for exactly the reason the
+            # comment above gives: appending a failure string leaves `results`
+            # truthy, so a failure recorded there cannot fail the overall status on
+            # its own. Both entries below had that shape -- the payment-history one
+            # already did, and the donation-status one arrived with #464's fix. A
+            # handler that records a failure and still answers success is the whole
+            # of #464 reproduced in the sibling handler.
+            component_failures = []
 
             if "financial_entries" in missing_components:
                 # Create Bank Transaction + Journal Entry using new architecture
@@ -998,6 +1008,7 @@ class UnifiedWebhookWrapperService:
                 status_failure = self._update_donation_status(donation, payment_data)
                 if status_failure:
                     results.append(f"Donation status update failed: {status_failure}")
+                    component_failures.append("donation status")
                 else:
                     results.append("Donation status updated")
 
@@ -1018,6 +1029,7 @@ class UnifiedWebhookWrapperService:
                     results.append("Donation payment history updated")
                 else:
                     results.append("Donation payment history update failed")
+                    component_failures.append("donation payment history")
 
                 # Also update Donor and Member records
                 if self._update_donor_record(donation, payment_data):
@@ -1035,8 +1047,13 @@ class UnifiedWebhookWrapperService:
                     results.append(f"Backfilled {refund_history_count} refund payment history entries")
 
             result = {
-                "status": "success" if results and not financial_entries_incomplete else "error",
+                "status": (
+                    "success"
+                    if results and not financial_entries_incomplete and not component_failures
+                    else "error"
+                ),
                 "message": f"Partial processing completed: {', '.join(results)}",
+                "component_failures": component_failures,
                 "payment_id": payment_id,
                 "components_processed": results,
             }
