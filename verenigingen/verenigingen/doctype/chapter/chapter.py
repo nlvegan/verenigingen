@@ -661,13 +661,30 @@ class Chapter(Document):
         """Handle changes between document versions"""
         old_doc = self.get_doc_before_save()
         if old_doc:
-            # Handle board member changes
-            self.board_manager.handle_board_member_changes(old_doc)
-            self.board_manager.handle_board_member_additions(old_doc)
+            # Seating a board member auto-adds them to `members`. That append has to
+            # land before handle_member_additions diffs the table, or the auto-added
+            # row gets no Chapter Membership History. It takes no row lock itself, so
+            # it can run first without disturbing the ordering below.
+            self.board_manager.seat_board_members_as_chapter_members(old_doc)
 
-            # Handle regular member changes
+            # MEMBERS BEFORE BOARD, and the reason is lock ordering.
+            #
+            # Since #436 these handlers take a row lock on the parent they rewrite:
+            # member_manager -> Member (ChapterMembershipHistoryManager),
+            # board_manager  -> Volunteer (AssignmentHistoryManager). A lock lives to
+            # the end of the caller's transaction, so one save holds both.
+            #
+            # With the board handlers first this save locked Volunteer then Member,
+            # while a termination locks Member then Volunteer -- opposite orders, so
+            # the two deadlock on overlapping people. The canonical order is
+            # Donor -> Member -> Volunteer: alphabetical, and already what every other
+            # multi-lock path does. Measured in tests/unit/test_history_lock_order.py.
+            # #459.
             self.member_manager.handle_member_changes(old_doc)
             self.member_manager.handle_member_additions(old_doc)
+
+            self.board_manager.handle_board_member_changes(old_doc)
+            self.board_manager.handle_board_member_additions(old_doc)
 
     def _clear_manager_caches(self):
         """Clear all manager caches"""

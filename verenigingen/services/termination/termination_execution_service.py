@@ -253,6 +253,35 @@ class TerminationExecutionService(StatelessService):
         member = termination_request.member
         self.logger.info(f"Starting safe system updates for member {member}")
 
+        # Take the member's row lock BEFORE the first operation runs.
+        #
+        # Since #436 the history managers lock the parent row they rewrite -- Member for
+        # ChapterMembershipHistoryManager, Volunteer for AssignmentHistoryManager -- and
+        # a termination takes both. The canonical order is Member before Volunteer, and
+        # this list appeared to obey it only by accident: DisableChapterMemberships
+        # (idx 2) takes the Member lock, but disable_chapter_memberships_safe returns
+        # early when there is no *enabled* Chapter Member row, so a board member who is
+        # off the roster locks Volunteer at idx 3 and Member only at idx 13. Whether the
+        # order inverts was decided by the member's data, not by this list. Measured both
+        # ways in tests/unit/test_history_lock_order.py. #459.
+        #
+        # It cannot be fixed by reordering: UpdateMemberStatusOperation is deliberately
+        # last (it is the commit point, and TerminationExecutor enforces that), and its
+        # member.save() is a Member lock. Taking the row up front makes every later
+        # acquisition a re-lock of a row this transaction already holds.
+        #
+        # execute() calls _validate_preconditions first, which checks the member exists,
+        # so this really locks a row: get_value on a missing name emits WHERE name='' and
+        # locks nothing at all, silently.
+        #
+        # Cost: the lock is held from here to the end of the transaction instead of from
+        # whichever operation first happened to touch the member. That is one member row
+        # -- the one this whole operation is about -- and idx 2 already held it for most
+        # of the list in the common case. Deliberately NOT wrapped in a try/except: a
+        # 1205/1213 here is not resumable, and execute() rolls the savepoint back and
+        # re-raises.
+        frappe.db.get_value("Member", member, "name", for_update=True)
+
         # Define termination operations in execution order
         # Order matters: preparatory operations first, member status update last
         operations = [
