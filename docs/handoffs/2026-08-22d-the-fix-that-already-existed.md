@@ -1,4 +1,4 @@
-# Handoff — 2026-08-22c: the fix that already existed, and the rule that lost its flagship
+# Handoff — 2026-08-22d: the fix that already existed, and the rule that lost its flagship
 
 Picked up from `2026-08-22b-the-review-that-reversed-the-fix.md`. Three of the four items
 on its "for whoever picks this up" list were taken; the fourth (deploying the live tree)
