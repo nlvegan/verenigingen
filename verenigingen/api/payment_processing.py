@@ -133,6 +133,12 @@ def _flatten_api_response(result: Any) -> Any:
             flat.setdefault("errors", error["errors"])
         if error.get("code"):
             flat.setdefault("error_code", error["code"])
+        # #481: to_dict nests http_status under ``error``. Before the kwarg fix it reached the
+        # body by accident (misspelled into ``metadata``, which the ``meta`` lift below picks
+        # up), so without this the rename would have silently removed it. Body and transport
+        # should say the same thing.
+        if error.get("http_status"):
+            flat.setdefault("http_status", error["http_status"])
     elif error is not None:
         flat.setdefault("message", error)
 

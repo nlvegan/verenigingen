@@ -838,6 +838,29 @@ def get_security_framework() -> APISecurityFramework:
     return _security_framework
 
 
+def _apply_operation_result_http_status(result) -> None:
+    """Deliver a failing OperationResult's ``http_status`` as the actual HTTP status (#481).
+
+    ``http_status`` used to be a number in the JSON body and nowhere else, so a result saying
+    500 was delivered with a 200 and any caller checking the transport read it as success.
+    This is the only frame that sees an OperationResult on its way out -- ``handle_api_error``
+    cannot do it, because endpoints also ``return OperationResult.fail(...)`` directly without
+    passing through its ``except`` branches.
+
+    Deliberately narrow: ``http_status`` is optional and defaults to None, and a result that
+    does not name one keeps its 200. Otherwise every structured failure in the app would start
+    returning a 4xx, which is a far bigger change than the defect.
+
+    This does NOT affect durability. ``frappe/app.py:428`` commits on POST/PUT/DELETE whatever
+    the status is; only a raised exception reaches the rollback at ``app.py:147``.
+    """
+    if getattr(result, "success", True):
+        return
+    status = getattr(result, "http_status", None)
+    if status:
+        frappe.local.response["http_status_code"] = status
+
+
 def api_security_framework(
     security_level: SecurityLevel = None,
     operation_type: OperationType = None,
@@ -1023,6 +1046,7 @@ def api_security_framework(
                 # to_dict() on TypeError — that would mask a genuine signature mismatch.
                 to_dict = getattr(result, "to_dict", None)
                 if callable(to_dict):
+                    _apply_operation_result_http_status(result)
                     return to_dict(scrub_sensitive=True)
                 return result
 
