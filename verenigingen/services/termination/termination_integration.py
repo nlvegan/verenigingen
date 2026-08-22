@@ -1,9 +1,26 @@
 # ===== File: verenigingen/utils/termination_integration.py =====
+"""Termination helpers: log the failure, return a count, let the caller carry on.
+
+That contract is deliberate -- an admin's termination should not abort because one of
+fourteen steps could not reach one chapter -- and it is wrong for exactly two errors.
+``NON_RESUMABLE_DB_ERRORS`` (1213 deadlock, 1205 lock-wait timeout) do not describe a
+step that failed; they describe a transaction the server has already discarded or left
+half-applied. Recording one and carrying on means the writes these helpers go on to make
+are issued on state that no longer exists, and the count they return describes writes
+that did not survive. So every catch-all here re-raises those two first, before its own
+handling. See ``verenigingen/utils/transaction_errors`` for what each one destroys.
+
+Enforced across the whole ``services/termination`` package by
+``tests/unit/test_termination_non_resumable_errors.py``, so a handler added later cannot
+quietly omit it. #470.
+"""
+
 import frappe
 from frappe.utils import today
 
 from verenigingen.utils import append_to_text_field
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 # Machine-readable marker written into a Team Member row's `notes` when a
 # membership is soft-disabled by suspension. Restoration (unsuspension) only
@@ -65,6 +82,8 @@ def cancel_membership_safe(
         frappe.logger().info(f"Cancelled membership {membership_name}")
         return True
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.logger().error(f"Failed to cancel membership {membership_name}: {str(e)}")
         return False
@@ -120,6 +139,8 @@ def cancel_dues_schedule_safe(dues_schedule_name):
             frappe.logger().info(f"Cancelled dues schedule {dues_schedule_name} using standard method")
             return True
 
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
         except Exception as cancel_error:
             frappe.logger().warning(
                 f"Standard cancellation failed for {dues_schedule_name}: {str(cancel_error)}"
@@ -137,12 +158,16 @@ def cancel_dues_schedule_safe(dues_schedule_name):
                 frappe.logger().info(f"Cancelled dues schedule {dues_schedule_name} using fallback method")
                 return True
 
+            except NON_RESUMABLE_DB_ERRORS:
+                raise
             except Exception as fallback_error:
                 frappe.logger().error(
                     f"Fallback cancellation also failed for {dues_schedule_name}: {str(fallback_error)}"
                 )
                 return False
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.logger().error(f"Failed to cancel dues schedule {dues_schedule_name}: {str(e)}")
         return False
@@ -190,6 +215,8 @@ def cancel_sepa_mandate_safe(mandate_id, reason=None, cancellation_date=None):
         frappe.logger().info(f"Cancelled SEPA mandate {mandate.mandate_id}")
         return True
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.logger().error(f"Failed to cancel SEPA mandate {mandate_id}: {str(e)}")
         return False
@@ -230,6 +257,8 @@ def update_customer_safe(customer_name, termination_note, disable_for_disciplina
         frappe.logger().info(f"Updated customer {customer_name}")
         return True
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.logger().error(f"Failed to update customer {customer_name}: {str(e)}")
         return False
@@ -264,6 +293,8 @@ def update_invoice_safe(invoice_name, termination_note):
         frappe.logger().info(f"Updated invoice {invoice_name}")
         return True
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.logger().error(f"Failed to update invoice {invoice_name}: {str(e)}")
         return False
@@ -321,6 +352,8 @@ def cancel_outstanding_invoices_safe(customer_name, termination_reason=None):
                         f"Deleted draft invoice {invoice_data.name} (Amount: {invoice_data.grand_total})"
                     )
 
+            except NON_RESUMABLE_DB_ERRORS:
+                raise
             except Exception as e:
                 error_msg = f"Failed to cancel invoice {invoice_data.name}: {str(e)}"
                 results["errors"].append(error_msg)
@@ -328,6 +361,8 @@ def cancel_outstanding_invoices_safe(customer_name, termination_reason=None):
 
         return results
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.logger().error(f"Failed to cancel outstanding invoices for {customer_name}: {str(e)}")
         return {"invoices_cancelled": 0, "invoices_deleted": 0, "errors": [str(e)]}
@@ -408,6 +443,8 @@ def cancel_future_invoices_safe(customer_name, termination_date):
                         f"Deleted draft invoice {invoice_data.name} (coverage: {invoice_data.custom_coverage_start_date} to {invoice_data.custom_coverage_end_date})"
                     )
 
+            except NON_RESUMABLE_DB_ERRORS:
+                raise
             except Exception as e:
                 error_msg = f"Failed to cancel invoice {invoice_data.name}: {str(e)}"
                 results["errors"].append(error_msg)
@@ -415,6 +452,8 @@ def cancel_future_invoices_safe(customer_name, termination_date):
 
         return results
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.logger().error(f"Failed to cancel future invoices for {customer_name}: {str(e)}")
         return {"invoices_cancelled": 0, "invoices_deleted": 0, "errors": [str(e)]}
@@ -502,6 +541,8 @@ def update_member_status_safe(member_name, termination_type, termination_date, t
                         "Member Termination Security",
                     )
                     return False
+            except NON_RESUMABLE_DB_ERRORS:
+                raise
             except Exception as e:
                 frappe.log_error(
                     f"Failed member termination status update: {str(e)}", "Member Termination Security"
@@ -511,6 +552,8 @@ def update_member_status_safe(member_name, termination_type, termination_date, t
         frappe.logger().info(f"Updated member {member_name} status to {member.status}")
         return True
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.logger().error(f"Failed to update member {member_name}: {str(e)}")
         return False
@@ -562,6 +605,8 @@ def end_board_positions_safe(member_name, end_date, reason):
                             )
                             break
 
+                except NON_RESUMABLE_DB_ERRORS:
+                    raise
                 except Exception as e:
                     frappe.logger().error(f"Failed to end board position {position.name}: {str(e)}")
 
@@ -572,11 +617,15 @@ def end_board_positions_safe(member_name, end_date, reason):
                 frappe.logger().info(f"Saved Chapter {chapter_name} with ended board positions")
             except frappe.PermissionError as pe:
                 frappe.logger().error(f"Permission denied saving Chapter {chapter_name}: {str(pe)}")
+            except NON_RESUMABLE_DB_ERRORS:
+                raise
             except Exception as e:
                 frappe.logger().error(f"Failed to save Chapter {chapter_name}: {str(e)}")
 
         return positions_ended
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.logger().error(f"Failed to end board positions for {member_name}: {str(e)}")
         return 0
@@ -658,6 +707,8 @@ def disable_chapter_memberships_safe(member_name, leave_date, reason):
                         )
                         break
 
+            except NON_RESUMABLE_DB_ERRORS:
+                raise
             except Exception as e:
                 frappe.logger().error(f"Failed to disable chapter membership {membership.name}: {str(e)}")
 
@@ -676,6 +727,12 @@ def disable_chapter_memberships_safe(member_name, leave_date, reason):
             frappe.db.rollback_to_savepoint("disable_chapter_memberships")
             frappe.logger().error(f"Permission denied saving chapters, rolled back: {str(pe)}")
             return 0
+        except NON_RESUMABLE_DB_ERRORS:
+            # Ahead of the rollback, not just ahead of the return: a 1213 has already
+            # discarded this savepoint along with the rest of the transaction, so
+            # rollback_to_savepoint raises 1305 on top of the real error -- and the outer
+            # catch-all then swallows THAT, losing both. There is nothing left to undo.
+            raise
         except Exception as e:
             frappe.db.rollback_to_savepoint("disable_chapter_memberships")
             frappe.logger().error(f"Failed to save chapters, rolled back: {str(e)}")
@@ -698,6 +755,8 @@ def disable_chapter_memberships_safe(member_name, leave_date, reason):
                         f"Verified/updated chapter membership history for {member_name} in {update['chapter_name']}"
                     )
                 # Note: success=False is expected if hook already terminated it - not an error
+            except NON_RESUMABLE_DB_ERRORS:
+                raise
             except Exception as e:
                 frappe.logger().error(
                     f"Failed to update chapter membership history for {member_name} in {update['chapter_name']}: {str(e)}"
@@ -705,6 +764,8 @@ def disable_chapter_memberships_safe(member_name, leave_date, reason):
 
         return memberships_disabled
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.logger().error(f"Failed to disable chapter memberships for {member_name}: {str(e)}")
         return 0
@@ -774,6 +835,8 @@ def suspend_team_memberships_safe(member_name, termination_date, reason):
                     )
                     continue
 
+            except NON_RESUMABLE_DB_ERRORS:
+                raise
             except Exception as e:
                 frappe.logger().error(f"Failed to suspend team membership {team_membership.name}: {str(e)}")
 
@@ -807,11 +870,15 @@ def suspend_team_memberships_safe(member_name, termination_date, reason):
 
                     frappe.logger().info(f"Removed team leadership from team {team.name}")
 
+                except NON_RESUMABLE_DB_ERRORS:
+                    raise
                 except Exception as e:
                     frappe.logger().error(f"Failed to remove team leadership from {team.name}: {str(e)}")
 
         return teams_affected
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.logger().error(f"Failed to suspend team memberships for {member_name}: {str(e)}")
         return 0
@@ -870,11 +937,15 @@ def restore_team_memberships_safe(member_name, restoration_reason):
                     f"Permission denied for team membership restoration {membership.name}: {str(pe)}"
                 )
                 continue
+            except NON_RESUMABLE_DB_ERRORS:
+                raise
             except Exception as e:
                 frappe.logger().error(f"Failed to restore team membership {membership.name}: {str(e)}")
 
         return teams_restored
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.logger().error(f"Failed to restore team memberships for {member_name}: {str(e)}")
         return 0
@@ -942,6 +1013,8 @@ def deactivate_user_account_safe(member_name, termination_type, reason, suspend_
         frappe.logger().info(f"Successfully {action_taken} user account {user_email}")
         return True
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.logger().error(f"Failed to deactivate user account for {member_name}: {str(e)}")
         return False
@@ -972,6 +1045,8 @@ def reactivate_user_account_safe(member_name, reason):
         frappe.logger().info(f"Reactivated user account {user_email}")
         return True
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.logger().error(f"Failed to reactivate user account for {member_name}: {str(e)}")
         return False
@@ -1070,6 +1145,8 @@ def suspend_member_safe(
         frappe.logger().info(f"Successfully suspended member {member_name}")
         return results
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.logger().error(f"Failed to suspend member {member_name}: {str(e)}")
         return {"success": False, "error": str(e), "actions_taken": [], "errors": [str(e)]}
@@ -1176,6 +1253,8 @@ def unsuspend_member_safe(member_name, unsuspension_reason, restore_teams=True):
         frappe.logger().info(f"Successfully unsuspended member {member_name}")
         return results
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.logger().error(f"Failed to unsuspend member {member_name}: {str(e)}")
         return {"success": False, "error": str(e), "actions_taken": [], "errors": [str(e)]}
@@ -1277,11 +1356,15 @@ def terminate_volunteer_records_safe(member_name, termination_type, termination_
                                 results["errors"].append(
                                     f"Permission denied for expense claim update {claim.name}: {str(pe)}"
                                 )
+                        except NON_RESUMABLE_DB_ERRORS:
+                            raise
                         except Exception as claim_error:
                             results["errors"].append(
                                 f"Failed to flag expense claim {claim.name}: {str(claim_error)}"
                             )
 
+            except NON_RESUMABLE_DB_ERRORS:
+                raise
             except Exception as volunteer_error:
                 results["errors"].append(
                     f"Failed to update volunteer record {volunteer_data.name}: {str(volunteer_error)}"
@@ -1292,6 +1375,8 @@ def terminate_volunteer_records_safe(member_name, termination_type, termination_
         )
         return results
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.logger().error(f"Failed to terminate volunteer records for {member_name}: {str(e)}")
         return {
@@ -1406,6 +1491,8 @@ def terminate_employee_records_safe(member_name, termination_type, termination_d
                 results["employees_terminated"] += 1
                 results["actions_taken"].append(f"Updated employee record {employee_data.employee_name}")
 
+            except NON_RESUMABLE_DB_ERRORS:
+                raise
             except Exception as employee_error:
                 results["errors"].append(
                     f"Failed to update employee record {employee_data.name}: {str(employee_error)}"
@@ -1416,6 +1503,8 @@ def terminate_employee_records_safe(member_name, termination_type, termination_d
         )
         return results
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.logger().error(f"Failed to terminate employee records for {member_name}: {str(e)}")
         return {"employees_terminated": 0, "actions_taken": [], "errors": [str(e)]}
@@ -1463,6 +1552,8 @@ def get_member_suspension_status(member_name):
             "can_unsuspend": is_suspended,
         }
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.logger().error(f"Failed to get suspension status for {member_name}: {str(e)}")
         return {"error": str(e), "is_suspended": False, "can_unsuspend": False}

@@ -180,7 +180,14 @@ class TerminationExecutionService(StatelessService):
 
             return True
 
-        except Exception as e:
+        # Exempt from the re-raise rule the rest of services/termination follows (#470):
+        # this handler does not swallow. Every path through it ends in _handle_error's
+        # frappe.throw, so a 1205/1213 raised by an operation still reaches the caller --
+        # as a ValidationError rather than as itself. That class-masking matters to
+        # MijnRoodTerminationSyncService and to the dispatcher above it, and is tracked
+        # separately; it is a question about how a failure is reported, not whether the
+        # unit of work is abandoned.
+        except Exception as e:  # non-resumable-ok: does not swallow -- _handle_error re-raises
             self.logger.error(f"Savepoint rolled back for {termination_request.name} due to error: {str(e)}")
 
             # Roll back the savepoint to discard any partial work. If a nested
@@ -189,7 +196,7 @@ class TerminationExecutionService(StatelessService):
             # we surface the original one through _handle_error.
             try:
                 frappe.db.rollback(save_point=savepoint_name)
-            except Exception as rollback_error:
+            except Exception as rollback_error:  # non-resumable-ok: cleanup after the failure
                 self.logger.warning(
                     f"Savepoint {savepoint_name} could not be rolled back "
                     f"(may have been released by a nested commit): {rollback_error}"
@@ -365,7 +372,7 @@ class TerminationExecutionService(StatelessService):
         """
         try:
             frappe.db.release_savepoint(savepoint_name)
-        except Exception as cleanup_error:
+        except Exception as cleanup_error:  # non-resumable-ok: cleanup after the failure
             self.logger.warning(
                 f"Savepoint {savepoint_name} could not be released "
                 f"(likely already released by an inner commit): {cleanup_error}"
@@ -569,7 +576,10 @@ class TerminationExecutionService(StatelessService):
                         f"Status reverted to Approved for {termination_request.name} - retry enabled"
                     )
 
-        except Exception as revert_error:
+        # Runs after the failure, in a transaction a 1213 has already replaced. Re-raising
+        # here would substitute the revert's own error for the real one, which is the
+        # opposite of what this method exists to do.
+        except Exception as revert_error:  # non-resumable-ok: recovery after the failure
             self.logger.error(f"Failed to revert status for {termination_request.name}: {str(revert_error)}")
 
         # Re-raise original exception
