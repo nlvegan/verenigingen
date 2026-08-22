@@ -1,12 +1,14 @@
 """Seating a board member auto-adds them as a chapter member -- and that must be
 recorded in ``Member.chapter_membership_history``.
 
-``handle_board_member_additions`` calls ``_add_to_chapter_members``, which appends a
-row to ``chapter_doc.members``. The history for that row is not written there: it is
-written by ``handle_member_additions``, which diffs ``chapter_doc.members`` against
+``seat_board_members_as_chapter_members`` calls ``_add_to_chapter_members``, which
+appends a row to ``chapter_doc.members``. The history for that row is not written there:
+it is written by ``handle_member_additions``, which diffs ``chapter_doc.members`` against
 ``old_doc.members`` *when it runs*. So the two are coupled by ordering alone -- the
 append has to happen before the diff, or the auto-added member gets a ``members`` row
-with no history behind it.
+with no history behind it. (Until #459 the append lived inside
+``handle_board_member_additions``; it was split out precisely so that this coupling stops
+depending on where the board group sits relative to the member group.)
 
 Nothing asserted that coupling before this file. #459 proposed swapping the two handler
 groups for lock-ordering reasons and 202 tests stayed green while this row went missing;

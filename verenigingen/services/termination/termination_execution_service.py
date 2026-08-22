@@ -270,6 +270,10 @@ class TerminationExecutionService(StatelessService):
         # member.save() is a Member lock. Taking the row up front makes every later
         # acquisition a re-lock of a row this transaction already holds.
         #
+        # execute() calls _validate_preconditions first, which checks the member exists,
+        # so this really locks a row: get_value on a missing name emits WHERE name='' and
+        # locks nothing at all, silently.
+        #
         # Cost: the lock is held from here to the end of the transaction instead of from
         # whichever operation first happened to touch the member. That is one member row
         # -- the one this whole operation is about -- and idx 2 already held it for most

@@ -78,13 +78,15 @@ class BaseHistoryManager:
             # CANONICAL LOCK ORDER: Donor -> Member -> Volunteer.
             # A caller that ends up taking two of these three in one transaction MUST
             # take them in that order, or it deadlocks against a caller that takes them
-            # the other way round. It is alphabetical purely so that it is memorable;
-            # what makes it canonical is that every path already did it that way except
-            # the Chapter save, which was corrected to match (#459). The two paths that
-            # take more than one kind are Chapter._handle_document_changes and
-            # TerminationExecutionService.execute_system_updates; both are pinned by
+            # the other way round. It is alphabetical purely so that it is memorable.
+            #
+            # Three paths take more than one kind: Chapter._handle_document_changes,
+            # TerminationExecutionService.execute_system_updates, and
+            # api.termination_api.execute_safe_termination. All three are pinned by
             # tests/unit/test_history_lock_order.py, which measures the acquisitions
-            # rather than reading them. Add a path there before adding one here.
+            # rather than reading them; that module's docstring also records how the
+            # list of three was derived, and why no static search of this can be
+            # exhaustive. Add a path there before adding one here.
             frappe.db.get_value(cls.PARENT_DOCTYPE, doc_name, "name", for_update=True)
 
             doc = frappe.get_doc(cls.PARENT_DOCTYPE, doc_name)
