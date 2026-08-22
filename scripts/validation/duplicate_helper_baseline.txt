@@ -493,7 +493,7 @@ _restore_settings::6
 _results::2
 _root::4  # clone family, 33% of pairs near-identical
 _root_account::2
-_row::4
+_row::5
 _row_for::4  # clone family, 50% of pairs near-identical
 _rows::2
 _run::3
@@ -508,6 +508,7 @@ _schedule::2
 _sdk_payment::2
 _seat::4
 _seat_board_member::2
+_seat_on_board::2
 _seed::2
 _seed_pending_write::2  # clone family, 100% of pairs near-identical
 _send_email::3
