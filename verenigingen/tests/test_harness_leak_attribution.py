@@ -1433,7 +1433,7 @@ class CleanupManagerFinishesWhatItStartedTest(unittest.TestCase):
         That the handler writes to stderr at all is pinned separately, by
         `test_harness_logger.test_writes_to_stderr_not_stdout`.
         """
-        from verenigingen.tests.harness_logger import LOGGER_NAME
+        from verenigingen.tests.harness_logger import LOGGER_NAME, get_harness_logger
         from verenigingen.tests.utils.factories import TestCleanupManager
 
         parent = _territory("zzmgr-reported")
@@ -1444,6 +1444,16 @@ class CleanupManagerFinishesWhatItStartedTest(unittest.TestCase):
 
         manager = TestCleanupManager()
         manager.register("Territory", parent.name)
+
+        # Configure the logger BEFORE assertLogs: it snapshots and restores
+        # `handlers`, but `harness_logger`'s `_CONFIGURED_FLAG` stays set, so a logger
+        # first configured INSIDE the block never gets its stderr handler back --
+        # every later harness message in the process falls through to
+        # `logging.lastResort`, unformatted, with the explicit level (and
+        # VERENIGINGEN_TEST_LOG_LEVEL) silently dead. Latent only because the other
+        # test in this class sorts first and configures it; that is order-dependence,
+        # which is the thing this file exists to stop.
+        get_harness_logger("test-cleanup-manager")
 
         with self.assertLogs(LOGGER_NAME, level="ERROR") as logged:
             manager.cleanup()
@@ -1460,8 +1470,8 @@ class CleanupManagerDoesNotDiscardRowsItDoesNotOwnTest(unittest.TestCase):
     `frappe.db.rollback()` in a cleanup path discards every uncommitted row in the
     connection, and the rows a test's cleanup did not create are not its to
     discard: uncommitted `setUpClass` fixtures belong to the class, and
-    `builder.cleanup()` is also called mid-test in three suites, where a rollback
-    takes the test's own `setUp` with it. Measured in CI when the drain's rollback
+    `builder.cleanup()` is also called mid-test at three call sites, where a
+    rollback takes the test's own `setUp` with it. Measured in CI when the drain's rollback
     was widened this way: 6 of 12 shards red, every failure a second-and-later
     test of a class failing `_validate_links` on its own class fixture (#330,
     re-created in #486 and reverted).
