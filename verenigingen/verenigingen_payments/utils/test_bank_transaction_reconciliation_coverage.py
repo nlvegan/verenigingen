@@ -165,6 +165,73 @@ class MollieBase(BTRBase):
                 frappe.db.set_value("Mollie Settings", "Mollie Settings", k, v)
             self.mgr.config.clear_cache()
 
+    def _stated_costs(self, value, year="2026", month="08"):
+        """Mollie's own statement of what it charged, in the API's shape.
+
+        ``periods`` is nested by year and then by month, and each period carries a
+        ``costs`` list of ``{description, amountNet: {value, currency}, ...}``. This is
+        the only source `_settlement_stated_fee` reads: the fee cannot be derived by
+        summing the settlement's payments, because that sum is
+        ``fees + refunds + chargebacks``.
+        """
+        return {
+            year: {
+                month: {
+                    "revenue": [],
+                    "costs": [
+                        {
+                            "description": "Payment fees",
+                            "amountNet": {"value": value, "currency": "EUR"},
+                        }
+                    ],
+                }
+            }
+        }
+
+    def _match(self, settlement_id, amount="30.00", stated_costs=None):
+        """A ``mollie_settlement`` match as ``match_mollie_settlement`` returns one.
+
+        ``stated_costs`` adds Mollie's stated fee to the settlement payload. Without it
+        the payload carries no costs, which is a real state (`fee_stated` False) and not
+        the same as a stated fee of zero -- so a test that expects a fee entry has to say
+        what Mollie charged.
+        """
+        settlement_data = {"id": settlement_id, "amount": {"value": amount, "currency": "EUR"}}
+        if stated_costs is not None:
+            settlement_data["periods"] = self._stated_costs(stated_costs)
+        return {
+            "type": "mollie_settlement",
+            "reference": settlement_id,
+            "confidence": 0.98,
+            "match_reason": "Mollie settlement exact match",
+            "settlement_data": settlement_data,
+        }
+
+    def _fee_journal_entries(self, settlement_id):
+        """Fee Journal Entries for a settlement.
+
+        Matched on ``user_remark`` rather than the tracking field so the query is
+        identical before and after the tracking field exists.
+        """
+        return frappe.get_all(
+            "Journal Entry",
+            filters={"user_remark": ["like", f"%{settlement_id}%"], "docstatus": 1},
+            fields=["name", "total_debit"],
+        )
+
+    def _bt_comments(self, bank_transaction_name):
+        return [
+            (c.get("content") or "")
+            for c in frappe.get_all(
+                "Comment",
+                filters={
+                    "reference_doctype": "Bank Transaction",
+                    "reference_name": bank_transaction_name,
+                },
+                fields=["content"],
+            )
+        ]
+
     def _mollie_payment(self, payment_id=None, value="25.00", invoice_id=None, description=None):
         p = {
             "id": payment_id or f"tr_{frappe.generate_hash(length=10)}",
@@ -364,28 +431,6 @@ class TestCreateReconciliationMollieBranchProduction(MollieBase):
     AFTER ``process_mollie_settlement`` has already inserted and SUBMITTED the
     Payment Entries and the fee Journal Entry, which are not rolled back.
     """
-
-    def _bt_comments(self, bank_transaction_name):
-        return [
-            (c.get("content") or "")
-            for c in frappe.get_all(
-                "Comment",
-                filters={
-                    "reference_doctype": "Bank Transaction",
-                    "reference_name": bank_transaction_name,
-                },
-                fields=["content"],
-            )
-        ]
-
-    def _match(self, settlement_id, amount="30.00"):
-        return {
-            "type": "mollie_settlement",
-            "reference": settlement_id,
-            "confidence": 0.98,
-            "match_reason": "Mollie settlement exact match",
-            "settlement_data": {"id": settlement_id, "amount": {"value": amount, "currency": "EUR"}},
-        }
 
     @contextlib.contextmanager
     def _boom_client(self, message="mollie api down"):
@@ -626,7 +671,7 @@ class TestCreateReconciliationMollieBranchProduction(MollieBase):
         bt = self._make_bank_transaction(
             deposit=28.50, date=today(), bank_account=self._eur_bank_account, status="Pending"
         )
-        match = self._match("stl_FEEBOOM", amount="28.50")
+        match = self._match("stl_FEEBOOM", amount="28.50", stated_costs="1.50")
         payment = self._mollie_payment(value="30.00", invoice_id=it["invoice"].name)
         with self._mollie_settings(
             clearing_account=clearing, fees_account="Mollie Fees Account That Does Not Exist"
@@ -671,40 +716,6 @@ class TestSettlementIdempotency(MollieBase):
     settlements in a +/-3 day window -- so the same settlement is re-matched and the
     bogus Journal Entry re-booked on every run.
     """
-
-    def _fee_journal_entries(self, settlement_id):
-        """Fee Journal Entries for a settlement.
-
-        Matched on ``user_remark`` rather than the tracking field so the query is
-        identical before and after the tracking field exists.
-        """
-        return frappe.get_all(
-            "Journal Entry",
-            filters={"user_remark": ["like", f"%{settlement_id}%"], "docstatus": 1},
-            fields=["name", "total_debit"],
-        )
-
-    def _bt_comments(self, bank_transaction_name):
-        return [
-            (c.get("content") or "")
-            for c in frappe.get_all(
-                "Comment",
-                filters={
-                    "reference_doctype": "Bank Transaction",
-                    "reference_name": bank_transaction_name,
-                },
-                fields=["content"],
-            )
-        ]
-
-    def _match(self, settlement_id, amount):
-        return {
-            "type": "mollie_settlement",
-            "reference": settlement_id,
-            "confidence": 0.98,
-            "match_reason": "Mollie settlement exact match",
-            "settlement_data": {"id": settlement_id, "amount": {"value": amount, "currency": "EUR"}},
-        }
 
     def test_unmatched_settlement_never_books_a_fee_entry(self):
         """No payment resolved to an invoice -> nothing was reconciled -> there are no
@@ -759,13 +770,15 @@ class TestSettlementIdempotency(MollieBase):
 
         with self._mollie_settings(clearing_account=clearing, fees_account=fees):
             with self._stub_client(payments=[payment]):
-                ok = self.mgr.create_reconciliation(self._txn_dict(bt), self._match(settlement_id, "28.50"))
+                ok = self.mgr.create_reconciliation(
+                    self._txn_dict(bt), self._match(settlement_id, "28.50", stated_costs="1.50")
+                )
                 self.assertTrue(ok)
                 after_first = self._fee_journal_entries(settlement_id)
                 # A fresh manager, as the next scheduled run would use (the in-memory
                 # dedup set is empty; the DB-backed guard still sees the submitted PE).
                 btr.PaymentReconciliationManager().create_reconciliation(
-                    self._txn_dict(bt), self._match(settlement_id, "28.50")
+                    self._txn_dict(bt), self._match(settlement_id, "28.50", stated_costs="1.50")
                 )
                 after_second = self._fee_journal_entries(settlement_id)
 
@@ -854,38 +867,13 @@ class TestPartiallyAllocatedSettlement(MollieBase):
     settlement is COMPLETE, and therefore whether it is safe to close it out.
     """
 
-    def _fee_journal_entries(self, settlement_id):
-        return frappe.get_all(
-            "Journal Entry",
-            filters={"user_remark": ["like", f"%{settlement_id}%"], "docstatus": 1},
-            fields=["name", "total_debit"],
-        )
-
-    def _bt_comments(self, bank_transaction_name):
-        return [
-            (c.get("content") or "")
-            for c in frappe.get_all(
-                "Comment",
-                filters={
-                    "reference_doctype": "Bank Transaction",
-                    "reference_name": bank_transaction_name,
-                },
-                fields=["content"],
-            )
-        ]
-
-    def _match(self, settlement_id, amount):
-        return {
-            "type": "mollie_settlement",
-            "reference": settlement_id,
-            "confidence": 0.98,
-            "match_reason": "Mollie settlement exact match",
-            "settlement_data": {"id": settlement_id, "amount": {"value": amount, "currency": "EUR"}},
-        }
-
     def _partial_setup(self, tag):
-        """Two payments worth 50.00 gross, payout 48.50 (1.50 of real Mollie fees).
-        Only the 30.00 payment carries a resolvable invoice reference."""
+        """Two payments worth 50.00, payout 48.50, and Mollie states 1.50 of costs.
+        Only the 30.00 payment carries a resolvable invoice reference.
+
+        The stated fee is the point: it is real and knowable on every run, so a test
+        that finds no fee Journal Entry is saying something about the completeness gate
+        rather than about missing data."""
         self._ensure_eur_company_cost_center()
         clearing = self._make_gl_account(f"Mollie Clearing {tag}", root_type="Asset", account_type="Bank")
         fees = self._make_gl_account(f"Payment Processing Fees {tag}", root_type="Expense")
@@ -909,7 +897,9 @@ class TestPartiallyAllocatedSettlement(MollieBase):
         with self._mollie_settings(clearing_account=clearing, fees_account=fees):
             with self._stub_client(payments=payments):
                 result = self.mgr.process_mollie_settlement(
-                    bt, settlement_id, self._match(settlement_id, "48.50")["settlement_data"]
+                    bt,
+                    settlement_id,
+                    self._match(settlement_id, "48.50", stated_costs="1.50")["settlement_data"],
                 )
 
         self.assertEqual(result["processed_count"], 1)
@@ -934,7 +924,9 @@ class TestPartiallyAllocatedSettlement(MollieBase):
 
         with self._mollie_settings(clearing_account=clearing, fees_account=fees):
             with self._stub_client(payments=payments):
-                ok = self.mgr.create_reconciliation(self._txn_dict(bt), self._match(settlement_id, "48.50"))
+                ok = self.mgr.create_reconciliation(
+                    self._txn_dict(bt), self._match(settlement_id, "48.50", stated_costs="1.50")
+                )
 
         bt.reload()
         comments = self._bt_comments(bt.name)
@@ -951,6 +943,11 @@ class TestPartiallyAllocatedSettlement(MollieBase):
         self.assertTrue(
             any(btr.PaymentReconciliationManager.RETRY_COMMENT_MARKER in c for c in comments),
             f"nothing on the transaction says the settlement is incomplete; comments={comments}",
+        )
+        self.assertEqual(
+            frappe.db.get_value("Bank Transaction", bt.name, "custom_processing_status"),
+            "Partial - Manual Review Required",
+            "an operator has to be able to FILTER for these, not read every Comment",
         )
 
     def test_completing_a_partial_settlement_books_the_true_fee_once(self):
@@ -976,12 +973,14 @@ class TestPartiallyAllocatedSettlement(MollieBase):
 
         with self._mollie_settings(clearing_account=clearing, fees_account=fees):
             with self._stub_client(payments=[first, unresolved]):
-                self.mgr.create_reconciliation(self._txn_dict(bt), self._match(settlement_id, "48.50"))
+                self.mgr.create_reconciliation(
+                    self._txn_dict(bt), self._match(settlement_id, "48.50", stated_costs="1.50")
+                )
             after_first = self._fee_journal_entries(settlement_id)
             with self._stub_client(payments=[first, resolved]):
                 # A fresh manager, as the next scheduled run would use.
                 btr.PaymentReconciliationManager().create_reconciliation(
-                    self._txn_dict(bt), self._match(settlement_id, "48.50")
+                    self._txn_dict(bt), self._match(settlement_id, "48.50", stated_costs="1.50")
                 )
             after_second = self._fee_journal_entries(settlement_id)
 
@@ -1003,6 +1002,64 @@ class TestPartiallyAllocatedSettlement(MollieBase):
             bt.status,
             "Reconciled",
             f"the completed settlement must close the deposit; comments={self._bt_comments(bt.name)}",
+        )
+
+
+# =============================================================================
+# Where the fee AMOUNT comes from
+# =============================================================================
+class TestSettlementFeeSource(MollieBase):
+    """The fee is read from the settlement, not derived from its payments.
+
+    Summing the payments and subtracting the payout looks equivalent, and on a
+    settlement of nothing but payments it is. It stops being equivalent the moment the
+    settlement carries a refund or a chargeback: those are separate Mollie endpoints
+    (``list_settlement_refunds`` / ``list_settlement_chargebacks``) and never appear in
+    ``get_payments_for_settlement``, so ``sum(payments) - payout`` is
+    ``fees + refunds + chargebacks``. The refunded amount would be expensed as a payment
+    processing fee -- and because the fee Journal Entry is the settlement-level
+    idempotency key, no later run can correct it.
+
+    This test exists because every other test in this file has a settlement whose
+    payments minus payout happens to EQUAL the stated fee, so all of them stay green
+    under the wrong arithmetic. Verified: replacing ``_settlement_stated_fee`` with
+    ``sum(payments) - payout`` leaves the other 41 tests passing and fails only this one.
+    """
+
+    def test_a_refund_in_the_settlement_is_not_expensed_as_a_fee(self):
+        """500.00 of payments, a 200.00 refund of an earlier payment, 7.50 of Mollie
+        costs -> a 292.50 payout. Both payments match their invoices, so the settlement
+        is complete and the fee is booked. It must be the 7.50 Mollie states, not the
+        207.50 the payout is short."""
+        self._ensure_eur_company_cost_center()
+        clearing = self._make_gl_account("Mollie Clearing Refund", root_type="Asset", account_type="Bank")
+        fees = self._make_gl_account("Payment Processing Fees Refund", root_type="Expense")
+        first = self._make_member_with_invoice(first_name="MollieRefundA", grand_total=250.0)
+        second = self._make_member_with_invoice(first_name="MollieRefundB", grand_total=250.0)
+        settlement_id = f"stl_REFUND_{frappe.generate_hash(length=6)}"
+        bt = self._make_bank_transaction(
+            deposit=292.50, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        payments = [
+            self._mollie_payment(value="250.00", invoice_id=first["invoice"].name),
+            self._mollie_payment(value="250.00", invoice_id=second["invoice"].name),
+        ]
+
+        with self._mollie_settings(clearing_account=clearing, fees_account=fees):
+            with self._stub_client(payments=payments):
+                result = self.mgr.create_reconciliation(
+                    self._txn_dict(bt), self._match(settlement_id, "292.50", stated_costs="7.50")
+                )
+
+        self.assertTrue(result, f"the settlement is complete; comments={self._bt_comments(bt.name)}")
+        booked = self._fee_journal_entries(settlement_id)
+        self.assertEqual(len(booked), 1, f"one fee entry for a completed settlement: {booked}")
+        self.assertEqual(
+            flt(booked[0].total_debit, 2),
+            7.50,
+            "the fee must be what Mollie stated it charged. 207.50 here means it was "
+            "derived as payments-minus-payout, which books the refunded 200.00 as a "
+            f"processing fee: {booked}",
         )
 
 
@@ -1118,28 +1175,6 @@ class TestSettlementSubmitPermission(MollieBase):
                 )
             )
         return sorted(found)
-
-    def _bt_comments(self, bank_transaction_name):
-        return [
-            (c.get("content") or "")
-            for c in frappe.get_all(
-                "Comment",
-                filters={
-                    "reference_doctype": "Bank Transaction",
-                    "reference_name": bank_transaction_name,
-                },
-                fields=["content"],
-            )
-        ]
-
-    def _match(self, settlement_id, amount="30.00"):
-        return {
-            "type": "mollie_settlement",
-            "reference": settlement_id,
-            "confidence": 0.98,
-            "match_reason": "Mollie settlement exact match",
-            "settlement_data": {"id": settlement_id, "amount": {"value": amount, "currency": "EUR"}},
-        }
 
     def test_without_payment_entry_submit_rights_nothing_is_posted_or_multiplied(self):
         """The reported defect. Two runs by a user who cannot submit Payment Entries

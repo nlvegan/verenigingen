@@ -668,6 +668,10 @@ class PaymentReconciliationManager:
                             f"/{settlement_result['total_payments']} payments. "
                             f"Fees: €{settlement_result['mollie_fees']}"
                         )
+                        if not settlement_result.get("fee_stated", True):
+                            # Silence here would read as "no fees", which is a different
+                            # statement from "Mollie did not say".
+                            summary += " (settlement states no costs; no fee entry booked)"
                     self._add_comment_without_failing(bank_trans, f"Mollie settlement processed: {summary}")
 
                     # A settlement whose payments are only PARTLY allocated to invoices
@@ -690,6 +694,10 @@ class PaymentReconciliationManager:
                                 }
                             )
                         )
+                        # The Select already carries this state, and
+                        # api/sepa_reconciliation.py uses it for the same semantic. Set it
+                        # so an operator can filter for these rather than reading Comments.
+                        self._set_processing_status(bank_trans, "Partial - Manual Review Required")
                         self._comment_transaction_failure(
                             transaction,
                             f"Mollie settlement {settlement_result['settlement_id']} only "
@@ -761,6 +769,12 @@ class PaymentReconciliationManager:
         been replaced -- the fee is now the settlement's gross minus its payout, booked
         only once every payment is accounted for -- but the guard is still what stops a
         completed settlement being re-entered at all.
+
+        This applies to a settlement that RAISED. A settlement that returns normally
+        having allocated only part of its payments does not come through here at all: it
+        goes straight to ``_comment_transaction_failure``, deliberately staying retryable
+        even though it has posted Payment Entries, because the per-payment dedup makes the
+        retry safe and the missing invoices may yet appear.
 
         The discriminator is the posted accounting itself, not where the exception was
         raised: ``process_mollie_settlement`` submits its Payment Entries before it
@@ -972,6 +986,23 @@ class PaymentReconciliationManager:
                 "content": ["like", f"%{self.RETRY_COMMENT_MARKER}%"],
             },
         )
+
+    def _set_processing_status(self, bank_trans, status):
+        """Persist ``custom_processing_status`` without letting it change the outcome.
+
+        A direct write rather than a ``save()``: this runs on the failure path, where the
+        document is deliberately NOT saved, and a validation error raised from here would
+        reach ``_record_settlement_failure`` and mark an otherwise-retryable deposit
+        Unreconciled because a *status label* failed -- the same trap
+        ``_add_comment_without_failing`` exists for.
+        """
+        try:
+            bank_trans.db_set("custom_processing_status", status, update_modified=False)
+        except Exception as e:
+            _log_error_with_traceback(
+                "Bank Transaction Processing Status",
+                f"Could not set processing status {status!r} on {bank_trans.name}: {str(e)}",
+            )
 
     def _add_comment_without_failing(self, bank_trans, content):
         """Add a Comment, never letting its failure change the transaction's fate.
@@ -1405,20 +1436,17 @@ class PaymentReconciliationManager:
 
             # Handle Mollie fees by creating clearing account entries.
             #
-            # The fee is a fact about the settlement -- what Mollie was paid, minus what
-            # Mollie paid out -- and is knowable from the settlement payload however many
-            # invoices were found. `total_reconciled` is NOT that number: it counts only
-            # the payments THIS run matched to an invoice. Deriving the fee from it is
-            # wrong in both directions. On a partial run the value of every unmatched
-            # payment is indistinguishable from a Mollie charge (1 of 2 payments matched,
-            # 30.00 reconciled against a 48.50 payout, and 18.50 is expensed as fees). On
-            # a run that completes a settlement an earlier run started, the payments the
-            # earlier run booked come back as `duplicate` and drop out of it entirely.
+            # The fee is read from the settlement, never derived from what reconciled.
+            # `total_reconciled` counts only the payments THIS run matched to an invoice,
+            # and deriving a fee from it is wrong in both directions: on a partial run the
+            # value of every unmatched payment is indistinguishable from a Mollie charge
+            # (1 of 2 matched, 30.00 reconciled against a 48.50 payout, 18.50 expensed as
+            # fees), and on a run that completes a settlement an earlier run started the
+            # payments the earlier run booked come back as `duplicate` and drop out of it
+            # entirely. See `_settlement_stated_fee` for why the payments cannot be summed
+            # instead.
             settlement_amount = self._safe_decimal(settlement_data.get("amount", {}).get("value", 0))
-            settlement_gross = sum(
-                (self._safe_decimal(p.get("amount", {}).get("value", 0)) for p in payments),
-                Decimal("0"),
-            )
+            stated_fee = self._settlement_stated_fee(settlement_data)
             processed_count = len([p for p in processed_payments if p["status"] == "success"])
 
             # Every payment must be accounted for -- booked by this run (`success`) or by
@@ -1429,9 +1457,10 @@ class PaymentReconciliationManager:
             # later run, and those payments can then never be booked at all.
             unaccounted = [p for p in processed_payments if p["status"] not in ("success", "duplicate")]
             fully_reconciled = bool(payments) and not unaccounted
-            mollie_fees = settlement_gross - settlement_amount if fully_reconciled else Decimal("0")
+            bookable = fully_reconciled and stated_fee is not None
+            mollie_fees = stated_fee if bookable else Decimal("0")
 
-            if fully_reconciled and abs(mollie_fees) > Decimal("0.01"):
+            if bookable and abs(mollie_fees) > Decimal("0.01"):
                 self._create_mollie_fee_entry(bank_trans, mollie_fees, settlement_data)
 
             return {
@@ -1445,8 +1474,11 @@ class PaymentReconciliationManager:
                 # Whether the deposit may be closed out: see the caller, which leaves a
                 # partly-allocated settlement in the retry pool instead of Reconciled.
                 "fully_reconciled": fully_reconciled,
+                # False when the settlement payload carries no costs, i.e. no fee entry
+                # was booked because Mollie did not say what it charged.
+                "fee_stated": stated_fee is not None,
                 "total_reconciled": str(total_reconciled),
-                "settlement_gross": str(settlement_gross),
+                "settlement_amount": str(settlement_amount),
                 "mollie_fees": str(mollie_fees),
                 "details": processed_payments,
             }
@@ -1472,8 +1504,12 @@ class PaymentReconciliationManager:
             "processed_count": 0,
             "failed_count": 0,
             "unmatched_count": 0,
+            "unaccounted_count": 0,
             "total_reconciled": "0",
+            "settlement_amount": "0",
             "mollie_fees": "0",
+            # The fee entry whose existence got us here IS the statement.
+            "fee_stated": True,
             # Complete by definition: the fee entry is only booked once every payment
             # in the settlement is accounted for.
             "fully_reconciled": True,
@@ -1570,6 +1606,53 @@ class PaymentReconciliationManager:
         self._insert_and_submit(payment_entry)
 
         return payment_entry
+
+    def _settlement_stated_fee(self, settlement_data):
+        """What Mollie says it charged for this settlement, or None if it did not say.
+
+        Read from ``periods[<year>][<month>].costs[*].amountNet`` -- Mollie's own figure.
+        Deliberately NOT derived by summing the settlement's payments and subtracting the
+        payout, which is what this code used to do by way of ``total_reconciled``:
+
+        * ``sum(payments) - payout`` is ``fees + refunds + chargebacks``. Refunds and
+          chargebacks are separate endpoints (``list_settlement_refunds`` /
+          ``list_settlement_chargebacks``) and never appear in
+          ``get_payments_for_settlement``, so a settlement carrying one refund would book
+          the refund as a processing fee -- the same fabrication the completeness gate
+          below exists to stop, with different arithmetic underneath it.
+        * a payment's ``amount`` is in the payment's own currency, while the payout is in
+          the settlement's. ``list_settlement_reconciliation`` and
+          ``settlement_bank_transaction_processor`` both read ``settlementAmount`` for
+          exactly that reason.
+        * those two siblings do compute ``payments - refunds - chargebacks``, but their
+          client calls return ``[]`` on failure as well as on "none"
+          (``suppress_errors=True``), so a failed refunds fetch silently overstates the
+          fee. There is no such failure mode in reading a number the payload already
+          carries.
+
+        Returns ``None`` -- distinct from ``Decimal("0")``, which is a real answer -- when
+        the payload carries no costs at all, so the caller can decline to book rather than
+        book a guess. The walk does not assume a nesting depth: the API nests periods by
+        year and then by month, while this app's ``Settlement`` model assumes a single
+        level, and this has never been exercised against a real settlement payload.
+        """
+        found = False
+        total = Decimal("0")
+
+        def walk(node):
+            nonlocal found, total
+            if not isinstance(node, dict):
+                return
+            for item in node.get("costs") or []:
+                net = (item or {}).get("amountNet") or {}
+                if "value" in net:
+                    found = True
+                    total += self._safe_decimal(net["value"], "settlement cost")
+            for value in node.values():
+                walk(value)
+
+        walk(settlement_data.get("periods") or {})
+        return total if found else None
 
     def _create_mollie_fee_entry(self, bank_trans, fee_amount, settlement_data):
         """Create journal entry for Mollie fees"""
