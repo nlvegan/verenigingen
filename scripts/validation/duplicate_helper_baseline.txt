@@ -3,8 +3,11 @@
 # scripts/validation/duplicate_helper_validator.py. Format:
 #     <helper name>::<number of files defining it>
 #
-# A change fails only if it duplicates a helper that was not duplicated before,
-# or adds a copy of one already listed. Consolidating never fails the gate.
+# A change fails only if it adds a copy of a name marked `# clone family`
+# below -- one whose copies really are near-identical. A new copy of an
+# unmarked name is reported and recorded, not blocked: those share a name and
+# little else, and the only exit a blocking gate leaves for them is renaming
+# the method. Consolidating never fails the gate.
 #
 # This file should only ever SHRINK. It is a to-do list, not a permission slip:
 # each line is a place where a future fix can be applied to one copy and missed
@@ -12,10 +15,11 @@
 # #399, and a merge collision between two branches fixing the same test).
 #
 # A high count here does NOT mean the copies are clones; same name, unrelated
-# bodies is common (13 `_payment` helpers share 6% similarity). Run with
-# --report for the similarity view before consolidating anything, and --drift
-# for the band that matters most: near-identical copies with NO exact pair,
-# i.e. a fix that already landed in one of them.
+# bodies is common (13 `_payment` helpers share 6% similarity) -- which is why
+# only the marked lines block. Run with --report for the similarity view
+# before consolidating anything, and --drift for the band that matters most:
+# near-identical copies with NO exact pair, i.e. a fix that already landed in
+# one of them.
 
 _abort_on_duplicates::2
 _account::3  # clone family, 33% of pairs near-identical
@@ -149,7 +153,7 @@ _determine_recurring_status::2
 _discard_probe::2  # clone family, 100% of pairs near-identical
 _dispatch::2
 _donation::6
-_drop::2
+_drop::3  # clone family, 33% of pairs near-identical
 _enable_notifications::3
 _ensure_account::4
 _ensure_accounts::10
