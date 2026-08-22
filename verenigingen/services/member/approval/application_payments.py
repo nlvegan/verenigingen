@@ -7,56 +7,11 @@ import string
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, today
+from frappe.utils import add_days, cint, today
 
 from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
 from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
 from verenigingen.utils.secure_operations import secure_document_operation
-
-# Membership Type.billing_period has its own vocabulary ("Biannual", "Lifetime")
-# while the billing pipeline's coverage functions use billing-frequency names
-# ("Semi-Annual", ...). The same Biannual -> Semi-Annual translation is applied by
-# ContributionAmendmentApprovalService._get_billing_frequency.
-_BILLING_PERIOD_TO_FREQUENCY = {
-    "Daily": "Daily",
-    "Monthly": "Monthly",
-    "Quarterly": "Quarterly",
-    "Biannual": "Semi-Annual",
-    "Annual": "Annual",
-    "Custom": "Custom",
-}
-
-
-def coverage_end_for_billing_period(billing_period, period_start, billing_period_in_months=None):
-    """Last day, INCLUSIVE, of the first billing period starting at period_start.
-
-    Delegates to billing_period_calculator.calculate_coverage_end so this path
-    seeds the coverage sequence that the rest of the billing pipeline continues.
-    Every other path ends a period the day BEFORE the next one starts; computing
-    it here as add_years(start, 1) produced a 366-day period whose last day was
-    already the next period's first day, and CoverageCalculator's sequential
-    branch (which rolls each later period off previous_end + 1) then carried that
-    one-day drift through every subsequent period (#206).
-
-    Args:
-        billing_period: A Membership Type ``billing_period`` value, or empty.
-        period_start: First day of the period.
-        billing_period_in_months: Period length for a Custom billing_period.
-
-    Returns:
-        date: Last day of the period.
-    """
-    from verenigingen.services.billing.billing_period_calculator import calculate_coverage_end
-
-    # Lifetime, blank and anything unrecognised keep this path's long-standing
-    # "default to annual" first period - NOT the Monthly that
-    # calculate_coverage_end falls back to for an unknown frequency.
-    billing_frequency = _BILLING_PERIOD_TO_FREQUENCY.get(billing_period, "Annual")
-
-    if billing_frequency == "Custom":
-        return calculate_coverage_end("Custom", period_start, billing_period_in_months or 12, "Months")
-
-    return calculate_coverage_end(billing_frequency, period_start)
 
 
 def create_membership_invoice_with_amount(member, membership, amount):
@@ -197,6 +152,59 @@ def create_membership_invoice_with_amount(member, membership, amount):
     invoice.reload()
 
     return invoice
+
+
+# Membership Type.billing_period has its own vocabulary ("Biannual", "Lifetime")
+# while the billing pipeline's coverage functions use billing-frequency names
+# ("Semi-Annual", ...). The same Biannual -> Semi-Annual translation is applied by
+# ContributionAmendmentApprovalService._get_billing_frequency.
+_BILLING_PERIOD_TO_FREQUENCY = {
+    "Daily": "Daily",
+    "Monthly": "Monthly",
+    "Quarterly": "Quarterly",
+    "Biannual": "Semi-Annual",
+    "Annual": "Annual",
+    "Custom": "Custom",
+}
+
+
+def coverage_end_for_billing_period(billing_period, period_start, billing_period_in_months=None):
+    """Last day, INCLUSIVE, of the first billing period starting at period_start.
+
+    Delegates to billing_period_calculator.calculate_coverage_end so this path
+    seeds the coverage sequence that the rest of the billing pipeline continues.
+    Every other path ends a period the day BEFORE the next one starts; computing
+    it here as add_years(start, 1) produced a 366-day period whose last day was
+    already the next period's first day, and CoverageCalculator's sequential
+    branch (which rolls each later period off previous_end + 1) then carried that
+    one-day drift through every subsequent period (#206).
+
+    Args:
+        billing_period: A Membership Type ``billing_period`` value, or empty.
+        period_start: First day of the period.
+        billing_period_in_months: Period length for a Custom billing_period.
+
+    Returns:
+        date: Last day of the period.
+    """
+    from verenigingen.services.billing.billing_period_calculator import calculate_coverage_end
+
+    # Lifetime, blank and anything unrecognised keep this path's long-standing
+    # "default to annual" first period - NOT the Monthly that
+    # calculate_coverage_end falls back to for an unknown frequency.
+    billing_frequency = _BILLING_PERIOD_TO_FREQUENCY.get(billing_period, "Annual")
+
+    if billing_frequency == "Custom":
+        # billing_period_in_months is an unvalidated Int, so 0 and negatives both
+        # reach here. calculate_coverage_end turns anything < 1 into a MONTHLY
+        # period, which is not what "Custom" asked for - clamp to the 12-month
+        # default this path has always used instead.
+        months = cint(billing_period_in_months)
+        if months < 1:
+            months = 12
+        return calculate_coverage_end("Custom", period_start, months, "Months")
+
+    return calculate_coverage_end(billing_frequency, period_start)
 
 
 # The Customer Group resolution helper lives in

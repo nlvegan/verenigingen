@@ -323,19 +323,26 @@ class TestApprovalInvoiceSeedsTheCoverageSequence(_InvoicePathBase):
         from verenigingen.services.billing.coverage_calculator import CoverageCalculator
 
         member.reload()
-        result = CoverageCalculator(schedule).calculate_next_coverage_period(member)
+        # use_sequential=True explicitly: the default reads
+        # Verenigingen Settings.enable_sequential_coverage, and this test is about
+        # the sequential branch, not about how the site happens to be configured.
+        result = CoverageCalculator(schedule).calculate_next_coverage_period(member, use_sequential=True)
         self.assertTrue(result.success, getattr(result, "message", None))
         period = result.data
 
         first_start = getdate(invoice.custom_coverage_start_date)
         first_end = getdate(invoice.custom_coverage_end_date)
 
-        # The sequence continues with no gap and no overlap.
-        self.assertEqual(period.start_date, add_days(first_end, 1))
-        # ...and it is still anniversary-aligned: period two starts exactly one
-        # year after period one did. A 366-day first period pushes this to
-        # anniversary + 1 and every later period inherits the drift.
+        # THE assertion. Period two must start on the anniversary of period one.
+        # A 366-day first period pushes it to anniversary + 1, and because the
+        # sequential branch rolls off previous_end + 1, every later period
+        # inherits the drift.
         self.assertEqual(period.start_date, getdate(add_years(str(first_start), 1)))
+        # Weaker, and deliberately second: this one only restates
+        # CoverageCalculator's own `coverage_start = add_days(latest_end, 1)`, so it
+        # moves WITH the bug and cannot detect it. It is here to show the sequence
+        # is unbroken (no gap, no overlap), not to catch #206.
+        self.assertEqual(period.start_date, add_days(first_end, 1))
 
 
 class TestCoverageEndForBillingPeriod(EnhancedTestCase):
@@ -398,8 +405,55 @@ class TestCoverageEndForBillingPeriod(EnhancedTestCase):
                     getdate("2025-12-31"),
                 )
 
-    def test_custom_without_a_month_count_is_twelve_months(self):
+    def test_custom_without_a_usable_month_count_is_twelve_months(self):
+        """billing_period_in_months is an unvalidated Int field.
+
+        calculate_coverage_end turns anything < 1 into a MONTHLY period, so a 0 or
+        a negative must be clamped here or a Custom membership silently becomes a
+        monthly one.
+        """
+        for months in (None, 0, -3):
+            with self.subTest(billing_period_in_months=months):
+                self.assertEqual(
+                    ap.coverage_end_for_billing_period("Custom", "2025-01-01", months),
+                    getdate("2025-12-31"),
+                )
+
+    def test_every_billing_period_option_maps_to_a_real_frequency(self):
+        """The map must cover the DocType, not the options that existed when it was written.
+
+        Membership Type.billing_period is a Select, and the map's fallback is
+        Annual - so adding an option (e.g. Weekly) without adding it here would
+        silently bill that member for a YEAR. Read the options from the meta so the
+        DocType is the authority, not this file.
+        """
+        options = frappe.get_meta("Membership Type").get_field("billing_period").options
+        billing_periods = [opt for opt in (options or "").split("\n") if opt.strip()]
+        # Guard the guard: an empty read would make everything below vacuous.
+        self.assertGreaterEqual(len(billing_periods), 7)
+
+        # Lifetime is the one option with no period of its own; this path bills it a
+        # first Annual period on purpose. Every other option must be mapped.
+        unmapped = [
+            bp for bp in billing_periods if bp != "Lifetime" and bp not in ap._BILLING_PERIOD_TO_FREQUENCY
+        ]
         self.assertEqual(
-            ap.coverage_end_for_billing_period("Custom", "2025-01-01", None),
-            getdate("2025-12-31"),
+            unmapped,
+            [],
+            f"Membership Type.billing_period gained {unmapped}; add them to "
+            f"application_payments._BILLING_PERIOD_TO_FREQUENCY or they are billed annually",
         )
+
+        # And no option may land on calculate_coverage_end's unknown-frequency
+        # Monthly fallback (Monthly itself excepted).
+        from verenigingen.services.billing.billing_period_calculator import calculate_coverage_end
+
+        monthly_end = calculate_coverage_end("Monthly", "2025-03-01")
+        for billing_period in billing_periods:
+            if billing_period == "Monthly":
+                continue
+            with self.subTest(billing_period=billing_period):
+                end = ap.coverage_end_for_billing_period(billing_period, "2025-03-01", 6)
+                self.assertNotEqual(
+                    end, monthly_end, f"{billing_period} fell through to the Monthly fallback"
+                )
