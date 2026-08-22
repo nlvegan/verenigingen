@@ -272,8 +272,10 @@ repos:
       - id: duplicate-helper-validator
         name: 👯 Duplicate Helper Guard (ratchet)
         description: >-
-          Blocks a private module-level helper being copied into a SECOND file, or a
-          copy being added to one already duplicated. A copy-pasted helper is where a
+          Blocks a private helper — function or method — being copied into a SECOND
+          file, or a copy being added to one already duplicated, when the copies are
+          genuinely near-identical. A new copy of a name whose copies share little
+          beyond the name is reported, not blocked. A copy-pasted helper is where a
           fix goes to die: on 2026-08-19 four defects landed or nearly landed because
           a fix was applied to one copy — with a comment explaining exactly why — while
           its siblings kept the bug (#392, #394, #399, plus two branches independently

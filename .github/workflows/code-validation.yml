@@ -307,14 +307,20 @@ jobs:
     # baseline so a new copy is recorded rather than removed. That leaves baseline
     # and tree in sync, and the ratchet green. The only signal is that the baseline
     # GREW -- legitimate solely when the validator's own rules changed in the same PR.
-    - name: Baseline did not grow
+    #
+    # Counts only the lines marked `# clone family`, which is exactly the set the
+    # ratchet blocks on. Counting every line would re-impose the blocking the
+    # validator deliberately stopped doing: a new copy of a name collision is
+    # SUPPOSED to be recorded rather than removed, and failing here for it would
+    # leave the developer the same dead end -- rename the method -- by another door.
+    - name: Clone-family copies did not grow
       if: github.event_name == 'pull_request'
       env:
         BASE_SHA: ${{ github.event.pull_request.base.sha }}
       run: |
         BASELINE=scripts/validation/duplicate_helper_baseline.txt
         VALIDATOR=scripts/validation/duplicate_helper_validator.py
-        total() { grep -v -e '^#' -e '^$' | awk -F'::' '{s+=$NF} END {print s+0}'; }
+        total() { grep -e '# clone family' | awk -F'::' '{s+=$2+0} END {print s+0}'; }
 
         if ! git cat-file -e "$BASE_SHA:$BASELINE" 2>/dev/null; then
           echo "No baseline on the base branch yet — nothing to compare."
@@ -327,13 +333,13 @@ jobs:
 
         before=$(git show "$BASE_SHA:$BASELINE" | total)
         after=$(total < "$BASELINE")
-        echo "helper copies: base=$before  head=$after"
+        echo "clone-family copies: base=$before  head=$after"
         if [ "$after" -gt "$before" ]; then
-          echo "::error file=$BASELINE::Baseline grew from $before to $after without a validator change."
-          echo "A duplicated helper was recorded into the baseline instead of consolidated."
+          echo "::error file=$BASELINE::Clone-family copies grew from $before to $after without a validator change."
+          echo "A near-identical helper was recorded into the baseline instead of consolidated."
           exit 1
         fi
-        echo "Baseline did not grow."
+        echo "Clone-family copies did not grow."
 
   fast-validation:
     runs-on: ubuntu-latest

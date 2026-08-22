@@ -16,11 +16,13 @@ needed -- leaves seven carrying the bug, and nothing says so. Measured on
   and all. The sibling returned 8 rows against an expected 2, on three branches
   (#399).
 
-This does not detect clones -- it counts NAMES. Two same-named helpers may be
-unrelated (there are 13 `_payment` helpers whose bodies share 6% similarity). That
-is fine for a ratchet: the value is that adding a NINTH `_persist_eur_company`
-fails, whatever the existing eight are. Use `--report` for the similarity view when
-deciding what to consolidate.
+The CENSUS counts names, not clones: two same-named helpers may be unrelated (there
+are 13 `_payment` helpers whose bodies share 6% similarity). What FAILS is narrower
+than what is counted. A new copy fails only when the name is a real clone family --
+at least 25% of its pairs near-identical -- and a name collision is reported without
+failing. Blocking on the name alone fired on 60.5% of the last 400 commits that add
+a Python file; this fires on 34.1%, and still fails every case the gate was built
+for. The whole census stays in the baseline as the to-do list. See clone_share().
 
 Restricted to PRIVATE (leading-underscore) helpers on purpose. Frappe requires
 `execute` in every report, `get_context` in every page, `run_tests` in every suite --
@@ -43,6 +45,7 @@ Usage:
 
 import argparse
 import ast
+import copy
 import difflib
 import os
 import sys
@@ -62,6 +65,11 @@ PRUNE_DIRS = {"node_modules", ".git", "__pycache__", "worktrees", ".claude", "ar
 
 # A pair at or above this similarity is treated as a genuine clone in --report.
 CLONE_RATIO = 0.90
+
+# A family this fraction of whose pairs are near-identical is a real clone family,
+# and adding another copy FAILS the gate. Below it the shared name is treated as a
+# coincidence and only reported. See clone_share() for how this was chosen.
+CLONE_SHARE = 0.25
 
 
 def _rel(path: str) -> str:
@@ -96,12 +104,24 @@ def _private_helpers(path: str) -> List[Tuple[str, str]]:
     try:
         with open(path, encoding="utf-8", errors="replace") as handle:
             source = handle.read()
+    except OSError:
+        return []
+    return helpers_in_source(source)
+
+
+def helpers_in_source(source: str) -> List[Tuple[str, str, str]]:
+    """The same walk, over source text rather than a path.
+
+    Split out so the history replay that measures this gate's firing rate can feed
+    blobs straight from `git cat-file`, instead of checking out 400 commits.
+    """
+    try:
         # Parsing someone else's file re-emits their SyntaxWarnings (an invalid
         # escape in a non-raw string, say). Their business, not a finding.
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             tree = ast.parse(source)
-    except (SyntaxError, ValueError, OSError):
+    except (SyntaxError, ValueError):
         return []
 
     def _emit(node, out):
@@ -112,11 +132,11 @@ def _private_helpers(path: str) -> List[Tuple[str, str]]:
         if not node.name.startswith("_") or node.name.startswith("__"):
             return
         try:
-            out.append((node.name, ast.unparse(node)))
+            out.append((node.name, ast.unparse(node), _normalised(node)))
         except Exception:
-            out.append((node.name, ""))
+            out.append((node.name, "", ""))
 
-    out: List[Tuple[str, str]] = []
+    out: List[Tuple[str, str, str]] = []
     for node in tree.body:
         _emit(node, out)
         if isinstance(node, ast.ClassDef):
@@ -126,17 +146,58 @@ def _private_helpers(path: str) -> List[Tuple[str, str]]:
 
 
 
+def _normalised(node) -> str:
+    """`ast.unparse` of the function with its docstring and annotations removed.
+
+    Two copies that differ ONLY by a reworded docstring or by type annotations have
+    not diverged in behaviour, and reporting them as "a fix landed in one of them"
+    is noise -- measured, that was 21 of the 32 two-copy families in the first
+    version of `--drift`. `_mr` and `_ours` differ only by
+    `mid: int, status_id: int=1 -> dict` versus bare parameters; the bodies are
+    character-identical.
+
+    Normalising is NOT the same as ignoring. A docstring difference can be the
+    signal -- this repo's own rule is that the comment explaining a fix is the
+    search query. So the raw form is kept too, and `clone_families` reports
+    docstring/annotation-only differences as their own category rather than
+    folding them into either "identical" or "drifted".
+    """
+    clone = copy.deepcopy(node)
+    for sub in ast.walk(clone):
+        if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            body = sub.body
+            if (
+                body
+                and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)
+            ):
+                sub.body = body[1:] or [ast.Pass()]
+        if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            sub.returns = None
+            args = sub.args
+            for a in (
+                list(args.args)
+                + list(args.posonlyargs)
+                + list(args.kwonlyargs)
+                + [args.vararg, args.kwarg]
+            ):
+                if a is not None:
+                    a.annotation = None
+    return ast.unparse(clone)
+
+
 def _by_name(root: str) -> Dict[str, List[Tuple[str, str]]]:
     found: Dict[str, List[Tuple[str, str]]] = defaultdict(list)
     for path in _iter_python_files(root):
         seen_here = set()
-        for name, body in _private_helpers(path):
+        for name, body, norm in _private_helpers(path):
             # Count FILES, not definitions: a helper redefined inside one module is a
             # different (and more obvious) problem.
             if name in seen_here:
                 continue
             seen_here.add(name)
-            found[name].append((path, body))
+            found[name].append((path, body, norm))
     return found
 
 
@@ -158,12 +219,13 @@ def clone_families(root: str = None):
     for name, copies in _by_name(root).items():
         if len(copies) < 2:
             continue
-        exact = clones = 0
+        exact = clones = cosmetic = 0
         best = 0.0
         worst = 1.0
         for i in range(len(copies)):
             for j in range(i + 1, len(copies)):
-                a, b = copies[i][1], copies[j][1]
+                a, b = copies[i][2], copies[j][2]  # normalised
+                raw_a, raw_b = copies[i][1], copies[j][1]
                 # Two bodies that both failed to unparse are "" == "", and
                 # SequenceMatcher("", "").ratio() is 1.0 -- which would invent a
                 # perfect clone family out of two parse failures. None today, but
@@ -174,6 +236,11 @@ def clone_families(root: str = None):
                 if a == b:
                     exact += 1
                     best = 1.0
+                    # Same code, different docstring or annotations. Worth seeing --
+                    # this repo's rule is that the comment explaining a fix is the
+                    # search query -- but it is not behavioural drift.
+                    if raw_a != raw_b:
+                        cosmetic += 1
                     continue
                 ratio = difflib.SequenceMatcher(None, a, b).ratio()
                 best = max(best, ratio)
@@ -181,12 +248,64 @@ def clone_families(root: str = None):
                 if ratio >= CLONE_RATIO:
                     clones += 1
         if exact + clones:
-            dirs = sorted({os.path.dirname(_rel(p)) for p, _ in copies})
+            dirs = sorted({os.path.dirname(_rel(p)) for p, _, _ in copies})
             families.append(
-                (exact + clones, len(copies), exact, round(best, 2), name, dirs, round(worst, 3))
+                (
+                    exact + clones,
+                    len(copies),
+                    exact,
+                    round(best, 2),
+                    name,
+                    dirs,
+                    round(worst, 3),
+                    cosmetic,
+                )
             )
     families.sort(key=lambda f: (-f[0], -f[1]))
     return families
+
+
+def clone_share(copies) -> float:
+    """What FRACTION of a name's pairs are near-identical, after normalising.
+
+    This is what decides whether a name is a real clone family or a name collision,
+    and so whether adding another copy fails the gate.
+
+    Neither extreme works, and both were measured over the whole tree before this
+    was chosen:
+
+    * The BEST pair is nearly free for a large family and says almost nothing --
+      `_make_member` has 45 copies and 990 pairs, of which 5 reach 0.90, so its best
+      pair is 0.99. Keying on it blocks 45 independently written fixtures.
+    * The WORST pair is too blunt in the other direction. `_persist_eur_company` has
+      17 copies and 136 pairs, of which **50 reach 0.90 and one is byte-identical**,
+      yet its worst pair is 0.13. Keying on the worst pair calls that a name
+      collision -- and it is the case this whole gate leads with (#394: two copies
+      fixed with a docstring recording why, a third missed, eight in total).
+
+    The share separates them: 0.5% for `_make_member`, 3.8% for `_make_donor`,
+    36.8% for `_persist_eur_company`, 100% for the three Mollie fixture helpers.
+
+    CLONE_SHARE is a knob, not a natural boundary. The distribution is strongly
+    bimodal -- 342 of 567 families sit at exactly 0% and 110 at 100% -- but the
+    middle is a continuum, and lowering the threshold to 0.10 would pull in 38 more
+    families (`_ensure_company`, `_make_account`, ...). It is set where it is
+    because it clears every motivating case and every complaint case with room on
+    both sides, not because there is a gap there.
+
+    A pair whose body failed to unparse counts as NOT near-identical, so a parse
+    failure can never be read as a clone -- `SequenceMatcher("", "").ratio()` is 1.0.
+    """
+    pairs = near = 0
+    for i in range(len(copies)):
+        for j in range(i + 1, len(copies)):
+            a, b = copies[i][2], copies[j][2]
+            pairs += 1
+            if not a or not b:
+                continue
+            if a == b or difflib.SequenceMatcher(None, a, b).ratio() >= CLONE_RATIO:
+                near += 1
+    return near / pairs if pairs else 0.0
 
 
 def regressions(counts: Dict[str, int], baseline: Dict[str, int]) -> Dict[str, int]:
@@ -198,13 +317,25 @@ def regressions(counts: Dict[str, int], baseline: Dict[str, int]) -> Dict[str, i
     return {k: v for k, v in counts.items() if v > baseline.get(k, 0)}
 
 
+def split_regressions(new: Dict[str, int], families: Dict):
+    """(blocking, advisory) -- which newly duplicated names actually fail the gate.
+
+    Separate from main() so it can be tested against real source trees rather than
+    against similarity numbers a test made up.
+    """
+    blocking = {n: c for n, c in new.items() if clone_share(families.get(n, [])) >= CLONE_SHARE}
+    return blocking, {n: c for n, c in new.items() if n not in blocking}
+
+
 def load_baseline(path: Path) -> Dict[str, int]:
     out: Dict[str, int] = {}
     if not path.exists():
         return out
     for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
+        # Strip the inline clone-family marker as well as whole-line comments.
+        # A helper name cannot contain '#'.
+        line = line.split("#", 1)[0].strip()
+        if not line:
             continue
         name, _, count = line.rpartition("::")
         if name and count.isdigit():
@@ -212,15 +343,21 @@ def load_baseline(path: Path) -> Dict[str, int]:
     return out
 
 
-def write_baseline(path: Path, counts: Dict[str, int]) -> None:
+CLONE_MARK = "# clone family"
+
+
+def write_baseline(path: Path, counts: Dict[str, int], families: Dict) -> None:
     header = [
         "# Private helpers -- module-level functions AND methods -- defined in more",
         "# than one file. The ratchet baseline for",
         "# scripts/validation/duplicate_helper_validator.py. Format:",
         "#     <helper name>::<number of files defining it>",
         "#",
-        "# A change fails only if it duplicates a helper that was not duplicated before,",
-        "# or adds a copy of one already listed. Consolidating never fails the gate.",
+        "# A change fails only if it adds a copy of a name marked `# clone family`",
+        "# below -- one whose copies really are near-identical. A new copy of an",
+        "# unmarked name is reported and recorded, not blocked: those share a name and",
+        "# little else, and the only exit a blocking gate leaves for them is renaming",
+        "# the method. Consolidating never fails the gate.",
         "#",
         "# This file should only ever SHRINK. It is a to-do list, not a permission slip:",
         "# each line is a place where a future fix can be applied to one copy and missed",
@@ -228,13 +365,23 @@ def write_baseline(path: Path, counts: Dict[str, int]) -> None:
         "# #399, and a merge collision between two branches fixing the same test).",
         "#",
         "# A high count here does NOT mean the copies are clones; same name, unrelated",
-        "# bodies is common (13 `_payment` helpers share 6% similarity). Run with",
-        "# --report for the similarity view before consolidating anything, and --drift",
-        "# for the band that matters most: near-identical copies with NO exact pair,",
-        "# i.e. a fix that already landed in one of them.",
+        "# bodies is common (13 `_payment` helpers share 6% similarity) -- which is why",
+        "# only the marked lines block. Run with --report for the similarity view",
+        "# before consolidating anything, and --drift for the band that matters most:",
+        "# near-identical copies with NO exact pair, i.e. a fix that already landed in",
+        "# one of them.",
         "",
     ]
-    body = [f"{name}::{count}" for name, count in sorted(counts.items())]
+    # Mark the clone families. This is what the gate blocks on, and marking it in
+    # the file is what lets CI's "baseline did not grow" step tell a new copy of a
+    # near-identical helper from a new name collision -- it compares the marked
+    # total, not the raw one. Without the mark that step re-imposes the blocking
+    # this validator just stopped doing.
+    body = []
+    for name, count in sorted(counts.items()):
+        share = clone_share(families.get(name, []))
+        mark = f"  {CLONE_MARK}, {share:.0%} of pairs near-identical" if share >= CLONE_SHARE else ""
+        body.append(f"{name}::{count}{mark}")
     path.write_text("\n".join(header + body) + "\n", encoding="utf-8")
 
 
@@ -267,32 +414,43 @@ def main() -> int:
         # 89 families to a set where the inference is actually true.
         drifted = [f for f in clone_families() if f[2] == 0 and f[6] >= CLONE_RATIO]
         print(f"{'pairs':>5} {'files':>5} {'worst':>6} {'best':>6}  helper")
-        for pairs, files, _exact, best, name, dirs, worst in drifted:
+        for pairs, files, _exact, best, name, dirs, worst, _cos in drifted:
             # `best` is rounded to 2dp, so a 0.997 family printed as 1.00 under a
             # header promising "no exact pair". Show 3dp.
             print(f"{pairs:>5} {files:>5} {worst:>6.3f} {best:>6.3f}  {name}")
             for d in dirs[:4]:
                 print(f"{'':>26}{d}/")
+        cosmetic_only = [f for f in clone_families() if f[2] and f[7] and f[0] == f[2]]
         print(
             f"\n{len(drifted)} families in which EVERY copy is >={CLONE_RATIO:.0%} similar to "
-            "every other and none is identical -- i.e. an edit landed in one of them."
+            "every other and none is identical AFTER normalising away docstrings and\n"
+            "type annotations -- i.e. the CODE diverged, and an edit landed in one of them."
+        )
+        print(
+            f"{len(cosmetic_only)} further families are identical once normalised and differ "
+            "only in docstrings or\nannotations. Not behavioural drift -- but a docstring that "
+            "exists in one copy and not\nits sibling is often the explanation of a fix, which "
+            "this repo treats as a search query."
         )
         return 0
 
     if args.report:
         families = clone_families()
         print(f"{'pairs':>5} {'files':>5} {'exact':>5} {'best':>5}  helper")
-        for pairs, files, exact, best, name, dirs, _worst in families:
+        for pairs, files, exact, best, name, dirs, _worst, _cos in families:
             print(f"{pairs:>5} {files:>5} {exact:>5} {best:>5}  {name}")
             for d in dirs[:4]:
                 print(f"{'':>28}{d}/")
         print(f"\n{len(families)} clone families")
         return 0
 
-    counts = census()
+    # One scan, reused by the writer and by the blocking decision below. census()
+    # would repeat it.
+    families = _by_name(str(REPO_ROOT / SCAN_ROOT))
+    counts = {name: len(v) for name, v in families.items() if len(v) > 1}
 
     if args.update_baseline:
-        write_baseline(args.baseline, counts)
+        write_baseline(args.baseline, counts, families)
         print(
             f"baseline written: {len(counts)} duplicated helpers, "
             f"{sum(counts.values()) - len(counts)} redundant copies"
@@ -301,19 +459,43 @@ def main() -> int:
 
     baseline = load_baseline(args.baseline)
     new = regressions(counts, baseline)
-    if new:
-        print("\n🔴 NEWLY DUPLICATED HELPERS (not in the baseline):")
+
+    # A new copy FAILS the gate only when the name is a real clone family -- at
+    # least CLONE_SHARE of its pairs near-identical (see clone_share()). A name
+    # collision is reported and does not fail.
+    #
+    # Replaying the last 400 commits: blocking on the NAME alone fires on 60.5% of
+    # the 129 commits that add a Python file, and roughly half of those firings are
+    # names whose copies share almost nothing. The only exit a blocking gate leaves
+    # for those is renaming the method, and `_make_member_for_this_test` is a worse
+    # codebase than the duplicate was. This rule fires on 34.1% of the same
+    # commits, and still fails every case the gate was built for.
+    blocking, advisory = split_regressions(new, families)
+
+    def _list(names: Dict[str, int]) -> None:
         print("=" * 60)
-        for name, count in sorted(new.items()):
-            known = baseline.get(name, 0)
-            where = [p for p, _ in _by_name(str(REPO_ROOT / SCAN_ROOT))[name]]
-            print(f"\n{name}  (now in {count} files, baseline {known})")
-            for p in sorted(_rel(x) for x in where):
-                print(f"  {p}")
+        for name, count in sorted(names.items()):
+            print(f"\n{name}  (now in {count} files, baseline {baseline.get(name, 0)})")
+            for path in sorted(_rel(x) for x, _, _ in families[name]):
+                print(f"  {path}")
+
+    if advisory:
+        print("\n⚪ NEWLY DUPLICATED -- name collision only, NOT blocking:")
+        _list(advisory)
         print(
-            "\nA copy-pasted helper is where a fix goes to die: the next person fixes one\n"
-            "of these and the others keep the bug, silently. Import the existing one, or\n"
-            "move it to a shared module.\n\n"
+            "\nThese copies are not near-identical, so the shared name is very likely a\n"
+            "coincidence rather than a copy-paste. Record them and move on:\n"
+            "    python scripts/validation/duplicate_helper_validator.py --update-baseline"
+        )
+
+    if blocking:
+        print("\n🔴 NEWLY DUPLICATED HELPERS (not in the baseline):")
+        _list(blocking)
+        print(
+            "\nEvery copy of these is near-identical to every other, so this is a\n"
+            "copy-paste, and a copy-pasted helper is where a fix goes to die: the next\n"
+            "person fixes one of these and the others keep the bug, silently. Import the\n"
+            "existing one, or move it to a shared module.\n\n"
             "If the duplication is genuinely intended, record it:\n"
             "    python scripts/validation/duplicate_helper_validator.py --update-baseline"
         )

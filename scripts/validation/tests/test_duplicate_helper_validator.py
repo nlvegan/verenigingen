@@ -4,6 +4,7 @@
 Pure-Python (no bench/site needed). Run with:  python -m pytest this_file.py
 or plain:  python scripts/validation/tests/test_duplicate_helper_validator.py
 """
+import difflib
 import importlib.util
 import sys
 import tempfile
@@ -199,13 +200,130 @@ class RatchetTest(unittest.TestCase):
         self.assertFalse(dhv.regressions({"_known": 3}, {"_known": 8}))
 
 
+class BlockingRuleTest(unittest.TestCase):
+    """What the gate FAILS on is narrower than what the census counts.
+
+    A new copy fails only when the name is a real clone family -- at least
+    CLONE_SHARE of its pairs near-identical. Blocking on the name alone fired on
+    60.5% of the last 400 commits that add a Python file; this fires on 34.1%.
+
+    Every test here builds real source files, so the similarity is measured rather
+    than asserted into existence.
+    """
+
+    _BODY = "\n".join(f"    x{i} = {i}" for i in range(10))
+
+    def _same(self, tail=0):
+        """A helper whose body differs from its siblings by one token."""
+        return f"def _helper():\n{self._BODY}\n    return {tail}\n"
+
+    def _different(self, seed):
+        """A helper that shares only the NAME."""
+        lines = "\n".join(f"    y{seed}_{i} = {seed * i!r}" for i in range(10))
+        return f"def _helper():\n{lines}\n    return {seed!r}\n"
+
+    def _split(self, files):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            for rel, src in files.items():
+                q = root / rel
+                q.parent.mkdir(parents=True, exist_ok=True)
+                q.write_text(src)
+            families = dhv._by_name(str(root))
+            counts = {n: len(v) for n, v in families.items() if len(v) > 1}
+            new = dhv.regressions(counts, {})
+            blocking, advisory = dhv.split_regressions(new, families)
+            return blocking, advisory, families
+
+    def test_a_new_copy_of_a_near_identical_family_blocks(self):
+        """The three Mollie fixture helpers of #444: 100% of pairs near-identical."""
+        blocking, _advisory, _f = self._split(
+            {"a.py": self._same(0), "b.py": self._same(1), "c.py": self._same(2)}
+        )
+        self.assertIn("_helper", blocking)
+
+    def test_a_new_copy_of_a_name_collision_does_NOT_block(self):
+        """45 hand-written `_make_member` fixtures are not a fix waiting to be missed."""
+        files = {f"{c}.py": self._different(i) for i, c in enumerate("abcde", start=2)}
+        blocking, advisory, _f = self._split(files)
+        self.assertNotIn("_helper", blocking)
+        self.assertIn("_helper", advisory)
+
+    def test_the_name_collision_case_IS_reported_by_the_old_rule(self):
+        """Control. Without this, the test above passes if nothing is detected at all.
+
+        The census must still SEE the collision -- it stays in the baseline as the
+        to-do list. Only the blocking decision changed.
+        """
+        files = {f"{c}.py": self._different(i) for i, c in enumerate("abcde", start=2)}
+        _blocking, _advisory, families = self._split(files)
+        counts = {n: len(v) for n, v in families.items() if len(v) > 1}
+        self.assertEqual({"_helper": 5}, dhv.regressions(counts, {}))
+
+    def test_a_near_identical_CLUSTER_blocks_even_beside_unrelated_copies(self):
+        """`_persist_eur_company`: 17 copies, 50 of 136 pairs >=0.90, worst pair 0.13.
+
+        It is the case CLAUDE.md leads with (#394: two copies fixed with a docstring
+        recording why, a third missed). A rule keyed on the WORST pair calls this a
+        name collision and stops blocking it -- which is why the rule is keyed on the
+        SHARE of near-identical pairs instead.
+        """
+        files = {
+            "a.py": self._same(0),
+            "b.py": self._same(1),
+            "c.py": self._same(2),
+            "d.py": self._different(9),
+        }
+        blocking, _advisory, families = self._split(files)
+        self.assertIn("_helper", blocking)
+
+        # Control: the worst-pair rule would NOT have blocked it. Without this the
+        # test above is satisfied by any rule at all.
+        copies = families["_helper"]
+        worst = min(
+            difflib.SequenceMatcher(None, copies[i][2], copies[j][2]).ratio()
+            for i in range(len(copies))
+            for j in range(i + 1, len(copies))
+        )
+        self.assertLess(worst, dhv.CLONE_RATIO)
+
+    def test_an_unparseable_body_is_not_counted_as_a_clone(self):
+        """`SequenceMatcher("", "").ratio()` is 1.0, so two parse failures would
+        otherwise be a flawless clone family."""
+        self.assertEqual(0.0, dhv.clone_share([("a.py", "", ""), ("b.py", "", "")]))
+
+    def test_clone_share_of_one_copy_is_zero(self):
+        """No pairs at all must not be a division by zero, nor a clone family."""
+        self.assertEqual(0.0, dhv.clone_share([("a.py", "x", "x")]))
+
+
 class BaselineIOTest(unittest.TestCase):
     def test_a_written_baseline_reads_back_identically(self):
         counts = {"_persist_eur_company": 8, "_payment": 13}
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "baseline.txt"
-            dhv.write_baseline(p, counts)
+            dhv.write_baseline(p, counts, {})
             self.assertEqual(counts, dhv.load_baseline(p))
+
+    def test_the_clone_family_marker_is_ignored_when_reading_back(self):
+        """The marker is an inline comment. Before load_baseline stripped it, the
+        count parsed as "3  # clone family, ..." and the line was silently DROPPED --
+        which would have quietly un-baselined every clone family in the file."""
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "baseline.txt"
+            p.write_text("_a::3  # clone family, 100% of pairs near-identical\n_b::2\n")
+            self.assertEqual({"_a": 3, "_b": 2}, dhv.load_baseline(p))
+
+    def test_a_baseline_written_with_families_marks_the_clone_families(self):
+        with tempfile.TemporaryDirectory() as d:
+            root, p = Path(d), Path(d) / "baseline.txt"
+            body = "\n".join(f"    x{i} = {i}" for i in range(10))
+            for i, c in enumerate("ab"):
+                (root / f"{c}.py").write_text(f"def _twin():\n{body}\n    return {i}\n")
+            families = dhv._by_name(str(root))
+            dhv.write_baseline(p, {"_twin": 2}, families)
+            self.assertIn(dhv.CLONE_MARK, p.read_text())
+            self.assertEqual({"_twin": 2}, dhv.load_baseline(p))
 
     def test_comments_and_blanks_are_ignored(self):
         with tempfile.TemporaryDirectory() as d:
