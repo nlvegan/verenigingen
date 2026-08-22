@@ -20,8 +20,8 @@ The CENSUS counts names, not clones: two same-named helpers may be unrelated (th
 are 13 `_payment` helpers whose bodies share 6% similarity). What FAILS is narrower
 than what is counted. A new copy fails only when the name is a real clone family --
 at least 25% of its pairs near-identical -- and a name collision is reported without
-failing. Blocking on the name alone fired on 60.5% of the last 400 commits that add
-a Python file; this fires on 34.1%, and still fails every case the gate was built
+failing. Blocking on the name alone fired on 61.2% of the last 400 commits that add
+a Python file; this fires on 35.7%, and still fails every case the gate was built
 for. The whole census stays in the baseline as the to-do list. See clone_share().
 
 Restricted to PRIVATE (leading-underscore) helpers on purpose. Frappe requires
@@ -81,9 +81,18 @@ def _rel(path: str) -> str:
 
 
 def _iter_python_files(root: str):
+    """Walk in a SORTED order, so the same tree yields the same result anywhere.
+
+    `os.walk` yields in filesystem order, which differs between machines. That
+    would be harmless if it only changed the print order, but it changes the
+    ANSWER: see _ratio() -- the similarity of a pair depends on which copy is
+    passed first, so the order copies are discovered in moves families across the
+    clone threshold. Measured: `_root` scored 0.33 locally and 0.50 in CI on a
+    byte-identical tree, purely from walk order.
+    """
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in PRUNE_DIRS]
-        for name in filenames:
+        dirnames[:] = sorted(d for d in dirnames if d not in PRUNE_DIRS)
+        for name in sorted(filenames):
             if name.endswith(".py"):
                 yield os.path.join(dirpath, name)
 
@@ -242,7 +251,7 @@ def clone_families(root: str = None):
                     if raw_a != raw_b:
                         cosmetic += 1
                     continue
-                ratio = difflib.SequenceMatcher(None, a, b).ratio()
+                ratio = _ratio(a, b)
                 best = max(best, ratio)
                 worst = min(worst, ratio)
                 if ratio >= CLONE_RATIO:
@@ -265,6 +274,22 @@ def clone_families(root: str = None):
     return families
 
 
+def _ratio(a: str, b: str) -> float:
+    """Similarity of two normalised bodies, independent of which came first.
+
+    `difflib.SequenceMatcher(None, a, b).ratio()` is NOT symmetric -- it builds its
+    b2j index over the SECOND sequence and applies the autojunk heuristic to that
+    one alone. Measured on this tree, `_make_role` has a pair scoring **0.887 one
+    way and 0.825 the other**, straddling CLONE_RATIO, and `_persist_eur_company`
+    has one at 0.434 versus 0.137. So "is this pair a clone" had two answers and
+    which one you got depended on directory order.
+
+    Comparing in a canonical order gives a pair exactly one similarity.
+    """
+    first, second = (a, b) if a <= b else (b, a)
+    return difflib.SequenceMatcher(None, first, second).ratio()
+
+
 def clone_share(copies) -> float:
     """What FRACTION of a name's pairs are near-identical, after normalising.
 
@@ -278,13 +303,13 @@ def clone_share(copies) -> float:
       `_make_member` has 45 copies and 990 pairs, of which 5 reach 0.90, so its best
       pair is 0.99. Keying on it blocks 45 independently written fixtures.
     * The WORST pair is too blunt in the other direction. `_persist_eur_company` has
-      17 copies and 136 pairs, of which **50 reach 0.90 and one is byte-identical**,
+      17 copies and 136 pairs, of which **43 reach 0.90 and one is byte-identical**,
       yet its worst pair is 0.13. Keying on the worst pair calls that a name
       collision -- and it is the case this whole gate leads with (#394: two copies
       fixed with a docstring recording why, a third missed, eight in total).
 
     The share separates them: 0.5% for `_make_member`, 3.8% for `_make_donor`,
-    36.8% for `_persist_eur_company`, 100% for the three Mollie fixture helpers.
+    32% for `_persist_eur_company`, 100% for the three Mollie fixture helpers.
 
     CLONE_SHARE is a knob, not a natural boundary. The distribution is strongly
     bimodal -- 342 of 567 families sit at exactly 0% and 110 at 100% -- but the
@@ -303,7 +328,7 @@ def clone_share(copies) -> float:
             pairs += 1
             if not a or not b:
                 continue
-            if a == b or difflib.SequenceMatcher(None, a, b).ratio() >= CLONE_RATIO:
+            if a == b or _ratio(a, b) >= CLONE_RATIO:
                 near += 1
     return near / pairs if pairs else 0.0
 
@@ -464,11 +489,11 @@ def main() -> int:
     # least CLONE_SHARE of its pairs near-identical (see clone_share()). A name
     # collision is reported and does not fail.
     #
-    # Replaying the last 400 commits: blocking on the NAME alone fires on 60.5% of
+    # Replaying the last 400 commits: blocking on the NAME alone fires on 61.2% of
     # the 129 commits that add a Python file, and roughly half of those firings are
     # names whose copies share almost nothing. The only exit a blocking gate leaves
     # for those is renaming the method, and `_make_member_for_this_test` is a worse
-    # codebase than the duplicate was. This rule fires on 34.1% of the same
+    # codebase than the duplicate was. This rule fires on 35.7% of the same
     # commits, and still fails every case the gate was built for.
     blocking, advisory = split_regressions(new, families)
 

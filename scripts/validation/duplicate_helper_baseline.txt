@@ -51,7 +51,7 @@ _bare_service::2
 _base_row::2
 _batch_fetch_with_chunking::2  # clone family, 100% of pairs near-identical
 _bind_request::4
-_board_lifecycle_notifications_enabled::2
+_board_lifecycle_notifications_enabled::2  # clone family, 100% of pairs near-identical
 _build::3
 _build_caches::2
 _build_chapter_info::2  # clone family, 100% of pairs near-identical
@@ -149,14 +149,14 @@ _detect_and_emit_settings_changes::2
 _detect_execution_context::2
 _detect_namespace::2
 _determine_party_type::2
-_determine_recurring_status::2
+_determine_recurring_status::2  # clone family, 100% of pairs near-identical
 _discard_probe::2  # clone family, 100% of pairs near-identical
 _dispatch::2
 _donation::6
 _drop::3  # clone family, 33% of pairs near-identical
 _enable_notifications::3
 _ensure_account::4
-_ensure_accounts::10
+_ensure_accounts::10  # clone family, 31% of pairs near-identical
 _ensure_active_membership::2
 _ensure_bank_account::13
 _ensure_bank_account_master::2
@@ -164,8 +164,8 @@ _ensure_chapter_role::16
 _ensure_clearing_account::3  # clone family, 33% of pairs near-identical
 _ensure_company::14
 _ensure_company_cost_center::2
-_ensure_cost_center::12  # clone family, 52% of pairs near-identical
-_ensure_current_fiscal_year::5  # clone family, 60% of pairs near-identical
+_ensure_cost_center::12  # clone family, 53% of pairs near-identical
+_ensure_current_fiscal_year::5  # clone family, 30% of pairs near-identical
 _ensure_customer::6
 _ensure_customer_bank_account::2
 _ensure_default_bank_account::2  # clone family, 100% of pairs near-identical
@@ -287,7 +287,7 @@ _load_email_settings::2
 _load_settings_from_db::2
 _load_volunteer::3  # clone family, 100% of pairs near-identical
 _log_blocked_members_summary::2
-_make_account::14
+_make_account::14  # clone family, 31% of pairs near-identical
 _make_acr::3
 _make_active_member::6
 _make_active_schedule::2
@@ -370,7 +370,7 @@ _make_ponto_link::2
 _make_processor::2
 _make_raw::2  # clone family, 100% of pairs near-identical
 _make_request::8
-_make_role::9
+_make_role::9  # clone family, 28% of pairs near-identical
 _make_role_profile::6  # clone family, 80% of pairs near-identical
 _make_root::8  # clone family, 100% of pairs near-identical
 _make_rule::2
@@ -383,7 +383,7 @@ _make_submitted_donation::3  # clone family, 33% of pairs near-identical
 _make_submitted_invoice::7
 _make_submitted_je::2
 _make_submitted_payment_entry::4
-_make_supplier::4  # clone family, 33% of pairs near-identical
+_make_supplier::4
 _make_system_user::2  # clone family, 100% of pairs near-identical
 _make_team::8
 _make_team_role::2
@@ -395,7 +395,7 @@ _make_unpaid_invoice::2
 _make_unprivileged_user::3
 _make_unsubmitted_donation::2  # clone family, 100% of pairs near-identical
 _make_user::19
-_make_user_with_role_profile::2  # clone family, 100% of pairs near-identical
+_make_user_with_role_profile::2
 _make_user_with_roles::3
 _make_user_without_member::4  # clone family, 50% of pairs near-identical
 _make_volunteer::26
@@ -456,7 +456,7 @@ _persist_bank_gl_account::2
 _persist_company::9  # clone family, 25% of pairs near-identical
 _persist_customer::3
 _persist_doc::2  # clone family, 100% of pairs near-identical
-_persist_eur_company::17  # clone family, 37% of pairs near-identical
+_persist_eur_company::17  # clone family, 32% of pairs near-identical
 _persist_isolated_company::2  # clone family, 100% of pairs near-identical
 _persist_ledger_mapping::5
 _persist_settings::3  # clone family, 33% of pairs near-identical
@@ -491,7 +491,7 @@ _restore::3
 _restore_request::2  # clone family, 100% of pairs near-identical
 _restore_settings::6
 _results::2
-_root::4  # clone family, 33% of pairs near-identical
+_root::4  # clone family, 50% of pairs near-identical
 _root_account::2
 _row::5
 _row_for::4  # clone family, 50% of pairs near-identical
@@ -530,7 +530,7 @@ _setup_mollie_clearing_account::3  # clone family, 100% of pairs near-identical
 _setup_mollie_settings::4  # clone family, 100% of pairs near-identical
 _setup_mtls::2
 _setup_role_mapping::2
-_setup_sepa_test_configuration::2  # clone family, 100% of pairs near-identical
+_setup_sepa_test_configuration::2
 _setup_settings::4
 _setup_settings_default_company::2
 _setup_test_settings::3

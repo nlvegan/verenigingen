@@ -297,6 +297,63 @@ class BlockingRuleTest(unittest.TestCase):
         self.assertEqual(0.0, dhv.clone_share([("a.py", "x", "x")]))
 
 
+class DeterminismTest(unittest.TestCase):
+    """The same tree must give the same answer on every machine.
+
+    It did not. `difflib.SequenceMatcher(None, a, b).ratio()` is asymmetric -- it
+    indexes the SECOND sequence and applies autojunk to that one alone -- and
+    `os.walk` yields in filesystem order, so the order copies were discovered in
+    decided which way round each pair was compared. On a byte-identical tree,
+    `_root` scored 0.33 locally and 0.50 in CI, and CI's whole baseline diff was
+    reproducible here just by reshuffling the copies.
+    """
+
+    # These two STRADDLE the clone threshold asymmetrically: 0.8975 compared one
+    # way, 0.9011 the other. So under the raw comparison the pair is a clone or
+    # not depending purely on which copy was walked first -- clone_share is 0.0 one
+    # way and 1.0 the other. test_the_bodies_really_are_asymmetric pins that, so
+    # neither test below can quietly become a tautology.
+    _A = "def _h():\n" + "\n".join(f"    v{i} = {i}" for i in range(20)) + "\n    pass\n"
+    _B = ("def _h():\n" + "\n".join(f"    v{i} = {i}" for i in range(20))
+          + "\n    y = '" + "a" * 46 + "'\n")
+
+    def _bodies(self):
+        """The bodies as clone_share sees them -- it is a pure function over
+        normalised text, so these are used directly. Routing them through
+        ast.unparse first destroys the straddle: it renormalises both to 0.9007 /
+        0.9043, which are on the same side of the threshold and prove nothing."""
+        return self._A, self._B
+
+    def test_the_bodies_really_are_asymmetric(self):
+        """The control. Without it the two tests below pass on any input at all --
+        which is exactly what happened on the first attempt at this suite."""
+        a, b = self._bodies()
+        self.assertNotEqual(
+            difflib.SequenceMatcher(None, a, b).ratio(),
+            difflib.SequenceMatcher(None, b, a).ratio(),
+        )
+
+    def test_the_pair_ratio_is_symmetric(self):
+        a, b = self._bodies()
+        self.assertEqual(dhv._ratio(a, b), dhv._ratio(b, a))
+
+    def test_clone_share_does_not_depend_on_copy_order(self):
+        a, b = self._bodies()
+        forward = [("a.py", "", a), ("b.py", "", b)]
+        self.assertEqual(dhv.clone_share(forward), dhv.clone_share(list(reversed(forward))))
+
+    def test_the_file_walk_is_sorted(self):
+        """Deterministic order is half the fix; without it the pairing still moves."""
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            for name in ("m.py", "a.py", "z.py"):
+                (root / name).write_text("def _h():\n    return 1\n")
+            (root / "sub").mkdir()
+            (root / "sub" / "b.py").write_text("def _h():\n    return 1\n")
+            walked = [Path(p).name for p in dhv._iter_python_files(str(root))]
+            self.assertEqual(["a.py", "m.py", "z.py"], walked[:3])
+
+
 class BaselineIOTest(unittest.TestCase):
     def test_a_written_baseline_reads_back_identically(self):
         counts = {"_persist_eur_company": 8, "_payment": 13}
