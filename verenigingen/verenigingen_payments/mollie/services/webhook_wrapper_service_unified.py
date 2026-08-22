@@ -1667,7 +1667,11 @@ class UnifiedWebhookWrapperService:
             self.logger.info(f"✅ Updated donation {donation.name} status")
             return None
 
-        except Exception as e:
+        # failed-write-ok: reported-elsewhere -- the validator reads a truthy return
+        # as "claims success", but here truthy IS the failure signal: this returns the
+        # REASON on failure and None on success, and both callers branch on it
+        # (`if status_failure:`) to fail the webhook so Mollie re-delivers (#464).
+        except Exception as e:  # failed-write-ok: reported-elsewhere
             self.logger.error("Error updating donation status", error=e)
             return str(e) or type(e).__name__
 
