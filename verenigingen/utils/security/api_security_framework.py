@@ -847,9 +847,23 @@ def _apply_operation_result_http_status(result) -> None:
     cannot do it, because endpoints also ``return OperationResult.fail(...)`` directly without
     passing through its ``except`` branches.
 
-    Deliberately narrow: ``http_status`` is optional and defaults to None, and a result that
-    does not name one keeps its 200. Otherwise every structured failure in the app would start
-    returning a 4xx, which is a far bigger change than the defect.
+    Narrow in one sense and NOT in another, and the second is the one to read before changing
+    a caller. A result that does not name an ``http_status`` keeps its 200, and most
+    ``OperationResult.fail()`` calls in the app name none -- so the 180 endpoints that merely
+    touch OperationResult are untouched. But ``handle_api_error``'s four branches ALWAYS set
+    one (400/403/400/500), so for the 39 endpoints where that decorator can fire, EVERY
+    exception it catches now leaves as a non-200.
+
+    That changes client behaviour, not just a number. Read from frappe/public/js/frappe/
+    request.js (mechanism confirmed at frappe/utils/response.py:150; the JS consequences are
+    read, not observed -- no HTTP request was made against this tree):
+
+      * 500 -> request.js:215 routes to frappe.request.report_error(), i.e. the traceback /
+        report-issue dialog, instead of the endpoint's own friendly message;
+      * 403 -> request.js:150 shows a generic "Not permitted", and for a Guest session calls
+        frappe.app.handle_session_expired() -- a login redirect. One guest-facing endpoint is
+        in scope: membership_application.suggest_chapters_for_postal_code;
+      * 400 -> no statusCode handler, falls through to the generic error path.
 
     This does NOT affect durability. ``frappe/app.py:428`` commits on POST/PUT/DELETE whatever
     the status is; only a raised exception reaches the rollback at ``app.py:147``.
