@@ -37,12 +37,63 @@ from verenigingen.tests.harness_logger import (
 )
 
 # The harness files whose swallowed setup failures started #291/#309. Others in
-# `tests/` log for their own debugging; these log about master data every other
-# test depends on.
+# `tests/` log for their own debugging; these log about a failure OTHER tests
+# depend on -- missing master data, a leaked row, a mutated Single, a guard that
+# stopped guarding. That is the entry test: cross-test consequence, not "this
+# file happens to be clean". A module whose swallowed failure only makes its own
+# assertions vacuous stays off the list; #490 tracks those separately.
+#
+# The ratchet is PER FILE. Pinning `tests/utils/__init__.py` does not cover its
+# siblings, which is why `factories.py` and `cleanup_savepoint.py` are named here
+# individually.
+#
+# Add a file here only once it has ZERO bare `frappe.logger()` calls, or this
+# test fails on it immediately. That -- not the criterion above -- is why three files
+# this change converted are absent: `test_api_regression` (3 left),
+# `test_direct_debit_batch_refactoring` (3) and `test_sepa_xml_compliance` (10, nine of
+# them the handlers that make its tests vacuous, #490). They are candidates, not
+# exclusions, and an earlier revision of this list wrongly described them as excluded on
+# principle.
 HARNESS_FILES = (
     "verenigingen/tests/fixtures/enhanced_test_factory.py",
     "verenigingen/tests/setup/__init__.py",
     "verenigingen/tests/utils/__init__.py",
+    # A Single restored wrongly carries one test's value into every later test in
+    # the shard, and said so nowhere (#433, fixed in #486).
+    "verenigingen/tests/fixtures/singleton_backup.py",
+    # The guard every test's tearDown runs through. If its capture breaks it stops
+    # reporting Error Log rows for the whole suite (#433, fixed in #486).
+    "verenigingen/tests/utils/error_log_guard.py",
+    # A builder cleanup failure leaves submitted rows behind that redden LATER
+    # tests in the same shard -- the #433 leak itself (fixed in #486).
+    "verenigingen/tests/backend/unit/controllers/test_member_controller.py",
+    # A leaked customer/mandate on the SHARED Mollie test account outlives the
+    # run and affects every later run against it (fixed in #486).
+    "verenigingen/verenigingen_payments/mollie/tests/test_recurring_charge_live.py",
+    # Fixture rows this suite fails to delete stay resident on the site and break
+    # later tests, exactly as in #330.
+    "verenigingen/tests/payment/test_sepa_race_condition_manager.py",
+    # Same cleanup shape, and the PRECEDENT this whole change cites -- it already
+    # used get_harness_logger while its sibling above did not. Leaving it unpinned
+    # would mean the one example nothing protects.
+    "verenigingen/tests/payment/test_sepa_reconciliation.py",
+    # The cleanup every builder-driven tearDown runs through. Its swallowed failures
+    # are OTHER tests' leaked rows by definition, and eight call sites discard the
+    # list it returns (#483, #489), so the log is the only record.
+    "verenigingen/tests/utils/factories.py",
+    # The savepoint helper those cleanups rely on. A failed undo means the attempt was
+    # NOT undone while the caller reports only the original error (#499).
+    "verenigingen/tests/utils/cleanup_savepoint.py",
+    # setUpClass writes and COMMITS a Single. When that write fails, its tests read
+    # whatever a previous run committed -- measured on test_site_4, where all four
+    # Verenigingen Payments Settings values were resident from an earlier run while
+    # this suite's own write was failing. That is a cross-RUN consequence.
+    "verenigingen/verenigingen_payments/tests/test_sepa_xml_adapter.py",
+    # Sweeps webhook Users. Its refusal to sweep is the only record that rows other
+    # suites resolve were left behind.
+    "verenigingen/tests/test_webhook_user_setup.py",
+    # Builds board memberships other suites resolve by name.
+    "verenigingen/tests/backend/comprehensive/test_chapter_assignment_comprehensive.py",
 )
 
 

@@ -147,19 +147,23 @@ class SingletonBackup:
 
             self._password_backups[doctype_name] = password_values
 
-            frappe.logger().debug(
-                f"SingletonBackup: Backed up {doctype_name} "
-                f"({len(field_values)} fields, {len(password_values)} passwords)"
+            get_harness_logger("singleton-backup").debug(
+                "Backed up %s (%d fields, %d passwords)",
+                doctype_name,
+                len(field_values),
+                len(password_values),
             )
 
         except Exception as e:
-            frappe.logger().warning(f"SingletonBackup: Failed to backup {doctype_name}: {e}")
+            get_harness_logger("singleton-backup").warning(
+                "Failed to backup %s: %s", doctype_name, e
+            )
 
     def _restore_singleton(self, doctype_name: str) -> None:
         """Restore a single singleton DocType."""
         if doctype_name not in self._backups:
-            frappe.logger().warning(
-                f"SingletonBackup: No backup found for {doctype_name}, skipping restore"
+            get_harness_logger("singleton-backup").warning(
+                "No backup found for %s, skipping restore", doctype_name
             )
             return
 
@@ -187,16 +191,32 @@ class SingletonBackup:
                         fieldname=fieldname,
                     )
                 except Exception as e:
-                    frappe.logger().warning(
-                        f"SingletonBackup: Failed to restore password field "
-                        f"{doctype_name}.{fieldname}: {e}"
+                    # Neither `e` nor `fieldname`. This logger writes to stderr, which
+                    # in CI is a PUBLIC job log, and both are derived from the password
+                    # map: `e` comes out of `set_encrypted_password(..., value, ...)`,
+                    # and CodeQL flags the loop key itself as sensitive
+                    # (py/clear-text-logging-sensitive-data, high -- it was raised
+                    # against both in turn). Conservative on the analyser's side rather
+                    # than arguing that a field name is not a secret: the doctype and
+                    # the failure class are what a reader acts on, and a Single has few
+                    # password fields.
+                    #
+                    # The alert only exists because this stopped being a bare
+                    # `frappe.logger()`, which CodeQL does not recognise as a sink. The
+                    # exposure was always here; nothing was watching.
+                    get_harness_logger("singleton-backup").warning(
+                        "Failed to restore a password field on %s: %s",
+                        doctype_name,
+                        type(e).__name__,
                     )
 
             frappe.db.commit()
 
-            frappe.logger().debug(
-                f"SingletonBackup: Restored {doctype_name} "
-                f"({len(field_values)} fields, {len(password_values)} passwords)"
+            get_harness_logger("singleton-backup").debug(
+                "Restored %s (%d fields, %d passwords)",
+                doctype_name,
+                len(field_values),
+                len(password_values),
             )
 
         except Exception as e:
@@ -206,7 +226,7 @@ class SingletonBackup:
             # frappe.logger() it announced itself only in logs/frappe.log, which
             # CI does not surface (#433).
             get_harness_logger("singleton-backup").error(
-                "SingletonBackup: Failed to restore %s: %s", doctype_name, e
+                "Failed to restore %s: %s", doctype_name, e
             )
 
 
