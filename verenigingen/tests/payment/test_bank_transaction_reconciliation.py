@@ -950,7 +950,12 @@ class TestMatchMollieSettlementEarlyReturns(BTRBase):
                 bank_account=None,
             )
             txn = self._txn_dict(bt)
-            txn["bank_account"] = bank_acc  # force account equality
+            # The gate resolves the configured GL account to its Bank Account (#523), so
+            # this has to be the Bank Account docname. With the GL name here the call
+            # would return None at the ACCOUNT gate and this test would pass without ever
+            # reaching the keyword branch it exists to exercise.
+            txn["bank_account"] = frappe.db.get_value("Bank Account", {"account": bank_acc}, "name")
+            self.assertIsNotNone(txn["bank_account"], "need the Bank Account linked to the GL account")
             self.assertIsNone(self.mgr.match_mollie_settlement(txn))
         finally:
             frappe.db.set_value("Mollie Settings", "Mollie Settings", "mollie_bank_account", None)
@@ -959,7 +964,8 @@ class TestMatchMollieSettlementEarlyReturns(BTRBase):
     def test_returns_none_for_account_mismatch(self):
         bt = self._make_bank_transaction(deposit=100.0, description="mollie settlement", date=today())
         txn = self._txn_dict(bt)
-        txn["bank_account"] = "SOME-OTHER-GL-ACCOUNT"
+        # A Bank Account docname now, since that is the namespace the gate compares in.
+        txn["bank_account"] = "SOME-OTHER-BANK-ACCOUNT"
         self.assertIsNone(self.mgr.match_mollie_settlement(txn))
 
 

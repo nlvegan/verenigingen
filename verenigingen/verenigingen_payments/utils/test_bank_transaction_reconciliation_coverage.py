@@ -257,7 +257,6 @@ class TestMatchMollieSettlementLive(MollieBase):
             bank_account=self._eur_bank_account,
         )
         txn = self._txn_dict(bt)
-        txn["bank_account"] = bank_gl  # force account equality with the configured Mollie account
         settlement = {"id": "stl_TESTMATCH", "amount": {"value": "123.45", "currency": "EUR"}}
         with self._mollie_settings(bank_account=bank_gl):
             with self._stub_client(settlements=[settlement]):
@@ -274,7 +273,6 @@ class TestMatchMollieSettlementLive(MollieBase):
             deposit=1000.00, description="mollie payout", date=today(), bank_account=self._eur_bank_account
         )
         txn = self._txn_dict(bt)
-        txn["bank_account"] = bank_gl
         # 0.5 off 1000 is within the 0.1% tolerance window (1.0) -> within_tolerance.
         settlement = {"id": "stl_TOL", "amount": {"value": "1000.50", "currency": "EUR"}}
         with self._mollie_settings(bank_account=bank_gl):
@@ -289,7 +287,6 @@ class TestMatchMollieSettlementLive(MollieBase):
             deposit=50.00, description="mollie settlement", date=today(), bank_account=self._eur_bank_account
         )
         txn = self._txn_dict(bt)
-        txn["bank_account"] = bank_gl
         settlement = {"id": "stl_NOPE", "amount": {"value": "9999.00", "currency": "EUR"}}
         with self._mollie_settings(bank_account=bank_gl):
             with self._stub_client(settlements=[settlement]):
@@ -305,14 +302,117 @@ class TestMatchMollieSettlementLive(MollieBase):
             bank_account=self._eur_bank_account,
         )
         txn = self._txn_dict(bt)
-        txn["bank_account"] = bank_gl
         with self._mollie_settings(bank_account=bank_gl):
             with self._stub_client(settlements=[{"id": "x", "amount": {"value": "5.00"}}]):
                 self.assertIsNone(self.mgr.match_mollie_settlement(txn))
 
+    # =============================================================================
+    # process_mollie_settlement — the full payment breakdown pipeline (817-979)
 
-# =============================================================================
-# process_mollie_settlement — the full payment breakdown pipeline (817-979)
+    def test_the_account_gate_compares_bank_accounts_not_gl_accounts(self):
+        """The gate must resolve the configured GL account to its Bank Account.
+
+        ``reconcile_bank_transactions`` selects ``Bank Transaction.bank_account``, which is
+        a Link to **Bank Account** (a docname like ``BTR Test Company Account - BTR Test
+        Bank``). ``config.get_bank_account_gl()`` returns ``Mollie Settings.mollie_bank_
+        account``, which is a **GL Account** name (``10440 - Triodos 1 - TPIC``). Comparing
+        them directly can only be equal by naming coincidence: ``Bank Account`` autonames
+        ``account_name + " - " + bank`` and ``Account`` autonames
+        ``account_name + " - " + abbr``. Measured on veg11: 409 Bank Accounts, **zero**
+        where ``name == account``, and zero settlement vouchers across 7,664 Bank
+        Transactions -- the gate had never once passed (#523).
+
+        Both directions are asserted, because either one alone is satisfied in the buggy
+        world too: under the old code the GL name matched and the Bank Account name did
+        not, so a test asserting only "the Bank Account name matches" would look like a
+        fixture problem, and one asserting only "the GL name does not match" passed before
+        the fix. Together they pin the namespace.
+        """
+        bank_gl = frappe.db.get_value("Company", self.company, "default_bank_account")
+        linked_bank_account = frappe.db.get_value("Bank Account", {"account": bank_gl}, "name")
+        self.assertEqual(
+            linked_bank_account,
+            self._eur_bank_account,
+            "precondition: the suite's Bank Account is the one linked to this GL account",
+        )
+        self.assertNotEqual(linked_bank_account, bank_gl, "precondition: the two namespaces really do differ")
+
+        settlement = {"id": "stl_NAMESPACE", "amount": {"value": "77.00", "currency": "EUR"}}
+        bt = self._make_bank_transaction(
+            deposit=77.00,
+            description="Mollie settlement payout",
+            date=today(),
+            bank_account=self._eur_bank_account,
+        )
+
+        with self._mollie_settings(bank_account=bank_gl):
+            with self._stub_client(settlements=[settlement]):
+                # The real shape: the transaction carries a Bank Account docname.
+                on_bank_account = self.mgr.match_mollie_settlement(self._txn_dict(bt))
+
+                # And a transaction whose account is the GL NAME is not this account.
+                as_gl_name = self._txn_dict(bt)
+                as_gl_name["bank_account"] = bank_gl
+                on_gl_name = self.mgr.match_mollie_settlement(as_gl_name)
+
+        self.assertIsNotNone(
+            on_bank_account,
+            "a deposit on the Bank Account linked to the configured Mollie GL account "
+            "must match; comparing the GL account name against Bank Transaction."
+            "bank_account never matches, so this gate rejected every transaction",
+        )
+        self.assertEqual(on_bank_account["reference"], "stl_NAMESPACE")
+        self.assertIsNone(
+            on_gl_name,
+            "a GL account name is not a Bank Account docname and must not match -- if it "
+            "does, the comparison is still being made in the wrong namespace",
+        )
+
+    def test_a_configured_gl_account_with_no_bank_account_record_is_reported(self):
+        """A GL account with no Bank Account record must SAY so, not fail silently.
+
+        The guard is behaviourally redundant -- with no Bank Account resolved, the
+        comparison against the transaction's own account returns None either way -- so its
+        only effect is the Error Log row, and that is what this asserts. A silent gate is
+        exactly how #523 survived: the pipeline simply never matched anything and nothing
+        anywhere said why.
+
+        Asserted by querying Error Log directly. ``expectErrorLog`` is a tearDown
+        TOLERANCE, not an assertion -- it permits a row, it does not require one -- so it
+        cannot stand in for this.
+        """
+        self.expectErrorLog("No Bank Account record is linked")
+        orphan_gl = self._make_gl_account("Mollie Orphan GL", root_type="Asset", account_type="Bank")
+        self.assertIsNone(
+            frappe.db.get_value("Bank Account", {"account": orphan_gl}, "name"),
+            "precondition: nothing is linked to this GL account",
+        )
+        bt = self._make_bank_transaction(
+            deposit=55.00,
+            description="Mollie settlement payout",
+            date=today(),
+            bank_account=self._eur_bank_account,
+        )
+        marker = frappe.utils.now_datetime()
+
+        with self._mollie_settings(bank_account=orphan_gl):
+            with self._stub_client(settlements=[{"id": "stl_ORPHAN", "amount": {"value": "55.00"}}]):
+                self.assertIsNone(self.mgr.match_mollie_settlement(self._txn_dict(bt)))
+
+        rows = [
+            r
+            for r in frappe.get_all(
+                "Error Log", filters={"creation": [">=", marker]}, fields=["method", "error"]
+            )
+            if orphan_gl in f"{r.method}\n{r.error}"
+        ]
+        self.assertTrue(
+            rows,
+            "nothing recorded that the configured Mollie bank account has no Bank Account "
+            "record, so an operator has no way to learn why settlements never match",
+        )
+
+
 # =============================================================================
 class TestProcessMollieSettlement(MollieBase):
     def test_success_invoice_match_books_payment_entry(self):
