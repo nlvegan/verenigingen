@@ -1817,10 +1817,17 @@ class PaymentReconciliationManager:
 
         The amount is the BANK's figure (``bank_trans.deposit``), not the settlement's
         stated ``amount``. The bank statement is the authority for what arrived in the
-        bank, and the matcher admits a settlement within a tolerance, so the two can
-        differ. Booking the bank's number means a real discrepancy shows up as a
-        residual in clearing for an operator to look at, rather than being silently
-        absorbed into a leg that claims to be the payout.
+        bank, and the matcher admits a settlement within a tolerance (0.1%), so the two
+        can differ. Booking the bank's number keeps the physical bank account equal to
+        what the statement says and leaves any difference as a residual in the clearing
+        BALANCE, instead of absorbing it into a leg that claims to be the payout. Using
+        the settlement's stated amount would be strictly worse: it would put a number
+        the bank never received into the one account that must reconcile to a statement.
+
+        Note what this does NOT do: nothing announces that residual. It is visible in
+        the clearing account's balance and nowhere else -- no comment, no Error Log, no
+        status flag -- so at the matcher's tolerance ceiling a difference can sit in
+        clearing unremarked. Surfacing it is worth doing and is not done here.
         """
         payout = self._safe_decimal(bank_trans.deposit)
         if abs(payout) < Decimal("0.01"):
@@ -1842,18 +1849,18 @@ class PaymentReconciliationManager:
             )
             return None
 
-        # A single account configured as both sides is a real deployment state (it is
-        # what veg11 holds today) and a transfer from an account to itself is not an
-        # entry worth making: it posts two rows that cancel and ERPNext rejects the
-        # equivalent Payment Entry outright. Book nothing and say so, rather than
-        # inventing a no-op voucher.
+        # One account configured as both sides needs no payout leg, and this is NOT a
+        # misconfiguration: with no intermediate account there is nothing to drain.
+        # `_create_mollie_payment_entry` sets `paid_to = clearing`, so the payments land
+        # directly in the bank account and the fee reduces it, leaving exactly the
+        # deposit -- measured, and asserted by
+        # `test_one_account_configured_as_both_sides_needs_no_payout_leg`. A transfer
+        # from an account to itself would post two rows that cancel.
+        #
+        # Deliberately NOT logged. veg11 is in this configuration today, so an Error Log
+        # row here would fire on every settlement to report a ledger that is already
+        # correct.
         if clearing_account == bank_account:
-            _log_error_with_traceback(
-                "Mollie Settlement Bank Leg",
-                f"Mollie clearing and bank accounts are both {clearing_account!r}; "
-                "the settlement payout leg was not booked. Configure them as separate "
-                "accounts in Mollie Settings.",
-            )
             return None
 
         # As in `_create_mollie_fee_entry`: refuse before inserting, because an

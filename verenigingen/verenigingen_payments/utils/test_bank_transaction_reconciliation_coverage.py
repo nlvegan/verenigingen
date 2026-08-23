@@ -1603,6 +1603,20 @@ class TestSettlementBankLeg(MollieBase):
     presence of a voucher, because that is the thing that has to be true regardless of
     how the leg is booked. Each test builds a FRESH clearing account, so every GL row
     on it belongs to this settlement and the net is exact.
+
+    SCOPE of "nets to zero": it holds for a settlement whose components are payments and
+    Mollie's stated costs, which is what these tests build. It is NOT the general
+    invariant. A settlement containing refunds or chargebacks nets those off the payout,
+    and this pipeline books neither -- `_settlement_stated_fee`'s own docstring notes they
+    arrive on separate endpoints -- so clearing legitimately retains them. Nor does it
+    hold while Mollie has not yet stated its costs (see the re-run test, which asserts
+    the fee residual instead). The general form is
+
+        gross - stated_fee - payout == refunds + chargebacks + tolerance slack
+
+    and zero is the case where the right-hand side is empty. Stated because a test named
+    for an invariant is how the next reader learns what the invariant is, and this one is
+    narrower than its name.
     """
 
     def _clearing_net(self, account):
@@ -1630,6 +1644,9 @@ class TestSettlementBankLeg(MollieBase):
         (a test satisfied before the code under test runs, #475). So the gross debit
         and the bank-side debit are asserted too. All three have to hold together:
         the payments booked, the payout left clearing, and it landed in the bank.
+
+        This settlement is payments-plus-fee only, which is the case where zero is the
+        right answer -- see the class docstring for why that is narrower than it sounds.
         """
         self._ensure_eur_company_cost_center()
         clearing = self._make_gl_account("Mollie Clearing Leg", root_type="Asset", account_type="Bank")
@@ -1848,15 +1865,21 @@ class TestSettlementBankLeg(MollieBase):
             "the payout leg must be the voucher the deposit is allocated to",
         )
 
-    def test_one_account_configured_as_both_sides_books_no_payout_leg(self):
-        """clearing == bank is a real deployment state and must not produce a no-op entry.
+    def test_one_account_configured_as_both_sides_needs_no_payout_leg(self):
+        """clearing == bank needs no payout leg, because the ledger is ALREADY right.
 
         veg11's Mollie Settings holds exactly this today: ``mollie_clearing_account`` and
-        ``mollie_bank_account`` are the same account. A transfer from an account to
-        itself posts two rows that cancel, so the leg is skipped and the misconfiguration
-        is logged rather than papered over with a voucher that moves nothing.
+        ``mollie_bank_account`` are the same account. With one account there is no
+        intermediate to drain -- ``_create_mollie_payment_entry`` sets
+        ``paid_to = clearing``, so the payments land directly in the bank account and the
+        fee reduces it, leaving exactly the deposit. A transfer from an account to itself
+        would post two rows that cancel.
+
+        So this asserts the ACCOUNTING, not merely that a voucher was skipped: the single
+        account must end at the deposit. Asserting only "no payout leg" would pass just as
+        well if the skip were wrong for the reason the code originally claimed (a
+        misconfiguration to be logged and warned about) as if it were right.
         """
-        self.expectErrorLog("Mollie clearing and bank accounts are both")
         self._ensure_eur_company_cost_center()
         one = self._make_gl_account("Mollie One Account", root_type="Asset", account_type="Bank")
         fees = self._make_gl_account("Payment Processing Fees One", root_type="Expense")
@@ -1875,6 +1898,14 @@ class TestSettlementBankLeg(MollieBase):
             self._payout_entries(settlement_id),
             [],
             "a transfer from an account to itself must not be booked",
+        )
+        # 30.00 gross debited by the Payment Entry, 2.50 credited by the fee entry.
+        self.assertEqual(
+            self._clearing_net(one),
+            27.50,
+            "with a single account the payments land straight in the bank account and "
+            "the fee reduces it, so it must already hold exactly the deposit -- there is "
+            "nothing for a payout leg to move",
         )
 
     def test_a_payout_leg_alone_counts_as_posted_accounting(self):
