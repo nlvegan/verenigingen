@@ -40,6 +40,7 @@ from frappe.tests.utils import FrappeTestCase
 from werkzeug.test import EnvironBuilder
 from werkzeug.wrappers import Request
 
+from verenigingen.tests.utils import ledger_rows
 from verenigingen.tests.utils.error_log_guard import ErrorLogGuardMixin
 
 
@@ -280,19 +281,15 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 print(f"     - {doc['doctype']}: {doc['name']}")
                 print(f"       Error: {error[:100]}{'...' if len(error) > 100 else ''}")
 
-    # Ledgers that key rows to a parent by (voucher_type, voucher_no) and are NOT
-    # removed when that parent is deleted. Deliberately data-driven rather than a
-    # list of voucher doctypes: the set of things that post to the ledger grows
-    # with every erpnext release, and a stale allowlist fails open -- silently
-    # stranding rows again.
-    LEDGER_DOCTYPES = ("GL Entry", "Payment Ledger Entry")
+    # Both test bases need this and neither can inherit the other's teardown, so it
+    # lives in tests/utils/ledger_rows.py and is re-exported here. Stating it twice is
+    # what #482 was: the carve-out below existed in this class only, while the
+    # docstring cross-referencing the sibling claimed they agreed.
+    LEDGER_DOCTYPES = ledger_rows.LEDGER_DOCTYPES
 
     def _has_ledger_rows(self, doctype, name):
         """True when deleting this document would strand ledger rows behind it."""
-        return any(
-            frappe.db.exists(ledger, {"voucher_type": doctype, "voucher_no": name})
-            for ledger in self.LEDGER_DOCTYPES
-        )
+        return ledger_rows.has_ledger_rows(doctype, name)
 
     def _cancel_if_submitted(self, doctype, name):
         """Cancel a submitted document so the delete below can remove it.
@@ -823,8 +820,7 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         not neutral: the naming series rewinds and hands the name to the next
         voucher, which then owns rows it never posted.
         """
-        for ledger in self.LEDGER_DOCTYPES:
-            frappe.db.delete(ledger, {"voucher_type": doctype, "voucher_no": name})
+        return ledger_rows.purge_ledger_rows(doctype, name)
 
     @staticmethod
     def get_test_region_name():

@@ -196,6 +196,7 @@ from frappe.utils import getdate
 
 from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.tests.utils.error_log_guard import ErrorLogGuardMixin
+from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 
 from .field_validator import FieldValidationError, FieldValidator
 
@@ -2056,15 +2057,45 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         return cls.DRAIN_PRIORITY_BY_DOCTYPE.get(doctype, 0)
 
     def _remove_drained_record(self, doctype, name):
-        """Delete one record, cancelling it first if it is submitted.
+        """Delete one record, cancelling it first if it is submitted, then sweep the
+        ledger rows the delete leaves behind.
 
         `frappe.model.delete_doc` runs `check_permission_and_not_submitted(doc)`
         BEFORE its `if not force:` guard, so `force=True` does NOT bypass the
         submitted check -- a submitted document simply cannot be force-deleted.
-        Cancelling first is the only route, and it is also what removes the
-        derived ledger rows (GL Entry, Payment Ledger Entry). Deleting the parent
-        without cancelling would strand those, which is itself a leak: a stranded
-        Payment Ledger Entry is what made a later Sales Invoice undeletable (#328).
+        Cancelling first is the only route.
+
+        Cancelling does NOT remove the derived ledger rows. It WRITES MORE -- the
+        reversals -- and `delete_doc` takes none of them with the parent. An earlier
+        version of this docstring said the opposite, which is why #482 kept being
+        re-derived. Measured on test_site_3, one committed posted invoice through this
+        drain end to end:
+
+            submits recorded during the run   7, not 4
+            after the run                    parent GONE, 2 GL + 1 PLE resident
+            the run itself                   reported OK, no leak recorded
+
+        The surviving rows are not the invoice's original ledger rows -- the
+        captured-insert drain deletes those, because they were captured during the
+        test. They are the REVERSALS this method's own cancel wrote, created after
+        `_captured_inserts` was snapshotted, so nothing drains them and nothing counts
+        them. Which is why exempting GL Entry / Payment Ledger Entry from the drains
+        would make this worse rather than better.
+
+        And they do not merely sit there. `delete_doc` calls `revert_series_if_last()`,
+        so the series rewinds and the next voucher takes the same docname: the same
+        probe run twice produced one voucher_no owning 4 GL / 2 PLE, and the second
+        invoice read them at the moment it posted. A stranded Payment Ledger Entry is
+        what made a later Sales Invoice undeletable (#328).
+
+        So: purge them, using the same helper `VereningingenTestCase` already uses on
+        its customer-cleanup path, and only ever after the parent's own row is gone.
+        NOT the sibling's other rule -- `_cancel_if_submitted` refuses to cancel a
+        ledger-bearing voucher at all and lets the leak be reported under its own name.
+        That is the more conservative choice and it is the right one for a drain that
+        must not silently rewrite accounting, but adopting it here would leave a
+        submitted parent resident in every suite that commits a posted voucher, and
+        move the leak ratchet by an amount nobody has measured (#482 discussion).
         """
         if not frappe.db.exists(doctype, name):
             return
@@ -2076,10 +2107,8 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # those raises ("Individual GL Entry cannot be cancelled"), turning a delete
         # that previously succeeded into a leak. Child rows inherit docstatus from
         # their parent too, and would be put through a needless cancel/save cycle.
-        if (
-            frappe.get_meta(doctype).is_submittable
-            and frappe.db.get_value(doctype, name, "docstatus") == 1
-        ):
+        is_submittable = frappe.get_meta(doctype).is_submittable
+        if is_submittable and frappe.db.get_value(doctype, name, "docstatus") == 1:
             doc = frappe.get_doc(doctype, name)
             doc.flags.ignore_permissions = True
             doc.flags.ignore_links = True
@@ -2112,6 +2141,25 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 raise
 
         frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+
+        # Only after the parent's row is gone -- that is `purge_ledger_rows`' contract,
+        # and it is what makes deleting real GL rows safe: there is no live voucher left
+        # for them to belong to. Gated on `is_submittable` so an ordinary row does not
+        # pay two queries per drained document.
+        #
+        # Keyed on voucher_no, so it also removes rows THIS test did not create when the
+        # docname was reused by an earlier run -- observed sweeping 6 where the test had
+        # produced 3. That is the accumulation being cleared, and those rows had no live
+        # parent either; it is why the count is worth logging rather than assuming.
+        if is_submittable:
+            swept = purge_ledger_rows(doctype, name)
+            if swept:
+                logger.warning(
+                    "drain swept %d ledger row(s) stranded by deleting %s %s",
+                    swept,
+                    doctype,
+                    name,
+                )
 
     def setUp(self):
         super().setUp()

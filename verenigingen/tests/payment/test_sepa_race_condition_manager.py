@@ -36,6 +36,7 @@ from frappe.utils import add_to_date, now
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
+from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.utils.error_handling import SEPAError
 from verenigingen.verenigingen_payments.utils.sepa_race_condition_manager import (
     SEPABatchRaceConditionManager,
@@ -583,7 +584,13 @@ class TestBatchCreationInnerLogic(EnhancedTestCase):
                     doc.cancel()
                 frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
             except Exception as exc:  # best effort; a leak must not fail the test
-                frappe.logger().warning(f"race-manager fixture cleanup skipped {doctype} {name}: {exc}")
+                # get_harness_logger, NOT frappe.logger(): this message is the only
+                # record that a fixture row was left on the site, and a bare logger
+                # writes it to logs/frappe.log, which CI does not upload. The same
+                # cleanup shape in test_sepa_reconciliation.py already uses this.
+                get_harness_logger("race-manager").warning(
+                    "fixture cleanup skipped %s %s: %s", doctype, name, exc
+                )
         frappe.db.commit()
 
 

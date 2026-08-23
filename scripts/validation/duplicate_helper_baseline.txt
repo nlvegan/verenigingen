@@ -163,7 +163,6 @@ _ensure_bank_account_master::2
 _ensure_chapter_role::16
 _ensure_clearing_account::3  # clone family, 33% of pairs near-identical
 _ensure_company::14
-_ensure_company_cost_center::2
 _ensure_cost_center::12  # clone family, 53% of pairs near-identical
 _ensure_current_fiscal_year::5  # clone family, 30% of pairs near-identical
 _ensure_customer::6
@@ -487,7 +486,7 @@ _resolve_company::2  # clone family, 100% of pairs near-identical
 _resolve_file_location::2
 _resolve_mapped_folder::2
 _resolve_receivable_account::2
-_restore::3
+_restore::4
 _restore_request::2  # clone family, 100% of pairs near-identical
 _restore_settings::6
 _results::2
@@ -546,6 +545,7 @@ _stage_9_suspension_reactivation::2
 _stub_client::2
 _submitted_batch::2  # clone family, 100% of pairs near-identical
 _submitted_invoice::2
+_territory::2
 _track::8
 _track_created_volunteer::2
 _track_donor::3  # clone family, 100% of pairs near-identical

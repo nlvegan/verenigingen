@@ -14,14 +14,12 @@ import unittest
 from datetime import datetime, timedelta
 from typing import Any, Dict, List
 
-import frappe
-
+# Import the refactored services
+from verenigingen.tests.support.sepa_test_configuration import apply_sepa_test_configuration
 from verenigingen.verenigingen_payments.services.batch_validation_service import (
     ValidationResult,
     batch_validation_service,
 )
-
-# Import the refactored services
 from verenigingen.verenigingen_payments.services.sepa_configuration_service import sepa_config_service
 from verenigingen.verenigingen_payments.utils.sepa_utilities import (
     BatchLoggingUtilities,
@@ -36,27 +34,26 @@ class TestServiceLayerValidation(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Set up test configuration once"""
+        # Hygiene, not a fix: the base is plain unittest.TestCase, whose
+        # setUpClass is a documented no-op ("pass"), so nothing was actually being
+        # skipped before. The call is here so that changing the base class later
+        # cannot silently skip its setup.
+        super().setUpClass()
         cls._setup_minimal_sepa_config()
 
     @classmethod
     def _setup_minimal_sepa_config(cls):
-        """Set up minimal SEPA configuration for testing"""
-        try:
-            settings = frappe.get_single("Verenigingen Settings")
-            settings.sepa_creditor_id = "NL12ZZZ123456789"
-            settings.company_iban = "NL91ABNA0417164300"
-            settings.company_bic = "ABNANL2A"
-            settings.company = "Test Association"
-            settings.save()
-        except Exception as e:
-            print(f"Warning: Could not set up SEPA config: {str(e)}")
+        """Set up minimal SEPA configuration for testing.
 
-        # The SEPA configuration service is a module-level singleton with an
-        # in-process settings cache. A prior test module may have populated that
-        # cache with a different company (e.g. "_Test Company"). Invalidate it
-        # here so this class's tests see the configuration we just wrote and
-        # don't fail on stale cross-module state.
-        sepa_config_service.refresh_settings_cache()
+        Fourth instance of the #466 shape, found by grepping for the class: this
+        wrote ``sepa_creditor_id`` / ``company_iban`` / ``company_bic`` onto
+        *Verenigingen Settings*, where none of them exist, plus
+        ``company = "Test Association"``, which does not exist either -- and
+        swallowed the resulting LinkValidationError into a bare ``print``. The
+        shared helper refreshes the config service's in-process settings cache
+        itself, which is what the note that used to sit here was about.
+        """
+        cls.eur_company = apply_sepa_test_configuration()
 
     def test_sepa_configuration_service_basic_functionality(self):
         """Test basic SEPA Configuration Service functionality"""
