@@ -23,6 +23,7 @@ import unittest
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.harness_logger import get_harness_logger
 
 
 class _DrainProbe(EnhancedTestCase):
@@ -1260,6 +1261,110 @@ class CustomerCleanupMustNotStrandLedgerRowsTest(unittest.TestCase):
         # nothing here tracks, which is why this cleanup finishes the delete.
         self.assertFalse(frappe.db.exists("Sales Invoice", invoice.name))
         self.assertEqual(0, gl_after)
+
+
+class DrainMustNotStrandLedgerRowsTest(unittest.TestCase):
+    """The counterpart of the class above, for the OTHER base. This is #482.
+
+    `VereningingenTestCase._cancel_if_submitted` refuses to cancel a ledger-bearing
+    voucher, and `_cleanup_member_customers` finishes the job with
+    `_purge_ledger_rows`. `EnhancedTestCase._remove_drained_record` had neither, and
+    the docstring that cross-referenced them asserted they agreed.
+
+    What it leaves behind is NOT the invoice's original ledger rows -- the
+    captured-insert drain deletes those, because they were captured during the test.
+    It is the REVERSALS the cancel itself writes, created after `_captured_inserts`
+    was snapshotted, so nothing drains them and nothing counts them. Measured on
+    test_site_3, one committed posted invoice through both drains end to end: seven
+    submits recorded, parent gone, 2 GL + 1 PLE resident, run reported `OK`.
+
+    And they do not merely sit there. `revert_series_if_last` rewinds the series, so
+    the next voucher takes the same docname -- the same probe run twice produced one
+    voucher_no owning 4 GL / 2 PLE, with the second invoice reading them at the moment
+    it posted.
+
+    COMMITTED on purpose, like its sibling: uncommitted, the drain's own pre-rollback
+    erases the invoice and its rows together and there is nothing to strand.
+    """
+
+    def setUp(self):
+        self.created = []
+        self.vouchers = []
+
+    def tearDown(self):
+        for doctype, name in reversed(self.created):
+            try:
+                if frappe.db.get_value(doctype, name, "docstatus") == 1:
+                    frappe.db.set_value(doctype, name, "docstatus", 2, update_modified=False)
+                    frappe.clear_document_cache(doctype, name)
+                frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+            except Exception as e:
+                get_harness_logger("drain-ledger").warning(
+                    "could not clean up %s %s: %s", doctype, name, e
+                )
+        for voucher in self.vouchers:
+            for ledger in ("GL Entry", "Payment Ledger Entry"):
+                try:
+                    frappe.db.delete(ledger, {"voucher_no": voucher})
+                except Exception as e:
+                    get_harness_logger("drain-ledger").warning(
+                        "could not sweep %s for %s: %s", ledger, voucher, e
+                    )
+        frappe.db.commit()
+
+    def test_the_drain_does_not_leave_ledger_rows_naming_a_deleted_voucher(self):
+        probe = _base_probe()  # only to reach create_test_sales_invoice
+        probe._test_docs = []
+        drain = _probe()
+
+        suffix = frappe.generate_hash(length=8)
+        member = frappe.get_doc(
+            {
+                "doctype": "Member",
+                "first_name": "Zzdrain",
+                "last_name": suffix,
+                "email": f"zzdrain.{suffix}@example.com",
+                "contact_number": "+31612345678",
+                "payment_method": "Bank Transfer",
+                "status": "Active",
+            }
+        ).insert()
+        self.created.append(("Member", member.name))
+
+        invoice = probe.create_test_sales_invoice(member=member.name)
+        invoice.submit()
+        frappe.db.commit()
+        self.created.append(("Sales Invoice", invoice.name))
+        self.vouchers.append(invoice.name)
+
+        def ledger_counts():
+            return {
+                ledger: frappe.db.count(
+                    ledger, {"voucher_type": "Sales Invoice", "voucher_no": invoice.name}
+                )
+                for ledger in ("GL Entry", "Payment Ledger Entry")
+            }
+
+        before = ledger_counts()
+        self.assertGreater(
+            before["GL Entry"], 0, "fixture did not post: nothing to strand, nothing to prove"
+        )
+
+        drain._remove_drained_record("Sales Invoice", invoice.name)
+
+        after = ledger_counts()
+        self.assertFalse(
+            frappe.db.exists("Sales Invoice", invoice.name),
+            "precondition: the drain is supposed to have deleted the voucher",
+        )
+        self.assertEqual(
+            {"GL Entry": 0, "Payment Ledger Entry": 0},
+            after,
+            f"the voucher is gone and {after} still name it. Cancelling wrote reversals "
+            f"({before} -> {after} before the sweep) and delete_doc took none of them; "
+            "the series will rewind and hand that docname to the next invoice, which is "
+            "then born owning rows it never posted (#482, #328)",
+        )
 
 
 class ClassFixturesSurviveTheDrainRollbackTest(unittest.TestCase):
