@@ -419,10 +419,27 @@ class PaymentReconciliationManager:
         except frappe.ValidationError:
             return None
 
-        mollie_bank_account_doc = frappe.db.get_value(
-            "Bank Account", {"account": mollie_bank_account}, "name"
+        # Membership of the set, not a resolved docname (#544). Resolving one row is
+        # ambiguous: ERPNext enforces one Bank Account per GL account in
+        # `validate_account()`, reachable only from `validate_is_company_account()` and so
+        # gated on `if self.is_company_account:`, and `account` carries no `unique` flag and
+        # no index. Measured -- inserting flag=1 then flag=0 against one GL account both
+        # succeed, while a second flag=1 is rejected (the control) -- and `Bank Account`
+        # sorts `creation DESC`, so `get_value` returns whichever was created LAST. Six
+        # places in this app create Bank Accounts, some for parties; any one of them writing
+        # this GL account would silently reinstate #523.
+        #
+        # Filtering on `is_company_account: 1` is NOT the fix -- on test_site_4 the only Bank
+        # Account on the company's default GL account has that flag clear, so the filtered
+        # lookup returns None and closes the gate outright.
+        #
+        # Membership needs neither choice: the money lands in the configured GL account
+        # whichever Bank Account names it, and the amount/keyword/settlement checks below do
+        # the discriminating work.
+        mollie_bank_account_docs = frappe.get_all(
+            "Bank Account", filters={"account": mollie_bank_account}, pluck="name"
         )
-        if not mollie_bank_account_doc:
+        if not mollie_bank_account_docs:
             # Configured GL account with no Bank Account record: settlements cannot be
             # matched at all until one exists, and silence is how this went unnoticed for
             # as long as it did.
@@ -434,7 +451,12 @@ class PaymentReconciliationManager:
             )
             return None
 
-        if transaction.get("bank_account") != mollie_bank_account_doc:
+        # NOT redundant with the guard above, contrary to #538's commit message.
+        # `Bank Transaction.bank_account` is not mandatory: with an empty set and a bare
+        # `!=`, `None != None` is False and an accountless transaction falls through to be
+        # matched at 0.98 confidence. `not in` holds in that case. Pinned by
+        # `test_unlinked_gl_account_does_not_match_an_accountless_transaction`.
+        if transaction.get("bank_account") not in mollie_bank_account_docs:
             return None
 
         amount = self._safe_decimal(transaction.get("deposit", 0))

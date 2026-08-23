@@ -119,6 +119,24 @@ class MollieBase(BTRBase):
         acc.insert(ignore_permissions=True)
         return acc.name
 
+    def _make_party_bank_account(self, gl_account):
+        """A NON-company Bank Account on `gl_account`, newer than any existing one.
+
+        Insertable precisely because ERPNext's one-per-GL-account check is gated on
+        `is_company_account` -- see the caller.
+        """
+        bank_name = f"Party Bank {frappe.generate_hash(length=6)}"
+        bank = frappe.new_doc("Bank")
+        bank.bank_name = bank_name
+        bank.insert(ignore_permissions=True)
+        ba = frappe.new_doc("Bank Account")
+        ba.account_name = f"Party Acct {frappe.generate_hash(length=6)}"
+        ba.bank = bank_name
+        ba.is_company_account = 0
+        ba.account = gl_account
+        ba.insert(ignore_permissions=True)
+        return ba.name
+
     def _ensure_eur_company_cost_center(self):
         """Ensure the EUR test company has a default cost center.
 
@@ -308,6 +326,72 @@ class TestMatchMollieSettlementLive(MollieBase):
 
     # =============================================================================
     # process_mollie_settlement — the full payment breakdown pipeline (817-979)
+
+    def test_a_later_party_bank_account_does_not_capture_the_gl_account(self):
+        """A second Bank Account on the same GL account must not shadow the first (#544).
+
+        ERPNext enforces one Bank Account per GL account in `validate_account()`, which is
+        reachable only from `validate_is_company_account()` and so gated on
+        `if self.is_company_account:`. `account` carries no `unique` flag and no index.
+        Measured: flag=1 then flag=0 against one GL account both insert, while a second
+        flag=1 is rejected -- the control. `Bank Account` sorts `creation DESC`.
+
+        So a gate that RESOLVES one docname reads the newest row, and a transaction on the
+        older one silently stops matching: #523 reinstated with no signal. Six places in
+        this app create Bank Accounts, some for parties.
+
+        This reddens under the resolving form, and also under the
+        `is_company_account: 1` filter that looks like the fix -- on test_site_4 the only
+        Bank Account on this GL account has that flag clear, so filtering returns None and
+        closes the gate outright. Membership survives both.
+        """
+        bank_gl = frappe.db.get_value("Company", self.company, "default_bank_account")
+        # Created AFTER the suite's own account, so `creation DESC` prefers it.
+        party_ba_name = self._make_party_bank_account(bank_gl)
+        self.assertEqual(
+            frappe.db.get_value("Bank Account", {"account": bank_gl}, "name"),
+            party_ba_name,
+            "precondition: the resolving lookup must now return the party row, or this "
+            "test cannot detect what it exists to detect",
+        )
+
+        bt = self._make_bank_transaction(
+            deposit=88.88,
+            description="Mollie settlement payout",
+            date=today(),
+            bank_account=self._eur_bank_account,
+        )
+        settlement = {"id": "stl_PARTY", "amount": {"value": "88.88", "currency": "EUR"}}
+        with self._mollie_settings(bank_account=bank_gl):
+            with self._stub_client(settlements=[settlement]):
+                match = self.mgr.match_mollie_settlement(self._txn_dict(bt))
+
+        self.assertIsNotNone(match, "a later party Bank Account captured the GL account and closed the gate")
+        self.assertEqual(match["reference"], "stl_PARTY")
+
+    def test_an_accountless_transaction_is_not_matched(self):
+        """`Bank Transaction.bank_account` is not mandatory, so NULL must not match.
+
+        This passes on `develop` too, via the unlinked-account guard, so it is not evidence
+        of a live defect -- it pins the `not in` semantics against #538's claim that that
+        guard is "behaviourally REDUNDANT". It is not: with the guard removed and a bare
+        `!=`, `None != None` is False and an accountless transaction falls through to be
+        matched at 0.98 confidence (measured). `not in` holds with an empty set, so the two
+        together are defence in depth rather than one of them being spare.
+        """
+        self.expectErrorLog("No Bank Account record is linked")
+        orphan_gl = self._make_gl_account("Mollie Unlinked GL", root_type="Asset", account_type="Bank")
+        self.assertIsNone(
+            frappe.db.get_value("Bank Account", {"account": orphan_gl}, "name"),
+            "precondition: nothing is linked to this GL account",
+        )
+        bt = self._make_bank_transaction(deposit=77.77, description="Mollie settlement payout", date=today())
+        txn = self._txn_dict(bt)
+        txn["bank_account"] = None  # the accountless shape
+
+        with self._mollie_settings(bank_account=orphan_gl):
+            with self._stub_client(settlements=[{"id": "stl_NULLACCT", "amount": {"value": "77.77"}}]):
+                self.assertIsNone(self.mgr.match_mollie_settlement(txn))
 
     def test_the_account_gate_compares_bank_accounts_not_gl_accounts(self):
         """The gate must resolve the configured GL account to its Bank Account.
