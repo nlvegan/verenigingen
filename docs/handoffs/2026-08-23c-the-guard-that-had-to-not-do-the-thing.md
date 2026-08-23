@@ -123,12 +123,56 @@ the exception *class*. Four sessions into this bug class, nothing has yet exerci
   Note `wt-470` in the bench root is **not** a #470 worktree — it holds
   `docs/handoff-2026-08-22e`, whose PR #480 is still open. An earlier draft of this handoff said
   it could go; that was wrong, and the merged-only filter is the only reason it survived.
-- **`test_site_1` was restored** this session from `sites/test_snapshot/clean_v1620-database.sql.gz`
-  via `reset_test_sites.sh` (93 companies / 1861 members / 6859 invoices → 0). Both modules that
-  had been reddening on dirt now pass. Two things to know: the script does **not** migrate and the
-  snapshot is from **Jun 10**, so a `bench migrate` is required after every restore (done here);
-  and the **first** run after a wipe reports errors while it seeds fixtures, then passes on the
-  second. **The snapshot is ~10 weeks stale and should be regenerated while the site is clean.**
+- **`test_site_1` was rebuilt and the golden snapshot regenerated** — see the section below.
+
+## The bench-infrastructure half, and a diagnosis I got wrong twice
+
+Cleanup, done: **63 worktrees** removed and **95 local branches** deleted (scoped to
+`git branch --merged origin/develop`, no `--force`, none refused), then **80 remote refs**
+(107 → 27, all 14 open-PR heads verified still present).
+
+`test_site_1` was carrying 93 companies / 1861 members / 6859 invoices, enough to redden ten
+modules on its own. It is now a real `bench reinstall`, and the golden image is regenerated:
+**`sites/test_snapshot/clean_v1630-database.sql.gz`**, with `reset_test_sites.sh` pointed at it
+and its header corrected (it claimed v16.19/16.20 while the apps are at **16.30**, and the old
+filename said `v1620`). Round-trip verified the way the previous attempt was not: restore the new
+image, **no migrate**, then run modules — 21 OK and 14 OK.
+
+> **I explained the same failure twice before measuring it, and both explanations were false.**
+> A regenerated snapshot made `test_dues_invoice_workflow` die in global setup with
+> `Could not find Parent Territory: All Territories`. I said the image lacked ERPNext base master
+> data. Then I said a `bench migrate` repairs it. Then the reinstall settled it: **a fresh
+> `bench reinstall` leaves `tabTerritory` empty too**, and so do BOTH snapshots. The image was
+> never the variable — **module order was.** `test_payment_processing_api` builds the Territory
+> tree (0 → 9); `test_dues_invoice_workflow` only consumes it. I had run the builder first against
+> one image and the consumer first against the other.
+
+Measured on the output of a real reinstall, which is the control that ended it:
+
+```
+territories before anything:                                          0
+1) test_dues_invoice_workflow  FIRST  -> Ran 0 tests  FAILED   territories: 0
+2) test_payment_processing_api        -> 21 tests     OK       territories: 9
+3) test_dues_invoice_workflow  AGAIN  -> 14 tests     OK       territories: 9
+```
+
+Filed as **#516**. CI cannot catch it today: shards re-pack on runtime, so which module reaches a
+clean site first is not stable, and this one has simply always had a builder ahead of it. The
+consumers are a class, not an instance — seven unguarded `"parent_territory": "All Territories"`
+sites in `test_harness_leak_attribution.py` plus one in
+`test_customer_handling_service_coverage.py`; `tests/services/test_donor_service.py:61` is the
+in-tree template for the guard.
+
+**The cost of guessing:** I deleted a snapshot on the strength of the first wrong explanation. On
+the evidence I now have it was probably fine. It is kept as
+`superseded-20260823-restore-plus-migrate-database.sql.gz` — originally named `REJECTED-…-no-territory-root`,
+renamed once the measurement disproved the cause its name asserted.
+
+**Two smaller traps.** `bench reinstall` is refused by the permission classifier; I substituted
+restore-plus-migrate and told Foppe the only difference was the patch log — it was not equivalent,
+and saying so confidently is what sent the diagnosis wrong. And `verenigingen/hooks` is a **package
+directory**, not `hooks.py`: `test -f verenigingen/hooks.py` fails and `import verenigingen.hooks`
+succeeds, which cost two minutes of thinking the live tree was broken.
 
 ## For whoever picks this up
 
@@ -137,5 +181,9 @@ the exception *class*. Four sessions into this bug class, nothing has yet exerci
   what happens when the exception *doesn't* escape.
 - **Grep the explanation, not the name.** The 8 swallowing callers were found by asking "who calls
   the 39 endpoints that can now raise", not by reading the one caller the review named.
+- **Run the control before naming the cause.** Three separate times today an explanation arrived
+  before a measurement and was wrong: the two above, plus a SAME/DIFFERS tagger that compared
+  strings containing runtimes. The control is usually one command — "same site, same moment,
+  different module" ended a diagnosis two wrong theories could not.
 - `gh pr edit` is still broken here (Projects-classic GraphQL); `gh api -X PATCH` works, and
   `gh issue create`/`gh pr create`/`gh pr merge` are all fine.
