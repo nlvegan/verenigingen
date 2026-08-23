@@ -205,5 +205,8 @@ class ErrorLogGuardMixin:
         )
         if fail_on_error_log_enabled():
             raise AssertionError(summary)
-        frappe.logger().error(summary)
+        # No logger call here on purpose: the `print` below is what a CI reader
+        # actually sees. A bare `frappe.logger().error(summary)` used to sit above
+        # it, writing the same string a second time to logs/frappe.log -- which CI
+        # does not upload -- so it was invisible duplication (#485).
         print(f"WARNING: {summary}")
