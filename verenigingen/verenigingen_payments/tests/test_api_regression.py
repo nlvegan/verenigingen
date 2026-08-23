@@ -25,7 +25,10 @@ import frappe
 from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.tests.harness_logger import get_harness_logger
+from verenigingen.tests.support.sepa_test_configuration import (
+    apply_sepa_test_configuration,
+    verify_sepa_configuration,
+)
 
 # Import API methods to test
 from verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch import (
@@ -47,23 +50,27 @@ class TestDirectDebitBatchAPIRegression(EnhancedTestCase):
 
     @classmethod
     def _setup_test_environment(cls):
-        """Set up minimal test environment"""
-        try:
-            # Ensure we have basic settings
-            settings = frappe.get_single("Verenigingen Settings")
-            if not settings.company:
-                settings.company = "Test Company"
-                settings.save()
+        """Set up minimal test environment.
 
-        except Exception as e:
-            # get_harness_logger, NOT frappe.logger(): a failed environment setup is
-            # the #291/#309 failure mode -- every later assertion runs against master
-            # data that was never created, and the reason went to logs/frappe.log.
-            get_harness_logger("api-regression").warning("Test environment setup failed: %s", e)
+        Fifth instance of the same shape: it set ``company = "Test Company"``, a
+        Company that exists on no test site, behind a ``try/except``. It only ever
+        looked harmless because the ``if not settings.company`` guard skips the
+        write on any warm site, so the failure was reachable exactly where it
+        mattered -- a fresh CI site with the field still empty. Now it owns a real
+        EUR company, and a failure fails the class.
+        """
+        cls.eur_company = apply_sepa_test_configuration()
 
     def setUp(self):
         """Set up each test with fresh data"""
         super().setUp()
+        # Re-assert per test: EnhancedTestCase.setUp re-points Verenigingen
+        # Settings.company at the ERPNext "_Test Company" on EVERY test method, so
+        # setUpClass's configuration is already undone by the time a body runs
+        # (#528). Measured, with the other four callers, under "Callers on
+        # EnhancedTestCase must re-apply this PER TEST" in
+        # tests/support/sepa_test_configuration.
+        self._setup_test_environment()
         self.test_batch = None
         self.test_invoices = []
 
@@ -76,6 +83,17 @@ class TestDirectDebitBatchAPIRegression(EnhancedTestCase):
                 frappe.delete_doc("Direct Debit Batch", self.test_batch.name, force=True)
             except:
                 pass
+
+    def test_an_ordinary_test_body_runs_under_the_sepa_configuration(self):
+        """The property the class-setup test above cannot prove: an ordinary body,
+        which applies nothing itself, is running under the configuration.
+
+        This is the pin for the setUp re-assertion. EnhancedTestCase.setUp reverts
+        Verenigingen Settings.company to "_Test Company" before every test method
+        (#528), so with that line removed this test goes red -- no damage step is
+        needed, the harness supplies the damage on every run.
+        """
+        verify_sepa_configuration(self.eur_company)
 
     def test_create_enhanced_dues_batch_api(self):
         """Test create_enhanced_dues_batch API endpoint"""
