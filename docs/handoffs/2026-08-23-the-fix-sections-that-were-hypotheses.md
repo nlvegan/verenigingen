@@ -103,13 +103,32 @@ the behaviour to reward.
 | #526 | `fix/514-harness-logger-lazy-stream` | merge **with changes** | document or mitigate the class-teardown loss; correct the mutation table (3 red, not 2) |
 | #527 | `fix/513-466-sepa-setup-never-applied` | merge **with changes** | per-test re-assertion in `test_sepa_xml_compliance` + `test_api_regression` (one line each, copying DDB `setUp:91`); broaden the ratchet |
 
-**#526 has one red shard (5/12).** Root cause is `test_tussenvoegsel_name_handling_integration`
-(`full_name 'Jan Bergen63758233217'` should start with `'Jan van Bergen'`); the `writeln`
-`AttributeError` is downstream — a failing `subTest` calls `self.stream.writeln()` and frappe's
-`TestResult.stream` is a raw `TextIOWrapper` on **Python 3.14.7**. Not proven pre-existing: it passes
-locally on develop, and this repo's own baseline header warns that proves nothing. **The baseline has
-0 active entries**, so any failure fails the gate. Decisive evidence is whether #525's or #527's shard
-carrying that module also reddens.
+**#526 has one red shard (5/12), and it is CO-TENANCY, not the diff.** Root cause is
+`test_tussenvoegsel_name_handling_integration` (`full_name 'Jan Bergen63758233217'` should start with
+`'Jan van Bergen'` — the tussenvoegsel is dropped entirely, and the numeric suffix is the factory's
+own uniquifier on `last_name`). The `writeln` `AttributeError` is downstream: a failing `subTest`
+calls `self.stream.writeln()` and frappe's `TestResult.stream` is a raw `TextIOWrapper` on
+**Python 3.14.7** — which is also why the shard reports `Failing: 0, Errors: 1`.
+
+Evidence, now complete:
+
+| run | tests | failing | errors | that test |
+|---|---|---|---|---|
+| #525 shard 3/12 | 1853 | 0 | 0 | **ran and passed** (confirmed by log, not by absence) |
+| #526 shard 5/12 | 1939 | 0 | 1 | failed |
+| local, develop, standalone | 7 | — | — | passed |
+| local, #526 branch, standalone | 7 | — | — | **passed** |
+
+Same base, different packing. It passes standalone against #526's own code, so **the diff does not
+cause it in isolation** — but the baseline header's warning applies: a green local run is not
+evidence. **The baseline has 0 active entries**, so any failure fails the gate and this blocks #526.
+
+**Next step is a bisect over co-tenants, not more local runs.** 25 modules precede the failing one in
+#526's shard 5 and are absent from #525's shard 3. Full list saved at
+`scripts/testing/notes/526-shard5-unique-predecessors.txt` (below). The most suspicious is
+`verenigingen.tests.test_harness_leak_attribution` — it deliberately plants and force-deletes
+fixtures, and it is a file #526 edits. Note `run-tests --module A --module B` silently runs only B,
+so reproducing co-tenancy needs `run-parallel-tests` or a driver script.
 
 **Three unpushed branches**, all reviewed:
 
