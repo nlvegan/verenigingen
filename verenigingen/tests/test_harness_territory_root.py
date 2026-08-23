@@ -24,10 +24,11 @@ shape it enforces.
 
 import ast
 import contextlib
-import pathlib
 import unittest
 
 import frappe
+
+from verenigingen.tests.utils.paths import APP_ROOT
 
 ROOT = "All Territories"
 
@@ -155,10 +156,6 @@ class TerritoryRootIsSeededTest(unittest.TestCase):
         self.assertEqual(1, frappe.db.count("Territory", {"name": ROOT}))
 
 
-def _app_root() -> pathlib.Path:
-    return pathlib.Path(__file__).resolve().parents[2]
-
-
 def _non_harness_test_classes(tree: ast.Module) -> list:
     """Names of test classes in `tree` that reach neither harness base."""
     offenders = []
@@ -204,7 +201,7 @@ class TerritoryConsumersOutsideTheHarnessAreGuardedTest(unittest.TestCase):
     """
 
     def test_every_test_module_naming_the_root_either_inherits_it_or_seeds_it(self):
-        app_root = _app_root()
+        app_root = APP_ROOT
         offenders = []
         checked = 0
         # `test_*.py` only: the harness modules that DEFINE the base classes

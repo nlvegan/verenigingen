@@ -32,6 +32,7 @@ from verenigingen.tests.setup import (
     disable_workflow_action_emails,
     workflow_action_emails_disabled,
 )
+from verenigingen.tests.utils.paths import APP_ROOT
 
 _WORKFLOW_ACTION_PKG = "frappe.workflow.doctype.workflow_action"
 
@@ -75,11 +76,6 @@ UNGUARDED_CALLS = {
         "ensure_fiscal_year_exists",
     },
 }
-
-
-def _app_root() -> Path:
-    """The verenigingen app root, from this file rather than from the cwd."""
-    return Path(__file__).resolve().parents[2]
 
 
 class _WritesAreDropped:
@@ -158,7 +154,7 @@ class SetupCallsAreNotSwallowedTest(unittest.TestCase):
     def test_named_setup_calls_are_not_inside_a_try_except(self):
         offenders = []
         for rel_path, names in UNGUARDED_CALLS.items():
-            path = _app_root() / rel_path
+            path = APP_ROOT / rel_path
             self.assertTrue(path.exists(), f"{rel_path} moved; update this test")
             for name, lineno in _calls_guarded_by_except(path, names):
                 offenders.append(f"{rel_path}:{lineno} {name}()")
