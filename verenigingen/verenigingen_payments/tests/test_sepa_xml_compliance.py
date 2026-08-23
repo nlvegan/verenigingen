@@ -636,9 +636,13 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
                 )
             return None
         except Exception as e:
-            # get_harness_logger, NOT frappe.logger(): returning None here closes the
-            # `if xml_content:` gate in nine test methods, so this message is the only
-            # record that those tests asserted nothing.
+            # NOT the record of the nine vacuous tests, though it reads like it.
+            # Measured on test_site_4: this method is never entered -- 0 occurrences of
+            # this message in a full run -- because generate_sepa_xml_for_batch() throws
+            # first and the nine test bodies swallow that. Their own handlers are what
+            # would have to be converted, and they are still bare frappe.logger()
+            # (#485, #490). Converted anyway because it is the right sink; claiming
+            # nothing about how often it fires.
             get_harness_logger("sepa-xml-compliance").warning("Could not extract XML content: %s", e)
             return None
 

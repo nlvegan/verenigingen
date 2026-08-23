@@ -191,11 +191,20 @@ class SingletonBackup:
                         fieldname=fieldname,
                     )
                 except Exception as e:
+                    # The exception TYPE, not the exception. `e` comes out of
+                    # `set_encrypted_password(..., value, ...)` and CodeQL flags
+                    # interpolating it as clear-text logging of a password
+                    # (py/clear-text-logging-sensitive-data, high). It was invisible
+                    # while this was a bare `frappe.logger()` -- that is not a
+                    # recognised sink -- so routing the record to a real stdlib logger
+                    # is what surfaced it. This logger writes to stderr, which in CI is
+                    # a public job log, so the field name and the failure class are as
+                    # much as this may say.
                     get_harness_logger("singleton-backup").warning(
                         "Failed to restore password field %s.%s: %s",
                         doctype_name,
                         fieldname,
-                        e,
+                        type(e).__name__,
                     )
 
             frappe.db.commit()
