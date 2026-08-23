@@ -29,6 +29,7 @@ import unittest
 import frappe
 
 from verenigingen.tests.utils.paths import APP_ROOT
+from verenigingen.tests.utils.source_probes import called_names
 
 ROOT = "All Territories"
 
@@ -64,14 +65,40 @@ def _territories_deleted(*names):
     both the delete and whatever the code under test inserted, so the tree is
     identical afterwards -- measured on test_site_1: 9 rows before, 9 after,
     same names.
+
+    The row count is checked rather than assumed, because the savepoint is one
+    `commit()` away from being gone. `ensure_erpnext_base_masters()` -- listed in
+    this module's own `_ROOT_SEEDERS` -- commits, and measured on test_site_1: a
+    `frappe.db.commit()` inside a savepoint makes `rollback(save_point=...)` raise
+    `OperationalError (1305, 'SAVEPOINT ... does not exist')` and leaves the write
+    standing. Wire such a seeder into the chain below and this raw DELETE becomes
+    PERMANENT, taking the Territory tree away from every later class in the shard.
+    Nothing on the current path commits; the check is here so that if one ever
+    does, the damage is reported where it happened rather than as a link error in
+    an unrelated module.
     """
+    before = frappe.db.count("Territory")
     frappe.db.savepoint("territory_root_probe")
     try:
         for name in names:
             frappe.db.sql("DELETE FROM `tabTerritory` WHERE name = %s", name)
         yield
     finally:
-        frappe.db.rollback(save_point="territory_root_probe")
+        # Nested `finally`: when the savepoint has been released the rollback
+        # itself raises, so the count has to be taken in a handler that runs
+        # anyway -- otherwise the only signal is a bare `OperationalError 1305`
+        # naming a savepoint, which says nothing about the tree being gone.
+        try:
+            frappe.db.rollback(save_point="territory_root_probe")
+        finally:
+            after = frappe.db.count("Territory")
+            if after != before:
+                raise AssertionError(
+                    f"this probe did not restore tabTerritory: {before} rows before, "
+                    f"{after} after. Something inside the block committed, which released "
+                    "the savepoint and made the raw DELETE permanent. See this helper's "
+                    "docstring."
+                )
 
 
 def _root_deleted():
@@ -156,6 +183,23 @@ class TerritoryRootIsSeededTest(unittest.TestCase):
         self.assertEqual(1, frappe.db.count("Territory", {"name": ROOT}))
 
 
+def _looks_like_a_test_class(node: ast.ClassDef, base_names: set) -> bool:
+    """A base ending in `TestCase`, or test methods regardless of the base name.
+
+    The base-name half alone skips a class that inherits an imported harness
+    subclass under some other name (`class X(ReconBase)`), which is exactly the
+    class this guard exists to find. Test methods are the property that does not
+    depend on what the author called the base.
+    """
+    if any(name.endswith("TestCase") for name in base_names):
+        return True
+    return any(
+        isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and (child.name.startswith("test") or child.name == "runTest")
+        for child in node.body
+    )
+
+
 def _non_harness_test_classes(tree: ast.Module) -> list:
     """Names of test classes in `tree` that reach neither harness base."""
     offenders = []
@@ -165,7 +209,7 @@ def _non_harness_test_classes(tree: ast.Module) -> list:
         base_names = {
             base.attr if isinstance(base, ast.Attribute) else getattr(base, "id", "") for base in node.bases
         }
-        if not any(name.endswith("TestCase") for name in base_names):
+        if not _looks_like_a_test_class(node, base_names):
             continue
         if base_names & _HARNESS_BASES:
             continue
@@ -192,12 +236,25 @@ class TerritoryConsumersOutsideTheHarnessAreGuardedTest(unittest.TestCase):
     depend on is wrapped in a bare `except Exception: pass`, so losing it is
     silent -- unlike `test_dues_invoice_workflow`, which was measured red.
 
-    What this does NOT enforce: it cannot tell a Territory write from a string
-    that merely mentions the root (hence `_NO_DATABASE_WRITE`); it cannot prove a
-    referenced seeder is actually called on the path that needs it; and it says
-    nothing about the import side effects above, which are the reason a flagged
-    module can still be green. It catches the shape -- a class outside the
-    harness naming the root with no seeder in sight -- and nothing more.
+    What this does NOT enforce, and the third item is the one that already cost a
+    defect: it cannot tell a Territory write from a string that merely mentions
+    the root (hence `_NO_DATABASE_WRITE`); it says nothing about the import side
+    effects above, which are the reason a flagged module can still be green; and
+    it is per-FILE, so one seeder call anywhere in a module exempts every class
+    in it.
+
+    That last one is not hypothetical. `test_harness_leak_attribution.py` calls
+    `ensure_root_territory()` at five sites and STILL had a sixth class linking
+    to the root unguarded -- `VereningingenBaseReportsLeaksTest`, whose nested
+    probe is driven as `case.run(...)`, which does not invoke `setUpClass`.
+    Measured: with that class back in its unguarded state and this guard's
+    call-detection in place, this module is 6/6 GREEN. Making it per-class needs
+    a call graph -- the module's own `_territory()` helper seeds on behalf of
+    four classes that never name a seeder themselves -- so the honest statement
+    is that this guard covers modules with no seeder at all, and nothing finer.
+
+    It catches the shape -- a class outside the harness naming the root, in a file
+    with no seeder call in sight -- and nothing more.
     """
 
     def test_every_test_module_naming_the_root_either_inherits_it_or_seeds_it(self):
@@ -216,9 +273,17 @@ class TerritoryConsumersOutsideTheHarnessAreGuardedTest(unittest.TestCase):
             if rel in _NO_DATABASE_WRITE:
                 continue
             checked += 1
-            if any(seeder in source for seeder in _ROOT_SEEDERS):
+            tree = ast.parse(source)
+            # A CALL, not a mention. `seeder in source` was satisfied by an
+            # import or by a comment naming the seeder -- measured: turning both
+            # real `ensure_root_territory()` calls in `tests/security/
+            # test_link_sanitizer.py` into `pass  # ensure_root_territory()` left
+            # this module 6/6 green, i.e. the guard could not tell a call from a
+            # comment about one. Still per-FILE, though -- see the class docstring
+            # for the site this consequently cannot see.
+            if called_names(tree) & set(_ROOT_SEEDERS):
                 continue
-            unguarded = _non_harness_test_classes(ast.parse(source))
+            unguarded = _non_harness_test_classes(tree)
             if unguarded:
                 offenders.append(f"{rel}: {', '.join(unguarded)}")
 

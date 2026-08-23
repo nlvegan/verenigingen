@@ -883,6 +883,15 @@ class VereningingenBaseReportsLeaksTest(unittest.TestCase):
     """
 
     def setUp(self):
+        # `_probe_case()` below is driven as `case.run(...)`, and `TestCase.run()`
+        # does NOT invoke `setUpClass` -- only a suite does (measured: a direct
+        # `run()` reaches `runTest` alone, while `loadTestsFromTestCase(...).run()`
+        # reaches `setUpClass` first). So the one place `VereningingenTestCase`
+        # seeds the root -- `setUpClass` -> `ensure_netherlands_territory` -- never
+        # runs here, and `_LeakingCase` links its Territory straight to
+        # "All Territories". The class-fixture probe at the bottom of this module
+        # IS loaded as a suite and therefore needs no guard (#516).
+        ensure_root_territory()
         self.suffix = frappe.generate_hash(length=6)
         self.created = []
 
