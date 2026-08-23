@@ -943,24 +943,43 @@ class TestMatchMollieSettlementEarlyReturns(BTRBase):
         frappe.db.set_value("Mollie Settings", "Mollie Settings", "mollie_bank_account", bank_acc)
         self.mgr.config.clear_cache()
         try:
+            # The transaction must carry the Bank Account LINKED to `bank_acc`, not
+            # `bank_acc` itself: the gate resolves the configured GL account to its Bank
+            # Account (#523), so assigning the GL name here would fail at the account gate
+            # and this test would assert nothing about the keyword branch it is named for.
             bt = self._make_bank_transaction(
                 deposit=100.0,
                 description="ordinary deposit no keyword",
                 date=today(),
-                bank_account=None,
+                bank_account=self._eur_bank_account,
             )
-            txn = self._txn_dict(bt)
-            txn["bank_account"] = bank_acc  # force account equality
-            self.assertIsNone(self.mgr.match_mollie_settlement(txn))
+            self.assertIsNone(self.mgr.match_mollie_settlement(self._txn_dict(bt)))
         finally:
             frappe.db.set_value("Mollie Settings", "Mollie Settings", "mollie_bank_account", None)
             self.mgr.config.clear_cache()
 
     def test_returns_none_for_account_mismatch(self):
-        bt = self._make_bank_transaction(deposit=100.0, description="mollie settlement", date=today())
-        txn = self._txn_dict(bt)
-        txn["bank_account"] = "SOME-OTHER-GL-ACCOUNT"
-        self.assertIsNone(self.mgr.match_mollie_settlement(txn))
+        """A transaction on a DIFFERENT bank account than the configured one.
+
+        The Mollie account must be configured for this to reach the account gate at all.
+        Without it `get_bank_account_gl` throws and the method returns at the
+        not-configured branch -- which is the test above, not this one. Measured with a
+        branch probe: before this was fixed, this test hit `not-configured` every run.
+        """
+        bank_acc = frappe.db.get_value("Company", self.company, "default_bank_account")
+        self.mgr.config.clear_cache()
+        frappe.db.set_value("Mollie Settings", "Mollie Settings", "mollie_bank_account", bank_acc)
+        self.mgr.config.clear_cache()
+        try:
+            bt = self._make_bank_transaction(
+                deposit=100.0, description="mollie settlement", date=today()
+            )
+            txn = self._txn_dict(bt)
+            txn["bank_account"] = "A Bank Account That Is Not The Mollie One - X"
+            self.assertIsNone(self.mgr.match_mollie_settlement(txn))
+        finally:
+            frappe.db.set_value("Mollie Settings", "Mollie Settings", "mollie_bank_account", None)
+            self.mgr.config.clear_cache()
 
 
 # =============================================================================

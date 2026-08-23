@@ -119,6 +119,24 @@ class MollieBase(BTRBase):
         acc.insert(ignore_permissions=True)
         return acc.name
 
+    def _make_party_bank_account(self, gl_account):
+        """A NON-company Bank Account on `gl_account`, newer than any existing one.
+
+        Insertable because ERPNext's one-per-GL-account check is gated on
+        `is_company_account` (see the caller's docstring), which is the whole point.
+        """
+        bank_name = f"Party Bank {frappe.generate_hash(length=6)}"
+        bank = frappe.new_doc("Bank")
+        bank.bank_name = bank_name
+        bank.insert(ignore_permissions=True)
+        ba = frappe.new_doc("Bank Account")
+        ba.account_name = f"Party Acct {frappe.generate_hash(length=6)}"
+        ba.bank = bank_name
+        ba.is_company_account = 0
+        ba.account = gl_account
+        ba.insert(ignore_permissions=True)
+        return ba.name
+
     def _ensure_eur_company_cost_center(self):
         """Ensure the EUR test company has a default cost center.
 
@@ -248,6 +266,126 @@ class MollieBase(BTRBase):
 # match_mollie_settlement — live (stubbed) settlement-fetch branch (383-417)
 # =============================================================================
 class TestMatchMollieSettlementLive(MollieBase):
+    def test_unlinked_gl_account_does_not_match_an_accountless_transaction(self):
+        """An unresolvable config must not let a transaction with NO bank account through.
+
+        `Bank Transaction.bank_account` is not mandatory, and suites here create such rows
+        deliberately. So when the configured GL account has no `Bank Account` linked, the
+        resolved docname is None and a bare `!=` comparison would read `None != None` as
+        False -- falling through and matching an accountless transaction against Mollie
+        settlements. The explicit guard is what stops that; this is the only shape in which
+        it is load-bearing, which is why the transaction here carries no bank account.
+        """
+        orphan_gl = self._make_gl_account("MollieUnlinkedGL", account_type="Bank")
+        self.assertIsNone(
+            frappe.db.get_value("Bank Account", {"account": orphan_gl}, "name"),
+            "precondition: no Bank Account may be linked to this GL account",
+        )
+        bt = self._make_bank_transaction(deposit=77.77, description="Mollie settlement payout", date=today())
+        txn = self._txn_dict(bt)
+        txn["bank_account"] = None  # the accountless shape the guard exists for
+        settlement = {"id": "stl_UNLINKED", "amount": {"value": "77.77", "currency": "EUR"}}
+        with self._mollie_settings(bank_account=orphan_gl):
+            with self._stub_client(settlements=[settlement]):
+                self.assertIsNone(self.mgr.match_mollie_settlement(txn))
+
+    def test_a_later_party_bank_account_does_not_capture_the_gl_account(self):
+        """A second Bank Account on the same GL account must not shadow the first.
+
+        ERPNext enforces one Bank Account per GL account only via `validate_account()`,
+        reachable solely from `validate_is_company_account()` and so gated on
+        `if self.is_company_account:`. `account` has no `unique` flag and no index, so a
+        flag=0 row inserts freely alongside the company one -- verified, with a second
+        flag=1 insert rejected as the control. `Bank Account` sorts `creation DESC`.
+
+        So a gate that RESOLVES one docname reads the newest row, and a transaction on the
+        older one stops matching: #523 back with no signal. This test reddens under that
+        shape, and also under the `is_company_account: 1` filter that looks like the fix --
+        on test_site_4 the fixture's own row has the flag clear, so filtering returns None
+        and closes the gate outright. Membership survives both, which is why it is used.
+        """
+        bank_gl = frappe.db.get_value("Company", self.company, "default_bank_account")
+        # Created AFTER the fixture's company account, so creation DESC prefers it.
+        party_ba_name = self._make_party_bank_account(bank_gl)
+
+        self.assertEqual(
+            frappe.db.get_value("Bank Account", {"account": bank_gl}, "name"),
+            party_ba_name,
+            "precondition: the UNFILTERED lookup must now return the party row, or this "
+            "test cannot detect the missing is_company_account filter",
+        )
+
+        bt = self._make_bank_transaction(
+            deposit=88.88,
+            description="Mollie settlement payout",
+            date=today(),
+            bank_account=self._eur_bank_account,
+        )
+        settlement = {"id": "stl_PARTY", "amount": {"value": "88.88", "currency": "EUR"}}
+        with self._mollie_settings(bank_account=bank_gl):
+            with self._stub_client(settlements=[settlement]):
+                match = self.mgr.match_mollie_settlement(self._txn_dict(bt))
+
+        self.assertIsNotNone(match, "a later party Bank Account captured the GL account and closed the gate")
+        self.assertEqual(match["reference"], "stl_PARTY")
+
+    def test_gate_resolves_the_configured_gl_account_to_its_bank_account(self):
+        """The transaction names a Bank Account; the setting names a GL Account (#523).
+
+        Different namespaces: ``Bank Account`` autonames ``account_name + " - " + bank``
+        and ``Account`` autonames ``account_name + " - " + abbr``, so the two strings
+        coincide only by accident, and nothing normalised between the fetch and the gate.
+        Measured on veg11 -- 0 of 409 Bank Accounts satisfied the comparison, and in 7,664
+        Bank Transactions the settlement pipeline had posted nothing.
+
+        The two docnames are deliberately left UNEQUAL here, and asserted so. Every other
+        test in this class assigned the GL name over ``txn["bank_account"]``, which is what
+        let the gate pass in tests while it could never pass on real data.
+        """
+        bank_gl = frappe.db.get_value("Company", self.company, "default_bank_account")
+        self.assertNotEqual(
+            self._eur_bank_account,
+            bank_gl,
+            "precondition: the Bank Account docname and the GL account name must differ, "
+            "or this test cannot detect the namespace confusion it exists to pin",
+        )
+        self.assertEqual(
+            frappe.db.get_value("Bank Account", self._eur_bank_account, "account"),
+            bank_gl,
+            "precondition: the transaction's Bank Account must be the one linked to the "
+            "configured Mollie GL account",
+        )
+        # The fixture resolves its Bank Account with a near-identical query to the gate's,
+        # so the assertions below could hold even if both resolved to the wrong row. Pin
+        # the relationship the gate actually tests: the fixture's account is IN the set for
+        # this GL account. Deliberately not asserting `is_company_account=1` -- on
+        # test_site_4 the only Bank Account on this GL account has the flag CLEAR, which is
+        # why the gate tests membership rather than filtering on it.
+        self.assertIn(
+            self._eur_bank_account,
+            frappe.get_all("Bank Account", filters={"account": bank_gl}, pluck="name"),
+            "precondition: the transaction's Bank Account must be one of those on the "
+            "configured Mollie GL account",
+        )
+
+        bt = self._make_bank_transaction(
+            deposit=77.77,
+            description="Mollie settlement payout",
+            date=today(),
+            bank_account=self._eur_bank_account,
+        )
+        settlement = {"id": "stl_NAMESPACE", "amount": {"value": "77.77", "currency": "EUR"}}
+        with self._mollie_settings(bank_account=bank_gl):
+            with self._stub_client(settlements=[settlement]):
+                match = self.mgr.match_mollie_settlement(self._txn_dict(bt))
+
+        self.assertIsNotNone(
+            match,
+            "the gate rejected a transaction that IS on the configured Mollie bank account",
+        )
+        self.assertEqual(match["type"], "mollie_settlement")
+        self.assertEqual(match["reference"], "stl_NAMESPACE")
+
     def test_amount_match_returns_settlement_match(self):
         bank_gl = frappe.db.get_value("Company", self.company, "default_bank_account")
         bt = self._make_bank_transaction(
@@ -257,7 +395,6 @@ class TestMatchMollieSettlementLive(MollieBase):
             bank_account=self._eur_bank_account,
         )
         txn = self._txn_dict(bt)
-        txn["bank_account"] = bank_gl  # force account equality with the configured Mollie account
         settlement = {"id": "stl_TESTMATCH", "amount": {"value": "123.45", "currency": "EUR"}}
         with self._mollie_settings(bank_account=bank_gl):
             with self._stub_client(settlements=[settlement]):
@@ -274,7 +411,6 @@ class TestMatchMollieSettlementLive(MollieBase):
             deposit=1000.00, description="mollie payout", date=today(), bank_account=self._eur_bank_account
         )
         txn = self._txn_dict(bt)
-        txn["bank_account"] = bank_gl
         # 0.5 off 1000 is within the 0.1% tolerance window (1.0) -> within_tolerance.
         settlement = {"id": "stl_TOL", "amount": {"value": "1000.50", "currency": "EUR"}}
         with self._mollie_settings(bank_account=bank_gl):
@@ -289,7 +425,6 @@ class TestMatchMollieSettlementLive(MollieBase):
             deposit=50.00, description="mollie settlement", date=today(), bank_account=self._eur_bank_account
         )
         txn = self._txn_dict(bt)
-        txn["bank_account"] = bank_gl
         settlement = {"id": "stl_NOPE", "amount": {"value": "9999.00", "currency": "EUR"}}
         with self._mollie_settings(bank_account=bank_gl):
             with self._stub_client(settlements=[settlement]):
@@ -305,7 +440,6 @@ class TestMatchMollieSettlementLive(MollieBase):
             bank_account=self._eur_bank_account,
         )
         txn = self._txn_dict(bt)
-        txn["bank_account"] = bank_gl
         with self._mollie_settings(bank_account=bank_gl):
             with self._stub_client(settlements=[{"id": "x", "amount": {"value": "5.00"}}]):
                 self.assertIsNone(self.mgr.match_mollie_settlement(txn))

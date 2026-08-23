@@ -400,13 +400,58 @@ class PaymentReconciliationManager:
         in real-time via webhook (see integrations/mollie/api/payment_webhook.py).
         """
 
-        # Only check transactions on the configured Mollie bank account
+        # Only check transactions on the configured Mollie bank account.
+        #
+        # The two sides are different namespaces and must be resolved before they can be
+        # compared (#523). `Bank Transaction.bank_account` is a Link to **Bank Account**,
+        # while `Mollie Settings.mollie_bank_account` -- what `get_bank_account_gl()`
+        # returns -- is a Link to **Account**. `Bank Account` autonames
+        # `account_name + " - " + bank` and `Account` autonames
+        # `account_name + " - " + abbr`, so comparing them directly can only succeed when
+        # a bank's name happens to equal the company abbreviation. It never did: measured
+        # on veg11, 0 of 409 Bank Accounts satisfied the comparison and the settlement
+        # pipeline had posted nothing across 7,664 Bank Transactions.
+        #
+        # Resolved the same way `settlement_bank_transaction_processor.
+        # _validate_configuration` already does it, so the two agree.
         try:
             mollie_bank_account = self.config.get_bank_account_gl()
         except frappe.ValidationError:
             return None
 
-        if transaction.get("bank_account") != mollie_bank_account:
+        # Resolve to the SET of Bank Accounts on that GL account and test membership,
+        # rather than picking one. Picking is unsafe in both directions, measured:
+        #
+        #   * `get_value(... {"account": gl})` is ambiguous. ERPNext enforces one Bank
+        #     Account per GL account only in `validate_account()`, reachable solely from
+        #     `validate_is_company_account()` and so gated on `if self.is_company_account:`
+        #     (erpnext/.../bank_account.py). `account` has no `unique` flag and no index, so
+        #     a flag=0 row inserts freely beside a flag=1 one -- verified, with a second
+        #     flag=1 insert rejected as the control -- and `Bank Account` sorts
+        #     `creation DESC`, so the newest wins. Six places in this app create Bank
+        #     Accounts, some for parties.
+        #   * Adding `is_company_account: 1` closes the gate instead. On test_site_4 the only
+        #     Bank Account on the company's default GL account has `is_company_account = 0`,
+        #     so the filtered lookup returns None and no transaction can ever match.
+        #
+        # Membership needs neither choice: the money lands in the configured GL account
+        # whichever Bank Account names it, and the amount/keyword/settlement checks below do
+        # the discriminating work. An accountless transaction (`bank_account` is not
+        # mandatory) is excluded because `None not in [...]` holds.
+        mollie_bank_account_docs = frappe.get_all(
+            "Bank Account", filters={"account": mollie_bank_account}, pluck="name"
+        )
+        # No Bank Account on the configured GL account means no transaction can be the
+        # Mollie settlement one, so this is a non-match rather than an error -- this runs
+        # once per transaction and must not narrate a misconfiguration 7,664 times. The
+        # consequence is that nothing surfaces this misconfiguration to an operator at all:
+        # the pipeline goes quiet exactly as it did before #523. The two sibling resolvers
+        # (settlement_bank_transaction_processor, bank_transaction_creator) DO return an
+        # operator-facing error; a per-transaction matcher is the wrong place to copy that.
+        if not mollie_bank_account_docs:
+            return None
+
+        if transaction.get("bank_account") not in mollie_bank_account_docs:
             return None
 
         amount = self._safe_decimal(transaction.get("deposit", 0))
