@@ -12,9 +12,16 @@ lifetime problem at interpreter exit, and (b) sees only COMMITTED state -- which
 exactly the contamination question. A row transiently resurrected and then rolled back
 at class end never mattered; one that outlives the run did.
 
-Installation is deferred to the first test, on purpose: at `sitecustomize` time frappe
-is not importable yet, and `frappe.db` is a `LocalProxy` whose class has no `delete`
-until a connection exists. Only `unittest` is safe to touch this early.
+Installation is deferred, on purpose: at `sitecustomize` time frappe is not importable
+yet, and `frappe.db` is a `LocalProxy` whose class has no `delete` until a connection
+exists. Only `unittest` is safe to touch this early. It is armed from `TestSuite.run`
+as well as `TestCase.run`, because `unittest` calls the first class's `setUpClass`
+BEFORE the first `TestCase.run` -- and `setUpClass` is where shared master data is
+built and torn down.
+
+The first line written to the log is an `armed` marker. Without it an empty log and a
+log that was never opened are the same thing, and `recorded=0` reads as "clean" -- the
+exact instrument failure this tool exists to replace.
 
 Activated by being on PYTHONPATH; writes to $DELETE_AUDIT_LOG.
 """
@@ -26,6 +33,11 @@ import unittest
 
 _LOG = os.environ.get("DELETE_AUDIT_LOG")
 _STATE = {"test": "<no test>", "installed": False, "handle": None}
+
+# `_creation_of` has to distinguish "the row was already gone" from "the read raised".
+# Both were None, and the checker then reported the second as UNVERIFIABLE while its
+# comment claimed that could only mean the first.
+_READ_FAILED = "<creation-read-failed>"
 
 
 def _record(kind, doctype, name, creation=None):
@@ -58,8 +70,11 @@ def _creation_of(doctype, name):
 
     try:
         return frappe.db.get_value(doctype, name, "creation")
-    except Exception:
-        return None
+    except Exception as exc:
+        # NOT None: None is what an absent row returns, and conflating the two made
+        # "cannot tell" indistinguishable from "nothing was there".
+        print(f"DELETE-AUDIT creation read failed for {doctype}::{name}: {exc}", file=sys.stderr)
+        return _READ_FAILED
 
 
 def _install_frappe_hooks():
@@ -108,24 +123,56 @@ def _install_frappe_hooks():
     Database.delete = audited_db_delete
 
 
-_real_run = unittest.TestCase.run
+def _arm():
+    """Open the log, write the armed marker, install the hooks. Idempotent."""
+    if _STATE["installed"]:
+        return
+    _STATE["installed"] = True
+    if os.path.exists(_LOG) and os.path.getsize(_LOG):
+        # Appending to a used log silently merges two runs and attributes the first
+        # run's rows to the second. Refuse rather than guess.
+        print(
+            f"DELETE-AUDIT REFUSING to append to a non-empty log: {_LOG}\n"
+            "DELETE-AUDIT use a fresh path (selftest.sh uses mktemp).",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    _STATE["handle"] = open(_LOG, "a", buffering=1)
+    _STATE["handle"].write(
+        json.dumps({"kind": "armed", "run_started": _now(), "argv": sys.argv[:4]}) + "\n"
+    )
+    try:
+        _install_frappe_hooks()
+    except Exception as exc:  # pragma: no cover
+        print(f"DELETE-AUDIT PROBE FAILED TO INSTALL: {exc}", file=sys.stderr)
+
+
+def _now():
+    import datetime
+
+    return datetime.datetime.now().isoformat(sep=" ")
+
+
+_real_case_run = unittest.TestCase.run
+_real_suite_run = unittest.TestSuite.run
+
+
+def _audited_suite_run(self, *a, **kw):
+    # Before the first setUpClass, which TestCase.run is too late for.
+    _arm()
+    return _real_suite_run(self, *a, **kw)
 
 
 def _audited_run(self, *a, **kw):
-    if not _STATE["installed"]:
-        _STATE["installed"] = True
-        _STATE["handle"] = open(_LOG, "a", buffering=1)
-        try:
-            _install_frappe_hooks()
-        except Exception as exc:  # pragma: no cover
-            print(f"DELETE-AUDIT PROBE FAILED TO INSTALL: {exc}", file=sys.stderr)
+    _arm()
     previous = _STATE["test"]
     _STATE["test"] = f"{type(self).__module__}.{type(self).__name__}.{self._testMethodName}"
     try:
-        return _real_run(self, *a, **kw)
+        return _real_case_run(self, *a, **kw)
     finally:
         _STATE["test"] = previous
 
 
 if _LOG:
     unittest.TestCase.run = _audited_run
+    unittest.TestSuite.run = _audited_suite_run

@@ -32,16 +32,20 @@ else
 fi
 echo "== app=$APP_ROOT bench=$BENCH site=$SITE"
 
-LOG="$(mktemp)"
+LOG="$(mktemp)"; rm -f "$LOG"   # the recorder refuses a non-empty log
 cd "$BENCH"
-DELETE_AUDIT_LOG="$LOG" PYTHONPATH="$HERE:$APP_ROOT" \
+DELETE_AUDIT_LOG="$LOG" DELETE_AUDIT_SELFTEST=1 PYTHONPATH="$HERE:$APP_ROOT" \
   bench --site "$SITE" run-tests --app verenigingen \
   --module verenigingen.tests.test_delete_audit_selftest > "$LOG.run" 2>&1 || {
     echo "FAIL: the control module did not pass"; tail -30 "$LOG.run"; exit 1; }
 
 cd "$BENCH/sites"
-../env/bin/python "$HERE/check_survivors.py" "$SITE" "$LOG" > "$LOG.audit" 2>/dev/null
-cat "$LOG.audit"
+# stderr is NOT discarded: a missing log makes the checker exit 2 with a reason, and
+# hiding it turned that into four unexplained FAIL lines.
+../env/bin/python "$HERE/check_survivors.py" "$SITE" "$LOG" > "$LOG.audit" 2>"$LOG.err"
+audit_rc=$?
+cat "$LOG.audit"; [ -s "$LOG.err" ] && cat "$LOG.err" >&2
+if [ "$audit_rc" != 0 ]; then echo "FAIL: the checker exited $audit_rc"; exit 1; fi
 
 fail=0
 check() {  # check <pattern> <expected-count> <what>
@@ -49,10 +53,31 @@ check() {  # check <pattern> <expected-count> <what>
   if [ "$got" != "$2" ]; then echo "FAIL: $3 (expected $2, got $got)"; fail=1
   else echo "ok: $3"; fi
 }
+# These two come FIRST, and they are what make the zero-expecting checks below mean
+# anything. Measured: stubbing out `_install_frappe_hooks` left "a delete that stuck is
+# NOT reported" and "an already-gone row is not a delete" both GREEN -- they are
+# `grep -c == 0` assertions with no positive requirement, so a completely dead recorder
+# satisfied them.
+#
+# Asserted against the LOG, not the audit report: a delete that was recorded and really
+# did go prints nothing in the report, so the report cannot show that it was seen. And
+# NOT as a total -- arming from TestSuite.run also catches the framework's own setup
+# deletes, which vary by site.
+# `|| true` on BOTH, and note that the pipeline needs it too: `set -o pipefail` is on,
+# and `grep -o` exits 1 when it matches nothing -- which is exactly the mutated-recorder
+# case these two lines exist to catch. Without it the script died here instead of
+# reporting FAIL, so the guard against a vacuous check was itself vacuous. Measured.
+armed=$(grep -c '"kind": "armed"' "$LOG" || true)
+planted=$({ grep -o '"name": "zzaudit-[a-z]*-[0-9a-f]*"' "$LOG" || true; } | sort -u | wc -l)
+if [ "$armed" != 1 ]; then echo "FAIL: no armed marker in the log (got $armed)"; fail=1
+else echo "ok: the recorder armed and said so"; fi
+if [ "$planted" != 5 ]; then echo "FAIL: the recorder saw $planted of 5 planted deletes"; fail=1
+else echo "ok: the recorder saw all five planted deletes"; fi
 check "SURVIVED Territory::zzaudit-positive"   1 "a delete undone by a rollback is reported"
 check "SURVIVED Territory::zzaudit-negative"   0 "a delete that stuck is NOT reported"
 check "SURVIVED Territory::zzaudit-absent"     0 "a delete of an already-gone row is not a delete"
 check "RECREATED Territory::zzaudit-fixedname" 1 "same docname + new row reads RECREATED"
+check "UNVERIFIABLE Territory::zzaudit-unverifiable" 1 "a failed pre-delete read is UNVERIFIABLE, not a resurrection"
 
 ../env/bin/python - "$SITE" <<'PY' 2>/dev/null
 import sys

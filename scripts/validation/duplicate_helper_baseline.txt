@@ -546,6 +546,7 @@ _stage_9_suspension_reactivation::2
 _stub_client::2
 _submitted_batch::2  # clone family, 100% of pairs near-identical
 _submitted_invoice::2
+_territory::2
 _track::8
 _track_created_volunteer::2
 _track_donor::3  # clone family, 100% of pairs near-identical

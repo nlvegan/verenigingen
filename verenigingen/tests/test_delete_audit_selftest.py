@@ -11,9 +11,11 @@ state -- cleaning up here would leave nothing for it to read, and the control wo
 for the wrong reason. Left ungated, an ordinary CI shard containing this module would
 strand two Territory rows every run and hand the leak ratchet a real leak.
 
-`DELETE_AUDIT_LOG` is the gate because it is exactly the variable that turns the recorder
-on: set, the run is a self-test and `selftest.sh` sweeps the rows afterwards; unset, these
-controls have nothing to prove and are skipped.
+`DELETE_AUDIT_SELFTEST` is the gate, and deliberately NOT `DELETE_AUDIT_LOG`. Gating on
+the recorder variable looked tidier and was wrong: the tool's own next step is a
+suite-wide census, which sets `DELETE_AUDIT_LOG` over the whole app -- and that would
+re-arm these two stranded rows with no `selftest.sh` to sweep them. Only `selftest.sh`
+sets `DELETE_AUDIT_SELFTEST`.
 """
 
 import os
@@ -21,18 +23,31 @@ import unittest
 
 import frappe
 
-# One copy of this fixture, not two -- the duplicate-helper guard is right that a second
-# `_territory` is a copy-paste, and this module exists because three throwaway probes were
-# not shared either.
-from verenigingen.tests.test_harness_leak_attribution import _territory
+SELFTEST_ENV_VAR = "DELETE_AUDIT_SELFTEST"
 
-AUDIT_LOG_ENV_VAR = "DELETE_AUDIT_LOG"
+
+def _territory(prefix):
+    """One implementation, imported LAZILY.
+
+    One implementation because the duplicate-helper guard is right that a second
+    `_territory` is a copy-paste, and this module exists because three throwaway probes
+    were not shared either.
+
+    Lazily because importing that module at collection time costs 8.1s and ~2070 modules
+    -- it pulls `erpnext.tests.utils`, whose module body runs `BootStrapTestData()`, and
+    `enhanced_test_factory`, which calls `disable_workflow_action_emails()` unwrapped.
+    These tests skip unless the gate is set, and a gated-off module must not pay for --
+    let alone fail collection on -- an import it never uses.
+    """
+    from verenigingen.tests.test_harness_leak_attribution import _territory as impl
+
+    return impl(prefix)
 
 
 @unittest.skipUnless(
-    os.environ.get(AUDIT_LOG_ENV_VAR),
-    f"{AUDIT_LOG_ENV_VAR} is unset, so the recorder is off and these controls would only "
-    "strand rows. Run them through scripts/testing/delete_audit/selftest.sh.",
+    os.environ.get(SELFTEST_ENV_VAR),
+    f"{SELFTEST_ENV_VAR} is unset. These controls strand rows on purpose; run them "
+    "through scripts/testing/delete_audit/selftest.sh, which sweeps afterwards.",
 )
 class DeleteAuditControl(unittest.TestCase):
     def test_1_positive_a_delete_undone_by_rollback_must_be_reported(self):
@@ -92,3 +107,33 @@ class DeleteAuditControl(unittest.TestCase):
         # exercise -- it just reads as "gone" and passes for the wrong reason. Removed
         # by hand after the check.
         print(f"CONTROL-RECREATED Territory::{fixed}")
+
+    def test_5_negative_a_failed_pre_delete_read_is_unverifiable(self):
+        """`creation` unknown must read UNVERIFIABLE, never SURVIVED.
+
+        The recorder reads `creation` BEFORE the delete. When that read raises it has no
+        identity to compare against, and the honest verdict is "cannot tell" -- reporting
+        it as a resurrection would let one broken read manufacture a finding. Planted by
+        breaking the read for the duration of one delete, which is the only way to reach
+        the branch: the sentinel exists precisely for a case no ordinary delete produces.
+        """
+        victim = _territory("zzaudit-unverifiable")
+        frappe.db.commit()
+
+        real_get_value = frappe.db.get_value
+
+        def exploding_get_value(*a, **kw):
+            if len(a) >= 3 and a[2] == "creation" and a[1] == victim.name:
+                raise RuntimeError("planted: creation read failed")
+            return real_get_value(*a, **kw)
+
+        frappe.db.get_value = exploding_get_value
+        try:
+            frappe.delete_doc("Territory", victim.name, force=True, ignore_permissions=True)
+        finally:
+            frappe.db.get_value = real_get_value
+
+        # Rolled back, so the row comes back and the checker has something to verdict on.
+        frappe.db.rollback()
+        self.assertTrue(frappe.db.exists("Territory", victim.name))
+        print(f"CONTROL-UNVERIFIABLE Territory::{victim.name}")
