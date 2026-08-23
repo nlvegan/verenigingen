@@ -393,6 +393,14 @@ class TestDataBuilder:
 
         # Check if chapter already exists
         if DocumentExistenceValidator.check_document_exists("Chapter", name):
+            # BORROWED, so deliberately NOT registered. A chapter that is already
+            # here belongs to whoever built it -- typically the shared
+            # `Test Amsterdam Chapter` from `tests/utils/setup_helpers.py`, which the
+            # whole suite resolves. Registering it made `cleanup()` delete master data
+            # this builder never created (#498); harmless only while the delete stays
+            # uncommitted and the base teardown's rollback undoes it (#489). Give
+            # `cleanup()` that commit and this line deletes the shared chapter for
+            # real, which is the #330/#390 failure mode.
             chapter = frappe.get_doc("Chapter", name)
         else:
             chapter = frappe.get_doc(
@@ -404,9 +412,9 @@ class TestDataBuilder:
                     "introduction": "Test chapter"}
             )
             chapter.insert()
+            self._cleanup_manager.register("Chapter", chapter.name)
 
         self._data["chapter"] = chapter
-        self._cleanup_manager.register("Chapter", chapter.name)
 
         return self
 
