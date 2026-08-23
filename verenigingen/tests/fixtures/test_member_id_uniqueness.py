@@ -17,9 +17,10 @@ different modules, both ending `001`:
     PR #524 shard 3/12   TEST153429001   report.test_member_end_date_reconstruction
     develop  shard 9/12   TEST311263001   member.test_member_service_coverage
 
-`EnhancedTestDataFactory._generate_member_id` was already fixed for this and its
-docstring gives `TEST161453001` as the example; the fix was never applied to this
-second copy. (That docstring also blames parallel shards sharing one database --
+`EnhancedTestDataFactory._generate_unique_test_member_id`
+(`enhanced_test_factory.py:589`) was already fixed for this and its docstring gives
+`TEST161453001` as the example; the fix was never applied to this second copy. Note that
+method has no callers, so it is a source for the format, not evidence for it. (That docstring also blames parallel shards sharing one database --
 they do not: `services: mariadb:` sits inside the matrix job in
 `.github/workflows/_base-server-tests.yml`, so each shard gets its own container.
 The within-process mechanism above is the real one and is sufficient.)

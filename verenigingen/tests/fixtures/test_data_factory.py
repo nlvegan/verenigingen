@@ -161,11 +161,18 @@ class CoreTestDataFactory:
         both ending ``001``: ``TEST153429001`` (#524 shard 3) and ``TEST311263001``
         (develop shard 9) -> IntegrityError 1062 (#549).
 
-        Same format as ``EnhancedTestDataFactory._generate_member_id``, which was fixed
-        for this first; the fix simply never reached this copy. Duplicated rather than
-        shared because importing that module costs ~8.1s and ~2070 modules (it pulls
-        ``erpnext.tests.utils``, whose body runs ``BootStrapTestData()``), which this
-        light factory must not pay for.
+        Same format as ``EnhancedTestDataFactory._generate_unique_test_member_id``
+        (``enhanced_test_factory.py:589``), which was fixed for this first; the fix
+        simply never reached this copy. That method has **zero callers**, so the format
+        is inherited from it, not proven by it -- the reason to duplicate rather than
+        share is purely import cost. Measured 2026-08-23 on test_site_1, delta over an
+        already-connected frappe:
+
+            import enhanced_test_factory -> 6.48s, +1392 modules
+            import THIS module (control)  -> 0.05s,   +54 modules
+
+        It pulls ``erpnext.tests.utils``, whose body runs ``BootStrapTestData()``, and
+        this light factory must not pay for that.
 
         ``rand_part`` is what actually carries it: ``pid`` is equal across factories in
         one process and ``test_run_id`` is itself clock-derived, so two factories built
