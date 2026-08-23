@@ -148,8 +148,10 @@ class SingletonBackup:
             self._password_backups[doctype_name] = password_values
 
             get_harness_logger("singleton-backup").debug(
-                f"Backed up {doctype_name} "
-                f"({len(field_values)} fields, {len(password_values)} passwords)"
+                "Backed up %s (%d fields, %d passwords)",
+                doctype_name,
+                len(field_values),
+                len(password_values),
             )
 
         except Exception as e:
@@ -199,8 +201,10 @@ class SingletonBackup:
             frappe.db.commit()
 
             get_harness_logger("singleton-backup").debug(
-                f"Restored {doctype_name} "
-                f"({len(field_values)} fields, {len(password_values)} passwords)"
+                "Restored %s (%d fields, %d passwords)",
+                doctype_name,
+                len(field_values),
+                len(password_values),
             )
 
         except Exception as e:
@@ -210,7 +214,7 @@ class SingletonBackup:
             # frappe.logger() it announced itself only in logs/frappe.log, which
             # CI does not surface (#433).
             get_harness_logger("singleton-backup").error(
-                "SingletonBackup: Failed to restore %s: %s", doctype_name, e
+                "Failed to restore %s: %s", doctype_name, e
             )
 
 

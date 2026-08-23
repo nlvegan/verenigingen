@@ -82,7 +82,7 @@ def _cancel_and_delete(doctype, name):
         return True
     except Exception as e:
         frappe.db.rollback()
-        get_harness_logger("sepa-recon").warning(f"could not clean up {doctype} {name}: {e}")
+        get_harness_logger("sepa-recon").warning("could not clean up %s %s: %s", doctype, name, e)
         return False
 
 

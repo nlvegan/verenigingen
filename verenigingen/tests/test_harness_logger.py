@@ -64,6 +64,10 @@ HARNESS_FILES = (
     # Fixture rows this suite fails to delete stay resident on the site and break
     # later tests, exactly as in #330.
     "verenigingen/tests/payment/test_sepa_race_condition_manager.py",
+    # Same cleanup shape, and the PRECEDENT this whole change cites -- it already
+    # used get_harness_logger while its sibling above did not. Leaving it unpinned
+    # would mean the one example nothing protects.
+    "verenigingen/tests/payment/test_sepa_reconciliation.py",
 )
 
 
