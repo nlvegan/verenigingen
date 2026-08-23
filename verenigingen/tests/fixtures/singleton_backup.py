@@ -191,19 +191,22 @@ class SingletonBackup:
                         fieldname=fieldname,
                     )
                 except Exception as e:
-                    # The exception TYPE, not the exception. `e` comes out of
-                    # `set_encrypted_password(..., value, ...)` and CodeQL flags
-                    # interpolating it as clear-text logging of a password
-                    # (py/clear-text-logging-sensitive-data, high). It was invisible
-                    # while this was a bare `frappe.logger()` -- that is not a
-                    # recognised sink -- so routing the record to a real stdlib logger
-                    # is what surfaced it. This logger writes to stderr, which in CI is
-                    # a public job log, so the field name and the failure class are as
-                    # much as this may say.
+                    # Neither `e` nor `fieldname`. This logger writes to stderr, which
+                    # in CI is a PUBLIC job log, and both are derived from the password
+                    # map: `e` comes out of `set_encrypted_password(..., value, ...)`,
+                    # and CodeQL flags the loop key itself as sensitive
+                    # (py/clear-text-logging-sensitive-data, high -- it was raised
+                    # against both in turn). Conservative on the analyser's side rather
+                    # than arguing that a field name is not a secret: the doctype and
+                    # the failure class are what a reader acts on, and a Single has few
+                    # password fields.
+                    #
+                    # The alert only exists because this stopped being a bare
+                    # `frappe.logger()`, which CodeQL does not recognise as a sink. The
+                    # exposure was always here; nothing was watching.
                     get_harness_logger("singleton-backup").warning(
-                        "Failed to restore password field %s.%s: %s",
+                        "Failed to restore a password field on %s: %s",
                         doctype_name,
-                        fieldname,
                         type(e).__name__,
                     )
 
