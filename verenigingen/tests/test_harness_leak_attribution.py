@@ -21,6 +21,7 @@ import types
 import unittest
 
 import frappe
+from frappe.utils import now
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.harness_logger import get_harness_logger
@@ -1518,15 +1519,23 @@ class CleanupManagerDoesNotDiscardRowsItDoesNotOwnTest(unittest.TestCase):
 class _BorrowedChapterFixture:
     """Committed-chapter plumbing shared by the two borrowed-fixture suites.
 
-    Factored out rather than copied because a get-or-create helper duplicated
-    across suites is the clone family `scripts/validation/duplicate_helper_validator.py`
-    exists to count, and the two suites below need byte-identical seeding: one
-    asserts the borrowed chapter SURVIVES cleanup (#498), the other asserts what
-    the builder does when that same chapter can no longer be saved (#515). If the
-    seeding diverged, the second would stop being a statement about the first.
+    Factored out rather than copied because the two suites below need
+    byte-identical seeding: one asserts the borrowed chapter SURVIVES cleanup
+    (#498), the other asserts what the builder does when that same chapter can no
+    longer be saved (#515). The second is only a statement about the first for as
+    long as they are seeded the same way, and a copy would drift silently -- no
+    ratchet would say so. `duplicate_helper_validator` in particular would not:
+    `_by_name` counts FILES, not definitions (its own comment says so), and both
+    suites live in this one file, so a second `_seed_chapter` here is invisible to
+    it. Measured with a control: two definitions in one file -> census `{}`; the
+    same two split across two files -> census reports the name.
     """
 
     def setUp(self):
+        # super() is a no-op against `unittest.TestCase`, but this is a mixin: if it
+        # is ever mixed into `EnhancedTestCase`/`VereningingenTestCase`, omitting it
+        # would silently skip that base's fixture setup and per-test drains.
+        super().setUp()
         self.created = []
         self.suffix = frappe.generate_hash(length=6)
 
@@ -1541,6 +1550,9 @@ class _BorrowedChapterFixture:
                     "could not clean up %s %s: %s", doctype, name, e
                 )
         frappe.db.commit()
+        # AFTER the commit, for the same reason as setUp: a real base's tearDown may
+        # roll back, which would undo an uncommitted delete of a committed fixture.
+        super().tearDown()
 
     def _region(self):
         """Resolve the region `with_chapter` would resolve, creating it if absent.
@@ -1640,13 +1652,18 @@ class BuilderRegistersOnlyWhatItCreatedTest(_BorrowedChapterFixture, unittest.Te
 class BuilderMustNotSilentlyDropTheChapterLinkageTest(
     _BorrowedChapterFixture, unittest.TestCase
 ):
-    """`with_member` drops the chapter linkage on a stale roster; say so (#515).
+    """`with_member` must not hand back a member with no chapter linkage (#515).
 
     `TestDataBuilder.with_member` appends a `Chapter Member` row to the chapter in
-    `self._data` and saves it. `chapter.save()` re-validates the WHOLE roster, so
-    one row whose `member` no longer resolves makes that save raise
-    `LinkValidationError` -- and the builder's `except frappe.LinkValidationError:
-    pass` then drops the linkage for every later member on that chapter, silently.
+    `self._data` and saves it. `chapter.save()` re-validates the WHOLE Chapter, so
+    one persisted row whose link no longer resolves makes that save raise
+    `LinkValidationError` -- and it keeps raising for every later member on that
+    chapter. The builder used to answer that with `except
+    frappe.LinkValidationError: pass`, returning a member with no linkage from a
+    call asked for both, so the caller's NEXT line failed naming the wrong cause:
+    `test_member_controller.test_chapter_mixin_methods` asserts
+    `db.get_value("Chapter Member", {"member": member.name}, "parent") == chapter.name`
+    immediately afterwards.
 
     Measured on test_site_5, both halves with a control:
 
@@ -1655,18 +1672,27 @@ class BuilderMustNotSilentlyDropTheChapterLinkageTest(
                                                        ("Could not find Row #999:
                                                         Member: ...")
 
-    So the swallow is load-bearing (the member must still be created) and its cost
-    is real: `test_member_controller.test_chapter_mixin_methods` asserts
-    `db.get_value("Chapter Member", {"member": member.name}, "parent") == chapter.name`
-    immediately afterwards, and would fail there with no trace of why.
+    The swallow was NOT load-bearing. Measured on test_site_2 with the handler
+    replaced by a bare `raise`, `controllers.test_member_controller` (21) and
+    `comprehensive.test_comprehensive_suite_demo` (13, 4 skipped) both still pass,
+    while this suite errors -- the control that proves the handler is reachable and
+    the other two runs are not vacuous. So the builder now re-raises, chained, with
+    the chapter and member the framework's own message omits.
 
-    What this suite does NOT claim. The stale rows are not hypothetical but they are
-    not present today either: 0 of 708 `Chapter Member` rows on test_site_5 have a
-    dead `member` link, because `Member.on_trash` -> `MemberCleanupService`
-    force-deletes a member's roster rows (`member_cleanup_service.py:220-227`) --
-    and swallows its own failures through a bare `frappe.logger().error`, which is
-    the route by which a stale row can appear. This test plants the condition
-    rather than waiting for it.
+    What this suite does NOT claim. The exception is NOT specific to the roster:
+    `Chapter` links `chapter_head`, `region`, `cost_center`, `department` and
+    `default_board_role_profile` and carries three more child tables, and a
+    dangling `Chapter Board Member.volunteer` raises the same exception out of the
+    same `save()` (test_site_2 has 2 such rows, verified). Nor is a stale roster row
+    hypothetical: dangling `Chapter Member.member` rows exist on three of five local
+    test sites (test_site_2 72 of 91, test_site_3 18 of 225, test_site_4 40 of 1284;
+    0 of 716 on test_site_5, measured 2026-08-23). What has no current instance is a
+    dangling row on a chapter this builder can BORROW -- 0 on all five. `Member.on_trash`
+    -> `MemberCleanupService` force-deleting a member's roster rows
+    (`member_cleanup_service.py:220-227`, swallowing its own failures through a bare
+    `frappe.logger().error`) is ONE route to such a row; 130 dangling rows across
+    three sites say it is not the only one. This test plants the condition rather
+    than waiting for it.
     """
 
     def _plant_stale_roster_row(self, chapter_name):
@@ -1684,15 +1710,18 @@ class BuilderMustNotSilentlyDropTheChapterLinkageTest(
                    (name, parent, parenttype, parentfield, idx, member, enabled,
                     status, creation, modified, owner, modified_by)
                VALUES (%s, %s, 'Chapter', 'members', 1, %s, 1, 'Active',
-                       NOW(), NOW(), 'Administrator', 'Administrator')""",
-            (row, chapter_name, f"Member-Does-Not-Exist-{self.suffix}"),
+                       %s, %s, 'Administrator', 'Administrator')""",
+            # frappe.utils.now(), not MariaDB's NOW(): NOW() truncates to whole
+            # seconds, and `modified` is compared to the microsecond elsewhere
+            # (#453/#456). Irrelevant for a row this test deletes, but the shape is
+            # the one that has cost this repo twice.
+            (row, chapter_name, f"Member-Does-Not-Exist-{self.suffix}", now(), now()),
         )
         frappe.db.commit()
         self.created.append(("Chapter Member", row))
         return row
 
-    def test_a_chapter_linkage_the_builder_had_to_skip_is_reported(self):
-        from verenigingen.tests.harness_logger import LOGGER_NAME
+    def test_a_chapter_linkage_the_builder_cannot_write_is_not_passed_over(self):
         from verenigingen.tests.utils.factories import TestDataBuilder
 
         name = self._seed_chapter(label="Stale Roster")
@@ -1700,29 +1729,35 @@ class BuilderMustNotSilentlyDropTheChapterLinkageTest(
 
         builder = TestDataBuilder()
         builder.with_chapter(name=name, region=self._region())
-        with self.assertLogs(LOGGER_NAME, level="ERROR") as logged:
+        with self.assertRaises(frappe.LinkValidationError) as caught:
             builder.with_member()
-        member = builder.build()["member"]
-        self.created.append(("Member", member.name))
 
-        # Two preconditions, so a green result cannot come from the wrong cause:
-        # the swallow must still let the member through, and the stale row must
-        # really have blocked the roster write.
-        self.assertTrue(
-            frappe.db.exists("Member", member.name),
-            "precondition: the swallow is load-bearing -- the member is still created",
+        # The member exists either way -- `member.insert()` is before the linkage --
+        # so the thing that must hold is that it did not LEAK: registering it after
+        # the chapter block would have left it on the site, committed by whatever
+        # commits next.
+        member = builder._data["member"]
+        self.created.append(("Member", member.name))
+        self.assertIn(
+            {"doctype": "Member", "name": member.name},
+            [{"doctype": e["doctype"], "name": e["name"]} for e in builder._cleanup_manager._cleanup_stack],
+            "the member was created before the raise but never registered, so it is "
+            "a permanent leak -- register it ABOVE the chapter block",
         )
+
+        # Precondition, so a green result cannot come from the wrong cause: the
+        # planted row must really be what blocked the roster write.
         self.assertFalse(
             frappe.db.exists("Chapter Member", {"parent": name, "member": member.name}),
             "precondition: the planted stale row did not block the roster write, so "
-            "this test is not exercising the swallow at all",
+            "this test is not exercising the failure at all",
         )
 
-        self.assertTrue(
-            any(name in line for line in logged.output),
-            "the builder dropped the chapter linkage and said nothing, so the "
-            f"assertion that fails next names the wrong cause: {logged.output}",
-        )
+        # The framework's message names the row it could not resolve; the builder's
+        # job is to add which chapter and which member, at the line that knows.
+        message = str(caught.exception)
+        self.assertIn(name, message, message)
+        self.assertIn(member.name, message, message)
 
 
 if __name__ == "__main__":

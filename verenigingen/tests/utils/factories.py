@@ -453,6 +453,11 @@ class TestDataBuilder:
         member = frappe.get_doc(member_data)
         member.insert()
 
+        # Registered BEFORE the chapter linkage below, not after: that linkage can
+        # raise, and a member inserted but never registered is a permanent leak.
+        self._data["member"] = member
+        self._cleanup_manager.register("Member", member.name)
+
         # Add to chapter if chapter exists (chapter linkage is via Chapter Member child rows)
         if "chapter" in self._data:
             chapter_name = self._data["chapter"].name
@@ -464,41 +469,52 @@ class TestDataBuilder:
                 )
                 chapter.save()
             except frappe.LinkValidationError as e:
-                # KEPT, and NOT silent. `chapter.save()` re-validates the WHOLE roster,
-                # so ONE row whose `member` no longer resolves makes this save raise --
-                # and then it raises for every later member on that chapter too.
-                # Measured on test_site_5, with a control:
+                # NOT swallowed any more. `chapter.save()` re-validates the WHOLE
+                # Chapter, so ONE persisted row whose link no longer resolves makes
+                # this save raise -- and keeps raising for every later member on that
+                # chapter. Swallowing it handed back a member with no chapter linkage
+                # from a call asked for both, so the caller's NEXT line failed naming
+                # the wrong cause: `test_member_controller.test_chapter_mixin_methods`
+                # asserts `db.get_value("Chapter Member", {"member": ...}, "parent")`.
                 #
-                #   append a dead-link row, save            -> LinkValidationError
-                #   PERSIST it, append a VALID member, save -> LinkValidationError
+                # Nothing depended on log-and-continue. Measured on test_site_2 with
+                # the handler replaced by a bare `raise`:
                 #
-                # Swallowing is still right: the member is the thing under test and it
-                # exists. What was wrong was doing it silently, because the caller's
-                # NEXT line is typically an assertion on the linkage --
-                # `test_member_controller.test_chapter_mixin_methods` asserts
-                # `db.get_value("Chapter Member", {"member": ...}, "parent")` -- which
-                # then fails naming the wrong cause.
+                #   controllers.test_member_controller          -> 21 OK (unchanged)
+                #   comprehensive.test_comprehensive_suite_demo -> 13 OK, 4 skipped
+                #   tests.test_harness_leak_attribution         -> the #515 pin ERRORS
                 #
-                # get_harness_logger, not frappe.logger(): the latter writes only to
-                # logs/frappe.log, which CI never uploads, so the message would not
-                # exist where it is needed (#485).
+                # The third line is the control: the pin plants the stale row, so it
+                # proves the handler is reachable and the first two are not vacuous.
+                # `with_team_assignment` below already appends-and-saves a
+                # possibly-borrowed `Team` with no handler at all.
                 #
-                # Where the stale rows come from: `Member.on_trash` ->
-                # `MemberCleanupService` force-deletes a member's roster rows
+                # Re-raised as the SAME class so existing `assertRaises` sites are
+                # unaffected, and chained, because Frappe's own message names the row
+                # ("Could not find Row #1: ...") but not the chapter or the member
+                # this call was building.
+                #
+                # NOT necessarily the roster: `Chapter` also links `chapter_head`,
+                # `region`, `cost_center`, `department` and
+                # `default_board_role_profile`, and carries `board_members`,
+                # `board_documents` and `board_role_specific_profiles`. A dangling
+                # `Chapter Board Member.volunteer` raises this same exception out of
+                # the same `save()` -- verified on test_site_2, which has 2 such rows.
+                # Hence "a stale link": the chained message names which one.
+                #
+                # ONE route to a stale roster row is `Member.on_trash` ->
+                # `MemberCleanupService`, which force-deletes a member's roster rows
                 # (member_cleanup_service.py:220-227) and swallows its own failures
-                # through a bare `frappe.logger().error`. 0 of 708 rows on test_site_5
-                # dangle today, so this is a live mechanism with no current instance
-                # rather than an active defect (#515).
-                get_harness_logger("test-data-builder").error(
-                    "chapter linkage SKIPPED: Chapter %s has a stale roster row, so "
-                    "member %s was created but not added to it: %s",
-                    chapter_name,
-                    member.name,
-                    e,
-                )
-
-        self._data["member"] = member
-        self._cleanup_manager.register("Member", member.name)
+                # through a bare `frappe.logger().error` (#485). It is not the only
+                # one: measured 2026-08-23, dangling `Chapter Member.member` rows
+                # exist on three of five local test sites (test_site_2 72 of 91,
+                # test_site_3 18 of 225, test_site_4 40 of 1284; 0 of 716 on
+                # test_site_5). What has no current instance is a dangling row on a
+                # chapter this builder can BORROW -- 0 on all five (#515).
+                raise frappe.LinkValidationError(
+                    f"chapter linkage FAILED: Chapter {chapter_name} has a stale link, "
+                    f"so member {member.name} could not be added to it: {e}"
+                ) from e
 
         return self
 
