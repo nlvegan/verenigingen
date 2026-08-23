@@ -400,13 +400,41 @@ class PaymentReconciliationManager:
         in real-time via webhook (see integrations/mollie/api/payment_webhook.py).
         """
 
-        # Only check transactions on the configured Mollie bank account
+        # Only check transactions on the configured Mollie bank account.
+        #
+        # The configured value is a GL **Account** name; `transaction["bank_account"]` is
+        # what `reconcile_bank_transactions` selected from `Bank Transaction.bank_account`,
+        # a Link to **Bank Account**. Those are different namespaces -- `Bank Account`
+        # autonames `account_name + " - " + bank` and `Account` autonames
+        # `account_name + " - " + abbr` -- so comparing them directly could only be equal
+        # by naming coincidence, and this gate rejected EVERY transaction (#523). Measured
+        # on veg11: 409 Bank Accounts, none with `name == account`, and zero settlement
+        # vouchers across 7,664 Bank Transactions.
+        #
+        # Resolved GL -> Bank Account, the same direction
+        # `bank_transaction_creator.get_mollie_bank_account_config` and
+        # `settlement_bank_transaction_processor._validate_configuration` already use.
         try:
             mollie_bank_account = self.config.get_bank_account_gl()
         except frappe.ValidationError:
             return None
 
-        if transaction.get("bank_account") != mollie_bank_account:
+        mollie_bank_account_doc = frappe.db.get_value(
+            "Bank Account", {"account": mollie_bank_account}, "name"
+        )
+        if not mollie_bank_account_doc:
+            # Configured GL account with no Bank Account record: settlements cannot be
+            # matched at all until one exists, and silence is how this went unnoticed for
+            # as long as it did.
+            _log_error_with_traceback(
+                "Mollie Settlement Matching",
+                f"No Bank Account record is linked to the configured Mollie bank account "
+                f"{mollie_bank_account!r}; settlement deposits cannot be matched until one "
+                f"exists.",
+            )
+            return None
+
+        if transaction.get("bank_account") != mollie_bank_account_doc:
             return None
 
         amount = self._safe_decimal(transaction.get("deposit", 0))
