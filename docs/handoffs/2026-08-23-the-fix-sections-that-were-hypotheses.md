@@ -98,10 +98,10 @@ the behaviour to reward.
 
 | PR | branch | review verdict | blocking work |
 |---|---|---|---|
-| #524 | `fix/516-territory-root-fixture` | merge **with changes** | guard the 9th site (`leak_attribution:915`); add `tests/utils/base.py` to `UNGUARDED_CALLS` and assert named calls are *found* (deleting `base.py:99` leaves the suite green — the ~289-file half of the fix is unpinned); fix 2 body claims |
-| #525 | `fix/515-builder-must-not-mutate-borrowed` | merge **with changes** | 4 prose corrections (posted on the PR); consider register-then-re-raise |
-| #526 | `fix/514-harness-logger-lazy-stream` | merge **with changes** | document or mitigate the class-teardown loss; correct the mutation table (3 red, not 2) |
-| #527 | `fix/513-466-sepa-setup-never-applied` | merge **with changes** | per-test re-assertion in `test_sepa_xml_compliance` + `test_api_regression` (one line each, copying DDB `setUp:91`); broaden the ratchet |
+| #524 | `fix/516-territory-root-fixture` | merge **with changes** — CI **43/43 CLEAN** | guard the 9th site (`leak_attribution:915`); add `tests/utils/base.py` to `UNGUARDED_CALLS` and assert named calls are *found* (deleting `base.py:99` leaves the suite green — the ~289-file half of the fix is unpinned); fix 2 body claims. Its review's third blocker — "the shards have not run" — is now **answered**: 43/43 at shard scale, which matters because this edits `tests/setup/__init__.py`, on every test's setup path |
+| #525 | `fix/515-builder-must-not-mutate-borrowed` | merge **with changes** — CI **43/43 green** | 4 prose corrections (posted on the PR); consider register-then-re-raise |
+| #526 | `fix/514-harness-logger-lazy-stream` | merge **with changes** — CI **41/43**, co-tenancy | document or mitigate the class-teardown loss; correct the mutation table (3 red, not 2) |
+| #527 | `fix/513-466-sepa-setup-never-applied` | merge **with changes** — CI 1 red shard, co-tenancy | per-test re-assertion in `test_sepa_xml_compliance` + `test_api_regression` (one line each, copying DDB `setUp:91`); broaden the ratchet |
 
 **#526 has one red shard (5/12), and it is CO-TENANCY, not the diff.** Root cause is
 `test_tussenvoegsel_name_handling_integration` (`full_name 'Jan Bergen63758233217'` should start with
