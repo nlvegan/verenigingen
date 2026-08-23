@@ -38,7 +38,11 @@ exit, and it sees only **committed** state — which is the contamination questi
 transiently resurrected and rolled back at class end never mattered; one that outlives
 the run is what poisons the next shard.
 
-`selftest.sh` runs both halves against four planted cases and asserts the verdicts.
+`selftest.sh` runs both halves against four planted cases and asserts the verdicts. The
+control module skips itself unless `DELETE_AUDIT_LOG` is set: two of its four cases strand
+a row on purpose -- the checker runs afterwards, in another process, and can only read
+COMMITTED state -- so in an ordinary suite run they would be a real leak with nothing to
+prove. `selftest.sh` sets the variable and sweeps the rows on the way out.
 
 ## Verdicts
 
