@@ -26,7 +26,9 @@ And a second one, which cost me a whole commit:
 | **PR #493** | #206: approval-invoice coverage stops before the anniversary (agent) | open, 3/12 shards green at handoff |
 | #496 | the shadowed-harness-method defect: 15–20 occurrences, 1 fatal | filed + corrected |
 | #497 | four settlement tests whose result depends on what `Mollie Settings` holds | filed |
-| #501 | the Mollie fee Journal Entry is booked backwards | filed |
+| #501 | the Mollie fee Journal Entry is booked backwards | **fixed in #500** |
+| #508 | a reconciled settlement books no bank leg at all | filed |
+| #509 | `track_doc()` pins all 1089 tracked docs at drain tier 0 | filed |
 
 ## #194 was fixed the day it was filed, and left open
 
@@ -130,20 +132,36 @@ Mutations, each reverting exactly one thing:
 | remove the completeness gate | 2 |
 | derive the fee instead of reading it | 1 — the refund test, 207.5 != 7.5 |
 
-## #501: the fee entry is booked backwards, and the evidence was in a passing test
+## #501: the fee entry was booked backwards, and the evidence was in a passing test
 
-Settled during review without needing the bank leg. `test_full_path_creates_balanced_journal_entry`
-builds the fees account with `root_type="Expense"` and asserts
-`credit_in_account_currency > 0` for a **positive** fee — and passes. A cost debits an
-expense account. `_create_mollie_payment_entry` sets `paid_to = clearing`, so each matched
-payment *debits* clearing; with the bank receipt crediting clearing by the payout, the
-residual to clear is a *credit*, and the code debits it again. Clearing drifts by 2× the
-fee per settlement.
+A **positive** fee debited clearing and **credited** the payment-processing-fees expense
+account. Two independent arguments, neither needing the bank leg:
 
-Two characterization tests cement it, with docstrings asserting the direction as intended.
-Left for #501: it is independent of amount and timing, it changes GL semantics, and veg11
-has **zero** such Journal Entries so far — cheap now, expensive after the first real
-settlement.
+1. **This app states the convention in prose, twice, and both other sites obey it.**
+   `donation_journal_entry_creator`: *"Debit: Mollie Clearing Account (asset increases - we
+   received money)"*. `donation_refund_journal_entry_creator`: *"Credit: Mollie Clearing
+   Account (money leaves the clearing account)"*. A fee is money that leaves.
+2. `_create_mollie_payment_entry` sets `paid_to = clearing`, so each matched payment
+   *debits* clearing; with the deposit crediting clearing by the payout, the residual is a
+   debit equal to the fee, which must be **credited** away. The old code debited it again —
+   clearing drifting by 2× the fee per settlement.
+
+**Grep the prose, not just the code.** The convention was written down in two files and the
+third disagreed with both. No amount of staring at `_create_mollie_fee_entry` would have
+settled it; one grep for `"Mollie Clearing Account"` did.
+
+Fixed in #500. Two characterization tests had pinned it *in both directions*, with
+docstrings asserting it as intended — they recorded behaviour and read as though somebody
+had checked. Both now assert the direction together with the reason it is right, and on
+**GL Entry rows** rather than the Journal Entry's own child table (per #382, `docstatus ==
+1` is not evidence of posting). Class census: three production sites book a clearing leg;
+the two donation creators were already correct; this was the only inverted one.
+
+Settling that direction surfaced **#508**: nothing books the payout leg at all. The deposit
+is marked `Reconciled` with `allocated_amount = 0` and no voucher linked, and a grep for an
+internal transfer or a `paid_from` on clearing over `verenigingen_payments` finds nothing.
+So clearing accumulates the gross. With #501 and #508 both fixed, the property worth
+asserting is that **clearing nets to zero across a settlement** — nothing tests that today.
 
 ## #206 (agent): the issue named one line; there were seven
 
@@ -160,13 +178,44 @@ Its own review found three more things, including that the seam test's first ass
 **circular** — `period.start_date == first_end + 1` restates `CoverageCalculator`'s own
 `add_days(latest_end, 1)`, so it moves *with* the bug and passes under mutation.
 
+## #493's red shard was the leak ratchet again
+
+`Tests: 1810, Failing: 0, Errors: 0` — and the job failed:
+
+```
+::error::These modules leak more records than their baseline allows:
+  - ...test_application_payments_invoice_paths: 1 leaked, baseline 0
+
+TEST-LEAK ... Sales Invoice::ACC-SINV-2026-00001
+              Could not find Party: Inv SQTEST-12345-73520479027843288
+```
+
+`track_doc()` records priority **0**, and `DRAIN_PRIORITY_BY_DOCTYPE` — Sales Invoice at 6,
+Customer at 3 — is consulted **only for core-factory records**
+(`enhanced_test_factory.py:2621`), never for a tracked one. Two tier-0 records fall back to
+tracking order; the Customer is tracked first, so the drain deleted the party and then
+could not cancel the invoice.
+
+Fixed narrowly in #493 (all nine invoice sites in that file get `priority=6`). The class is
+**#509**: 1089 `track_doc` call sites, all tier 0 — 62 Sales Invoice, 29 Direct Debit
+Batch, 16 Payment Entry sitting alongside the 69 Customer records they reference. The map's
+own comment already gives the reasoning ("Defaulting core records to 0 drained transaction
+documents after the parties they pin") — it was applied to core records and not to tracked
+ones.
+
+**This does not reproduce locally**, before or after, with the leak flag on: a warm site
+under-reports. What was verified locally is the premise and that the module stays green.
+
 ## Where things stand
 
-- **PR #500** — open, needs review. 42/42 on `test_site_3`, also green with
-  `VERENIGINGEN_FAIL_ON_TEST_LEAK=1` and under `run_without_credentials.sh`. Siblings 74 OK
-  and 20 OK. **Not yet through CI.**
-- **PR #493** — open, 3/12 shards green at handoff, 9 pending. Was being watched.
-- #496, #497, #501 — filed, unstarted.
+- **PR #500** — open, needs review. Four commits: the unblocking rename, the
+  partial-settlement gate, the stated-fee correction, and #501's direction. 42/42 on
+  `test_site_3`, also green with `VERENIGINGEN_FAIL_ON_TEST_LEAK=1` and under
+  `run_without_credentials.sh`. Siblings 74 OK and 20 OK. CI had one failure — the
+  duplicate-helper baseline going stale, because the rename left one copy where the
+  baseline recorded two. Regenerated in `7827c9cc`.
+- **PR #493** — open, the shard-10 leak fixed in `f02c3262`, CI re-running.
+- #496, #497, #508, #509 — filed, unstarted.
 
 ## What to distrust
 
