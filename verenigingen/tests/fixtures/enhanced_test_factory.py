@@ -1397,14 +1397,18 @@ class EnhancedTestDataFactory:
     def ensure_dues_schedule_template(self, template_name: str, attributes: dict = None) -> frappe._dict:
         """Ensure a dues schedule template exists, create if not.
 
-        Race-safety (CI runs 8 shards as parallel processes on ONE shared DB):
-        look the template up by ``schedule_name`` + ``is_template`` (the real
-        identity of a template) rather than only by document name, and wrap the
-        insert in a duplicate-tolerant guard. A sibling shard creating the same
-        named template concurrently would otherwise lose the insert race with a
-        DuplicateEntryError (``schedule_name`` is a UNIQUE field); instead we
-        catch that and return the row the sibling committed. This makes the
-        helper genuinely idempotent regardless of interleaving.
+        Idempotence: look the template up by ``schedule_name`` + ``is_template``
+        (the real identity of a template) rather than only by document name, and
+        wrap the insert in a duplicate-tolerant guard, so a caller that races
+        another writer on the same named template gets the committed row back
+        instead of a DuplicateEntryError (``schedule_name`` is a UNIQUE field).
+
+        NOT for cross-shard safety, which this used to claim. CI gives every shard
+        job its **own** ``mariadb:10.6`` service container
+        (``.github/workflows/_base-server-tests.yml``, the ``services:`` block), so
+        shards never share a database and cannot race each other at all. The
+        exposure this guard covers is within a single run: sibling classes in one
+        shard, and a warm local site carrying a template from an earlier run.
         """
         existing = self._find_dues_schedule_template(template_name)
         if existing:
