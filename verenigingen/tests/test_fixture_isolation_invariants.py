@@ -287,3 +287,166 @@ class TestRegionCodesAreNotDrawnFromANarrowSpace(VereningingenTestCase):
             "(unique_region_code / allocate_free_region_code) or be verified free in "
             "the same function:\n  " + "\n  ".join(sorted(set(offenders))),
         )
+
+
+class TestAFixedChapterNameHasOneOwningFile(VereningingenTestCase):
+    """A Chapter created under a hard-coded name is a fixture two files can each
+    believe they own -- the ``TEST-Payment-Integration-Company`` shape (#386/#392)
+    applied to chapters (#533).
+
+    ``ensure_test_chapter`` is a get-or-create keyed on the document name, so the
+    second owner silently inherits the first owner's row: its roster, its board, its
+    status. When the two owners land in one shard that is order-dependence by
+    construction, and it is what makes an absolute recipient count on a mutated
+    chapter unsafe (#531). A plain insert under a name someone else already holds
+    fails the other way, with DuplicateEntryError.
+
+    The rule is one owning FILE per fixed name, not one call site: a file may reuse
+    its own name across methods (`self.test_chapter` built in setUp), and several
+    single-file names deliberately cross-reference their own literal.
+
+    What this does NOT enforce:
+      * that the surviving single owner's name is unique per *test METHOD*. Only
+        cross-FILE ownership is checked, because a same-file literal cross-reference
+        is a deliberate design this cannot tell apart from an accident.
+      * anything in a shared helper module: ``_iter_test_sources`` yields only
+        ``test_*.py``, so ``tests/utils/base.py``, ``tests/utils/factories.py`` and
+        ``tests/utils/setup_helpers.py`` are invisible here. Checked by hand when
+        this was written -- base.py already generates a hash, factories.py takes the
+        name from its caller, and setup_helpers.py owns its names alone.
+      * a name assembled at runtime. Only literals and simple `x = "literal"`
+        bindings resolve; `"Test " + region` is not seen.
+    """
+
+    #: Names left shared on purpose, with the reason. Never add one to silence a red
+    #: run -- the entry has to say what stopped the fix.
+    KNOWN_SHARED = {
+        "Amsterdam": (
+            "4 files, and every one of them cross-references the literal from other "
+            "test bodies -- report filters (`{'chapter': 'Amsterdam'}`), member "
+            "kwargs (`chapter='Amsterdam'`) and API arguments: 20 non-creation "
+            "references beside the 4 creations. Uniquifying is a per-file behaviour "
+            "change, not a one-liner. Note the row those four share on a warm site "
+            "is not even a test fixture -- on test_site_5 it is a 2026-01-30 CSV "
+            "import artifact carrying 103 committed Chapter Member rows. The "
+            "assertions on it are all relative ('find our member in the rows'), "
+            "which is the only reason this is not already failing."
+        ),
+    }
+
+    #: Factories that take the document name for a Chapter.
+    GET_OR_CREATE = {"ensure_test_chapter"}
+    PLAIN_INSERT = {"create_test_chapter", "create_chapter"}
+
+    @staticmethod
+    def _str_const(node):
+        """Deliberately NOT the sibling class's `_literal`: that one returns any
+        constant (it needs ints, for priorities), and a chapter name that came back
+        as `1` or `None` would be claimed as a name here."""
+        return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
+
+    def _chapter_name_owners(self, tree):
+        """{fixed chapter name: first lineno} claimed by this module.
+
+        Four creation shapes, all of which have real instances in this app:
+          A  ensure_test_chapter("<name>") / (chapter_name="<name>")
+          B  create_test_chapter(chapter_name="<name>")
+          C  a dict carrying doctype="Chapter" and name="<name>"
+          D  a chapter-shaped dict (it has ``postal_codes``) with name="<name>"
+
+        Simple `x = "<literal>"` bindings are resolved, because shape C is written as
+        `perf_chapter_name = "Performance Test Chapter"` followed by
+        `{"doctype": "Chapter", "name": perf_chapter_name}`, and a literal-only check
+        misses it.
+        """
+        binds = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                value = self._str_const(node.value)
+                if value is not None:
+                    for target in node.targets:
+                        if isinstance(target, ast.Name):
+                            binds[target.id] = value
+
+        def resolve(node):
+            const = self._str_const(node)
+            if const is not None:
+                return const
+            return binds.get(node.id) if isinstance(node, ast.Name) else None
+
+        owned = {}
+
+        def claim(name, lineno):
+            if name:
+                owned.setdefault(name, lineno)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                func = node.func
+                fname = getattr(func, "attr", None) or getattr(func, "id", None)
+                if fname in self.GET_OR_CREATE or fname in self.PLAIN_INSERT:
+                    name = None
+                    if fname in self.GET_OR_CREATE and node.args:
+                        name = resolve(node.args[0])
+                    if name is None:
+                        for kw in node.keywords:
+                            if kw.arg == "chapter_name":
+                                name = resolve(kw.value)
+                    claim(name, node.lineno)
+            elif isinstance(node, ast.Dict):
+                keys = {}
+                for key, value in zip(node.keys, node.values):
+                    const_key = self._str_const(key) if key is not None else None
+                    if const_key:
+                        keys[const_key] = value
+                if "name" not in keys:
+                    continue
+                doctype = self._str_const(keys["doctype"]) if "doctype" in keys else None
+                # `postal_codes` is Chapter-only, and is what separates a real
+                # Chapter payload from an in-memory `{"name": ..., "region": ...}`
+                # stub passed to a scoring function -- a false positive an earlier
+                # version of this check did report.
+                if doctype == "Chapter" or (doctype is None and "postal_codes" in keys):
+                    claim(resolve(keys["name"]), node.lineno)
+
+        return owned
+
+    def _claims_by_name(self):
+        claims = {}
+        for path, source in _iter_test_sources():
+            try:
+                tree = ast.parse(source)
+            except SyntaxError:  # pragma: no cover
+                continue
+            for name, lineno in self._chapter_name_owners(tree).items():
+                claims.setdefault(name, []).append(f"{_rel(path)}:{lineno}")
+            del tree, source
+        return claims
+
+    def test_no_fixed_chapter_name_is_claimed_by_two_files(self):
+        claims = self._claims_by_name()
+        offenders = [
+            f"{name!r}: " + ", ".join(sorted(sites))
+            for name, sites in sorted(claims.items())
+            if len(sites) > 1 and name not in self.KNOWN_SHARED
+        ]
+
+        self.assertEqual(
+            offenders,
+            [],
+            "each of these fixed Chapter names is created by more than one file, so "
+            "whichever runs first owns the row; give it a per-test unique name "
+            '(f"<name> {frappe.generate_hash(length=6)}") at the call site, keeping '
+            "it tracked so the drain still removes it:\n  " + "\n  ".join(offenders),
+        )
+
+    def test_every_known_shared_chapter_name_is_still_shared(self):
+        """A stale exemption is worse than none -- it hides the next collision."""
+        claims = self._claims_by_name()
+        stale = sorted(name for name in self.KNOWN_SHARED if len(claims.get(name, [])) < 2)
+        self.assertEqual(
+            stale,
+            [],
+            "these names are no longer claimed by two files; drop them from "
+            "KNOWN_SHARED:\n  " + "\n  ".join(stale),
+        )
