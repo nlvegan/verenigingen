@@ -23,6 +23,7 @@ import unittest
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.harness_logger import get_harness_logger
 
 
 class _DrainProbe(EnhancedTestCase):
@@ -1542,8 +1543,12 @@ class BuilderRegistersOnlyWhatItCreatedTest(unittest.TestCase):
         for doctype, name in reversed(self.created):
             try:
                 frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
-            except Exception:
-                pass
+            except Exception as e:
+                # These fixtures are COMMITTED, so a failure here is permanent site
+                # dirt. That is the one case where a silent `pass` costs something.
+                get_harness_logger("borrowed-fixture").warning(
+                    "could not clean up %s %s: %s", doctype, name, e
+                )
         frappe.db.commit()
 
     def _region(self):
