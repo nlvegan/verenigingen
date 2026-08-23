@@ -69,6 +69,26 @@ from frappe.utils.password import get_decrypted_password, set_encrypted_password
 
 from verenigingen.tests.harness_logger import get_harness_logger
 
+# Cache-clearing methods to call after a restore, per doctype.
+#
+# `restore()` deliberately does not run `on_update` (see `_restore_singleton`),
+# but for `Ponto Settings` that hook is nothing BUT cache invalidation, and
+# losing it trades one contamination vector for another:
+# `tests/sepa/test_ponto_client.py` plants `PontoTokenManager.TOKEN_CACHE_KEY` in
+# SHARED redis with a 3600s TTL and never clears it, and `ponto_settings_cache`
+# (300s) is read by `ponto_client`, `betaalverzoek_client` and
+# `transaction_importer`. Measured: without this map both keys survive a restore
+# that used to clear them.
+#
+# Named methods rather than `on_update` itself, because on the other singles that
+# hook writes CSS into the public dir, syncs Select options across doctypes,
+# registers payment gateways and calls the Mollie API. A doctype absent from this
+# map gets no invalidation, which is the old failing path's behaviour, so adding
+# an entry can only ever help.
+CACHE_CLEARING_METHODS = {
+    "Ponto Settings": ("clear_configuration_cache", "clear_token_cache"),
+}
+
 
 class SingletonBackup:
     """
@@ -76,6 +96,19 @@ class SingletonBackup:
 
     Handles regular fields and Password fields separately to ensure
     encrypted values are properly preserved.
+
+    `restore()` writes straight into `tabSingles` and `__Auth`; it does NOT go
+    through `doc.save()`, so no `validate`/`before_save`/`on_update` hook runs.
+    That is deliberate -- see `_restore_singleton` (#537). The cache invalidation
+    those hooks used to give it is done explicitly instead, per
+    `CACHE_CLEARING_METHODS`.
+
+    Child tables are still not backed up at all: `_backup_singleton` skips the
+    `Table` fieldtype, so rows a test adds to one survive the restore -- measured,
+    one leftover `Ponto Bank Account Mapping` row on `test_site_3`, though whether
+    a row survives depends on which module wrote last. Unchanged by #537, and
+    untested either way; `test_ponto_doctype_coverage_extra` has a docstring
+    claiming the mappings are restored, and they are not.
     """
 
     def __init__(self, *doctype_names: str):
@@ -126,7 +159,12 @@ class SingletonBackup:
                     "Tab Break",
                     "HTML",
                     "Button",
-                    "Table",  # Child tables need special handling
+                    # Child tables need special handling. `Table MultiSelect` is
+                    # here because its value is a LIST of child documents too:
+                    # `setattr` + `save()` coped with one, a `tabSingles` write
+                    # would not. No app Single declares one today.
+                    "Table",
+                    "Table MultiSelect",
                 ):
                     field_values[field.fieldname] = getattr(doc, field.fieldname, None)
 
@@ -168,17 +206,37 @@ class SingletonBackup:
             return
 
         try:
-            doc = frappe.get_single(doctype_name)
-
-            # Restore regular fields
+            # Straight into `tabSingles`, NOT through doc.save(): a restore puts
+            # back a state that was already persisted, so a controller's
+            # validate() must not get a veto over it. It used to, and the state it
+            # rejected was `Ponto Settings`' own factory default -- `sandbox_mode`
+            # defaults to 1 with no `sandbox_client_id`, which
+            # `validate_credentials_configured` throws on. Measured across all 12
+            # shards of PR #525 (green): 34 swallowed restores, every one that
+            # pair, leaving the test's credential in the Single for the rest of
+            # the shard and on the site afterwards (#537).
+            #
+            # Skipping the lifecycle is wanted, not merely tolerable: `on_update`
+            # on these singles writes CSS into the public dir, syncs Select
+            # options across doctypes and registers payment gateways, and
+            # `Mollie Settings.validate` calls the Mollie API. A teardown must do
+            # none of that. The one thing worth keeping from `on_update` is the
+            # cache invalidation, done explicitly below. Password fields are
+            # restored below too -- they live in `__Auth` and never enter
+            # `field_values`.
+            #
+            # `set_single_value` runs values through `sbool`, which converts
+            # exactly "true"/"1"/"false"/"0" (case-insensitive) and leaves
+            # everything else alone -- "yes"/"no" included. "1"/"0" round-trip
+            # byte-identically (True -> literal 1 -> read back "1"), which is what
+            # the eight sbool-ambiguous Single defaults declare, e.g.
+            # `E-Boekhouden Settings.fiscal_year_start_month`. Only a literal
+            # "true"/"false" in a text field would be lossy and nothing declares
+            # one, so the framework's own Single-write API is worth more than
+            # hand-rolling the insert to avoid that edge.
             field_values = self._backups[doctype_name]
-            for fieldname, value in field_values.items():
-                try:
-                    setattr(doc, fieldname, value)
-                except Exception:
-                    pass  # Some fields may be read-only
-
-            doc.save(ignore_permissions=True)
+            if field_values:
+                frappe.db.set_single_value(doctype_name, dict(field_values))
 
             # Restore password fields
             password_values = self._password_backups.get(doctype_name, {})
@@ -212,6 +270,8 @@ class SingletonBackup:
 
             frappe.db.commit()
 
+            self._clear_derived_caches(doctype_name)
+
             get_harness_logger("singleton-backup").debug(
                 "Restored %s (%d fields, %d passwords)",
                 doctype_name,
@@ -228,6 +288,17 @@ class SingletonBackup:
             get_harness_logger("singleton-backup").error(
                 "Failed to restore %s: %s", doctype_name, e
             )
+
+
+    @staticmethod
+    def _clear_derived_caches(doctype_name: str) -> None:
+        """Drop app-level caches keyed off this Single. See CACHE_CLEARING_METHODS."""
+        methods = CACHE_CLEARING_METHODS.get(doctype_name)
+        if not methods:
+            return
+        doc = frappe.get_single(doctype_name)
+        for method in methods:
+            getattr(doc, method)()
 
 
 @contextmanager
