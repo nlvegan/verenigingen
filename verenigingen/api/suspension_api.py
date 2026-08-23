@@ -530,9 +530,12 @@ def bulk_suspend_members(
                 data=results,
             )
     # #475. The inner guard already stops the loop; what THIS frame owns is the rollback.
-    # @handle_api_error one frame up swallows the re-raise and returns an OperationResult, so
-    # the exception never escapes the request -- without this rollback frappe/app.py commits
-    # the partial suspensions on the way out. That decorator is app-wide and is tracked as #481.
+    # It ends the discarded transaction before the log below it, so the partial suspensions
+    # cannot be committed on the way out. (Until #481 this was also the ONLY rollback on the
+    # path, because @handle_api_error one frame up converted the re-raise into an
+    # OperationResult. It no longer does -- the exception now escapes the request -- but this
+    # rollback stays: it is what bounds the window, and it is the frame that knows the work
+    # was partial.)
     except NON_RESUMABLE_DB_ERRORS:
         frappe.db.rollback()
         frappe.log_error(
