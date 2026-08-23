@@ -130,6 +130,47 @@ evidence. **The baseline has 0 active entries**, so any failure fails the gate a
 fixtures, and it is a file #526 edits. Note `run-tests --module A --module B` silently runs only B,
 so reproducing co-tenancy needs `run-parallel-tests` or a driver script.
 
+## develop carries latent order-dependent failures, and the baseline has 0 entries
+
+Two of the four PRs went red on modules they never touch, and the third was fully green. This is the
+single most useful operational fact from the session, because it means **a red shard on these PRs is
+not evidence about the PR**.
+
+| PR | red shard | failing module | is it in the PR's diff? | same module on green #525 |
+|---|---|---|---|---|
+| #526 | 5/12 | `tests.integration.test_dutch_business_rules_phase3` | no | **ran and passed** (shard 3/12) |
+| #527 | 1/12 | `tests.www.test_dues_www_pages_coverage` (3 tests) | no | **ran and passed** (shard 12/12) |
+| #525 | — | — | — | 43/43 green |
+
+Both were checked the way CLAUDE.md prescribes and both came back clean:
+
+- **#527**: zero hits in its shard log for *every* string it introduces
+  (`SEPAConfigurationNotApplied`, `sepa_test_configuration`, `apply_sepa_test_configuration`,
+  `verify_sepa_configuration`, `webhook_user`). And the mechanism its review flagged as PLAUSIBLE —
+  five modules now committing `Verenigingen Settings.company` site-wide with no restore — **cannot
+  apply**: none of its six modified modules runs before the failure in that shard (position 84 of 99).
+- **#526**: passes standalone against its own code and against develop; 25 predecessor modules differ
+  between the two shards (list committed under `scripts/testing/notes/`).
+
+`verenigingen/tests/known_test_failures.txt` has **0 active entries**, so any of these fails the gate.
+The practical consequence: **re-running does not help** (it reproduces the same packing
+deterministically), and a green local module run is explicitly not evidence — the baseline file's own
+header records five failures that passed locally and failed in every shard. The work is a co-tenant
+bisect, per red shard.
+
+## One real bug the logs surfaced: #537
+
+`Failed to restore Ponto Settings: Sandbox Client ID is required when Sandbox Mode is enabled` —
+**4× in #527's shard, 4× in #526's, 17× `Failed to restore` in #525's.** `SingletonBackup.restore()`
+captures a state it cannot write back, so the Single stays contaminated for every later class.
+
+This is #513's class, and it is audible **only** because #512's logger conversion merged today — the
+message is in `HARNESS_FILES` precisely because a wrongly-restored Single "said so nowhere (#433)".
+Which closes a loop: **PR #526 would re-silence it**, since `restore()` is called from
+`tearDownClass` in 8 of the 9 affected modules and #526 loses class-teardown records. Filed as #537
+with the unmeasured half named (nobody has checked what the surviving value breaks, and the 17-count
+on #525 was not partitioned by doctype).
+
 **Three unpushed branches**, all reviewed:
 
 | branch | verdict |
@@ -138,7 +179,7 @@ so reproducing co-tenancy needs `run-parallel-tests` or a driver script.
 | `fix/smoke-chapter-self-accumulation` | open PR **with changes**: correct the mechanism, fix a stale test name in the message |
 | `refactor/app-root-and-territory-clones` | **split into two PRs after a rebase** — it does not merge onto its own base (`paths.py` conflict with `d772f3ad`) |
 
-**Issues filed:** #528 (setUp reverts any per-class Single config — the biggest; census of what else it
+**Issues filed:** #537 (SingletonBackup cannot restore Ponto Settings), #528 (setUp reverts any per-class Single config — the biggest; census of what else it
 breaks has never been run), #529 (`_create_sepa_xml_structure` exists nowhere), #530 (harness currency
 scan, *corrected — higher priority than filed*), #531 (newsletter counts, *corrected*), #532 (109
 no-filter Company scans, sort the opposite way), #533 (four chapter names with two owners each), #535
