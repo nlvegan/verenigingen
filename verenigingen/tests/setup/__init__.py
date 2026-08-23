@@ -481,7 +481,12 @@ def ensure_netherlands_territory():
     # BEFORE the "Netherlands" early return, not after it: the root is what the
     # rest of the suite needs (every Customer defaults to it), and a site can
     # have "Netherlands" without it -- at which point returning early leaves the
-    # root missing for everyone. The cost is one extra `db.exists` per setUp.
+    # root missing for everyone. The cost is an existence check on a path that
+    # already does one -- deliberately not stated as a per-setUp count, because
+    # the number depends on the base: `VereningingenTestCase` reaches this from
+    # setUpClass, while the `EnhancedTestCase` chain reaches it twice per setUp
+    # (`enhanced_test_factory` `_ensure_production_ready_setup` and again inside
+    # `_ensure_master_data`, which carries no once-flag).
     #
     # This call site is where #516 surfaced:
     # `VereningingenTestCase.setUpClass` -> here -> "Could not find Parent
