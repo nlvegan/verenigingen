@@ -24,7 +24,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, getdate, today
 
-from verenigingen.tests.harness_logger import get_harness_logger
+from verenigingen.tests.support.sepa_test_configuration import apply_sepa_test_configuration
 from verenigingen.verenigingen_payments.services.sepa_xml_adapter import (
     BatchValidationSummary,
     SEPAXMLAdapter,
@@ -291,21 +291,15 @@ class TestSEPAXMLAdapterIntegration(FrappeTestCase):
 
     @classmethod
     def _setup_sepa_test_configuration(cls):
-        """Configure SEPA settings for testing"""
-        try:
-            # Try to get payments settings
-            settings = frappe.get_single("Verenigingen Payments Settings")
-            settings.creditor_id = "NL12ZZZ123456789"
-            settings.company_iban = "NL91ABNA0417164300"
-            settings.company_bic = "ABNANL2A"
-            settings.company_account_holder = "Test Vereniging"
-            settings.save()
-            frappe.db.commit()
-        except Exception as e:
-            # get_harness_logger, NOT frappe.logger(): the settings written here are
-            # what the assertions below depend on; a bare logger sends the reason to
-            # logs/frappe.log, which CI does not upload.
-            get_harness_logger("sepa-xml-adapter").warning("SEPA test configuration setup failed: %s", e)
+        """Configure SEPA settings for testing.
+
+        Third instance of #513's failure mode, found by grepping for the class
+        rather than the file: this wrote the right doctype with the right field
+        names, but through ``save()``, so the Single's dangling ``webhook_user``
+        Link failed validation here exactly as it did in
+        ``test_direct_debit_batch_refactoring`` -- and the ``except`` hid it.
+        """
+        cls.eur_company = apply_sepa_test_configuration()
 
     def test_prefetch_mandate_data(self):
         """Test bulk prefetching of mandate data"""

@@ -29,6 +29,11 @@ import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.harness_logger import get_harness_logger
+from verenigingen.tests.support.sepa_test_configuration import (
+    SEPA_TEST_FIELDS,
+    apply_sepa_test_configuration,
+    verify_sepa_configuration,
+)
 from verenigingen.verenigingen_payments.services.sepa_configuration_service import sepa_config_service
 from verenigingen.verenigingen_payments.services.sepa_xml_generation_service import sepa_xml_service
 from verenigingen.verenigingen_payments.utils.sepa_utilities import SEPAUtilities, SEPAXMLValidator
@@ -51,24 +56,20 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
 
     @classmethod
     def _setup_sepa_test_configuration(cls):
-        """Configure SEPA settings for testing"""
-        try:
-            settings = frappe.get_single("Verenigingen Settings")
+        """Configure SEPA settings for testing, and return the configured company.
 
-            # Set up comprehensive SEPA configuration
-            settings.sepa_creditor_id = "NL12ZZZ123456789"
-            settings.company_iban = "NL91ABNA0417164300"
-            settings.company_bic = "ABNANL2A"
-            settings.company = "Test Vereniging"
-            settings.enable_strict_sepa_validation = True
-
-            settings.save()
-            frappe.db.commit()
-
-        except Exception as e:
-            # get_harness_logger, NOT frappe.logger(): the settings written here are
-            # what every test in this class depends on.
-            get_harness_logger("sepa-xml-compliance").warning("SEPA test configuration setup failed: %s", e)
+        #466: this used to write ``sepa_creditor_id`` / ``company_iban`` /
+        ``company_bic`` / ``enable_strict_sepa_validation`` onto *Verenigingen
+        Settings*, where none of those four fields exist -- silent no-ops, every
+        run -- and ``company = "Test Vereniging"``, a Company that does not exist,
+        whose LinkValidationError took the rest of the helper down inside a
+        ``try/except``. The real creditor fields live on *Verenigingen Payments
+        Settings*; ``enable_strict_sepa_validation`` has no counterpart on either
+        Single (see the shared helper's docstring) and is deliberately not
+        guessed at.
+        """
+        cls.eur_company = apply_sepa_test_configuration()
+        return cls.eur_company
 
     def setUp(self):
         """Set up each test with fresh batch data"""
@@ -188,6 +189,40 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
                 frappe.delete_doc("Direct Debit Batch", self.test_batch.name, force=True)
             except:
                 pass
+
+    def test_the_class_setup_applies_a_configuration_that_actually_lands(self):
+        """#466: this class's SEPA setup configured nothing, on every run.
+
+        It wrote ``sepa_creditor_id``, ``company_iban``, ``company_bic`` and
+        ``enable_strict_sepa_validation`` onto *Verenigingen Settings*, where
+        **none of those four fields exist** -- assigning a nonexistent field on a
+        Frappe Document is a silent no-op. The only assignment that did anything
+        was ``company = "Test Vereniging"``, a Company that does not exist, whose
+        LinkValidationError took the helper down and was swallowed.
+
+        Damage-first: every test site already holds the expected creditor id, so a
+        read-back with no damage is green against the broken helper.
+        """
+        original = {
+            fieldname: frappe.db.get_single_value("Verenigingen Payments Settings", fieldname)
+            for fieldname in SEPA_TEST_FIELDS["Verenigingen Payments Settings"]
+        }
+
+        def restore():
+            for fieldname, value in original.items():
+                frappe.db.set_single_value("Verenigingen Payments Settings", fieldname, value)
+            frappe.db.commit()
+
+        self.addCleanup(restore)
+
+        for fieldname in original:
+            frappe.db.set_single_value("Verenigingen Payments Settings", fieldname, None)
+        frappe.db.commit()
+
+        # The class's own setup path, not the shared helper directly.
+        company = type(self)._setup_sepa_test_configuration()
+
+        verify_sepa_configuration(company)
 
     def test_pain_008_001_08_xml_structure(self):
         """Test compliance with pain.008.001.08 XML structure"""

@@ -29,7 +29,11 @@ from frappe.utils import nowdate, nowtime, random_string, today
 
 # Import the Enhanced Test Factory
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.tests.harness_logger import get_harness_logger
+from verenigingen.tests.support.sepa_test_configuration import (
+    SEPA_TEST_FIELDS,
+    apply_sepa_test_configuration,
+    verify_sepa_configuration,
+)
 from verenigingen.verenigingen_payments.services.batch_processing_service import batch_processing_service
 from verenigingen.verenigingen_payments.services.batch_validation_service import batch_validation_service
 
@@ -61,40 +65,16 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
         The SEPA configuration service reads creditor_id / company_bic /
         company_iban from *Verenigingen Payments Settings* (not Verenigingen
         Settings), and the company must be EUR for invoice validation.
+
+        #513: this used to build the configuration inline behind a
+        ``try/except``, and it had never once succeeded -- 12 swallowed failures
+        in a single 14-test run, all of them the Single's dangling
+        ``webhook_user`` Link failing document validation before any SEPA field
+        was reached. It does not catch any more: every test below runs against
+        this configuration, so a failure here has to fail the class rather than
+        leave 14 tests believing they are configured.
         """
-        try:
-            from verenigingen.tests.support.sepa_test_company import get_eur_test_company
-
-            cls.eur_company = get_eur_test_company()
-
-            ven_settings = frappe.get_single("Verenigingen Settings")
-            if ven_settings.company != cls.eur_company:
-                ven_settings.company = cls.eur_company
-                ven_settings.flags.ignore_validate = True
-                ven_settings.save(ignore_permissions=True)
-
-            payments = frappe.get_single("Verenigingen Payments Settings")
-            payments.company_iban = "NL91ABNA0417164300"
-            payments.company_bic = "ABNANL2A"
-            payments.creditor_id = "NL12ZZZ123456789"
-            payments.flags.ignore_validate = True
-            payments.save(ignore_permissions=True)
-            frappe.db.commit()
-
-            # The SEPA configuration service caches the resolved settings
-            # (organization_name etc.) at the singleton level; clear that cache
-            # plus the cached Verenigingen Settings single so the EUR company set
-            # above is picked up. (Do NOT call frappe.clear_cache() — wiping the
-            # DocType meta cache mid-test drops field defaults like
-            # SEPA Batch Upload Log.batch_status and breaks inserts.)
-            sepa_config_service.refresh_settings_cache()
-            frappe.clear_document_cache("Verenigingen Settings", "Verenigingen Settings")
-
-        except Exception as e:
-            # get_harness_logger, NOT frappe.logger(): every test in this class runs
-            # against the SEPA configuration this sets up, so a silent failure here
-            # is what makes the rest of the file pass vacuously.
-            get_harness_logger("ddb-refactoring").warning("Could not set up SEPA configuration: %s", e)
+        cls.eur_company = apply_sepa_test_configuration()
 
     def setUp(self):
         """Set up each test with fresh data"""
@@ -120,6 +100,49 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
                 frappe.delete_doc("Direct Debit Batch", self.test_batch.name, force=True)
             except:
                 pass
+
+    def test_the_class_setup_applies_a_configuration_that_actually_lands(self):
+        """#513: this class's SEPA setup had never once succeeded.
+
+        Twelve swallowed failures in a single 14-test run on test_site_4, every one
+        of them ``Could not find Webhook User: webhook-user@test-site-4.local`` --
+        a dangling Link in a field this configuration does not own, left behind by
+        ``tests/test_webhook_user_setup``. The ``except`` made it invisible, so all
+        14 tests ran against a configuration that was never applied.
+
+        Damage-first on both halves. Blanking alone proves nothing (the broken
+        helper fails only when the Link dangles) and planting the Link alone proves
+        nothing either (a warm site already holds the expected values, so the
+        read-back is satisfied by state a previous run left).
+        """
+        original_webhook_user = frappe.db.get_single_value("Verenigingen Payments Settings", "webhook_user")
+        original = {
+            fieldname: frappe.db.get_single_value("Verenigingen Payments Settings", fieldname)
+            for fieldname in SEPA_TEST_FIELDS["Verenigingen Payments Settings"]
+        }
+
+        def restore():
+            for fieldname, value in original.items():
+                frappe.db.set_single_value("Verenigingen Payments Settings", fieldname, value)
+            frappe.db.set_single_value(
+                "Verenigingen Payments Settings", "webhook_user", original_webhook_user
+            )
+            frappe.db.commit()
+
+        self.addCleanup(restore)
+
+        for fieldname in original:
+            frappe.db.set_single_value("Verenigingen Payments Settings", fieldname, None)
+        ghost = "webhook-user-513-ddb-pin@example.invalid"
+        frappe.db.set_single_value("Verenigingen Payments Settings", "webhook_user", ghost)
+        frappe.db.commit()
+        self.assertFalse(frappe.db.exists("User", ghost), "precondition: the link must dangle")
+
+        # The class's own setup path, not the shared helper directly: what is being
+        # pinned is that THIS module's setup reaches the database.
+        type(self)._setup_sepa_configuration()
+
+        verify_sepa_configuration(self.eur_company)
 
     def test_before_submit_rejects_past_batch_date(self):
         """A batch scheduled to collect on a past date must be rejected at submit.
