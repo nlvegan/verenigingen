@@ -79,6 +79,10 @@ _LEVELS = {
 # ``logging.getLogger(LOGGER_NAME)`` directly cannot end up with a second,
 # duplicate handler through us.
 _CONFIGURED_FLAG = "_verenigingen_harness_configured"
+# The handler itself, stashed so `_configured_logger` can ask whether it is still
+# attached. See its docstring: a "have we configured this" boolean cannot notice
+# that something removed the handler behind our back.
+_HANDLER_ATTR = "_verenigingen_harness_handler"
 
 
 def get_harness_logger(prefix: str = "") -> logging.Logger | logging.LoggerAdapter:
@@ -96,8 +100,27 @@ def get_harness_logger(prefix: str = "") -> logging.Logger | logging.LoggerAdapt
 
 
 def _configured_logger() -> logging.Logger:
+    """Return the logger, configuring it if OUR HANDLER is not currently attached.
+
+    The guard asks whether the handler is there, not whether we have ever set it up.
+    A boolean "configured once" flag is not equivalent, because something else can
+    take the handler away and cannot clear the flag: `unittest`'s `assertLogs`
+    snapshots `handlers`, `level` and `propagate` on entry and restores that snapshot
+    on exit, so a logger first configured INSIDE an `assertLogs` block comes out with
+    an empty handler list and a flag still saying "configured". Every later harness
+    message in the process then falls through to `logging.lastResort` -- unformatted,
+    and with `VERENIGINGEN_TEST_LOG_LEVEL` silently dead.
+
+    Measured before this guard changed:
+
+        after assertLogs: handlers=[] level=0 propagate=True flag=True
+        later record      -> "later-message-A" via lastResort, no level, no name
+
+    Keyed on identity, so it survives a caller that adds a handler of its own.
+    """
     logger = logging.getLogger(LOGGER_NAME)
-    if getattr(logger, _CONFIGURED_FLAG, False):
+    existing = getattr(logger, _HANDLER_ATTR, None)
+    if existing is not None and existing in logger.handlers:
         return logger
 
     handler = logging.StreamHandler(sys.stderr)
@@ -108,6 +131,7 @@ def _configured_logger() -> logging.Logger:
     # would fall through to logging.lastResort -- a second, unformatted copy of
     # every record on stderr.
     logger.propagate = False
+    setattr(logger, _HANDLER_ATTR, handler)
     setattr(logger, _CONFIGURED_FLAG, True)
     return logger
 

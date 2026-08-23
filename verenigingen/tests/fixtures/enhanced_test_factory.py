@@ -2098,6 +2098,10 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 try:
                     frappe.db.rollback(save_point=savepoint)
                 except Exception:
+                    # Same decision as `tests/utils/cleanup_savepoint.py`, which names
+                    # the 1213 case instead of folding it in here; converging this copy
+                    # onto it is a behaviour change for the drain and needs shard-scale
+                    # proof (#499).
                     # The savepoint is gone -- an inner commit dropped it, or a
                     # deadlock rolled the whole transaction back (MySQL 1305). Letting
                     # THAT propagate would replace the real cancel failure, and
