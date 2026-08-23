@@ -117,9 +117,18 @@ the exception *class*. Four sessions into this bug class, nothing has yet exerci
 - **Should the #470 ratchet extend past `services/termination/`?** It scans one package, so nothing
   stops a new endpoint being written with the same whole-body swallow. Raised in #505.
 - **#469** — same-doctype Member inversion, still open from #468.
-- `wt-470` (in the bench root), `wt-475` and this session's `wt-481` can all go now — #484 and #504 are both merged.
-- **`test_site_1` is dirty** in ways that redden ten modules independently of any branch — 270
-  overdue invoices, leftover dues schedules crowding a top-10 report. Worth its own cleanup.
+- **Worktree/branch cleanup done this session: 63 worktrees removed, 95 merged local branches
+  deleted** (scoped to `git branch --merged origin/develop`, no `--force`, none refused). ~95
+  merged *remote* refs are still there and were deliberately left alone.
+  Note `wt-470` in the bench root is **not** a #470 worktree — it holds
+  `docs/handoff-2026-08-22e`, whose PR #480 is still open. An earlier draft of this handoff said
+  it could go; that was wrong, and the merged-only filter is the only reason it survived.
+- **`test_site_1` was restored** this session from `sites/test_snapshot/clean_v1620-database.sql.gz`
+  via `reset_test_sites.sh` (93 companies / 1861 members / 6859 invoices → 0). Both modules that
+  had been reddening on dirt now pass. Two things to know: the script does **not** migrate and the
+  snapshot is from **Jun 10**, so a `bench migrate` is required after every restore (done here);
+  and the **first** run after a wipe reports errors while it seeds fixtures, then passes on the
+  second. **The snapshot is ~10 weeks stale and should be regenerated while the site is clean.**
 
 ## For whoever picks this up
 
