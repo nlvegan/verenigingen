@@ -22,8 +22,8 @@ And a second one, which cost me a whole commit:
 
 | | | |
 |---|---|---|
-| **PR #500** | #194 residual: a partly allocated settlement books its unmatched payments as fees | open, 3 commits, 42/42 green |
-| **PR #493** | #206: approval-invoice coverage stops before the anniversary (agent) | open, 3/12 shards green at handoff |
+| **PR #500** | #194 residual + #501: a settlement fee that is fabricated, mistimed, and booked backwards | open, 5 commits, 42/42 local; CI 42 green / 1 queued at handoff |
+| **PR #493** | #206: approval-invoice coverage stops before the anniversary (agent) | open, 4 commits; CI re-running after the leak fix, 30 green / 12 pending, no failures |
 | #496 | the shadowed-harness-method defect: 15–20 occurrences, 1 fatal | filed + corrected |
 | #497 | four settlement tests whose result depends on what `Mollie Settings` holds | filed |
 | #501 | the Mollie fee Journal Entry is booked backwards | **fixed in #500** |
@@ -208,13 +208,18 @@ under-reports. What was verified locally is the premise and that the module stay
 
 ## Where things stand
 
-- **PR #500** — open, needs review. Four commits: the unblocking rename, the
-  partial-settlement gate, the stated-fee correction, and #501's direction. 42/42 on
-  `test_site_3`, also green with `VERENIGINGEN_FAIL_ON_TEST_LEAK=1` and under
-  `run_without_credentials.sh`. Siblings 74 OK and 20 OK. CI had one failure — the
-  duplicate-helper baseline going stale, because the rename left one copy where the
-  baseline recorded two. Regenerated in `7827c9cc`.
-- **PR #493** — open, the shard-10 leak fixed in `f02c3262`, CI re-running.
+- **PR #500** — open, needs review. Five commits: the unblocking rename, the
+  partial-settlement gate, the stated-fee correction, #501's direction, and the
+  duplicate-helper baseline. 42/42 on `test_site_3`, also green with
+  `VERENIGINGEN_FAIL_ON_TEST_LEAK=1` and under `run_without_credentials.sh`. Siblings 74 OK
+  and 20 OK. CI at handoff: **42 green, 1 queued, no failures.** The one failure it did have
+  was the duplicate-helper baseline going stale, because the rename left one copy where the
+  baseline recorded two — regenerated in `7827c9cc`.
+- **PR #493** — open, four commits. The shard-10 leak fixed in `f02c3262`, and the
+  `_track_invoice` name collision the duplicate guard then caught fixed in `ea4af502` (the
+  guard was right: `test_invoice_generation_orchestrator.py:44` already had a method of that
+  name doing something different, so the helper was renamed rather than the baseline
+  raised). CI at handoff: **30 green, 12 pending, no failures.**
 - #496, #497, #508, #509 — filed, unstarted.
 
 ## What to distrust
