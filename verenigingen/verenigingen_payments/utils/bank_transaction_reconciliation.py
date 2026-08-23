@@ -806,11 +806,20 @@ class PaymentReconciliationManager:
             return False
 
         try:
-            return bool(
-                frappe.db.exists(
-                    "Payment Entry", {"custom_mollie_settlement_id": settlement_id, "docstatus": 1}
+            return (
+                bool(
+                    frappe.db.exists(
+                        "Payment Entry", {"custom_mollie_settlement_id": settlement_id, "docstatus": 1}
+                    )
                 )
-            ) or bool(self._existing_settlement_fee_entry(settlement_id))
+                or bool(self._existing_settlement_fee_entry(settlement_id))
+                or bool(
+                    # The payout leg counts as posted accounting in its own right: a run
+                    # that got as far as it has written to the ledger, and the fee guard
+                    # above deliberately no longer matches it.
+                    self._existing_settlement_payout_entry(settlement_id)
+                )
+            )
         except Exception as e:
             _log_error_with_traceback(
                 "Mollie Settlement Reconciliation",
@@ -830,7 +839,38 @@ class PaymentReconciliationManager:
         if not settlement_id:
             return None
         return frappe.db.exists(
-            "Journal Entry", {"custom_mollie_settlement_id": settlement_id, "docstatus": 1}
+            "Journal Entry",
+            {
+                "custom_mollie_settlement_id": settlement_id,
+                # The FEE entry specifically. The payout leg (#508) carries the same
+                # settlement id, and without this filter it satisfies this guard: a
+                # settlement that reconciled before Mollie stated its costs would then
+                # short-circuit on its own payout leg and never book the fee at all.
+                # The fee entry is the only "Journal Entry" voucher_type this pipeline
+                # writes, so this filter is a no-op for rows booked before the payout
+                # leg existed.
+                "voucher_type": "Journal Entry",
+                "docstatus": 1,
+            },
+        )
+
+    def _existing_settlement_payout_entry(self, settlement_id):
+        """Return the name of the submitted payout leg for *settlement_id*, if any.
+
+        The payout leg's own idempotency key, and it needs one of its own: the fee
+        guard above no longer covers it (they are told apart by ``voucher_type``), so
+        without this a re-run would credit clearing a second time and double-count the
+        money arriving in the bank.
+        """
+        if not settlement_id:
+            return None
+        return frappe.db.exists(
+            "Journal Entry",
+            {
+                "custom_mollie_settlement_id": settlement_id,
+                "voucher_type": "Bank Entry",
+                "docstatus": 1,
+            },
         )
 
     def _require_submit_permission(self, *doctypes):
@@ -1463,6 +1503,18 @@ class PaymentReconciliationManager:
             if bookable and abs(mollie_fees) > Decimal("0.01"):
                 self._create_mollie_fee_entry(bank_trans, mollie_fees, settlement_data)
 
+            # The payout leg, LAST. Order matters: this entry is booked after the fee
+            # entry because a failure between the two must leave the fee unbooked and
+            # the settlement retryable, and `_settlement_has_posted_accounting` reads
+            # both. Booking it first would let a fee-entry failure short-circuit every
+            # later run, so the fees would never be booked at all -- the same trap the
+            # fee entry's own placement comment describes.
+            #
+            # Gated on `fully_reconciled` for that same reason: closing out the payout
+            # while payments are still unmatched declares the settlement finished.
+            if fully_reconciled:
+                self._create_settlement_bank_entry(bank_trans, settlement_data)
+
             return {
                 "type": "mollie_settlement",
                 "settlement_id": settlement_id,
@@ -1746,6 +1798,126 @@ class PaymentReconciliationManager:
         # defeats `_existing_settlement_fee_entry`, the settlement-level idempotency
         # key, so a draft left here would let the next run book the fees again.
         self._insert_and_submit(journal_entry)
+
+        return journal_entry
+
+    def _create_settlement_bank_entry(self, bank_trans, settlement_data):
+        """Book the payout leg: the money leaving clearing and arriving in the bank.
+
+        This is the FIRST of the three legs ``process_mollie_settlement``'s docstring
+        names -- "The bulk settlement deposit in your bank -> Mollie Clearing Account" --
+        and it was never implemented (#508). Without it clearing accumulates a debit
+        balance of gross-minus-fees on every settlement and the physical bank account
+        never records the payout through this path at all.
+
+        Direction follows the same convention the fee entry documents: the matched
+        payments DEBIT clearing by their gross, the fee CREDITS it by what Mollie kept,
+        and the payout CREDITS it by what Mollie actually sent -- leaving clearing at
+        zero, which is the property worth asserting about a settled settlement.
+
+        The amount is the BANK's figure (``bank_trans.deposit``), not the settlement's
+        stated ``amount``. The bank statement is the authority for what arrived in the
+        bank, and the matcher admits a settlement within a tolerance, so the two can
+        differ. Booking the bank's number means a real discrepancy shows up as a
+        residual in clearing for an operator to look at, rather than being silently
+        absorbed into a leg that claims to be the payout.
+        """
+        payout = self._safe_decimal(bank_trans.deposit)
+        if abs(payout) < Decimal("0.01"):
+            return None
+
+        if self._existing_settlement_payout_entry(settlement_data.get("id")):
+            return None
+
+        import erpnext
+        from frappe import get_doc
+
+        try:
+            clearing_account = self.config.get_clearing_account()
+            bank_account = self.config.get_bank_account_gl()
+        except frappe.ValidationError:
+            _log_error_with_traceback(
+                "Mollie Settlement Bank Leg",
+                "Cannot book the settlement payout - clearing or bank account not configured",
+            )
+            return None
+
+        # A single account configured as both sides is a real deployment state (it is
+        # what veg11 holds today) and a transfer from an account to itself is not an
+        # entry worth making: it posts two rows that cancel and ERPNext rejects the
+        # equivalent Payment Entry outright. Book nothing and say so, rather than
+        # inventing a no-op voucher.
+        if clearing_account == bank_account:
+            _log_error_with_traceback(
+                "Mollie Settlement Bank Leg",
+                f"Mollie clearing and bank accounts are both {clearing_account!r}; "
+                "the settlement payout leg was not booked. Configure them as separate "
+                "accounts in Mollie Settings.",
+            )
+            return None
+
+        # As in `_create_mollie_fee_entry`: refuse before inserting, because an
+        # unsubmitted entry is invisible to every `docstatus: 1` guard here.
+        self._require_submit_permission("Journal Entry")
+
+        company = frappe.db.get_value("Account", clearing_account, "company")
+        default_cost_center = erpnext.get_default_cost_center(company)
+
+        leg = float(abs(payout))
+        journal_entry = get_doc(
+            {
+                "doctype": "Journal Entry",
+                "company": company,
+                "posting_date": bank_trans.date,
+                # "Bank Entry", not "Journal Entry": this is what distinguishes the
+                # payout leg from the fee entry, which carries the same settlement id.
+                # `_existing_settlement_fee_entry` filters on the fee entry's own
+                # voucher_type for exactly that reason -- without the distinction this
+                # entry would silently become the fee entry's idempotency key.
+                "voucher_type": "Bank Entry",
+                # ERPNext makes Reference No / Reference Date MANDATORY for a Bank
+                # Entry (Journal Entry.validate_reference_doc -> "Reference No &
+                # Reference Date is required for Bank Entry"). The bank statement line
+                # is the natural reference: it is the record of the payout arriving.
+                "cheque_no": bank_trans.reference_number or settlement_data.get("id"),
+                "cheque_date": bank_trans.date,
+                "user_remark": f"Mollie settlement payout - Settlement {settlement_data.get('id')}",
+                "custom_mollie_settlement_id": settlement_data.get("id"),
+                "accounts": [
+                    {
+                        "account": bank_account,
+                        "cost_center": default_cost_center,
+                        "debit_in_account_currency": leg,
+                        "credit_in_account_currency": 0,
+                    },
+                    {
+                        "account": clearing_account,
+                        "cost_center": default_cost_center,
+                        "debit_in_account_currency": 0,
+                        "credit_in_account_currency": leg,
+                    },
+                ],
+            }
+        )
+
+        self._insert_and_submit(journal_entry)
+
+        # Allocate the deposit to the leg that explains it. Without this the deposit is
+        # marked Reconciled with `allocated_amount = 0`, which is what ERPNext's own bank
+        # reconciliation view -- and `reconcile_bank_transactions`' own fetch filter,
+        # `allocated_amount in (0, None)` -- read as UNRECONCILED. The row is appended to
+        # the in-memory document and persisted by the `bank_trans.save()` in
+        # `create_reconciliation`'s mollie_settlement branch; ERPNext recomputes
+        # `allocated_amount` from this child table in `before_validate`, so nothing has
+        # to set that field directly.
+        bank_trans.append(
+            "payment_entries",
+            {
+                "payment_document": "Journal Entry",
+                "payment_entry": journal_entry.name,
+                "allocated_amount": leg,
+            },
+        )
 
         return journal_entry
 
