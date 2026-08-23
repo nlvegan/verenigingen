@@ -128,6 +128,117 @@ def reconfigured(level_value):
         logger.setLevel(original_level)
 
 
+class HandlerMustFollowStderrTest(unittest.TestCase):
+    """The handler must resolve `sys.stderr` when it emits, not when it was built.
+
+    `frappe/testing/result.py` replaces `sys.stderr` with a fresh `io.StringIO` at
+    `startTestRun` (`:54-59`) and AGAIN at every `startTest` (`:99-104`), reading each
+    buffer back into the report once and then never again. A plain
+    `logging.StreamHandler(sys.stderr)` stores the stream OBJECT, so a logger first
+    configured inside a test is bound for the rest of the process to that one test's
+    buffer -- every later harness record lands somewhere nothing reads, with
+    `VERENIGINGEN_TEST_LOG_LEVEL` silently dead. Measured under the real `TestResult`
+    before the fix: three warnings from three tests, all three in test 1's buffer, only
+    the first surfaced (#514).
+
+    It does not bite today only because `verenigingen/tests/setup/__init__.py:14` and
+    `verenigingen/tests/fixtures/enhanced_test_factory.py:204` call
+    `get_harness_logger()` at IMPORT time, i.e. before `startTestRun` -- an undocumented,
+    unpinned invariant that every converted site depends on. This is what pins it.
+
+    `test_writes_to_stderr_not_stdout` does not: it rebuilds the logger itself, so it
+    compares `handler.stream` with `sys.stderr` at a moment when they agree whether the
+    binding is lazy or not.
+    """
+
+    def setUp(self):
+        self.logger = logging.getLogger(LOGGER_NAME)
+        self._handlers = self.logger.handlers[:]
+        self._level = self.logger.level
+        self._propagate = self.logger.propagate
+        # Start from the state that produces the bug: nothing attached, so the first
+        # configure happens inside the redirect below.
+        self.logger.handlers = []
+
+    def tearDown(self):
+        self.logger.handlers = self._handlers
+        self.logger.setLevel(self._level)
+        self.logger.propagate = self._propagate
+
+    def test_a_later_record_reaches_the_stderr_of_its_own_moment(self):
+        first = io.StringIO()
+        with contextlib.redirect_stderr(first):
+            get_harness_logger("pin").warning("during-the-first-stream")
+
+        # Control: without this the test could pass on a handler that writes nowhere.
+        self.assertIn(
+            "during-the-first-stream",
+            first.getvalue(),
+            "precondition: the first record must reach the stream in force at the time",
+        )
+
+        later = io.StringIO()
+        with contextlib.redirect_stderr(later):
+            get_harness_logger("pin").warning("after-the-stream-was-replaced")
+
+        self.assertIn(
+            "after-the-stream-was-replaced",
+            later.getvalue(),
+            "the handler is still writing to the stream it was BUILT with. Under "
+            "`bench run-tests` that is one dead test buffer, and every harness "
+            "warning after it is invisible (#514)",
+        )
+        self.assertNotIn("after-the-stream-was-replaced", first.getvalue())
+
+    def test_a_logger_object_cached_before_the_swap_follows_it_too(self):
+        """The shape `tests/setup` and `enhanced_test_factory` actually use.
+
+        Both bind `logger = get_harness_logger(...)` once at module level and call
+        `.warning()` on that object for the rest of the process. Records from an adapter
+        go straight to the logger's handlers, so nothing re-enters
+        `_configured_logger()` -- a fix that only re-checked the binding on the next
+        `get_harness_logger()` call would leave these two silent.
+        """
+        with contextlib.redirect_stderr(io.StringIO()):
+            cached = get_harness_logger("cached")
+
+        later = io.StringIO()
+        with contextlib.redirect_stderr(later):
+            cached.warning("from-the-cached-adapter")
+
+        self.assertIn(
+            "cached: from-the-cached-adapter",
+            later.getvalue(),
+            "a module-level logger captured before the swap is exactly the "
+            "load-bearing case, and it never calls get_harness_logger() again",
+        )
+
+    def test_set_stream_still_installs_the_stream_it_is_given(self):
+        """A `stream` setter that swallowed the assignment would break `logging`.
+
+        `Handler.setStream` reports the stream it replaced and assumes the new one is
+        in force; `flush()` and `close()` go through `self.stream` as well. So the
+        override has to be real, not a no-op that lets the lazy value win.
+        """
+        get_harness_logger()
+        handler = _stream_handler(self.logger)
+
+        explicit = io.StringIO()
+        handler.setStream(explicit)
+        try:
+            with contextlib.redirect_stderr(io.StringIO()) as ignored:
+                self.logger.warning("to-the-explicit-stream")
+            self.assertIn("to-the-explicit-stream", explicit.getvalue())
+            self.assertEqual("", ignored.getvalue())
+            self.assertIs(explicit, handler.stream)
+        finally:
+            # `None` means "follow sys.stderr" -- the same thing it means to
+            # `StreamHandler(stream=None)`.
+            handler.setStream(None)
+
+        self.assertIs(sys.stderr, handler.stream)
+
+
 class AssertLogsMustNotDegradeTheLoggerTest(unittest.TestCase):
     """`assertLogs` takes the handler away and cannot give the flag back.
 
@@ -181,15 +292,20 @@ class AssertLogsMustNotDegradeTheLoggerTest(unittest.TestCase):
 
 @contextlib.contextmanager
 def captured_stream(logger):
-    """Swap the logger's stream for a buffer, restoring it even on failure."""
+    """Swap the logger's stream for a buffer, restoring it even on failure.
+
+    Restores with `None` -- "follow `sys.stderr`" -- rather than with the object read
+    out of `handler.stream` on the way in. Reading it resolves `sys.stderr` NOW, and
+    putting that object back would pin it as an explicit override, which is #514
+    re-created inside the helper that the tests for #514 run through.
+    """
     handler = _stream_handler(logger)
-    original = handler.stream
     buffer = io.StringIO()
     handler.setStream(buffer)
     try:
         yield buffer
     finally:
-        handler.setStream(original)
+        handler.setStream(None)
 
 
 def _stream_handler(logger) -> logging.StreamHandler:

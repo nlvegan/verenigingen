@@ -31,7 +31,9 @@ Two things are different here, and both are needed:
 2. **A stderr handler.** ``frappe.logger()`` attaches ``RotatingFileHandler``s
    and sets ``propagate = False``. Even at the right level its records land in
    ``logs/frappe.log``, which CI does not surface. A harness warning nobody
-   reads is the bug this module exists to fix, one layer along.
+   reads is the bug this module exists to fix, one layer along. The handler
+   resolves ``sys.stderr`` when it emits rather than storing it -- see
+   ``_StderrHandler``; the test runner swaps that object out per test (#514).
 
 This is deliberately *not* built on ``verenigingen.utils.service_logger`` —
 that shim fixes handler attachment for the production service layer and says
@@ -99,6 +101,58 @@ def get_harness_logger(prefix: str = "") -> logging.Logger | logging.LoggerAdapt
     return _PrefixedAdapter(logger, {"prefix": prefix})
 
 
+class _StderrHandler(logging.StreamHandler):
+    """A ``StreamHandler`` that resolves ``sys.stderr`` when it emits.
+
+    ``logging.StreamHandler(sys.stderr)`` stores the stream OBJECT. That is fine in a
+    normal process and wrong under the test runner: ``frappe/testing/result.py``
+    replaces ``sys.stderr`` with a fresh ``io.StringIO`` at ``startTestRun``
+    (``:54-59``) and again at every ``startTest`` (``:99-104``), reading each buffer
+    into the report once and then dropping it. So a handler built inside a test is
+    bound for the rest of the process to that one test's buffer, and every later
+    harness record -- the whole point of this module -- goes somewhere nothing reads,
+    taking ``VERENIGINGEN_TEST_LOG_LEVEL`` with it.
+
+    Measured under the real ``TestResult`` before this class existed: three warnings
+    from three tests, all three in test 1's buffer, only the first surfaced (#514).
+    It stayed latent only because ``tests/setup/__init__.py`` and
+    ``tests/fixtures/enhanced_test_factory.py`` configure the logger at IMPORT time,
+    before ``startTestRun`` -- an invariant nothing documented or pinned.
+
+    The lazy read is the stdlib's own answer to this: ``logging._StderrHandler``,
+    which backs ``logging.lastResort``, is a ``StreamHandler`` with exactly this
+    property and exactly this docstring reason. The setter is the part the stdlib
+    leaves out (there, assignment raises): ``Handler.setStream`` returns the stream it
+    replaced and assumes the new one is in force, and ``flush``/``close`` read
+    ``self.stream``, so a setter that silently swallowed the assignment would turn
+    every capture helper into a no-op. ``None`` means "follow ``sys.stderr``", the
+    same thing it means to ``StreamHandler(stream=None)``.
+
+    Fixing it here rather than by re-checking the binding in ``_configured_logger``:
+    ``tests/setup`` and ``enhanced_test_factory`` cache the adapter at module level and
+    call ``.warning()`` on it for the rest of the run. Records from an adapter go
+    straight to the logger's handlers, so those two never re-enter
+    ``_configured_logger`` and a guard could not reach them.
+    """
+
+    def __init__(self):
+        # Deliberately not StreamHandler.__init__: it assigns self.stream, which our
+        # setter would record as an explicit override of the very value we want to
+        # keep resolving lazily.
+        logging.Handler.__init__(self)
+        self._explicit_stream = None
+
+    @property
+    def stream(self):
+        if self._explicit_stream is not None:
+            return self._explicit_stream
+        return sys.stderr
+
+    @stream.setter
+    def stream(self, value):
+        self._explicit_stream = value
+
+
 def _configured_logger() -> logging.Logger:
     """Return the logger, configuring it if OUR HANDLER is not currently attached.
 
@@ -123,7 +177,7 @@ def _configured_logger() -> logging.Logger:
     if existing is not None and existing in logger.handlers:
         return logger
 
-    handler = logging.StreamHandler(sys.stderr)
+    handler = _StderrHandler()
     handler.setFormatter(logging.Formatter("%(levelname)s %(name)s %(message)s"))
     logger.addHandler(handler)
     logger.setLevel(_configured_level())
