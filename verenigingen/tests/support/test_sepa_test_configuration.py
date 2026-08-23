@@ -35,15 +35,22 @@ import os
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.tests.support.sepa_test_configuration import (
     PAYMENTS_SETTINGS,
+    SEPA_TEST_CREDITOR_ID,
     SEPA_TEST_FIELDS,
+    SEPA_TEST_IBAN,
     SETTINGS,
     SEPAConfigurationNotApplied,
     _write_single,
     apply_sepa_test_configuration,
+    sepa_test_field_values,
     verify_sepa_configuration,
 )
+from verenigingen.utils.validation.iban_validator import validate_iban
+
+HELPER = "apply_sepa_test_configuration"
 
 # A User that cannot exist, planted in Verenigingen Payments Settings.webhook_user
 # to reproduce #513's precondition.
@@ -97,9 +104,7 @@ class TestSEPATestConfiguration(FrappeTestCase):
         frappe.db.set_single_value(PAYMENTS_SETTINGS, "webhook_user", _GHOST_WEBHOOK_USER)
         frappe.db.commit()
         # Preconditions: the damage is real, or this test proves nothing.
-        self.assertFalse(
-            frappe.db.exists("User", _GHOST_WEBHOOK_USER), "precondition: the link must dangle"
-        )
+        self.assertFalse(frappe.db.exists("User", _GHOST_WEBHOOK_USER), "precondition: the link must dangle")
         self.assertFalse(frappe.db.get_single_value(PAYMENTS_SETTINGS, "creditor_id"))
 
         company = apply_sepa_test_configuration()
@@ -122,13 +127,35 @@ class TestSEPATestConfiguration(FrappeTestCase):
     def test_every_field_the_helper_writes_exists_on_its_doctype(self):
         """#466: four fields were assigned on Verenigingen Settings that do not
         exist there (sepa_creditor_id, company_iban, company_bic,
-        enable_strict_sepa_validation). Frappe accepts every one as a no-op."""
-        for doctype, values in SEPA_TEST_FIELDS.items():
+        enable_strict_sepa_validation). Frappe accepts every one as a no-op.
+
+        Iterates ``sepa_test_field_values()``, not ``SEPA_TEST_FIELDS``: the
+        constant holds only the fixed-value half, so iterating it left the
+        ``Verenigingen Settings.company`` write -- the one whose dangling Link is
+        #466's other half -- outside the check that exists to catch #466.
+        """
+        checked = []
+        for doctype, values in sepa_test_field_values("irrelevant-for-a-meta-check").items():
             meta = frappe.get_meta(doctype)
             for fieldname in values:
-                self.assertIsNotNone(
-                    meta.get_field(fieldname), f"{doctype} has no field {fieldname!r}"
-                )
+                self.assertIsNotNone(meta.get_field(fieldname), f"{doctype} has no field {fieldname!r}")
+                checked.append(f"{doctype}.{fieldname}")
+        # Control: iterating the wrong collection is how the company write escaped,
+        # so assert it is in scope rather than trusting the loop above ran over it.
+        self.assertIn(f"{SETTINGS}.company", checked)
+
+    def test_the_pinned_iban_and_creditor_id_pass_the_validation_the_helper_skips(self):
+        """``set_single_value`` skips ``validate()``, which is where the mod-97
+        IBAN check on ``company_iban`` lives
+        (``VerenigingenPaymentsSettings._validate_sepa_configuration``). Both
+        constants are valid today and nothing pinned that, so a future edit to
+        either would be written silently and only surface as a SEPA XML failure.
+        """
+        result = validate_iban(SEPA_TEST_IBAN)
+        self.assertTrue(result["valid"], f"SEPA_TEST_IBAN is not a valid IBAN: {result}")
+        # The creditor id check in that validator is a soft msgprint on length
+        # (8..35), so pin the window rather than a format the app does not enforce.
+        self.assertTrue(8 <= len(SEPA_TEST_CREDITOR_ID) <= 35)
 
     def test_a_field_that_does_not_exist_is_raised_not_written(self):
         """The guard that makes #466 impossible to repeat.
@@ -166,11 +193,27 @@ class TestSEPATestConfiguration(FrappeTestCase):
 
     def test_a_value_that_did_not_land_is_reported(self):
         """The read-back guard: verify_sepa_configuration must fail loudly when
-        the site does not hold what the helper intended."""
+        the site does not hold what the helper intended.
+
+        The company passed here is the REAL one, and is written first. With a
+        placeholder ("some-company") the company check failed too, so the raise
+        was consistent with "the blanked fields were reported" and with "only the
+        company was" -- and ``assertIn("creditor_id")`` was the only thing
+        distinguishing them. Now the blanked fields are the sole possible cause.
+        """
+        company = get_eur_test_company()
+        frappe.db.set_single_value(SETTINGS, "company", company)
         self._blank_sepa_fields()
+
         with self.assertRaises(SEPAConfigurationNotApplied) as caught:
-            verify_sepa_configuration("some-company")
-        self.assertIn("creditor_id", str(caught.exception))
+            verify_sepa_configuration(company)
+
+        message = str(caught.exception)
+        self.assertIn("creditor_id", message)
+        # ...and the company, which DID land, must not be among the complaints.
+        # Matched with the "is" suffix because company_iban / company_bic /
+        # company_account_holder all contain the substring "company".
+        self.assertNotIn(f"{SETTINGS}.company is", message)
 
     # ---- the class, not the instance ---------------------------------------
 
@@ -183,33 +226,180 @@ class TestSEPATestConfiguration(FrappeTestCase):
         file under verenigingen/ that mentions the helper, so a NEW caller is
         covered without being named here -- the allowlist-that-covers-nothing
         failure mode (#485) does not apply.
+
+        The first version of this check matched only a bare ``Name`` call, which
+        missed three shapes -- measured against synthetic files, it caught the
+        direct call and nothing else:
+
+        * ``import ... as _apply`` then ``try: _apply()``;
+        * ``sepa_test_configuration.apply_sepa_test_configuration()``
+          (an ``ast.Attribute`` call);
+        * ``try: cls._setup_sepa_configuration()`` where the wrapper is what calls
+          the helper -- **the shape all five real callers use**, i.e. the check
+          would not have caught the very swallow it was written to prevent.
+
+        It also flagged a handler-less ``try/finally``, which swallows nothing.
+        All five shapes are covered by ``_helper_reaching_calls`` below.
         """
         offenders = []
         root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        for dirpath, dirnames, filenames in os.walk(root):
+        for dirpath, _dirnames, filenames in os.walk(root):
             if "node_modules" in dirpath or "__pycache__" in dirpath:
                 continue
             for filename in filenames:
                 if not filename.endswith(".py"):
                     continue
                 path = os.path.join(dirpath, filename)
-                with open(path, encoding="utf-8") as handle:
+                # errors="replace", not strict: a single non-UTF-8 .py anywhere
+                # under verenigingen/ made this check ERROR out rather than report
+                # anything -- a scan that cannot read a file must not be the thing
+                # that fails. A file that survives the marker test is then parsed
+                # normally, so real breakage still surfaces.
+                with open(path, encoding="utf-8", errors="replace") as handle:
                     source = handle.read()
-                if "apply_sepa_test_configuration" not in source:
+                if HELPER not in source:
                     continue
-                for node in ast.walk(ast.parse(source)):
-                    if not isinstance(node, ast.Try):
-                        continue
-                    for child in ast.walk(node):
-                        if (
-                            isinstance(child, ast.Call)
-                            and isinstance(child.func, ast.Name)
-                            and child.func.id == "apply_sepa_test_configuration"
-                        ):
-                            offenders.append(f"{os.path.relpath(path, root)}:{child.lineno}")
+                offenders.extend(
+                    f"{os.path.relpath(path, root)}:{lineno}" for lineno in _swallowed_helper_calls(source)
+                )
         self.assertEqual(
             offenders,
             [],
             "apply_sepa_test_configuration must not be called inside a try: a swallowed "
             "setup failure is the whole of #513 and #466",
         )
+
+    def test_the_try_detector_sees_every_evasion_shape_and_no_clean_one(self):
+        """The control for the check above: it has to fire on the direct call plus
+        all four shapes that evaded the first version, and stay silent on the three
+        that swallow nothing.
+
+        Without this, "offenders == []" is equally consistent with "no caller
+        swallows" and with "the detector cannot see the shape they use" -- which
+        was literally true of the first version.
+        """
+        preamble = (
+            "from verenigingen.tests.support.sepa_test_configuration import "
+            "apply_sepa_test_configuration\n"
+        )
+        must_fire = {
+            "direct call": preamble
+            + "try:\n    apply_sepa_test_configuration()\nexcept Exception:\n    pass\n",
+            "aliased import": (
+                "from verenigingen.tests.support.sepa_test_configuration import "
+                "apply_sepa_test_configuration as _apply\n"
+                "try:\n    _apply()\nexcept Exception:\n    pass\n"
+            ),
+            "attribute call": (
+                "from verenigingen.tests.support import sepa_test_configuration\n"
+                "try:\n    sepa_test_configuration.apply_sepa_test_configuration()\n"
+                "except Exception:\n    pass\n"
+            ),
+            "wrapper method -- the shape every real caller uses": (
+                preamble + "class T:\n"
+                "    @classmethod\n"
+                "    def setUpClass(cls):\n"
+                "        try:\n            cls._setup()\n        except Exception:\n            pass\n"
+                "    @classmethod\n"
+                "    def _setup(cls):\n        apply_sepa_test_configuration()\n"
+            ),
+            "wrapper two levels deep": (
+                preamble + "class T:\n"
+                "    @classmethod\n"
+                "    def setUpClass(cls):\n"
+                "        try:\n            cls._outer()\n        except Exception:\n            pass\n"
+                "    @classmethod\n"
+                "    def _outer(cls):\n        cls._inner()\n"
+                "    @classmethod\n"
+                "    def _inner(cls):\n        apply_sepa_test_configuration()\n"
+            ),
+        }
+        must_stay_silent = {
+            "no try at all": preamble + "apply_sepa_test_configuration()\n",
+            "try/finally with no handler swallows nothing": (
+                preamble + "try:\n    apply_sepa_test_configuration()\nfinally:\n    pass\n"
+            ),
+            "an unrelated try in the same file": (
+                preamble + "apply_sepa_test_configuration()\n"
+                "try:\n    something_else()\nexcept Exception:\n    pass\n"
+            ),
+        }
+        for label, source in must_fire.items():
+            self.assertTrue(_swallowed_helper_calls(source), f"detector missed: {label}")
+        for label, source in must_stay_silent.items():
+            self.assertEqual(_swallowed_helper_calls(source), [], f"false positive: {label}")
+
+
+def _names_bound_to_helper(tree):
+    """Local names that resolve to the helper, including ``import ... as`` aliases."""
+    names = {HELPER}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name == HELPER and alias.asname:
+                    names.add(alias.asname)
+    return names
+
+
+def _is_helper_call(call, names):
+    """A call that lands on the helper, however it was imported.
+
+    ``ast.Attribute`` is matched on the attribute name alone -- ``mod.HELPER()``,
+    ``pkg.mod.HELPER()`` -- rather than by resolving the module alias: the name is
+    distinctive enough that a false positive would itself be worth looking at.
+    """
+    if isinstance(call.func, ast.Name):
+        return call.func.id in names
+    return isinstance(call.func, ast.Attribute) and call.func.attr == HELPER
+
+
+def _functions_reaching_helper(tree, names):
+    """Names of functions/methods in this module whose body reaches the helper.
+
+    Iterated to a fixed point, so a wrapper that calls a wrapper is covered: the
+    swallow this ratchet exists to block is one level of indirection, and one
+    more level must not be a way out of it.
+    """
+    functions = [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    reaching = set()
+    while True:
+        grown = False
+        for fn in functions:
+            if fn.name in reaching:
+                continue
+            if any(_call_reaches_helper(c, names, reaching) for c in _calls_in(fn)):
+                reaching.add(fn.name)
+                grown = True
+        if not grown:
+            return reaching
+
+
+def _calls_in(node):
+    return [c for c in ast.walk(node) if isinstance(c, ast.Call)]
+
+
+def _call_reaches_helper(call, names, reaching):
+    if _is_helper_call(call, names):
+        return True
+    # cls._setup(), self._setup(), type(self)._setup(), bare _setup()
+    called = call.func.id if isinstance(call.func, ast.Name) else getattr(call.func, "attr", None)
+    return called in reaching
+
+
+def _swallowed_helper_calls(source):
+    """Line numbers of ``try`` blocks that swallow a call reaching the helper.
+
+    A ``try`` with no ``except`` (``try/finally``) is skipped: it swallows nothing,
+    and flagging it was a false positive in the first version of this check.
+    """
+    tree = ast.parse(source)
+    names = _names_bound_to_helper(tree)
+    reaching = _functions_reaching_helper(tree, names)
+    lines = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Try) or not node.handlers:
+            continue
+        for call in _calls_in(node):
+            if _call_reaches_helper(call, names, reaching):
+                lines.append(call.lineno)
+    return lines

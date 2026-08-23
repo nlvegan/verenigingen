@@ -83,11 +83,14 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
         self.test_invoices = []
         self.test_mandates = []
         self.test_batch = None
-        # The app's before_tests hook (and other modules) can reset
-        # Verenigingen Settings.company to the ERPNext "_Test Company" (whose
-        # name contains an underscore, invalid for SEPA), and the config service
-        # caches the resolved organization_name. Re-assert the EUR company and
-        # refresh the cache per-test so SEPA XML generation gets a valid name.
+        # Re-assert per test. The mechanism is not the before_tests hook this
+        # comment used to name: it is EnhancedTestCase.setUp itself, which
+        # re-points Verenigingen Settings.company at the ERPNext "_Test Company"
+        # (leading underscore, invalid for SEPA) on EVERY test method (#528).
+        # Measured, with the other four callers, under "Callers on
+        # EnhancedTestCase must re-apply this PER TEST" in
+        # tests/support/sepa_test_configuration. Also refreshes the config
+        # service's cached organization_name.
         self._setup_sepa_configuration()
 
     def tearDown(self):
@@ -101,7 +104,7 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
             except:
                 pass
 
-    def test_the_class_setup_applies_a_configuration_that_actually_lands(self):
+    def test_the_class_setup_writes_a_configuration_that_lands(self):
         """#513: this class's SEPA setup had never once succeeded.
 
         Twelve swallowed failures in a single 14-test run on test_site_4, every one
@@ -114,6 +117,12 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
         helper fails only when the Link dangles) and planting the Link alone proves
         nothing either (a warm site already holds the expected values, so the
         read-back is satisfied by state a previous run left).
+
+        Named "writes", not "applies": this test RE-APPLIES the configuration in
+        its own body, so it is green whether or not the class's other tests run
+        under it -- which for this class they demonstrably did not. The
+        per-test-body property is pinned separately, by
+        test_an_ordinary_test_body_runs_under_the_sepa_configuration.
         """
         original_webhook_user = frappe.db.get_single_value("Verenigingen Payments Settings", "webhook_user")
         original = {
@@ -142,6 +151,17 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
         # pinned is that THIS module's setup reaches the database.
         type(self)._setup_sepa_configuration()
 
+        verify_sepa_configuration(self.eur_company)
+
+    def test_an_ordinary_test_body_runs_under_the_sepa_configuration(self):
+        """The property the class-setup test above cannot prove: an ordinary body,
+        which applies nothing itself, is running under the configuration.
+
+        This is the pin for the setUp re-assertion. EnhancedTestCase.setUp reverts
+        Verenigingen Settings.company to "_Test Company" before every test method
+        (#528), so with that line removed this test goes red -- no damage step is
+        needed, the harness supplies the damage on every run.
+        """
         verify_sepa_configuration(self.eur_company)
 
     def test_before_submit_rejects_past_batch_date(self):

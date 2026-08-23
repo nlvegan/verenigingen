@@ -74,6 +74,13 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
     def setUp(self):
         """Set up each test with fresh batch data"""
         super().setUp()
+        # Re-assert per test: EnhancedTestCase.setUp re-points Verenigingen
+        # Settings.company at the ERPNext "_Test Company" on EVERY test method, so
+        # setUpClass's configuration is already undone by the time a body runs
+        # (#528). Measured, with the other four callers, under "Callers on
+        # EnhancedTestCase must re-apply this PER TEST" in
+        # tests/support/sepa_test_configuration.
+        self._setup_sepa_test_configuration()
         self.test_batch = None
         # The batch child rows below require a real Sales Invoice link (the
         # `invoice` field is a reqd Link to Sales Invoice). On a fresh CI-mirror
@@ -190,7 +197,7 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
             except:
                 pass
 
-    def test_the_class_setup_applies_a_configuration_that_actually_lands(self):
+    def test_the_class_setup_writes_a_configuration_that_lands(self):
         """#466: this class's SEPA setup configured nothing, on every run.
 
         It wrote ``sepa_creditor_id``, ``company_iban``, ``company_bic`` and
@@ -202,6 +209,12 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
 
         Damage-first: every test site already holds the expected creditor id, so a
         read-back with no damage is green against the broken helper.
+
+        Named "writes", not "applies": this test RE-APPLIES the configuration in
+        its own body, so it is green whether or not the class's other tests run
+        under it -- which for this class they demonstrably did not. The
+        per-test-body property is pinned separately, by
+        test_an_ordinary_test_body_runs_under_the_sepa_configuration.
         """
         original = {
             fieldname: frappe.db.get_single_value("Verenigingen Payments Settings", fieldname)
@@ -223,6 +236,17 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
         company = type(self)._setup_sepa_test_configuration()
 
         verify_sepa_configuration(company)
+
+    def test_an_ordinary_test_body_runs_under_the_sepa_configuration(self):
+        """The property the class-setup test above cannot prove: an ordinary body,
+        which applies nothing itself, is running under the configuration.
+
+        This is the pin for the setUp re-assertion. EnhancedTestCase.setUp reverts
+        Verenigingen Settings.company to "_Test Company" before every test method
+        (#528), so with that line removed this test goes red -- no damage step is
+        needed, the harness supplies the damage on every run.
+        """
+        verify_sepa_configuration(self.eur_company)
 
     def test_pain_008_001_08_xml_structure(self):
         """Test compliance with pain.008.001.08 XML structure"""

@@ -32,9 +32,28 @@ How it defends against both shapes
 ----------------------------------
 1. **Writes bypass document validation** (``frappe.db.set_single_value``), so a
    broken Link in a field this configuration does not own -- ``webhook_user`` --
-   cannot defeat it. ``Verenigingen Payments Settings`` has no ``on_update``, so
-   no hook is lost; ``validate()`` is the only thing skipped, and it is
-   validating somebody else's field.
+   cannot defeat it. What that skips is each doctype's ``validate()`` and any
+   ``on_update`` hook, so **both** doctypes were checked rather than one checked
+   and the other assumed:
+
+   * ``Verenigingen Payments Settings`` has **no** ``on_update`` at all, and the
+     ``validate()`` skipped there is mostly validating somebody else's field
+     (``webhook_user``). The one check it carries that is about a field written
+     here is the mod-97 IBAN validation of ``company_iban``; that is not lost,
+     it is pinned directly on the constant instead (see
+     ``tests/support/test_sepa_test_configuration``).
+   * ``Verenigingen Settings`` -- also written here, via ``company`` -- has
+     **three** ``on_update`` handlers: the controller's, which calls
+     ``sync_category_options_to_doctypes()``, plus the ``doc_events`` pair
+     ``sync_member_counter_with_settings`` and
+     ``invalidate_chapter_lookup_cache``. All three were read and none of them
+     reads ``company``: the first rewrites DocField options from the category
+     settings, the second acts only when ``member_id_start`` changed, and the
+     third invalidates a chapter lookup cache. Skipping them is arguably
+     *better* here -- ``sync_category_options_to_doctypes`` ends in
+     ``frappe.clear_cache()``, which is precisely what the comment in
+     ``apply_sepa_test_configuration`` below refuses to do because it drops
+     field defaults mid-test.
 2. **Every fieldname is checked against ``frappe.get_meta`` before it is
    written**, and every Link value is checked to exist. That is what turns
    #466's silent no-op into a named failure. Measured on test_site_4, the write
@@ -61,13 +80,50 @@ Deliberately NOT done here
   (``tests/support/verenigingen_settings.py``) is the tool for that when it is
   wanted.
 
+Callers on ``EnhancedTestCase`` must re-apply this PER TEST
+----------------------------------------------------------
+``setUpClass`` alone is not enough, and this is measured, not inferred.
+``EnhancedTestCase.setUp`` -> ``_ensure_production_ready_setup`` ->
+``_ensure_master_data`` -> ``_ensure_verenigingen_settings``
+(``tests/fixtures/enhanced_test_factory.py:5272``) re-points
+``Verenigingen Settings.company`` at the ERPNext ``_Test Company`` on **every**
+test method, so a configuration written in ``setUpClass`` is already undone by
+the time the first body runs. Probed on test_site_4 by printing the value from
+inside a test body in each of the five callers:
+
+===================================== ==================================
+caller                                company seen in a test body
+===================================== ==================================
+test_sepa_xml_compliance              ``_Test Company``     (reverted)
+test_api_regression                   ``_Test Company``     (reverted)
+test_direct_debit_batch_refactoring   TEST-Payment-...      (re-applies)
+test_sepa_xml_adapter                 TEST-Payment-...      (FrappeTestCase)
+test_service_layer_validation         TEST-Payment-...      (unittest.TestCase)
+===================================== ==================================
+
+Only the two ``EnhancedTestCase`` callers that do not re-apply are affected; the
+other three either re-apply in ``setUp`` or do not inherit that harness setUp at
+all. It matters because ``_Test Company`` has a leading underscore, which is
+outside ``SEPA_CHAR_PATTERN``
+(``verenigingen_payments/utils/sepa_constants.py:25``), so SEPA XML generation
+fails on the initiating party name. #528 tracks the harness-wide conflict; each
+affected class fixes its own by calling its setup helper again after
+``super().setUp()``, and pins it with a test body that only verifies.
+
 Usage::
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
         cls.eur_company = apply_sepa_test_configuration()
+
+    def setUp(self):
+        super().setUp()
+        # see "Callers on EnhancedTestCase must re-apply this PER TEST" above
+        cls.eur_company = apply_sepa_test_configuration()
 """
+
+from types import MappingProxyType
 
 import frappe
 
@@ -81,18 +137,27 @@ SEPA_TEST_IBAN = "NL91ABNA0417164300"
 SEPA_TEST_BIC = "ABNANL2A"
 SEPA_TEST_ACCOUNT_HOLDER = "SEPA Test Account Holder"
 
-# The complete set of fields this helper writes, as {doctype: {fieldname: value}}.
-# Exported as a constant because tests/support/test_sepa_test_configuration.py
-# asserts every fieldname here exists on its doctype -- the check #466 needed and
-# that no caller was doing.
-SEPA_TEST_FIELDS = {
-    PAYMENTS_SETTINGS: {
-        "creditor_id": SEPA_TEST_CREDITOR_ID,
-        "company_iban": SEPA_TEST_IBAN,
-        "company_bic": SEPA_TEST_BIC,
-        "company_account_holder": SEPA_TEST_ACCOUNT_HOLDER,
+# The fields with a FIXED value, as {doctype: {fieldname: value}}. This is NOT
+# everything the helper writes -- Verenigingen Settings.company is written too and
+# its value is resolved at call time -- so use sepa_test_field_values() for the
+# complete set and keep this constant for the fixed half only. An earlier comment
+# here claimed completeness, which left the company write unchecked by the pin
+# that asserts every written fieldname exists on its doctype (#466's check).
+#
+# Read-only (MappingProxyType) because two test modules iterate it: a stray write
+# from one of them would silently change what every other caller configures.
+SEPA_TEST_FIELDS = MappingProxyType(
+    {
+        PAYMENTS_SETTINGS: MappingProxyType(
+            {
+                "creditor_id": SEPA_TEST_CREDITOR_ID,
+                "company_iban": SEPA_TEST_IBAN,
+                "company_bic": SEPA_TEST_BIC,
+                "company_account_holder": SEPA_TEST_ACCOUNT_HOLDER,
+            }
+        )
     }
-}
+)
 
 
 class SEPAConfigurationNotApplied(RuntimeError):
@@ -104,7 +169,17 @@ class SEPAConfigurationNotApplied(RuntimeError):
     """
 
 
-def apply_sepa_test_configuration(company: str | None = None) -> str:
+def sepa_test_field_values(company: str) -> dict:
+    """Every field this helper writes, as {doctype: {fieldname: value}}.
+
+    One definition, used by the write, the read-back and the pin that asserts
+    every fieldname exists on its doctype -- so a field added to the helper cannot
+    be written without also being verified and checked against ``get_meta``.
+    """
+    return {SETTINGS: {"company": company}, **SEPA_TEST_FIELDS}
+
+
+def apply_sepa_test_configuration() -> str:
     """Configure the SEPA creditor identity for a test class and return the company.
 
     Points ``Verenigingen Settings.company`` at a EUR company (SEPA invoice
@@ -113,10 +188,9 @@ def apply_sepa_test_configuration(company: str | None = None) -> str:
 
     Raises ``SEPAConfigurationNotApplied`` if anything did not land.
     """
-    company = company or get_eur_test_company()
+    company = get_eur_test_company()
 
-    _write_single(SETTINGS, {"company": company})
-    for doctype, values in SEPA_TEST_FIELDS.items():
+    for doctype, values in sepa_test_field_values(company).items():
         _write_single(doctype, values)
 
     # Commit: EnhancedTestCase.tearDown rolls back after every test method, so an
@@ -147,19 +221,14 @@ def verify_sepa_configuration(company: str) -> None:
     Separate from the write so a caller (or a pin) can ask "is this site actually
     configured?" without writing anything.
     """
-    expected = {SETTINGS: {"company": company}}
-    expected.update(SEPA_TEST_FIELDS)
-
     wrong = []
-    for doctype, values in expected.items():
+    for doctype, values in sepa_test_field_values(company).items():
         for fieldname, value in values.items():
             actual = frappe.db.get_single_value(doctype, fieldname)
             if actual != value:
                 wrong.append(f"{doctype}.{fieldname} is {actual!r}, expected {value!r}")
     if wrong:
-        raise SEPAConfigurationNotApplied(
-            "SEPA test configuration did not land: " + "; ".join(wrong)
-        )
+        raise SEPAConfigurationNotApplied("SEPA test configuration did not land: " + "; ".join(wrong))
 
 
 def _write_single(doctype: str, values: dict) -> None:
@@ -181,7 +250,6 @@ def _write_single(doctype: str, values: dict) -> None:
             )
         if field.fieldtype == "Link" and value and not frappe.db.exists(field.options, value):
             raise SEPAConfigurationNotApplied(
-                f"{doctype}.{fieldname} would point at {field.options} {value!r}, "
-                "which does not exist."
+                f"{doctype}.{fieldname} would point at {field.options} {value!r}, which does not exist."
             )
         frappe.db.set_single_value(doctype, fieldname, value)

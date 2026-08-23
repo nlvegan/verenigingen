@@ -34,7 +34,10 @@ class TestServiceLayerValidation(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Set up test configuration once"""
-        # super() was missing here, so the base class's own setUpClass never ran.
+        # Hygiene, not a fix: the base is plain unittest.TestCase, whose
+        # setUpClass is a documented no-op ("pass"), so nothing was actually being
+        # skipped before. The call is here so that changing the base class later
+        # cannot silently skip its setup.
         super().setUpClass()
         cls._setup_minimal_sepa_config()
 
