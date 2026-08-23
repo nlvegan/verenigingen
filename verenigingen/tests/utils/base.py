@@ -506,7 +506,13 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
     @staticmethod
     def _rollback_cleanup_savepoint(savepoint):
-        """Undo one failed cleanup attempt without touching the rest of the drain."""
+        """Undo one failed cleanup attempt without touching the rest of the drain.
+
+        A third copy of this decision now lives in `tests/utils/cleanup_savepoint.py`,
+        which also names the 1213 case explicitly. Converging this one onto it is a
+        behaviour change for the drain and needs shard-scale proof -- #499. Until then
+        the two are deliberately separate, and this comment is the pointer that says so.
+        """
         try:
             frappe.db.rollback(save_point=savepoint)
         except Exception:

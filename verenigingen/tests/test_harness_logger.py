@@ -75,9 +75,11 @@ HARNESS_FILES = (
 def reconfigured(level_value):
     """Rebuild the harness logger with `VERENIGINGEN_TEST_LOG_LEVEL=level_value`.
 
-    `None` means the variable is unset, i.e. the default path. Reaches for the
-    module's private configure flag on purpose: the level is resolved once and
-    cached, so there is no public way to ask "what would a fresh process do?".
+    `None` means the variable is unset, i.e. the default path. Empties `handlers` on
+    purpose: the level is resolved once and cached, so there is no public way to ask
+    "what would a fresh process do?", and detaching the handler is what makes
+    `_configured_logger` rebuild -- its guard asks whether OUR handler is still
+    attached, not whether we ever configured it.
     """
     original_env = os.environ.get(LEVEL_ENV_VAR)
     logger = logging.getLogger(LOGGER_NAME)
@@ -90,7 +92,6 @@ def reconfigured(level_value):
         else:
             os.environ[LEVEL_ENV_VAR] = value
         logger.handlers = []
-        setattr(logger, harness_logger._CONFIGURED_FLAG, False)
         return get_harness_logger()
 
     try:
@@ -99,6 +100,57 @@ def reconfigured(level_value):
         apply(original_env)
         logger.handlers = original_handlers
         logger.setLevel(original_level)
+
+
+class AssertLogsMustNotDegradeTheLoggerTest(unittest.TestCase):
+    """`assertLogs` takes the handler away and cannot give the flag back.
+
+    It snapshots `handlers`/`level`/`propagate` on entry and restores that snapshot on
+    exit, so a logger first configured INSIDE the block comes out with no handlers --
+    while any "we configured this once" flag still says otherwise. Every later harness
+    record in the process then goes to `logging.lastResort`: unformatted, no level, and
+    `VERENIGINGEN_TEST_LOG_LEVEL` silently dead.
+
+    That is a process-wide degradation caused by one test, which makes it exactly the
+    order-dependence this harness keeps paying for. Pinned here rather than worked
+    around at each `assertLogs` call site, because a workaround only protects the author
+    who knows about it.
+    """
+
+    def setUp(self):
+        self.logger = logging.getLogger(LOGGER_NAME)
+        self._handlers = self.logger.handlers[:]
+        self._level = self.logger.level
+        self._propagate = self.logger.propagate
+
+    def tearDown(self):
+        self.logger.handlers = self._handlers
+        self.logger.setLevel(self._level)
+        self.logger.propagate = self._propagate
+
+    def test_the_stderr_handler_comes_back_after_an_assertlogs_block(self):
+        # Start from the state that produces the bug: nothing attached, so the first
+        # configure happens inside assertLogs.
+        self.logger.handlers = []
+
+        with self.assertLogs(LOGGER_NAME, level="ERROR"):
+            get_harness_logger("pin").error("inside")
+
+        self.assertEqual(
+            [],
+            self.logger.handlers,
+            "precondition: assertLogs is expected to restore the empty snapshot",
+        )
+
+        # The next caller must get a real handler back, not lastResort.
+        logger = get_harness_logger("pin")
+        handler = _stream_handler(self.logger)
+        self.assertIs(handler.stream, sys.stderr)
+        self.assertEqual(harness_logger.DEFAULT_LEVEL, self.logger.level)
+        self.assertFalse(self.logger.propagate)
+        with captured_stream(self.logger) as buffer:
+            logger.warning("after")
+        self.assertIn("pin: after", buffer.getvalue())
 
 
 @contextlib.contextmanager
