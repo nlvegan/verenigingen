@@ -152,12 +152,32 @@ class CoreTestDataFactory:
     def _generate_member_id(self) -> str:
         """Generate explicit member_id to avoid autoname counter collisions.
 
-        Uses microsecond timestamp + sequence for uniqueness across factory
-        instances even when they share the same seed.
+        ``member_id`` is a UNIQUE column, and the old format
+        ``f"TEST{microsec:06d}{seq:03d}"`` did NOT give uniqueness "across factory
+        instances" the way this docstring used to claim. ``VereningingenTestCase.setUp``
+        builds a NEW factory per test method, so ``_sequence_counters`` restarts and the
+        first member of every test method is ``...001`` -- every one of them drawing from
+        the same 10^6 sub-second space. Measured 2026-08-23, two shards, two modules,
+        both ending ``001``: ``TEST153429001`` (#524 shard 3) and ``TEST311263001``
+        (develop shard 9) -> IntegrityError 1062 (#549).
+
+        Same format as ``EnhancedTestDataFactory._generate_member_id``, which was fixed
+        for this first; the fix simply never reached this copy. Duplicated rather than
+        shared because importing that module costs ~8.1s and ~2070 modules (it pulls
+        ``erpnext.tests.utils``, whose body runs ``BootStrapTestData()``), which this
+        light factory must not pay for.
+
+        ``rand_part`` is what actually carries it: ``pid`` is equal across factories in
+        one process and ``test_run_id`` is itself clock-derived, so two factories built
+        in the same microsecond share both. Only per-call entropy survives that window.
         """
+        import os
+
         seq = self._get_next_sequence("member_id")
         microsec = int(datetime.now().timestamp() * 1000000) % 1000000
-        return f"TEST{microsec:06d}{seq:03d}"
+        pid_part = os.getpid() % 100000
+        rand_part = frappe.generate_hash(length=6)
+        return f"TEST{microsec:06d}{seq:03d}{pid_part:05d}{rand_part}"
 
     def _validate_fields(self, doctype: str, data: dict) -> dict:
         """Validate field names exist in DocType meta. Raises on unknown fields.
