@@ -1,0 +1,28 @@
+# Modules preceding test_dutch_business_rules_phase3 in PR #526 shard 5/12 and absent from
+# PR #525 shard 3/12 (where the same test ran and passed). Bisect candidates for the
+# co-tenancy failure recorded in docs/handoffs/2026-08-23-the-fix-sections-that-were-hypotheses.md
+verenigingen.mijnrood_sync.test_client_unit
+verenigingen.mijnrood_sync.doctype.mijnrood_sync_settings.test_mijnrood_sync_settings
+verenigingen.services.billing.test_coverage_calculator
+verenigingen.tests.test_document_links
+verenigingen.tests.test_harness_leak_attribution
+verenigingen.tests.test_operation_result
+verenigingen.tests.test_role_profile_setup
+verenigingen.tests.api.test_anbi_operations
+verenigingen.tests.backend.components.test_cache_invalidation_manager
+verenigingen.tests.backend.components.test_member_iban_history
+verenigingen.tests.backend.components.test_overdue_payments_report_real
+verenigingen.tests.backend.comprehensive.test_reconciliation_edge_cases
+verenigingen.tests.backend.comprehensive.test_termination_system_comprehensive
+verenigingen.tests.backend.integration.test_erpnext_expense_integration_real
+verenigingen.tests.backend.security.test_security_comprehensive
+verenigingen.tests.backend.unit.services.test_email_configuration_service
+verenigingen.tests.backend.unit.services.test_member_chapter_display_service
+verenigingen.tests.backend.unit.utils.test_notification_helpers
+verenigingen.tests.chapter.test_board_manager
+verenigingen.tests.donor.test_donor_customer_api
+verenigingen.tests.e_boekhouden.test_bank_transaction_parser
+verenigingen.tests.e_boekhouden.test_migration_pre_validation
+verenigingen.tests.e_boekhouden.test_transaction_type_classification
+verenigingen.tests.email.test_email_service_integration
+verenigingen.tests.events.test_team_events_coverage
