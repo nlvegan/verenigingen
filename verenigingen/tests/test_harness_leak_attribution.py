@@ -1619,5 +1619,115 @@ class CleanupManagerDoesNotDiscardRowsItDoesNotOwnTest(unittest.TestCase):
         )
 
 
+class BuilderRegistersOnlyWhatItCreatedTest(unittest.TestCase):
+    """A fixture the builder only BORROWED must survive `builder.cleanup()`.
+
+    `TestDataBuilder.with_chapter` is a get-or-create whose two branches converged
+    on one unconditional `register(...)`, so a test that merely *reused* the shared
+    chapter `tests/utils/setup_helpers.py` builds for the whole suite registered it
+    for deletion, and `builder.cleanup()` deleted it (#498).
+
+    It stayed invisible because the delete never stuck: `cleanup()` does not commit
+    (#489), so the base teardown's rollback puts the row back. The two defects
+    cancel, which is why #489 cannot be fixed on its own -- give `cleanup()` the
+    commit it asks for and the shared chapter is deleted for real, taking every
+    later test that resolves it with it (#330, #390).
+
+    The borrowed row is COMMITTED on purpose. An uncommitted one is erased by
+    cleanup's own rollback path too, so "the chapter is gone" would read the same
+    whether the loop deleted it or a rollback swallowed it -- a test that passes on
+    the defect.
+    """
+
+    def setUp(self):
+        self.created = []
+        self.suffix = frappe.generate_hash(length=6)
+
+    def tearDown(self):
+        for doctype, name in reversed(self.created):
+            try:
+                frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+            except Exception as e:
+                # These fixtures are COMMITTED, so a failure here is permanent site
+                # dirt. That is the one case where a silent `pass` costs something.
+                get_harness_logger("borrowed-fixture").warning(
+                    "could not clean up %s %s: %s", doctype, name, e
+                )
+        frappe.db.commit()
+
+    def _region(self):
+        """Resolve the region `with_chapter` would resolve, creating it if absent.
+
+        Done here rather than left to the builder so this test never depends on
+        which other suite ran first, and so the Region it may create is tracked --
+        `with_chapter` inserts one without registering it.
+        """
+        existing = frappe.db.get_value("Region", {"region_code": "TR"}, "name")
+        if existing:
+            return existing
+        region = frappe.get_doc(
+            {
+                "doctype": "Region",
+                "region_name": "Test Region",
+                "region_code": "TR",
+                "country": "Netherlands",
+                "is_active": 1,
+            }
+        )
+        region.insert()
+        self.created.append(("Region", region.name))
+        return region.name
+
+    def _seed_chapter(self):
+        """Create a chapter THROUGH the builder, then commit it.
+
+        Through the builder on purpose: it is the same insert a real shared
+        fixture goes through, so nothing here can diverge from the code path the
+        borrowing test then takes.
+        """
+        from verenigingen.tests.utils.factories import TestDataBuilder
+
+        name = f"Test Borrowed Chapter {self.suffix}"
+        TestDataBuilder().with_chapter(name=name, region=self._region())
+        frappe.db.commit()
+        self.created.append(("Chapter", name))
+        return name
+
+    def test_a_chapter_the_builder_only_reused_survives_its_cleanup(self):
+        from verenigingen.tests.utils.factories import TestDataBuilder
+
+        name = self._seed_chapter()
+
+        borrower = TestDataBuilder()
+        borrower.with_chapter(name=name, region=self._region())
+        failures = borrower.cleanup()
+
+        self.assertEqual([], failures, "precondition: the cleanup itself must not fail")
+        self.assertTrue(
+            frappe.db.exists("Chapter", name),
+            "the builder registered a chapter it did not create, so cleanup() "
+            "deleted shared master data (#498)",
+        )
+
+    def test_a_chapter_the_builder_did_create_is_still_deleted(self):
+        """The control: the fix must not be "stop registering chapters"."""
+        from verenigingen.tests.utils.factories import TestDataBuilder
+
+        name = f"Test Owned Chapter {self.suffix}"
+        owner = TestDataBuilder()
+        owner.with_chapter(name=name, region=self._region())
+        frappe.db.commit()
+        self.created.append(("Chapter", name))
+
+        self.assertTrue(frappe.db.exists("Chapter", name), "precondition")
+        failures = owner.cleanup()
+
+        self.assertEqual([], failures)
+        self.assertFalse(
+            frappe.db.exists("Chapter", name),
+            "a chapter the builder created must still be cleaned up",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
