@@ -68,8 +68,13 @@ class _InvoicePathBase(EnhancedTestCase):
             return
         frappe.db.set_value("Customer", customer_name, "default_price_list", price_list)
 
-    def _track_invoice(self, name):
+    def _track_approval_invoice(self, name):
         """Track a Sales Invoice so it drains BEFORE the Customer it pins.
+
+        NOT named ``_track_invoice``: `test_invoice_generation_orchestrator.py:44` already
+        has a method of that name doing something quite different (an ``addCleanup`` that
+        force-deletes and commits), and two same-named helpers with different semantics is
+        what the duplicate-helper guard exists to stop.
 
         ``track_doc()`` records priority 0, and ``DRAIN_PRIORITY_BY_DOCTYPE`` -- which
         puts Sales Invoice at 6 and Customer at 3 -- is consulted only for
@@ -116,7 +121,7 @@ class TestCreateMembershipInvoiceWithAmount(_InvoicePathBase):
 
         with self.assertNoErrorLog():
             invoice = ap.create_membership_invoice_with_amount(member, membership, amount)
-        self._track_invoice(invoice.name)
+        self._track_approval_invoice(invoice.name)
 
         # Persisted + submitted + linked to the right docs.
         self.assertTrue(frappe.db.exists("Sales Invoice", invoice.name))
@@ -156,7 +161,7 @@ class TestCreateMembershipInvoiceWithAmount(_InvoicePathBase):
 
         with self.assertNoErrorLog():
             invoice = ap.create_membership_invoice_with_amount(member, membership, 10.0)
-        self._track_invoice(invoice.name)
+        self._track_approval_invoice(invoice.name)
 
         # Inclusive month: ends the day before the same day-of-month next month.
         self.assertEqual(str(invoice.custom_coverage_end_date), add_days(add_months(today(), 1), -1))
@@ -172,7 +177,7 @@ class TestCreateMembershipInvoiceWithAmount(_InvoicePathBase):
 
         with self.assertNoErrorLog():
             invoice = ap.create_membership_invoice_with_amount(member, membership, 1.0)
-        self._track_invoice(invoice.name)
+        self._track_approval_invoice(invoice.name)
 
         # A Daily period is ONE day: an inclusive period whose end is its start.
         self.assertEqual(str(invoice.custom_coverage_start_date), today())
@@ -204,7 +209,7 @@ class TestCreateMembershipInvoiceWithAmount(_InvoicePathBase):
 
                 with self.assertNoErrorLog():
                     invoice = ap.create_membership_invoice_with_amount(member, membership, 5.0)
-                self._track_invoice(invoice.name)
+                self._track_approval_invoice(invoice.name)
 
                 self.assertEqual(str(invoice.custom_coverage_start_date), today())
                 self.assertEqual(str(invoice.custom_coverage_end_date), expected_end)
@@ -226,7 +231,7 @@ class TestCreateMembershipInvoiceWithAmount(_InvoicePathBase):
 
         with self.assertNoErrorLog():
             invoice = ap.create_membership_invoice_with_amount(member, membership, suggested + 50)
-        self._track_invoice(invoice.name)
+        self._track_approval_invoice(invoice.name)
 
         self.assertIn("Supporter Contribution", invoice.items[0].description)
 
@@ -246,7 +251,7 @@ class TestCreateMembershipInvoiceWithAmount(_InvoicePathBase):
 
         with self.assertNoErrorLog():
             invoice = ap.create_membership_invoice_with_amount(member, membership, reduced)
-        self._track_invoice(invoice.name)
+        self._track_approval_invoice(invoice.name)
 
         self.assertIn("Reduced Rate", invoice.items[0].description)
 
@@ -264,7 +269,7 @@ class TestCreateMembershipInvoiceWithAmount(_InvoicePathBase):
 
         with self.assertNoErrorLog():
             invoice = ap.create_membership_invoice_with_amount(member, membership, 12.0)
-        self._track_invoice(invoice.name)
+        self._track_approval_invoice(invoice.name)
         self.track_doc("Customer", invoice.customer)
         self._pin_customer_price_list(invoice.customer)
 
@@ -291,7 +296,7 @@ class TestCreateMembershipInvoiceDefaultAmount(_InvoicePathBase):
 
         with self.assertNoErrorLog():
             invoice = ap.create_membership_invoice(member, membership, membership_type)
-        self._track_invoice(invoice.name)
+        self._track_approval_invoice(invoice.name)
 
         self.assertAlmostEqual(invoice.items[0].rate, expected)
 
@@ -332,7 +337,7 @@ class TestApprovalInvoiceSeedsTheCoverageSequence(_InvoicePathBase):
 
         with self.assertNoErrorLog():
             invoice = ap.create_membership_invoice_with_amount(member, membership, 15.0)
-        self._track_invoice(invoice.name)
+        self._track_approval_invoice(invoice.name)
 
         schedule = self.create_test_dues_schedule(
             member=member.name,
