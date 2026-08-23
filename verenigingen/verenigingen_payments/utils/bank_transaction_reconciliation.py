@@ -64,6 +64,16 @@ class PaymentReconciliationManager:
     # acting user can SUBMIT all of them -- see `_require_submit_permission`.
     SETTLEMENT_SUBMIT_DOCTYPES = ("Payment Entry", "Journal Entry")
 
+    # `custom_mollie_settlement_id` + `voucher_type` are a COUPLED key: both settlement
+    # Journal Entries carry the same settlement id and are told apart only by voucher
+    # type. Named here because Journal Entry's `voucher_type` DEFAULTS to "Journal Entry"
+    # (measured: `frappe.new_doc("Journal Entry").voucher_type == "Journal Entry"`), so a
+    # future settlement voucher that simply omits it becomes indistinguishable from the
+    # fee entry -- and therefore becomes the settlement-level idempotency key, silently
+    # short-circuiting every later run. Read by the two writers and the two guards.
+    SETTLEMENT_FEE_VOUCHER_TYPE = "Journal Entry"
+    SETTLEMENT_PAYOUT_VOUCHER_TYPE = "Bank Entry"
+
     def __init__(self):
         self.settings = frappe.get_single("Verenigingen Settings")
         self.config = get_mollie_config()  # Use cached configuration service
@@ -849,7 +859,7 @@ class PaymentReconciliationManager:
                 # The fee entry is the only "Journal Entry" voucher_type this pipeline
                 # writes, so this filter is a no-op for rows booked before the payout
                 # leg existed.
-                "voucher_type": "Journal Entry",
+                "voucher_type": self.SETTLEMENT_FEE_VOUCHER_TYPE,
                 "docstatus": 1,
             },
         )
@@ -868,7 +878,7 @@ class PaymentReconciliationManager:
             "Journal Entry",
             {
                 "custom_mollie_settlement_id": settlement_id,
-                "voucher_type": "Bank Entry",
+                "voucher_type": self.SETTLEMENT_PAYOUT_VOUCHER_TYPE,
                 "docstatus": 1,
             },
         )
@@ -1500,20 +1510,30 @@ class PaymentReconciliationManager:
             bookable = fully_reconciled and stated_fee is not None
             mollie_fees = stated_fee if bookable else Decimal("0")
 
+            # The payout leg goes FIRST and the fee entry LAST, and the order is not
+            # arbitrary: the FEE entry is the settlement-level idempotency key
+            # (`_existing_settlement_fee_entry` -> `_already_processed_result`) and the
+            # payout leg deliberately is NOT, because the two guards are now told apart by
+            # `voucher_type`. So whichever is written last is the one whose failure is
+            # recoverable, and the key must be written last of all.
+            #
+            # MEASURED, both directions, with the fee first:
+            #   run 1 (payout leg fails) -> fee=1 payout=0, returns False
+            #   run 2 (misconfiguration fixed) -> short-circuits on run 1's fee entry,
+            #        returns TRUE, deposit marked Reconciled, allocated_amount=0.00,
+            #        27.50 stranded in clearing -- verbatim the #508 symptom, permanently
+            # With the payout first, a failure in EITHER leg recovers fully on the next
+            # run. An earlier version of this comment argued the opposite, reasoning from
+            # the pre-fix world in which the payout leg was still a short-circuit key.
+            # See `test_a_failed_payout_leg_does_not_close_out_the_settlement`.
+            #
+            # Gated on `fully_reconciled`: closing out the payout while payments are still
+            # unmatched declares the settlement finished.
+            if fully_reconciled:
+                self._book_settlement_payout(bank_trans, settlement_data)
+
             if bookable and abs(mollie_fees) > Decimal("0.01"):
                 self._create_mollie_fee_entry(bank_trans, mollie_fees, settlement_data)
-
-            # The payout leg, LAST. Order matters: this entry is booked after the fee
-            # entry because a failure between the two must leave the fee unbooked and
-            # the settlement retryable, and `_settlement_has_posted_accounting` reads
-            # both. Booking it first would let a fee-entry failure short-circuit every
-            # later run, so the fees would never be booked at all -- the same trap the
-            # fee entry's own placement comment describes.
-            #
-            # Gated on `fully_reconciled` for that same reason: closing out the payout
-            # while payments are still unmatched declares the settlement finished.
-            if fully_reconciled:
-                self._create_settlement_bank_entry(bank_trans, settlement_data)
 
             return {
                 "type": "mollie_settlement",
@@ -1801,8 +1821,11 @@ class PaymentReconciliationManager:
 
         return journal_entry
 
-    def _create_settlement_bank_entry(self, bank_trans, settlement_data):
-        """Book the payout leg: the money leaving clearing and arriving in the bank.
+    def _book_settlement_payout(self, bank_trans, settlement_data):
+        """Book the payout leg AND allocate the deposit to it.
+
+        Named for both halves because it does both: a name saying only "create entry"
+        hid the fact that it mutates the caller's ``bank_trans.payment_entries``.
 
         This is the FIRST of the three legs ``process_mollie_settlement``'s docstring
         names -- "The bulk settlement deposit in your bank -> Mollie Clearing Account" --
@@ -1829,11 +1852,24 @@ class PaymentReconciliationManager:
         status flag -- so at the matcher's tolerance ceiling a difference can sit in
         clearing unremarked. Surfacing it is worth doing and is not done here.
         """
+        # `<=`, not `abs(...) <`: the debit/credit direction below is FIXED, so a negative
+        # deposit would post a debit to the bank for the positive amount -- the wrong
+        # direction -- rather than refusing. Its sibling `_create_mollie_fee_entry` pairs
+        # `abs()` with an explicit `fee_is_a_cost` flag so a negative value mirrors; there
+        # is no such mirror here, and a negative payout is not a real state
+        # (`match_mollie_settlement` never matches a non-positive deposit).
         payout = self._safe_decimal(bank_trans.deposit)
-        if abs(payout) < Decimal("0.01"):
+        if payout <= Decimal("0.01"):
             return None
 
-        if self._existing_settlement_payout_entry(settlement_data.get("id")):
+        # A re-run must REPAIR the allocation, not just skip the booking. A first run
+        # can insert and submit the payout leg and then die before the caller's
+        # `bank_trans.save()` persists the child row -- the entry is on the ledger and the
+        # deposit is left unallocated. Returning early on the idempotency key alone left
+        # that state permanent, because nothing else ever appends the row.
+        existing_payout = self._existing_settlement_payout_entry(settlement_data.get("id"))
+        if existing_payout:
+            self._ensure_deposit_allocated(bank_trans, existing_payout, float(payout))
             return None
 
         import erpnext
@@ -1870,7 +1906,7 @@ class PaymentReconciliationManager:
         company = frappe.db.get_value("Account", clearing_account, "company")
         default_cost_center = erpnext.get_default_cost_center(company)
 
-        leg = float(abs(payout))
+        leg = float(payout)
         journal_entry = get_doc(
             {
                 "doctype": "Journal Entry",
@@ -1881,7 +1917,7 @@ class PaymentReconciliationManager:
                 # `_existing_settlement_fee_entry` filters on the fee entry's own
                 # voucher_type for exactly that reason -- without the distinction this
                 # entry would silently become the fee entry's idempotency key.
-                "voucher_type": "Bank Entry",
+                "voucher_type": self.SETTLEMENT_PAYOUT_VOUCHER_TYPE,
                 # ERPNext makes Reference No / Reference Date MANDATORY for a Bank
                 # Entry (Journal Entry.validate_reference_doc -> "Reference No &
                 # Reference Date is required for Bank Entry"). The bank statement line
@@ -1909,24 +1945,53 @@ class PaymentReconciliationManager:
 
         self._insert_and_submit(journal_entry)
 
-        # Allocate the deposit to the leg that explains it. Without this the deposit is
-        # marked Reconciled with `allocated_amount = 0`, which is what ERPNext's own bank
-        # reconciliation view -- and `reconcile_bank_transactions`' own fetch filter,
-        # `allocated_amount in (0, None)` -- read as UNRECONCILED. The row is appended to
-        # the in-memory document and persisted by the `bank_trans.save()` in
-        # `create_reconciliation`'s mollie_settlement branch; ERPNext recomputes
-        # `allocated_amount` from this child table in `before_validate`, so nothing has
-        # to set that field directly.
+        # Stamp the clearance date ourselves, because ERPNext will not. Its
+        # `clear_linked_payment_entry` is reached only from `allocate_payment_entries`,
+        # which skips any row already carrying a non-zero `allocated_amount`; and even
+        # with a zero row, `get_clearance_details`' `should_clear` only clears a voucher
+        # whose OTHER bank accounts are fully allocated -- and this voucher's other leg is
+        # the clearing account, which is itself `account_type = "Bank"`. A Bank-to-Bank
+        # transfer is a shape ERPNext never auto-clears, so without this the payout sits
+        # on the Bank Reconciliation Statement as an outstanding item forever while the
+        # Bank Transaction reads Reconciled -- two ERPNext views disagreeing, which is the
+        # class of disagreement #508 was filed about.
+        frappe.db.set_value("Journal Entry", journal_entry.name, "clearance_date", bank_trans.date)
+
+        self._ensure_deposit_allocated(bank_trans, journal_entry.name, leg)
+
+        return journal_entry
+
+    def _ensure_deposit_allocated(self, bank_trans, journal_entry_name, amount):
+        """Allocate the deposit to its payout leg, idempotently.
+
+        Without an allocation the deposit is marked Reconciled with
+        ``allocated_amount = 0``, which is what ERPNext's own bank reconciliation view --
+        and ``reconcile_bank_transactions``' own fetch filter,
+        ``allocated_amount in (0, None)`` -- read as UNRECONCILED.
+
+        The row is appended to the caller's in-memory document and persisted by the
+        ``bank_trans.save()`` in ``create_reconciliation``'s mollie_settlement branch;
+        ERPNext recomputes ``allocated_amount`` from this child table in
+        ``before_validate``, so nothing sets that field directly. Callers that never save
+        (the direct-call tests) get the row in memory and drop it, which is why this is
+        idempotent rather than assuming it runs once.
+        """
+        already = [
+            row
+            for row in (bank_trans.payment_entries or [])
+            if row.payment_document == "Journal Entry" and row.payment_entry == journal_entry_name
+        ]
+        if already:
+            return
+
         bank_trans.append(
             "payment_entries",
             {
                 "payment_document": "Journal Entry",
-                "payment_entry": journal_entry.name,
-                "allocated_amount": leg,
+                "payment_entry": journal_entry_name,
+                "allocated_amount": amount,
             },
         )
-
-        return journal_entry
 
     def _get_payment_processing_fees_account(self):
         """Get configured payment processing fees account"""
