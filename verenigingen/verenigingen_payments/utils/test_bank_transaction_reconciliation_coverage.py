@@ -1703,7 +1703,7 @@ class TestSettlementBankLeg(MollieBase):
             fields=["name", "total_debit"],
         )
 
-    def _run(self, bt, settlement_id, payment, amount, stated_costs=None):
+    def _run_settlement(self, bt, settlement_id, payment, amount, stated_costs=None):
         """One scheduled run, with a fresh manager as the next run would use."""
         return btr.PaymentReconciliationManager().create_reconciliation(
             self._txn_dict(bt), self._match(settlement_id, amount, stated_costs=stated_costs)
@@ -1735,9 +1735,9 @@ class TestSettlementBankLeg(MollieBase):
 
         with self._mollie_settings(clearing_account=clearing, fees_account=fees, bank_account=bank):
             with self._stub_client(payments=[payment]):
-                self.assertTrue(self._run(bt, settlement_id, payment, "27.50", stated_costs=None))
+                self.assertTrue(self._run_settlement(bt, settlement_id, payment, "27.50", stated_costs=None))
                 after_first = self._payout_entries(settlement_id)
-                self._run(bt, settlement_id, payment, "27.50", stated_costs=None)
+                self._run_settlement(bt, settlement_id, payment, "27.50", stated_costs=None)
                 after_second = self._payout_entries(settlement_id)
 
         self.assertEqual(len(after_first), 1, f"the first run must book the payout once: {after_first}")
@@ -1779,7 +1779,7 @@ class TestSettlementBankLeg(MollieBase):
         with self._mollie_settings(clearing_account=clearing, fees_account=fees, bank_account=bank):
             with self._stub_client(payments=[payment]):
                 # Run 1: Mollie has not stated its costs yet, so no fee entry is due.
-                self._run(bt, settlement_id, payment, "27.50", stated_costs=None)
+                self._run_settlement(bt, settlement_id, payment, "27.50", stated_costs=None)
                 self.assertEqual(
                     len(self._fee_entries(settlement_id)),
                     0,
@@ -1789,7 +1789,7 @@ class TestSettlementBankLeg(MollieBase):
                     len(self._payout_entries(settlement_id)), 1, "the payout leg must still be booked"
                 )
                 # Run 2: the costs have arrived.
-                self._run(bt, settlement_id, payment, "27.50", stated_costs="2.50")
+                self._run_settlement(bt, settlement_id, payment, "27.50", stated_costs="2.50")
 
         self.assertEqual(
             len(self._fee_entries(settlement_id)),
@@ -1869,7 +1869,7 @@ class TestSettlementBankLeg(MollieBase):
 
         with self._mollie_settings(clearing_account=one, fees_account=fees, bank_account=one):
             with self._stub_client(payments=[payment]):
-                self._run(bt, settlement_id, payment, "27.50", "2.50")
+                self._run_settlement(bt, settlement_id, payment, "27.50", "2.50")
 
         self.assertEqual(
             self._payout_entries(settlement_id),
