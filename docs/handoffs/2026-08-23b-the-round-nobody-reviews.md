@@ -1,4 +1,4 @@
-# Handoff — 2026-08-23: the round nobody reviews
+# Handoff — 2026-08-23b: the round nobody reviews
 
 Picked up from `2026-08-22f-the-rollback-that-put-it-back.md`: merge #488, then #483, with
 agents on #482 and #485.
