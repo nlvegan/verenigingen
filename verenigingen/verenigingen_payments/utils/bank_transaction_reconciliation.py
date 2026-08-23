@@ -1691,19 +1691,39 @@ class PaymentReconciliationManager:
         # required for 'Profit and Loss' account ...".
         default_cost_center = erpnext.get_default_cost_center(company)
 
-        # Create journal entry for fees
+        # A fee is a COST: it debits the expense account and credits clearing.
+        #
+        # This app states the clearing convention in words in two places --
+        # `donation_journal_entry_creator`: "Debit: Mollie Clearing Account (asset
+        # increases - we received money)", and `donation_refund_journal_entry_creator`:
+        # "Credit: Mollie Clearing Account (money leaves the clearing account)". A Mollie
+        # fee is money that leaves: Mollie keeps it out of the payout.
+        #
+        # It follows from the surrounding entries too. `_create_mollie_payment_entry` sets
+        # `paid_to = clearing`, so every matched payment DEBITS clearing by its gross;
+        # with the deposit crediting clearing by the payout, the residual left in clearing
+        # is a debit equal to the fee, and clearing has to be CREDITED to clear it. This
+        # used to debit clearing a second time and credit the expense account, so clearing
+        # drifted by twice the fee per settlement while the fees account accumulated a
+        # credit balance (#501). Both directions were pinned by tests that asserted the
+        # behaviour without asking whether it was right.
+        #
+        # A negative fee is Mollie crediting a charge back -- money arriving -- and is the
+        # exact mirror.
+        fee_leg = float(abs(fee_amount_decimal))
+        fee_is_a_cost = fee_amount_decimal > 0
         accounts = [
             {
                 "account": mollie_clearing_account,
                 "cost_center": default_cost_center,
-                "debit_in_account_currency": float(abs(fee_amount_decimal)) if fee_amount_decimal > 0 else 0,
-                "credit_in_account_currency": float(abs(fee_amount_decimal)) if fee_amount_decimal < 0 else 0,
+                "debit_in_account_currency": 0 if fee_is_a_cost else fee_leg,
+                "credit_in_account_currency": fee_leg if fee_is_a_cost else 0,
             },
             {
                 "account": self._get_payment_processing_fees_account(),
                 "cost_center": default_cost_center,
-                "debit_in_account_currency": float(abs(fee_amount_decimal)) if fee_amount_decimal < 0 else 0,
-                "credit_in_account_currency": float(abs(fee_amount_decimal)) if fee_amount_decimal > 0 else 0,
+                "debit_in_account_currency": fee_leg if fee_is_a_cost else 0,
+                "credit_in_account_currency": 0 if fee_is_a_cost else fee_leg,
             },
         ]
 

@@ -1499,9 +1499,44 @@ class TestCreateMollieFeeEntry(MollieBase):
         with self._mollie_settings(clearing_account=""):
             self.assertIsNone(self.mgr._create_mollie_fee_entry(bt, Decimal("1.50"), {"id": "stl_N"}))
 
-    def test_full_path_creates_balanced_journal_entry(self):
-        """Regression for the missing-company bug: a positive Mollie fee must book a
-        balanced, submitted Journal Entry (clearing debited, fees credited)."""
+    def _gl_rows(self, voucher_no):
+        """GL Entry rows for a voucher, keyed by account.
+
+        Asserted on instead of the Journal Entry's own child rows because
+        ``db_update()`` runs BEFORE ``on_submit``, so a throwing submit still leaves
+        ``docstatus = 1`` and a full ``accounts`` table behind (#382). A GL row exists
+        only if the entry actually posted.
+        """
+        return {
+            r.account: r
+            for r in frappe.get_all(
+                "GL Entry",
+                filters={"voucher_type": "Journal Entry", "voucher_no": voucher_no, "is_cancelled": 0},
+                fields=["account", "debit", "credit"],
+            )
+        }
+
+    def test_a_mollie_fee_debits_the_expense_account(self):
+        """A fee is a cost, so it DEBITS the expense account and CREDITS clearing.
+
+        The direction is not a matter of taste here, and it does not need the bank leg to
+        settle. This app states the clearing convention in words in two places:
+        ``donation_journal_entry_creator`` -- "Debit: Mollie Clearing Account (asset
+        increases - we received money)" -- and ``donation_refund_journal_entry_creator``
+        -- "Credit: Mollie Clearing Account (money leaves the clearing account)". A Mollie
+        fee is money that leaves: Mollie keeps it out of the payout. So clearing is
+        credited and the expense account is debited.
+
+        It also follows from the surrounding entries. ``_create_mollie_payment_entry``
+        sets ``paid_to = clearing``, so every matched payment DEBITS clearing by its
+        gross; with the deposit crediting clearing by the payout, the residual left in
+        clearing is a debit equal to the fee, and clearing must be CREDITED to clear it.
+        The pre-fix code debited it a second time, so clearing drifted by twice the fee
+        per settlement while the expense account accumulated a credit balance (#501).
+
+        Asserted on GL rows rather than the Journal Entry's own child table -- see
+        ``_gl_rows``.
+        """
         self._ensure_eur_company_cost_center()
         clearing = self._make_gl_account("Mollie Clearing JE", root_type="Asset", account_type="Bank")
         fees = self._make_gl_account("Payment Processing Fees JE", root_type="Expense")
@@ -1509,14 +1544,31 @@ class TestCreateMollieFeeEntry(MollieBase):
         with self._mollie_settings(clearing_account=clearing, fees_account=fees):
             je = self.mgr._create_mollie_fee_entry(bt, Decimal("2.50"), {"id": "stl_FEE"})
         self.assertIsNotNone(je)
-        self.assertTrue(frappe.db.exists("Journal Entry", je.name))
-        self.assertEqual(je.docstatus, 1)
         self.assertEqual(je.total_debit, je.total_credit)
-        rows = {r.account: r for r in je.accounts}
-        self.assertGreater(rows[clearing].debit_in_account_currency, 0)
-        self.assertGreater(rows[fees].credit_in_account_currency, 0)
 
-    def test_negative_fee_inverts_entry(self):
+        gl = self._gl_rows(je.name)
+        self.assertEqual(set(gl), {clearing, fees}, f"the fee entry must post exactly two GL rows: {gl}")
+        self.assertEqual(
+            flt(gl[fees].debit, 2),
+            2.50,
+            f"a cost debits its expense account; crediting one books negative expense: {gl}",
+        )
+        self.assertEqual(flt(gl[fees].credit, 2), 0.0, f"the expense account is not credited: {gl}")
+        self.assertEqual(
+            flt(gl[clearing].credit, 2),
+            2.50,
+            f"the fee LEAVES clearing, which is a credit -- Mollie kept it: {gl}",
+        )
+        self.assertEqual(flt(gl[clearing].debit, 2), 0.0, f"clearing is not debited again: {gl}")
+
+    def test_a_negative_fee_is_the_exact_inverse(self):
+        """Mollie crediting a fee back is money arriving, so it debits clearing.
+
+        ``_settlement_stated_fee`` reads Mollie's stated costs, and a negative cost is a
+        fee being refunded to us. That is the mirror of the case above, and it has to be
+        the mirror: a sign convention that is not symmetric leaves one direction
+        unbalanced against the other.
+        """
         self._ensure_eur_company_cost_center()
         clearing = self._make_gl_account("Mollie Clearing Neg", root_type="Asset", account_type="Bank")
         fees = self._make_gl_account("Payment Processing Fees Neg", root_type="Expense")
@@ -1524,10 +1576,10 @@ class TestCreateMollieFeeEntry(MollieBase):
         with self._mollie_settings(clearing_account=clearing, fees_account=fees):
             je = self.mgr._create_mollie_fee_entry(bt, Decimal("-1.75"), {"id": "stl_NEG"})
         self.assertIsNotNone(je)
-        rows = {r.account: r for r in je.accounts}
-        # Negative fee -> clearing credited, fees debited (the inverse of the positive case).
-        self.assertGreater(rows[clearing].credit_in_account_currency, 0)
-        self.assertGreater(rows[fees].debit_in_account_currency, 0)
+
+        gl = self._gl_rows(je.name)
+        self.assertEqual(flt(gl[clearing].debit, 2), 1.75, f"money arriving debits clearing: {gl}")
+        self.assertEqual(flt(gl[fees].credit, 2), 1.75, f"a refunded cost credits the expense account: {gl}")
 
 
 # =============================================================================
