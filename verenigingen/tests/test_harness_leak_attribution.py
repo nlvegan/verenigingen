@@ -1336,5 +1336,183 @@ class ClassFixturesSurviveTheDrainRollbackTest(unittest.TestCase):
         )
 
 
+def _territory(name_prefix, parent="All Territories"):
+    """A cheap, real, deletable document. Same fixture the drain tests above use."""
+    return frappe.get_doc(
+        {
+            "doctype": "Territory",
+            "territory_name": f"{name_prefix}-{frappe.generate_hash(length=6)}",
+            "parent_territory": parent,
+        }
+    ).insert()
+
+
+class CleanupManagerFinishesWhatItStartedTest(unittest.TestCase):
+    """One undeletable document must not abandon the cleanup of every other.
+
+    `TestCleanupManager.cleanup` (`tests/utils/factories.py`) is what
+    `TestDataBuilder.cleanup()` calls, and what several suites call from their own
+    `tearDown`. On the FIRST document it could not delete it issued a
+    transaction-wide `frappe.db.rollback()` and **raised**, so none of the
+    remaining registered documents were cleaned up at all (#483).
+
+    The raise is worse than losing the rest of this loop. Four of the five
+    `tearDown`s that call it do so BEFORE `super().tearDown()` and do not wrap it,
+    so the exception also skips the base class's entire teardown: the drain, the
+    Error Log capture, the leak report and the mock restoration. A cleanup that
+    cannot delete one row took the whole teardown with it.
+
+    Why the undeletable row is a parent with a child: `delete_doc` runs
+    `on_trash` before it deletes anything, and `force=True` does not bypass it
+    (it bypasses the *link* check). `NestedSet.on_trash` throws
+    `NestedSetChildExistsError` before mutating anything, so this is a real,
+    deterministic delete failure with no partial state and nothing mocked.
+    """
+
+    def setUp(self):
+        self.created = []
+
+    def tearDown(self):
+        for doctype, name in reversed(self.created):
+            try:
+                frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+
+    def test_a_failed_delete_does_not_abandon_the_remaining_documents(self):
+        """Both rows are COMMITTED on purpose.
+
+        An uncommitted row is destroyed by the transaction-wide rollback as well,
+        so "the second row is gone" would read the same whether the loop deleted
+        it or the rollback erased it -- a test that passes on the defect. Committed,
+        only a real delete can remove it.
+        """
+        from verenigingen.tests.utils.factories import TestCleanupManager
+
+        parent = _territory("zzmgr-undeletable")
+        child = _territory("zzmgr-child", parent=parent.name)
+        frappe.db.commit()
+        self.created.append(("Territory", parent.name))
+        self.created.append(("Territory", child.name))
+
+        manager = TestCleanupManager()
+        # Registration order decides attempt order: cleanup walks the stack in
+        # reverse, so the parent -- the one that cannot be deleted while its child
+        # exists -- is attempted first, and the child proves the loop continued.
+        manager.register("Territory", child.name)
+        manager.register("Territory", parent.name)
+
+        errors = manager.cleanup()
+
+        self.assertFalse(
+            frappe.db.exists("Territory", child.name),
+            "cleanup stopped at the first document it could not delete and left "
+            "every other registered document on the site",
+        )
+        self.assertTrue(frappe.db.exists("Territory", parent.name))
+        self.assertEqual(
+            [parent.name],
+            [e["name"] for e in errors],
+            "the failure must be returned to the caller, not thrown away",
+        )
+
+    def test_a_failed_delete_is_reported_where_ci_can_read_it(self):
+        """Not raising must not mean not saying anything.
+
+        The old `raise` was destructive but loud -- an exception in `tearDown`
+        errors the test. Collecting the failure and continuing trades that for
+        silence unless it is announced, and all eight call sites discard the returned
+        list (five tearDowns, three mid-test). `frappe.logger()` would not do: it writes only to
+        `logs/frappe.log`, which CI never uploads (#485).
+
+        Asserted on the record rather than on captured stderr: the harness
+        logger's `StreamHandler` binds `sys.stderr` when it is first configured,
+        which may be long before this test runs, so `redirect_stderr` here reads
+        empty whether or not anything was logged -- an instrument that cannot fail.
+        That the handler writes to stderr at all is pinned separately, by
+        `test_harness_logger.test_writes_to_stderr_not_stdout`.
+        """
+        from verenigingen.tests.harness_logger import LOGGER_NAME
+        from verenigingen.tests.utils.factories import TestCleanupManager
+
+        parent = _territory("zzmgr-reported")
+        child = _territory("zzmgr-reported-child", parent=parent.name)
+        frappe.db.commit()
+        self.created.append(("Territory", parent.name))
+        self.created.append(("Territory", child.name))
+
+        manager = TestCleanupManager()
+        manager.register("Territory", parent.name)
+
+        # No "configure the logger first" line here on purpose. `assertLogs` really does
+        # take the handler away and cannot put a "configured once" flag back, but that is
+        # fixed at the source now -- `harness_logger._configured_logger` guards on
+        # whether OUR handler is still attached, and
+        # `AssertLogsMustNotDegradeTheLoggerTest` pins it. A workaround here would only
+        # protect the author who knew to write it.
+        with self.assertLogs(LOGGER_NAME, level="ERROR") as logged:
+            manager.cleanup()
+
+        self.assertTrue(
+            any(parent.name in line for line in logged.output),
+            f"a cleanup failure nobody can read is the swallow this replaced: {logged.output}",
+        )
+
+
+class CleanupManagerDoesNotDiscardRowsItDoesNotOwnTest(unittest.TestCase):
+    """A failed delete may undo its own work. Not the rest of the transaction.
+
+    `frappe.db.rollback()` in a cleanup path discards every uncommitted row in the
+    connection, and the rows a test's cleanup did not create are not its to
+    discard: uncommitted `setUpClass` fixtures belong to the class, and
+    `builder.cleanup()` is also called mid-test at three call sites, where a
+    rollback takes the test's own `setUp` with it. Measured in CI when the drain's rollback
+    was widened this way: 6 of 12 shards red, every failure a second-and-later
+    test of a class failing `_validate_links` on its own class fixture (#330,
+    re-created in #486 and reverted).
+
+    A savepoint per delete undoes the failed attempt and nothing else.
+    """
+
+    def setUp(self):
+        self.created = []
+
+    def tearDown(self):
+        for doctype, name in reversed(self.created):
+            try:
+                frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+
+    def test_a_failed_delete_leaves_an_uncommitted_bystander_alone(self):
+        """The bystander is UNCOMMITTED on purpose -- that is the whole failure mode.
+
+        A committed row survives any rollback, so a suite that commits its fixtures
+        cannot see this defect at all.
+        """
+        from verenigingen.tests.utils.factories import TestCleanupManager
+
+        parent = _territory("zzmgr-bystander-blocker")
+        child = _territory("zzmgr-bystander-child", parent=parent.name)
+        frappe.db.commit()
+        self.created.append(("Territory", parent.name))
+        self.created.append(("Territory", child.name))
+
+        bystander = _territory("zzmgr-bystander")
+        self.created.append(("Territory", bystander.name))
+
+        manager = TestCleanupManager()
+        manager.register("Territory", parent.name)
+        manager.cleanup()
+
+        self.assertTrue(
+            frappe.db.exists("Territory", bystander.name),
+            "cleanup rolled the whole transaction back over one failed delete and "
+            "discarded a row it never owned",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
