@@ -26,17 +26,26 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
 def _persist_eur_company():
-    """Return a EUR company name, creating a dedicated test company if needed.
+    """Return a DEDICATED EUR company name, creating it if needed.
 
     eBoekhouden is a Dutch (EUR) integration; the default ``_Test Company`` on the
     test sites is INR, which would break currency-sensitive logic.
+
+    Must be deterministic: this used to return ``get_value("Company",
+    {"default_currency": "EUR"}, "name")`` when any EUR company existed, which is not
+    "some EUR company" but the NEWEST one -- ``db.get_value`` has no ``order_by`` and
+    defaults to ``creation DESC`` -- i.e. whatever EUR company a co-tenant suite in the
+    shard created last. Its two identical siblings (``test_processors_stock``,
+    ``test_payment_entry_handler``) lost that borrow in the #394 sweep; this third copy
+    was the one that sweep missed. Always use our own named company so the fixture chain
+    is self-contained.
     """
-    existing = frappe.db.get_value("Company", {"default_currency": "EUR"}, "name")
-    if existing:
-        return existing
+    name = "EBKH EUR Test Co"
+    if frappe.db.exists("Company", name):
+        return name
 
     company = frappe.new_doc("Company")
-    company.company_name = "EBKH EUR Test Co"
+    company.company_name = name
     company.abbr = "EETC"
     company.default_currency = "EUR"
     company.country = "Netherlands"
@@ -71,6 +80,30 @@ class TestBaseProcessorHelpers(EnhancedTestCase):
 
     def _processor(self):
         return StockProcessor(self.company)
+
+    # ---- the fixture is OWNED, not borrowed ----
+
+    def test_persist_eur_company_ignores_a_newer_eur_company(self):
+        """``_persist_eur_company`` must resolve by NAME, never by currency.
+
+        This helper used to return the first ``default_currency == "EUR"`` company it
+        found, which -- because ``db.get_value`` has no ``order_by`` and so defaults to
+        ``creation DESC`` -- was the NEWEST EUR company on the site: whatever a co-tenant
+        suite in the shard created last. Its two identical siblings
+        (``test_processors_stock``, ``test_payment_entry_handler``) were fixed in the #394
+        sweep and this copy was missed; both of their docstrings already explain why.
+
+        Measured on test_site_2, 2026-08-23: 30 EUR companies, the borrow returned
+        ``'TEST EBkh Cleanup Cov Co'``, and one of the 30 has no receivable/income account
+        at all.
+        """
+        from verenigingen.tests.support.eur_company_decoy import newest_eur_company
+
+        with newest_eur_company() as decoy:
+            resolved = _persist_eur_company()
+
+        self.assertEqual(resolved, "EBKH EUR Test Co")
+        self.assertNotEqual(resolved, decoy)
 
     # ---- construction / cost center ----
 

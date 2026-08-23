@@ -277,10 +277,20 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
         # the (limited) volunteer user who lacks Employee-create permission on an
         # isolated site. Pre-create the Employee records as Administrator and link
         # them so the expense flow finds an existing employee and skips creation.
+        # OWNED, never scanned for. The chain this replaces fell back to
+        # `get_value("Company", {"default_currency": "EUR"}, "name")`, which is not "some
+        # EUR company" but the NEWEST one -- `db.get_value` has no `order_by` and so
+        # defaults to `creation DESC` -- i.e. whatever a co-tenant suite in the shard
+        # created last. Measured on test_site_2, 2026-08-23: 30 EUR companies, and it
+        # returned an e_boekhouden fixture; one of the 30 has no receivable or income
+        # account at all. This is a plain unittest.TestCase (no harness, so no
+        # `self._get_test_company()`), hence the app's own EUR test company, owned by name
+        # and built under `suspend_insert_capture`. Reading the configured single is not a
+        # scan, so it stays as the first choice.
+        from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+
         cls._company = (
-            frappe.db.get_single_value("Verenigingen Settings", "company")
-            or frappe.db.get_value("Company", {"default_currency": "EUR"}, "name")
-            or frappe.db.get_value("Company", {}, "name")
+            frappe.db.get_single_value("Verenigingen Settings", "company") or get_eur_test_company()
         )
         if cls._company and not frappe.db.get_single_value("Verenigingen Settings", "company"):
             frappe.db.set_single_value("Verenigingen Settings", "company", cls._company)

@@ -34,7 +34,6 @@ from typing import Dict, List, Optional, Any
 import math
 
 import frappe
-from verenigingen.utils.validation_utilities import QueryBuilder
 from frappe.utils import add_days, add_months, random_string, today, flt, get_datetime
 
 from verenigingen.tests.fixtures.test_data_factory import CoreTestDataFactory
@@ -181,83 +180,23 @@ class PaymentHistoryTestFactory(CoreTestDataFactory):
         Returns a list of company *names* (strings); downstream code indexes
         self._test_companies[0] as a company name.
         """
-        # Use a fully-configured EUR company that also has an *applicable* active
-        # Fiscal Year for the invoice posting dates. Membership customers use a EUR
-        # receivable account, so an INR/other-currency company triggers a
-        # currency-mismatch error. On this v16 bench the 2026 Fiscal Years are
-        # company-restricted: "_Test Company 2" (EUR) has no applicable 2026 FY,
-        # but "TEST-Payment-Integration-Company" is EUR and owns FY-2026, so prefer
-        # it. Fall back to any EUR company whose active FY covers today.
-        preferred = "TEST-Payment-Integration-Company"
-        if (
-            frappe.db.exists("Company", preferred)
-            and frappe.db.get_value("Company", preferred, "default_currency") == "EUR"
-            and self._company_has_active_fiscal_year(preferred)
-        ):
-            return [preferred]
+        # Membership customers use a EUR receivable account, so an INR/other-currency
+        # company triggers a currency-mismatch error, and the posting dates need an
+        # applicable active Fiscal Year. `get_eur_test_company()` OWNS
+        # "TEST-Payment-Integration-Company" by name, repairs its Fiscal Year, and raises
+        # rather than returning a company that cannot back a Sales Invoice -- which is all
+        # three requirements the hand-rolled chain here was reaching for.
+        #
+        # That chain preferred the same company by name and then fell back to
+        # `additional_filters={"default_currency": "EUR"}` -- a scan whose winner is
+        # decided by what else ran first in the shard (measured on test_site_2,
+        # 2026-08-23: 30 EUR companies, one of them with no receivable or income account at
+        # all). Its last resort created a Company registered only with
+        # `track_doc(...)`, which does NOT bind the captured-insert drain, so the ~100 rows
+        # erpnext builds with a company were left to that one test's teardown.
+        from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 
-        if (
-            frappe.db.get_value("Company", "_Test Company 2", "default_currency") == "EUR"
-            and self._company_has_active_fiscal_year("_Test Company 2")
-        ):
-            return ["_Test Company 2"]
-
-        company_rows = QueryBuilder.get_all_active_records(
-            "Company",
-            additional_filters={"default_currency": "EUR"},
-            fields=["name"],
-        )
-        companies = [c["name"] if isinstance(c, dict) else c for c in company_rows]
-        # Prefer EUR companies that have an applicable active Fiscal Year.
-        companies_with_fy = [c for c in companies if self._company_has_active_fiscal_year(c)]
-        if companies_with_fy:
-            return companies_with_fy
-
-        if not companies:
-            # Create a test company
-            company = frappe.get_doc({
-                "doctype": "Company",
-                "company_name": f"Test Company {self.test_run_id}",
-                "default_currency": "EUR",
-                "country": "Netherlands",
-                "valuation_method": "FIFO"
-            })
-            # Use proper permissions context for test data creation
-            original_user = frappe.session.user
-            try:
-                frappe.set_user("Administrator")
-                company.insert()
-            finally:
-                frappe.session.user = original_user
-            self.track_doc("Company", company.name)
-            companies = [company.name]
-
-        return companies
-
-    def _company_has_active_fiscal_year(self, company: str) -> bool:
-        """Whether an active Fiscal Year applies to *company* for today's date.
-
-        A Fiscal Year applies when it is enabled, covers today, and is either
-        unrestricted (no company links) or explicitly linked to the company.
-        """
-        candidates = frappe.get_all(
-            "Fiscal Year",
-            filters=[
-                ["disabled", "=", 0],
-                ["year_start_date", "<=", today()],
-                ["year_end_date", ">=", today()],
-            ],
-            pluck="name",
-        )
-        for fy_name in candidates:
-            linked = frappe.get_all(
-                "Fiscal Year Company",
-                filters={"parent": fy_name},
-                pluck="company",
-            )
-            if not linked or company in linked:
-                return True
-        return False
+        return [get_eur_test_company()]
 
     def _get_or_create_test_accounts(self) -> Dict[str, str]:
         """Get or create test accounts for payment processing"""

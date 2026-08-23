@@ -22,6 +22,31 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
 class TestTerminationIntegrationExtraCoverage(EnhancedTestCase):
+    def test_get_company_never_borrows_by_currency(self):
+        """``_get_company`` must own its company, not scan for a EUR one.
+
+        It used to read ``Verenigingen Settings.company`` and, when that was unset, fall
+        back to ``get_value("Company", {"default_currency": "EUR"}, "name")`` -- which is
+        not "some EUR company" but the NEWEST one (``db.get_value`` has no ``order_by``, so
+        it defaults to ``creation DESC``), i.e. whatever a co-tenant suite in the shard
+        created last. Measured on test_site_2, 2026-08-23: 30 EUR companies, and that
+        expression returned an e_boekhouden fixture, one of which has no receivable or
+        income account at all.
+
+        The single is cleared here on purpose: ``EnhancedTestCase.setUp`` sets it (via
+        ``_ensure_master_data``, which swallows its own exceptions), so on a warm site the
+        borrow never fires and a pin that did not clear it would be green either way.
+        Uncommitted -- the per-test rollback puts it back.
+        """
+        from verenigingen.tests.support.eur_company_decoy import newest_eur_company
+
+        frappe.db.set_single_value("Verenigingen Settings", "company", None)
+        with newest_eur_company() as decoy:
+            resolved = self._get_company()
+
+        self.assertEqual(resolved, self._get_test_company())
+        self.assertNotEqual(resolved, decoy)
+
     # ------------------------------------------------------------------
     # helpers (names use allowed prefixes for ignore_permissions per enforcer)
     # ------------------------------------------------------------------
@@ -50,11 +75,15 @@ class TestTerminationIntegrationExtraCoverage(EnhancedTestCase):
         return user
 
     def _get_company(self):
-        return (
-            frappe.db.get_single_value("Verenigingen Settings", "company")
-            or frappe.db.get_value("Company", {"default_currency": "EUR"}, "name")
-            or frappe.db.get_value("Company", {}, "name")
-        )
+        """The harness-OWNED company, resolved by name.
+
+        Not a scan. See ``test_get_company_never_borrows_by_currency`` above for what the
+        currency fallback this replaces actually resolved to. ``_get_test_company()`` is
+        the same value ``EnhancedTestCase.setUp`` writes into
+        ``Verenigingen Settings.company``, so this is not a behaviour change on a healthy
+        run -- only on the run where that setup silently failed.
+        """
+        return self._get_test_company()
 
     def _make_employee(self, **fields):
         emp = frappe.new_doc("Employee")
