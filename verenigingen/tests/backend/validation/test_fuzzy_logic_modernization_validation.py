@@ -275,7 +275,12 @@ class TestFuzzyLogicModernizationValidation(VereningingenTestCase):
                 }
             )
             user.insert(ignore_permissions=True)
-        self.track_doc("User", low_priv_email)
+            # Inside the create branch: the same defect as #498's `with_chapter`, and
+            # worse here. `track_doc` hands the row to a drain that commits after every
+            # successful delete (`base.py`), so tracking a User this test only BORROWED
+            # deletes it for good rather than merely inside the transaction. The email
+            # is fixed, so the second class to call this borrows the first one's User.
+            self.track_doc("User", low_priv_email)
         return low_priv_email
 
     def test_api_response_consistency(self):
