@@ -455,17 +455,47 @@ class TestDataBuilder:
 
         # Add to chapter if chapter exists (chapter linkage is via Chapter Member child rows)
         if "chapter" in self._data:
+            chapter_name = self._data["chapter"].name
             try:
-                chapter = frappe.get_doc("Chapter", self._data["chapter"].name)
+                chapter = frappe.get_doc("Chapter", chapter_name)
                 chapter.append(
                     "members",
                     {"member": member.name, "chapter_join_date": today(), "enabled": 1, "status": "Active"},
                 )
                 chapter.save()
-            except frappe.LinkValidationError:
-                # Skip chapter update if there are stale member references
-                # This is acceptable for test data - member still gets created
-                pass
+            except frappe.LinkValidationError as e:
+                # KEPT, and NOT silent. `chapter.save()` re-validates the WHOLE roster,
+                # so ONE row whose `member` no longer resolves makes this save raise --
+                # and then it raises for every later member on that chapter too.
+                # Measured on test_site_5, with a control:
+                #
+                #   append a dead-link row, save            -> LinkValidationError
+                #   PERSIST it, append a VALID member, save -> LinkValidationError
+                #
+                # Swallowing is still right: the member is the thing under test and it
+                # exists. What was wrong was doing it silently, because the caller's
+                # NEXT line is typically an assertion on the linkage --
+                # `test_member_controller.test_chapter_mixin_methods` asserts
+                # `db.get_value("Chapter Member", {"member": ...}, "parent")` -- which
+                # then fails naming the wrong cause.
+                #
+                # get_harness_logger, not frappe.logger(): the latter writes only to
+                # logs/frappe.log, which CI never uploads, so the message would not
+                # exist where it is needed (#485).
+                #
+                # Where the stale rows come from: `Member.on_trash` ->
+                # `MemberCleanupService` force-deletes a member's roster rows
+                # (member_cleanup_service.py:220-227) and swallows its own failures
+                # through a bare `frappe.logger().error`. 0 of 708 rows on test_site_5
+                # dangle today, so this is a live mechanism with no current instance
+                # rather than an active defect (#515).
+                get_harness_logger("test-data-builder").error(
+                    "chapter linkage SKIPPED: Chapter %s has a stale roster row, so "
+                    "member %s was created but not added to it: %s",
+                    chapter_name,
+                    member.name,
+                    e,
+                )
 
         self._data["member"] = member
         self._cleanup_manager.register("Member", member.name)

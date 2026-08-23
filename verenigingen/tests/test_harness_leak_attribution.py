@@ -1515,24 +1515,15 @@ class CleanupManagerDoesNotDiscardRowsItDoesNotOwnTest(unittest.TestCase):
         )
 
 
-class BuilderRegistersOnlyWhatItCreatedTest(unittest.TestCase):
-    """A fixture the builder only BORROWED must survive `builder.cleanup()`.
+class _BorrowedChapterFixture:
+    """Committed-chapter plumbing shared by the two borrowed-fixture suites.
 
-    `TestDataBuilder.with_chapter` is a get-or-create whose two branches converged
-    on one unconditional `register(...)`, so a test that merely *reused* the shared
-    chapter `tests/utils/setup_helpers.py` builds for the whole suite registered it
-    for deletion, and `builder.cleanup()` deleted it (#498).
-
-    It stayed invisible because the delete never stuck: `cleanup()` does not commit
-    (#489), so the base teardown's rollback puts the row back. The two defects
-    cancel, which is why #489 cannot be fixed on its own -- give `cleanup()` the
-    commit it asks for and the shared chapter is deleted for real, taking every
-    later test that resolves it with it (#330, #390).
-
-    The borrowed row is COMMITTED on purpose. An uncommitted one is erased by
-    cleanup's own rollback path too, so "the chapter is gone" would read the same
-    whether the loop deleted it or a rollback swallowed it -- a test that passes on
-    the defect.
+    Factored out rather than copied because a get-or-create helper duplicated
+    across suites is the clone family `scripts/validation/duplicate_helper_validator.py`
+    exists to count, and the two suites below need byte-identical seeding: one
+    asserts the borrowed chapter SURVIVES cleanup (#498), the other asserts what
+    the builder does when that same chapter can no longer be saved (#515). If the
+    seeding diverged, the second would stop being a statement about the first.
     """
 
     def setUp(self):
@@ -1574,7 +1565,7 @@ class BuilderRegistersOnlyWhatItCreatedTest(unittest.TestCase):
         self.created.append(("Region", region.name))
         return region.name
 
-    def _seed_chapter(self):
+    def _seed_chapter(self, label="Borrowed"):
         """Create a chapter THROUGH the builder, then commit it.
 
         Through the builder on purpose: it is the same insert a real shared
@@ -1583,11 +1574,32 @@ class BuilderRegistersOnlyWhatItCreatedTest(unittest.TestCase):
         """
         from verenigingen.tests.utils.factories import TestDataBuilder
 
-        name = f"Test Borrowed Chapter {self.suffix}"
+        name = f"Test {label} Chapter {self.suffix}"
         TestDataBuilder().with_chapter(name=name, region=self._region())
         frappe.db.commit()
         self.created.append(("Chapter", name))
         return name
+
+
+class BuilderRegistersOnlyWhatItCreatedTest(_BorrowedChapterFixture, unittest.TestCase):
+    """A fixture the builder only BORROWED must survive `builder.cleanup()`.
+
+    `TestDataBuilder.with_chapter` is a get-or-create whose two branches converged
+    on one unconditional `register(...)`, so a test that merely *reused* the shared
+    chapter `tests/utils/setup_helpers.py` builds for the whole suite registered it
+    for deletion, and `builder.cleanup()` deleted it (#498).
+
+    It stayed invisible because the delete never stuck: `cleanup()` does not commit
+    (#489), so the base teardown's rollback puts the row back. The two defects
+    cancel, which is why #489 cannot be fixed on its own -- give `cleanup()` the
+    commit it asks for and the shared chapter is deleted for real, taking every
+    later test that resolves it with it (#330, #390).
+
+    The borrowed row is COMMITTED on purpose. An uncommitted one is erased by
+    cleanup's own rollback path too, so "the chapter is gone" would read the same
+    whether the loop deleted it or a rollback swallowed it -- a test that passes on
+    the defect.
+    """
 
     def test_a_chapter_the_builder_only_reused_survives_its_cleanup(self):
         from verenigingen.tests.utils.factories import TestDataBuilder
@@ -1622,6 +1634,94 @@ class BuilderRegistersOnlyWhatItCreatedTest(unittest.TestCase):
         self.assertFalse(
             frappe.db.exists("Chapter", name),
             "a chapter the builder created must still be cleaned up",
+        )
+
+
+class BuilderMustNotSilentlyDropTheChapterLinkageTest(
+    _BorrowedChapterFixture, unittest.TestCase
+):
+    """`with_member` drops the chapter linkage on a stale roster; say so (#515).
+
+    `TestDataBuilder.with_member` appends a `Chapter Member` row to the chapter in
+    `self._data` and saves it. `chapter.save()` re-validates the WHOLE roster, so
+    one row whose `member` no longer resolves makes that save raise
+    `LinkValidationError` -- and the builder's `except frappe.LinkValidationError:
+    pass` then drops the linkage for every later member on that chapter, silently.
+
+    Measured on test_site_5, both halves with a control:
+
+      append a row with a dead member link, save   -> LinkValidationError
+      PERSIST that row, append a VALID member, save -> LinkValidationError
+                                                       ("Could not find Row #999:
+                                                        Member: ...")
+
+    So the swallow is load-bearing (the member must still be created) and its cost
+    is real: `test_member_controller.test_chapter_mixin_methods` asserts
+    `db.get_value("Chapter Member", {"member": member.name}, "parent") == chapter.name`
+    immediately afterwards, and would fail there with no trace of why.
+
+    What this suite does NOT claim. The stale rows are not hypothetical but they are
+    not present today either: 0 of 708 `Chapter Member` rows on test_site_5 have a
+    dead `member` link, because `Member.on_trash` -> `MemberCleanupService`
+    force-deletes a member's roster rows (`member_cleanup_service.py:220-227`) --
+    and swallows its own failures through a bare `frappe.logger().error`, which is
+    the route by which a stale row can appear. This test plants the condition
+    rather than waiting for it.
+    """
+
+    def _plant_stale_roster_row(self, chapter_name):
+        """Commit a roster row whose `member` does not resolve.
+
+        Written with raw SQL on purpose: every doc-level route to this state
+        (`append` + `save`, `frappe.get_doc(...).insert()`) is exactly the
+        validation being defeated, so it cannot produce the row. Committed because
+        an uncommitted one is erased by the builder's own transaction, which would
+        make this test pass on the defect.
+        """
+        row = f"stale-515-{self.suffix}"
+        frappe.db.sql(
+            """INSERT INTO `tabChapter Member`
+                   (name, parent, parenttype, parentfield, idx, member, enabled,
+                    status, creation, modified, owner, modified_by)
+               VALUES (%s, %s, 'Chapter', 'members', 1, %s, 1, 'Active',
+                       NOW(), NOW(), 'Administrator', 'Administrator')""",
+            (row, chapter_name, f"Member-Does-Not-Exist-{self.suffix}"),
+        )
+        frappe.db.commit()
+        self.created.append(("Chapter Member", row))
+        return row
+
+    def test_a_chapter_linkage_the_builder_had_to_skip_is_reported(self):
+        from verenigingen.tests.harness_logger import LOGGER_NAME
+        from verenigingen.tests.utils.factories import TestDataBuilder
+
+        name = self._seed_chapter(label="Stale Roster")
+        self._plant_stale_roster_row(name)
+
+        builder = TestDataBuilder()
+        builder.with_chapter(name=name, region=self._region())
+        with self.assertLogs(LOGGER_NAME, level="ERROR") as logged:
+            builder.with_member()
+        member = builder.build()["member"]
+        self.created.append(("Member", member.name))
+
+        # Two preconditions, so a green result cannot come from the wrong cause:
+        # the swallow must still let the member through, and the stale row must
+        # really have blocked the roster write.
+        self.assertTrue(
+            frappe.db.exists("Member", member.name),
+            "precondition: the swallow is load-bearing -- the member is still created",
+        )
+        self.assertFalse(
+            frappe.db.exists("Chapter Member", {"parent": name, "member": member.name}),
+            "precondition: the planted stale row did not block the roster write, so "
+            "this test is not exercising the swallow at all",
+        )
+
+        self.assertTrue(
+            any(name in line for line in logged.output),
+            "the builder dropped the chapter linkage and said nothing, so the "
+            f"assertion that fails next names the wrong cause: {logged.output}",
         )
 
 
