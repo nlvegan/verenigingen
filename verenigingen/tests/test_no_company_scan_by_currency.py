@@ -30,10 +30,31 @@ It is a **shape** check, not a behaviour check. It cannot tell a legitimate reso
 a borrow that happens to use a different shape:
 
 * resolving a Company by any other attribute -- ``{"abbr": ...}``, ``{"company_name": ...}``,
-  ``{"country": ...}`` -- is not checked here;
+  ``{"country": ...}`` -- is not checked here (measured on develop: 4 such sites, #532);
+* it only sees filters written as **literals in the call**. Confirmed still invisible, and
+  each of these is a working way to write the same borrow: a filter dict held in a variable
+  (``f = {"default_currency": "EUR"}; get_value("Company", f, "name")``), a ``frappe.qb``
+  query, raw ``frappe.db.sql``, and a Python-side ``if c.default_currency == "EUR"`` after
+  an unfiltered ``get_all``. A shape check cannot reach any of them; the behavioural pins
+  below are what covers that ground;
+* it checks the ``filters``/``or_filters`` positions only, so a filter smuggled through
+  some other keyword would be missed;
 * ``get_all("Company", limit=1)`` / ``get_value("Company", {}, "name")`` -- "scan by nothing
-  at all" -- is a much larger sibling class (measured on develop: ~115 occurrences) and is
-  deliberately out of scope; and
+  at all" -- is a much larger sibling class (measured on develop: **109** occurrences) and
+  is deliberately out of scope, tracked as #532. It needs its own triage because the two
+  halves do not even agree with each other. Measured on ``test_site_2``, 50 companies:
+
+  ================================================  ==========================  =========
+  expression                                        resolves to                 direction
+  ================================================  ==========================  =========
+  ``get_value("Company", {}, "name")``              ``TEST EBkh Cleanup Cov``   newest
+  ``get_all("Company", limit=1)``                   ``_Test Company``           oldest
+  ================================================  ==========================  =========
+
+  ``db.get_value`` has no ``order_by`` and falls back to ``creation DESC``, while
+  ``get_all`` is meta-driven and ``Company`` sorts ``creation ASC``. #532's body describes
+  the whole class as taking the oldest; that is true of the ``get_all`` half only. A fix
+  that is right for one half is not automatically right for the other;
 * it says nothing about whether an owned fixture is *correct*, only that a currency scan is
   absent.
 
@@ -41,7 +62,10 @@ The behavioural pins are the other half:
 ``verenigingen/tests/support/test_eur_company_decoy.py`` (the control),
 ``test_processors_base.test_persist_eur_company_ignores_a_newer_eur_company``,
 ``test_termination_integration_extra_coverage.test_get_company_never_borrows_by_currency``,
-and ``test_sepa_xml_compliance.test_invoice_company_is_owned_not_the_newest_eur_company``.
+``test_sepa_xml_compliance``'s
+``test_invoices_are_posted_under_the_owned_company_not_the_newest_eur_one``, and
+``test_chapter_cost_center_seeding.test_seeder_heals_by_name_not_to_the_newest_eur_company``
+-- the last one covering ``tests/setup/__init__.py``, which this guard used to allowlist.
 """
 
 import ast
@@ -54,24 +78,47 @@ import verenigingen
 # reason has to be about why the scan is CORRECT there -- not about it being inconvenient
 # to change.
 ALLOWED = {
-    # The harness's own site-level heal for `Verenigingen Settings.company` in
-    # `before_tests`, run when that single is unset or points at a company that no longer
-    # exists. Not a test's own fixture: its blast radius is every test that reads the
-    # single, and the EUR preference is load-bearing for the plain-`unittest.TestCase`
-    # classes that need a EUR company and have no harness to pin one. Making it own a
-    # company by name is the right change and it needs its own CI-proved commit, because no
-    # local site can exercise the branch (all of them have the single set).
-    "tests/setup/__init__.py": "site-level heal in before_tests; see module docstring",
     # The defect itself, isolated in one place so the pins above can name what they pin.
     # Called by nothing except those pins.
     "tests/support/eur_company_decoy.py": "the defect under test, quarantined for pins",
 }
 
 
-def _dict_mentions_currency(node) -> bool:
-    return isinstance(node, ast.Dict) and any(
-        isinstance(key, ast.Constant) and key.value == "default_currency" for key in node.keys
+# The keyword arguments that carry a filter. `fields=` and `pluck=` are deliberately NOT
+# here: `get_all("Company", fields=["name", "default_currency"])` READS the currency, it
+# does not constrain on it, and treating any list containing the string as a filter turns
+# that into a false positive.
+_FILTER_KEYWORDS = frozenset({"filters", "or_filters"})
+
+
+def _is_currency_condition(node) -> bool:
+    """A single list/tuple filter condition constraining ``default_currency``.
+
+    Covers ``["default_currency", "=", "EUR"]`` and the four-element
+    ``["Company", "default_currency", "=", "EUR"]``, in list or tuple form. Checks the
+    node's own elements only -- never a recursive walk for the bare string, which would
+    also match ``get_value("Company", name, "default_currency")`` (a read, not a filter):
+    measured over the app, a recursive walk adds **58** such false positives while this
+    adds **zero**.
+    """
+    return isinstance(node, (ast.List, ast.Tuple)) and any(
+        isinstance(element, ast.Constant) and element.value == "default_currency" for element in node.elts
     )
+
+
+def _mentions_currency(node) -> bool:
+    """Does this filter argument constrain ``default_currency``, in any of its shapes?
+
+    ``{"default_currency": "EUR"}``, ``[["default_currency", "=", "EUR"]]`` and
+    ``[{"default_currency": "EUR"}]`` are all the same query to Frappe, and the list form
+    is the one a future author reaches for first. The original guard understood only the
+    dict, so it would have gone quietly green on either list shape.
+    """
+    if isinstance(node, ast.Dict):
+        return any(isinstance(key, ast.Constant) and key.value == "default_currency" for key in node.keys)
+    if isinstance(node, (ast.List, ast.Tuple)):
+        return _is_currency_condition(node) or any(_mentions_currency(el) for el in node.elts)
+    return False
 
 
 def _first_arg_is_company(call: ast.Call) -> bool:
@@ -89,8 +136,12 @@ def _currency_scans(tree: ast.AST):
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call) or not _first_arg_is_company(node):
             continue
-        candidates = list(node.args[1:]) + [kw.value for kw in node.keywords]
-        if any(_dict_mentions_currency(arg) for arg in candidates):
+        # Only the filter POSITIONS, not every argument. In `get_value`/`get_all`/`exists`
+        # the second positional argument is the name-or-filters slot and the third is the
+        # fieldname, so widening past `args[1]` only buys false positives once lists are
+        # in scope. Measured: this loses none of the sites the dict-only guard found.
+        candidates = list(node.args[1:2]) + [kw.value for kw in node.keywords if kw.arg in _FILTER_KEYWORDS]
+        if any(_mentions_currency(arg) for arg in candidates):
             yield node.lineno
 
 
@@ -147,6 +198,40 @@ class TestNoCompanyScanByCurrency(unittest.TestCase):
             list(_currency_scans(tree)),
             "the detector no longer recognises the pattern it exists to find",
         )
+
+    def test_the_guard_sees_every_filter_shape_and_no_read(self):
+        """The detector's own control: the shapes it must catch, and the ones it must not.
+
+        The quarantined copy in ``eur_company_decoy.py`` is only the dict shape, so
+        ``test_the_guard_can_actually_see_the_pattern`` above says nothing about the list
+        forms -- and the list form is the one a future author reaches for first, because it
+        is what Frappe's own docs use. The negative half matters just as much: a recursive
+        walk for the bare string ``"default_currency"`` catches all of these AND **58**
+        legitimate reads across this app (measured), which is a guard nobody can keep
+        green.
+        """
+        must_flag = [
+            'frappe.db.get_value("Company", {"default_currency": "EUR"}, "name")',
+            'frappe.get_all("Company", filters=[["default_currency", "=", "EUR"]])',
+            'frappe.get_all("Company", filters=[{"default_currency": "EUR"}])',
+            'frappe.get_all("Company", filters=[["Company", "default_currency", "=", "EUR"]])',
+            'frappe.db.exists("Company", {"default_currency": "EUR"})',
+            'frappe.get_all("Company", or_filters=[("default_currency", "=", "EUR")])',
+        ]
+        must_not_flag = [
+            # reads the field, does not constrain on it
+            'frappe.db.get_value("Company", name, "default_currency")',
+            'frappe.get_all("Company", fields=["name", "default_currency"])',
+            'frappe.get_all("Company", filters={"abbr": "TPIC"}, fields=["default_currency"])',
+            # a different doctype entirely
+            'frappe.db.get_value("Currency", {"default_currency": "EUR"}, "name")',
+        ]
+        for source in must_flag:
+            with self.subTest(source=source):
+                self.assertTrue(list(_currency_scans(ast.parse(source))), "not detected")
+        for source in must_not_flag:
+            with self.subTest(source=source):
+                self.assertFalse(list(_currency_scans(ast.parse(source))), "false positive")
 
     def test_every_allowlist_entry_still_exists_and_still_scans(self):
         """An allowlist entry that no longer needs to be there is a hole, not a comment."""

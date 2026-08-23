@@ -27,14 +27,34 @@ class TestEURCompanyDecoy(EnhancedTestCase):
         self.assertEqual(scan_by_currency(), before, "the decoy outlived its context manager")
 
     def test_the_owned_helper_ignores_the_decoy(self):
-        """``get_eur_test_company`` resolves by NAME, so a newer EUR company cannot win."""
+        """``get_eur_test_company`` resolves by NAME, so a newer EUR company cannot win.
+
+        The build is hoisted OUT of the window on purpose. On a fresh CI site
+        ``_company_is_usable`` is False, so this call takes ``_create_eur_test_company``
+        -> ``_build_and_verify``, which ends in ``frappe.db.commit()``. Committing inside
+        the window persists the decoy's raw INSERT and leaves the ``finally`` DELETE
+        uncommitted, which the harness teardown then rolls back -- see the decoy module
+        docstring. The window only has to contain the *resolution* being pinned.
+        """
+        owned = get_eur_test_company()
         with newest_eur_company():
-            self.assertEqual(get_eur_test_company(), "TEST-Payment-Integration-Company")
+            self.assertEqual(get_eur_test_company(), owned)
 
     def test_the_decoy_leaves_no_row_behind(self):
+        """A commit INSIDE the window is the only shape where leaking is possible.
+
+        An empty ``with`` body cannot leak -- the INSERT is uncommitted, so the harness
+        rollback removes it whether or not the context manager does anything. That
+        version of this test read as the leak guard and guarded nothing: it passed
+        unchanged while ``get_eur_test_company()`` inside the window was resurrecting the
+        row on every fresh site. So commit inside the window, then roll back the way
+        ``EnhancedTestCase.tearDown`` does, and require the row to be gone anyway.
+        """
         with newest_eur_company() as decoy:
-            pass
+            frappe.db.commit()
+        frappe.db.rollback()
         self.assertFalse(
             frappe.db.sql("SELECT 1 FROM `tabCompany` WHERE `name` = %s", decoy),
-            "decoy row survived",
+            "decoy row survived a commit inside the window plus a rollback -- the "
+            "uncommitted DELETE was undone and the drain will re-commit the row",
         )

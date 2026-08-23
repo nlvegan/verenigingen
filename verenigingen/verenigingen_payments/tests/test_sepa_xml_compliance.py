@@ -94,53 +94,52 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
         )
         # Direct Debit Batch validation (validate_invoice_for_sepa) only accepts
         # EUR invoices, so the invoices must belong to a EUR company.
-        self._eur_company = self._resolve_invoice_company()
+        #
+        # This used to be `frappe.db.get_value("Company", {"default_currency": "EUR"},
+        # "name")`, which carries two defects in one line: it borrows a fixture instead of
+        # owning one (which company wins depends on what else ran first in the shard, and
+        # shard bins re-pack on measured runtime), and `db.get_value` has no `order_by` so
+        # it defaults to `creation DESC` -- not "some EUR company" but the NEWEST one.
+        # Measured on test_site_2, 2026-08-23: 30 EUR companies; the old expression
+        # returned 'TEST EBkh Cleanup Cov Co' (an e_boekhouden fixture) while the owned
+        # helper returned 'TEST-Payment-Integration-Company'. One of those 30
+        # ('EBH Migration Test Co') has neither `default_receivable_account` nor
+        # `default_income_account` -- the chart-less company whose borrow produced 101
+        # failures across two shards (#237).
+        #
+        # `cls.eur_company` is what `apply_sepa_test_configuration()` configured the SEPA
+        # creditor identity against, so using it keeps the invoices and the settings under
+        # the same company rather than merely the same currency.
+        self._eur_company = self.eur_company
         self._ensure_active_fiscal_year(self._eur_company)
         # Batch child rows require reqd Links to Member and Membership; create a
         # membership for the test member so rows can be inserted on a fresh site.
         self._membership = self.create_test_membership(member_name=self._invoice_member.name)
 
-    def _resolve_invoice_company(self):
-        """The EUR company these invoices are posted under -- OWNED, never scanned for.
+    def test_invoices_are_posted_under_the_owned_company_not_the_newest_eur_one(self):
+        """Mint a real invoice with a newer EUR company present and read back its company.
 
-        This used to be ``frappe.db.get_value("Company", {"default_currency": "EUR"},
-        "name")``, which carries two defects in one line:
-
-        1. It borrows a fixture instead of owning one. Which company wins then depends on
-           what else ran first in the shard, and shard bins re-pack on measured runtime, so
-           editing any test file can change the answer.
-        2. ``db.get_value`` has no ``order_by`` and defaults to ``creation DESC``, so it is
-           not "some EUR company" but the NEWEST one -- i.e. whatever a co-tenant suite
-           created last.
-
-        Measured on test_site_2, 2026-08-23: 30 EUR companies present; the old expression
-        returned ``'TEST EBkh Cleanup Cov Co'`` (an e_boekhouden fixture) while the owned
-        helper returned ``'TEST-Payment-Integration-Company'``. One of those 30
-        (``'EBH Migration Test Co'``) has neither ``default_receivable_account`` nor
-        ``default_income_account``, which is the chart-less company whose borrow produced
-        101 failures across two shards (#237).
-
-        ``cls.eur_company`` is what ``apply_sepa_test_configuration()`` configured the SEPA
-        creditor identity against in ``setUpClass``, so using it also keeps the invoices and
-        the settings under the same company rather than merely the same currency.
-        """
-        return self.eur_company
-
-    def test_invoice_company_is_owned_not_the_newest_eur_company(self):
-        """The invoice company must be the one SEPA was configured for, not a scan result.
-
-        The decoy is what makes this discriminating: on a fresh CI site where the owned
-        company is the only EUR one, the assertion would pass even with the borrow back in
-        place -- green for the wrong reason. See
-        ``verenigingen/tests/support/eur_company_decoy.py``.
+        The earlier version of this pin called a one-line ``_resolve_invoice_company()``
+        wrapper inside the decoy window and asserted its return value. That wrapper was
+        ``return self.eur_company`` -- an attribute resolved in ``setUpClass``, long before
+        the decoy existed -- so the window contained no database work at all and the pin
+        could not have failed for the reason it claimed. It pinned a getter, not a
+        behaviour. Both the wrapper and that assertion are gone; the invoice path is the
+        thing that actually has to be right, so post one and read the persisted row.
         """
         from verenigingen.tests.support.eur_company_decoy import newest_eur_company
 
         with newest_eur_company() as decoy:
-            resolved = self._resolve_invoice_company()
+            invoice_name = self._real_invoice_name()
+            company = frappe.db.get_value("Sales Invoice", invoice_name, "company")
 
-        self.assertEqual(resolved, "TEST-Payment-Integration-Company")
-        self.assertNotEqual(resolved, decoy)
+        self.assertEqual(company, "TEST-Payment-Integration-Company")
+        self.assertNotEqual(company, decoy)
+        self.assertEqual(
+            frappe.db.get_value("Company", company, "default_currency"),
+            "EUR",
+            "validate_invoice_for_sepa rejects a non-EUR invoice",
+        )
 
     def _ensure_active_fiscal_year(self, company):
         """Ensure an active Fiscal Year covers today and permits `company`.
@@ -169,8 +168,8 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
         The batch's `invoice` child field is a reqd Link to Sales Invoice and
         the batch validates each as a valid (EUR, outstanding) SEPA invoice.
         """
-        # Unconditional: `_resolve_invoice_company()` returns an owned company or raises,
-        # so there is no "no EUR company found" case left to fall through.
+        # Unconditional: `self._eur_company` is the owned company `setUp` resolved by
+        # name, so there is no "no EUR company found" case left to fall through.
         kwargs = {
             "customer": self._invoice_member.name,
             "grand_total": amount,

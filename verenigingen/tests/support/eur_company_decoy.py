@@ -31,9 +31,27 @@ Why raw SQL and not ``frappe.new_doc("Company").insert()``
 * The defect under test reads ``tabCompany`` and nothing else, so a bare row is exactly the
   surface it needs. If fixed code ever *dereferences* the decoy it fails loudly rather than
   passing quietly, which is the behaviour a pin wants.
-* Nothing is committed, so the row cannot outlive the transaction even if a test dies
-  between the insert and the delete -- the harness rollback removes it. The explicit
-  ``DELETE`` in ``finally`` is belt-and-braces for the same-transaction case.
+* The ``INSERT`` is not committed, so on its own the row cannot outlive the transaction.
+  That is **only** true while nothing inside the ``with`` block commits, and one thing
+  routinely does: ``get_eur_test_company()`` takes its build/repair branch on a fresh CI
+  site and ends in ``frappe.db.commit()`` (``sepa_test_company._build_and_verify``). A
+  commit inside the window persists the ``INSERT``; the ``finally`` ``DELETE`` is then
+  *uncommitted*, so ``EnhancedTestCase.tearDown``'s ``frappe.db.rollback()`` undoes the
+  DELETE and ``_drain_captured_inserts``' closing ``commit()`` persists the resurrected
+  row -- the third recurrence of #489/#407/#486 ("a cleanup that deletes without
+  committing is undone by the next rollback"). Measured on ``test_site_2``, 2026-08-23:
+
+  ==============================================  ================================
+  window body                                     row after tearDown + rollback
+  ==============================================  ================================
+  ``pass``                                        absent
+  ``frappe.db.commit()``                          **present, committed**
+  ``_create_eur_test_company()`` (the real path)  **present, committed**
+  ==============================================  ================================
+
+  So ``finally`` does not trust the rollback: it DELETEs, then asks a **second
+  connection** -- which sees only committed data -- whether the row is still there, and
+  commits the DELETE when it is. Nothing can leak a ``creation = 2099-01-01`` company.
 
 ``test_eur_company_decoy.py`` is the control: it proves the decoy actually wins the buggy
 query. A decoy that did not win would make every pin built on it pass vacuously.
@@ -73,6 +91,37 @@ def newest_eur_company():
         yield name
     finally:
         frappe.db.sql("DELETE FROM `tabCompany` WHERE `name` = %s", name)
+        if _row_is_committed(name):
+            # Something in the window committed, so the INSERT is persisted and the
+            # DELETE above is not. Only a commit removes it -- see the module docstring.
+            # Everything before their commit is already flushed, so this adds only the
+            # DELETE and whatever the tail of the window wrote.
+            frappe.db.commit()
+        if _row_is_committed(name):
+            raise RuntimeError(
+                f"the EUR decoy company {name!r} could not be removed and is now committed "
+                "with creation=2099-01-01, which makes it the permanent winner of every "
+                "`get_value('Company', {'default_currency': 'EUR'}, 'name')` on this site. "
+                "Delete it manually before running anything else."
+            )
+
+
+def _row_is_committed(name: str) -> bool:
+    """Is the decoy row visible to a SEPARATE connection -- i.e. actually committed?
+
+    The primary connection cannot answer this about itself: it sees its own
+    uncommitted INSERT and its own uncommitted DELETE identically to committed ones.
+    A second connection reads only committed data, which is the exact question, and it
+    is the same idiom this repo uses to prove a row lock is really held (#424/#436).
+    Read-only and non-locking, so it cannot block on the DELETE's own row lock.
+    """
+    connection = frappe.db.create_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("SELECT 1 FROM `tabCompany` WHERE `name` = %s", (name,))
+        return bool(cursor.fetchone())
+    finally:
+        connection.close()
 
 
 def scan_by_currency() -> str:

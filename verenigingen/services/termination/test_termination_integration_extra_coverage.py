@@ -38,13 +38,22 @@ class TestTerminationIntegrationExtraCoverage(EnhancedTestCase):
         borrow never fires and a pin that did not clear it would be green either way.
         Uncommitted -- the per-test rollback puts it back.
         """
+        from verenigingen.tests.fixtures.enhanced_test_factory import HARNESS_OWNED_COMPANIES
         from verenigingen.tests.support.eur_company_decoy import newest_eur_company
 
         frappe.db.set_single_value("Verenigingen Settings", "company", None)
         with newest_eur_company() as decoy:
             resolved = self._get_company()
 
-        self.assertEqual(resolved, self._get_test_company())
+        # Pin the FIXTURE, not the implementation. `assertEqual(resolved,
+        # self._get_test_company())` was the first version of this line and it compared
+        # `_get_company()` to its own body -- true by construction, and equally true if
+        # the currency borrow came back inside `_get_test_company`.
+        self.assertIn(
+            resolved,
+            HARNESS_OWNED_COMPANIES,
+            "the company must be one the harness owns by name",
+        )
         self.assertNotEqual(resolved, decoy)
 
     # ------------------------------------------------------------------
