@@ -418,6 +418,45 @@ def ensure_erpnext_base_masters():
     ensure_netherlands_territory()
 
 
+def ensure_root_territory():
+    """Guarantee the root ``All Territories`` exists, named exactly that. Idempotent.
+
+    A fresh ``bench --site <site> reinstall`` leaves ``tabTerritory`` EMPTY, and
+    neither snapshot image carries a single Territory row (both measured in #516).
+    The tree comes from erpnext's ``BootStrapTestData()``, which this app reaches
+    two ways: ``ensure_erpnext_base_masters()`` above, i.e. only from the modules
+    that call ``ensure_member_test_masters()``; or as an import side effect of
+    ``enhanced_test_factory``, which is wrapped in a bare ``except Exception:
+    pass``. Either way it is a neighbour's doing, and CI shard bins re-pack on
+    measured runtime, so nothing makes that neighbour run first (#516).
+
+    Same shape as ``ensure_root_department`` below: hardcoded name,
+    ``db.exists``-gated, untracked, and shared with production Customer/Supplier
+    records, so per-test drains must not delete it (#309).
+
+    Deliberately does NOT commit. Both harness bases call this from setup that
+    runs BEFORE the captured-insert hook is installed (``EnhancedTestCase.setUp``
+    installs it at the end, ``VereningingenTestCase`` has no such hook), so the
+    row is never claimed by a drain; a commit here would instead make every
+    uncommitted row a caller had already created durable.
+    """
+    if frappe.db.exists("Territory", "All Territories"):
+        return
+
+    frappe.get_doc({"doctype": "Territory", "territory_name": "All Territories", "is_group": 1}).insert(
+        ignore_permissions=True
+    )
+
+    # "It did not raise" is not evidence the row landed under the name every
+    # caller hardcodes -- that is exactly how the company-suffixed
+    # "All Departments - _TC" went unnoticed (see ensure_root_department).
+    if not frappe.db.exists("Territory", "All Territories"):
+        raise RuntimeError(
+            "Root Territory 'All Territories' still does not exist after creating it; "
+            "every Customer creation and every child Territory insert will fail."
+        )
+
+
 def ensure_netherlands_territory():
     """Guarantee the "Netherlands" Territory exists. Idempotent.
 
@@ -439,6 +478,20 @@ def ensure_netherlands_territory():
     Deliberately NOT tracked for cleanup: a country-level Territory is shared with
     production Customer/Supplier records, so per-test drains must not delete it.
     """
+    # BEFORE the "Netherlands" early return, not after it: the root is what the
+    # rest of the suite needs (every Customer defaults to it), and a site can
+    # have "Netherlands" without it -- at which point returning early leaves the
+    # root missing for everyone. The cost is one extra `db.exists` per setUp.
+    #
+    # This call site is where #516 surfaced:
+    # `VereningingenTestCase.setUpClass` -> here -> "Could not find Parent
+    # Territory: All Territories", killing the whole class in setUpClass on any
+    # site where no earlier module had built the tree. Seeding the root here is
+    # what makes both harness bases independent of module order; a guard in the
+    # module that reported it could not have helped, because the raise happens
+    # inside `super().setUpClass()` before any module code runs.
+    ensure_root_territory()
+
     if frappe.db.exists("Territory", "Netherlands"):
         return
 

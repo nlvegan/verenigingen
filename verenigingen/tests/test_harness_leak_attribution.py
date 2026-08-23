@@ -24,6 +24,7 @@ import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.harness_logger import get_harness_logger
+from verenigingen.tests.setup import ensure_root_territory
 
 
 class _DrainProbe(EnhancedTestCase):
@@ -71,6 +72,10 @@ class DrainRecordsWhatItCouldNotDeleteTest(unittest.TestCase):
         obvious candidate, deletes cleanly -- so it would have made this test
         pass for the wrong reason.
         """
+        # These classes are plain `unittest.TestCase`, so they reach NEITHER
+        # harness base and nothing seeds the Territory root for them. A fresh
+        # reinstall leaves `tabTerritory` empty (#516).
+        ensure_root_territory()
         parent = frappe.get_doc(
             {
                 "doctype": "Territory",
@@ -117,6 +122,7 @@ class DrainRecordsWhatItCouldNotDeleteTest(unittest.TestCase):
 
     def test_a_drain_that_deletes_everything_records_nothing(self):
         """Guards the other direction: this must not report leaks that did not happen."""
+        ensure_root_territory()  # see _make_undeletable_territory (#516)
         doc = frappe.get_doc(
             {
                 "doctype": "Territory",
@@ -238,6 +244,7 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
         frappe.db.commit()
 
     def _territory(self, label):
+        ensure_root_territory()  # see _make_undeletable_territory (#516)
         doc = frappe.get_doc(
             {
                 "doctype": "Territory",
@@ -998,6 +1005,7 @@ class DrainDoesNotDiscardRowsItHasNotReachedTest(unittest.TestCase):
         cannot see this defect at all. That is exactly why the module ran green
         locally while the same code leaked in CI.
         """
+        ensure_root_territory()  # see _make_undeletable_territory (#516)
         bystander = frappe.get_doc(
             {
                 "doctype": "Territory",
@@ -1339,6 +1347,10 @@ class ClassFixturesSurviveTheDrainRollbackTest(unittest.TestCase):
 
 def _territory(name_prefix, parent="All Territories"):
     """A cheap, real, deletable document. Same fixture the drain tests above use."""
+    if parent == "All Territories":
+        # The callers below are plain `unittest.TestCase`, so nothing seeds the
+        # root for them and a fresh reinstall has none (#516).
+        ensure_root_territory()
     return frappe.get_doc(
         {
             "doctype": "Territory",

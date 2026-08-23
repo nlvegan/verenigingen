@@ -63,6 +63,10 @@ UNGUARDED_CALLS = {
         # Customer Group (~72), MijnRood dummy credentials (~33). Those counts
         # are the argument for failing here rather than logging (#309).
         "ensure_erpnext_base_masters",
+        # The root Territory. Swallowing it puts #516 back: the very next line
+        # links a child to a parent that does not exist, and the LinkValidationError
+        # lands in `setUpClass` of whichever module the shard packer put first.
+        "ensure_root_territory",
         "_seed_verenigingen_test_system_user",
         "ensure_payment_modes_exist",
         "_seed_default_leaf_customer_group",
