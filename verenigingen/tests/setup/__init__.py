@@ -375,6 +375,46 @@ def ensure_member_test_masters():
     _seed_default_team_roles()
 
 
+def _erpnext_base_masters_present():
+    """Has ``BootStrapTestData()`` seeded ERPNext's base masters on this site?
+
+    Deliberately NOT ``exists("Territory", "All Territories")`` alone. That row
+    used to be a sound proxy for the whole set -- ``get_preset_records("India")``
+    creates "All Territories", "All Customer Groups", "All Item Groups" and
+    "All Supplier Groups" in one batch (``erpnext/setup/setup_wizard/operations/
+    install_fixtures.py``), so any one of them implied the batch had run.
+
+    ``ensure_root_territory`` broke that: it creates the root on its own, from
+    three call sites that never reach this function
+    (``tests/utils/base.py`` -> ``VereningingenTestCase.setUpClass``, and
+    ``enhanced_test_factory`` twice per ``setUp``). A class on either harness base
+    running first therefore satisfies a root-only gate, and the 30+ modules that
+    call ``ensure_member_test_masters()`` from ``setUpClass`` afterwards would
+    early-return here and seed NOTHING -- no Customer Groups, no Chart of
+    Accounts, no Modes of Payment, no ``set_defaults_for_tests()``.
+
+    That was impossible before ``ensure_root_territory`` existed, because
+    ``ensure_netherlands_territory`` linked "Netherlands" to a parent it did not
+    create, so a missing root RAISED (#516) rather than being quietly filled in.
+    Fixing the raise is what made the sentinel forgeable, which is why the gate
+    moves here in the same change.
+
+    "All Supplier Groups" is the half that cannot be forged: this app creates no
+    ``Supplier Group`` anywhere (25 references, all reads). The root Territory is
+    kept in the conjunction because it is the row every Customer defaults to, so
+    its absence must open the gate even on a site that somehow has the rest.
+
+    Residual, deliberately NOT handled here: ``BootStrapTestData()`` runs on
+    IMPORT, once per process. If a rollback removes its rows after that import,
+    re-entering the branch below cannot recreate them -- the import is cached and
+    a no-op. That predates this change and is unchanged by it; the gate opening is
+    still strictly better than closing on a row a neighbour forged.
+    """
+    return frappe.db.exists("Territory", "All Territories") and frappe.db.exists(
+        "Supplier Group", "All Supplier Groups"
+    )
+
+
 def ensure_erpnext_base_masters():
     """Idempotently ensure ERPNext's base test masters exist for isolated runs.
 
@@ -387,10 +427,11 @@ def ensure_erpnext_base_masters():
 
     Importing ``erpnext.tests.utils`` runs its module-level ``BootStrapTestData()``
     once per process (the import is cached), which creates all of the above. We
-    only trigger it when the root Territory is missing, so this is a cheap no-op
-    once seeded.
+    only trigger it when those masters are missing, so this is a cheap no-op once
+    seeded -- see ``_erpnext_base_masters_present`` for why the check is not the
+    root Territory alone.
     """
-    if frappe.db.exists("Territory", "All Territories"):
+    if _erpnext_base_masters_present():
         ensure_netherlands_territory()
         return
 

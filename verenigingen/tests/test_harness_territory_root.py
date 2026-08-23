@@ -57,8 +57,8 @@ _NO_DATABASE_WRITE = {
 
 
 @contextlib.contextmanager
-def _territories_deleted(*names):
-    """Take the named Territory rows away for the block, then put them back.
+def _rows_deleted(doctype, *names):
+    """Take the named rows away for the block, then put them back.
 
     Raw SQL rather than `frappe.delete_doc`: on any warm site the root has
     children and NestedSet refuses to delete it. A savepoint rollback undoes
@@ -77,11 +77,18 @@ def _territories_deleted(*names):
     does, the damage is reported where it happened rather than as a link error in
     an unrelated module.
     """
-    before = frappe.db.count("Territory")
-    frappe.db.savepoint("territory_root_probe")
+    before = frappe.db.count(doctype)
+    # A UNIQUE savepoint name per invocation, not a shared constant. MariaDB lets
+    # a second SAVEPOINT of the SAME name replace the first, so two nested blocks
+    # sharing one name make the inner `ROLLBACK TO` land on the inner point and
+    # the OUTER delete stand -- measured: nesting two of these on test_site_1
+    # deleted `All Supplier Groups` permanently and the guard below is what
+    # reported it. The guard caught it; the unique name is why it cannot recur.
+    save_point = f"row_probe_{frappe.generate_hash(length=8)}"
+    frappe.db.savepoint(save_point)
     try:
         for name in names:
-            frappe.db.sql("DELETE FROM `tabTerritory` WHERE name = %s", name)
+            frappe.db.sql(f"DELETE FROM `tab{doctype}` WHERE name = %s", name)
         yield
     finally:
         # Nested `finally`: when the savepoint has been released the rollback
@@ -89,16 +96,21 @@ def _territories_deleted(*names):
         # anyway -- otherwise the only signal is a bare `OperationalError 1305`
         # naming a savepoint, which says nothing about the tree being gone.
         try:
-            frappe.db.rollback(save_point="territory_root_probe")
+            frappe.db.rollback(save_point=save_point)
         finally:
-            after = frappe.db.count("Territory")
+            after = frappe.db.count(doctype)
             if after != before:
                 raise AssertionError(
-                    f"this probe did not restore tabTerritory: {before} rows before, "
+                    f"this probe did not restore tab{doctype}: {before} rows before, "
                     f"{after} after. Something inside the block committed, which released "
                     "the savepoint and made the raw DELETE permanent. See this helper's "
                     "docstring."
                 )
+
+
+def _territories_deleted(*names):
+    """Territory-shaped `_rows_deleted`, which is what every caller below wants."""
+    return _rows_deleted("Territory", *names)
 
 
 def _root_deleted():
@@ -215,6 +227,91 @@ def _non_harness_test_classes(tree: ast.Module) -> list:
             continue
         offenders.append(node.name)
     return offenders
+
+
+BASE_MASTER_SENTINEL = ("Supplier Group", "All Supplier Groups")
+
+
+class SeedingTheRootMustNotCloseTheBaseMasterGateTest(unittest.TestCase):
+    """Seeding the root must not convince `ensure_erpnext_base_masters` it can skip.
+
+    `ensure_erpnext_base_masters()` gates BootStrapTestData,
+    `enable_all_roles_and_domains()`, `set_defaults_for_tests()` and
+    `ensure_test_fiscal_year_for_all_companies()` on ONE existence check, and its
+    own docstring shows that check standing for the whole master set rather than
+    for itself.
+
+    `ensure_root_territory` creates exactly that row, from three call sites that
+    never reach the gate. So the order "a harness-based class first, then any of
+    the 30+ modules calling `ensure_member_test_masters()` from `setUpClass`"
+    would leave the gate closed over an unseeded site -- and that order is as
+    reachable as #516 itself, since shard bins re-pack on measured runtime.
+
+    Impossible before `ensure_root_territory` existed: "Netherlands" linked to a
+    parent nothing created, so a missing root RAISED. Fixing the raise is what
+    made the sentinel forgeable, so the pin belongs in the same change.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        """Same reasoning as the class above: seed what these tests take away."""
+        super().setUpClass()
+        from verenigingen.tests.setup import ensure_netherlands_territory
+
+        ensure_netherlands_territory()
+
+    def test_the_probe_actually_removes_the_sentinel(self):
+        """The control. Without it, the test below could pass on a site that never
+        had the sentinel, saying nothing about the gate."""
+        doctype, name = BASE_MASTER_SENTINEL
+        self.assertTrue(frappe.db.exists(doctype, name), f"site has no {name} to remove")
+        with _rows_deleted(doctype, name):
+            self.assertFalse(frappe.db.exists(doctype, name))
+        self.assertTrue(frappe.db.exists(doctype, name), "the probe must restore the sentinel")
+
+    def test_a_fully_seeded_site_still_closes_the_gate(self):
+        """The other control: the gate must remain cheap on a warm site, or every
+        `setUpClass` in the suite starts re-running BootStrapTestData."""
+        from verenigingen.tests.setup import _erpnext_base_masters_present
+
+        self.assertTrue(_erpnext_base_masters_present())
+
+    def test_the_root_alone_does_not_close_the_gate(self):
+        """The pin. Both halves asserted together, because either alone is
+        satisfied in the buggy world too: the root IS present (so a root-only gate
+        would have closed and skipped the seeding) while the gate is still open.
+        """
+        from verenigingen.tests.setup import _erpnext_base_masters_present, ensure_root_territory
+
+        doctype, name = BASE_MASTER_SENTINEL
+        with _rows_deleted(doctype, name):
+            ensure_root_territory()
+
+            self.assertTrue(
+                frappe.db.exists("Territory", ROOT),
+                "precondition: the root is absent, so this says nothing about a root-only gate",
+            )
+            self.assertFalse(
+                _erpnext_base_masters_present(),
+                "the base-master gate closed on the root Territory alone, so "
+                "ensure_erpnext_base_masters() will early-return and seed nothing: "
+                "no Customer Groups, no Chart of Accounts, no set_defaults_for_tests()",
+            )
+
+    def test_the_root_seeder_writes_nothing_that_could_forge_the_sentinel(self):
+        """Scope statement, kept honest by measurement rather than by reading:
+        `ensure_root_territory` must touch no doctype the gate depends on."""
+        from verenigingen.tests.setup import ensure_root_territory
+
+        doctype, name = BASE_MASTER_SENTINEL
+        with _rows_deleted(doctype, name):
+            with _root_deleted():
+                ensure_root_territory()
+                self.assertFalse(
+                    frappe.db.exists(doctype, name),
+                    f"ensure_root_territory created a {doctype}; the gate needs a "
+                    "sentinel this app never writes",
+                )
 
 
 class TerritoryConsumersOutsideTheHarnessAreGuardedTest(unittest.TestCase):
