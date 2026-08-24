@@ -81,6 +81,8 @@ class PaymentReconciliationManager:
         self._validate_bank_transaction_fields()
         self._validate_mollie_accounts()
         self._processed_mollie_payments = set()  # Track processed payment IDs
+        # (window) -> settlements, for the length of this run. See _settlements_in_window.
+        self._settlement_window_cache = {}
 
     def _validate_mollie_accounts(self):
         """
@@ -471,16 +473,13 @@ class PaymentReconciliationManager:
             return None
 
         try:
-            # Initialize Mollie clients to fetch settlement data
-            settlements_client = SettlementsClient()
-
             # Get settlements around the transaction date
             from frappe.utils import add_days
 
             date_from = add_days(transaction["date"], -3)
             date_to = add_days(transaction["date"], 3)
 
-            settlements = settlements_client.get_settlements_by_date_range(date_from, date_to)
+            settlements = self._settlements_in_window(date_from, date_to)
 
             # Look for exact amount match with proper decimal precision
             for settlement in settlements:
@@ -507,6 +506,41 @@ class PaymentReconciliationManager:
             )
 
         return None
+
+    def _settlements_in_window(self, date_from, date_to):
+        """Settlements in a date window, fetched once per window per run (#546).
+
+        ``get_settlements_by_date_range`` pages Mollie's ENTIRE settlement history
+        and filters it in memory -- the API takes no date parameters, which
+        ``clients/settlements_client.py`` documents at the call site -- and it is
+        the one settlement path that does NOT go through ``get_cached``, unlike its
+        siblings ``get_settlement`` (180s TTL) and ``list_settlements`` (300s).
+
+        It used to be called from inside ``match_mollie_settlement``, i.e. once per
+        candidate transaction, so a run downloaded that whole history N times.
+        Measured on three transactions sharing a date: three fetches of the
+        identical ``('2026-08-21', '2026-08-27')`` window. The manager is built
+        fresh per run (see the module-level ``reconcile_bank_transactions``), so
+        this dict lives exactly as long as the run does -- the same lifetime as
+        ``_processed_mollie_payments``.
+
+        A failed fetch is cached too. ``get_settlements_by_date_range`` wraps its
+        own errors with ``suppress_errors=True`` and returns ``[]``, and the API is
+        up or down for the length of a run; retrying it once per transaction only
+        multiplied the log entries.
+
+        This does NOT collapse a run to a single fetch: transactions on D distinct
+        dates still ask for D windows. Doing better needs either a union window
+        plus a per-transaction date filter here, or routing the client method
+        through ``get_cached`` like its siblings -- both larger changes than #546's
+        report, and the second alters the bulk importer that shares the method.
+        """
+        key = (str(date_from), str(date_to))
+        if key not in self._settlement_window_cache:
+            self._settlement_window_cache[key] = SettlementsClient().get_settlements_by_date_range(
+                date_from, date_to
+            )
+        return self._settlement_window_cache[key]
 
     def fuzzy_match_member_name(self, description, amount):
         """Try to match based on member name in description"""

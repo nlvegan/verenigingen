@@ -64,7 +64,7 @@ from decimal import Decimal
 from unittest import mock
 
 import frappe
-from frappe.utils import flt, getdate, today
+from frappe.utils import add_days, flt, getdate, today
 
 from verenigingen.tests.payment.test_bank_transaction_reconciliation import BTRBase
 from verenigingen.verenigingen_payments.utils import bank_transaction_reconciliation as btr
@@ -80,8 +80,13 @@ class _StubSettlementsClient:
 
     settlements = []
     payments = []
+    #: One entry per get_settlements_by_date_range call, as (date_from, date_to).
+    #: The COUNT is the subject of #546 -- the fetch used to run once per candidate
+    #: transaction -- so it has to be observed, not reasoned about.
+    windows = []
 
-    def get_settlements_by_date_range(self, _date_from, _date_to):
+    def get_settlements_by_date_range(self, date_from, date_to):
+        type(self).windows.append((str(date_from), str(date_to)))
         return list(type(self).settlements)
 
     def get_payments_for_settlement(self, _settlement_id):
@@ -96,6 +101,7 @@ class MollieBase(BTRBase):
         """Swap the module-level SettlementsClient for the canned-payload stub."""
         _StubSettlementsClient.settlements = settlements or []
         _StubSettlementsClient.payments = payments or []
+        _StubSettlementsClient.windows = []
         original = btr.SettlementsClient
         btr.SettlementsClient = _StubSettlementsClient
         try:
@@ -2409,6 +2415,77 @@ class TestProcessSepaReturnFileLoop(MollieBase):
             fields=["content"],
         )
         self.assertTrue(any("SEPA payment accepted" in (c.get("content") or "") for c in comments))
+
+
+# =============================================================================
+# match_mollie_settlement — one settlement fetch per run, not per transaction (#546)
+# =============================================================================
+class TestSettlementWindowFetchedOncePerRun(MollieBase):
+    """`get_settlements_by_date_range` pages Mollie's ENTIRE settlement history and
+    filters in memory (clients/settlements_client.py: `self.get("settlements",
+    paginated=True)`), and unlike its two siblings `get_settlement` /
+    `list_settlements` it does not go through `get_cached`. It was called once per
+    candidate transaction from inside `match_mollie_settlement`, so a reconciliation
+    run downloaded that history N times (#546).
+    """
+
+    def test_the_settlement_window_is_fetched_once_for_transactions_sharing_a_date(self):
+        bank_gl = frappe.db.get_value("Company", self.company, "default_bank_account")
+        # Amounts deliberately match no settlement: the fetch happens BEFORE the
+        # amount comparison, so this measures the fetch count without letting any
+        # transaction reconcile and post accounting either side of the fix.
+        for amount in (11.11, 22.22, 33.33):
+            self._make_bank_transaction(
+                deposit=amount,
+                description="mollie settlement payout",
+                date=today(),
+                bank_account=self._eur_bank_account,
+                status="Pending",
+            )
+        settlements = [self._settlement_payload("stl_MISS", "9999.00")]
+        with self._mollie_settings(bank_account=bank_gl):
+            with self._stub_client(settlements=settlements):
+                result = self.mgr.reconcile_bank_transactions(
+                    bank_account=self._eur_bank_account, from_date=today(), to_date=today()
+                )
+                windows = list(_StubSettlementsClient.windows)
+        self.assertGreaterEqual(
+            result["total_transactions"], 3, "precondition: the three transactions were candidates"
+        )
+        self.assertEqual(
+            len(windows),
+            1,
+            f"the settlement history must be downloaded once per run, not once per "
+            f"transaction; windows requested: {windows}",
+        )
+
+    def test_a_second_window_is_still_fetched(self):
+        """The control: the cache is keyed on the window, so it must not serve one
+        window's settlements for another. Without this, `len(windows) == 1` above is
+        equally consistent with "fetches once" and "never fetches again"."""
+        bank_gl = frappe.db.get_value("Company", self.company, "default_bank_account")
+        early = add_days(today(), -30)
+        for date in (today(), early):
+            self._make_bank_transaction(
+                deposit=44.44,
+                description="mollie settlement payout",
+                date=date,
+                bank_account=self._eur_bank_account,
+                status="Pending",
+            )
+        settlements = [self._settlement_payload("stl_MISS2", "9999.00")]
+        with self._mollie_settings(bank_account=bank_gl):
+            with self._stub_client(settlements=settlements):
+                self.mgr.reconcile_bank_transactions(
+                    bank_account=self._eur_bank_account, from_date=early, to_date=today()
+                )
+                windows = list(_StubSettlementsClient.windows)
+        self.assertEqual(
+            len(set(windows)), 2, f"two distinct date windows must both be fetched; got {windows}"
+        )
+
+    def _settlement_payload(self, settlement_id, value):
+        return {"id": settlement_id, "amount": {"value": value, "currency": "EUR"}}
 
 
 if __name__ == "__main__":
