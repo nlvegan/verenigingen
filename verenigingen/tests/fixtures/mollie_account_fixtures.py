@@ -51,8 +51,16 @@ FEES_ACCOUNT_NAME = "Mollie Processing Fees (fixture)"
 BANK_ACCOUNT_DOC_NAME = "Mollie Fixture Bank"
 
 
-def _leaf_account(company, account_name, account_type, root_type):
-    """Get-or-create one leaf Account under the company's matching group."""
+def _get_or_create_leaf_account(company, account_name, account_type, root_type):
+    """Get-or-create one leaf Account under the company's matching group.
+
+    NOT named `_leaf_account`: two e_boekhouden test modules already own that name
+    for a helper that only LOOKS UP an existing leaf by root_type and inserts
+    nothing. Those two are byte-identical to each other, so adding a third copy of
+    the name pushed the family over the duplicate ratchet's clone threshold -- and
+    the two are not clones of this one, they are a different operation wearing the
+    same name. The verb belongs in the name.
+    """
     existing = frappe.db.get_value(
         "Account", {"company": company, "account_name": account_name, "is_group": 0}, "name"
     )
@@ -123,9 +131,9 @@ def ensure_mollie_gl_accounts(company=None):
     built on this fixture cannot accidentally assert against an incoherent config.
     """
     company = company or get_eur_test_company()
-    clearing = _leaf_account(company, CLEARING_ACCOUNT_NAME, "Bank", "Asset")
-    bank = _leaf_account(company, BANK_ACCOUNT_NAME, "Bank", "Asset")
-    fees = _leaf_account(company, FEES_ACCOUNT_NAME, "Expense Account", "Expense")
+    clearing = _get_or_create_leaf_account(company, CLEARING_ACCOUNT_NAME, "Bank", "Asset")
+    bank = _get_or_create_leaf_account(company, BANK_ACCOUNT_NAME, "Bank", "Asset")
+    fees = _get_or_create_leaf_account(company, FEES_ACCOUNT_NAME, "Expense Account", "Expense")
     bank_doc = ensure_bank_account_record(company, bank)
     return {
         "company": company,
