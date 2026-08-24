@@ -212,6 +212,18 @@ class MollieBase(BTRBase):
             }
         }
 
+    def _settlement_payload(self, settlement_id, value, reference=None):
+        """A settlement in the API's raw dict shape, as the client returns it.
+
+        ``reference`` is Mollie's own bank reference and is omitted ENTIRELY when
+        None -- an absent key and a non-matching value are different states, and
+        both have to stay non-postable (#547).
+        """
+        payload = {"id": settlement_id, "amount": {"value": value, "currency": "EUR"}}
+        if reference is not None:
+            payload["reference"] = reference
+        return payload
+
     def _match(self, settlement_id, amount="30.00", stated_costs=None):
         """A ``mollie_settlement`` match as ``match_mollie_settlement`` returns one.
 
@@ -2472,17 +2484,6 @@ class TestSettlementReferenceGate(MollieBase):
         "T13606591.2510.01 REF T13606591.2510.01 Mollie betalingen"
     )
 
-    def _settlement(self, settlement_id, value, reference=None):
-        """A settlement in the API's raw dict shape, as the client returns it.
-
-        ``reference`` is omitted entirely when None -- an absent key and a
-        non-matching value are different states and both have to stay non-posting.
-        """
-        payload = {"id": settlement_id, "amount": {"value": value, "currency": "EUR"}}
-        if reference is not None:
-            payload["reference"] = reference
-        return payload
-
     def _match_on_mollie_account(self, *, deposit, description, settlements):
         bank_gl = frappe.db.get_value("Company", self.company, "default_bank_account")
         bt = self._make_bank_transaction(
@@ -2505,7 +2506,7 @@ class TestSettlementReferenceGate(MollieBase):
         match = self._match_on_mollie_account(
             deposit=123.45,
             description="Incoming payout from a customer",
-            settlements=[self._settlement("stl_NOREF", "123.45", reference="13606591.2509.01")],
+            settlements=[self._settlement_payload("stl_NOREF", "123.45", reference="13606591.2509.01")],
         )
         self.assertIsNotNone(match, "the candidate is still reported, just not auto-postable")
         self.assertLess(
@@ -2521,7 +2522,7 @@ class TestSettlementReferenceGate(MollieBase):
         match = self._match_on_mollie_account(
             deposit=500.00,
             description="mollie settlement payout",
-            settlements=[self._settlement("stl_NOKEY", "500.00")],
+            settlements=[self._settlement_payload("stl_NOKEY", "500.00")],
         )
         self.assertIsNotNone(match)
         self.assertLess(match["confidence"], self.mgr.match_threshold)
@@ -2536,7 +2537,7 @@ class TestSettlementReferenceGate(MollieBase):
         match = self._match_on_mollie_account(
             deposit=125.71,
             description=self.REAL_DESCRIPTION,
-            settlements=[self._settlement("stl_REAL", "125.71", reference=self.REAL_REFERENCE)],
+            settlements=[self._settlement_payload("stl_REAL", "125.71", reference=self.REAL_REFERENCE)],
         )
         self.assertIsNotNone(match)
         self.assertGreaterEqual(match["confidence"], self.mgr.match_threshold)
@@ -2554,8 +2555,8 @@ class TestSettlementReferenceGate(MollieBase):
             deposit=250.00,
             description=self.REAL_DESCRIPTION,
             settlements=[
-                self._settlement("stl_TWIN", "250.00", reference="13606591.2509.01"),
-                self._settlement("stl_NAMED", "250.00", reference=self.REAL_REFERENCE),
+                self._settlement_payload("stl_TWIN", "250.00", reference="13606591.2509.01"),
+                self._settlement_payload("stl_NAMED", "250.00", reference=self.REAL_REFERENCE),
             ],
         )
         self.assertIsNotNone(match)
@@ -2572,7 +2573,7 @@ class TestSettlementReferenceGate(MollieBase):
         match = self._match_on_mollie_account(
             deposit=125.71,
             description=self.REAL_DESCRIPTION,
-            settlements=[self._settlement("stl_WRONGAMT", "9999.00", reference=self.REAL_REFERENCE)],
+            settlements=[self._settlement_payload("stl_WRONGAMT", "9999.00", reference=self.REAL_REFERENCE)],
         )
         self.assertIsNone(match)
 
@@ -2605,7 +2606,7 @@ class TestSettlementReferenceGate(MollieBase):
         txn = self._txn_dict(bt)
         # Settlement amount matches the deposit exactly; its reference does not appear
         # in the description.
-        settlements = [self._settlement("stl_NOTMINE", "777.13", reference="13606591.2509.01")]
+        settlements = [self._settlement_payload("stl_NOTMINE", "777.13", reference="13606591.2509.01")]
         payment = self._mollie_payment(value="777.13", invoice_id=it["invoice"].name)
         with self._mollie_settings(clearing_account=clearing, bank_account=bank_gl):
             with self._stub_client(settlements=settlements, payments=[payment]):
@@ -2695,9 +2696,6 @@ class TestSettlementWindowFetchedOncePerRun(MollieBase):
         self.assertEqual(
             len(set(windows)), 2, f"two distinct date windows must both be fetched; got {windows}"
         )
-
-    def _settlement_payload(self, settlement_id, value):
-        return {"id": settlement_id, "amount": {"value": value, "currency": "EUR"}}
 
 
 if __name__ == "__main__":
