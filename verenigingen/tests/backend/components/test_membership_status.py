@@ -63,25 +63,6 @@ class TestMembershipStatusComprehensive(VereningingenTestCase):
         member.reload()
         return member
 
-    def _get_company_with_current_fy(self):
-        """Return a company whose Fiscal Year covers today (has a usable CoA)."""
-        from erpnext.accounts.utils import get_fiscal_year
-
-        candidates = ["_Test Company"] + frappe.get_all("Company", pluck="name")
-        for company in candidates:
-            try:
-                get_fiscal_year(date=today(), company=company, as_dict=True)
-            except Exception:
-                continue
-            income = frappe.db.get_value(
-                "Account",
-                {"account_type": "Income Account", "company": company, "is_group": 0},
-                "name",
-            )
-            if income:
-                return company, income
-        raise RuntimeError("No company with a current Fiscal Year and Income Account found")
-
     def _ensure_membership_item(self):
         """Get-or-create a non-stock Item usable for membership invoices."""
         item_code = "TEST-MEMBERSHIP-MONTHLY"
@@ -96,6 +77,77 @@ class TestMembershipStatusComprehensive(VereningingenTestCase):
             item.insert(ignore_permissions=True)
             self.track_doc("Item", item.name)
         return item_code
+
+    # Fixture Resolution Tests
+
+    def test_invoice_accounts_resolve_without_a_planted_account_type(self):
+        """The account resolution must not depend on what ran before us.
+
+        ERPNext's standard chart of accounts leaves ``account_type`` empty on
+        income leaves; they carry ``root_type = "Income"``. Measured on a test
+        site, ``_Test Company 1`` has five income leaves and **zero** rows
+        matching ``account_type = "Income Account"``. The helper this module used
+        to carry filtered on ``account_type`` and raised when it found nothing, so
+        it only worked while some sibling suite in the same shard had already
+        planted such a row. Re-packing the shards moved this module away from that
+        sibling and turned trunk red -- twice (#431).
+
+        So blank every such row and require an invoice to post anyway. Green here
+        with them present proves nothing: on every warm test site they are.
+        """
+        planted = frappe.get_all("Account", filters={"account_type": "Income Account"}, pluck="name")
+        for name in planted:
+            self.addCleanup(
+                frappe.db.set_value, "Account", name, "account_type", "Income Account",
+                update_modified=False,
+            )
+            frappe.db.set_value("Account", name, "account_type", "", update_modified=False)
+        self.assertEqual(
+            frappe.db.count("Account", {"account_type": "Income Account"}),
+            0,
+            "the condition this test recreates -- a site where nothing has planted one -- "
+            "was not reached, so the assertions below prove nothing",
+        )
+
+        company, income_account = self._owned_company_and_income_account()
+
+        # Exactly what erpnext's validate_account_head() requires of it.
+        self.assertEqual(frappe.db.get_value("Account", income_account, "company"), company)
+        self.assertFalse(frappe.db.get_value("Account", income_account, "is_group"))
+
+        invoice = frappe.new_doc("Sales Invoice")
+        invoice.company = company
+        invoice.customer = self.test_member.customer
+        invoice.member = self.test_member.name
+        invoice.set_posting_time = 1
+        invoice.posting_date = today()
+        invoice.is_membership_invoice = 1
+        invoice.taxes_and_charges = ""
+        invoice.append(
+            "items",
+            {
+                "item_code": self._ensure_membership_item(),
+                "qty": 1,
+                "rate": 25.0,
+                "income_account": income_account,
+            },
+        )
+        invoice.save()
+        invoice.submit()
+        self.track_doc("Sales Invoice", invoice.name)
+
+        # Not `assertEqual(invoice.docstatus, 1)`: `submit()` sets that in memory
+        # before this line and `db_update()` runs before `on_submit`, so docstatus
+        # is not proof that anything posted -- this repo has a whole issue about
+        # that. Assert on the ledger, and on the ACCOUNT, which is what the helper
+        # actually resolved.
+        self.assertTrue(
+            frappe.db.exists(
+                "GL Entry", {"voucher_no": invoice.name, "account": income_account}
+            ),
+            f"no GL Entry posted to {income_account}; erpnext substituted a default, "
+            f"so this test would pass even if the helper resolved nothing usable",
+        )
 
     # Status Transition Lifecycle Tests
 
@@ -154,7 +206,7 @@ class TestMembershipStatusComprehensive(VereningingenTestCase):
 
         # Test Case 1: Status change after invoice generated but before payment
         # Create pending invoice
-        company, income_account = self._get_company_with_current_fy()
+        company, income_account = self._owned_company_and_income_account()
         invoice = frappe.new_doc("Sales Invoice")
         invoice.company = company
         invoice.customer = member.customer
@@ -194,7 +246,7 @@ class TestMembershipStatusComprehensive(VereningingenTestCase):
         member = self.test_member
 
         # Create some historical transactions
-        company, income_account = self._get_company_with_current_fy()
+        company, income_account = self._owned_company_and_income_account()
         historical_invoice = frappe.new_doc("Sales Invoice")
         historical_invoice.company = company
         historical_invoice.customer = member.customer

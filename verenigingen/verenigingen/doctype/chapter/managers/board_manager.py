@@ -861,67 +861,107 @@ class BoardManager(BaseManager):
                         )
             return
 
-        # Look up old board rows by row identity (name) so a role change on an
-        # existing row is NOT mistaken for a brand-new member. Keying on
-        # (volunteer, role) treated a role change as a new addition, so the new
-        # role's assignment history was added here in addition to
-        # handle_board_member_changes() — creating two Active entries for the
-        # new role (the differing start_date slipped past the dedup).
+        # The `members`-table half of seating -- _add_to_chapter_members -- is NOT here.
+        # It runs in its own earlier pass, seat_board_members_as_chapter_members(). See
+        # that method for why.
+        for board_member in self._newly_seated_board_members(old_doc):
+            # Add volunteer assignment history
+            self.chapter_doc.volunteer_integration_manager.add_volunteer_assignment_history(
+                board_member.volunteer, board_member.chapter_role, board_member.from_date
+            )
+
+            # Assign Frappe role and role profile to the volunteer's user account.
+            # Child table after_insert doesn't fire when rows are added via parent save,
+            # so we call this explicitly here instead.
+            try:
+                board_member.assign_board_member_role()
+            except Exception as e:
+                self._log_or_reraise(
+                    "Failed to assign board member role",
+                    {"volunteer": board_member.volunteer},
+                    e,
+                )
+
+            # Defer role-profile sync until after the Chapter (and its
+            # board_members child rows) are persisted. handle_board_member_additions
+            # runs during validate/before_save, so the new Chapter Board Member row
+            # is NOT yet in the database. get_board_member_profiles() queries
+            # `tabChapter Board Member`, so running the sync now would compute a
+            # non-board profile and overwrite the "Verenigingen Chapter Board Member"
+            # role that assign_board_member_role() just added — silently dropping it.
+            self._defer_board_access_recalculation(board_member.volunteer)
+
+    def seat_board_members_as_chapter_members(self, old_doc):
+        """Auto-add newly seated board members to the chapter's `members` table.
+
+        Split out of handle_board_member_additions and run FIRST, before the member
+        handlers, for two reasons that point the same way:
+
+        1. **Correctness.** handle_member_additions diffs chapter_doc.members against
+           old_doc.members *when it runs*. An append that lands after that diff gets a
+           `members` row and no Chapter Membership History row at all. That is what
+           #459's first attempt did by moving the whole board group after the member
+           group. Guarded by
+           tests/unit/test_board_seating_chapter_membership.py.
+        2. **Lock ordering.** This pass takes no row lock of its own -- it appends to an
+           in-memory child table and reads a Volunteer by primary key -- so it is free
+           to run before everything. The locking work then happens in one canonical
+           order: member handlers lock Member (ChapterMembershipHistoryManager), board
+           handlers lock Volunteer (AssignmentHistoryManager). #459.
+
+        A `members` mutation belongs with the member group anyway; it only ever lived in
+        the board handler because that is where the trigger for it is.
+        """
+        if not old_doc:
+            return
+
+        for board_member in self._newly_seated_board_members(old_doc):
+            try:
+                volunteer_doc = frappe.get_doc("Volunteer", board_member.volunteer)
+                if volunteer_doc.member:
+                    self._add_to_chapter_members(volunteer_doc.member)
+                    self.log_action(
+                        "Auto-added board member to chapter members",
+                        {
+                            "volunteer": board_member.volunteer,
+                            "member": volunteer_doc.member,
+                            "role": board_member.chapter_role,
+                        },
+                    )
+            except Exception as e:
+                self._log_or_reraise(
+                    "Failed to auto-add board member to chapter members",
+                    {"volunteer": board_member.volunteer},
+                    e,
+                )
+
+    def _newly_seated_board_members(self, old_doc):
+        """Yield the board rows this save genuinely seats: new rows and reactivations.
+
+        Look up old board rows by row identity (name) so a role change on an
+        existing row is NOT mistaken for a brand-new member. Keying on
+        (volunteer, role) treated a role change as a new addition, so the new
+        role's assignment history was added here in addition to
+        handle_board_member_changes() — creating two Active entries for the
+        new role (the differing start_date slipped past the dedup).
+
+        Role changes on an existing active row are handled by
+        handle_board_member_changes(), not here.
+
+        Shared by the two passes that act on a seating -- the `members` append and the
+        assignment history / role grant. They run at different points in the save
+        (see seat_board_members_as_chapter_members) and MUST agree on which rows are
+        new; two copies of this diff that drift apart would seat a member with no
+        history, or write history for a member never seated.
+        """
         old_board_members_by_name = {bm.name: bm for bm in old_doc.board_members if bm.name}
 
-        # Add history only for genuinely new rows or reactivated rows (a row that
-        # existed but was inactive and is now active). Role changes on an
-        # existing active row are handled by handle_board_member_changes().
         for board_member in self.chapter_doc.board_members or []:
             old_board_member = old_board_members_by_name.get(board_member.name) if board_member.name else None
             is_new_row = old_board_member is None
             is_reactivation = old_board_member is not None and not old_board_member.is_active
             if board_member.is_active and board_member.volunteer and (is_new_row or is_reactivation):
-                # Add volunteer assignment history
-                self.chapter_doc.volunteer_integration_manager.add_volunteer_assignment_history(
-                    board_member.volunteer, board_member.chapter_role, board_member.from_date
-                )
-
-                # Assign Frappe role and role profile to the volunteer's user account.
-                # Child table after_insert doesn't fire when rows are added via parent save,
-                # so we call this explicitly here instead.
-                try:
-                    board_member.assign_board_member_role()
-                except Exception as e:
-                    self._log_or_reraise(
-                        "Failed to assign board member role",
-                        {"volunteer": board_member.volunteer},
-                        e,
-                    )
-
-                # Defer role-profile sync until after the Chapter (and its
-                # board_members child rows) are persisted. handle_board_member_additions
-                # runs during validate/before_save, so the new Chapter Board Member row
-                # is NOT yet in the database. get_board_member_profiles() queries
-                # `tabChapter Board Member`, so running the sync now would compute a
-                # non-board profile and overwrite the "Verenigingen Chapter Board Member"
-                # role that assign_board_member_role() just added — silently dropping it.
-                self._defer_board_access_recalculation(board_member.volunteer)
-
-                # Add to chapter members if they have an associated member
-                try:
-                    volunteer_doc = frappe.get_doc("Volunteer", board_member.volunteer)
-                    if volunteer_doc.member:
-                        self._add_to_chapter_members(volunteer_doc.member)
-                        self.log_action(
-                            "Auto-added board member to chapter members",
-                            {
-                                "volunteer": board_member.volunteer,
-                                "member": volunteer_doc.member,
-                                "role": board_member.chapter_role,
-                            },
-                        )
-                except Exception as e:
-                    self._log_or_reraise(
-                        "Failed to auto-add board member to chapter members",
-                        {"volunteer": board_member.volunteer},
-                        e,
-                    )
+                yield board_member
 
     def _log_or_reraise(self, action: str, details: Dict, error: Exception) -> None:
         """Log a per-member failure and continue, unless the transaction itself is broken.

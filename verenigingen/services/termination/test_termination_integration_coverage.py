@@ -64,11 +64,12 @@ class TestTerminationIntegrationCoverage(EnhancedTestCase):
         return user
 
     def _make_employee(self, **fields):
-        company = (
-            frappe.db.get_single_value("Verenigingen Settings", "company")
-            or frappe.db.get_value("Company", {"default_currency": "EUR"}, "name")
-            or frappe.db.get_value("Company", {}, "name")
-        )
+        # The harness-OWNED company, by name -- not a scan. The chain this replaces fell
+        # back to `get_value("Company", {"default_currency": "EUR"}, "name")`, which is the
+        # NEWEST EUR company (`db.get_value` defaults to `creation DESC`), i.e. whatever a
+        # co-tenant suite created last. Pinned in
+        # test_termination_integration_extra_coverage.test_get_company_never_borrows_by_currency.
+        company = self._get_test_company()
         emp = frappe.new_doc("Employee")
         emp.first_name = "TermCov"
         emp.last_name = "Emp"

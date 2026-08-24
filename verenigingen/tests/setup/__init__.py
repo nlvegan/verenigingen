@@ -375,6 +375,46 @@ def ensure_member_test_masters():
     _seed_default_team_roles()
 
 
+def _erpnext_base_masters_present():
+    """Has ``BootStrapTestData()`` seeded ERPNext's base masters on this site?
+
+    Deliberately NOT ``exists("Territory", "All Territories")`` alone. That row
+    used to be a sound proxy for the whole set -- ``get_preset_records("India")``
+    creates "All Territories", "All Customer Groups", "All Item Groups" and
+    "All Supplier Groups" in one batch (``erpnext/setup/setup_wizard/operations/
+    install_fixtures.py``), so any one of them implied the batch had run.
+
+    ``ensure_root_territory`` broke that: it creates the root on its own, from
+    three call sites that never reach this function
+    (``tests/utils/base.py`` -> ``VereningingenTestCase.setUpClass``, and
+    ``enhanced_test_factory`` twice per ``setUp``). A class on either harness base
+    running first therefore satisfies a root-only gate, and the 30+ modules that
+    call ``ensure_member_test_masters()`` from ``setUpClass`` afterwards would
+    early-return here and seed NOTHING -- no Customer Groups, no Chart of
+    Accounts, no Modes of Payment, no ``set_defaults_for_tests()``.
+
+    That was impossible before ``ensure_root_territory`` existed, because
+    ``ensure_netherlands_territory`` linked "Netherlands" to a parent it did not
+    create, so a missing root RAISED (#516) rather than being quietly filled in.
+    Fixing the raise is what made the sentinel forgeable, which is why the gate
+    moves here in the same change.
+
+    "All Supplier Groups" is the half that cannot be forged: this app creates no
+    ``Supplier Group`` anywhere (25 references, all reads). The root Territory is
+    kept in the conjunction because it is the row every Customer defaults to, so
+    its absence must open the gate even on a site that somehow has the rest.
+
+    Residual, deliberately NOT handled here: ``BootStrapTestData()`` runs on
+    IMPORT, once per process. If a rollback removes its rows after that import,
+    re-entering the branch below cannot recreate them -- the import is cached and
+    a no-op. That predates this change and is unchanged by it; the gate opening is
+    still strictly better than closing on a row a neighbour forged.
+    """
+    return frappe.db.exists("Territory", "All Territories") and frappe.db.exists(
+        "Supplier Group", "All Supplier Groups"
+    )
+
+
 def ensure_erpnext_base_masters():
     """Idempotently ensure ERPNext's base test masters exist for isolated runs.
 
@@ -387,10 +427,11 @@ def ensure_erpnext_base_masters():
 
     Importing ``erpnext.tests.utils`` runs its module-level ``BootStrapTestData()``
     once per process (the import is cached), which creates all of the above. We
-    only trigger it when the root Territory is missing, so this is a cheap no-op
-    once seeded.
+    only trigger it when those masters are missing, so this is a cheap no-op once
+    seeded -- see ``_erpnext_base_masters_present`` for why the check is not the
+    root Territory alone.
     """
-    if frappe.db.exists("Territory", "All Territories"):
+    if _erpnext_base_masters_present():
         ensure_netherlands_territory()
         return
 
@@ -418,6 +459,45 @@ def ensure_erpnext_base_masters():
     ensure_netherlands_territory()
 
 
+def ensure_root_territory():
+    """Guarantee the root ``All Territories`` exists, named exactly that. Idempotent.
+
+    A fresh ``bench --site <site> reinstall`` leaves ``tabTerritory`` EMPTY, and
+    neither snapshot image carries a single Territory row (both measured in #516).
+    The tree comes from erpnext's ``BootStrapTestData()``, which this app reaches
+    two ways: ``ensure_erpnext_base_masters()`` above, i.e. only from the modules
+    that call ``ensure_member_test_masters()``; or as an import side effect of
+    ``enhanced_test_factory``, which is wrapped in a bare ``except Exception:
+    pass``. Either way it is a neighbour's doing, and CI shard bins re-pack on
+    measured runtime, so nothing makes that neighbour run first (#516).
+
+    Same shape as ``ensure_root_department`` below: hardcoded name,
+    ``db.exists``-gated, untracked, and shared with production Customer/Supplier
+    records, so per-test drains must not delete it (#309).
+
+    Deliberately does NOT commit. Both harness bases call this from setup that
+    runs BEFORE the captured-insert hook is installed (``EnhancedTestCase.setUp``
+    installs it at the end, ``VereningingenTestCase`` has no such hook), so the
+    row is never claimed by a drain; a commit here would instead make every
+    uncommitted row a caller had already created durable.
+    """
+    if frappe.db.exists("Territory", "All Territories"):
+        return
+
+    frappe.get_doc({"doctype": "Territory", "territory_name": "All Territories", "is_group": 1}).insert(
+        ignore_permissions=True
+    )
+
+    # "It did not raise" is not evidence the row landed under the name every
+    # caller hardcodes -- that is exactly how the company-suffixed
+    # "All Departments - _TC" went unnoticed (see ensure_root_department).
+    if not frappe.db.exists("Territory", "All Territories"):
+        raise RuntimeError(
+            "Root Territory 'All Territories' still does not exist after creating it; "
+            "every Customer creation and every child Territory insert will fail."
+        )
+
+
 def ensure_netherlands_territory():
     """Guarantee the "Netherlands" Territory exists. Idempotent.
 
@@ -439,6 +519,25 @@ def ensure_netherlands_territory():
     Deliberately NOT tracked for cleanup: a country-level Territory is shared with
     production Customer/Supplier records, so per-test drains must not delete it.
     """
+    # BEFORE the "Netherlands" early return, not after it: the root is what the
+    # rest of the suite needs (every Customer defaults to it), and a site can
+    # have "Netherlands" without it -- at which point returning early leaves the
+    # root missing for everyone. The cost is an existence check on a path that
+    # already does one -- deliberately not stated as a per-setUp count, because
+    # the number depends on the base: `VereningingenTestCase` reaches this from
+    # setUpClass, while the `EnhancedTestCase` chain reaches it twice per setUp
+    # (`enhanced_test_factory` `_ensure_production_ready_setup` and again inside
+    # `_ensure_master_data`, which carries no once-flag).
+    #
+    # This call site is where #516 surfaced:
+    # `VereningingenTestCase.setUpClass` -> here -> "Could not find Parent
+    # Territory: All Territories", killing the whole class in setUpClass on any
+    # site where no earlier module had built the tree. Seeding the root here is
+    # what makes both harness bases independent of module order; a guard in the
+    # module that reported it could not have helped, because the raise happens
+    # inside `super().setUpClass()` before any module code runs.
+    ensure_root_territory()
+
     if frappe.db.exists("Territory", "Netherlands"):
         return
 
@@ -677,8 +776,10 @@ def _seed_verenigingen_test_system_user():
     # stamps Sales Invoice.company from this Single; on a fresh/snapshot site it
     # is empty, so the invoice insert fails and approval returns invoice=None.
     # Full-suite/production runs configure this via setup; an isolated --module
-    # run does not, so seed it here. Prefer a EUR company (SEPA/currency-clean),
-    # matching the canonical pattern in the chapter edge-case test.
+    # run does not, so seed it here. Prefer a EUR company (SEPA/currency-clean):
+    # `_seed_default_leaf_customer_group` below reads this company's currency to
+    # pick a matching selling Price List, and the membership invoice is stamped
+    # with this company, so a non-EUR pick needs a conversion rate.
     #
     # Self-heal a STALE value too (not just an empty one): a co-located test can
     # delete the company this Single points at, after which the chapter
@@ -695,10 +796,34 @@ def _seed_verenigingen_test_system_user():
     # which then takes its create-cost-center branch and flips tests that assert
     # "no default company configured" into a different (and currently buggy)
     # path. Keep the heal scoped to the field the chapter resolver prefers.
+    #
+    # Resolve that EUR company BY NAME, never by scanning for `default_currency`.
+    # `frappe.db.get_value` takes no `order_by` and defaults to `creation DESC`, so a
+    # currency scan returns the NEWEST EUR company -- whatever a co-tenant suite created
+    # last (measured on test_site_2 with 30 EUR companies present: `TEST EBkh Cleanup Cov
+    # Co`, an e_boekhouden fixture; one of the 30, `EBH Migration Test Co`, has no
+    # `default_receivable_account` and no `default_income_account` at all -- the
+    # chart-less company whose borrow produced the 101 failures in #237). This seeder is
+    # the WORST place in the app for that: it is called from `before_tests` AND from
+    # `ensure_member_test_masters` (46 mentions across 19 test modules, in
+    # setUpClass/setUp bodies), and it commits -- so a wrong pick sticks for the rest of
+    # the run and is inherited by every test that reads the single.
+    #
+    # `_Test Company 2` is erpnext's own EUR fixture (see
+    # erpnext/setup/doctype/company/test_records.json: EUR/Germany, and `before_tests`
+    # above loads the whole Company test-record set), so it is deterministic, EUR, and
+    # carries a real chart of accounts (measured on test_site_2: 109 accounts,
+    # `Debtors - _TC2`, `Sales - _TC2`). `_Test Company` is the INR second choice only
+    # because it is the one erpnext fixture that is always present -- the same ladder
+    # `ensure_default_company` above already uses. Deliberately NOT
+    # `get_eur_test_company()`: that builds a chart of accounts and commits, which is not
+    # something to trigger from inside a setUpClass helper 46 test modules call.
     configured_company = frappe.db.get_single_value("Verenigingen Settings", "company")
     if not configured_company or not frappe.db.exists("Company", configured_company):
-        company = frappe.db.get_value("Company", {"default_currency": "EUR"}, "name") or frappe.db.get_value(
-            "Company", {}, "name"
+        company = (
+            frappe.db.get_value("Company", "_Test Company 2", "name")
+            or frappe.db.get_value("Company", "_Test Company", "name")
+            or frappe.db.get_value("Company", {}, "name")
         )
         if company:
             frappe.db.set_single_value("Verenigingen Settings", "company", company)

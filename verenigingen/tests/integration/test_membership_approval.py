@@ -47,12 +47,14 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
         """Set up test environment with real database operations"""
         super().setUp()
 
-        # Create test environment using Enhanced Test Factory
-        self.chapter = self.factory.ensure_test_chapter("Test Chapter", {
-            "chapter_name": "Test Chapter",
-            "short_name": "TST",
-            "country": "Netherlands"
-        })
+        # Unique per test: "Test Chapter" was claimed by four different files, and
+        # ensure_test_chapter() is a get-or-create keyed on the name, so whichever
+        # ran first owned the row -- including its roster and board (#533). Every
+        # use below goes through self.chapter.name, so there is no literal to break.
+        self.chapter = self.factory.ensure_test_chapter(
+            f"Test Chapter {frappe.generate_hash(length=6)}",
+            {"short_name": "TST", "country": "Netherlands"},
+        )
         self.membership_type = self.factory.ensure_membership_type("Standard Member", {
             "amount": 25.00,
             "billing_period": "Monthly"  # Factory expects billing_period, not billing_frequency

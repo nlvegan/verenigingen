@@ -358,33 +358,11 @@ class TestPageApplyForMembership(PortalPageTestBase):
 class TestPageMembershipApplication(PortalPageTestBase):
     """verenigingen.templates.pages.membership_application
 
-    The "enhanced" application page: a leaner context that exposes
-    membership_types with contribution options, plus several whitelisted
-    helpers used by the page JS.
+    The page itself is gone — it posted to an endpoint that never existed. What
+    remains is the whitelisted helpers, one of which the LIVE form calls. The two
+    get_context tests went with the template rather than being left asserting the
+    behaviour of an entry point nothing can reach.
     """
-
-    def test_guest_gets_membership_types(self):
-        from verenigingen.templates.pages import membership_application
-
-        self.create_test_membership_type(membership_type_name="Standard")
-        with self.as_user("Guest"):
-            ctx = frappe._dict()
-            membership_application.get_context(ctx)
-
-        self.assertFalse(ctx.already_member)
-        self.assertIsInstance(ctx.membership_types, list)
-        self.assertIn("company_name", ctx.settings)
-
-    def test_existing_member_short_circuits(self):
-        from verenigingen.templates.pages import membership_application
-
-        member, user = self._make_member_with_user()
-        with self.as_user(user):
-            ctx = frappe._dict()
-            membership_application.get_context(ctx)
-
-        self.assertTrue(ctx.already_member)
-        self.assertEqual(ctx.member_name, member.name)
 
     def test_get_membership_type_details_happy_and_missing(self):
         from verenigingen.templates.pages.membership_application import get_membership_type_details

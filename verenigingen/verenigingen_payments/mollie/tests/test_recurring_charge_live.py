@@ -53,6 +53,7 @@ import requests
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
 from verenigingen.verenigingen_payments.mollie.services.subscription_service import SubscriptionService
 from verenigingen.verenigingen_payments.mollie.tests.mollie_test_helper import (
@@ -83,10 +84,12 @@ class TestRecurringChargeLive(EnhancedTestCase):
         # A swallowed failure here leaks a customer + mandate on a SHARED account
         # with no signal at all, so every failure is reported.
         #
-        # .error() rather than .warning() deliberately: a bare frappe.logger()
-        # defaults to level ERROR under `bench run-tests` (WARNING only on a dev
-        # server), so a .warning() here would be discarded and the "fix" would be
-        # decorative. A leak on a shared account is an error anyway.
+        # get_harness_logger, NOT frappe.logger(): raising the level from
+        # .warning() to .error() was not enough, and the comment that used to sit
+        # here said it was. A bare frappe.logger() carries only rotating FILE
+        # handlers with propagate=False, so even .error() lands in
+        # logs/frappe.log -- which CI does not surface. tests/harness_logger.py
+        # exists for exactly this and writes to stderr (#433).
         for customer_id in getattr(self, "_customer_ids", []):
             try:
                 customer_obj = self.sdk.customers.get(customer_id)
@@ -94,15 +97,18 @@ class TestRecurringChargeLive(EnhancedTestCase):
                     try:
                         customer_obj.mandates.delete(mandate.id)
                     except Exception as e:
-                        frappe.logger().error(
-                            f"Mollie test cleanup: could not delete mandate {mandate.id} "
-                            f"on customer {customer_id}: {e}"
+                        get_harness_logger("mollie-live").error(
+                            "Mollie test cleanup: could not delete mandate %s on customer %s: %s",
+                            mandate.id,
+                            customer_id,
+                            e,
                         )
                 self.sdk.customers.delete(customer_id)
             except Exception as e:
-                frappe.logger().error(
-                    f"Mollie test cleanup: leaked customer {customer_id} on the shared "
-                    f"Mollie test account: {e}"
+                get_harness_logger("mollie-live").error(
+                    "Mollie test cleanup: leaked customer %s on the shared Mollie test account: %s",
+                    customer_id,
+                    e,
                 )
         super().tearDown()
 

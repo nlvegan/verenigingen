@@ -8,6 +8,7 @@ import unittest
 import frappe
 from frappe.utils import today
 
+from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.verenigingen.doctype.chapter.chapter import assign_member_to_chapter_with_cleanup
 
 
@@ -167,7 +168,12 @@ class TestChapterAssignmentComprehensive(unittest.TestCase):
             # Return the name of the last added board member
             return chapter_doc.board_members[-1].name
         except Exception as e:
-            frappe.logger().error(f"Error creating board membership: {str(e)}")
+            # get_harness_logger, NOT frappe.logger(): this helper returns None on
+            # failure, so the message is the only record that the board membership
+            # was never created. A bare logger writes it only to logs/frappe.log.
+            get_harness_logger("chapter-assignment").error(
+                "Error creating board membership: %s", e
+            )
             return None
 
     # ==================== BASIC FUNCTIONALITY TESTS ====================

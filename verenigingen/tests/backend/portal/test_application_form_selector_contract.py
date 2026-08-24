@@ -1,8 +1,10 @@
 """Ratchet: the public application form must not read element ids the page lacks.
 
-#201 was one instance of a class. `collectFormDataDirectly()` builds the entire
-payload that `submit_application` receives, by reading element ids out of
-/apply_for_membership. Nothing has ever checked that those ids exist, so a field
+#201 was one instance of a class. The payload `submit_application` receives is built
+by `getAllFormData()`, which merges `collectFormDataDirectly()` and then
+`getAdditionalFormData()` — **second wins** — from element ids read out of
+/apply_for_membership. Believing the first function was the whole payload is what
+let #420 live: the two values carrying money sat in the other half. Nothing has ever checked that those ids exist, so a field
 whose id is wrong does not raise, does not log, and does not fail a test — it
 just transmits '' or false forever. Fourteen of the thirty-one fields were in
 that state when this guard was written (#412).
@@ -26,28 +28,48 @@ ID_SELECTOR = re.compile(r"""\$\(\s*['"]#([A-Za-z0-9_-]+)['"]\s*\)""")
 PAYLOAD_KEY = re.compile(r"\s*([a-z_][a-z0-9_]*)\s*:", re.IGNORECASE)
 
 
+# Both halves of the submitted payload. `getAllFormData()` merges them in this
+# order and the second one WINS, so guarding only the first left the two values
+# that carry money — the payment method and the contribution amount —
+# unguarded. That is where #420 lived.
+COLLECTOR_FUNCTIONS = ("collectFormDataDirectly", "getAdditionalFormData")
+
+
 def parse_collector_fields():
-    """Map each payload field of collectFormDataDirectly() to the ids it reads.
+    """Map each payload field of the collector functions to the ids it reads.
 
     Keyed by field rather than by id because several fields read a fallback
     chain (`$('#a').val() || $('#b').val()`); such a field is only broken when
     *none* of its ids resolve.
+
+    A field appearing in both functions has its ids unioned here, which does NOT
+    match runtime — `Object.assign` makes `getAdditionalFormData` the sole source
+    for such a field, so a union could report healthy while the page transmits ''.
+    `test_no_field_is_declared_by_both_collectors` keeps that set empty, which is
+    what makes the union safe.
     """
+    fields = {}
+    for function_name in COLLECTOR_FUNCTIONS:
+        for name, ids in _parse_one(function_name).items():
+            fields.setdefault(name, []).extend(ids)
+    return {name: sorted(set(ids)) for name, ids in fields.items() if ids}
+
+
+def _parse_one(function_name):
     source = COLLECTOR_JS.read_text(encoding="utf-8")
-    start = source.find("\tcollectFormDataDirectly() {")
+    start = source.find("\t%s() {" % function_name)
     if start == -1:
         # str.index would raise with the whole 4500-line file in the message.
         raise AssertionError(
-            f"collectFormDataDirectly() not found in {COLLECTOR_JS.name}. If it was "
-            "renamed or moved, point this parser at its new home — do not delete "
-            "the guard."
+            f"{function_name}() not found in {COLLECTOR_JS.name}. If it was renamed "
+            "or moved, point this parser at its new home — do not delete the guard."
         )
     literal = source.find("return {", start)
     end = source.find("\n\t}\n", literal)
     if literal == -1 or end == -1:
         raise AssertionError(
-            "collectFormDataDirectly() no longer returns a single object literal; "
-            "this parser needs updating to match."
+            f"{function_name}() no longer returns a single object literal; this "
+            "parser needs updating to match."
         )
 
     fields = {}
@@ -60,7 +82,7 @@ def parse_collector_fields():
         if field is not None:
             fields[field].extend(ID_SELECTOR.findall(line))
 
-    return {name: sorted(set(ids)) for name, ids in fields.items() if ids}
+    return fields
 
 
 def load_baseline():
@@ -104,6 +126,9 @@ class TestApplicationFormSelectorContract(EnhancedTestCase):
         self.assertGreaterEqual(len(self.fields), 25, "collector parse looks empty")
         self.assertIn("email", self.fields)
         self.assertIn("email", self.rendered_ids)
+        # A field only getAdditionalFormData declares — proves the second half is
+        # parsed. Without this, dropping it from COLLECTOR_FUNCTIONS is silent.
+        self.assertIn("selected_dues_schedule", self.fields)
         self.assertIn("bank_account_name", self.fields)
         # A fallback chain must be read as one field with several ids.
         self.assertGreater(len(self.fields["bank_account_name"]), 1)
@@ -135,6 +160,40 @@ class TestApplicationFormSelectorContract(EnhancedTestCase):
             f"{BASELINE.name}: " + ", ".join(fixed),
         )
 
+    def test_no_field_is_declared_by_both_collectors(self):
+        """Union-merging ids across the two functions is only safe while this holds.
+
+        At runtime the second function wins outright. If a field ever read an id in
+        both, and only the first one resolved, `_broken()` would call it healthy
+        while the page transmitted ''.
+        """
+        both = sorted(
+            set(_parse_one("collectFormDataDirectly")) & set(_parse_one("getAdditionalFormData"))
+        )
+        overlapping_ids = [
+            name
+            for name in both
+            if _parse_one("collectFormDataDirectly")[name] and _parse_one("getAdditionalFormData")[name]
+        ]
+
+        self.assertEqual(
+            overlapping_ids,
+            [],
+            "these fields read ids in both collectors; the union in "
+            "parse_collector_fields() can now mask a break in the losing one: "
+            + ", ".join(overlapping_ids),
+        )
+
+    def test_each_collector_is_defined_exactly_once(self):
+        """`_parse_one` takes the FIRST match, and this file has duplicate method
+        names across its classes (`getData` x6, `bindPaymentEvents` x2). A second
+        definition of a collector would silently shadow the guard."""
+        source = COLLECTOR_JS.read_text(encoding="utf-8")
+
+        for function_name in COLLECTOR_FUNCTIONS:
+            with self.subTest(function=function_name):
+                self.assertEqual(source.count("\t%s() {" % function_name), 1)
+
     def test_the_baseline_names_only_fields_that_still_exist(self):
         """Guards against a rename leaving a dead entry behind."""
         unknown = sorted(self.baseline - set(self.fields))
@@ -142,6 +201,6 @@ class TestApplicationFormSelectorContract(EnhancedTestCase):
         self.assertEqual(
             unknown,
             [],
-            f"{BASELINE.name} names payload fields collectFormDataDirectly() no "
-            "longer has: " + ", ".join(unknown),
+            f"{BASELINE.name} names payload fields the collectors no longer have: "
+            + ", ".join(unknown),
         )

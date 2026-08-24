@@ -40,6 +40,7 @@ from frappe.tests.utils import FrappeTestCase
 from werkzeug.test import EnvironBuilder
 from werkzeug.wrappers import Request
 
+from verenigingen.tests.utils import ledger_rows
 from verenigingen.tests.utils.error_log_guard import ErrorLogGuardMixin
 
 
@@ -53,6 +54,12 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
     Use when you need: mocking, UI testing, workflow integration, performance testing
     Don't use for: business logic validation, production issue discovery, field safety
     """
+
+    #: The harness-owned company pinned on `Verenigingen Settings` by `setUpClass`.
+    #: Declared here so a subclass that forgets `super().setUpClass()` gets the
+    #: explanatory error from `_owned_company_and_income_account()` rather than a
+    #: bare AttributeError.
+    settings_company = None
 
     @classmethod
     def setUpClass(cls):
@@ -87,7 +94,7 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # setup_complete with country="India"). It used to be created only by
         # EnhancedTestDataFactory, so classes on THIS base never got it and merely
         # inherited whatever an earlier EnhancedTestCase happened to leave behind.
-        # Cheap: one db.exists once the row is present.
+        # Cheap once the rows are present: existence checks, no writes.
         from verenigingen.tests.setup import ensure_netherlands_territory
 
         ensure_netherlands_territory()
@@ -109,7 +116,10 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # make every untracked row a test creates durable.
         from verenigingen.tests.support.verenigingen_settings import own_settings_company
 
-        own_settings_company(cls)
+        # Kept on the class so subclasses can build fixtures under the SAME company
+        # rather than scanning for one that happens to look usable -- see #431 for
+        # what borrowing costs, and #394 for the class it belongs to.
+        cls.settings_company = own_settings_company(cls)
 
     @classmethod
     def tearDownClass(cls):
@@ -197,6 +207,12 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # Restore original session user
         frappe.session.user = self._original_session_user
 
+        # Rollback FIRST, then cleanup. The other order silently undoes the
+        # customer cleanup: it deletes an invoice, the rollback puts it back, and
+        # the drain has already recorded "skipped" for it -- see
+        # _rollback_once_before_draining.
+        self._rollback_once_before_draining()
+
         # Clean up customers linked to members BEFORE deleting members
         self._cleanup_member_customers()
 
@@ -265,19 +281,15 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 print(f"     - {doc['doctype']}: {doc['name']}")
                 print(f"       Error: {error[:100]}{'...' if len(error) > 100 else ''}")
 
-    # Ledgers that key rows to a parent by (voucher_type, voucher_no) and are NOT
-    # removed when that parent is deleted. Deliberately data-driven rather than a
-    # list of voucher doctypes: the set of things that post to the ledger grows
-    # with every erpnext release, and a stale allowlist fails open -- silently
-    # stranding rows again.
-    LEDGER_DOCTYPES = ("GL Entry", "Payment Ledger Entry")
+    # Both test bases need this and neither can inherit the other's teardown, so it
+    # lives in tests/utils/ledger_rows.py and is re-exported here. Stating it twice is
+    # what #482 was: the carve-out below existed in this class only, while the
+    # docstring cross-referencing the sibling claimed they agreed.
+    LEDGER_DOCTYPES = ledger_rows.LEDGER_DOCTYPES
 
     def _has_ledger_rows(self, doctype, name):
         """True when deleting this document would strand ledger rows behind it."""
-        return any(
-            frappe.db.exists(ledger, {"voucher_type": doctype, "voucher_no": name})
-            for ledger in self.LEDGER_DOCTYPES
-        )
+        return ledger_rows.has_ledger_rows(doctype, name)
 
     def _cancel_if_submitted(self, doctype, name):
         """Cancel a submitted document so the delete below can remove it.
@@ -323,17 +335,19 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         Wrapped in a savepoint because `_save` writes docstatus=2 BEFORE
         `run_post_save_methods()` fires on_cancel and check_no_back_links_exist().
-        A failure part-way would otherwise leave a cancelled-but-undeleted record
-        whose on_cancel side effects already ran -- strictly worse than the
-        submitted leak it replaces, since erpnext's cancel mutates OTHER
-        documents. On any failure we roll back and return, leaving the document
-        submitted so the delete fails and the caller records an ordinary leak:
-        exactly the behaviour that existed before this method.
+        A failure part-way would otherwise leave a half-cancelled record whose
+        on_cancel side effects already ran -- strictly worse, since erpnext's
+        cancel mutates OTHER documents. On failure we roll back to that savepoint
+        and THEN write docstatus=2 directly, so the caller's delete can still
+        remove the row: a cancel that raises used to leave the document submitted
+        and undeletable, and it then contaminated the next shard (#433, below).
 
-        EnhancedTestCase._remove_drained_record carries the same logic. The two
-        bases are siblings (both derive from FrappeTestCase) and neither can
-        inherit the other's teardown, so the rule is stated in both places rather
-        than shared -- see the note in tests/utils/leak_guard.py.
+        EnhancedTestCase._remove_drained_record carries the cancel-before-delete
+        rule and the savepoint, but NOT the ledger carve-out above nor the
+        docstatus downgrade below -- it re-raises instead, and its caller records
+        the leak. The two bases are siblings (both derive from FrappeTestCase) and
+        neither can inherit the other's teardown, so the rule is stated in both
+        places rather than shared -- see the note in tests/utils/leak_guard.py.
         """
         if not (
             frappe.get_meta(doctype).is_submittable
@@ -353,26 +367,59 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
             doc.cancel()
         except Exception as cancel_error:
             print(f"Could not cancel {doctype} {name} before delete: {cancel_error}")
+            self._rollback_cleanup_savepoint(savepoint)
+
+            # Cancelling is the means; removing the row is the end. A cancel can
+            # fail for reasons that have nothing to do with the document being
+            # drained: Membership.on_cancel pauses the member's dues schedule, and
+            # saving that schedule re-validates ITS OWN membership_type link, so a
+            # Membership Type already gone by teardown makes the cancel raise
+            # LinkValidationError. Leaving the row submitted meant it survived
+            # teardown and landed in whatever shard ran next -- the cross-shard
+            # contamination this drain exists to prevent (#433).
+            #
+            # So downgrade docstatus directly and let the caller's delete remove
+            # it. Safe ONLY because the ledger check above already returned for any
+            # voucher carrying GL / Payment Ledger rows: for those, cancelling
+            # WRITES reversals rather than removing them and delete_doc does not
+            # take them with the parent, so forcing one through would replace an
+            # honestly-reported leak with orphaned ledger rows pointing at a
+            # voucher_no that no longer exists (#328). No on_cancel hook runs on
+            # this path, which is the point -- the document is deleted next.
+            #
+            # Known exception, accepted: Bank Transaction posts no ledger rows, so
+            # it reaches here, and its on_cancel delinks the Payment Entries it
+            # matched. Skipping that leaves `Payment Entry.clearance_date` set
+            # against a Bank Transaction that no longer exists. Only reachable
+            # when the cancel already raised, and a cleared date on a test Payment
+            # Entry is a smaller problem than a submitted row crossing into the
+            # next shard.
             try:
-                frappe.db.rollback(save_point=savepoint)
-            except Exception:
-                # The savepoint is gone -- an inner commit dropped it, or a deadlock
-                # rolled the whole transaction back (MySQL 1305). Nothing left to
-                # undo; fall through and let the delete record the real leak.
-                pass
+                frappe.db.set_value(doctype, name, "docstatus", 2, update_modified=False)
+                frappe.clear_document_cache(doctype, name)
+            except Exception as downgrade_error:
+                # Nothing left to try: fall through and let the delete fail so the
+                # caller records an ordinary, named leak.
+                print(f"Could not force-cancel {doctype} {name}: {downgrade_error}")
 
     def _cleanup_document_with_retry(self, doc_info, max_retries=3, retry_delay=0.5):
         """Clean up document with retry logic for lock timeouts.
 
         Updates doc_info['cleanup_status'] to track cleanup result.
+
+        NO TRANSACTION-WIDE ROLLBACK IN HERE. tearDown issues exactly one, before
+        the loop that calls this method; a rollback between two deletes discards
+        every row this test has not committed, including the link targets the
+        documents still to be drained depend on (#433 -- see the note in tearDown).
+        A failed attempt undoes only its own partial work, via a savepoint.
         """
         import time
 
         for attempt in range(max_retries):
+            savepoint = f"cleanup_attempt_{frappe.generate_hash(length=8)}"
+            frappe.db.savepoint(savepoint)
             try:
                 if frappe.db.exists(doc_info["doctype"], doc_info["name"]):
-                    # Ensure any pending transactions are rolled back before cleanup
-                    frappe.db.rollback()
                     self._cancel_if_submitted(doc_info["doctype"], doc_info["name"])
                     frappe.delete_doc(doc_info["doctype"], doc_info["name"], force=True)
                     # Commit the deletion to release locks
@@ -382,13 +429,12 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
                     doc_info["cleanup_status"] = "skipped"  # Already deleted
                 break  # Success, exit retry loop
             except frappe.exceptions.QueryTimeoutError as e:
+                self._rollback_cleanup_savepoint(savepoint)
                 if attempt < max_retries - 1:
                     print(
                         f"Lock timeout cleaning up {doc_info['doctype']} {doc_info['name']}, retrying (attempt {attempt + 1}/{max_retries})..."
                     )
                     time.sleep(retry_delay)
-                    # Rollback any stuck transaction before retrying
-                    frappe.db.rollback()
                 else:
                     print(
                         f"Failed to clean up {doc_info['doctype']} {doc_info['name']} after {max_retries} attempts: {e}"
@@ -398,10 +444,80 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
             except (frappe.DoesNotExistError, frappe.ValidationError, frappe.PermissionError) as e:
                 # Document may already be deleted or validation prevents deletion
                 print(f"Error cleaning up {doc_info['doctype']} {doc_info['name']}: {e}")
-                frappe.db.rollback()
+                self._rollback_cleanup_savepoint(savepoint)
                 doc_info["cleanup_status"] = "failed"
                 doc_info["cleanup_error"] = str(e)
                 break  # Don't retry for these errors
+
+    def _rollback_once_before_draining(self):
+        """Discard this test's uncommitted rows ONCE, before the drain loop starts.
+
+        This rollback used to live inside `_cleanup_document_with_retry`, which
+        runs it once per tracked document -- so the FIRST document drained
+        discarded every row the test had not committed, including link targets the
+        REMAINING documents still needed. Measured on test_site_1: a Membership
+        Type read exists=True at drain entry and `skipped` by the time the drain
+        reached it, and the submitted Membership pointing at it could then no
+        longer be cancelled (#433). EnhancedTestCase's two drains already had this
+        shape -- one rollback before the loop, one commit after it.
+
+        THE CONDITION IS NOT COSMETIC, AND MUST NOT BE DROPPED. The old code
+        reached its rollback only inside `if frappe.db.exists(...)`, so a class
+        whose tests track nothing -- or whose tracked rows are already gone --
+        never rolled back at all. Making it unconditional is a much bigger change
+        than it looks: uncommitted fixtures built in `setUpClass` are not this
+        test's to discard, and rolling them back kills them for every later test
+        in the class. Measured in CI: 6 of 12 shards red, every one of them the
+        second-and-later tests of a class, all failing `_validate_links` on a
+        fixture their `setUpClass` had created (e.g. "Could not find Chapter: Test
+        Chapter 1 - 68755102"). That is the #330 failure mode, re-created.
+
+        And it must run BEFORE `_cleanup_member_customers`, not after. Measured on
+        untouched develop, one line of instrumented drain output says the whole
+        thing:
+
+            DRAIN ACC-SINV-2026-03841 status=skipped exists_after_teardown=True docstatus=1
+
+        The customer cleanup deleted that invoice, the drain checked existence,
+        found it gone and recorded "skipped" -- and a LATER per-document rollback
+        put it back, after the drain had walked past it, whereupon the next
+        per-document commit made it permanent. A submitted Sales Invoice, resident
+        on the site, that the drain believes it deleted: invisible to the leak
+        ratchet by construction. Both trees leave exactly 2 of them per run of
+        test_event_driven_payment_history; only this one can see them.
+
+        So: same trigger as before, same rows discarded -- only the timing moves.
+        """
+        if not any(
+            frappe.db.exists(doc_info["doctype"], doc_info["name"]) for doc_info in self._test_docs
+        ):
+            return
+
+        try:
+            frappe.db.rollback()
+        except Exception as rollback_error:
+            # print, like every other message this drain emits -- NOT
+            # frappe.logger(), whose output CI never sees (tests/harness_logger.py
+            # documents why, and is the logger to use when one is wanted).
+            print(f"Pre-drain rollback failed (continuing): {rollback_error}")
+
+    @staticmethod
+    def _rollback_cleanup_savepoint(savepoint):
+        """Undo one failed cleanup attempt without touching the rest of the drain.
+
+        A third copy of this decision now lives in `tests/utils/cleanup_savepoint.py`,
+        which also names the 1213 case explicitly. Converging this one onto it is a
+        behaviour change for the drain and needs shard-scale proof -- #499. Until then
+        the two are deliberately separate, and this comment is the pointer that says so.
+        """
+        try:
+            frappe.db.rollback(save_point=savepoint)
+        except Exception:
+            # The savepoint is gone -- an inner commit dropped it, or a deadlock
+            # rolled the whole transaction back (MySQL 1305). Nothing left to undo,
+            # and raising here would replace the real cleanup failure with an
+            # untriageable "SAVEPOINT ... does not exist".
+            pass
 
     # Error Log detection now lives in ErrorLogGuardMixin (error_log_guard.py); tearDown
     # calls _capture_test_error_logs() early and _finalize_error_log_check() last.
@@ -629,7 +745,30 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 print(f"⚠️ Error cleaning up customer {customer}: {e}")
 
     def _cleanup_customer_dependencies(self, customer_name):
-        """Clean up documents that depend on a customer"""
+        """Clean up documents that depend on a customer.
+
+        A POSTED VOUCHER'S LEDGER ROWS GO WITH IT. These two loops force docstatus
+        to 2 and force-delete, and they always have -- but `delete_doc` does NOT
+        take a voucher's GL / Payment Ledger rows with it unless
+        `Accounts Settings.delete_linked_ledger_entries` is on, and that field's
+        doctype default is 0 (measured 0 on this bench). So the rows are stranded
+        behind a `voucher_no` that no longer exists, and `revert_series_if_last`
+        then rewinds the series so the NEXT invoice is issued that name and is born
+        already linked to them (#328). Measured worker-free on this path: one
+        reused ACC-SINV name carrying 2, then 4, then 6 GL Entry rows over three
+        consecutive runs.
+
+        That an orphan count reads zero afterwards means nothing -- once the name
+        is reused the rows have a live parent again and no join can find them.
+
+        `_purge_ledger_rows` below finishes the delete these loops already
+        intended, which is what erpnext itself does when asked
+        (`AccountsController.on_trash`). Leaving the voucher instead -- the
+        carve-out `_cancel_if_submitted` uses -- is right THERE, where the row is
+        tracked and its leak is attributable to a named test; here the voucher is
+        often untracked, so an undeleted one is an anonymous leftover, which is the
+        thing this whole file exists to stop.
+        """
         # Cancel and delete Sales Invoices - optimized batch approach
         invoices = frappe.get_all(
             "Sales Invoice", filters={"customer": customer_name}, fields=["name", "docstatus"]
@@ -640,6 +779,7 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 if invoice.docstatus == 1:
                     frappe.db.set_value("Sales Invoice", invoice.name, "docstatus", 2)
                 frappe.delete_doc("Sales Invoice", invoice.name, force=True, ignore_permissions=True)
+                self._purge_ledger_rows("Sales Invoice", invoice.name)
             except (frappe.DoesNotExistError, frappe.ValidationError):
                 continue  # Document already deleted or invalid
 
@@ -655,6 +795,7 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 if payment.docstatus == 1:
                     frappe.db.set_value("Payment Entry", payment.name, "docstatus", 2)
                 frappe.delete_doc("Payment Entry", payment.name, force=True, ignore_permissions=True)
+                self._purge_ledger_rows("Payment Entry", payment.name)
             except (frappe.DoesNotExistError, frappe.ValidationError):
                 continue
 
@@ -670,6 +811,16 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
                         pass  # Mandate already deleted or cannot be deleted
         except frappe.DoesNotExistError:
             pass  # Member doesn't exist
+
+    def _purge_ledger_rows(self, doctype, name):
+        """Remove the ledger rows `delete_doc` left behind for a deleted voucher.
+
+        Only ever called immediately after that voucher's own row is gone, so
+        there is no live parent left for these to belong to -- and leaving them is
+        not neutral: the naming series rewinds and hands the name to the next
+        voucher, which then owns rows it never posted.
+        """
+        return ledger_rows.purge_ledger_rows(doctype, name)
 
     @staticmethod
     def get_test_region_name():
@@ -1461,6 +1612,49 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         self.track_doc("Sales Invoice", invoice.name)
         return invoice
 
+    def _owned_company_and_income_account(self):
+        """(company, income_account) for the company this class OWNS.
+
+        Three modules grew their own `_get_company_with_current_fy()`, each of
+        which scanned every Company on the site for one that happened to have
+        both a current Fiscal Year and an account with
+        `account_type = "Income Account"`. Both halves were wrong (#431):
+
+        * **The scan borrowed.** Which company won depended on what else had run
+          first in the same shard. Shard bins are packed by measured runtime, so
+          editing any test file re-packs all of them -- meaning any PR could
+          redden a module it never touched. It did, on trunk. #394 is the class;
+          #390 is why a company another suite has drained cannot be repaired.
+        * **The filter keyed on the wrong field.** ERPNext's standard chart of
+          accounts leaves `account_type` empty on income leaves; they carry
+          `root_type = "Income"`. Measured on a test site, `_Test Company 1` has
+          five income leaves and **zero** rows matching that filter. So the
+          helper only resolved when a sibling suite had already planted such a
+          row. `Sales Invoice` requires neither: `validate_account_head`
+          (erpnext/controllers/accounts_controller.py) asks only that the account
+          belong to the invoice's company and not be a group.
+
+        One of the three copies had already been fixed for the second half, with
+        a comment naming the exact symptom -- and its two siblings kept the bug
+        for as long as the fix went unsearched. Hence one helper here rather than
+        three there.
+
+        Neither of the scan's two checks needs repeating: `setUpClass` pins the
+        harness-owned company on `Verenigingen Settings` (so fixtures agree with
+        the company production code resolves) and runs
+        `ensure_test_fiscal_year_for_all_companies()`, which guarantees an
+        unrestricted Fiscal Year covering today for every company on the site.
+        """
+        company = self.settings_company
+        if not company:
+            raise RuntimeError(
+                "No harness-owned Company is pinned on `Verenigingen Settings`. before_tests "
+                "(verenigingen/tests/setup/__init__.py) creates one; run the suite through "
+                "`bench run-tests` so that hook fires. This deliberately will NOT fall back to "
+                "scanning for a company nobody here owns -- see #431 for what that costs."
+            )
+        return company, self._get_or_create_income_account(company)
+
     def _get_or_create_income_account(self, company):
         """Get or create a basic income account for testing"""
         # Check if account already exists
@@ -1494,9 +1688,12 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         if not parent_account:
             # No Income accounts exist - this shouldn't happen with a properly set up company
             raise frappe.ValidationError(
-                f"No Income group accounts found for company {company}. "
-                "ERPNext may not be properly configured. "
-                "Ensure a Chart of Accounts is set up with Income accounts."
+                f"No Income group accounts found for company {company}. On a test site this "
+                "almost never means 'ERPNext is misconfigured' -- it means another suite "
+                "drained this company's chart of accounts, and per #390 a partially-drained "
+                "company can NOT be repaired by rebuilding it: Company.on_update skips "
+                "create_default_accounts() while any account for it survives. Find what "
+                "deleted the accounts; do not add a fallback here."
             )
 
         # Create new income account under existing parent

@@ -1,9 +1,13 @@
-# Private module-level helpers defined in more than one file -- the ratchet
-# baseline for scripts/validation/duplicate_helper_validator.py. Format:
+# Private helpers -- module-level functions AND methods -- defined in more
+# than one file. The ratchet baseline for
+# scripts/validation/duplicate_helper_validator.py. Format:
 #     <helper name>::<number of files defining it>
 #
-# A change fails only if it duplicates a helper that was not duplicated before,
-# or adds a copy of one already listed. Consolidating never fails the gate.
+# A change fails only if it adds a copy of a name marked `# clone family`
+# below -- one whose copies really are near-identical. A new copy of an
+# unmarked name is reported and recorded, not blocked: those share a name and
+# little else, and the only exit a blocking gate leaves for them is renaming
+# the method. Consolidating never fails the gate.
 #
 # This file should only ever SHRINK. It is a to-do list, not a permission slip:
 # each line is a place where a future fix can be applied to one copy and missed
@@ -11,77 +15,580 @@
 # #399, and a merge collision between two branches fixing the same test).
 #
 # A high count here does NOT mean the copies are clones; same name, unrelated
-# bodies is common (13 `_payment` helpers share 6% similarity). Run with
-# --report for the similarity view before consolidating anything.
+# bodies is common (13 `_payment` helpers share 6% similarity) -- which is why
+# only the marked lines block. Run with --report for the similarity view
+# before consolidating anything, and --drift for the band that matters most:
+# near-identical copies with NO exact pair, i.e. a fix that already landed in
+# one of them.
 
 _abort_on_duplicates::2
-_add_chapter_with_documents::2
+_account::3  # clone family, 33% of pairs near-identical
+_accounts::6  # clone family, 67% of pairs near-identical
+_acquire_idempotency_lock::2
+_active_member_with_membership::2
+_active_membership::3
+_active_schedule::4
+_add_board_member::4
+_add_board_position::4  # clone family, 50% of pairs near-identical
+_add_chapter_member::5
+_add_chapter_with_documents::2  # clone family, 100% of pairs near-identical
+_add_member_to_chapter::5
+_add_team_member::4
+_add_team_membership::2  # clone family, 100% of pairs near-identical
+_append_member::2
+_as_admin::9  # clone family, 100% of pairs near-identical
+_as_user::3
+_assert_board_access_withdrawn::2
+_assign_member_to_chapter::2
+_assigned_profiles::4
+_authenticate_session::2
+_balanced::2  # clone family, 100% of pairs near-identical
+_bank_account::5
 _bank_account_currency::2
 _bare_gateway::2
-_bare_processor::3
+_bare_processor::3  # clone family, 33% of pairs near-identical
 _bare_service::2
-_build_chapter_info::2
-_cleanup_thread_context::2
-_company::2
-_create_payment_entry::2
-_create_thread_context::2
-_data::2
-_ensure_bank_account::2
-_ensure_current_fiscal_year::5
-_ensure_mollie_named_account::3
-_ensure_region::4
-_ensure_test_region::3
+_base_row::2
+_batch_fetch_with_chunking::2  # clone family, 100% of pairs near-identical
+_bind_request::4
+_board_lifecycle_notifications_enabled::2  # clone family, 100% of pairs near-identical
+_build::3
+_build_caches::2
+_build_chapter_info::2  # clone family, 100% of pairs near-identical
+_build_creator::2  # clone family, 100% of pairs near-identical
+_build_invoice::2
+_build_member_with_invoice::2  # clone family, 100% of pairs near-identical
+_build_secured_invoice::2  # clone family, 100% of pairs near-identical
+_build_transaction_description::2
+_calculate_checksum::2
+_calculate_delay::2
+_calculate_security_score::2
+_calculate_totals_python::2
+_cancel_auto_schedules::6  # clone family, 100% of pairs near-identical
+_chapter_role::2  # clone family, 100% of pairs near-identical
+_check_existing_by_reference::3  # clone family, 33% of pairs near-identical
+_clean_value::2
+_cleanup::2
+_cleanup_bank_transactions::5  # clone family, 60% of pairs near-identical
+_cleanup_chapter::2
+_cleanup_customer_dependencies::2
+_cleanup_document_with_retry::2
+_cleanup_event::3  # clone family, 33% of pairs near-identical
+_cleanup_member_and_customer::5
+_cleanup_stale_test_data::2
+_cleanup_status_mapping::3  # clone family, 100% of pairs near-identical
+_cleanup_test_data::2
+_cleanup_thread_context::2  # clone family, 100% of pairs near-identical
+_cleanup_user::2
+_clear_assignment_cache::3  # clone family, 100% of pairs near-identical
+_clear_children::2  # clone family, 100% of pairs near-identical
+_clear_rate_limit::3  # clone family, 33% of pairs near-identical
+_company::13
+_compute_file_hash::2
+_coverage_invoice::3
+_create_active_membership::3
+_create_address::2
+_create_audit_log::4
+_create_bank_account::2
+_create_bank_transaction::5
+_create_board_membership::2
+_create_bt::2
+_create_csv_file_doc::3  # clone family, 33% of pairs near-identical
+_create_customer_address::2
+_create_customer_for_donor::2
+_create_customer_for_member::3
+_create_donor::2  # clone family, 100% of pairs near-identical
+_create_intent::5
+_create_journal_entry::2
+_create_link::3  # clone family, 100% of pairs near-identical
+_create_mandate::2
+_create_member::7
+_create_membership_invoice::2
+_create_mock_gateway::2  # clone family, 100% of pairs near-identical
+_create_mock_mandate::2
+_create_mock_payment_data::2  # clone family, 100% of pairs near-identical
+_create_own_address::2  # clone family, 100% of pairs near-identical
+_create_party::2
+_create_payment_entry::4
+_create_payment_entry_for_dues::2
+_create_pending_application::2
+_create_pending_member::3
+_create_plan::5  # clone family, 60% of pairs near-identical
+_create_purchase_invoice::2
+_create_request::4  # clone family, 50% of pairs near-identical
+_create_sales_invoice::2
+_create_sepa_mandate::2
+_create_temp_csv::2  # clone family, 100% of pairs near-identical
+_create_termination_request::2
+_create_test_account::3
+_create_test_bank_account::2
+_create_test_batch_with_invoices::2
+_create_test_chapter::2
+_create_test_invoice::8
+_create_test_item::3  # clone family, 33% of pairs near-identical
+_create_test_mandate::4
+_create_test_member::3
+_create_test_members::2
+_create_test_payment::2
+_create_test_run::2
+_create_test_sepa_mandate::4
+_create_test_user::2
+_create_test_volunteer::2
+_create_thread_context::2  # clone family, 100% of pairs near-identical
+_create_transaction::2
+_create_upload_log::2
+_create_volunteer_for_member::2
+_customer::2
+_data::4  # clone family, 33% of pairs near-identical
+_db_insert_draft::2
+_deactivate_auto_schedules::2  # clone family, 100% of pairs near-identical
+_deduplicate_error_message::2
+_delete_managed_templates::2  # clone family, 100% of pairs near-identical
+_detect_and_emit_membership_changes::2
+_detect_and_emit_settings_changes::2
+_detect_execution_context::2
+_detect_namespace::2
+_determine_party_type::2
+_determine_recurring_status::2  # clone family, 100% of pairs near-identical
+_discard_probe::2  # clone family, 100% of pairs near-identical
+_dispatch::2
+_donation::6
+_drop::3  # clone family, 33% of pairs near-identical
+_enable_notifications::3
+_ensure_account::4
+_ensure_accounts::10  # clone family, 31% of pairs near-identical
+_ensure_active_membership::2
+_ensure_bank_account::13
+_ensure_bank_account_master::2
+_ensure_chapter_role::16
+_ensure_clearing_account::3  # clone family, 33% of pairs near-identical
+_ensure_company::14
+_ensure_cost_center::12  # clone family, 53% of pairs near-identical
+_ensure_current_fiscal_year::5  # clone family, 30% of pairs near-identical
+_ensure_customer::6
+_ensure_customer_bank_account::2
+_ensure_default_bank_account::2  # clone family, 100% of pairs near-identical
+_ensure_dues_item::2
+_ensure_eur_bank_account_doc::2
+_ensure_fiscal_year::13  # clone family, 27% of pairs near-identical
+_ensure_income_account::2  # clone family, 100% of pairs near-identical
+_ensure_item::2
+_ensure_item_group::2
+_ensure_ledger_mappings::10
+_ensure_member::2
+_ensure_member_user::8
+_ensure_membership_item::4  # clone family, 33% of pairs near-identical
+_ensure_membership_type::4
+_ensure_mode_of_payment::6
+_ensure_modes_of_payment::3  # clone family, 100% of pairs near-identical
+_ensure_mollie_named_account::3  # clone family, 33% of pairs near-identical
+_ensure_outgoing_email_account::6  # clone family, 27% of pairs near-identical
+_ensure_parties::2  # clone family, 100% of pairs near-identical
+_ensure_region::7
+_ensure_role::4
+_ensure_selling_price_list::3  # clone family, 33% of pairs near-identical
+_ensure_team_role::2  # clone family, 100% of pairs near-identical
+_ensure_territory::3  # clone family, 100% of pairs near-identical
+_ensure_test_company::3
+_ensure_test_item::4
+_ensure_test_region::3  # clone family, 100% of pairs near-identical
+_ensure_test_uom::2
+_ensure_user::8  # clone family, 54% of pairs near-identical
+_err::2
+_export_member_data::2
+_extract_and_save_consumer_bank_data::3
+_fail_errors::3  # clone family, 33% of pairs near-identical
+_fail_msg::3  # clone family, 100% of pairs near-identical
 _fake_service::2
+_fallback_classification::2
+_filter_by_date::2
+_finalize::2
+_finalize_import_results::4
+_finalize_leak_check::2
+_find_subscription_for_payment::2
+_force_delete::2  # clone family, 100% of pairs near-identical
 _future_date::2
-_get_email_config_service::2
-_get_service::2
-_get_test_company::3
+_gateway_mutation::2
+_generate_performance_recommendations::2
+_generate_performance_report::3
+_generate_recommendations::9
+_generate_remarks::2
+_generate_report::2
+_generate_summary::4
+_generate_user_message::2
+_get_account_from_pattern::2
+_get_audit_logger::3  # clone family, 100% of pairs near-identical
+_get_bulk_members_data::3
+_get_chapter_cost_center::2
+_get_client_ip::3
+_get_company::4
+_get_config::3  # clone family, 33% of pairs near-identical
+_get_cost_center::3
+_get_credentials::2
+_get_data_preview::2
+_get_default_cost_center::4
+_get_email_config_service::2  # clone family, 100% of pairs near-identical
+_get_headers::2
+_get_inner_fn::2
+_get_member_for_user::2  # clone family, 100% of pairs near-identical
+_get_member_sepa_mandate::3  # clone family, 33% of pairs near-identical
+_get_memory_usage::2  # clone family, 100% of pairs near-identical
+_get_mollie_client::4
+_get_nested_model_class::6
+_get_notification_recipients::2
+_get_or_create_customer::3
+_get_or_create_historical_invoice::2
+_get_or_create_income_account::2
+_get_or_create_membership_item::2
+_get_or_create_receivable_account::2
+_get_or_create_supplier::2
+_get_or_create_tax_template::2
+_get_service::7
+_get_session_token::2
+_get_setting::2  # clone family, 100% of pairs near-identical
+_get_settings::5
+_get_template::2
+_get_termination_reason::2
+_get_test_company::5  # clone family, 30% of pairs near-identical
+_get_test_membership_type::2
+_get_user_chapters::2
+_get_user_from_member_doc::3
+_get_user_teams::2
+_get_webhook_url::3
+_handle_error::3
+_handle_file_not_found::2
+_handler::2  # clone family, 100% of pairs near-identical
 _has_multi_profile_support::2
-_insert_test_doc::6
-_invoice::2
-_make_balance_transaction::2
-_make_client::3
+_history_rows::2
+_idem::2
+_insert::2
+_insert_acr::4  # clone family, 33% of pairs near-identical
+_insert_amendment::2
+_insert_doc::3  # clone family, 100% of pairs near-identical
+_insert_donation::2  # clone family, 100% of pairs near-identical
+_insert_test_doc::6  # clone family, 100% of pairs near-identical
+_install_request::2
+_inv::2
+_invoice::5
+_is_chair_role::2  # clone family, 100% of pairs near-identical
+_is_chapter_board_member::3  # clone family, 33% of pairs near-identical
+_is_chapter_management_enabled::3  # clone family, 33% of pairs near-identical
+_is_deadlock_error::2
+_is_movement_member::2
+_is_retryable_error::2
+_is_team_member::3  # clone family, 33% of pairs near-identical
+_isolate_mollie_client::2  # clone family, 100% of pairs near-identical
+_leaf_account::2  # clone family, 100% of pairs near-identical
+_link_bank_transaction_to_payment::2
+_link_member_to_user::3  # clone family, 33% of pairs near-identical
+_link_membership::2  # clone family, 100% of pairs near-identical
+_load_email_settings::2
+_load_settings_from_db::2
+_load_volunteer::3  # clone family, 100% of pairs near-identical
+_log_blocked_members_summary::2
+_make_account::14  # clone family, 31% of pairs near-identical
+_make_acr::3
+_make_active_member::6
+_make_active_schedule::2
+_make_agreement::2
+_make_amendment::2
+_make_audit_row::2
+_make_balance_transaction::2  # clone family, 100% of pairs near-identical
+_make_bank_account::3
+_make_bank_transaction::9
+_make_batch::6
+_make_board_admin_member::2
+_make_board_member::2
+_make_campaign::5
+_make_chapter::9
+_make_chapter_role::3
+_make_chapter_with_board::2
+_make_chapter_with_member::2
+_make_client::8
+_make_csv_bytes::3  # clone family, 100% of pairs near-identical
+_make_csv_file::2
+_make_customer::10
+_make_customer_for_member::3  # clone family, 100% of pairs near-identical
+_make_deskless_role_without_perms::2
+_make_doc::6
+_make_donation::13
+_make_donor::13
+_make_draft_bt::2
+_make_draft_expense_claim::2
+_make_draft_payment_entry::2
+_make_dues_schedule::3  # clone family, 33% of pairs near-identical
+_make_eligible_member_invoice::2  # clone family, 100% of pairs near-identical
+_make_employee::12
+_make_empty_role_profile::2  # clone family, 100% of pairs near-identical
+_make_error_log::2
 _make_eur_invoice::2
-_make_event::2
+_make_event::6
+_make_expense_claim::4
+_make_failed_acr::2
 _make_gateway::2
-_make_migration_doc::4
-_make_mock_je::2
-_make_mollie_client::2
-_make_mutation::2
+_make_gl_account::2
+_make_import::2
+_make_import_doc::6
+_make_import_doc_from_content::2  # clone family, 100% of pairs near-identical
+_make_individual_donor::2
+_make_internal_transfer_pe::2
+_make_invoice::6
+_make_je::2
+_make_leaf_account::3
+_make_ledger_map::8  # clone family, 32% of pairs near-identical
+_make_ledger_mapping::4
+_make_lowpriv_user::2
+_make_manager::2
+_make_mandate::4
+_make_mapping::3
+_make_member::45
+_make_member_user::5
+_make_member_with_customer::12
+_make_member_with_id::2  # clone family, 100% of pairs near-identical
+_make_member_with_invoice::3  # clone family, 100% of pairs near-identical
+_make_member_with_mandate::3
+_make_member_with_membership::4
+_make_member_with_mollie::2
+_make_member_with_schedule::3  # clone family, 33% of pairs near-identical
+_make_member_with_user::18
+_make_membership_type::8
+_make_migration::10
+_make_migration_doc::4  # clone family, 50% of pairs near-identical
+_make_mock_je::2  # clone family, 100% of pairs near-identical
+_make_mollie_client::2  # clone family, 100% of pairs near-identical
+_make_mutation::2  # clone family, 100% of pairs near-identical
+_make_org_doc::2
+_make_org_donor::2
+_make_paid_donation::2
+_make_party_bank_account::2
+_make_payment_entry::3
+_make_payment_link::3
+_make_payment_mapping::2
+_make_payment_request::2
+_make_plain_user::2
+_make_ponto_link::2
 _make_processor::2
-_make_request::2
-_make_schedule::2
-_make_service::4
-_make_settings::2
-_make_unsubmitted_donation::2
-_mandate::2
+_make_raw::2  # clone family, 100% of pairs near-identical
+_make_request::8
+_make_role::9  # clone family, 28% of pairs near-identical
+_make_role_profile::6  # clone family, 80% of pairs near-identical
+_make_root::8  # clone family, 100% of pairs near-identical
+_make_rule::2
+_make_sales_invoice::3
+_make_schedule::5
+_make_service::5
+_make_settings::4
+_make_staff_user::2
+_make_submitted_donation::3  # clone family, 33% of pairs near-identical
+_make_submitted_invoice::7
+_make_submitted_je::2
+_make_submitted_payment_entry::4
+_make_supplier::4
+_make_system_user::2  # clone family, 100% of pairs near-identical
+_make_team::8
+_make_team_role::2
+_make_team_with_member::4
+_make_termination_request::2
+_make_tracker::4
+_make_type::2
+_make_unpaid_invoice::2
+_make_unprivileged_user::3
+_make_unsubmitted_donation::2  # clone family, 100% of pairs near-identical
+_make_user::19
+_make_user_with_role_profile::2
+_make_user_with_roles::3
+_make_user_without_member::4  # clone family, 50% of pairs near-identical
+_make_volunteer::26
+_make_volunteer_claim::2  # clone family, 100% of pairs near-identical
+_make_volunteer_member_employee::3  # clone family, 33% of pairs near-identical
+_mandate::4
+_map_ledger::3  # clone family, 33% of pairs near-identical
+_mapper::2  # clone family, 100% of pairs near-identical
+_mask_iban::2
+_matched_member::2
+_measure_memory_usage::2  # clone family, 100% of pairs near-identical
+_member::17
 _member_csv_row::2
-_mr::2
-_next_id::2
-_next_weekday::3
-_non_group::2
-_ok::2
-_ours::2
-_patch_sdk::5
-_payment::13
-_pdf::3
-_persist_company::3
-_persist_customer::2
-_persist_eur_company::8
-_persist_ledger_mapping::2
+_member_in_chapter::2
+_member_row::2
+_member_user::2
+_member_with_active_membership::4
+_member_with_address::3
+_member_with_customer::10
+_member_with_membership::6
+_member_with_mollie::2  # clone family, 100% of pairs near-identical
+_member_with_schedule::5
+_member_with_subscription::2
+_member_with_user::3
+_membership_type::2
+_memorial_mutation::3
+_migration::2
+_mollie_payment::2
+_mr::2  # clone family, 100% of pairs near-identical
+_new_batch::2
+_new_customer::3  # clone family, 33% of pairs near-identical
+_new_je::3  # clone family, 33% of pairs near-identical
+_new_mandate::2  # clone family, 100% of pairs near-identical
+_new_subscription::2
+_new_unsaved_doc::3  # clone family, 100% of pairs near-identical
+_next_id::2  # clone family, 100% of pairs near-identical
+_next_weekday::3  # clone family, 33% of pairs near-identical
+_no_import_flags::2
+_non_group::2  # clone family, 100% of pairs near-identical
+_ok::10
+_ours::2  # clone family, 100% of pairs near-identical
+_parse_date::6
+_parse_email_list::2  # clone family, 100% of pairs near-identical
+_parse_file_data::2
+_parser::2
+_patch_email_service::3  # clone family, 33% of pairs near-identical
+_patch_orchestrator::2
+_patch_sdk::5  # clone family, 100% of pairs near-identical
+_patch_service::4  # clone family, 50% of pairs near-identical
+_pay_invoice::4
+_payload::2
+_payment::17
+_pdf::3  # clone family, 100% of pairs near-identical
+_pending_member::3  # clone family, 33% of pairs near-identical
+_percentile::4  # clone family, 33% of pairs near-identical
+_persist_account::8
+_persist_bank_gl_account::2
+_persist_company::9  # clone family, 25% of pairs near-identical
+_persist_customer::3
+_persist_doc::2  # clone family, 100% of pairs near-identical
+_persist_eur_company::17  # clone family, 33% of pairs near-identical
+_persist_isolated_company::2  # clone family, 100% of pairs near-identical
+_persist_ledger_mapping::5
+_persist_settings::3  # clone family, 33% of pairs near-identical
 _persist_supplier::2
+_pin_customer_price_list::2  # clone family, 100% of pairs near-identical
 _ponto_account::2
+_post_init::5
+_process_batch::2
+_process_single_member::3
+_process_single_row::2
+_processor::8
+_profile_names::2  # clone family, 100% of pairs near-identical
 _publish_progress::2
+_raw::2
+_read_csv_file::2  # clone family, 100% of pairs near-identical
+_read_file_from_content::2
+_read_file_from_path::2
+_read_row::2
+_reconcile_bank_transaction::2  # clone family, 100% of pairs near-identical
+_refund::2
+_release_idempotency_lock::2
 _release_redis_lock::2
+_reload::5  # clone family, 100% of pairs near-identical
+_reload_chapter::4  # clone family, 100% of pairs near-identical
 _render_with_user::2
-_row::2
+_report_progress::2  # clone family, 100% of pairs near-identical
+_resolve::3
+_resolve_company::2  # clone family, 100% of pairs near-identical
+_resolve_file_location::2
+_resolve_mapped_folder::2
+_resolve_receivable_account::2
+_restore::4
+_restore_request::2  # clone family, 100% of pairs near-identical
+_restore_settings::6
+_restore_site_state::2
+_results::2
+_root::4  # clone family, 50% of pairs near-identical
+_root_account::2
+_row::5
+_row_for::4  # clone family, 50% of pairs near-identical
+_rows::2
+_run::3
+_run_case::2
+_run_webhook::2
 _safe_log_error::2
 _safe_savepoint_name::2
-_sanitize_error_message::3
+_sanitize_error_message::5
+_sanitize_filename::2
 _sched_stub::3
+_schedule::2
 _sdk_payment::2
-_settings::2
-_unique_email::7
+_seat::4
+_seat_board_member::2
+_seat_on_board::2
+_seed::2
+_seed_pending_write::2  # clone family, 100% of pairs near-identical
+_send_email::3
+_send_kwargs::2  # clone family, 100% of pairs near-identical
+_send_member_status_notification::2
+_sepa::2
+_service::7
+_set::2
+_set_anbi::2
+_set_request::2
+_settings::4
+_setup_board_member::2
+_setup_chapter_member::3
+_setup_donation::4  # clone family, 50% of pairs near-identical
+_setup_donation_income_account::3  # clone family, 100% of pairs near-identical
+_setup_donor::4  # clone family, 100% of pairs near-identical
+_setup_mollie_bank_account::3  # clone family, 100% of pairs near-identical
+_setup_mollie_clearing_account::3  # clone family, 100% of pairs near-identical
+_setup_mollie_settings::4  # clone family, 100% of pairs near-identical
+_setup_mtls::2
+_setup_role_mapping::2
+_setup_sepa_test_configuration::2
+_setup_settings::4
+_setup_settings_default_company::2
+_setup_test_settings::3
+_sign::2  # clone family, 100% of pairs near-identical
+_stage_10_termination::2
+_stage_1_submit_application::2
+_stage_2_review_approve::2
+_stage_4_process_payment::2
+_stage_6_create_volunteer::2
+_stage_7_member_activities::2
+_stage_8_membership_renewal::2
+_stage_9_suspension_reactivation::2
+_stub_client::2
+_submitted_batch::2  # clone family, 100% of pairs near-identical
+_submitted_invoice::2
+_territory::2
+_track::8
+_track_created_volunteer::2
+_track_donor::3  # clone family, 100% of pairs near-identical
+_track_schedule::2  # clone family, 100% of pairs near-identical
+_track_user::6  # clone family, 100% of pairs near-identical
+_try_direct_path_construction::2
+_try_file_document_lookup::2
+_txn::3
+_txn_dict::2  # clone family, 100% of pairs near-identical
+_uid::4
+_unique_email::13  # clone family, 28% of pairs near-identical
+_unique_iban::2  # clone family, 100% of pairs near-identical
+_unique_id::2
 _unwrap::2
-_validate_role_assignment_inputs::2
-_with_user::2
+_update_member_tracking_fields::2
+_update_progress::3
+_update_subscription_status::2
+_user::2
+_user_still_in_other_entities::3
+_valid_params::2  # clone family, 100% of pairs near-identical
+_validate_and_map_data::2  # clone family, 100% of pairs near-identical
+_validate_and_preview_csv::4
+_validate_backend_api_access::2
+_validate_configuration::4
+_validate_email::2
+_validate_fields::2
+_validate_fixtures::2  # clone family, 100% of pairs near-identical
+_validate_iban::3
+_validate_iban_format::3  # clone family, 100% of pairs near-identical
+_validate_identifier::2
+_validate_mandate::2
+_validate_preconditions::2
+_validate_required_fields::2
+_validate_role_assignment_inputs::3  # clone family, 33% of pairs near-identical
+_validate_table_name::2
+_validate_type::2
+_validate_unique_roles::2
+_validate_volunteer_created::2  # clone family, 100% of pairs near-identical
+_validator::5
+_verify::2
+_with_admin_user::2  # clone family, 100% of pairs near-identical
+_with_user::4  # clone family, 100% of pairs near-identical
+_write::3

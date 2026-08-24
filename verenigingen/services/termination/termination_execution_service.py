@@ -46,6 +46,7 @@ from frappe import _
 from frappe.utils import now
 
 from verenigingen.services.infrastructure.base_service import StatelessService
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
@@ -180,23 +181,46 @@ class TerminationExecutionService(StatelessService):
 
             return True
 
-        except Exception as e:
+        # #475: a 1205/1213 must leave this frame AS ITSELF. The branch below ends in
+        # _handle_error's frappe.throw, which raises ValidationError -- and
+        # QueryDeadlockError/QueryTimeoutError derive straight from Exception, so that is
+        # genuine class destruction, not a rename. MijnRoodTerminationSyncService and the
+        # dispatcher above it both switch on the class: the dispatcher was deliberately
+        # given an `except NON_RESUMABLE_DB_ERRORS` clause that rolls back before recording,
+        # and it could never fire for the termination path while this frame converted the
+        # error one level below it.
+        #
+        # The recovery is deliberately the SAME on both paths -- only the raise differs.
+        # Reverting the status to "Approved" is what enables the operator's retry, and a
+        # guard that re-raised before doing it would trade one defect for another.
+        except NON_RESUMABLE_DB_ERRORS as e:
             self.logger.error(f"Savepoint rolled back for {termination_request.name} due to error: {str(e)}")
+            self._rollback_savepoint(savepoint_name)
+            self._record_failure_for_retry(termination_request, str(e))
+            raise
 
-            # Roll back the savepoint to discard any partial work. If a nested
-            # call already released or rolled back the savepoint (e.g. via an
-            # inner commit), MySQL will raise — swallow that secondary error so
-            # we surface the original one through _handle_error.
-            try:
-                frappe.db.rollback(save_point=savepoint_name)
-            except Exception as rollback_error:
-                self.logger.warning(
-                    f"Savepoint {savepoint_name} could not be rolled back "
-                    f"(may have been released by a nested commit): {rollback_error}"
-                )
+        except Exception as e:  # non-resumable-ok: does not swallow -- _handle_error re-raises
+            self.logger.error(f"Savepoint rolled back for {termination_request.name} due to error: {str(e)}")
+            self._rollback_savepoint(savepoint_name)
 
             # Error recovery - revert status and re-raise
             self._handle_error(termination_request, e)
+
+    def _rollback_savepoint(self, savepoint_name: str) -> None:
+        """Discard partial work, tolerating a savepoint a nested commit already consumed.
+
+        If a nested call already released or rolled back the savepoint (e.g. via an inner
+        commit), MySQL raises -- and after a 1213 the savepoint is gone entirely and this
+        raises 1305. Both are secondary errors; swallowing them is what lets the caller
+        surface the original one.
+        """
+        try:
+            frappe.db.rollback(save_point=savepoint_name)
+        except Exception as rollback_error:  # non-resumable-ok: cleanup after the failure
+            self.logger.warning(
+                f"Savepoint {savepoint_name} could not be rolled back "
+                f"(may have been released by a nested commit): {rollback_error}"
+            )
 
     def execute_system_updates(self, termination_request: "Document") -> Dict[str, Any]:
         """Execute system updates using declarative operation pattern.
@@ -252,6 +276,35 @@ class TerminationExecutionService(StatelessService):
 
         member = termination_request.member
         self.logger.info(f"Starting safe system updates for member {member}")
+
+        # Take the member's row lock BEFORE the first operation runs.
+        #
+        # Since #436 the history managers lock the parent row they rewrite -- Member for
+        # ChapterMembershipHistoryManager, Volunteer for AssignmentHistoryManager -- and
+        # a termination takes both. The canonical order is Member before Volunteer, and
+        # this list appeared to obey it only by accident: DisableChapterMemberships
+        # (idx 2) takes the Member lock, but disable_chapter_memberships_safe returns
+        # early when there is no *enabled* Chapter Member row, so a board member who is
+        # off the roster locks Volunteer at idx 3 and Member only at idx 13. Whether the
+        # order inverts was decided by the member's data, not by this list. Measured both
+        # ways in tests/unit/test_history_lock_order.py. #459.
+        #
+        # It cannot be fixed by reordering: UpdateMemberStatusOperation is deliberately
+        # last (it is the commit point, and TerminationExecutor enforces that), and its
+        # member.save() is a Member lock. Taking the row up front makes every later
+        # acquisition a re-lock of a row this transaction already holds.
+        #
+        # execute() calls _validate_preconditions first, which checks the member exists,
+        # so this really locks a row: get_value on a missing name emits WHERE name='' and
+        # locks nothing at all, silently.
+        #
+        # Cost: the lock is held from here to the end of the transaction instead of from
+        # whichever operation first happened to touch the member. That is one member row
+        # -- the one this whole operation is about -- and idx 2 already held it for most
+        # of the list in the common case. Deliberately NOT wrapped in a try/except: a
+        # 1205/1213 here is not resumable, and execute() rolls the savepoint back and
+        # re-raises.
+        frappe.db.get_value("Member", member, "name", for_update=True)
 
         # Define termination operations in execution order
         # Order matters: preparatory operations first, member status update last
@@ -336,7 +389,7 @@ class TerminationExecutionService(StatelessService):
         """
         try:
             frappe.db.release_savepoint(savepoint_name)
-        except Exception as cleanup_error:
+        except Exception as cleanup_error:  # non-resumable-ok: RELEASE SAVEPOINT takes no row locks
             self.logger.warning(
                 f"Savepoint {savepoint_name} could not be released "
                 f"(likely already released by an inner commit): {cleanup_error}"
@@ -519,6 +572,19 @@ class TerminationExecutionService(StatelessService):
         error_msg = str(error)
         self.logger.error(f"Termination execution failed for {termination_request.name}: {error_msg}")
 
+        self._record_failure_for_retry(termination_request, error_msg)
+
+        # Re-raise original exception
+        frappe.throw(_("Failed to execute termination: {0}").format(error_msg))
+
+    def _record_failure_for_retry(self, termination_request: "Document", error_msg: str) -> None:
+        """Audit the failure and revert the status so the operation can be retried.
+
+        Split out of ``_handle_error`` for #475: the non-resumable branch of ``execute``
+        needs this recovery WITHOUT ``_handle_error``'s closing ``frappe.throw``, which
+        would replace a 1205/1213 with a ValidationError and hide the class from callers
+        that switch on it.
+        """
         # Revert status in a savepoint so this works both standalone and
         # within an existing transaction (e.g. MijnRood sync event processor).
         try:
@@ -540,11 +606,11 @@ class TerminationExecutionService(StatelessService):
                         f"Status reverted to Approved for {termination_request.name} - retry enabled"
                     )
 
-        except Exception as revert_error:
+        # Runs after the failure, in a transaction a 1213 has already replaced. Re-raising
+        # here would substitute the revert's own error for the real one, which is the
+        # opposite of what this method exists to do.
+        except Exception as revert_error:  # non-resumable-ok: recovery after the failure
             self.logger.error(f"Failed to revert status for {termination_request.name}: {str(revert_error)}")
-
-        # Re-raise original exception
-        frappe.throw(_("Failed to execute termination: {0}").format(error_msg))
 
 
 def get_termination_execution_service() -> TerminationExecutionService:

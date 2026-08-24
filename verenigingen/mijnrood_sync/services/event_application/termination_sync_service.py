@@ -23,6 +23,7 @@ from verenigingen.mijnrood_sync.field_mapping import (
 )
 from verenigingen.mijnrood_sync.utils import safe_int
 from verenigingen.utils.service_logger import get_service_logger
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 logger = get_service_logger("verenigingen.mijnrood_sync", prefix="event_application.termination_sync")
 
@@ -142,6 +143,16 @@ class MijnRoodTerminationSyncService:
                 termination_doc.name,
                 member_name,
             )
+        # #475: the dispatcher one frame up was deliberately given an
+        # `except NON_RESUMABLE_DB_ERRORS` clause that rolls back, records and re-raises,
+        # with a comment saying every such clause below it re-raises so that frame must too.
+        # Converting the error into a return value here made that clause dead code for the
+        # termination path -- and the dispatcher then took its SUCCESS-path branch
+        # (`event.save()` + `frappe.db.commit()`), making a half-applied termination durable.
+        # Not even the generic `except`, which at least rolls back first.
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
+
         except Exception as e:
             self.logger.error(
                 "Termination request %s created but execution failed: %s",

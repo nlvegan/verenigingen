@@ -7,6 +7,7 @@ from verenigingen.utils.security.api_security_framework import (
     high_security_api,
     standard_api,
 )
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 # ===== Your existing functions from paste.txt go here =====
 
@@ -75,6 +76,8 @@ def validate_termination_readiness(member_name: str):
                     "Chapter Board Member", {"volunteer": volunteer_name, "is_active": 1}
                 )
                 board_positions += direct_board_positions
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
         except Exception:
             # If queries fail, that's OK - continue with 0
             pass
@@ -192,6 +195,8 @@ def validate_termination_readiness(member_name: str):
 
         return readiness
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         return {"ready": False, "error": str(e)}
 
@@ -255,6 +260,8 @@ def get_termination_impact_summary(member_name: str):
 
         return summary
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         return {"error": str(e)}
 
@@ -331,6 +338,8 @@ def process_overdue_termination_requests():
 
         return {"processed": len(overdue_requests)}
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.log_error(
             f"Error processing overdue termination requests: {str(e)}", "Termination Scheduler Error"
@@ -436,6 +445,8 @@ def generate_weekly_termination_report():
 
         return report_data
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.log_error(f"Error generating weekly termination report: {str(e)}", "Termination Report Error")
         return {"error": str(e)}
@@ -474,6 +485,8 @@ def get_termination_statistics():
 
         return stats
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         return {"error": str(e)}
 
@@ -603,6 +616,8 @@ def audit_termination_compliance():
 
         return audit_results
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.log_error(
             f"Error in termination compliance audit: {str(e)}", "Termination Compliance Audit Error"

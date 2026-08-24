@@ -71,6 +71,18 @@ def fix_all_missing_assignment_history():
         if volunteers_fixed > 0:
             teams_fixed += 1
 
+        # Per TEAM, and the reason is locks, not durability. add_assignment_history
+        # locks the Volunteer row it is about to rewrite (#436) and a row lock lives
+        # until the transaction ends, so committing once at the end would hold an
+        # X-lock on every volunteer this sweep touched -- across up to 100 teams --
+        # and block ordinary volunteer saves for the whole run. Same trade-off
+        # sync_all_donor_histories and bulk_update_payment_history make (#411).
+        #
+        # Safe here: this is an admin endpoint that owns its request, and the sweep
+        # only adds history rows that are missing, so a run that dies half way leaves
+        # the teams it finished correct.
+        frappe.db.commit()
+
     return {
         "success": True,
         "message": f"Fixed assignment history for {volunteers_fixed} volunteers across {teams_fixed} teams",

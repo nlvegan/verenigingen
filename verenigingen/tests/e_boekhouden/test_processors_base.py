@@ -22,21 +22,51 @@ from verenigingen.e_boekhouden.utils.processors.stock_processor import StockProc
 from verenigingen.e_boekhouden.utils.processors.transaction_coordinator import (
     TransactionCoordinator,
 )
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 
 
+@shared_fixture
 def _persist_eur_company():
-    """Return a EUR company name, creating a dedicated test company if needed.
+    """Return a DEDICATED EUR company name, creating it if needed.
 
     eBoekhouden is a Dutch (EUR) integration; the default ``_Test Company`` on the
     test sites is INR, which would break currency-sensitive logic.
+
+    Must be deterministic: this used to return ``get_value("Company",
+    {"default_currency": "EUR"}, "name")`` when any EUR company existed, which is not
+    "some EUR company" but the NEWEST one -- ``db.get_value`` has no ``order_by`` and
+    defaults to ``creation DESC`` -- i.e. whatever EUR company a co-tenant suite in the
+    shard created last. Its two identical siblings (``test_processors_stock``,
+    ``test_payment_entry_handler``) lost that borrow in the #394 sweep; this third copy
+    was the one that sweep missed. Always use our own named company so the fixture chain
+    is self-contained.
+
+    ``@shared_fixture`` because the company it builds is shared master data -- measured in
+    this repo, one test company insert brings 94 Accounts, 5 Warehouses, 2 Cost Centers,
+    the Company and a Property Setter with it. Until this change the only caller was
+    ``setUpClass``, where the captured-insert hook is not yet installed (it goes in at the
+    end of ``setUp``), so nothing could claim those rows. The pin below calls this from
+    inside a test BODY, which is on the other side of that boundary: without the decorator
+    a build there would be drained as that one test's property and taken away from every
+    later class in the shard (#328/#330). CLAUDE.md's rule is to mark a shared fixture at
+    its BUILD SITE, and this is the build site.
+
+    Scope note: there are **20** module-level/classmethod definitions of this same helper
+    name across ``tests/e_boekhouden`` and this is the only decorated one. That divergence
+    is the #444 shape, and it is NOT covered by
+    ``test_no_shared_fixture_helper_is_decorated_in_one_copy_and_not_its_clone`` --
+    measured: decorating this copy leaves that guard green, because the guard only inspects
+    METHODS whose class reaches ``EnhancedTestCase`` and these are module-level functions.
+    Decorating the other 19 changes the drain behaviour of 19 modules and needs its own
+    measured commit; this one is decorated because this change is what made it
+    body-reachable.
     """
-    existing = frappe.db.get_value("Company", {"default_currency": "EUR"}, "name")
-    if existing:
-        return existing
+    name = "EBKH EUR Test Co"
+    if frappe.db.exists("Company", name):
+        return name
 
     company = frappe.new_doc("Company")
-    company.company_name = "EBKH EUR Test Co"
+    company.company_name = name
     company.abbr = "EETC"
     company.default_currency = "EUR"
     company.country = "Netherlands"
@@ -71,6 +101,30 @@ class TestBaseProcessorHelpers(EnhancedTestCase):
 
     def _processor(self):
         return StockProcessor(self.company)
+
+    # ---- the fixture is OWNED, not borrowed ----
+
+    def test_persist_eur_company_ignores_a_newer_eur_company(self):
+        """``_persist_eur_company`` must resolve by NAME, never by currency.
+
+        This helper used to return the first ``default_currency == "EUR"`` company it
+        found, which -- because ``db.get_value`` has no ``order_by`` and so defaults to
+        ``creation DESC`` -- was the NEWEST EUR company on the site: whatever a co-tenant
+        suite in the shard created last. Its two identical siblings
+        (``test_processors_stock``, ``test_payment_entry_handler``) were fixed in the #394
+        sweep and this copy was missed; both of their docstrings already explain why.
+
+        Measured on test_site_2, 2026-08-23: 30 EUR companies, the borrow returned
+        ``'TEST EBkh Cleanup Cov Co'``, and one of the 30 has no receivable/income account
+        at all.
+        """
+        from verenigingen.tests.support.eur_company_decoy import newest_eur_company
+
+        with newest_eur_company() as decoy:
+            resolved = _persist_eur_company()
+
+        self.assertEqual(resolved, "EBKH EUR Test Co")
+        self.assertNotEqual(resolved, decoy)
 
     # ---- construction / cost center ----
 

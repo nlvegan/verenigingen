@@ -32,6 +32,8 @@ from verenigingen.tests.setup import (
     disable_workflow_action_emails,
     workflow_action_emails_disabled,
 )
+from verenigingen.tests.utils.paths import APP_ROOT
+from verenigingen.tests.utils.source_probes import called_names
 
 _WORKFLOW_ACTION_PKG = "frappe.workflow.doctype.workflow_action"
 
@@ -63,6 +65,10 @@ UNGUARDED_CALLS = {
         # Customer Group (~72), MijnRood dummy credentials (~33). Those counts
         # are the argument for failing here rather than logging (#309).
         "ensure_erpnext_base_masters",
+        # The root Territory. Swallowing it puts #516 back: the very next line
+        # links a child to a parent that does not exist, and the LinkValidationError
+        # lands in `setUpClass` of whichever module the shard packer put first.
+        "ensure_root_territory",
         "_seed_verenigingen_test_system_user",
         "ensure_payment_modes_exist",
         "_seed_default_leaf_customer_group",
@@ -70,12 +76,18 @@ UNGUARDED_CALLS = {
         "make_test_records",
         "ensure_fiscal_year_exists",
     },
+    "verenigingen/tests/utils/base.py": {
+        # `VereningingenTestCase.setUpClass` -> `ensure_netherlands_territory()`,
+        # which is where #516 raised and which now also seeds the root. This is
+        # the ONLY thing binding that half of the fix -- ~289 files are on this
+        # base and none of them notices its absence: deleting this call left both
+        # `test_harness_territory_root` (6/6) and this module (13/13) green, so
+        # the whole `VereningingenTestCase` side could be reverted unobserved.
+        # Measured by mutation, which is why the postcondition below now demands
+        # each named call be FOUND rather than only checking the file exists.
+        "ensure_netherlands_territory",
+    },
 }
-
-
-def _app_root() -> Path:
-    """The verenigingen app root, from this file rather than from the cwd."""
-    return Path(__file__).resolve().parents[2]
 
 
 class _WritesAreDropped:
@@ -154,7 +166,7 @@ class SetupCallsAreNotSwallowedTest(unittest.TestCase):
     def test_named_setup_calls_are_not_inside_a_try_except(self):
         offenders = []
         for rel_path, names in UNGUARDED_CALLS.items():
-            path = _app_root() / rel_path
+            path = APP_ROOT / rel_path
             self.assertTrue(path.exists(), f"{rel_path} moved; update this test")
             for name, lineno in _calls_guarded_by_except(path, names):
                 offenders.append(f"{rel_path}:{lineno} {name}()")
@@ -165,6 +177,30 @@ class SetupCallsAreNotSwallowedTest(unittest.TestCase):
             "These setup calls are wrapped in an except handler again. A failure "
             "there is not survivable in a useful way -- it resurfaces as unrelated "
             "failures elsewhere. See #309/#314.",
+        )
+
+    def test_every_named_setup_call_is_still_there_to_guard(self):
+        """A DELETED call passes the swallow guard above, which is worse.
+
+        `path.exists()` and "no offenders" are both satisfied by a file that no
+        longer calls the thing at all -- and a call that does not happen is the
+        failure mode this whole module is about (#309/#314). Measured: deleting
+        `ensure_netherlands_territory()` from `tests/utils/base.py` left
+        `test_harness_territory_root` 6/6 and this module 13/13 green (#516).
+        """
+        missing = []
+        for rel_path, names in UNGUARDED_CALLS.items():
+            path = APP_ROOT / rel_path
+            called = called_names(ast.parse(path.read_text(), filename=str(path)))
+            for name in sorted(names - called):
+                missing.append(f"{rel_path}: {name}()")
+
+        self.assertEqual(
+            [],
+            missing,
+            "These setup calls are named as must-not-be-swallowed but are no longer "
+            "called in that file. Either the setup step was dropped -- which is the "
+            "#309 failure mode, not a refactor -- or this table needs updating.",
         )
 
 

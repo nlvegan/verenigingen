@@ -1347,7 +1347,13 @@ class _MembershipApplication {
 	}
 
 	getPaymentMethod() {
-		return this.paymentMethod || this.state.get('payment_method') || '';
+		// The applicant's choice is on the page. `this.state` is written only by
+		// setPaymentMethod(), reached from the card UI (.payment-method-option /
+		// .payment-method-radio) that apply_for_membership does not render — so
+		// trusting state alone submitted showPaymentMethodFallback()'s seeded
+		// "Bank Transfer" for everyone, mandate path included (#420).
+		const checked = document.querySelector('input[name="payment_method"]:checked');
+		return (checked && checked.value) || this.paymentMethod || this.state.get('payment_method') || '';
 	}
 
 	// Auto-save now handled by StorageService

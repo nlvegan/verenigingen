@@ -212,9 +212,17 @@ class _SettingsTestBase(EnhancedTestCase):
 
         cls._orig_url = frappe.db.get_single_value(cls.SINGLE, "api_url")
         cls._orig_company = frappe.db.get_single_value(cls.SINGLE, "default_company")
-        cls._eur_company = (
-            frappe.db.get_value("Company", {"default_currency": "EUR"}, "name") or "_Test Company 2"
-        )
+        # OWNED by name, not scanned for. This was `get_value("Company",
+        # {"default_currency": "EUR"}, "name") or "_Test Company 2"`, and the first term is
+        # not "some EUR company": `db.get_value` has no `order_by` and so defaults to
+        # `creation DESC`, making it the NEWEST EUR company -- whatever a co-tenant suite in
+        # the shard created last. It is written into `E-Boekhouden Settings.default_company`
+        # for the whole class, so which company that is decided what these tests ran
+        # against. Measured on test_site_2, 2026-08-23: 30 EUR companies, and it resolved to
+        # an e_boekhouden fixture; one of the 30 has no receivable or income account at all.
+        from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+
+        cls._eur_company = get_eur_test_company()
 
         frappe.db.set_single_value(cls.SINGLE, "api_url", "https://api.example.com")
         frappe.db.set_single_value(cls.SINGLE, "default_company", cls._eur_company)
