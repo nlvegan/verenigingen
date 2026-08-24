@@ -489,6 +489,159 @@ class TestMatchByDescription(BTRBase):
         self.assertIsNotNone(match)
         self.assertEqual(match["reference"], it["invoice"].name)
 
+    def test_a_second_unpaid_invoice_makes_the_membership_match_ambiguous(self):
+        """Two unpaid invoices for one member is not a match, it is a choice (#559).
+
+        The branch resolved the invoice with
+        `frappe.db.get_value("Sales Invoice", {member, status in Unpaid/Overdue})`,
+        which returns ONE row ordered `creation` DESC -- asked of the system, not
+        assumed: `get_value` with a dict filter passes `order_by="creation"` into the
+        query builder, and on this site it returns the most recently created row.
+
+        So with two unpaid invoices the newest won, at 0.85 against a `>=` threshold
+        of 0.85, with no amount comparison anywhere -- and `create_reconciliation`
+        then allocated the deposit to it. Nothing about the deposit said which
+        invoice it was for.
+        """
+        it = self._make_member_with_invoice(first_name="AmbigMemb", grand_total=25.0)
+        # A second unpaid invoice for the SAME member, deliberately created later so
+        # it is the one `creation DESC` would hand back.
+        second = self.sepa.create_test_sales_invoice(
+            customer=it["customer"], member=it["member"].name, grand_total=90.0, submit=True
+        )
+        self.assertNotEqual(second.name, it["invoice"].name)
+
+        # A deposit matching NEITHER outstanding, so there is genuinely nothing to
+        # choose on. An earlier version of this test used 25.00, which equals the
+        # first invoice -- that is a discriminable case, not an ambiguous one, and
+        # the branch rightly resolved it. The test was wrong, not the code.
+        bt = self._make_bank_transaction(
+            deposit=17.50, description=f"MEMBERSHIP {it['membership'].name}"
+        )
+        match = self.mgr.match_by_description(self._txn_dict(bt))
+
+        if match is not None:
+            self.assertNotEqual(
+                match["reference"],
+                second.name,
+                "the newest invoice must not win by creation order alone",
+            )
+        self.assertIsNone(
+            match,
+            "with two candidate invoices and nothing to choose between them, this "
+            "branch must not produce an auto-postable match",
+        )
+
+    def test_two_invoices_of_the_same_amount_are_still_ambiguous(self):
+        """The amount discriminator has to actually discriminate.
+
+        Two unpaid invoices whose outstanding both equal the deposit narrow nothing:
+        picking either would be the same arbitrary choice, just reached through a
+        filter instead of through `creation` order.
+        """
+        it = self._make_member_with_invoice(first_name="TwinMemb", grand_total=40.0)
+        twin = self.sepa.create_test_sales_invoice(
+            customer=it["customer"], member=it["member"].name, grand_total=40.0, submit=True
+        )
+        self.assertNotEqual(twin.name, it["invoice"].name)
+
+        bt = self._make_bank_transaction(
+            deposit=40.0, description=f"MEMBERSHIP {it['membership'].name}"
+        )
+        self.assertIsNone(
+            self.mgr.match_by_description(self._txn_dict(bt)),
+            "two invoices matching the deposit equally well is still a choice",
+        )
+
+    def test_the_invoice_whose_outstanding_matches_the_deposit_is_chosen(self):
+        """When there IS something to choose on, choose on it.
+
+        Two unpaid invoices, one whose outstanding equals the deposit. That is a
+        discriminator the branch already had available and ignored.
+        """
+        it = self._make_member_with_invoice(first_name="PickMemb", grand_total=25.0)
+        newer = self.sepa.create_test_sales_invoice(
+            customer=it["customer"], member=it["member"].name, grand_total=90.0, submit=True
+        )
+        self.assertNotEqual(newer.name, it["invoice"].name)
+
+        # 25.00 matches the FIRST invoice; the newer 90.00 one is what creation
+        # order would otherwise hand back.
+        bt = self._make_bank_transaction(
+            deposit=25.0, description=f"MEMBERSHIP {it['membership'].name}"
+        )
+        match = self.mgr.match_by_description(self._txn_dict(bt))
+        self.assertIsNotNone(match, "an unambiguous amount match must still reconcile")
+        self.assertEqual(match["reference"], it["invoice"].name)
+
+    def test_a_single_unpaid_invoice_still_matches_a_partial_payment(self):
+        """The control, and the guarantee that must NOT be removed.
+
+        One candidate invoice is unambiguous even when the deposit is smaller than
+        the outstanding -- that is a legitimate partial payment, and
+        `create_payment_entry_from_transaction`'s guard bounds only the opposite
+        case. Passes against develop too; it is here so that "refuse when
+        ambiguous" cannot quietly become "refuse whenever the amount differs".
+        """
+        it = self._make_member_with_invoice(first_name="PartialMemb", grand_total=80.0)
+        bt = self._make_bank_transaction(
+            deposit=30.0, description=f"MEMBERSHIP {it['membership'].name}"
+        )
+        match = self.mgr.match_by_description(self._txn_dict(bt))
+        self.assertIsNotNone(match, "a single candidate is unambiguous, partial payment or not")
+        self.assertEqual(match["reference"], it["invoice"].name)
+
+    def test_a_draft_invoice_is_not_a_candidate(self):
+        """`docstatus: 1` is load-bearing, not decorative (#559).
+
+        veg11 carries 35 Sales Invoices with status Unpaid/Overdue and
+        `docstatus = 0`, 28 of them with a member -- a state ERPNext itself cannot
+        produce, since `set_status` assigns "Draft" whenever `docstatus != 1`. The
+        old query had no docstatus filter, so those matched at 0.85 and then failed
+        when the Payment Entry was built against a draft, leaving the transaction
+        permanently Unreconciled. This asserts the filter, which no other test does.
+        """
+        it = self._make_member_with_invoice(first_name="DraftMemb", grand_total=25.0)
+        # Exactly the shape measured on veg11: submitted-looking status, unsubmitted
+        # docstatus. Written directly because no ERPNext path produces it.
+        frappe.db.set_value(
+            "Sales Invoice", it["invoice"].name, {"docstatus": 0, "status": "Overdue"},
+            update_modified=False,
+        )
+        bt = self._make_bank_transaction(
+            deposit=25.0, description=f"MEMBERSHIP {it['membership'].name}"
+        )
+        self.assertIsNone(
+            self.mgr.match_by_description(self._txn_dict(bt)),
+            "a draft invoice must not be a reconciliation candidate",
+        )
+
+    def test_the_unambiguous_invoice_rule_directly(self):
+        """The helper itself, so the rule is pinned rather than only its outcome.
+
+        The four branch-level tests above assert on `match_by_description`'s return,
+        which `assertIsNone` would also satisfy if the branch broke outright -- the
+        regex ceasing to match, or `frappe.db.exists("Membership", ...)` going false.
+        This states each arm of the rule against the helper.
+        """
+        it = self._make_member_with_invoice(first_name="RuleMemb", grand_total=25.0)
+        member = it["member"].name
+
+        # 1: one candidate wins whatever the deposit, partial payment included
+        self.assertEqual(self.mgr._unambiguous_member_invoice(member, 25.0), it["invoice"].name)
+        self.assertEqual(self.mgr._unambiguous_member_invoice(member, 9.99), it["invoice"].name)
+
+        second = self.sepa.create_test_sales_invoice(
+            customer=it["customer"], member=member, grand_total=90.0, submit=True
+        )
+        # 2: several candidates, exactly one matching the amount
+        self.assertEqual(self.mgr._unambiguous_member_invoice(member, 25.0), it["invoice"].name)
+        self.assertEqual(self.mgr._unambiguous_member_invoice(member, 90.0), second.name)
+        # 3: several candidates, nothing to choose on
+        self.assertIsNone(self.mgr._unambiguous_member_invoice(member, 17.5))
+        # and no member at all
+        self.assertIsNone(self.mgr._unambiguous_member_invoice(None, 25.0))
+
     def test_unknown_invoice_falls_through_to_no_match(self):
         bt = self._make_bank_transaction(deposit=12345.67, description="INVOICE SINV-DOES-NOT-EXIST-XYZ")
         # Pattern matches but invoice doesn't exist, fuzzy fallback finds nothing.
