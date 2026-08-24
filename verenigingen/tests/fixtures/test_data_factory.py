@@ -141,13 +141,22 @@ class CoreTestDataFactory:
         idx = seq - 1
         base_name = names[idx % len(names)]
         if name_type == "last":
-            return f"{base_name}-{self.test_run_id[-5:]}{seq}"
+            # `frappe.generate_hash` because `test_run_id[-5:]` is a 10^5 space and
+            # constant per factory, so two factories built in the same microsecond
+            # produce the same last name -- and Customer uses full_name as its primary
+            # key, which is what this suffix exists to protect (#552).
+            return f"{base_name}-{self.test_run_id[-5:]}{seq}-{frappe.generate_hash(length=4)}"
         return base_name
 
     def _generate_email(self, purpose: str = "member") -> str:
         """Email generation with run-unique component to prevent collisions."""
         seq = self._get_next_sequence(f"email_{purpose}")
-        return f"test-{purpose}-{seq:04d}-{self.test_run_id}@test.invalid"
+        # Per-call entropy for the same reason as `_generate_name` and `_generate_member_id`:
+        # `test_run_id` is clock-derived and constant per factory, so two factories built in
+        # the same microsecond emit the same address. `Member.email` is not a UNIQUE column
+        # (those are `member_id`, `application_id`, `user`), so this is the lower-stakes of
+        # the three -- fixed together because they are the same defect (#552).
+        return f"test-{purpose}-{seq:04d}-{self.test_run_id}-{frappe.generate_hash(length=4)}@test.invalid"
 
     def _generate_member_id(self) -> str:
         """Generate explicit member_id to avoid autoname counter collisions.
