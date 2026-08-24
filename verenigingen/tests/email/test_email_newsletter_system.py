@@ -342,9 +342,14 @@ class TestEmailNewsletterSystemIntegration(EnhancedTestCase):
 
     def setup_test_data(self):
         """Create comprehensive test data with proper relationships"""
-        # Create test chapter with region
+        # Unique per test: ensure_test_chapter() is a get-or-create keyed on the
+        # document name, and this class appends roster rows to whatever it gets
+        # back. A fixed name is therefore shared with test_email_service_integration
+        # (same directory, also appends and saves) and accumulates across methods,
+        # which is what made the absolute recipient counts below order-dependent
+        # (#533, #531). Still tracked by the factory, so the drain removes it.
         self.test_chapter = self.factory.ensure_test_chapter(
-            "Integration Test Chapter",
+            f"Integration Test Chapter {frappe.generate_hash(length=6)}",
             {
                 "short_name": "ITC",
                 "introduction": "Chapter for integration testing",
@@ -725,9 +730,13 @@ class TestEmailNewsletterSystemPerformance(EnhancedTestCase):
     def setUp(self):
         super().setUp()
         self.segmentation_manager = AdvancedSegmentationManager()
-        # Create a test chapter for performance tests
+        # Unique per test: the fixed name was also created by
+        # tests/backend/components/test_chapter_assignment_edge_cases.py, which bulks
+        # a large roster onto it, and test_large_member_list_performance below asserts
+        # an ABSOLUTE recipient count on this chapter (#533, #531). A fresh chapter
+        # per method is what makes that count exact.
         self.test_chapter = self.factory.ensure_test_chapter(
-            "Performance Test Chapter",
+            f"Performance Test Chapter {frappe.generate_hash(length=6)}",
             {"short_name": "PERF"}
         )
         self.email_manager = SimplifiedEmailManager(self.test_chapter)
@@ -736,12 +745,11 @@ class TestEmailNewsletterSystemPerformance(EnhancedTestCase):
         """
         Test system performance with large member lists (1000+ members).
         """
-        # Create chapter for performance testing
-        perf_chapter = self.factory.ensure_test_chapter(
-            "Performance Test Chapter",
-            {"short_name": "PERF"}
-        )
-        
+        # setUp already built this chapter, under the same name and attributes; a
+        # second get-or-create on a now-unique name would create an unrelated empty
+        # one and leave this method's 50 members on the wrong chapter.
+        perf_chapter = self.test_chapter
+
         # Create many test members (limited number for test performance)
         start_time = time.time()
         member_count = 50  # Reduced for test execution time
@@ -807,7 +815,10 @@ class TestEmailNewsletterSystemPerformance(EnhancedTestCase):
             try:
                 result = self.segmentation_manager.get_combined_segments(
                     combination,
-                    chapter_name="Performance Test Chapter"
+                    # Take the name from the fixture, not a literal: the chapter is
+                    # now unique per test, and a stale literal would query a chapter
+                    # that does not exist while still returning a list.
+                    chapter_name=self.test_chapter.name
                 )
                 self.assertIsInstance(result, list)
             except Exception as e:

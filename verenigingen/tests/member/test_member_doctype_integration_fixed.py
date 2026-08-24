@@ -59,12 +59,13 @@ class TestMemberDoctypeIntegrationFixed(EnhancedTestCase):
         """Set up test environment with real database operations"""
         super().setUp()
 
-        # Create realistic test data using Enhanced Test Factory
-        self.test_chapter = self.factory.ensure_test_chapter("Member Test Chapter", {
-            "short_name": "MTC",
-            "country": "Netherlands",
-            "published": 1
-        })
+        # Unique per test: the fixed name was also claimed by
+        # test_member_doctype_integration.py, and ensure_test_chapter() is a
+        # get-or-create keyed on the name, so whichever ran first owned the row (#533).
+        self.test_chapter = self.factory.ensure_test_chapter(
+            f"Member Test Chapter {frappe.generate_hash(length=6)}",
+            {"short_name": "MTC", "country": "Netherlands", "published": 1},
+        )
     
     def test_member_creation_with_correct_fields(self):
         """Test member creation using the correct field names"""
