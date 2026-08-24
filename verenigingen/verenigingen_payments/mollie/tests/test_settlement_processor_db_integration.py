@@ -16,7 +16,11 @@ boundary) to a __new__-built instance so the real DB stamping logic runs.
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.tests.fixtures.mollie_account_fixtures import provisioned_mollie_settings
+from verenigingen.tests.fixtures.mollie_account_fixtures import (
+    ensure_bank_account_record,
+    ensure_mollie_gl_accounts,
+    provisioned_mollie_settings,
+)
 from verenigingen.verenigingen_payments.services.settlement_bank_transaction_processor import (
     SettlementBankTransactionProcessor,
 )
@@ -54,6 +58,36 @@ class TestValidateConfiguration(EnhancedTestCase):
         self.assertEqual(out["status"], "valid", f"expected a provisioned config to pass: {out}")
         self.assertTrue(out["bank_account"], "the Bank Account record the fixture creates must resolve")
         self.assertTrue(out["company"])
+
+    def test_one_account_as_both_clearing_and_bank_stops_settlement_processing(self):
+        """The #540 protection, end to end rather than at the validator's return dict.
+
+        This is veg11's live configuration: `mollie_bank_account ==
+        mollie_clearing_account == '10440 - Triodos 1 - TPIC - TPIC'`. Both fields
+        validate individually, so before the relationship guard this returned
+        `status: "valid"` and settlement processing proceeded -- against a single
+        account standing in for both ends of the payout transfer, in a leaked test
+        company. `process_settlement_deposit` returns immediately on
+        `status == "error"`, so this is what actually prevents the posting.
+        """
+        accounts = ensure_mollie_gl_accounts()
+        shared = accounts["clearing_account"]
+        # Give the shared account a Bank Account record, because veg11's has one
+        # ('BTR Test Company Account - BTR Test Bank'). Without this the method
+        # rejects the config for an UNRELATED reason -- "no Bank Account found
+        # linked to GL account" -- and the test would pass against develop while
+        # proving nothing. Measured: that is exactly what it did.
+        ensure_bank_account_record(accounts["company"], shared)
+
+        with provisioned_mollie_settings(mollie_bank_account=shared):
+            out = SettlementBankTransactionProcessor._validate_configuration(None)
+        self.assertEqual(out["status"], "error", "an incoherent account pair must stop processing")
+        self.assertIn(
+            "same",
+            out["error"].lower(),
+            "the refusal must be ABOUT the shared account, not an incidental "
+            f"missing-Bank-Account error: {out['error']}",
+        )
 
     def test_a_missing_clearing_account_stops_settlement_processing(self):
         """The pre-existing per-account validation still bites, and says which

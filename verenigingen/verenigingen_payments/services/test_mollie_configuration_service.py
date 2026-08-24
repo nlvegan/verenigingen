@@ -647,5 +647,86 @@ def run_tests():
     return runner.run(suite)
 
 
+class TestMollieAccountCoherence(FrappeTestCase):
+    """The two account fields must be coherent WITH EACH OTHER (#540).
+
+    `validate_all_mollie_accounts` used to check each account in isolation --
+    exists, is a leaf, `account_type == "Bank"` -- and so accepted veg11's real
+    configuration, in which `mollie_bank_account` and `mollie_clearing_account`
+    hold the SAME account:
+
+        mollie_bank_account     = '10440 - Triodos 1 - TPIC - TPIC'
+        mollie_clearing_account = '10440 - Triodos 1 - TPIC - TPIC'
+        Account('10440 ...').company = 'TEST-Payment-Integration-Company'
+
+    Both fields pass individually. Together they are a transfer from an account to
+    itself, which is exactly why #508's settlement payout leg was a no-op -- and the
+    deployment step written for #538 was "split these two fields", which would have
+    pointed a live settlement pipeline at a leaked test company's ledger.
+
+    Every test here provisions its own configuration through
+    `provisioned_mollie_settings`, so none of them depend on ambient Singles state.
+    """
+
+    def setUp(self):
+        MollieConfigurationService.clear_cache()
+        self.addCleanup(MollieConfigurationService.clear_cache)
+
+    def _validate(self, **overrides):
+        with provisioned_mollie_settings(**overrides):
+            return get_mollie_config().validate_all_mollie_accounts(raise_on_error=False)
+
+    def test_a_provisioned_configuration_is_valid(self):
+        """The control. Without it, every assertion below is equally consistent
+        with "the guard fires" and "validation rejects everything"."""
+        result = self._validate()
+        self.assertTrue(
+            result["valid"],
+            f"a coherent provisioned configuration must validate; errors: {result['errors']}",
+        )
+        self.assertEqual(result["errors"], [])
+
+    def test_one_account_used_as_both_clearing_and_bank_is_an_error(self):
+        """veg11's actual state, reproduced."""
+        accounts = ensure_mollie_gl_accounts()
+        result = self._validate(mollie_bank_account=accounts["clearing_account"])
+        self.assertFalse(result["valid"], "one account cannot be both ends of the payout transfer")
+        errors = " ".join(result["errors"]).lower()
+        self.assertIn("same", errors)
+
+    def test_accounts_in_different_companies_are_an_error(self):
+        """A clearing account in one company and a bank account in another would
+        post a cross-company transfer. Neither account is individually invalid, so
+        only a relationship check can catch it."""
+        accounts = ensure_mollie_gl_accounts()
+        # ONE query for "a leaf Bank account in some other company". Picking a
+        # company first and then looking inside it skipped this test on
+        # test_site_1: the company it happened to choose had no bank account, and a
+        # test that skips proves exactly as much as one that never ran.
+        foreign_bank = frappe.db.get_value(
+            "Account",
+            {"company": ["!=", accounts["company"]], "account_type": "Bank", "is_group": 0},
+            "name",
+        )
+        self.assertTrue(
+            foreign_bank,
+            "precondition: the site must have a leaf Bank account in some other company "
+            "for a cross-company pair to be constructible",
+        )
+
+        result = self._validate(mollie_bank_account=foreign_bank)
+        self.assertFalse(result["valid"], "the two accounts must belong to one company")
+        errors = " ".join(result["errors"]).lower()
+        self.assertIn("compan", errors)
+
+    def test_the_coherence_errors_also_raise_when_asked_to(self):
+        """`raise_on_error=True` is what a caller doing a pre-flight check uses, so
+        the new errors have to participate in it and not just in the result dict."""
+        accounts = ensure_mollie_gl_accounts()
+        with provisioned_mollie_settings(mollie_bank_account=accounts["clearing_account"]):
+            with self.assertRaises(frappe.ValidationError):
+                get_mollie_config().validate_all_mollie_accounts(raise_on_error=True)
+
+
 if __name__ == "__main__":
     unittest.main()

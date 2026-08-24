@@ -542,6 +542,64 @@ class MollieConfigurationService:
         return accounts
 
     @classmethod
+    def _account_relationship_errors(cls, settings, skip_settlement_account=False):
+        """Errors about the account PAIR rather than either account alone (#540).
+
+        Two invariants, both objective and neither requiring an accounting decision:
+
+        1. **The clearing account and the bank account must differ.** The settlement
+           payout books a transfer out of "held at Mollie, pre-payout" and into the
+           physical bank account. When one account is configured as both ends, that
+           transfer nets to nothing -- which is precisely what made #508's payout leg
+           a no-op on veg11, and it was invisible because both fields validated fine
+           on their own.
+
+        2. **They must belong to the same company.** A pair spanning two companies
+           would post one side of a transfer into each ledger. The documented
+           deployment step for #538 was "split these two fields"; executed against
+           veg11's leaked `TEST-Payment-Integration-Company` accounts it would have
+           enabled a live settlement pipeline booking into a test company.
+
+        Returned as errors rather than warnings on purpose: a caller doing a
+        pre-flight check with `raise_on_error=True` must not proceed past either.
+
+        The fees account is deliberately NOT company-checked here. It is optional,
+        and an expense account living in a different company is a different mistake
+        with a different fix; the two accounts checked here are the two ends of one
+        transfer.
+        """
+        clearing = settings.get("mollie_clearing_account")
+        bank = settings.get("mollie_bank_account")
+
+        # Nothing to relate if either side is absent or we were told to ignore the
+        # settlement side; the per-account loop has already reported what is missing,
+        # and adding a second error for the same cause only obscures it.
+        if not clearing or not bank or skip_settlement_account:
+            return []
+
+        if clearing == bank:
+            return [
+                _(
+                    "Clearing Account and Bank Account are the same account ({0}). "
+                    "The settlement payout transfers between them, so one account "
+                    "configured as both ends books nothing."
+                ).format(clearing)
+            ]
+
+        clearing_company = frappe.db.get_value("Account", clearing, "company")
+        bank_company = frappe.db.get_value("Account", bank, "company")
+        if clearing_company and bank_company and clearing_company != bank_company:
+            return [
+                _(
+                    "Clearing Account and Bank Account belong to different companies: "
+                    "{0} is in {1}, {2} is in {3}. Both ends of the settlement transfer "
+                    "must be in one company."
+                ).format(clearing, clearing_company, bank, bank_company)
+            ]
+
+        return []
+
+    @classmethod
     def validate_all_mollie_accounts(
         cls, raise_on_error: bool = True, skip_settlement_account: bool = False
     ) -> Dict[str, Any]:
@@ -644,6 +702,13 @@ class MollieConfigurationService:
                 error_msg = f"{account_purpose.replace('_', ' ').title()}: {str(e)}"
                 errors.append(error_msg)
                 validation_results[account_purpose] = {"valid": False, "error": str(e)}
+
+        # Relationship checks. Everything above validates each account in ISOLATION
+        # -- exists, is a leaf, account_type == "Bank" -- which is why veg11's real
+        # configuration passed: `mollie_bank_account` and `mollie_clearing_account`
+        # both held '10440 - Triodos 1 - TPIC - TPIC', a single account belonging to
+        # a leaked test company. Individually valid, jointly nonsense (#540).
+        errors.extend(cls._account_relationship_errors(settings, skip_settlement_account))
 
         overall_valid = len(errors) == 0
 
