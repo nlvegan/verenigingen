@@ -360,6 +360,7 @@ _make_mutation::2  # clone family, 100% of pairs near-identical
 _make_org_doc::2
 _make_org_donor::2
 _make_paid_donation::2
+_make_party_bank_account::2
 _make_payment_entry::3
 _make_payment_link::3
 _make_payment_mapping::2
