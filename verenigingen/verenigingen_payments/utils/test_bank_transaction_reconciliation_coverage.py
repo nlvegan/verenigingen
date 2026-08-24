@@ -2465,16 +2465,21 @@ class TestSettlementReferenceGate(MollieBase):
     whichever settlement it is handed -- so a coincidence posted accounting.
 
     The discriminator was already in the string the keyword check reads. Measured on
-    veg11's own ``tabBank Transaction`` (7,664 rows), every real Mollie payout carries
-    Mollie's settlement ``reference`` verbatim:
+    veg11's own ``tabBank Transaction``, over the 102 rows with a real Mollie
+    counterparty, the settlement ``reference`` is in the description:
 
         NL70CITI2032329018 CITINL2X Stichting Mollie Payments
         T13606591.2510.01 REF T13606591.2510.01 Mollie betalingen      (deposit 125.71)
 
     ``13606591.2510.01`` is ``Settlement.reference`` (``<merchantId>.<yyMM>.<seq>``,
     core/models/settlement.py:74). So the reference gates the auto-post, and an
-    amount-only candidate is returned BELOW the threshold for a human instead of
-    being reconciled unattended.
+    unconfirmed candidate is returned BELOW the threshold instead of being reconciled
+    unattended.
+
+    NOT "verbatim in every payout" -- that claim was made here on the strength of 25
+    rows and is false. One real payout has the reference broken across the bank's
+    line wrap, which is why the comparison squashes whitespace; see
+    ``test_a_reference_broken_across_a_line_wrap_still_auto_reconciles``.
     """
 
     #: The reference and description shapes above, copied from veg11.
@@ -2567,15 +2572,105 @@ class TestSettlementReferenceGate(MollieBase):
         )
         self.assertGreaterEqual(match["confidence"], self.mgr.match_threshold)
 
-    def test_a_referenced_settlement_with_a_mismatched_amount_is_not_a_match(self):
-        """The amount check stays the primary filter; the reference only decides
-        whether an amount-matching candidate may post unattended."""
+    def test_a_named_settlement_with_a_mismatched_amount_is_reported_not_dropped(self):
+        """The bank named this settlement and the amounts disagree.
+
+        Not a match -- it must not post -- but not nothing either: it is the most
+        actionable thing this matcher can say, so it comes back below the threshold
+        with both figures in the reason. Returning None here (the first version of
+        this change) threw the signal away.
+
+        Not hypothetical: on veg11 six settlement references each appear on TWO bank
+        lines -- a payout plus a separate donation credit on the same reference -- so
+        at most one of each pair can equal the settlement amount and the other lands
+        in exactly this branch, every month.
+        """
         match = self._match_on_mollie_account(
             deposit=125.71,
             description=self.REAL_DESCRIPTION,
             settlements=[self._settlement_payload("stl_WRONGAMT", "9999.00", reference=self.REAL_REFERENCE)],
         )
-        self.assertIsNone(match)
+        self.assertIsNotNone(match, "a named settlement with a wrong amount must not vanish")
+        self.assertEqual(match["reference"], "stl_WRONGAMT")
+        self.assertLess(match["confidence"], self.mgr.match_threshold)
+        self.assertIn("amounts differ", match["match_reason"])
+        self.assertIn("9999", match["match_reason"], "the reason must carry both figures")
+
+    def test_a_named_settlement_outranks_an_amount_twin_that_is_not_named(self):
+        """Priority between the two sub-threshold outcomes.
+
+        A named-but-discrepant settlement is more informative than an unnamed
+        amount coincidence, so it must be the one reported when both exist.
+        """
+        match = self._match_on_mollie_account(
+            deposit=125.71,
+            description=self.REAL_DESCRIPTION,
+            settlements=[
+                self._settlement_payload("stl_COINCIDENCE", "125.71", reference="13606591.2509.01"),
+                self._settlement_payload("stl_NAMEDBADAMT", "9999.00", reference=self.REAL_REFERENCE),
+            ],
+        )
+        self.assertIsNotNone(match)
+        self.assertEqual(match["reference"], "stl_NAMEDBADAMT")
+        self.assertLess(match["confidence"], self.mgr.match_threshold)
+
+    def test_a_reference_broken_across_a_line_wrap_still_auto_reconciles(self):
+        """The real veg11 row whose reference the bank split (S1).
+
+        Verbatim from `tabBank Transaction` ACC-BTN-2026-17556, 2023-10-02, deposit
+        93.22 -- the remittance text is wrapped at a fixed column and the break
+        landed INSIDE the reference, giving `T13606591.231 0.01`. Plain containment
+        returns False on it, so the first version of this change silently stopped
+        auto-reconciling that payout. 1 of the 102 real Mollie-counterparty rows on
+        veg11; the same wrap lands in "Mo llie betalingen" in other months, so the
+        column is fixed and the token it splits varies.
+        """
+        match = self._match_on_mollie_account(
+            deposit=93.22,
+            description=(
+                "NL70CITI2032329018 CITINL2X STICHTING MOLLIE PAYMENTS "
+                "509081651a68d4db7864.22175631 REF T13606591.231 0.01 Mollie betalingen"
+            ),
+            settlements=[self._settlement_payload("stl_WRAPPED", "93.22", reference="13606591.2310.01")],
+        )
+        self.assertIsNotNone(match)
+        self.assertGreaterEqual(
+            match["confidence"],
+            self.mgr.match_threshold,
+            "a reference broken by the bank's line wrap is still the bank naming it",
+        )
+        self.assertEqual(match["reference"], "stl_WRAPPED")
+
+    def test_a_degenerate_short_reference_is_not_an_identifier(self):
+        """The reference IS the security property, so it cannot be trusted blind.
+
+        A one- or two-character reference is contained in almost any description,
+        which would make the gate vacuous exactly when the upstream data is
+        degenerate. Below MIN_SETTLEMENT_REFERENCE_LENGTH it does not confirm.
+        """
+        match = self._match_on_mollie_account(
+            deposit=64.00,
+            description="mollie payout 0",
+            settlements=[self._settlement_payload("stl_SHORTREF", "64.00", reference="0")],
+        )
+        self.assertIsNotNone(match)
+        self.assertLess(
+            match["confidence"],
+            self.mgr.match_threshold,
+            "a 1-character reference must not be accepted as identification",
+        )
+
+    def test_an_unnamed_within_tolerance_match_is_also_below_the_threshold(self):
+        """The 0.92 tier, unconfirmed. Both other sub-threshold tests use exact
+        amounts, so without this the within-tolerance path is never exercised
+        against the gate."""
+        match = self._match_on_mollie_account(
+            deposit=1000.00,
+            description="mollie payout",
+            settlements=[self._settlement_payload("stl_TOLNOREF", "1000.50", reference="13606591.2509.01")],
+        )
+        self.assertIsNotNone(match)
+        self.assertLess(match["confidence"], self.mgr.match_threshold)
 
     def test_match_transaction_does_not_reconcile_a_keyword_only_settlement_deposit(self):
         """End-to-end: the outcome, not the confidence number.
@@ -2693,9 +2788,15 @@ class TestSettlementWindowFetchedOncePerRun(MollieBase):
                     bank_account=self._eur_bank_account, from_date=early, to_date=today()
                 )
                 windows = list(_StubSettlementsClient.windows)
-        self.assertEqual(
-            len(set(windows)), 2, f"two distinct date windows must both be fetched; got {windows}"
-        )
+        # Asserting `len(set(windows)) == 2` would be pollution-fragile: this runs
+        # against a SHARED bank account, so any leftover Pending transaction with a
+        # third date inside the 30-day range adds a window and reds the test on a
+        # co-tenanted shard. Assert the two windows are present, and separately that
+        # nothing was fetched twice -- which also upgrades this from a pure control
+        # into a discriminator for the cache KEY.
+        expected = {(str(add_days(d, -3)), str(add_days(d, 3))) for d in (today(), early)}
+        self.assertLessEqual(expected, set(windows), f"both date windows must be fetched; got {windows}")
+        self.assertEqual(len(windows), len(set(windows)), f"a window was fetched more than once: {windows}")
 
 
 if __name__ == "__main__":
