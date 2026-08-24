@@ -64,7 +64,7 @@ from decimal import Decimal
 from unittest import mock
 
 import frappe
-from frappe.utils import flt, getdate, today
+from frappe.utils import add_days, flt, getdate, today
 
 from verenigingen.tests.payment.test_bank_transaction_reconciliation import BTRBase
 from verenigingen.verenigingen_payments.utils import bank_transaction_reconciliation as btr
@@ -80,8 +80,13 @@ class _StubSettlementsClient:
 
     settlements = []
     payments = []
+    #: One entry per get_settlements_by_date_range call, as (date_from, date_to).
+    #: The COUNT is the subject of #546 -- the fetch used to run once per candidate
+    #: transaction -- so it has to be observed, not reasoned about.
+    windows = []
 
-    def get_settlements_by_date_range(self, _date_from, _date_to):
+    def get_settlements_by_date_range(self, date_from, date_to):
+        type(self).windows.append((str(date_from), str(date_to)))
         return list(type(self).settlements)
 
     def get_payments_for_settlement(self, _settlement_id):
@@ -96,6 +101,7 @@ class MollieBase(BTRBase):
         """Swap the module-level SettlementsClient for the canned-payload stub."""
         _StubSettlementsClient.settlements = settlements or []
         _StubSettlementsClient.payments = payments or []
+        _StubSettlementsClient.windows = []
         original = btr.SettlementsClient
         btr.SettlementsClient = _StubSettlementsClient
         try:
@@ -206,6 +212,18 @@ class MollieBase(BTRBase):
             }
         }
 
+    def _settlement_payload(self, settlement_id, value, reference=None):
+        """A settlement in the API's raw dict shape, as the client returns it.
+
+        ``reference`` is Mollie's own bank reference and is omitted ENTIRELY when
+        None -- an absent key and a non-matching value are different states, and
+        both have to stay non-postable (#547).
+        """
+        payload = {"id": settlement_id, "amount": {"value": value, "currency": "EUR"}}
+        if reference is not None:
+            payload["reference"] = reference
+        return payload
+
     def _match(self, settlement_id, amount="30.00", stated_costs=None):
         """A ``mollie_settlement`` match as ``match_mollie_settlement`` returns one.
 
@@ -267,15 +285,27 @@ class MollieBase(BTRBase):
 # =============================================================================
 class TestMatchMollieSettlementLive(MollieBase):
     def test_amount_match_returns_settlement_match(self):
+        """An exact amount on a settlement the bank named -> 0.98.
+
+        The description carries the settlement's `reference`, which is what makes
+        the match auto-postable at all (#547). Before that gate this test passed on
+        the keyword alone; the tier it is really about -- exact 0.98 vs
+        within-tolerance 0.92 -- is unchanged, it just applies to CONFIRMED matches
+        now. The unconfirmed tier is TestSettlementReferenceGate's subject.
+        """
         bank_gl = frappe.db.get_value("Company", self.company, "default_bank_account")
         bt = self._make_bank_transaction(
             deposit=123.45,
-            description="Mollie settlement payout",
+            description="Mollie settlement payout REF T13606591.2510.01",
             date=today(),
             bank_account=self._eur_bank_account,
         )
         txn = self._txn_dict(bt)
-        settlement = {"id": "stl_TESTMATCH", "amount": {"value": "123.45", "currency": "EUR"}}
+        settlement = {
+            "id": "stl_TESTMATCH",
+            "amount": {"value": "123.45", "currency": "EUR"},
+            "reference": "13606591.2510.01",
+        }
         with self._mollie_settings(bank_account=bank_gl):
             with self._stub_client(settlements=[settlement]):
                 match = self.mgr.match_mollie_settlement(txn)
@@ -286,13 +316,23 @@ class TestMatchMollieSettlementLive(MollieBase):
         self.assertEqual(match["settlement_data"], settlement)
 
     def test_within_tolerance_lower_confidence(self):
+        """A confirmed match still drops 0.98 -> 0.92 when the amount is only
+        within tolerance. As above, the description carries the reference so the
+        tier under test is the amount tier, not the confirmation gate (#547)."""
         bank_gl = frappe.db.get_value("Company", self.company, "default_bank_account")
         bt = self._make_bank_transaction(
-            deposit=1000.00, description="mollie payout", date=today(), bank_account=self._eur_bank_account
+            deposit=1000.00,
+            description="mollie payout REF T13606591.2510.02",
+            date=today(),
+            bank_account=self._eur_bank_account,
         )
         txn = self._txn_dict(bt)
         # 0.5 off 1000 is within the 0.1% tolerance window (1.0) -> within_tolerance.
-        settlement = {"id": "stl_TOL", "amount": {"value": "1000.50", "currency": "EUR"}}
+        settlement = {
+            "id": "stl_TOL",
+            "amount": {"value": "1000.50", "currency": "EUR"},
+            "reference": "13606591.2510.02",
+        }
         with self._mollie_settings(bank_account=bank_gl):
             with self._stub_client(settlements=[settlement]):
                 match = self.mgr.match_mollie_settlement(txn)
@@ -2409,6 +2449,354 @@ class TestProcessSepaReturnFileLoop(MollieBase):
             fields=["content"],
         )
         self.assertTrue(any("SEPA payment accepted" in (c.get("content") or "") for c in comments))
+
+
+# =============================================================================
+# match_mollie_settlement — the bank reference is the discriminator (#547)
+# =============================================================================
+class TestSettlementReferenceGate(MollieBase):
+    """Amount + date + keyword must not be enough to auto-post accounting (#547).
+
+    The matcher used to return 0.98 (exact amount) or 0.92 (within a 0.1% window)
+    against a ``match_threshold`` of 0.85, on three criteria: amount, a +/-3 day
+    date window, and the description containing one of ``mollie|settlement|payout``.
+    Nothing identified the *counterparty* or the *settlement*, and
+    ``create_reconciliation`` books Payment Entries and a fee Journal Entry against
+    whichever settlement it is handed -- so a coincidence posted accounting.
+
+    The discriminator was already in the string the keyword check reads. Measured on
+    veg11's own ``tabBank Transaction``, over the 102 rows with a real Mollie
+    counterparty, the settlement ``reference`` is in the description:
+
+        NL70CITI2032329018 CITINL2X Stichting Mollie Payments
+        T13606591.2510.01 REF T13606591.2510.01 Mollie betalingen      (deposit 125.71)
+
+    ``13606591.2510.01`` is ``Settlement.reference`` (``<merchantId>.<yyMM>.<seq>``,
+    core/models/settlement.py:74). So the reference gates the auto-post, and an
+    unconfirmed candidate is returned BELOW the threshold instead of being reconciled
+    unattended.
+
+    NOT "verbatim in every payout" -- that claim was made here on the strength of 25
+    rows and is false. One real payout has the reference broken across the bank's
+    line wrap, which is why the comparison squashes whitespace; see
+    ``test_a_reference_broken_across_a_line_wrap_still_auto_reconciles``.
+    """
+
+    #: The reference and description shapes above, copied from veg11.
+    REAL_REFERENCE = "13606591.2510.01"
+    REAL_DESCRIPTION = (
+        "NL70CITI2032329018 CITINL2X Stichting Mollie Payments "
+        "T13606591.2510.01 REF T13606591.2510.01 Mollie betalingen"
+    )
+
+    def _match_on_mollie_account(self, *, deposit, description, settlements):
+        bank_gl = frappe.db.get_value("Company", self.company, "default_bank_account")
+        bt = self._make_bank_transaction(
+            deposit=deposit,
+            description=description,
+            date=today(),
+            bank_account=self._eur_bank_account,
+        )
+        with self._mollie_settings(bank_account=bank_gl):
+            with self._stub_client(settlements=settlements):
+                return self.mgr.match_mollie_settlement(self._txn_dict(bt))
+
+    def test_amount_and_keyword_alone_do_not_clear_the_auto_match_threshold(self):
+        """The #547 case: a coincidence must not auto-post.
+
+        Exact amount, a mollie keyword, inside the date window -- and a settlement
+        whose reference is NOT in the description. Before the fix this returned 0.98
+        and reconciled unattended.
+        """
+        match = self._match_on_mollie_account(
+            deposit=123.45,
+            description="Incoming payout from a customer",
+            settlements=[self._settlement_payload("stl_NOREF", "123.45", reference="13606591.2509.01")],
+        )
+        self.assertIsNotNone(match, "the candidate is still reported, just not auto-postable")
+        self.assertLess(
+            match["confidence"],
+            self.mgr.match_threshold,
+            "amount+date+keyword with no reference must stay below the auto-match "
+            "threshold, or create_reconciliation books accounting on a coincidence",
+        )
+
+    def test_a_settlement_carrying_no_reference_at_all_cannot_clear_the_threshold(self):
+        """An absent `reference` key is not the same as a non-matching one, and
+        neither identifies the deposit."""
+        match = self._match_on_mollie_account(
+            deposit=500.00,
+            description="mollie settlement payout",
+            settlements=[self._settlement_payload("stl_NOKEY", "500.00")],
+        )
+        self.assertIsNotNone(match)
+        self.assertLess(match["confidence"], self.mgr.match_threshold)
+
+    def test_the_bank_reference_in_the_description_clears_the_threshold(self):
+        """The real veg11 payout shape still auto-reconciles.
+
+        NOT a discriminating test on its own -- develop returns 0.98 here too. It
+        pins that the gate does not close on the traffic it exists to match, which
+        is the failure mode the `is_company_account` filter had (#544).
+        """
+        match = self._match_on_mollie_account(
+            deposit=125.71,
+            description=self.REAL_DESCRIPTION,
+            settlements=[self._settlement_payload("stl_REAL", "125.71", reference=self.REAL_REFERENCE)],
+        )
+        self.assertIsNotNone(match)
+        self.assertGreaterEqual(match["confidence"], self.mgr.match_threshold)
+        self.assertEqual(match["reference"], "stl_REAL")
+
+    def test_the_referenced_settlement_wins_over_an_earlier_amount_twin(self):
+        """Two settlements, same amount, one referenced in the description.
+
+        Develop returns the FIRST amount match in list order, so ordering the
+        unreferenced twin first makes this fail against develop -- it picks
+        `stl_TWIN` and posts against the wrong settlement. Same class of ambiguity
+        as #544, one layer in.
+        """
+        match = self._match_on_mollie_account(
+            deposit=250.00,
+            description=self.REAL_DESCRIPTION,
+            settlements=[
+                self._settlement_payload("stl_TWIN", "250.00", reference="13606591.2509.01"),
+                self._settlement_payload("stl_NAMED", "250.00", reference=self.REAL_REFERENCE),
+            ],
+        )
+        self.assertIsNotNone(match)
+        self.assertEqual(
+            match["reference"],
+            "stl_NAMED",
+            "the settlement the bank actually named must win over an amount twin",
+        )
+        self.assertGreaterEqual(match["confidence"], self.mgr.match_threshold)
+
+    def test_a_named_settlement_with_a_mismatched_amount_is_reported_not_dropped(self):
+        """The bank named this settlement and the amounts disagree.
+
+        Not a match -- it must not post -- but not nothing either: it is the most
+        actionable thing this matcher can say, so it comes back below the threshold
+        with both figures in the reason. Returning None here (the first version of
+        this change) threw the signal away.
+
+        Not hypothetical: on veg11 six settlement references each appear on TWO bank
+        lines -- a payout plus a separate donation credit on the same reference -- so
+        at most one of each pair can equal the settlement amount and the other lands
+        in exactly this branch, every month.
+        """
+        match = self._match_on_mollie_account(
+            deposit=125.71,
+            description=self.REAL_DESCRIPTION,
+            settlements=[self._settlement_payload("stl_WRONGAMT", "9999.00", reference=self.REAL_REFERENCE)],
+        )
+        self.assertIsNotNone(match, "a named settlement with a wrong amount must not vanish")
+        self.assertEqual(match["reference"], "stl_WRONGAMT")
+        self.assertLess(match["confidence"], self.mgr.match_threshold)
+        self.assertIn("amounts differ", match["match_reason"])
+        self.assertIn("9999", match["match_reason"], "the reason must carry both figures")
+
+    def test_a_named_settlement_outranks_an_amount_twin_that_is_not_named(self):
+        """Priority between the two sub-threshold outcomes.
+
+        A named-but-discrepant settlement is more informative than an unnamed
+        amount coincidence, so it must be the one reported when both exist.
+        """
+        match = self._match_on_mollie_account(
+            deposit=125.71,
+            description=self.REAL_DESCRIPTION,
+            settlements=[
+                self._settlement_payload("stl_COINCIDENCE", "125.71", reference="13606591.2509.01"),
+                self._settlement_payload("stl_NAMEDBADAMT", "9999.00", reference=self.REAL_REFERENCE),
+            ],
+        )
+        self.assertIsNotNone(match)
+        self.assertEqual(match["reference"], "stl_NAMEDBADAMT")
+        self.assertLess(match["confidence"], self.mgr.match_threshold)
+
+    def test_a_reference_broken_across_a_line_wrap_still_auto_reconciles(self):
+        """The real veg11 row whose reference the bank split (S1).
+
+        Verbatim from `tabBank Transaction` ACC-BTN-2026-17556, 2023-10-02, deposit
+        93.22 -- the remittance text is wrapped at a fixed column and the break
+        landed INSIDE the reference, giving `T13606591.231 0.01`. Plain containment
+        returns False on it, so the first version of this change silently stopped
+        auto-reconciling that payout. 1 of the 102 real Mollie-counterparty rows on
+        veg11; the same wrap lands in "Mo llie betalingen" in other months, so the
+        column is fixed and the token it splits varies.
+        """
+        match = self._match_on_mollie_account(
+            deposit=93.22,
+            description=(
+                "NL70CITI2032329018 CITINL2X STICHTING MOLLIE PAYMENTS "
+                "509081651a68d4db7864.22175631 REF T13606591.231 0.01 Mollie betalingen"
+            ),
+            settlements=[self._settlement_payload("stl_WRAPPED", "93.22", reference="13606591.2310.01")],
+        )
+        self.assertIsNotNone(match)
+        self.assertGreaterEqual(
+            match["confidence"],
+            self.mgr.match_threshold,
+            "a reference broken by the bank's line wrap is still the bank naming it",
+        )
+        self.assertEqual(match["reference"], "stl_WRAPPED")
+
+    def test_a_degenerate_short_reference_is_not_an_identifier(self):
+        """The reference IS the security property, so it cannot be trusted blind.
+
+        A one- or two-character reference is contained in almost any description,
+        which would make the gate vacuous exactly when the upstream data is
+        degenerate. Below MIN_SETTLEMENT_REFERENCE_LENGTH it does not confirm.
+        """
+        match = self._match_on_mollie_account(
+            deposit=64.00,
+            description="mollie payout 0",
+            settlements=[self._settlement_payload("stl_SHORTREF", "64.00", reference="0")],
+        )
+        self.assertIsNotNone(match)
+        self.assertLess(
+            match["confidence"],
+            self.mgr.match_threshold,
+            "a 1-character reference must not be accepted as identification",
+        )
+
+    def test_an_unnamed_within_tolerance_match_is_also_below_the_threshold(self):
+        """The 0.92 tier, unconfirmed. Both other sub-threshold tests use exact
+        amounts, so without this the within-tolerance path is never exercised
+        against the gate."""
+        match = self._match_on_mollie_account(
+            deposit=1000.00,
+            description="mollie payout",
+            settlements=[self._settlement_payload("stl_TOLNOREF", "1000.50", reference="13606591.2509.01")],
+        )
+        self.assertIsNotNone(match)
+        self.assertLess(match["confidence"], self.mgr.match_threshold)
+
+    def test_match_transaction_does_not_reconcile_a_keyword_only_settlement_deposit(self):
+        """End-to-end: the outcome, not the confidence number.
+
+        `match_transaction` takes the max confidence across strategies and reconciles
+        above the threshold, so this is what decides whether accounting is posted.
+        Fully staged so that the ONLY thing stopping the post is the gate: a clearing
+        account, a member invoice, and a Mollie payment that covers it, i.e. exactly
+        the fixture `TestCreateReconciliationMollieBranch` uses to reconcile
+        successfully. Against develop this books a Payment Entry and marks the
+        transaction Reconciled.
+
+        An earlier version of this test asserted the same thing with no payments in
+        the settlement, and passed against develop -- not because the match was
+        refused but because there was nothing to book. It proved nothing.
+        """
+        self._ensure_eur_company_cost_center()
+        clearing = self._make_gl_account("Mollie Clearing RefGate", root_type="Asset", account_type="Bank")
+        bank_gl = frappe.db.get_value("Company", self.company, "default_bank_account")
+        it = self._make_member_with_invoice(first_name="Zzqref", grand_total=777.13)
+        bt = self._make_bank_transaction(
+            deposit=777.13,
+            description="mollie payout received",
+            date=today(),
+            bank_account=self._eur_bank_account,
+            status="Pending",
+        )
+        txn = self._txn_dict(bt)
+        # Settlement amount matches the deposit exactly; its reference does not appear
+        # in the description.
+        settlements = [self._settlement_payload("stl_NOTMINE", "777.13", reference="13606591.2509.01")]
+        payment = self._mollie_payment(value="777.13", invoice_id=it["invoice"].name)
+        with self._mollie_settings(clearing_account=clearing, bank_account=bank_gl):
+            with self._stub_client(settlements=settlements, payments=[payment]):
+                candidate = self.mgr.match_mollie_settlement(txn)
+                reconciled = self.mgr.match_transaction(txn)
+
+        # Staging check: the settlement WAS found and amount-matched, so the gate is
+        # the only thing between it and create_reconciliation.
+        self.assertIsNotNone(candidate, "staging error: no settlement candidate, so nothing was gated")
+        self.assertEqual(candidate["reference"], "stl_NOTMINE")
+
+        self.assertFalse(reconciled, "a keyword-only settlement deposit must not reconcile")
+        self.assertEqual(
+            frappe.db.get_value("Bank Transaction", bt.name, "status"),
+            "Pending",
+            "the transaction must be left for a human, not marked reconciled",
+        )
+        self.assertFalse(
+            frappe.db.exists("Payment Entry", {"custom_mollie_payment_id": payment["id"]}),
+            "no Payment Entry may be booked against a settlement nothing identified",
+        )
+
+
+# =============================================================================
+# match_mollie_settlement — one settlement fetch per run, not per transaction (#546)
+# =============================================================================
+class TestSettlementWindowFetchedOncePerRun(MollieBase):
+    """`get_settlements_by_date_range` pages Mollie's ENTIRE settlement history and
+    filters in memory (clients/settlements_client.py: `self.get("settlements",
+    paginated=True)`), and unlike its two siblings `get_settlement` /
+    `list_settlements` it does not go through `get_cached`. It was called once per
+    candidate transaction from inside `match_mollie_settlement`, so a reconciliation
+    run downloaded that history N times (#546).
+    """
+
+    def test_the_settlement_window_is_fetched_once_for_transactions_sharing_a_date(self):
+        bank_gl = frappe.db.get_value("Company", self.company, "default_bank_account")
+        # Amounts deliberately match no settlement: the fetch happens BEFORE the
+        # amount comparison, so this measures the fetch count without letting any
+        # transaction reconcile and post accounting either side of the fix.
+        for amount in (11.11, 22.22, 33.33):
+            self._make_bank_transaction(
+                deposit=amount,
+                description="mollie settlement payout",
+                date=today(),
+                bank_account=self._eur_bank_account,
+                status="Pending",
+            )
+        settlements = [self._settlement_payload("stl_MISS", "9999.00")]
+        with self._mollie_settings(bank_account=bank_gl):
+            with self._stub_client(settlements=settlements):
+                result = self.mgr.reconcile_bank_transactions(
+                    bank_account=self._eur_bank_account, from_date=today(), to_date=today()
+                )
+                windows = list(_StubSettlementsClient.windows)
+        self.assertGreaterEqual(
+            result["total_transactions"], 3, "precondition: the three transactions were candidates"
+        )
+        self.assertEqual(
+            len(windows),
+            1,
+            f"the settlement history must be downloaded once per run, not once per "
+            f"transaction; windows requested: {windows}",
+        )
+
+    def test_a_second_window_is_still_fetched(self):
+        """The control: the cache is keyed on the window, so it must not serve one
+        window's settlements for another. Without this, `len(windows) == 1` above is
+        equally consistent with "fetches once" and "never fetches again"."""
+        bank_gl = frappe.db.get_value("Company", self.company, "default_bank_account")
+        early = add_days(today(), -30)
+        for date in (today(), early):
+            self._make_bank_transaction(
+                deposit=44.44,
+                description="mollie settlement payout",
+                date=date,
+                bank_account=self._eur_bank_account,
+                status="Pending",
+            )
+        settlements = [self._settlement_payload("stl_MISS2", "9999.00")]
+        with self._mollie_settings(bank_account=bank_gl):
+            with self._stub_client(settlements=settlements):
+                self.mgr.reconcile_bank_transactions(
+                    bank_account=self._eur_bank_account, from_date=early, to_date=today()
+                )
+                windows = list(_StubSettlementsClient.windows)
+        # Asserting `len(set(windows)) == 2` would be pollution-fragile: this runs
+        # against a SHARED bank account, so any leftover Pending transaction with a
+        # third date inside the 30-day range adds a window and reds the test on a
+        # co-tenanted shard. Assert the two windows are present, and separately that
+        # nothing was fetched twice -- which also upgrades this from a pure control
+        # into a discriminator for the cache KEY.
+        expected = {(str(add_days(d, -3)), str(add_days(d, 3))) for d in (today(), early)}
+        self.assertLessEqual(expected, set(windows), f"both date windows must be fetched; got {windows}")
+        self.assertEqual(len(windows), len(set(windows)), f"a window was fetched more than once: {windows}")
 
 
 if __name__ == "__main__":

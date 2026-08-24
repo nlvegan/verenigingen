@@ -17,6 +17,50 @@ from verenigingen.verenigingen_payments.clients.settlements_client import Settle
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 from verenigingen.verenigingen_payments.utils.shared.money import safe_decimal
 
+#: Confidence for a Mollie settlement the bank description does NOT name (#547).
+#:
+#: Deliberately below ``PaymentReconciliationManager.match_threshold`` (0.85), which
+#: is what ``match_transaction`` compares against before calling
+#: ``create_reconciliation``. Raising this above the threshold reinstates #547.
+#:
+#: What this DOES buy: the transaction is left ``Pending`` and unallocated, so it
+#: stays in the operator's bank-reconciliation queue instead of being booked against
+#: a guess. What it does NOT buy, contrary to an earlier version of this comment:
+#: the ``match_reason`` built below is not persisted anywhere. ``match_transaction``
+#: returns False on a sub-threshold best match and writes nothing -- no comment, no
+#: Error Log -- so WHICH settlement nearly matched, and why it was refused, is
+#: currently discarded for every strategy, not just this one. Filed separately;
+#: do not restate the visibility claim until something reads this string.
+SETTLEMENT_UNCONFIRMED_CONFIDENCE = 0.60
+
+#: Minimum length for a settlement `reference` to be trusted as an identifier.
+#:
+#: The reference is an external string and it IS the security property here: a
+#: one- or two-character value would be contained in almost any description, making
+#: the gate vacuous exactly when the upstream data is degenerate. Mollie's documented
+#: shape is `<merchantId>.<yyMM>.<seq>` (16 chars on this account). A length floor
+#: rather than a shape regex on purpose -- a strict pattern that Mollie later widens
+#: would close the gate outright, which is the failure mode `is_company_account: 1`
+#: had in #544.
+MIN_SETTLEMENT_REFERENCE_LENGTH = 8
+
+
+def _squash_whitespace(value):
+    """Drop ALL whitespace, so a reference broken across a wrap still compares.
+
+    Measured on veg11: the bank breaks the remittance text at a fixed column, and
+    in one real settlement payout the break landed INSIDE the reference --
+
+        ... 509081651a68d4db7864.22175631 REF T13606591.231 0.01 Mollie betalingen
+
+    which is `13606591.2310.01` with a space in it. Plain containment returns False
+    there and the payout silently stops auto-reconciling. The same wrap lands in
+    "Mo llie betalingen" in other months, so the column is fixed and the token it
+    splits depends on the length of the variable-length payment id before it: it
+    can hit the reference again.
+    """
+    return re.sub(r"\s+", "", value or "")
+
 
 def _log_error_with_traceback(title, reason):
     """Write an Error Log row that keeps BOTH the reason and the stack frame.
@@ -81,6 +125,8 @@ class PaymentReconciliationManager:
         self._validate_bank_transaction_fields()
         self._validate_mollie_accounts()
         self._processed_mollie_payments = set()  # Track processed payment IDs
+        # (window) -> settlements, for the length of this run. See _settlements_in_window.
+        self._settlement_window_cache = {}
 
     def _validate_mollie_accounts(self):
         """
@@ -471,35 +517,122 @@ class PaymentReconciliationManager:
             return None
 
         try:
-            # Initialize Mollie clients to fetch settlement data
-            settlements_client = SettlementsClient()
-
             # Get settlements around the transaction date
             from frappe.utils import add_days
 
             date_from = add_days(transaction["date"], -3)
             date_to = add_days(transaction["date"], 3)
 
-            settlements = settlements_client.get_settlements_by_date_range(date_from, date_to)
+            settlements = self._settlements_in_window(date_from, date_to)
 
-            # Look for exact amount match with proper decimal precision
+            # The amount is the primary filter; Mollie's own bank reference decides
+            # whether an amount-matching candidate may reconcile UNATTENDED (#547).
+            #
+            # Amount + a +/-3 day window + one of `mollie|settlement|payout` in the
+            # description used to return 0.98 (or 0.92 within the 0.1% tolerance),
+            # both above `match_threshold` of 0.85, and `create_reconciliation` books
+            # Payment Entries and a fee Journal Entry against whatever settlement it
+            # is handed. Nothing identified the counterparty or the settlement, so a
+            # coincidence posted accounting -- and on an account with ordinary
+            # traffic "payout" is not a rare word and 0.1% of a four-figure amount is
+            # several euros wide.
+            #
+            # The discriminator was already inside the string the keyword check reads.
+            # Measured over veg11's Bank Transactions, 102 rows with a real Mollie
+            # counterparty: the settlement's own bank reference is in the description --
+            #
+            #   NL70CITI2032329018 CITINL2X Stichting Mollie Payments
+            #   T13606591.2510.01 REF T13606591.2510.01 Mollie betalingen
+            #
+            # where `13606591.2510.01` is `Settlement.reference` (`<merchantId>.<yyMM>.<seq>`,
+            # core/models/settlement.py). The raw dicts this loop iterates do carry the
+            # key: `bulk_transaction_importer` already reads `settlement.get("reference")`
+            # off the same `get_settlements_by_date_range` output, so this is not the
+            # gate-closes-on-everything failure of #544.
+            #
+            # NOT "verbatim in every payout", which an earlier version of this comment
+            # claimed on the strength of 25 rows: exactly one real payout has the
+            # reference broken across a line wrap, which is why both sides are
+            # whitespace-squashed. See `_squash_whitespace`.
+            #
+            # Demoting below the threshold hands the transaction to the other
+            # strategies, which at 0.98 could never outrank this one. Measured over the
+            # same 102 rows, none of them can post either: `match_by_batch_reference`
+            # and all four `match_by_description` regexes score 0 hits (no INVOICE /
+            # MEMBERSHIP / MEMBER ID / MANDATE / BATCH- token appears), the
+            # `reference_number` is always an `EB-####` eBoekhouden id that matches no
+            # Direct Debit Batch or Sales Invoice, and `fuzzy_match_member_name` peaks
+            # at 0.2556 similarity against 743 member names where it needs 0.9444 to
+            # clear 0.85.
+            amount_only_candidate = None
+            named_but_amount_differs = None
+            amount_decimal = self._safe_decimal(amount)
+            squashed_description = _squash_whitespace(description)
+
             for settlement in settlements:
                 settlement_amount = self._safe_decimal(settlement.get("amount", {}).get("value", 0))
-                amount_decimal = self._safe_decimal(amount)
 
                 is_valid, match_type, difference = self._validate_transaction_amount(
                     amount_decimal, settlement_amount, tolerance_percent=0.1  # 0.1% tolerance
                 )
+                named = self._description_names_settlement(squashed_description, settlement)
 
-                if is_valid:
-                    confidence = 0.98 if match_type == "exact_match" else 0.92
-                    return {
-                        "type": "mollie_settlement",
-                        "reference": settlement.get("id"),
-                        "confidence": confidence,
-                        "match_reason": f"Mollie settlement {settlement.get('id')} {match_type} (diff: €{difference})",
-                        "settlement_data": settlement,
-                    }
+                if is_valid and named:
+                    return self._settlement_match(
+                        settlement,
+                        confidence=0.98 if match_type == "exact_match" else 0.92,
+                        reason=(
+                            f"Mollie settlement {settlement.get('id')} {match_type} "
+                            f"(diff: EUR {difference}), bank reference {settlement.get('reference')!r} "
+                            f"found in the description"
+                        ),
+                    )
+
+                # The bank named this settlement but the amounts disagree. Not a
+                # match, and NOT nothing either: it is the most actionable signal
+                # this matcher can produce, so it is reported below the threshold
+                # rather than dropped. Measured on veg11: six settlement references
+                # each appear on TWO bank lines (a payout plus a separate donation
+                # credit), so at most one of the pair can equal the settlement
+                # amount and the other lands here -- every month, on real data.
+                if named and not is_valid:
+                    if named_but_amount_differs is None:
+                        named_but_amount_differs = (settlement, difference, settlement_amount)
+                    continue
+
+                # Keep the FIRST amount match only as a fallback. A settlement whose
+                # reference the bank actually named must win over it -- returning on
+                # the first amount hit picked an arbitrary member of the amount-equal
+                # set, the same ambiguity as #544 one layer in.
+                if is_valid and amount_only_candidate is None:
+                    amount_only_candidate = (settlement, match_type, difference)
+
+            if named_but_amount_differs:
+                settlement, difference, settlement_amount = named_but_amount_differs
+                return self._settlement_match(
+                    settlement,
+                    confidence=SETTLEMENT_UNCONFIRMED_CONFIDENCE,
+                    reason=(
+                        f"Mollie settlement {settlement.get('id')} is NAMED in the description "
+                        f"(bank reference {settlement.get('reference')!r}) but the amounts differ: "
+                        f"deposit EUR {amount_decimal} vs settlement EUR {settlement_amount} "
+                        f"(diff: EUR {difference}). Needs manual review -- this is a discrepancy, "
+                        f"not a failed match"
+                    ),
+                )
+
+            if amount_only_candidate:
+                settlement, match_type, difference = amount_only_candidate
+                return self._settlement_match(
+                    settlement,
+                    confidence=SETTLEMENT_UNCONFIRMED_CONFIDENCE,
+                    reason=(
+                        f"Mollie settlement {settlement.get('id')} {match_type} "
+                        f"(diff: EUR {difference}) on amount and date ALONE -- the settlement's "
+                        f"bank reference is not in the description, so this needs manual "
+                        f"confirmation before it is booked"
+                    ),
+                )
 
         except Exception as e:
             _log_error_with_traceback(
@@ -507,6 +640,76 @@ class PaymentReconciliationManager:
             )
 
         return None
+
+    def _description_names_settlement(self, squashed_description, settlement):
+        """Whether the bank description names this settlement's own reference.
+
+        Both sides are whitespace-squashed: see `_squash_whitespace` for the real
+        veg11 payout whose reference the bank broke across a wrap. Squashing can
+        only ADD matches, and a 16-character run of digits and dots does not appear
+        in an unrelated description by accident.
+
+        Short references are refused outright -- see
+        `MIN_SETTLEMENT_REFERENCE_LENGTH`.
+        """
+        reference = _squash_whitespace((settlement.get("reference") or "").strip().lower())
+        if len(reference) < MIN_SETTLEMENT_REFERENCE_LENGTH:
+            return False
+        return reference in squashed_description
+
+    def _settlement_match(self, settlement, confidence, reason):
+        """A ``mollie_settlement`` match, as ``match_transaction`` consumes them."""
+        return {
+            "type": "mollie_settlement",
+            "reference": settlement.get("id"),
+            "confidence": confidence,
+            "match_reason": reason,
+            "settlement_data": settlement,
+        }
+
+    def _settlements_in_window(self, date_from, date_to):
+        """Settlements in a date window, fetched once per window per run (#546).
+
+        ``get_settlements_by_date_range`` pages Mollie's ENTIRE settlement history
+        and filters it in memory -- the API takes no date parameters, which
+        ``clients/settlements_client.py`` documents at the call site -- and it is
+        the one settlement path that does NOT go through ``get_cached``, unlike its
+        siblings ``get_settlement`` (180s TTL) and ``list_settlements`` (300s).
+
+        It used to be called from inside ``match_mollie_settlement``, i.e. once per
+        candidate transaction, so a run downloaded that whole history N times.
+        Measured on three transactions sharing a date: three fetches of the
+        identical ``('2026-08-21', '2026-08-27')`` window. The manager is built
+        fresh per run (see the module-level ``reconcile_bank_transactions``), so
+        this dict lives exactly as long as the run does -- the same lifetime as
+        ``_processed_mollie_payments``.
+
+        A failed fetch is cached too. ``get_settlements_by_date_range`` wraps its
+        own errors with ``suppress_errors=True`` and returns ``[]``, and the API is
+        up or down for the length of a run; retrying it once per transaction only
+        multiplied the log entries.
+
+        This does NOT collapse a run to a single fetch: transactions on D distinct
+        dates still ask for D windows. Doing better needs either a union window
+        plus a per-transaction date filter here, or routing the client method
+        through ``get_cached`` like its siblings -- both larger changes than #546's
+        report, and the second alters the bulk importer that shares the method.
+
+        Deliberately NOT ``services/settlement_cache.SettlementCache``, which also
+        caches settlements and carries a ``_reference_index``. Three reasons: it
+        indexes reference -> settlement, and this matcher has a description rather
+        than a reference, so it must test candidate references against the text and
+        compare amounts across the whole window; it hands back ``Settlement`` model
+        objects where this path (and ``bulk_transaction_importer``) reads the raw
+        dicts; and its 30-minute TTL spans runs, where a per-run dict is
+        deterministic within the run that owns it.
+        """
+        key = (str(date_from), str(date_to))
+        if key not in self._settlement_window_cache:
+            self._settlement_window_cache[key] = SettlementsClient().get_settlements_by_date_range(
+                date_from, date_to
+            )
+        return self._settlement_window_cache[key]
 
     def fuzzy_match_member_name(self, description, amount):
         """Try to match based on member name in description"""
