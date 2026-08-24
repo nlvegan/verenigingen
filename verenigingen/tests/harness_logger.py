@@ -31,7 +31,9 @@ Two things are different here, and both are needed:
 2. **A stderr handler.** ``frappe.logger()`` attaches ``RotatingFileHandler``s
    and sets ``propagate = False``. Even at the right level its records land in
    ``logs/frappe.log``, which CI does not surface. A harness warning nobody
-   reads is the bug this module exists to fix, one layer along.
+   reads is the bug this module exists to fix, one layer along. The handler
+   resolves ``sys.stderr`` when it emits rather than storing it -- see
+   ``_StderrHandler``; the test runner swaps that object out per test (#514).
 
 This is deliberately *not* built on ``verenigingen.utils.service_logger`` —
 that shim fixes handler attachment for the production service layer and says
@@ -99,6 +101,130 @@ def get_harness_logger(prefix: str = "") -> logging.Logger | logging.LoggerAdapt
     return _PrefixedAdapter(logger, {"prefix": prefix})
 
 
+class _StderrHandler(logging.StreamHandler):
+    """A ``StreamHandler`` that resolves ``sys.stderr`` when it emits.
+
+    ``logging.StreamHandler(sys.stderr)`` stores the stream OBJECT. That is fine in a
+    normal process and wrong under the test runner: ``frappe/testing/result.py``
+    replaces ``sys.stderr`` with a fresh ``io.StringIO`` at ``startTestRun``
+    (``:54-59``) and again at every ``startTest`` (``:99-104``), reading each buffer
+    into the report once and then dropping it. So a handler built inside a test is
+    bound for the rest of the process to that one test's buffer, and every later
+    harness record -- the whole point of this module -- goes somewhere nothing reads,
+    taking ``VERENIGINGEN_TEST_LOG_LEVEL`` with it.
+
+    Measured under the real ``TestResult`` before this class existed: three warnings
+    from three tests, all three in test 1's buffer, only the first surfaced (#514).
+    It stayed latent only because ``tests/setup/__init__.py`` and
+    ``tests/fixtures/enhanced_test_factory.py`` configure the logger at IMPORT time,
+    before ``startTestRun`` -- an invariant nothing documented or pinned.
+
+    The lazy read is the stdlib's own answer to this: ``logging._StderrHandler``,
+    which backs ``logging.lastResort``, is a ``StreamHandler`` with exactly this
+    property and exactly this docstring reason. The setter is the part the stdlib
+    leaves out (there, assignment raises): ``Handler.setStream`` returns the stream it
+    replaced and assumes the new one is in force, and ``flush``/``close`` read
+    ``self.stream``, so a setter that silently swallowed the assignment would turn
+    every capture helper into a no-op. ``None`` means "follow ``sys.stderr``", the
+    same thing it means to ``StreamHandler(stream=None)``.
+
+    Fixing it here rather than by re-checking the binding in ``_configured_logger``:
+    ``tests/setup`` and ``enhanced_test_factory`` cache the adapter at module level and
+    call ``.warning()`` on it for the rest of the run. Records from an adapter go
+    straight to the logger's handlers, so those two never re-enter
+    ``_configured_logger`` and a guard could not reach them.
+
+    What the lazy read costs, and what ``emit`` gives back
+    -----------------------------------------------------
+    Resolving lazily puts records INTO frappe's captures, which is the gain -- each one
+    is attributed to the test that wrote it. It is also a loss, because one capture is
+    never read: ``result.py`` drains ``_module_or_class_stderr_capture`` only when
+    ``startTest`` sees a NEW class (``:75-89``), and ``stopTestRun`` (``:61-64``)
+    restores the streams without draining it. Anything written after the last test of
+    the last class -- ``tearDownClass``, ``tearDownModule``, ``addClassCleanup`` --
+    lands there and is lost. In a single-module run that is EVERY class-teardown
+    record, and a single-module run is the workflow this module exists for.
+
+    The old bound handler bypassed the captures, so those records were always visible.
+    That was an accident of the very bug this class fixes, but it was load-bearing:
+    nine class-teardown call sites log through this logger, ``SingletonBackup.restore()``
+    among them, whose "Failed to restore %s: %s" is tracked precisely because a Single
+    restored wrongly once said so nowhere (#433).
+
+    So ``emit`` mirrors onto ``sys.__stderr__``, which the runner never swaps, for
+    records at ERROR and above. Measured through the real ``TestResult`` with
+    ``buffer=True`` -- one class, one test, a warning inside it and an error in
+    ``tearDownClass``::
+
+        emit strategy       in-test record                tearDownClass record
+        lazy resolve only   report x1                     LOST
+        mirror everything   report x1 + real-stderr x1    real-stderr x1
+        mirror >= ERROR     report x1                     real-stderr x1
+
+    The gate is what keeps the middle row from happening: mirroring everything
+    duplicates every in-test record and gives back the attribution the lazy read was
+    for. ERROR is the level all nine of those teardown sites use.
+
+    **The residual limit:** a ``.warning()`` or ``.info()`` from class teardown is
+    still lost. Fixing that properly means draining the buffer in ``stopTestRun``,
+    which is ``frappe/``'s to do, not this app's.
+    """
+
+    def __init__(self):
+        # Deliberately not StreamHandler.__init__: it assigns self.stream, which our
+        # setter would record as an explicit override of the very value we want to
+        # keep resolving lazily.
+        logging.Handler.__init__(self)
+        self._explicit_stream = None
+
+    @property
+    def stream(self):
+        if self._explicit_stream is not None:
+            return self._explicit_stream
+        return sys.stderr
+
+    @stream.setter
+    def stream(self, value):
+        self._explicit_stream = value
+
+    def emit(self, record):
+        """Write the record, then make sure an ERROR is visible even under capture.
+
+        Two measured failure modes, both answered by falling back to the real stderr.
+        `ClassTeardownRecordsMustSurviveTest` holds the controls for each.
+        """
+        try:
+            super().emit(record)
+        except Exception:
+            # A closed or detached `sys.stderr`. `StreamHandler.emit` hands the write
+            # error to `Handler.handleError`, which writes its own diagnostic to the
+            # SAME dead object and catches only `OSError` -- so the `ValueError`
+            # escapes into the caller, and every caller here is an `except` block.
+            # A logger that raises out of the handler it was called from is the exact
+            # failure this module exists to prevent.
+            self._write_to_real_stderr(record)
+            return
+
+        if record.levelno >= logging.ERROR and self._explicit_stream is None:
+            self._write_to_real_stderr(record)
+
+    def _write_to_real_stderr(self, record):
+        """Mirror onto `sys.__stderr__`, the one stream the test runner never swaps.
+
+        Skipped when the resolved stream already IS the real stderr, which is the
+        normal non-test case and would otherwise print everything twice.
+        """
+        real = sys.__stderr__
+        if real is None or real is self.stream:
+            return
+        try:
+            real.write(self.format(record) + self.terminator)
+            real.flush()
+        except Exception:
+            # Best-effort by construction: see above -- this must not raise either.
+            pass
+
+
 def _configured_logger() -> logging.Logger:
     """Return the logger, configuring it if OUR HANDLER is not currently attached.
 
@@ -123,7 +249,7 @@ def _configured_logger() -> logging.Logger:
     if existing is not None and existing in logger.handlers:
         return logger
 
-    handler = logging.StreamHandler(sys.stderr)
+    handler = _StderrHandler()
     handler.setFormatter(logging.Formatter("%(levelname)s %(name)s %(message)s"))
     logger.addHandler(handler)
     logger.setLevel(_configured_level())

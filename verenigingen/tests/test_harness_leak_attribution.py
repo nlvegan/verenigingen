@@ -1553,12 +1553,14 @@ class CleanupManagerFinishesWhatItStartedTest(unittest.TestCase):
         list (five tearDowns, three mid-test). `frappe.logger()` would not do: it writes only to
         `logs/frappe.log`, which CI never uploads (#485).
 
-        Asserted on the record rather than on captured stderr: the harness
-        logger's `StreamHandler` binds `sys.stderr` when it is first configured,
-        which may be long before this test runs, so `redirect_stderr` here reads
-        empty whether or not anything was logged -- an instrument that cannot fail.
-        That the handler writes to stderr at all is pinned separately, by
-        `test_harness_logger.test_writes_to_stderr_not_stdout`.
+        Asserted on the record rather than on captured stderr. `redirect_stderr` here
+        would work now -- the handler resolves `sys.stderr` at emit time since #514,
+        having previously bound whatever it was at first-configure, which made a
+        capture in this test an instrument that could not fail -- but the record is
+        still the narrower assertion: it says this cleanup logged this failure, not
+        that something wrote to stderr. That the handler writes to stderr at all, and
+        follows it across the runner's per-test swap, is pinned separately in
+        `test_harness_logger`.
         """
         from verenigingen.tests.harness_logger import LOGGER_NAME
         from verenigingen.tests.utils.factories import TestCleanupManager
