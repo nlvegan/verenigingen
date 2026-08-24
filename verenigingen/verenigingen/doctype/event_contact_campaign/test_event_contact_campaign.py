@@ -171,9 +171,7 @@ class TestEventContactCampaign(VereningingenTestCase):
     def test_set_default_owner_does_not_override_existing(self):
         chapter = self._make_chapter()
         other_chapter = self._make_chapter()
-        doc = self._make_campaign(
-            chapter, owner_type="Chapter", owner_reference=other_chapter.name
-        )
+        doc = self._make_campaign(chapter, owner_type="Chapter", owner_reference=other_chapter.name)
         self.assertEqual(doc.owner_reference, other_chapter.name)
 
     # ------------------------------------------------------------------
@@ -337,9 +335,7 @@ class TestEventContactCampaign(VereningingenTestCase):
         chapter = self._make_chapter()
         volunteer = self.create_test_volunteer()
         team = self._make_team_with_member(volunteer)
-        doc = self._make_campaign(
-            chapter, owner_type="Team", owner_reference=team.name
-        )
+        doc = self._make_campaign(chapter, owner_type="Team", owner_reference=team.name)
         result = get_available_volunteers(doc.name)
         names = {r["name"] for r in result}
         self.assertIn(volunteer.name, names)
@@ -402,9 +398,7 @@ class TestEventContactCampaign(VereningingenTestCase):
         # Round-robin: 3 members across 2 volunteers -> [v1, v2, v1]
         self.assertEqual(assigned, [v1.name, v2.name, v1.name])
         # Names are fetched and stored
-        self.assertEqual(
-            doc.contact_list[0].assigned_to_name, v1.volunteer_name
-        )
+        self.assertEqual(doc.contact_list[0].assigned_to_name, v1.volunteer_name)
 
     def test_distribute_only_assigns_unassigned(self):
         chapter = self._make_chapter()
@@ -455,9 +449,7 @@ class TestEventContactCampaign(VereningingenTestCase):
         self.assertEqual(get_permission_query_conditions("Administrator"), "")
 
     def test_permission_query_unknown_user_no_access(self):
-        user = self.create_test_user(
-            f"ecc_noaccess_{frappe.generate_hash(length=6)}@example.com", roles=[]
-        )
+        user = self.create_test_user(f"ecc_noaccess_{frappe.generate_hash(length=6)}@example.com", roles=[])
         cond = get_permission_query_conditions(user.name)
         self.assertEqual(cond, "1=0")
 
@@ -489,9 +481,7 @@ class TestEventContactCampaign(VereningingenTestCase):
     def test_has_permission_non_volunteer_false(self):
         chapter = self._make_chapter()
         doc = self._make_campaign(chapter)
-        user = self.create_test_user(
-            f"ecc_nonvol_{frappe.generate_hash(length=6)}@example.com", roles=[]
-        )
+        user = self.create_test_user(f"ecc_nonvol_{frappe.generate_hash(length=6)}@example.com", roles=[])
         self.assertFalse(has_permission(doc, "read", user.name))
 
     def test_has_permission_board_member_of_chapter_true(self):
@@ -523,17 +513,13 @@ class TestEventContactCampaign(VereningingenTestCase):
         self._add_board_member(chapter, volunteer, role)
 
         # Campaign belongs to a chapter the user is NOT a board member of
-        doc = self._make_campaign(
-            other_chapter, owner_type="Chapter", owner_reference=other_chapter.name
-        )
+        doc = self._make_campaign(other_chapter, owner_type="Chapter", owner_reference=other_chapter.name)
         self.assertFalse(has_permission(doc, "read", user.name))
 
     def test_has_permission_team_member_true(self):
         chapter = self._make_chapter()
         member = self._make_active_member(chapter)
-        user = self.create_test_user(
-            f"ecc_team_{frappe.generate_hash(length=6)}@example.com", roles=[]
-        )
+        user = self.create_test_user(f"ecc_team_{frappe.generate_hash(length=6)}@example.com", roles=[])
         member.db_set("user", user.name)
         volunteer = self.create_test_volunteer(member=member.name)
         team = self._make_team_with_member(volunteer)
