@@ -375,6 +375,46 @@ def ensure_member_test_masters():
     _seed_default_team_roles()
 
 
+def _erpnext_base_masters_present():
+    """Has ``BootStrapTestData()`` seeded ERPNext's base masters on this site?
+
+    Deliberately NOT ``exists("Territory", "All Territories")`` alone. That row
+    used to be a sound proxy for the whole set -- ``get_preset_records("India")``
+    creates "All Territories", "All Customer Groups", "All Item Groups" and
+    "All Supplier Groups" in one batch (``erpnext/setup/setup_wizard/operations/
+    install_fixtures.py``), so any one of them implied the batch had run.
+
+    ``ensure_root_territory`` broke that: it creates the root on its own, from
+    three call sites that never reach this function
+    (``tests/utils/base.py`` -> ``VereningingenTestCase.setUpClass``, and
+    ``enhanced_test_factory`` twice per ``setUp``). A class on either harness base
+    running first therefore satisfies a root-only gate, and the 30+ modules that
+    call ``ensure_member_test_masters()`` from ``setUpClass`` afterwards would
+    early-return here and seed NOTHING -- no Customer Groups, no Chart of
+    Accounts, no Modes of Payment, no ``set_defaults_for_tests()``.
+
+    That was impossible before ``ensure_root_territory`` existed, because
+    ``ensure_netherlands_territory`` linked "Netherlands" to a parent it did not
+    create, so a missing root RAISED (#516) rather than being quietly filled in.
+    Fixing the raise is what made the sentinel forgeable, which is why the gate
+    moves here in the same change.
+
+    "All Supplier Groups" is the half that cannot be forged: this app creates no
+    ``Supplier Group`` anywhere (25 references, all reads). The root Territory is
+    kept in the conjunction because it is the row every Customer defaults to, so
+    its absence must open the gate even on a site that somehow has the rest.
+
+    Residual, deliberately NOT handled here: ``BootStrapTestData()`` runs on
+    IMPORT, once per process. If a rollback removes its rows after that import,
+    re-entering the branch below cannot recreate them -- the import is cached and
+    a no-op. That predates this change and is unchanged by it; the gate opening is
+    still strictly better than closing on a row a neighbour forged.
+    """
+    return frappe.db.exists("Territory", "All Territories") and frappe.db.exists(
+        "Supplier Group", "All Supplier Groups"
+    )
+
+
 def ensure_erpnext_base_masters():
     """Idempotently ensure ERPNext's base test masters exist for isolated runs.
 
@@ -387,10 +427,11 @@ def ensure_erpnext_base_masters():
 
     Importing ``erpnext.tests.utils`` runs its module-level ``BootStrapTestData()``
     once per process (the import is cached), which creates all of the above. We
-    only trigger it when the root Territory is missing, so this is a cheap no-op
-    once seeded.
+    only trigger it when those masters are missing, so this is a cheap no-op once
+    seeded -- see ``_erpnext_base_masters_present`` for why the check is not the
+    root Territory alone.
     """
-    if frappe.db.exists("Territory", "All Territories"):
+    if _erpnext_base_masters_present():
         ensure_netherlands_territory()
         return
 
@@ -418,6 +459,45 @@ def ensure_erpnext_base_masters():
     ensure_netherlands_territory()
 
 
+def ensure_root_territory():
+    """Guarantee the root ``All Territories`` exists, named exactly that. Idempotent.
+
+    A fresh ``bench --site <site> reinstall`` leaves ``tabTerritory`` EMPTY, and
+    neither snapshot image carries a single Territory row (both measured in #516).
+    The tree comes from erpnext's ``BootStrapTestData()``, which this app reaches
+    two ways: ``ensure_erpnext_base_masters()`` above, i.e. only from the modules
+    that call ``ensure_member_test_masters()``; or as an import side effect of
+    ``enhanced_test_factory``, which is wrapped in a bare ``except Exception:
+    pass``. Either way it is a neighbour's doing, and CI shard bins re-pack on
+    measured runtime, so nothing makes that neighbour run first (#516).
+
+    Same shape as ``ensure_root_department`` below: hardcoded name,
+    ``db.exists``-gated, untracked, and shared with production Customer/Supplier
+    records, so per-test drains must not delete it (#309).
+
+    Deliberately does NOT commit. Both harness bases call this from setup that
+    runs BEFORE the captured-insert hook is installed (``EnhancedTestCase.setUp``
+    installs it at the end, ``VereningingenTestCase`` has no such hook), so the
+    row is never claimed by a drain; a commit here would instead make every
+    uncommitted row a caller had already created durable.
+    """
+    if frappe.db.exists("Territory", "All Territories"):
+        return
+
+    frappe.get_doc({"doctype": "Territory", "territory_name": "All Territories", "is_group": 1}).insert(
+        ignore_permissions=True
+    )
+
+    # "It did not raise" is not evidence the row landed under the name every
+    # caller hardcodes -- that is exactly how the company-suffixed
+    # "All Departments - _TC" went unnoticed (see ensure_root_department).
+    if not frappe.db.exists("Territory", "All Territories"):
+        raise RuntimeError(
+            "Root Territory 'All Territories' still does not exist after creating it; "
+            "every Customer creation and every child Territory insert will fail."
+        )
+
+
 def ensure_netherlands_territory():
     """Guarantee the "Netherlands" Territory exists. Idempotent.
 
@@ -439,6 +519,25 @@ def ensure_netherlands_territory():
     Deliberately NOT tracked for cleanup: a country-level Territory is shared with
     production Customer/Supplier records, so per-test drains must not delete it.
     """
+    # BEFORE the "Netherlands" early return, not after it: the root is what the
+    # rest of the suite needs (every Customer defaults to it), and a site can
+    # have "Netherlands" without it -- at which point returning early leaves the
+    # root missing for everyone. The cost is an existence check on a path that
+    # already does one -- deliberately not stated as a per-setUp count, because
+    # the number depends on the base: `VereningingenTestCase` reaches this from
+    # setUpClass, while the `EnhancedTestCase` chain reaches it twice per setUp
+    # (`enhanced_test_factory` `_ensure_production_ready_setup` and again inside
+    # `_ensure_master_data`, which carries no once-flag).
+    #
+    # This call site is where #516 surfaced:
+    # `VereningingenTestCase.setUpClass` -> here -> "Could not find Parent
+    # Territory: All Territories", killing the whole class in setUpClass on any
+    # site where no earlier module had built the tree. Seeding the root here is
+    # what makes both harness bases independent of module order; a guard in the
+    # module that reported it could not have helped, because the raise happens
+    # inside `super().setUpClass()` before any module code runs.
+    ensure_root_territory()
+
     if frappe.db.exists("Territory", "Netherlands"):
         return
 

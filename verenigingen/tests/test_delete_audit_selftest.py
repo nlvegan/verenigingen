@@ -50,6 +50,32 @@ def _territory(prefix):
     "through scripts/testing/delete_audit/selftest.sh, which sweeps afterwards.",
 )
 class DeleteAuditControl(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        """Seed the Territory root locally, so this class does not depend on a helper.
+
+        Belt-and-braces, and deliberately so. The `_territory` this module delegates
+        to ALREADY calls `ensure_root_territory()` when the parent is
+        "All Territories" (`test_harness_leak_attribution`), so at runtime this call
+        is redundant -- `ensure_root_territory` is `db.exists`-gated and idempotent,
+        so the cost is one query.
+
+        It is here because the source guard in `test_harness_territory_root` is
+        per-file and cannot follow a lazy import into another module: it sees a
+        `unittest.TestCase` naming "All Territories" with no seeder in sight and
+        flags it, correctly by its own rules. Making the dependency local is cheaper
+        than teaching the guard to resolve cross-module delegation, and it keeps this
+        class correct if `_territory` ever stops seeding.
+
+        Imported inside `setUpClass` for the same reason the `_territory` import is
+        lazy: a class skipped by the gate above runs no `setUpClass`, so a gated-off
+        run still pays nothing for it.
+        """
+        super().setUpClass()
+        from verenigingen.tests.setup import ensure_root_territory
+
+        ensure_root_territory()
+
     def test_1_positive_a_delete_undone_by_rollback_must_be_reported(self):
         victim = _territory("zzaudit-positive")
         frappe.db.commit()

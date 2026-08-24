@@ -94,7 +94,7 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # setup_complete with country="India"). It used to be created only by
         # EnhancedTestDataFactory, so classes on THIS base never got it and merely
         # inherited whatever an earlier EnhancedTestCase happened to leave behind.
-        # Cheap: one db.exists once the row is present.
+        # Cheap once the rows are present: existence checks, no writes.
         from verenigingen.tests.setup import ensure_netherlands_territory
 
         ensure_netherlands_territory()
