@@ -393,6 +393,25 @@ class TestDataBuilder:
 
         # Check if chapter already exists
         if DocumentExistenceValidator.check_document_exists("Chapter", name):
+            # BORROWED, so deliberately NOT registered. A chapter that is already
+            # here belongs to whoever built it -- typically the shared
+            # `Test Amsterdam Chapter` from `tests/utils/setup_helpers.py`, which the
+            # whole suite resolves. Registering it made `cleanup()` delete master data
+            # this builder never created (#498).
+            #
+            # And that delete is NOT reliably undone. There is no per-TEST rollback in
+            # the framework -- only `addClassCleanup(_rollback_db)`, per CLASS -- and
+            # `VereningingenTestCase._rollback_once_before_draining` returns early
+            # unless a tracked document still exists. Measured on test_site_5, same
+            # committed borrowed chapter both ways:
+            #
+            #   cleanup() in tearDown, one tracked doc  -> rollback fires, chapter back
+            #   cleanup() MID-TEST, then any commit     -> chapter GONE, committed
+            #
+            # Three suites call `cleanup()` mid-test (`test_member_api`,
+            # `test_member_controller` x2). They build member-only today, so no chapter
+            # is borrowed on that path -- which is the only reason this has not already
+            # taken the shared chapter out from under a shard (#330/#390).
             chapter = frappe.get_doc("Chapter", name)
         else:
             chapter = frappe.get_doc(
@@ -404,9 +423,9 @@ class TestDataBuilder:
                     "introduction": "Test chapter"}
             )
             chapter.insert()
+            self._cleanup_manager.register("Chapter", chapter.name)
 
         self._data["chapter"] = chapter
-        self._cleanup_manager.register("Chapter", chapter.name)
 
         return self
 
@@ -434,22 +453,68 @@ class TestDataBuilder:
         member = frappe.get_doc(member_data)
         member.insert()
 
+        # Registered BEFORE the chapter linkage below, not after: that linkage can
+        # raise, and a member inserted but never registered is a permanent leak.
+        self._data["member"] = member
+        self._cleanup_manager.register("Member", member.name)
+
         # Add to chapter if chapter exists (chapter linkage is via Chapter Member child rows)
         if "chapter" in self._data:
+            chapter_name = self._data["chapter"].name
             try:
-                chapter = frappe.get_doc("Chapter", self._data["chapter"].name)
+                chapter = frappe.get_doc("Chapter", chapter_name)
                 chapter.append(
                     "members",
                     {"member": member.name, "chapter_join_date": today(), "enabled": 1, "status": "Active"},
                 )
                 chapter.save()
-            except frappe.LinkValidationError:
-                # Skip chapter update if there are stale member references
-                # This is acceptable for test data - member still gets created
-                pass
-
-        self._data["member"] = member
-        self._cleanup_manager.register("Member", member.name)
+            except frappe.LinkValidationError as e:
+                # NOT swallowed any more. `chapter.save()` re-validates the WHOLE
+                # Chapter, so ONE persisted row whose link no longer resolves makes
+                # this save raise -- and keeps raising for every later member on that
+                # chapter. Swallowing it handed back a member with no chapter linkage
+                # from a call asked for both, so the caller's NEXT line failed naming
+                # the wrong cause: `test_member_controller.test_chapter_mixin_methods`
+                # asserts `db.get_value("Chapter Member", {"member": ...}, "parent")`.
+                #
+                # Nothing depended on log-and-continue. Measured on test_site_2 with
+                # the handler replaced by a bare `raise`:
+                #
+                #   controllers.test_member_controller          -> 21 OK (unchanged)
+                #   comprehensive.test_comprehensive_suite_demo -> 13 OK, 4 skipped
+                #   tests.test_harness_leak_attribution         -> the #515 pin ERRORS
+                #
+                # The third line is the control: the pin plants the stale row, so it
+                # proves the handler is reachable and the first two are not vacuous.
+                # `with_team_assignment` below already appends-and-saves a
+                # possibly-borrowed `Team` with no handler at all.
+                #
+                # Re-raised as the SAME class so existing `assertRaises` sites are
+                # unaffected, and chained, because Frappe's own message names the row
+                # ("Could not find Row #1: ...") but not the chapter or the member
+                # this call was building.
+                #
+                # NOT necessarily the roster: `Chapter` also links `chapter_head`,
+                # `region`, `cost_center`, `department` and
+                # `default_board_role_profile`, and carries `board_members`,
+                # `board_documents` and `board_role_specific_profiles`. A dangling
+                # `Chapter Board Member.volunteer` raises this same exception out of
+                # the same `save()` -- verified on test_site_2, which has 2 such rows.
+                # Hence "a stale link": the chained message names which one.
+                #
+                # ONE route to a stale roster row is `Member.on_trash` ->
+                # `MemberCleanupService`, which force-deletes a member's roster rows
+                # (member_cleanup_service.py:220-227) and swallows its own failures
+                # through a bare `frappe.logger().error` (#485). It is not the only
+                # one: measured 2026-08-23, dangling `Chapter Member.member` rows
+                # exist on three of five local test sites (test_site_2 72 of 91,
+                # test_site_3 18 of 225, test_site_4 40 of 1284; 0 of 716 on
+                # test_site_5). What has no current instance is a dangling row on a
+                # chapter this builder can BORROW -- 0 on all five (#515).
+                raise frappe.LinkValidationError(
+                    f"chapter linkage FAILED: Chapter {chapter_name} has a stale link, "
+                    f"so member {member.name} could not be added to it: {e}"
+                ) from e
 
         return self
 

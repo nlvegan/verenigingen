@@ -437,8 +437,12 @@ class TestMemberStatusTransitionsEnhanced(EnhancedTestCase):
     def test_chapter_transfer_status_rules(self):
         """Test status rules during chapter transfers"""
         # Create second chapter using factory
+        # Unique per test: tests/backend/components/test_member_status_transitions.py
+        # plain-inserts a chapter under this same fixed name, so on a warm site one
+        # of the two gets the other's row or a DuplicateEntryError (#533).
         chapter2 = self.factory.ensure_test_chapter(
-            "Transfer Test Chapter", {"short_name": "TTC", "country": "Netherlands"}
+            f"Transfer Test Chapter {frappe.generate_hash(length=6)}",
+            {"short_name": "TTC", "country": "Netherlands"},
         )
 
         # Create member using factory

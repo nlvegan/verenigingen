@@ -679,11 +679,12 @@ class TestTerminationIntegration(EnhancedTestCase):
     # terminate_employee_records_safe — actual employee update branches
     # ==================================================================
     def _make_employee_for_member(self, member, user_email):
-        company = (
-            frappe.db.get_single_value("Verenigingen Settings", "company")
-            or frappe.db.get_value("Company", {"default_currency": "EUR"}, "name")
-            or frappe.db.get_value("Company", {}, "name")
-        )
+        # The harness-OWNED company, by name -- not a scan. The chain this replaces fell
+        # back to `get_value("Company", {"default_currency": "EUR"}, "name")`, which is the
+        # NEWEST EUR company (`db.get_value` defaults to `creation DESC`), i.e. whatever a
+        # co-tenant suite created last. Pinned in
+        # test_termination_integration_extra_coverage.test_get_company_never_borrows_by_currency.
+        company = self._get_test_company()
         emp = frappe.new_doc("Employee")
         emp.first_name = "TermInt"
         emp.last_name = "Emp"

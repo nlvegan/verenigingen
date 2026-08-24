@@ -163,7 +163,6 @@ _ensure_bank_account_master::2
 _ensure_chapter_role::16
 _ensure_clearing_account::3  # clone family, 33% of pairs near-identical
 _ensure_company::14
-_ensure_company_cost_center::2
 _ensure_cost_center::12  # clone family, 53% of pairs near-identical
 _ensure_current_fiscal_year::5  # clone family, 30% of pairs near-identical
 _ensure_customer::6
@@ -361,6 +360,7 @@ _make_mutation::2  # clone family, 100% of pairs near-identical
 _make_org_doc::2
 _make_org_donor::2
 _make_paid_donation::2
+_make_party_bank_account::2
 _make_payment_entry::3
 _make_payment_link::3
 _make_payment_mapping::2
@@ -456,7 +456,7 @@ _persist_bank_gl_account::2
 _persist_company::9  # clone family, 25% of pairs near-identical
 _persist_customer::3
 _persist_doc::2  # clone family, 100% of pairs near-identical
-_persist_eur_company::17  # clone family, 32% of pairs near-identical
+_persist_eur_company::17  # clone family, 33% of pairs near-identical
 _persist_isolated_company::2  # clone family, 100% of pairs near-identical
 _persist_ledger_mapping::5
 _persist_settings::3  # clone family, 33% of pairs near-identical
@@ -470,6 +470,7 @@ _process_single_row::2
 _processor::8
 _profile_names::2  # clone family, 100% of pairs near-identical
 _publish_progress::2
+_raw::2
 _read_csv_file::2  # clone family, 100% of pairs near-identical
 _read_file_from_content::2
 _read_file_from_path::2
@@ -487,9 +488,10 @@ _resolve_company::2  # clone family, 100% of pairs near-identical
 _resolve_file_location::2
 _resolve_mapped_folder::2
 _resolve_receivable_account::2
-_restore::3
+_restore::4
 _restore_request::2  # clone family, 100% of pairs near-identical
 _restore_settings::6
+_restore_site_state::2
 _results::2
 _root::4  # clone family, 50% of pairs near-identical
 _root_account::2
@@ -546,6 +548,7 @@ _stage_9_suspension_reactivation::2
 _stub_client::2
 _submitted_batch::2  # clone family, 100% of pairs near-identical
 _submitted_invoice::2
+_territory::2
 _track::8
 _track_created_volunteer::2
 _track_donor::3  # clone family, 100% of pairs near-identical

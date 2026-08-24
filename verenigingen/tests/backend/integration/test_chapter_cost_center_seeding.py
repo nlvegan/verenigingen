@@ -40,6 +40,7 @@ from verenigingen.tests.setup import (
     _seed_verenigingen_test_system_user,
     ensure_member_test_masters,
 )
+from verenigingen.tests.support.eur_company_decoy import newest_eur_company
 
 _GHOST_COMPANY = "Nonexistent Ghost Co - regression"
 
@@ -111,4 +112,45 @@ class TestChapterCostCenterSeeding(EnhancedTestCase):
             self.svc.get_validated_company(self.chapter),
             healed,
             "resolver must now return the healed company",
+        )
+
+    def test_seeder_heals_by_name_not_to_the_newest_eur_company(self):
+        """The heal must not borrow whichever EUR company a co-tenant created last.
+
+        ``_seed_verenigingen_test_system_user`` resolved the replacement company with
+        ``get_value("Company", {"default_currency": "EUR"}, "name")``, which takes no
+        ``order_by`` and so returns the **newest** EUR company. That is the #394 borrow
+        class, and this is its worst instance: the seeder runs from ``before_tests`` *and*
+        from ``ensure_member_test_masters`` (46 mentions across 19 test modules), and it
+        commits, so a wrong pick is inherited by every later test that reads the single.
+        Measured on test_site_2 with 30 EUR companies present, the scan returned
+        ``TEST EBkh Cleanup Cov Co``; one of the 30 has no chart of accounts at all.
+
+        The decoy makes this discriminating on a fresh site too, where the owned company
+        would otherwise be the only EUR one and the assertion would pass either way.
+        """
+        self.assertTrue(
+            frappe.db.exists("Company", "_Test Company 2"),
+            "erpnext's EUR fixture must be present -- before_tests loads the Company "
+            "test-record set, and the seeder's first choice is this company by name",
+        )
+        frappe.db.set_single_value("Verenigingen Settings", "company", _GHOST_COMPANY)
+        frappe.db.commit()
+
+        with newest_eur_company() as decoy:
+            # NB: the seeder commits, which is exactly the case `newest_eur_company`'s
+            # `finally` has to survive -- an uncommitted DELETE here would be undone by
+            # tearDown's rollback and the row re-committed by the drain.
+            _seed_verenigingen_test_system_user()
+            healed = frappe.db.get_single_value("Verenigingen Settings", "company")
+
+        self.assertNotEqual(
+            healed,
+            decoy,
+            "the seeder borrowed the newest EUR company; it must resolve one by name",
+        )
+        self.assertEqual(healed, "_Test Company 2", "expected erpnext's EUR fixture by name")
+        self.assertFalse(
+            frappe.db.sql("SELECT 1 FROM `tabCompany` WHERE `name` = %s", decoy),
+            "the decoy outlived its window despite the seeder's commit",
         )

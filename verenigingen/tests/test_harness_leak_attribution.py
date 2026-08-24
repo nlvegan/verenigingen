@@ -21,8 +21,11 @@ import types
 import unittest
 
 import frappe
+from frappe.utils import now
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.harness_logger import get_harness_logger
+from verenigingen.tests.setup import ensure_root_territory
 
 
 class _DrainProbe(EnhancedTestCase):
@@ -70,6 +73,10 @@ class DrainRecordsWhatItCouldNotDeleteTest(unittest.TestCase):
         obvious candidate, deletes cleanly -- so it would have made this test
         pass for the wrong reason.
         """
+        # These classes are plain `unittest.TestCase`, so they reach NEITHER
+        # harness base and nothing seeds the Territory root for them. A fresh
+        # reinstall leaves `tabTerritory` empty (#516).
+        ensure_root_territory()
         parent = frappe.get_doc(
             {
                 "doctype": "Territory",
@@ -116,6 +123,7 @@ class DrainRecordsWhatItCouldNotDeleteTest(unittest.TestCase):
 
     def test_a_drain_that_deletes_everything_records_nothing(self):
         """Guards the other direction: this must not report leaks that did not happen."""
+        ensure_root_territory()  # see _make_undeletable_territory (#516)
         doc = frappe.get_doc(
             {
                 "doctype": "Territory",
@@ -237,6 +245,7 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
         frappe.db.commit()
 
     def _territory(self, label):
+        ensure_root_territory()  # see _make_undeletable_territory (#516)
         doc = frappe.get_doc(
             {
                 "doctype": "Territory",
@@ -875,6 +884,15 @@ class VereningingenBaseReportsLeaksTest(unittest.TestCase):
     """
 
     def setUp(self):
+        # `_probe_case()` below is driven as `case.run(...)`, and `TestCase.run()`
+        # does NOT invoke `setUpClass` -- only a suite does (measured: a direct
+        # `run()` reaches `runTest` alone, while `loadTestsFromTestCase(...).run()`
+        # reaches `setUpClass` first). So the one place `VereningingenTestCase`
+        # seeds the root -- `setUpClass` -> `ensure_netherlands_territory` -- never
+        # runs here, and `_LeakingCase` links its Territory straight to
+        # "All Territories". The class-fixture probe at the bottom of this module
+        # IS loaded as a suite and therefore needs no guard (#516).
+        ensure_root_territory()
         self.suffix = frappe.generate_hash(length=6)
         self.created = []
 
@@ -997,6 +1015,7 @@ class DrainDoesNotDiscardRowsItHasNotReachedTest(unittest.TestCase):
         cannot see this defect at all. That is exactly why the module ran green
         locally while the same code leaked in CI.
         """
+        ensure_root_territory()  # see _make_undeletable_territory (#516)
         bystander = frappe.get_doc(
             {
                 "doctype": "Territory",
@@ -1262,6 +1281,110 @@ class CustomerCleanupMustNotStrandLedgerRowsTest(unittest.TestCase):
         self.assertEqual(0, gl_after)
 
 
+class DrainMustNotStrandLedgerRowsTest(unittest.TestCase):
+    """The counterpart of the class above, for the OTHER base. This is #482.
+
+    `VereningingenTestCase._cancel_if_submitted` refuses to cancel a ledger-bearing
+    voucher, and `_cleanup_member_customers` finishes the job with
+    `_purge_ledger_rows`. `EnhancedTestCase._remove_drained_record` had neither, and
+    the docstring that cross-referenced them asserted they agreed.
+
+    What it leaves behind is NOT the invoice's original ledger rows -- the
+    captured-insert drain deletes those, because they were captured during the test.
+    It is the REVERSALS the cancel itself writes, created after `_captured_inserts`
+    was snapshotted, so nothing drains them and nothing counts them. Measured on
+    test_site_3, one committed posted invoice through both drains end to end: seven
+    submits recorded, parent gone, 2 GL + 1 PLE resident, run reported `OK`.
+
+    And they do not merely sit there. `revert_series_if_last` rewinds the series, so
+    the next voucher takes the same docname -- the same probe run twice produced one
+    voucher_no owning 4 GL / 2 PLE, with the second invoice reading them at the moment
+    it posted.
+
+    COMMITTED on purpose, like its sibling: uncommitted, the drain's own pre-rollback
+    erases the invoice and its rows together and there is nothing to strand.
+    """
+
+    def setUp(self):
+        self.created = []
+        self.vouchers = []
+
+    def tearDown(self):
+        for doctype, name in reversed(self.created):
+            try:
+                if frappe.db.get_value(doctype, name, "docstatus") == 1:
+                    frappe.db.set_value(doctype, name, "docstatus", 2, update_modified=False)
+                    frappe.clear_document_cache(doctype, name)
+                frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+            except Exception as e:
+                get_harness_logger("drain-ledger").warning(
+                    "could not clean up %s %s: %s", doctype, name, e
+                )
+        for voucher in self.vouchers:
+            for ledger in ("GL Entry", "Payment Ledger Entry"):
+                try:
+                    frappe.db.delete(ledger, {"voucher_no": voucher})
+                except Exception as e:
+                    get_harness_logger("drain-ledger").warning(
+                        "could not sweep %s for %s: %s", ledger, voucher, e
+                    )
+        frappe.db.commit()
+
+    def test_the_drain_does_not_leave_ledger_rows_naming_a_deleted_voucher(self):
+        probe = _base_probe()  # only to reach create_test_sales_invoice
+        probe._test_docs = []
+        drain = _probe()
+
+        suffix = frappe.generate_hash(length=8)
+        member = frappe.get_doc(
+            {
+                "doctype": "Member",
+                "first_name": "Zzdrain",
+                "last_name": suffix,
+                "email": f"zzdrain.{suffix}@example.com",
+                "contact_number": "+31612345678",
+                "payment_method": "Bank Transfer",
+                "status": "Active",
+            }
+        ).insert()
+        self.created.append(("Member", member.name))
+
+        invoice = probe.create_test_sales_invoice(member=member.name)
+        invoice.submit()
+        frappe.db.commit()
+        self.created.append(("Sales Invoice", invoice.name))
+        self.vouchers.append(invoice.name)
+
+        def ledger_counts():
+            return {
+                ledger: frappe.db.count(
+                    ledger, {"voucher_type": "Sales Invoice", "voucher_no": invoice.name}
+                )
+                for ledger in ("GL Entry", "Payment Ledger Entry")
+            }
+
+        before = ledger_counts()
+        self.assertGreater(
+            before["GL Entry"], 0, "fixture did not post: nothing to strand, nothing to prove"
+        )
+
+        drain._remove_drained_record("Sales Invoice", invoice.name)
+
+        after = ledger_counts()
+        self.assertFalse(
+            frappe.db.exists("Sales Invoice", invoice.name),
+            "precondition: the drain is supposed to have deleted the voucher",
+        )
+        self.assertEqual(
+            {"GL Entry": 0, "Payment Ledger Entry": 0},
+            after,
+            f"the voucher is gone and {after} still name it. Cancelling wrote reversals "
+            f"({before} -> {after} before the sweep) and delete_doc took none of them; "
+            "the series will rewind and hand that docname to the next invoice, which is "
+            "then born owning rows it never posted (#482, #328)",
+        )
+
+
 class ClassFixturesSurviveTheDrainRollbackTest(unittest.TestCase):
     """A test's teardown may discard the TEST's rows. Not the CLASS's.
 
@@ -1338,6 +1461,10 @@ class ClassFixturesSurviveTheDrainRollbackTest(unittest.TestCase):
 
 def _territory(name_prefix, parent="All Territories"):
     """A cheap, real, deletable document. Same fixture the drain tests above use."""
+    if parent == "All Territories":
+        # The callers below are plain `unittest.TestCase`, so nothing seeds the
+        # root for them and a fresh reinstall has none (#516).
+        ensure_root_territory()
     return frappe.get_doc(
         {
             "doctype": "Territory",
@@ -1514,6 +1641,250 @@ class CleanupManagerDoesNotDiscardRowsItDoesNotOwnTest(unittest.TestCase):
             "cleanup rolled the whole transaction back over one failed delete and "
             "discarded a row it never owned",
         )
+
+
+class _BorrowedChapterFixture:
+    """Committed-chapter plumbing shared by the two borrowed-fixture suites.
+
+    Factored out rather than copied because the two suites below need
+    byte-identical seeding: one asserts the borrowed chapter SURVIVES cleanup
+    (#498), the other asserts what the builder does when that same chapter can no
+    longer be saved (#515). The second is only a statement about the first for as
+    long as they are seeded the same way, and a copy would drift silently -- no
+    ratchet would say so. `duplicate_helper_validator` in particular would not:
+    `_by_name` counts FILES, not definitions (its own comment says so), and both
+    suites live in this one file, so a second `_seed_chapter` here is invisible to
+    it. Measured with a control: two definitions in one file -> census `{}`; the
+    same two split across two files -> census reports the name.
+    """
+
+    def setUp(self):
+        # super() is a no-op against `unittest.TestCase`, but this is a mixin: if it
+        # is ever mixed into `EnhancedTestCase`/`VereningingenTestCase`, omitting it
+        # would silently skip that base's fixture setup and per-test drains.
+        super().setUp()
+        self.created = []
+        self.suffix = frappe.generate_hash(length=6)
+
+    def tearDown(self):
+        for doctype, name in reversed(self.created):
+            try:
+                frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+            except Exception as e:
+                # These fixtures are COMMITTED, so a failure here is permanent site
+                # dirt. That is the one case where a silent `pass` costs something.
+                get_harness_logger("borrowed-fixture").warning(
+                    "could not clean up %s %s: %s", doctype, name, e
+                )
+        frappe.db.commit()
+        # AFTER the commit, for the same reason as setUp: a real base's tearDown may
+        # roll back, which would undo an uncommitted delete of a committed fixture.
+        super().tearDown()
+
+    def _region(self):
+        """Resolve the region `with_chapter` would resolve, creating it if absent.
+
+        Done here rather than left to the builder so this test never depends on
+        which other suite ran first, and so the Region it may create is tracked --
+        `with_chapter` inserts one without registering it.
+        """
+        existing = frappe.db.get_value("Region", {"region_code": "TR"}, "name")
+        if existing:
+            return existing
+        region = frappe.get_doc(
+            {
+                "doctype": "Region",
+                "region_name": "Test Region",
+                "region_code": "TR",
+                "country": "Netherlands",
+                "is_active": 1,
+            }
+        )
+        region.insert()
+        self.created.append(("Region", region.name))
+        return region.name
+
+    def _seed_chapter(self, label="Borrowed"):
+        """Create a chapter THROUGH the builder, then commit it.
+
+        Through the builder on purpose: it is the same insert a real shared
+        fixture goes through, so nothing here can diverge from the code path the
+        borrowing test then takes.
+        """
+        from verenigingen.tests.utils.factories import TestDataBuilder
+
+        name = f"Test {label} Chapter {self.suffix}"
+        TestDataBuilder().with_chapter(name=name, region=self._region())
+        frappe.db.commit()
+        self.created.append(("Chapter", name))
+        return name
+
+
+class BuilderRegistersOnlyWhatItCreatedTest(_BorrowedChapterFixture, unittest.TestCase):
+    """A fixture the builder only BORROWED must survive `builder.cleanup()`.
+
+    `TestDataBuilder.with_chapter` is a get-or-create whose two branches converged
+    on one unconditional `register(...)`, so a test that merely *reused* the shared
+    chapter `tests/utils/setup_helpers.py` builds for the whole suite registered it
+    for deletion, and `builder.cleanup()` deleted it (#498).
+
+    It stayed invisible because the delete never stuck: `cleanup()` does not commit
+    (#489), so the base teardown's rollback puts the row back. The two defects
+    cancel, which is why #489 cannot be fixed on its own -- give `cleanup()` the
+    commit it asks for and the shared chapter is deleted for real, taking every
+    later test that resolves it with it (#330, #390).
+
+    The borrowed row is COMMITTED on purpose. An uncommitted one is erased by
+    cleanup's own rollback path too, so "the chapter is gone" would read the same
+    whether the loop deleted it or a rollback swallowed it -- a test that passes on
+    the defect.
+    """
+
+    def test_a_chapter_the_builder_only_reused_survives_its_cleanup(self):
+        from verenigingen.tests.utils.factories import TestDataBuilder
+
+        name = self._seed_chapter()
+
+        borrower = TestDataBuilder()
+        borrower.with_chapter(name=name, region=self._region())
+        failures = borrower.cleanup()
+
+        self.assertEqual([], failures, "precondition: the cleanup itself must not fail")
+        self.assertTrue(
+            frappe.db.exists("Chapter", name),
+            "the builder registered a chapter it did not create, so cleanup() "
+            "deleted shared master data (#498)",
+        )
+
+    def test_a_chapter_the_builder_did_create_is_still_deleted(self):
+        """The control: the fix must not be "stop registering chapters"."""
+        from verenigingen.tests.utils.factories import TestDataBuilder
+
+        name = f"Test Owned Chapter {self.suffix}"
+        owner = TestDataBuilder()
+        owner.with_chapter(name=name, region=self._region())
+        frappe.db.commit()
+        self.created.append(("Chapter", name))
+
+        self.assertTrue(frappe.db.exists("Chapter", name), "precondition")
+        failures = owner.cleanup()
+
+        self.assertEqual([], failures)
+        self.assertFalse(
+            frappe.db.exists("Chapter", name),
+            "a chapter the builder created must still be cleaned up",
+        )
+
+
+class BuilderMustNotSilentlyDropTheChapterLinkageTest(
+    _BorrowedChapterFixture, unittest.TestCase
+):
+    """`with_member` must not hand back a member with no chapter linkage (#515).
+
+    `TestDataBuilder.with_member` appends a `Chapter Member` row to the chapter in
+    `self._data` and saves it. `chapter.save()` re-validates the WHOLE Chapter, so
+    one persisted row whose link no longer resolves makes that save raise
+    `LinkValidationError` -- and it keeps raising for every later member on that
+    chapter. The builder used to answer that with `except
+    frappe.LinkValidationError: pass`, returning a member with no linkage from a
+    call asked for both, so the caller's NEXT line failed naming the wrong cause:
+    `test_member_controller.test_chapter_mixin_methods` asserts
+    `db.get_value("Chapter Member", {"member": member.name}, "parent") == chapter.name`
+    immediately afterwards.
+
+    Measured on test_site_5, both halves with a control:
+
+      append a row with a dead member link, save   -> LinkValidationError
+      PERSIST that row, append a VALID member, save -> LinkValidationError
+                                                       ("Could not find Row #999:
+                                                        Member: ...")
+
+    The swallow was NOT load-bearing. Measured on test_site_2 with the handler
+    replaced by a bare `raise`, `controllers.test_member_controller` (21) and
+    `comprehensive.test_comprehensive_suite_demo` (13, 4 skipped) both still pass,
+    while this suite errors -- the control that proves the handler is reachable and
+    the other two runs are not vacuous. So the builder now re-raises, chained, with
+    the chapter and member the framework's own message omits.
+
+    What this suite does NOT claim. The exception is NOT specific to the roster:
+    `Chapter` links `chapter_head`, `region`, `cost_center`, `department` and
+    `default_board_role_profile` and carries three more child tables, and a
+    dangling `Chapter Board Member.volunteer` raises the same exception out of the
+    same `save()` (test_site_2 has 2 such rows, verified). Nor is a stale roster row
+    hypothetical: dangling `Chapter Member.member` rows exist on three of five local
+    test sites (test_site_2 72 of 91, test_site_3 18 of 225, test_site_4 40 of 1284;
+    0 of 716 on test_site_5, measured 2026-08-23). What has no current instance is a
+    dangling row on a chapter this builder can BORROW -- 0 on all five. `Member.on_trash`
+    -> `MemberCleanupService` force-deleting a member's roster rows
+    (`member_cleanup_service.py:220-227`, swallowing its own failures through a bare
+    `frappe.logger().error`) is ONE route to such a row; 130 dangling rows across
+    three sites say it is not the only one. This test plants the condition rather
+    than waiting for it.
+    """
+
+    def _plant_stale_roster_row(self, chapter_name):
+        """Commit a roster row whose `member` does not resolve.
+
+        Written with raw SQL on purpose: every doc-level route to this state
+        (`append` + `save`, `frappe.get_doc(...).insert()`) is exactly the
+        validation being defeated, so it cannot produce the row. Committed because
+        an uncommitted one is erased by the builder's own transaction, which would
+        make this test pass on the defect.
+        """
+        row = f"stale-515-{self.suffix}"
+        frappe.db.sql(
+            """INSERT INTO `tabChapter Member`
+                   (name, parent, parenttype, parentfield, idx, member, enabled,
+                    status, creation, modified, owner, modified_by)
+               VALUES (%s, %s, 'Chapter', 'members', 1, %s, 1, 'Active',
+                       %s, %s, 'Administrator', 'Administrator')""",
+            # frappe.utils.now(), not MariaDB's NOW(): NOW() truncates to whole
+            # seconds, and `modified` is compared to the microsecond elsewhere
+            # (#453/#456). Irrelevant for a row this test deletes, but the shape is
+            # the one that has cost this repo twice.
+            (row, chapter_name, f"Member-Does-Not-Exist-{self.suffix}", now(), now()),
+        )
+        frappe.db.commit()
+        self.created.append(("Chapter Member", row))
+        return row
+
+    def test_a_chapter_linkage_the_builder_cannot_write_is_not_passed_over(self):
+        from verenigingen.tests.utils.factories import TestDataBuilder
+
+        name = self._seed_chapter(label="Stale Roster")
+        self._plant_stale_roster_row(name)
+
+        builder = TestDataBuilder()
+        builder.with_chapter(name=name, region=self._region())
+        with self.assertRaises(frappe.LinkValidationError) as caught:
+            builder.with_member()
+
+        # The member exists either way -- `member.insert()` is before the linkage --
+        # so the thing that must hold is that it did not LEAK: registering it after
+        # the chapter block would have left it on the site, committed by whatever
+        # commits next.
+        member = builder._data["member"]
+        self.created.append(("Member", member.name))
+        self.assertIn(
+            {"doctype": "Member", "name": member.name},
+            [{"doctype": e["doctype"], "name": e["name"]} for e in builder._cleanup_manager._cleanup_stack],
+            "the member was created before the raise but never registered, so it is "
+            "a permanent leak -- register it ABOVE the chapter block",
+        )
+
+        # Precondition, so a green result cannot come from the wrong cause: the
+        # planted row must really be what blocked the roster write.
+        self.assertFalse(
+            frappe.db.exists("Chapter Member", {"parent": name, "member": member.name}),
+            "precondition: the planted stale row did not block the roster write, so "
+            "this test is not exercising the failure at all",
+        )
+
+        # The framework's message names the row it could not resolve; the builder's
+        # job is to add which chapter and which member, at the line that knows.
+        message = str(caught.exception)
+        self.assertIn(name, message, message)
+        self.assertIn(member.name, message, message)
 
 
 if __name__ == "__main__":

@@ -48,8 +48,13 @@ class TestChapterJoinRequestComprehensive(EnhancedTestCase):
             },
         )
 
+        # Unique per test: "Inactive Chapter" was also claimed by
+        # verenigingen/doctype/chapter_join_request/test_chapter_join_request.py, and
+        # ensure_test_chapter() is a get-or-create keyed on the name, so whichever
+        # ran first owned the row -- including its status (#533). Every use below
+        # goes through self.inactive_chapter.name.
         self.inactive_chapter = self.factory.ensure_test_chapter(
-            "Inactive Chapter",
+            f"Inactive Chapter {frappe.generate_hash(length=6)}",
             {
                 "status": "Inactive",
                 "published": 0,
