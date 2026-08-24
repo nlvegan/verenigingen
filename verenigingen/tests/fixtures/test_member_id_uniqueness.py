@@ -38,6 +38,7 @@ from unittest.mock import patch
 from verenigingen.tests.fixtures.test_data_factory import CoreTestDataFactory
 
 MODULE = "verenigingen.tests.fixtures.test_data_factory"
+ENHANCED_MODULE = "verenigingen.tests.fixtures.enhanced_test_factory"
 
 
 class _FrozenDatetime:
@@ -99,6 +100,104 @@ class MemberIdMustNotRestOnTheClockAloneTest(unittest.TestCase):
 
         self.assertTrue(generated.startswith("TEST"), generated)
         self.assertFalse(generated.isdigit(), generated)
+
+
+class SiblingGeneratorsMustNotRestOnTheClockEitherTest(unittest.TestCase):
+    """The two generators called immediately above `member_id` have the same defect (#552).
+
+    `create_test_member` calls `_generate_name` and `_generate_email` on the lines just
+    above the `member_id` that #550 fixed. Both derive from the same per-factory,
+    clock-derived `test_run_id` with no per-call entropy, so two factories built in the
+    same microsecond produce identical values -- the identical shape, only the field
+    differs.
+
+    `_generate_name("last")` is the sharper of the two: `test_run_id[-5:]` is a **10^5**
+    space, ten times narrower than the `member_id` bug, and its own docstring states the
+    stake -- "prevent Customer name collisions (Customer uses full_name as primary key)".
+    `Member.email` is not a unique column (the unique ones are `member_id`,
+    `application_id`, `user`), so email is the lower-stakes half.
+    """
+
+    def test_two_factories_sharing_one_microsecond_get_different_emails(self):
+        with patch(f"{MODULE}.datetime", _FrozenDatetime):
+            first = CoreTestDataFactory()._generate_email()
+            second = CoreTestDataFactory()._generate_email()
+
+        self.assertNotEqual(
+            first, second, f"both factories emitted {first!r}: email rests on the clock alone"
+        )
+
+    def test_two_factories_sharing_one_microsecond_get_different_last_names(self):
+        with patch(f"{MODULE}.datetime", _FrozenDatetime):
+            first = CoreTestDataFactory()._generate_name("last")
+            second = CoreTestDataFactory()._generate_name("last")
+
+        self.assertNotEqual(
+            first,
+            second,
+            f"both factories emitted {first!r}: the last name rests on a 10^5 slice of the "
+            "clock, and Customer uses full_name as its primary key",
+        )
+
+
+class SecureFactoryMemberIdMustNotUseWholeSecondsTest(unittest.TestCase):
+    """`SecureTestDataFactory` collides DETERMINISTICALLY, not probabilistically (#552).
+
+    Its `test_run_id` is `f"TEST-{random_string(8)}-{int(datetime.now().timestamp())}"`,
+    and the member_id took `split("-")[-1]` -- which **discards the random component and
+    keeps whole epoch seconds**. Any two factories constructed in the same second
+    therefore produced the same id. Measured before the fix, two instances with
+    DIFFERENT seeds:
+
+        A  TEST-pMDXmlQg-1787520889 -> 1787520889001
+        B  TEST-tix8ymDH-1787520889 -> 1787520889001
+
+    Live via `verenigingen/verenigingen/doctype/chapter_member/test_chapter_members.py`,
+    which constructs one in `setUp`.
+
+    The ids were also **purely numeric**, so unlike every other factory id they passed
+    `member_id REGEXP '^[0-9]+$'` and entered `member_id_manager`'s gap analysis and
+    counter initialisation at ~1.79e12. The fix carries the `TEST` prefix the other
+    factories use, which is what keeps them out.
+    """
+
+    def _factory(self):
+        from verenigingen.tests.fixtures.enhanced_test_factory import SecureTestDataFactory
+
+        return SecureTestDataFactory(test_user="Administrator", seed=1, cleanup_on_exit=False)
+
+    def test_the_seconds_slice_really_is_shared(self):
+        """The control: without a frozen clock two factories built in the same real
+        second already share the slice, but the test would not be pinning that."""
+        with patch(f"{ENHANCED_MODULE}.datetime", _FrozenDatetime):
+            first = self._factory().test_run_id.split("-")[-1]
+            second = self._factory().test_run_id.split("-")[-1]
+
+        self.assertEqual(first, second, "the freeze did not take; nothing below is pinned")
+
+    def test_two_factories_in_one_second_get_different_member_ids(self):
+        with patch(f"{ENHANCED_MODULE}.datetime", _FrozenDatetime):
+            first = self._factory()._generate_secure_member_id()
+            second = self._factory()._generate_secure_member_id()
+
+        self.assertNotEqual(
+            first,
+            second,
+            f"both factories emitted {first!r}: the id is built from WHOLE epoch seconds, "
+            "so this collides deterministically for any two factories in the same second",
+        )
+
+    def test_the_id_is_not_purely_numeric(self):
+        """It must not pass `member_id REGEXP '^[0-9]+$'`: those rows reach
+        `member_id_manager`'s gap analysis and counter init, where a ~1.79e12 value
+        becomes `highest_assigned`."""
+        with patch(f"{ENHANCED_MODULE}.datetime", _FrozenDatetime):
+            generated = self._factory()._generate_secure_member_id()
+
+        self.assertFalse(
+            generated.isdigit(),
+            f"{generated!r} is all digits, so it enters the numeric counter logic",
+        )
 
 
 if __name__ == "__main__":

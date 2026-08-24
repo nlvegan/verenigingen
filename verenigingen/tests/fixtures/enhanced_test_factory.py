@@ -590,14 +590,27 @@ class EnhancedTestDataFactory:
     def _generate_unique_test_member_id(self) -> str:
         """Generate unique member ID for test members to avoid database conflicts.
 
-        ``member_id`` is a UNIQUE column. CI runs 8 test shards as parallel
-        PROCESSES against ONE shared DB. The old format
-        ``TEST{microseconds:06d}{seq:03d}`` collided across shards: two processes
-        can hit the same microsecond AND each process's ``seq`` counter starts
-        fresh at 1 in its own memory, so both emit e.g. ``TEST161453001`` ->
-        IntegrityError 1062 Duplicate entry. We add PER-PROCESS entropy (the OS
-        pid plus a random hash) so two shards can never generate the same id,
-        while keeping the ``TEST`` prefix that other code keys on.
+        ``member_id`` is a UNIQUE column. The old format
+        ``TEST{microseconds:06d}{seq:03d}`` collided: a fresh factory per test
+        method restarts ``seq`` at 1, so every test's FIRST member is
+        ``...001`` and they all contend in one 10^6 sub-second space, e.g.
+        ``TEST161453001`` -> IntegrityError 1062 Duplicate entry. Adding a random
+        hash (with the OS pid) gives PER-CALL entropy, while keeping the ``TEST``
+        prefix that other code keys on.
+
+        NOT a cross-shard collision, which this used to claim. CI gives every
+        shard job its **own** ``mariadb:10.6`` service container (the
+        ``services:`` block sits inside the matrix job in
+        ``.github/workflows/_base-server-tests.yml``), so two shards cannot
+        collide on a UNIQUE column at all; the mechanism is entirely
+        within-process. The matrix also runs 12 shards, not 8. Measured twice on
+        2026-08-23 in single shards: ``TEST153429001`` and ``TEST311263001``
+        (#549). The pid is therefore NOT the load-bearing part -- it is equal for
+        every factory in one process -- the random hash is (#550).
+
+        Note this method has **no callers**; the live copies are
+        ``CoreTestDataFactory._generate_member_id`` and
+        ``SecureTestDataFactory._generate_secure_member_id``.
         """
         import os
 
@@ -7043,6 +7056,38 @@ class SecureTestDataFactory:
         self.sequence_counters[prefix] = self.sequence_counters.get(prefix, 0) + 1
         return self.sequence_counters[prefix]
 
+    def _generate_secure_member_id(self) -> str:
+        """Unique `member_id`. `member_id` is a UNIQUE column (#552).
+
+        This used to be `str(int(self.test_run_id.split("-")[-1]) * 1000 + seq)`, and
+        `test_run_id` is `f"TEST-{random_string(8)}-{int(datetime.now().timestamp())}"` --
+        so `split("-")[-1]` **discarded the random component and kept whole epoch
+        seconds**. Two factories built in the same second therefore produced the same id
+        DETERMINISTICALLY, not probabilistically. Measured before the fix, two instances
+        with different seeds:
+
+            A  TEST-pMDXmlQg-1787520889 -> 1787520889001
+            B  TEST-tix8ymDH-1787520889 -> 1787520889001
+
+        Two changes, both load-bearing:
+
+        - `frappe.generate_hash` supplies PER-CALL entropy. Neither the seconds slice nor
+          the sequence distinguishes two factories in one second, and `test_run_id`'s own
+          random part was the thing being thrown away.
+        - the `TEST` prefix makes the id NON-NUMERIC. The old ids were pure digits, so
+          alone among the factories' ids they satisfied `member_id REGEXP '^[0-9]+$'` and
+          entered `member_id_manager`'s gap analysis (`:414`) and counter initialisation
+          with values around 1.79e12. Nothing depended on them being numeric (checked).
+
+        Named distinctly from `CoreTestDataFactory._generate_member_id` on purpose:
+        three similarly-named generators in this codebase already produced one wrong
+        docstring citation, so a grep for this name should land in exactly one class.
+        Same shape as that one (#549/#550).
+        """
+        seq = self.get_next_sequence("member_id")
+        epoch_seconds = int(self.test_run_id.split("-")[-1])
+        return f"TEST{epoch_seconds}{seq:03d}{frappe.generate_hash(length=6)}"
+
     def track_record(self, doctype, name):
         self.created_records.append({"doctype": doctype, "name": name})
 
@@ -7055,9 +7100,7 @@ class SecureTestDataFactory:
             "email": f"testmember{self.get_next_sequence('email')}_{self.test_run_id}@test.example",
             "birth_date": frappe.utils.add_days(frappe.utils.getdate(), -9000),
             "status": "Active",
-            "member_id": str(
-                int(self.test_run_id.split("-")[-1]) * 1000 + self.get_next_sequence("member_id")
-            ),
+            "member_id": self._generate_secure_member_id(),
         }
         data = {**defaults, **kwargs}
         data = self.validate_required_fields("Member", data)
