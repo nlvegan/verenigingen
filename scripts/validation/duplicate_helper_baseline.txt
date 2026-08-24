@@ -469,6 +469,7 @@ _process_single_row::2
 _processor::8
 _profile_names::2  # clone family, 100% of pairs near-identical
 _publish_progress::2
+_raw::2
 _read_csv_file::2  # clone family, 100% of pairs near-identical
 _read_file_from_content::2
 _read_file_from_path::2
@@ -489,6 +490,7 @@ _resolve_receivable_account::2
 _restore::4
 _restore_request::2  # clone family, 100% of pairs near-identical
 _restore_settings::6
+_restore_site_state::2
 _results::2
 _root::4  # clone family, 50% of pairs near-identical
 _root_account::2
