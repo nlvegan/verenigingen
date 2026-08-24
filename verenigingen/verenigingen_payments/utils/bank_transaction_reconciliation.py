@@ -17,6 +17,16 @@ from verenigingen.verenigingen_payments.clients.settlements_client import Settle
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 from verenigingen.verenigingen_payments.utils.shared.money import safe_decimal
 
+#: Confidence for a Mollie settlement matched on amount and date ALONE -- no bank
+#: reference found in the transaction description (#547).
+#:
+#: Deliberately below ``PaymentReconciliationManager.match_threshold`` (0.85), which
+#: is what ``match_transaction`` compares against before calling
+#: ``create_reconciliation``. The candidate is still returned so an operator can see
+#: WHICH settlement nearly matched and why it was not booked; it just cannot post
+#: accounting on its own. Raising this above the threshold reinstates #547.
+SETTLEMENT_UNCONFIRMED_CONFIDENCE = 0.60
+
 
 def _log_error_with_traceback(title, reason):
     """Write an Error Log row that keeps BOTH the reason and the stack frame.
@@ -481,24 +491,75 @@ class PaymentReconciliationManager:
 
             settlements = self._settlements_in_window(date_from, date_to)
 
-            # Look for exact amount match with proper decimal precision
+            # The amount is the primary filter; Mollie's own bank reference decides
+            # whether an amount-matching candidate may reconcile UNATTENDED (#547).
+            #
+            # Amount + a +/-3 day window + one of `mollie|settlement|payout` in the
+            # description used to return 0.98 (or 0.92 within the 0.1% tolerance),
+            # both above `match_threshold` of 0.85, and `create_reconciliation` books
+            # Payment Entries and a fee Journal Entry against whatever settlement it
+            # is handed. Nothing identified the counterparty or the settlement, so a
+            # coincidence posted accounting -- and on an account with ordinary
+            # traffic "payout" is not a rare word and 0.1% of a four-figure amount is
+            # several euros wide.
+            #
+            # The discriminator was already inside the string the keyword check reads.
+            # Measured over veg11's 7,664 Bank Transactions: every real Mollie payout
+            # carries `Settlement.reference` verbatim --
+            #
+            #   NL70CITI2032329018 CITINL2X Stichting Mollie Payments
+            #   T13606591.2510.01 REF T13606591.2510.01 Mollie betalingen
+            #
+            # where `13606591.2510.01` is the settlement's `reference`
+            # (`<merchantId>.<yyMM>.<seq>`, core/models/settlement.py). So a reference
+            # hit auto-posts, and an amount-only candidate is still REPORTED -- below
+            # the threshold, for a human -- rather than silently dropped.
+            amount_only_candidate = None
+            amount_decimal = self._safe_decimal(amount)
+
             for settlement in settlements:
                 settlement_amount = self._safe_decimal(settlement.get("amount", {}).get("value", 0))
-                amount_decimal = self._safe_decimal(amount)
 
                 is_valid, match_type, difference = self._validate_transaction_amount(
                     amount_decimal, settlement_amount, tolerance_percent=0.1  # 0.1% tolerance
                 )
+                if not is_valid:
+                    continue
 
-                if is_valid:
-                    confidence = 0.98 if match_type == "exact_match" else 0.92
-                    return {
-                        "type": "mollie_settlement",
-                        "reference": settlement.get("id"),
-                        "confidence": confidence,
-                        "match_reason": f"Mollie settlement {settlement.get('id')} {match_type} (diff: €{difference})",
-                        "settlement_data": settlement,
-                    }
+                # `description` is already lowercased; the reference is digits and
+                # dots, so this is a plain containment test either way. The bank
+                # prefixes it ("T13606591.2510.01"), which still contains it.
+                reference = (settlement.get("reference") or "").strip().lower()
+                if reference and reference in description:
+                    return self._settlement_match(
+                        settlement,
+                        confidence=0.98 if match_type == "exact_match" else 0.92,
+                        reason=(
+                            f"Mollie settlement {settlement.get('id')} {match_type} "
+                            f"(diff: EUR {difference}), bank reference {settlement.get('reference')!r} "
+                            f"found in the description"
+                        ),
+                    )
+
+                # Keep the FIRST amount match only as a fallback. A later settlement
+                # whose reference the bank actually named must win over it -- returning
+                # on the first amount hit picked an arbitrary member of the
+                # amount-equal set, the same ambiguity as #544 one layer in.
+                if amount_only_candidate is None:
+                    amount_only_candidate = (settlement, match_type, difference)
+
+            if amount_only_candidate:
+                settlement, match_type, difference = amount_only_candidate
+                return self._settlement_match(
+                    settlement,
+                    confidence=SETTLEMENT_UNCONFIRMED_CONFIDENCE,
+                    reason=(
+                        f"Mollie settlement {settlement.get('id')} {match_type} "
+                        f"(diff: EUR {difference}) on amount and date ALONE -- the settlement's "
+                        f"bank reference is not in the description, so this needs manual "
+                        f"confirmation before it is booked"
+                    ),
+                )
 
         except Exception as e:
             _log_error_with_traceback(
@@ -506,6 +567,16 @@ class PaymentReconciliationManager:
             )
 
         return None
+
+    def _settlement_match(self, settlement, confidence, reason):
+        """A ``mollie_settlement`` match, as ``match_transaction`` consumes them."""
+        return {
+            "type": "mollie_settlement",
+            "reference": settlement.get("id"),
+            "confidence": confidence,
+            "match_reason": reason,
+            "settlement_data": settlement,
+        }
 
     def _settlements_in_window(self, date_from, date_to):
         """Settlements in a date window, fetched once per window per run (#546).
