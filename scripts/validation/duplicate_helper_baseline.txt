@@ -455,7 +455,7 @@ _persist_bank_gl_account::2
 _persist_company::9  # clone family, 25% of pairs near-identical
 _persist_customer::3
 _persist_doc::2  # clone family, 100% of pairs near-identical
-_persist_eur_company::17  # clone family, 32% of pairs near-identical
+_persist_eur_company::17  # clone family, 33% of pairs near-identical
 _persist_isolated_company::2  # clone family, 100% of pairs near-identical
 _persist_ledger_mapping::5
 _persist_settings::3  # clone family, 33% of pairs near-identical

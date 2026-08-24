@@ -776,8 +776,10 @@ def _seed_verenigingen_test_system_user():
     # stamps Sales Invoice.company from this Single; on a fresh/snapshot site it
     # is empty, so the invoice insert fails and approval returns invoice=None.
     # Full-suite/production runs configure this via setup; an isolated --module
-    # run does not, so seed it here. Prefer a EUR company (SEPA/currency-clean),
-    # matching the canonical pattern in the chapter edge-case test.
+    # run does not, so seed it here. Prefer a EUR company (SEPA/currency-clean):
+    # `_seed_default_leaf_customer_group` below reads this company's currency to
+    # pick a matching selling Price List, and the membership invoice is stamped
+    # with this company, so a non-EUR pick needs a conversion rate.
     #
     # Self-heal a STALE value too (not just an empty one): a co-located test can
     # delete the company this Single points at, after which the chapter
@@ -794,10 +796,34 @@ def _seed_verenigingen_test_system_user():
     # which then takes its create-cost-center branch and flips tests that assert
     # "no default company configured" into a different (and currently buggy)
     # path. Keep the heal scoped to the field the chapter resolver prefers.
+    #
+    # Resolve that EUR company BY NAME, never by scanning for `default_currency`.
+    # `frappe.db.get_value` takes no `order_by` and defaults to `creation DESC`, so a
+    # currency scan returns the NEWEST EUR company -- whatever a co-tenant suite created
+    # last (measured on test_site_2 with 30 EUR companies present: `TEST EBkh Cleanup Cov
+    # Co`, an e_boekhouden fixture; one of the 30, `EBH Migration Test Co`, has no
+    # `default_receivable_account` and no `default_income_account` at all -- the
+    # chart-less company whose borrow produced the 101 failures in #237). This seeder is
+    # the WORST place in the app for that: it is called from `before_tests` AND from
+    # `ensure_member_test_masters` (46 mentions across 19 test modules, in
+    # setUpClass/setUp bodies), and it commits -- so a wrong pick sticks for the rest of
+    # the run and is inherited by every test that reads the single.
+    #
+    # `_Test Company 2` is erpnext's own EUR fixture (see
+    # erpnext/setup/doctype/company/test_records.json: EUR/Germany, and `before_tests`
+    # above loads the whole Company test-record set), so it is deterministic, EUR, and
+    # carries a real chart of accounts (measured on test_site_2: 109 accounts,
+    # `Debtors - _TC2`, `Sales - _TC2`). `_Test Company` is the INR second choice only
+    # because it is the one erpnext fixture that is always present -- the same ladder
+    # `ensure_default_company` above already uses. Deliberately NOT
+    # `get_eur_test_company()`: that builds a chart of accounts and commits, which is not
+    # something to trigger from inside a setUpClass helper 46 test modules call.
     configured_company = frappe.db.get_single_value("Verenigingen Settings", "company")
     if not configured_company or not frappe.db.exists("Company", configured_company):
-        company = frappe.db.get_value("Company", {"default_currency": "EUR"}, "name") or frappe.db.get_value(
-            "Company", {}, "name"
+        company = (
+            frappe.db.get_value("Company", "_Test Company 2", "name")
+            or frappe.db.get_value("Company", "_Test Company", "name")
+            or frappe.db.get_value("Company", {}, "name")
         )
         if company:
             frappe.db.set_single_value("Verenigingen Settings", "company", company)
