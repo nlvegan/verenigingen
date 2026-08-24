@@ -61,6 +61,7 @@ import frappe
 from frappe.utils import add_days, flt, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.mollie_account_fixtures import provisioned_mollie_settings
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.verenigingen_payments.utils import bank_transaction_reconciliation as btr
@@ -929,20 +930,37 @@ class TestFeesAccount(BTRBase):
 # match_mollie_settlement (early-return branches only; no live Mollie API)
 # =============================================================================
 class TestMatchMollieSettlementEarlyReturns(BTRBase):
+    """Each early return states its OWN Mollie Settings precondition (#548).
+
+    These three depended on ambient `Mollie Settings` state: the first had no setup
+    at all, and the other two wrote the field and restored it to `None` rather than
+    to its previous value.
+
+    What that actually cost is NOT what #548 and an earlier version of this
+    docstring said. The claim was that the first test passed only because its
+    neighbours left the field `None`, making a correct restore a breaking change.
+    Measured on develop, with `mollie_bank_account` pre-set to `_Test Bank - _TC`
+    and only that test run: it PASSES. The real defect is a wrong target -- it exits
+    at the Bank-Account-membership gate, not at the `get_bank_account_gl()`
+    ValidationError branch its comment names, so it was exercising a branch it did
+    not claim to and would have kept passing if that branch broke.
+
+    `provisioned_mollie_settings` sets what each test needs and restores the
+    original, so each now reaches the branch it names.
+    """
+
     def test_returns_none_when_no_mollie_bank_account_configured(self):
-        # Test site has no mollie_bank_account -> get_bank_account_gl throws
-        # ValidationError -> match_mollie_settlement returns None.
+        # Says its own precondition instead of inheriting a neighbour's teardown:
+        # with no bank account configured, get_bank_account_gl throws
+        # ValidationError and match_mollie_settlement returns None.
         bt = self._make_bank_transaction(deposit=100.0, description="mollie settlement payout", date=today())
-        self.assertIsNone(self.mgr.match_mollie_settlement(self._txn_dict(bt)))
+        with provisioned_mollie_settings(mollie_bank_account=""):
+            self.assertIsNone(self.mgr.match_mollie_settlement(self._txn_dict(bt)))
 
     def test_returns_none_for_non_mollie_keyword_when_account_set(self):
-        # Configure a Mollie bank account that matches the txn's account, but use
-        # a description WITHOUT mollie keywords -> still None (keyword branch).
-        bank_acc = frappe.db.get_value("Company", self.company, "default_bank_account")
-        self.mgr.config.clear_cache()
-        frappe.db.set_value("Mollie Settings", "Mollie Settings", "mollie_bank_account", bank_acc)
-        self.mgr.config.clear_cache()
-        try:
+        # A configured account that DOES match the transaction, but a description
+        # without any mollie keyword -> still None, via the keyword branch.
+        with provisioned_mollie_settings() as accounts:
             bt = self._make_bank_transaction(
                 deposit=100.0,
                 description="ordinary deposit no keyword",
@@ -950,23 +968,27 @@ class TestMatchMollieSettlementEarlyReturns(BTRBase):
                 bank_account=None,
             )
             txn = self._txn_dict(bt)
-            # The gate resolves the configured GL account to its Bank Account (#523), so
-            # this has to be the Bank Account docname. With the GL name here the call
-            # would return None at the ACCOUNT gate and this test would pass without ever
-            # reaching the keyword branch it exists to exercise.
-            txn["bank_account"] = frappe.db.get_value("Bank Account", {"account": bank_acc}, "name")
-            self.assertIsNotNone(txn["bank_account"], "need the Bank Account linked to the GL account")
+            # The gate compares Bank Account docnames, not GL account names (#523),
+            # so this has to be the Bank Account. With the GL name here the call
+            # would return None at the ACCOUNT gate and this test would pass
+            # without ever reaching the keyword branch it exists to exercise.
+            txn["bank_account"] = accounts["bank_account_doc"]
             self.assertIsNone(self.mgr.match_mollie_settlement(txn))
-        finally:
-            frappe.db.set_value("Mollie Settings", "Mollie Settings", "mollie_bank_account", None)
-            self.mgr.config.clear_cache()
 
     def test_returns_none_for_account_mismatch(self):
+        # Configured and coherent, but the transaction is on a different Bank
+        # Account. Previously this relied on ambient settings, so it could return
+        # None at the "nothing configured" branch instead of the mismatch branch.
         bt = self._make_bank_transaction(deposit=100.0, description="mollie settlement", date=today())
         txn = self._txn_dict(bt)
-        # A Bank Account docname now, since that is the namespace the gate compares in.
         txn["bank_account"] = "SOME-OTHER-BANK-ACCOUNT"
-        self.assertIsNone(self.mgr.match_mollie_settlement(txn))
+        with provisioned_mollie_settings() as accounts:
+            self.assertNotEqual(
+                txn["bank_account"],
+                accounts["bank_account_doc"],
+                "staging: the transaction must be on a DIFFERENT Bank Account",
+            )
+            self.assertIsNone(self.mgr.match_mollie_settlement(txn))
 
 
 # =============================================================================

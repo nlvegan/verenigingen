@@ -87,6 +87,10 @@ from verenigingen.tests.harness_logger import get_harness_logger
 # an entry can only ever help.
 CACHE_CLEARING_METHODS = {
     "Ponto Settings": ("clear_configuration_cache", "clear_token_cache"),
+    # MollieConfigurationService caches the whole Single. Without this entry a
+    # restore put the original rows back while the service went on serving the
+    # values the test had written.
+    "Mollie Settings": ("clear_configuration_cache",),
 }
 
 
