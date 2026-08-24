@@ -280,12 +280,12 @@ class ClassTeardownRecordsMustSurviveTest(unittest.TestCase):
         self._handlers = self.logger.handlers[:]
         self._level = self.logger.level
         self._real_stderr = sys.__stderr__
-        self.addCleanup(self._restore)
+        self.addCleanup(self._restore_logger_and_real_stderr)
         self.logger.handlers = []
         get_harness_logger()
         self.handler = _stream_handler(self.logger)
 
-    def _restore(self):
+    def _restore_logger_and_real_stderr(self):
         sys.__stderr__ = self._real_stderr
         self.logger.handlers = self._handlers
         self.logger.setLevel(self._level)
