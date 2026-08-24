@@ -239,6 +239,123 @@ class HandlerMustFollowStderrTest(unittest.TestCase):
         self.assertIs(sys.stderr, handler.stream)
 
 
+class ClassTeardownRecordsMustSurviveTest(unittest.TestCase):
+    """An ERROR emitted while frappe's capture is installed must also reach real stderr.
+
+    `frappe/testing/result.py` swaps `sys.stderr` for `_module_or_class_stderr_capture`
+    at `startTestRun` (`:54-59`) and drains it only when `startTest` sees a NEW test
+    class (`:75-89`). `stopTestRun` (`:61-64`) restores the streams and never drains
+    it. So a record written after the last test of the last class -- `tearDownClass`,
+    `tearDownModule`, `addClassCleanup` -- lands in a buffer nothing ever reads. In a
+    single-module run that is every class-teardown record there is, which is the
+    workflow this module exists for.
+
+    Before the lazy resolve the handler held the real `sys.stderr`, so these records
+    bypassed the captures and were always visible. That visibility was accidental --
+    the same binding is #514 -- but it was load-bearing, so it is restored
+    deliberately here rather than mourned in a comment.
+
+    Measured through the real `TestResult` with `buffer=True`, one class, one test,
+    a warning inside the test and an error in `tearDownClass`:
+
+        emit strategy       in-test record                tearDownClass record
+        lazy resolve only   report x1                     LOST
+        mirror everything   report x1 + real-stderr x1    real-stderr x1
+        mirror >= ERROR     report x1                     real-stderr x1
+
+    The middle row is why the mirror is level-gated. Duplicating every in-test record
+    would undo the attribution this handler gained, and attribution is the reason it
+    resolves lazily at all. ERROR is the level the nine known harness-logger-backed
+    class-teardown sites use, `SingletonBackup.restore()`'s "Failed to restore %s: %s"
+    among them -- the message that is in `HARNESS_FILES` precisely because a Single
+    restored wrongly once said so nowhere (#433).
+
+    The residual limit, stated because it is not fixed: a `.warning()` or `.info()`
+    from class teardown is still lost. Only `frappe/` can fix that properly, by
+    draining the buffer in `stopTestRun`.
+    """
+
+    def setUp(self):
+        self.logger = logging.getLogger(LOGGER_NAME)
+        self._handlers = self.logger.handlers[:]
+        self._level = self.logger.level
+        self._real_stderr = sys.__stderr__
+        self.addCleanup(self._restore)
+        self.logger.handlers = []
+        get_harness_logger()
+        self.handler = _stream_handler(self.logger)
+
+    def _restore(self):
+        sys.__stderr__ = self._real_stderr
+        self.logger.handlers = self._handlers
+        self.logger.setLevel(self._level)
+
+    @contextlib.contextmanager
+    def _under_frappe_capture(self):
+        """Stand in for the runner: `sys.stderr` is a capture buffer, real stderr is not."""
+        capture, real = io.StringIO(), io.StringIO()
+        sys.__stderr__ = real
+        original = sys.stderr
+        sys.stderr = capture
+        try:
+            yield capture, real
+        finally:
+            sys.stderr = original
+
+    def test_an_error_from_class_teardown_also_reaches_the_real_stderr(self):
+        with self._under_frappe_capture() as (capture, real):
+            self.logger.error("TEARDOWN-ERROR")
+
+        self.assertIn("TEARDOWN-ERROR", capture.getvalue())
+        self.assertIn("TEARDOWN-ERROR", real.getvalue())
+
+    def test_a_warning_keeps_its_single_attributed_copy(self):
+        """The in-test path must not double-print -- that is what the mirror costs."""
+        with self._under_frappe_capture() as (capture, real):
+            self.logger.warning("IN-TEST-WARNING")
+
+        self.assertIn("IN-TEST-WARNING", capture.getvalue())
+        self.assertEqual("", real.getvalue())
+
+    def test_an_explicit_stream_is_never_mirrored(self):
+        """`setStream` is a caller naming a destination; honour it and only it.
+
+        This is also what keeps `captured_stream` -- which every level test in this
+        file runs through -- from spraying records onto the real stderr.
+        """
+        explicit = io.StringIO()
+        self.handler.setStream(explicit)
+        try:
+            with self._under_frappe_capture() as (capture, real):
+                self.logger.error("TO-THE-EXPLICIT-STREAM")
+
+            self.assertIn("TO-THE-EXPLICIT-STREAM", explicit.getvalue())
+            self.assertEqual("", real.getvalue())
+            self.assertEqual("", capture.getvalue())
+        finally:
+            self.handler.setStream(None)
+
+    def test_a_closed_stream_does_not_raise_into_the_caller(self):
+        """Every call site is an `except` block, so a raise here IS a swallowed failure.
+
+        `StreamHandler.emit` routes the write error to `Handler.handleError`, which
+        writes its own diagnostic to `sys.stderr` -- the same closed object -- and
+        catches only `OSError`. The `ValueError` therefore escapes `.error()` itself.
+        Measured before this fallback: `ValueError: I/O operation on closed file`.
+        """
+        dead, real = io.StringIO(), io.StringIO()
+        dead.close()
+        sys.__stderr__ = real
+        original = sys.stderr
+        sys.stderr = dead
+        try:
+            self.logger.error("RECORD-INTO-CLOSED-STREAM")
+        finally:
+            sys.stderr = original
+
+        self.assertIn("RECORD-INTO-CLOSED-STREAM", real.getvalue())
+
+
 class AssertLogsMustNotDegradeTheLoggerTest(unittest.TestCase):
     """`assertLogs` takes the handler away and cannot give the flag back.
 
