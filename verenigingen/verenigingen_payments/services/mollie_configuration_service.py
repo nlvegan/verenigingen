@@ -311,6 +311,15 @@ class MollieConfigurationService:
                 "warnings": list
             }
 
+        COMPLETENESS ONLY -- this asks whether the fields are filled in, not whether
+        what they hold is usable. It does NOT check that the accounts exist, nor that
+        they belong to the company settlements are booked into (#540). Deliberately:
+        its contract is `missing_fields`, and a coherence failure is not a missing
+        field. For the real gate use `validate_all_mollie_accounts`, which does both
+        and is what every production caller uses. Flagged rather than silently left
+        divergent, because this is the invitingly-named one and the #399 pattern is a
+        sibling check that never got the fix.
+
         Note: API key validation requires separate check via
               frappe.get_single("Mollie Settings").get_active_api_key()
               as password fields are not cached.
@@ -542,62 +551,93 @@ class MollieConfigurationService:
         return accounts
 
     @classmethod
-    def _account_relationship_errors(cls, settings, skip_settlement_account=False):
-        """Errors about the account PAIR rather than either account alone (#540).
+    def _account_coherence_errors(cls, settings, skip_settlement_account=False):
+        """Errors about the account SET rather than any account alone (#540).
 
-        Two invariants, both objective and neither requiring an accounting decision:
+        Everything in the per-account loop validates one account in isolation:
+        that it exists and is not disabled. Nothing asked whether the accounts
+        belong to the company this app actually books into -- and on veg11 they do
+        not:
 
-        1. **The clearing account and the bank account must differ.** The settlement
-           payout books a transfer out of "held at Mollie, pre-payout" and into the
-           physical bank account. When one account is configured as both ends, that
-           transfer nets to nothing -- which is precisely what made #508's payout leg
-           a no-op on veg11, and it was invisible because both fields validated fine
-           on their own.
+            Verenigingen Settings.company    = 'Nederlandse Vereniging voor Veganisme'
+            mollie_bank_account     -> company 'TEST-Payment-Integration-Company'
+            mollie_clearing_account -> company 'TEST-Payment-Integration-Company'
 
-        2. **They must belong to the same company.** A pair spanning two companies
-           would post one side of a transfer into each ledger. The documented
-           deployment step for #538 was "split these two fields"; executed against
-           veg11's leaked `TEST-Payment-Integration-Company` accounts it would have
-           enabled a live settlement pipeline booking into a test company.
+        `SettlementBankTransactionProcessor._validate_configuration` reads
+        `Verenigingen Settings.company` and books the settlement into it, so a Mollie
+        account in a different company posts one side of the settlement into a
+        stranger's ledger. That is #540: the deployment step written for #538 was
+        "split these two fields", and executed against the values above it would have
+        pointed a live settlement pipeline at a leaked test company.
 
-        Returned as errors rather than warnings on purpose: a caller doing a
-        pre-flight check with `raise_on_error=True` must not proceed past either.
+        Measured, not inferred: a Journal Entry mixing a TPIC bank row with a
+        `_Test Company 2` expense row is rejected by ERPNext with "Account Tax
+        Expense - _TC2 does not belong to Company TEST-Payment-Integration-Company".
+        So a cross-company account does not post quietly -- it fails the leg, and
+        `_create_mollie_fee_entry` derives its company from the CLEARING account
+        while stamping the fees account into the same entry. The fees account is
+        therefore in scope here, not "a different mistake": same coherence class,
+        same ERPNext rejection.
 
-        The fees account is deliberately NOT company-checked here. It is optional,
-        and an expense account living in a different company is a different mistake
-        with a different fix; the two accounts checked here are the two ends of one
-        transfer.
+        NOT CHECKED, deliberately: whether the clearing and bank accounts are the
+        SAME account. An earlier version of this guard rejected that, which was
+        wrong twice over. `_book_settlement_payout`
+        (`utils/bank_transaction_reconciliation.py`, the `clearing_account ==
+        bank_account` early return) documents one account as a supported
+        configuration -- with no intermediate account there is nothing to drain, the
+        payments land directly in the bank account and the fee reduces it -- and
+        `test_one_account_configured_as_both_sides_needs_no_payout_leg` asserts the
+        resulting ACCOUNTING, not merely the skip. That code also says an Error Log
+        row for it must not fire, because veg11 is in that configuration today and
+        the ledger is already correct. Rejecting it here made the two settlement
+        pipelines disagree about the same config and produced exactly that log row.
+        It also missed the real defect, since one account is trivially in one company.
         """
-        clearing = settings.get("mollie_clearing_account")
-        bank = settings.get("mollie_bank_account")
-
-        # Nothing to relate if either side is absent or we were told to ignore the
-        # settlement side; the per-account loop has already reported what is missing,
-        # and adding a second error for the same cause only obscures it.
-        if not clearing or not bank or skip_settlement_account:
+        booking_company = cls._booking_company()
+        if not booking_company:
+            # Nothing to compare against: without a configured company there is no
+            # statement of intent, and inventing one would be a worse guess than
+            # staying quiet.
             return []
 
-        if clearing == bank:
-            return [
-                _(
-                    "Clearing Account and Bank Account are the same account ({0}). "
-                    "The settlement payout transfers between them, so one account "
-                    "configured as both ends books nothing."
-                ).format(clearing)
-            ]
+        fields = {
+            "Clearing Account": settings.get("mollie_clearing_account"),
+            "Bank Account": settings.get("mollie_bank_account"),
+            "Fees Account": settings.get("payment_processing_fees_account"),
+        }
+        if skip_settlement_account:
+            # Virtual-account payments never touch the payout destination; both
+            # callers passing this flag resolve only the clearing account.
+            fields.pop("Bank Account")
 
-        clearing_company = frappe.db.get_value("Account", clearing, "company")
-        bank_company = frappe.db.get_value("Account", bank, "company")
-        if clearing_company and bank_company and clearing_company != bank_company:
-            return [
-                _(
-                    "Clearing Account and Bank Account belong to different companies: "
-                    "{0} is in {1}, {2} is in {3}. Both ends of the settlement transfer "
-                    "must be in one company."
-                ).format(clearing, clearing_company, bank, bank_company)
-            ]
+        errors = []
+        for label, account in fields.items():
+            if not account:
+                # Absent or optional: the per-account loop has already said so, and a
+                # second error for one cause only obscures it.
+                continue
+            account_company = frappe.db.get_value("Account", account, "company")
+            if account_company and account_company != booking_company:
+                errors.append(
+                    _(
+                        "{0} {1} belongs to company {2}, but settlements are booked into "
+                        "{3}. Every Mollie GL account must belong to the company this "
+                        "app books for, or the settlement posts into another company's "
+                        "ledger."
+                    ).format(label, account, account_company, booking_company)
+                )
+        return errors
 
-        return []
+    @classmethod
+    def _booking_company(cls):
+        """The company settlements are booked into.
+
+        Resolved exactly as `SettlementBankTransactionProcessor._validate_configuration`
+        resolves it, so this guard cannot disagree with the code that does the posting.
+        """
+        return frappe.db.get_single_value(
+            "Verenigingen Settings", "company"
+        ) or frappe.defaults.get_global_default("company")
 
     @classmethod
     def validate_all_mollie_accounts(
@@ -703,12 +743,12 @@ class MollieConfigurationService:
                 errors.append(error_msg)
                 validation_results[account_purpose] = {"valid": False, "error": str(e)}
 
-        # Relationship checks. Everything above validates each account in ISOLATION
-        # -- exists, is a leaf, account_type == "Bank" -- which is why veg11's real
-        # configuration passed: `mollie_bank_account` and `mollie_clearing_account`
-        # both held '10440 - Triodos 1 - TPIC - TPIC', a single account belonging to
-        # a leaked test company. Individually valid, jointly nonsense (#540).
-        errors.extend(cls._account_relationship_errors(settings, skip_settlement_account))
+        # Coherence of the SET. Everything above validates each account in
+        # ISOLATION, and none of those checks asks the question that matters: do
+        # these accounts belong to the company this app books into? On veg11 they do
+        # not -- they are in a leaked `TEST-Payment-Integration-Company` while
+        # settlements book into NVV (#540).
+        errors.extend(cls._account_coherence_errors(settings, skip_settlement_account))
 
         overall_valid = len(errors) == 0
 

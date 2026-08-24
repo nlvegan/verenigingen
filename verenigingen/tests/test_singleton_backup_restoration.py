@@ -269,11 +269,20 @@ class TestMollieSettingsCacheIsDroppedOnRestore(FrappeTestCase):
             MollieConfigurationService,
         )
 
-        original = frappe.db.get_value("Mollie Settings", "Mollie Settings", "mollie_bank_account")
+        # TWO originals on purpose, read through the two different paths, because
+        # conflating them is what made this test fail on CI while passing here:
+        # `db.get_value` returns None when the field has no `tabSingles` row at all
+        # (a fresh site), while `frappe.get_single()` reports `''` for the same
+        # absence -- so `assertEqual(None, '')` on shard 7. The assertion below
+        # compares service-read to service-read; the cleanup restores what the DB
+        # actually held.
+        db_original = frappe.db.get_value("Mollie Settings", "Mollie Settings", "mollie_bank_account")
         self.addCleanup(MollieConfigurationService.clear_cache)
         self.addCleanup(
-            frappe.db.set_value, "Mollie Settings", "Mollie Settings", "mollie_bank_account", original
+            frappe.db.set_value, "Mollie Settings", "Mollie Settings", "mollie_bank_account", db_original
         )
+        MollieConfigurationService.clear_cache()
+        service_original = MollieConfigurationService.get_settings()["mollie_bank_account"]
 
         backup = SingletonBackup("Mollie Settings")
         backup.backup()
@@ -298,6 +307,6 @@ class TestMollieSettingsCacheIsDroppedOnRestore(FrappeTestCase):
         )
         self.assertEqual(
             MollieConfigurationService.get_settings()["mollie_bank_account"],
-            original,
+            service_original,
             "the service must serve the restored value, not the sentinel",
         )

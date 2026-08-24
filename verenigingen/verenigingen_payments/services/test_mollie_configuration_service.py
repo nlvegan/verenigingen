@@ -648,24 +648,22 @@ def run_tests():
 
 
 class TestMollieAccountCoherence(FrappeTestCase):
-    """The two account fields must be coherent WITH EACH OTHER (#540).
+    """The accounts must belong to the company this app books into (#540).
 
-    `validate_all_mollie_accounts` used to check each account in isolation --
-    exists, is a leaf, `account_type == "Bank"` -- and so accepted veg11's real
-    configuration, in which `mollie_bank_account` and `mollie_clearing_account`
-    hold the SAME account:
+    `validate_all_mollie_accounts` validated each account in isolation and so
+    accepted veg11's live state:
 
-        mollie_bank_account     = '10440 - Triodos 1 - TPIC - TPIC'
-        mollie_clearing_account = '10440 - Triodos 1 - TPIC - TPIC'
-        Account('10440 ...').company = 'TEST-Payment-Integration-Company'
+        Verenigingen Settings.company    = 'Nederlandse Vereniging voor Veganisme'
+        mollie_bank_account     -> company 'TEST-Payment-Integration-Company'
+        mollie_clearing_account -> company 'TEST-Payment-Integration-Company'
 
-    Both fields pass individually. Together they are a transfer from an account to
-    itself, which is exactly why #508's settlement payout leg was a no-op -- and the
-    deployment step written for #538 was "split these two fields", which would have
-    pointed a live settlement pipeline at a leaked test company's ledger.
+    Settlements are booked into `Verenigingen Settings.company`, so those accounts
+    post into a leaked test company's ledger. The deployment step recorded for #538
+    was "split these two fields", which against those values would have switched on
+    a live pipeline doing exactly that.
 
-    Every test here provisions its own configuration through
-    `provisioned_mollie_settings`, so none of them depend on ambient Singles state.
+    Every test provisions its own configuration, so none depends on ambient Singles
+    state.
     """
 
     def setUp(self):
@@ -676,9 +674,23 @@ class TestMollieAccountCoherence(FrappeTestCase):
         with provisioned_mollie_settings(**overrides):
             return get_mollie_config().validate_all_mollie_accounts(raise_on_error=False)
 
+    def _foreign_account(self, company, account_type="Bank"):
+        """A leaf account in some OTHER company than `company`.
+
+        ONE query. Picking a company and then looking inside it made an earlier
+        version of this test skip: the company it happened to choose on test_site_1
+        had no bank account, and a test that skips proves as much as one that never
+        ran.
+        """
+        return frappe.db.get_value(
+            "Account",
+            {"company": ["!=", company], "account_type": account_type, "is_group": 0},
+            "name",
+        )
+
     def test_a_provisioned_configuration_is_valid(self):
-        """The control. Without it, every assertion below is equally consistent
-        with "the guard fires" and "validation rejects everything"."""
+        """The control. Without it, every assertion below is equally consistent with
+        "the guard fires" and "validation now rejects everything"."""
         result = self._validate()
         self.assertTrue(
             result["valid"],
@@ -686,46 +698,94 @@ class TestMollieAccountCoherence(FrappeTestCase):
         )
         self.assertEqual(result["errors"], [])
 
-    def test_one_account_used_as_both_clearing_and_bank_is_an_error(self):
-        """veg11's actual state, reproduced."""
+    def test_one_account_configured_as_both_sides_is_still_valid(self):
+        """clearing == bank must NOT be rejected.
+
+        `_book_settlement_payout` treats one account as a supported configuration --
+        with no intermediate there is nothing to drain -- and
+        `test_one_account_configured_as_both_sides_needs_no_payout_leg` asserts the
+        resulting accounting. An earlier version of this guard rejected it, which
+        made the two settlement pipelines disagree about the same config and produced
+        the per-run Error Log row that code deliberately avoids. veg11 is in this
+        configuration today.
+        """
         accounts = ensure_mollie_gl_accounts()
         result = self._validate(mollie_bank_account=accounts["clearing_account"])
-        self.assertFalse(result["valid"], "one account cannot be both ends of the payout transfer")
-        errors = " ".join(result["errors"]).lower()
-        self.assertIn("same", errors)
-
-    def test_accounts_in_different_companies_are_an_error(self):
-        """A clearing account in one company and a bank account in another would
-        post a cross-company transfer. Neither account is individually invalid, so
-        only a relationship check can catch it."""
-        accounts = ensure_mollie_gl_accounts()
-        # ONE query for "a leaf Bank account in some other company". Picking a
-        # company first and then looking inside it skipped this test on
-        # test_site_1: the company it happened to choose had no bank account, and a
-        # test that skips proves exactly as much as one that never ran.
-        foreign_bank = frappe.db.get_value(
-            "Account",
-            {"company": ["!=", accounts["company"]], "account_type": "Bank", "is_group": 0},
-            "name",
-        )
         self.assertTrue(
-            foreign_bank,
-            "precondition: the site must have a leaf Bank account in some other company "
-            "for a cross-company pair to be constructible",
+            result["valid"],
+            f"one account as both sides is supported, not an error; got {result['errors']}",
         )
 
-        result = self._validate(mollie_bank_account=foreign_bank)
-        self.assertFalse(result["valid"], "the two accounts must belong to one company")
+    def test_a_bank_account_in_another_company_is_an_error(self):
+        accounts = ensure_mollie_gl_accounts()
+        foreign = self._foreign_account(accounts["company"])
+        self.assertTrue(foreign, "precondition: the site needs a leaf Bank account elsewhere")
+
+        result = self._validate(mollie_bank_account=foreign)
+        self.assertFalse(result["valid"], "an account outside the booking company must be refused")
         errors = " ".join(result["errors"]).lower()
-        self.assertIn("compan", errors)
+        self.assertIn("bank account", errors)
+        self.assertIn("booked into", errors)
+
+    def test_a_clearing_account_in_another_company_is_an_error(self):
+        accounts = ensure_mollie_gl_accounts()
+        foreign = self._foreign_account(accounts["company"])
+        self.assertTrue(foreign)
+
+        result = self._validate(mollie_clearing_account=foreign)
+        self.assertFalse(result["valid"])
+        self.assertIn("clearing account", " ".join(result["errors"]).lower())
+
+    def test_a_fees_account_in_another_company_is_an_error(self):
+        """The fees account is in scope, contrary to an earlier version of this guard.
+
+        `_create_mollie_fee_entry` derives the Journal Entry's company from the
+        CLEARING account and stamps the fees account into the same entry, so a
+        cross-company fees account is rejected by ERPNext at posting time --
+        measured: "Account Tax Expense - _TC2 does not belong to Company
+        TEST-Payment-Integration-Company". Same coherence class, same rejection;
+        catching it here costs one comparison.
+        """
+        accounts = ensure_mollie_gl_accounts()
+        foreign = self._foreign_account(accounts["company"], account_type="")
+        foreign = foreign or frappe.db.get_value(
+            "Account", {"company": ["!=", accounts["company"]], "is_group": 0}, "name"
+        )
+        self.assertTrue(foreign, "precondition: the site needs a leaf account in another company")
+
+        result = self._validate(payment_processing_fees_account=foreign)
+        self.assertFalse(result["valid"], "a fees account outside the booking company must be refused")
+        self.assertIn("fees account", " ".join(result["errors"]).lower())
 
     def test_the_coherence_errors_also_raise_when_asked_to(self):
-        """`raise_on_error=True` is what a caller doing a pre-flight check uses, so
-        the new errors have to participate in it and not just in the result dict."""
+        """`raise_on_error=True` is what a pre-flight check uses, so the new errors
+        have to participate in it and not only in the result dict."""
         accounts = ensure_mollie_gl_accounts()
-        with provisioned_mollie_settings(mollie_bank_account=accounts["clearing_account"]):
+        foreign = self._foreign_account(accounts["company"])
+        self.assertTrue(foreign)
+        with provisioned_mollie_settings(mollie_bank_account=foreign):
             with self.assertRaises(frappe.ValidationError):
                 get_mollie_config().validate_all_mollie_accounts(raise_on_error=True)
+
+    def test_skipping_the_settlement_account_skips_only_that_account(self):
+        """`skip_settlement_account=True` (virtual-account payments) must ignore a
+        foreign BANK account but still catch a foreign CLEARING one -- both callers
+        that pass it resolve the clearing account."""
+        accounts = ensure_mollie_gl_accounts()
+        foreign = self._foreign_account(accounts["company"])
+        self.assertTrue(foreign)
+
+        with provisioned_mollie_settings(mollie_bank_account=foreign):
+            skipped = get_mollie_config().validate_all_mollie_accounts(
+                raise_on_error=False, skip_settlement_account=True
+            )
+        self.assertNotIn("booked into", " ".join(skipped["errors"]).lower())
+
+        with provisioned_mollie_settings(mollie_clearing_account=foreign):
+            still_caught = get_mollie_config().validate_all_mollie_accounts(
+                raise_on_error=False, skip_settlement_account=True
+            )
+        self.assertFalse(still_caught["valid"], "a foreign clearing account must still be refused")
 
 
 if __name__ == "__main__":

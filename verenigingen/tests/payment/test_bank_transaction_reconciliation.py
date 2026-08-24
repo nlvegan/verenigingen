@@ -932,12 +932,21 @@ class TestFeesAccount(BTRBase):
 class TestMatchMollieSettlementEarlyReturns(BTRBase):
     """Each early return states its OWN Mollie Settings precondition (#548).
 
-    These three were coupled through the `Mollie Settings` Single. The first had no
-    setup at all and passed only because its two neighbours restored
-    `mollie_bank_account` to `None` rather than to its previous value -- so doing
-    the restore CORRECTLY was a breaking change, which is backwards.
+    These three depended on ambient `Mollie Settings` state: the first had no setup
+    at all, and the other two wrote the field and restored it to `None` rather than
+    to its previous value.
+
+    What that actually cost is NOT what #548 and an earlier version of this
+    docstring said. The claim was that the first test passed only because its
+    neighbours left the field `None`, making a correct restore a breaking change.
+    Measured on develop, with `mollie_bank_account` pre-set to `_Test Bank - _TC`
+    and only that test run: it PASSES. The real defect is a wrong target -- it exits
+    at the Bank-Account-membership gate, not at the `get_bank_account_gl()`
+    ValidationError branch its comment names, so it was exercising a branch it did
+    not claim to and would have kept passing if that branch broke.
+
     `provisioned_mollie_settings` sets what each test needs and restores the
-    original.
+    original, so each now reaches the branch it names.
     """
 
     def test_returns_none_when_no_mollie_bank_account_configured(self):

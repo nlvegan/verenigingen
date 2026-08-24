@@ -53,40 +53,68 @@ class TestValidateConfiguration(EnhancedTestCase):
     """
 
     def test_a_provisioned_configuration_is_accepted(self):
+        """A control: this passes against develop too. It pins that the guard does
+        not close on the configuration it exists to permit."""
         with provisioned_mollie_settings():
             out = SettlementBankTransactionProcessor._validate_configuration(None)
         self.assertEqual(out["status"], "valid", f"expected a provisioned config to pass: {out}")
         self.assertTrue(out["bank_account"], "the Bank Account record the fixture creates must resolve")
         self.assertTrue(out["company"])
 
-    def test_one_account_as_both_clearing_and_bank_stops_settlement_processing(self):
+    def test_an_account_outside_the_booking_company_stops_settlement_processing(self):
         """The #540 protection, end to end rather than at the validator's return dict.
 
-        This is veg11's live configuration: `mollie_bank_account ==
-        mollie_clearing_account == '10440 - Triodos 1 - TPIC - TPIC'`. Both fields
-        validate individually, so before the relationship guard this returned
-        `status: "valid"` and settlement processing proceeded -- against a single
-        account standing in for both ends of the payout transfer, in a leaked test
-        company. `process_settlement_deposit` returns immediately on
-        `status == "error"`, so this is what actually prevents the posting.
+        veg11 books settlements into `Verenigingen Settings.company`
+        ('Nederlandse Vereniging voor Veganisme') while its Mollie accounts sit in
+        'TEST-Payment-Integration-Company'. Both accounts validate individually, so
+        before the coherence guard this returned `status: "valid"` and processing
+        proceeded -- posting one side of the settlement into a leaked test company's
+        ledger. `process_settlement_deposit` returns immediately on
+        `status == "error"`, so this is what actually prevents it.
+        """
+        accounts = ensure_mollie_gl_accounts()
+        foreign = frappe.db.get_value(
+            "Account",
+            {"company": ["!=", accounts["company"]], "account_type": "Bank", "is_group": 0},
+            "name",
+        )
+        self.assertTrue(foreign, "precondition: the site needs a leaf Bank account elsewhere")
+        # The foreign account needs a Bank Account record, or the method refuses for
+        # an UNRELATED reason ("no Bank Account found linked to GL account") and the
+        # test would pass against develop while proving nothing. Measured: that is
+        # exactly what an earlier version of this test did.
+        ensure_bank_account_record(frappe.db.get_value("Account", foreign, "company"), foreign)
+
+        with provisioned_mollie_settings(mollie_bank_account=foreign):
+            out = SettlementBankTransactionProcessor._validate_configuration(None)
+        self.assertEqual(out["status"], "error", "a foreign-company account must stop processing")
+        self.assertIn(
+            "booked into",
+            out["error"].lower(),
+            f"the refusal must be ABOUT the company mismatch: {out['error']}",
+        )
+
+    def test_one_account_as_both_clearing_and_bank_is_still_accepted(self):
+        """clearing == bank must NOT stop processing.
+
+        `_book_settlement_payout` supports one account (nothing to drain) and
+        `test_one_account_configured_as_both_sides_needs_no_payout_leg` asserts the
+        accounting. An earlier version of this guard rejected it, which made this
+        pipeline refuse a configuration the other one books correctly -- and produced
+        the per-run Error Log row that code deliberately avoids.
         """
         accounts = ensure_mollie_gl_accounts()
         shared = accounts["clearing_account"]
-        # Give the shared account a Bank Account record, because veg11's has one
-        # ('BTR Test Company Account - BTR Test Bank'). Without this the method
-        # rejects the config for an UNRELATED reason -- "no Bank Account found
-        # linked to GL account" -- and the test would pass against develop while
-        # proving nothing. Measured: that is exactly what it did.
+        # The shared account needs a Bank Account record, or this refuses for the
+        # SEPARATE pre-existing reason ("No Bank Account found linked to GL Account")
+        # and the test would be about linkage rather than about the guard. veg11's
+        # shared account has one.
         ensure_bank_account_record(accounts["company"], shared)
 
         with provisioned_mollie_settings(mollie_bank_account=shared):
             out = SettlementBankTransactionProcessor._validate_configuration(None)
-        self.assertEqual(out["status"], "error", "an incoherent account pair must stop processing")
-        self.assertIn(
-            "same",
-            out["error"].lower(),
-            "the refusal must be ABOUT the shared account, not an incidental "
-            f"missing-Bank-Account error: {out['error']}",
+        self.assertEqual(
+            out["status"], "valid", f"one account as both sides is supported: {out.get('error')}"
         )
 
     def test_a_missing_clearing_account_stops_settlement_processing(self):
