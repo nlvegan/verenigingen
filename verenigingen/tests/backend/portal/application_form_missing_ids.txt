@@ -14,19 +14,14 @@
 # Origin: #412. #201 was one instance of this class.
 
 # --- needs a product decision, not a rename ---
-newsletter_opt_in            # no such control; the page uses #opt_out_optional_emails, which IS read. Sending false here defeats data.get("newsletter_opt_in", 1), so every member is stored 0. Deleting the key changes stored values.
 terms                        # page renders name="terms_accepted" with no id. No server code reads terms/gdpr_consent/confirm_accuracy, so acceptance is gated in the browser but never recorded.
 gdpr_consent                 # page renders name="privacy_accepted" with no id. Same as above.
 confirm_accuracy             # no element anywhere, and nothing validates it live. This checkbox appears never to have existed.
 
 # --- the page renders no such control at all ---
 middle_name                  # tussenvoegsel is the Dutch-installation field the page actually offers
-address_line2                #
-state                        #
-application_source           # stored on Member as the acquisition channel; always ''
+application_source           # NOT stored: Member has no such field and no table on the live site has the column, so both assignments in application_helpers are silent no-ops. Phase 3 adds the field and the page control; until then the page renders neither #application_source nor a name= equivalent.
 application_source_details   #
-transfer_iban                # bank-transfer branch; the page collects IBAN once, via #iban
-transfer_account_name        #
 
 # --- the id is absent but a name-based read covers it ---
 payment_method               # #payment_method does not render; the collector falls back to input[name="payment_method"]:checked, which does. NOTE: this entry previously claimed the fallback was name="payment_method_selection" and that the field therefore "works" -- both false. payment_method_selection renders 0 times, and until #420 the collector's correct read was overwritten downstream by getAdditionalFormData. A wrong explanation in a baseline is a search query nobody runs.

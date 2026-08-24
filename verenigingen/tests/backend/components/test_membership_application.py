@@ -705,6 +705,82 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
             frappe.delete_doc("Customer", member.customer, force=True)
         frappe.delete_doc("Member", member.name, force=True)
 
+    def test_the_dead_payload_keys_have_nowhere_to_land(self):
+        """Phase 2's premise, asserted rather than read off the source.
+
+        /apply_for_membership collected `newsletter_opt_in`, `transfer_iban` and
+        `transfer_account_name` from element ids it does not render, so each one
+        transmitted '' or false on every application (#412). They are being
+        dropped because they have no destination at all: Member has no such
+        field, so `member.newsletter_opt_in = ...` in application_helpers was a
+        silent no-op — assigning an unknown attribute on a Document neither
+        raises nor persists — and nothing reads the transfer_* pair anywhere.
+
+        The baseline entry that tracked `newsletter_opt_in` claimed deleting the
+        key would "change stored values" and that every member was "stored 0".
+        Both are false; there is no column to store into. This asserts the
+        correction instead of restating it: the values sent below are the
+        opposite of the helper's defaults, so a real destination would show.
+        """
+        meta = frappe.get_meta("Member")
+        # Control: without it, a get_meta that stopped resolving fields would make
+        # every assertIsNone below pass for the wrong reason.
+        self.assertIsNotNone(meta.get_field("email"))
+        for fieldname in ("newsletter_opt_in", "transfer_iban", "transfer_account_name"):
+            self.assertIsNone(
+                meta.get_field(fieldname),
+                f"Member now has a {fieldname} field. The application form stopped "
+                "sending this key because it had nowhere to land; give the page a "
+                "control and a collector read before relying on the field.",
+            )
+
+        data = self.application_data.copy()
+        data["email"] = f"deadkeys_{self.test_email}"
+        data["newsletter_opt_in"] = 0  # application_helpers defaults this to 1
+        data["transfer_iban"] = "NL91ABNA0417164300"
+        data["transfer_account_name"] = "Transfer Holder"
+
+        result = submit_application(**data)
+        member = frappe.get_doc("Member", result["data"]["member_record"])
+        self.track_doc("Member", member.name)
+
+        stored = frappe.db.get_value("Member", member.name, "*")
+        # Control: `stored` must be a column map. If it ever came back a row tuple,
+        # the assertNotIn loop below would be vacuously true.
+        self.assertIn("email", stored)
+        for fieldname in ("newsletter_opt_in", "transfer_iban", "transfer_account_name"):
+            self.assertNotIn(fieldname, stored, f"tabMember gained a {fieldname} column")
+
+        # The transfer_* pair is not a second route into the member's bank
+        # fields either, whatever the collector's comment claimed about them
+        # mapping "to the member IBAN fields when payment_method is Bank Transfer".
+        self.assertEqual(member.iban, "")
+        self.assertEqual(member.bank_account_name, "")
+
+    def test_the_endpoint_still_stores_address_line2_and_state_when_sent(self):
+        """Phase 2 stops the browser sending these; the server must keep reading them.
+
+        The page renders no #address_line2 and no #state, so the collector sent
+        '' for both on every application. `tabAddress` has both columns and
+        `create_address_from_application` writes them, so the server-side reads
+        stay for the endpoint's other callers — `submit_application` is
+        allow_guest. Without this test, deleting those reads alongside the
+        collector keys would be invisible.
+        """
+        data = self.application_data.copy()
+        data["email"] = f"addrtwo_{self.test_email}"
+        data["address_line2"] = "Tweede regel 4B"
+        data["state"] = "Noord-Holland"
+
+        result = submit_application(**data)
+        member = frappe.get_doc("Member", result["data"]["member_record"])
+        self.track_doc("Member", member.name)
+
+        self.assertTrue(member.primary_address, "the application created no Address")
+        address = frappe.get_doc("Address", member.primary_address)
+        self.assertEqual(address.address_line2, "Tweede regel 4B")
+        self.assertEqual(address.state, "Noord-Holland")
+
     def test_contact_number_field_usage(self):
         """Test that contact_number is used instead of mobile_no"""
         # Submit application with contact number

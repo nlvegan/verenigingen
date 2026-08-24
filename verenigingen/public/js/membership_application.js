@@ -829,9 +829,7 @@ class _MembershipApplication {
 
 			// Step 2: Address Information
 			address_line1: $('#address_line1').val() || '',
-			address_line2: $('#address_line2').val() || '',
 			city: $('#city').val() || '',
-			state: $('#state').val() || '',
 			postal_code: $('#postal_code').val() || '',
 			country: $('#country').val() || '',
 
@@ -845,7 +843,6 @@ class _MembershipApplication {
 			interested_in_volunteering: $('#interested_in_volunteering').is(':checked'),
 			volunteer_availability: $('#volunteer_availability').val() || '',
 			volunteer_experience_level: $('#volunteer_experience_level').val() || '',
-			newsletter_opt_in: $('#newsletter_opt_in').is(':checked'),
 			application_source: $('#application_source').val() || '',
 			application_source_details: $('#application_source_details').val() || '',
 
@@ -858,11 +855,6 @@ class _MembershipApplication {
 			// Bank Account Details (SEPA Direct Debit)
 			iban: $('#iban').val() || '',
 			bank_account_name: $('#account_holder_name').val() || $('#bank_account_name').val() || '',
-
-			// Bank Transfer Account Details (for payment matching)
-			// Note: These should map to the member IBAN fields when payment_method is 'Bank Transfer'
-			transfer_iban: $('#transfer_iban').val() || '',
-			transfer_account_name: $('#transfer_account_name').val() || '',
 
 			// Step 7: Final Confirmation
 			// The motivation textarea is #volunteer_comments on this page; it lands
