@@ -590,14 +590,27 @@ class EnhancedTestDataFactory:
     def _generate_unique_test_member_id(self) -> str:
         """Generate unique member ID for test members to avoid database conflicts.
 
-        ``member_id`` is a UNIQUE column. CI runs 8 test shards as parallel
-        PROCESSES against ONE shared DB. The old format
-        ``TEST{microseconds:06d}{seq:03d}`` collided across shards: two processes
-        can hit the same microsecond AND each process's ``seq`` counter starts
-        fresh at 1 in its own memory, so both emit e.g. ``TEST161453001`` ->
-        IntegrityError 1062 Duplicate entry. We add PER-PROCESS entropy (the OS
-        pid plus a random hash) so two shards can never generate the same id,
-        while keeping the ``TEST`` prefix that other code keys on.
+        ``member_id`` is a UNIQUE column. The old format
+        ``TEST{microseconds:06d}{seq:03d}`` collided: a fresh factory per test
+        method restarts ``seq`` at 1, so every test's FIRST member is
+        ``...001`` and they all contend in one 10^6 sub-second space, e.g.
+        ``TEST161453001`` -> IntegrityError 1062 Duplicate entry. Adding a random
+        hash (with the OS pid) gives PER-CALL entropy, while keeping the ``TEST``
+        prefix that other code keys on.
+
+        NOT a cross-shard collision, which this used to claim. CI gives every
+        shard job its **own** ``mariadb:10.6`` service container (the
+        ``services:`` block sits inside the matrix job in
+        ``.github/workflows/_base-server-tests.yml``), so two shards cannot
+        collide on a UNIQUE column at all; the mechanism is entirely
+        within-process. The matrix also runs 12 shards, not 8. Measured twice on
+        2026-08-23 in single shards: ``TEST153429001`` and ``TEST311263001``
+        (#549). The pid is therefore NOT the load-bearing part -- it is equal for
+        every factory in one process -- the random hash is (#550).
+
+        Note this method has **no callers**; the live copies are
+        ``CoreTestDataFactory._generate_member_id`` and
+        ``SecureTestDataFactory._generate_secure_member_id``.
         """
         import os
 
