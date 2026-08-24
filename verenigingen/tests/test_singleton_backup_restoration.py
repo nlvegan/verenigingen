@@ -251,3 +251,53 @@ class TestSingletonBackupRestoresAStateSaveWouldReject(unittest.TestCase):
             cache.get_value(PontoTokenManager.TOKEN_CACHE_KEY),
             "the OAuth token cache outlived the class that planted it",
         )
+
+
+class TestMollieSettingsCacheIsDroppedOnRestore(FrappeTestCase):
+    """`Mollie Settings` needs the same cache drop `Ponto Settings` gets.
+
+    `MollieConfigurationService` caches the whole Single in
+    `frappe.cache()["mollie_settings_cache"]` for 300s. `MollieSettings.on_update`
+    drops it, but `_restore_singleton` goes round `doc.save()` on purpose (#537),
+    so nothing fired and a restore put the original rows back while the service
+    went on serving whatever the test had written -- including the GL account
+    fields the #540 guard reads.
+    """
+
+    def test_the_configuration_cache_does_not_survive_the_restore(self):
+        from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
+            MollieConfigurationService,
+        )
+
+        original = frappe.db.get_value("Mollie Settings", "Mollie Settings", "mollie_bank_account")
+        self.addCleanup(MollieConfigurationService.clear_cache)
+        self.addCleanup(
+            frappe.db.set_value, "Mollie Settings", "Mollie Settings", "mollie_bank_account", original
+        )
+
+        backup = SingletonBackup("Mollie Settings")
+        backup.backup()
+        frappe.db.set_value(
+            "Mollie Settings", "Mollie Settings", "mollie_bank_account", "SENTINEL-NOT-AN-ACCOUNT"
+        )
+        MollieConfigurationService.clear_cache()
+
+        # Warm the cache with the test's value, so there is something stale to drop.
+        self.assertEqual(
+            MollieConfigurationService.get_settings()["mollie_bank_account"],
+            "SENTINEL-NOT-AN-ACCOUNT",
+            "staging: the service must be caching the test's value before the restore",
+        )
+        self.assertIsNotNone(frappe.cache().get_value(MollieConfigurationService.CACHE_KEY))
+
+        backup.restore()
+
+        self.assertIsNone(
+            frappe.cache().get_value(MollieConfigurationService.CACHE_KEY),
+            "the restore put the row back but left the service caching the test's value",
+        )
+        self.assertEqual(
+            MollieConfigurationService.get_settings()["mollie_bank_account"],
+            original,
+            "the service must serve the restored value, not the sentinel",
+        )

@@ -9,6 +9,10 @@ import unittest
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from verenigingen.tests.fixtures.mollie_account_fixtures import (
+    ensure_mollie_gl_accounts,
+    provisioned_mollie_settings,
+)
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
     MollieConfigurationService,
     get_mollie_config,
@@ -290,75 +294,74 @@ class TestMollieConfigurationService(FrappeTestCase):
         self.assertIsInstance(result["warnings"], list)
 
     def test_validate_all_mollie_accounts_with_configured_system(self):
-        """Test validate_all_mollie_accounts() with properly configured accounts"""
-        settings = frappe.get_single("Mollie Settings")
+        """A fully configured system validates clean.
 
-        # Only run if required accounts are configured
-        if settings.mollie_clearing_account and settings.mollie_bank_account:
-            config = get_mollie_config()
-            result = config.validate_all_mollie_accounts(raise_on_error=False)
+        Used to be wrapped in `if settings.mollie_clearing_account and
+        settings.mollie_bank_account:` and so asserted NOTHING on a site where the
+        Single was unconfigured -- which was every test site, since nothing
+        provisioned it. It now provisions the configuration it is about.
+        """
+        with provisioned_mollie_settings():
+            result = get_mollie_config().validate_all_mollie_accounts(raise_on_error=False)
 
-            # If accounts are configured, result should have proper structure
-            self.assertIn("valid", result)
-            self.assertIn("accounts", result)
-            self.assertIn("errors", result)
-
-            # At minimum, should have attempted validation for all 3 account types
-            self.assertIn("clearing_account", result["accounts"])
-            self.assertIn("bank_account", result["accounts"])
-            self.assertIn("fees_account", result["accounts"])
+        self.assertTrue(result["valid"], f"a provisioned system must validate: {result['errors']}")
+        for purpose in ("clearing_account", "bank_account", "fees_account"):
+            self.assertIn(purpose, result["accounts"])
+            self.assertTrue(
+                result["accounts"][purpose].get("valid"), f"{purpose}: {result['accounts'][purpose]}"
+            )
 
     def test_validate_all_mollie_accounts_identifies_missing_accounts(self):
-        """Test validate_all_mollie_accounts() identifies missing required accounts"""
-        settings = frappe.get_single("Mollie Settings")
+        """Each required account, blanked deliberately, is named in the errors.
 
-        # If any required account is missing, validation should fail
-        if not settings.mollie_clearing_account or not settings.mollie_bank_account:
-            config = get_mollie_config()
-
-            result = config.validate_all_mollie_accounts(raise_on_error=False)
-
-            # Should be invalid
-            self.assertFalse(result.get("valid"))
-            self.assertGreater(len(result.get("errors", [])), 0)
-
-            # Check that error mentions the missing account
-            errors_str = " ".join(result.get("errors", []))
-            if not settings.mollie_clearing_account:
-                self.assertIn("clearing", errors_str.lower())
-            if not settings.mollie_bank_account:
-                self.assertIn("bank", errors_str.lower())
+        Previously ran only `if not settings.mollie_clearing_account or not
+        settings.mollie_bank_account`, i.e. only on an unconfigured site, and then
+        asserted whichever half happened to be missing. Now it blanks each one in
+        turn and asserts that specific error.
+        """
+        for field, expected in (
+            ("mollie_clearing_account", "clearing"),
+            ("mollie_bank_account", "bank"),
+        ):
+            with self.subTest(missing=field):
+                with provisioned_mollie_settings(**{field: ""}):
+                    result = get_mollie_config().validate_all_mollie_accounts(raise_on_error=False)
+                self.assertFalse(result["valid"], f"blanking {field} must invalidate the configuration")
+                self.assertIn(expected, " ".join(result["errors"]).lower())
 
     def test_validate_all_mollie_accounts_handles_optional_fees_account(self):
-        """Test validate_all_mollie_accounts() handles optional fees_account correctly"""
-        config = get_mollie_config()
+        """A missing fees account is a WARNING, not an error -- it is optional.
 
-        result = config.validate_all_mollie_accounts(raise_on_error=False)
+        The `if not fees_result.get("configured", True):` this replaces meant the
+        body ran only when the fees account happened to be unset, and the "optional
+        means still valid" half was never asserted at all.
+        """
+        with provisioned_mollie_settings(payment_processing_fees_account=""):
+            result = get_mollie_config().validate_all_mollie_accounts(raise_on_error=False)
 
-        # fees_account is optional, so should have warning if missing
-        fees_result = result["accounts"].get("fees_account", {})
-
-        if not fees_result.get("configured", True):
-            # Should have a warning about fees account not configured
-            self.assertGreater(len(result.get("warnings", [])), 0)
-            warnings_str = " ".join(result.get("warnings", []))
-            self.assertIn("fees", warnings_str.lower())
+        self.assertTrue(result["valid"], "a missing fees account must not invalidate the configuration")
+        self.assertFalse(result["accounts"]["fees_account"].get("configured", True))
+        self.assertIn("fees", " ".join(result["warnings"]).lower())
 
     def test_validate_all_mollie_accounts_with_raise_on_error(self):
-        """Test validate_all_mollie_accounts() raises exception when raise_on_error=True"""
-        settings = frappe.get_single("Mollie Settings")
+        """`raise_on_error=True` raises on an incomplete configuration, and does
+        NOT raise on a complete one.
 
-        # Only test if configuration is incomplete
-        if not settings.mollie_clearing_account or not settings.mollie_bank_account:
-            config = get_mollie_config()
-
-            # Should raise ValidationError
+        Both halves matter and neither was asserted: the body ran only `if not
+        settings.mollie_clearing_account or not settings.mollie_bank_account`, so on
+        a configured site the test was a no-op, and the "does not raise" case had no
+        coverage anywhere.
+        """
+        with provisioned_mollie_settings(mollie_clearing_account=""):
             with self.assertRaises(frappe.ValidationError) as context:
-                config.validate_all_mollie_accounts(raise_on_error=True)
+                get_mollie_config().validate_all_mollie_accounts(raise_on_error=True)
+        self.assertIn("validation failed", str(context.exception).lower())
 
-            # Verify error message is comprehensive
-            error_msg = str(context.exception)
-            self.assertIn("validation failed", error_msg.lower())
+        with provisioned_mollie_settings():
+            # Must not raise. Without this half, the assertion above is equally
+            # consistent with "raises when incomplete" and "always raises".
+            result = get_mollie_config().validate_all_mollie_accounts(raise_on_error=True)
+        self.assertTrue(result["valid"])
 
     # ===== Company Validation Tests (Phase 3.3) =====
 
@@ -642,3 +645,7 @@ def run_tests():
     suite = unittest.TestLoader().loadTestsFromTestCase(TestMollieConfigurationService)
     runner = unittest.TextTestRunner(verbosity=2)
     return runner.run(suite)
+
+
+if __name__ == "__main__":
+    unittest.main()

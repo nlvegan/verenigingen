@@ -16,6 +16,7 @@ boundary) to a __new__-built instance so the real DB stamping logic runs.
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.mollie_account_fixtures import provisioned_mollie_settings
 from verenigingen.verenigingen_payments.services.settlement_bank_transaction_processor import (
     SettlementBankTransactionProcessor,
 )
@@ -38,21 +39,30 @@ class _FakeSettlementsClient:
 
 
 class TestValidateConfiguration(EnhancedTestCase):
-    """_validate_configuration — real config service + DB lookups."""
+    """_validate_configuration — real config service + DB lookups.
 
-    def test_returns_status_dict(self):
-        # On a site without Mollie clearing/bank GL accounts this returns the
-        # error branch; on a fully configured site it returns 'valid' with a
-        # bank_account + company. Either way the method must not raise and must
-        # produce a well-formed status dict — exercising the real config path.
-        out = SettlementBankTransactionProcessor._validate_configuration(None)
-        self.assertIn("status", out)
-        self.assertIn(out["status"], ("valid", "error"))
-        if out["status"] == "valid":
-            self.assertTrue(out["bank_account"])
-            self.assertTrue(out["company"])
-        else:
-            self.assertTrue(out["error"])
+    These used to accept EITHER outcome (`assertIn(out["status"], ("valid",
+    "error"))`) because nothing provisioned Mollie Settings, so the test asserted
+    shape and nothing else -- it passed identically on a correctly configured site
+    and on one where settlement processing could never run. Each test now
+    provisions the configuration it is about.
+    """
+
+    def test_a_provisioned_configuration_is_accepted(self):
+        with provisioned_mollie_settings():
+            out = SettlementBankTransactionProcessor._validate_configuration(None)
+        self.assertEqual(out["status"], "valid", f"expected a provisioned config to pass: {out}")
+        self.assertTrue(out["bank_account"], "the Bank Account record the fixture creates must resolve")
+        self.assertTrue(out["company"])
+
+    def test_a_missing_clearing_account_stops_settlement_processing(self):
+        """The pre-existing per-account validation still bites, and says which
+        account. Without this the test above is equally consistent with "the guard
+        fires" and "any override at all produces an error"."""
+        with provisioned_mollie_settings(mollie_clearing_account=""):
+            out = SettlementBankTransactionProcessor._validate_configuration(None)
+        self.assertEqual(out["status"], "error")
+        self.assertIn("clearing", out["error"].lower())
 
 
 class TestLinkPaymentEntries(EnhancedTestCase):
