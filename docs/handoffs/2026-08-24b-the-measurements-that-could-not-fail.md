@@ -22,7 +22,7 @@ not have returned any other*.
 | **#379** | OPEN, draft, conflicting, 7 failures — untouched |
 | Filed | **#540** (code half now in flight as #563), **#561**, **#562** |
 | develop | **green** at `a18d48d9`, 37 checks, 12/12 shards, both `member_id` fixes in |
-| veg11 | **not deployed.** Still blocked on an accounting decision — see the end |
+| veg11 | **not deployed, and not blocked.** Its Mollie config is incoherent but #563 makes that fail safe — see the end |
 
 ## The five
 
@@ -184,15 +184,28 @@ comment explains why). Nine of the sixteen are payment-facing. This is a **diffe
 
 ## What is left
 
-- **#540 needs an accounting decision, and it is the only thing blocking veg11.** `Mollie Settings`
-  points both account fields at `10440 - Triodos 1 - TPIC - TPIC`, whose company is
-  `TEST-Payment-Integration-Company`; the `Bank Account` #538's fixed gate resolves is
-  `BTR Test Company Account - BTR Test Bank`. **#563 is in flight for the code half** (a coherence
-  guard on the pair) — but a guard makes the bad configuration *detectable*, it does not choose the
-  accounts. Someone has to say which NVV clearing account represents "held at Mollie, pre-payout"
-  (I could not find one; it may need creating) and which NVV account receives the payout — the only
-  NVV Triodos `Bank Account` on the site is `Triodos Spaarrekening`, a *savings* account. Do that
-  **before** splitting the fields, then watch the first settlement.
+- **#540 — nothing here is blocked, and I over-escalated it.** The measurement stands:
+  `Mollie Settings` points both account fields at `10440 - Triodos 1 - TPIC - TPIC`, whose company is
+  `TEST-Payment-Integration-Company`, and the `Bank Account` #538's fixed gate resolves is
+  `BTR Test Company Account - BTR Test Bank`. I reported that as "a deployment blocker awaiting an
+  accounting decision." **It is not**, on two counts I should have checked before escalating:
+
+  1. **The test side needs no human input at all.** The invariants are objective — clearing ≠ bank
+     (two ends of one transfer) and both in one company — and #563 says so in as many words, adding
+     `tests/fixtures/mollie_account_fixtures.py` so the suite provisions a coherent configuration by
+     construction instead of reading whatever the Single holds. That was #497/#548's class, and it is
+     a code fix, now done.
+  2. **The live side is not urgent and now fails safe.** The record says the system is **not live
+     yet** (2026-08-16), so there is no production ledger to protect; and #563's guard returns
+     `status: "error"` and *stops* settlement processing on exactly veg11's shape, where develop
+     accepts it. The incoherent config can no longer quietly post anything.
+
+  What genuinely needs a human is the real configuration **if and when the system goes live** — which
+  NVV account represents "held at Mollie, pre-payout" (I found none; it may need creating) and which
+  receives the payout (the only NVV Triodos `Bank Account` on the site is `Triodos Spaarrekening`, a
+  *savings* account). That is a business decision, it is not on anyone's path today, and it should not
+  be presented as blocking. **Lesson for the next handoff: "the previous handoff recorded a next
+  step" is not the same as "that step is pending and blocked."**
 - **#378** — draft, do-not-merge. Minimum set to change the verdict is in the PR comment; the
   headline is `except NON_RESUMABLE_DB_ERRORS: raise` **above** `application_payments.py:275`'s
   rollback (not merely above the return), plus a test injecting the *faithful* deadlock.
@@ -219,5 +232,10 @@ comment explains why). Nine of the sixteen are payment-facing. This is a **diffe
   and which I never measured.
 - **Verify the verifier.** The reviewer was right about my prose five times and wrong about its own
   citations twice. Both directions need checking.
+- **"A previous handoff recorded a next step" is not "that step is pending and blocked."** I carried
+  #540 forward as an accounting decision blocking veg11 and put it in front of Foppe three times. It
+  was neither: the test half needed no decision at all, and the live half is not urgent on a system
+  that is not live. Check whether a recorded next step is actually on anyone's path before escalating
+  it — and check whether someone has already fixed the code half.
 - **Re-attribute before you delete.** Three wrong rationales guarded three real hazards. The premise
   was false and the code was necessary; those are independent questions.
