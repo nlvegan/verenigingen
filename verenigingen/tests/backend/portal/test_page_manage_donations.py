@@ -70,7 +70,14 @@ class TestPageManageDonations(EnhancedTestCase):
         return email
 
     def _make_donation(
-        self, *, status="One-time", amount=20.0, paid=0, recurring_freq=None, donation_date=None
+        self,
+        *,
+        status="One-time",
+        amount=20.0,
+        paid=0,
+        recurring_freq=None,
+        donation_date=None,
+        **extra,
     ):
         data = {
             "doctype": "Donation",
@@ -85,9 +92,27 @@ class TestPageManageDonations(EnhancedTestCase):
         }
         if recurring_freq:
             data["recurring_frequency"] = recurring_freq
+        data.update(extra)
         doc = frappe.get_doc(data)
         doc.insert(ignore_permissions=True)
         return doc
+
+    def _setup_origin_and_charge(self):
+        """A recurring donation and one of the charges booked under it.
+
+        A charge Donation (recurring_origin_donation set) is what the Mollie
+        webhook creates for each period; it carries the origin's donor_email and
+        status "Recurring" and the same subscription.
+        """
+        origin = self._make_donation(status="Recurring", amount=25.0, recurring_freq="Monthly")
+        charge = self._make_donation(
+            status="Recurring",
+            amount=25.0,
+            paid=1,
+            recurring_freq="Monthly",
+            recurring_origin_donation=origin.name,
+        )
+        return origin, charge
 
     def _make_recurring(self, *, amount, days_ago=0, cancelled=False, mollie_subscription_id=None):
         """Insert a Recurring donation.
@@ -388,3 +413,105 @@ class TestPageManageDonations(EnhancedTestCase):
                     cancel_recurring_donation()
             finally:
                 frappe.form_dict = frappe._dict()
+
+    # ----- a charge donation is not the subscription -------------------
+    #
+    # Task 9 gave the two READ paths the recurring_origin_donation
+    # discriminator and left the two WRITE paths without it. A charge satisfies
+    # every gate those writers have (see the precondition test below), and the
+    # donor is handed the charge's exact document name every period --
+    # send_payment_confirmation_email puts it in the mail context -- so this is
+    # reachable without guessing an id.
+
+    def test_a_charge_donation_satisfies_every_pre_existing_gate(self):
+        """Precondition, without which the two rejections below prove nothing.
+
+        If a charge failed the ownership / status / liveness checks anyway, a
+        rejection would not tell us the new guard is what did it.
+        """
+        # is_recurring_donation_active was replaced on develop by the tri-state
+        # get_recurring_donation_state: the liveness gate now rejects only what is
+        # CONFIRMED inactive, so "would pass" means "is not confirmed inactive".
+        from verenigingen.templates.pages.manage_donations import (
+            RECURRING_STATE_INACTIVE,
+            get_recurring_donation_state,
+        )
+
+        _origin, charge = self._setup_origin_and_charge()
+        self.assertEqual(charge.donor_email, self.email, "ownership check would pass")
+        self.assertEqual(charge.status, "Recurring", "the status check would pass")
+        self.assertNotEqual(
+            get_recurring_donation_state(charge.name),
+            RECURRING_STATE_INACTIVE,
+            "the liveness check would pass",
+        )
+
+    def test_update_rejects_a_charge_donation(self):
+        from verenigingen.templates.pages.manage_donations import update_recurring_donation
+
+        _origin, charge = self._setup_origin_and_charge()
+        with self.as_user(self.user):
+            frappe.form_dict = frappe._dict({"donation_id": charge.name, "new_amount": 99.0})
+            try:
+                with self.assertRaises(frappe.ValidationError):
+                    update_recurring_donation()
+            finally:
+                frappe.form_dict = frappe._dict()
+
+        charge.reload()
+        self.assertEqual(
+            charge.amount,
+            25.0,
+            "the historical amount of a settled charge must not be rewritten -- its Journal "
+            "Entry, the GL and the agreement's child row all keep the real figure",
+        )
+
+    def test_update_still_accepts_the_origin_donation(self):
+        """CONTROL. Without it, a broken endpoint reads as a working guard."""
+        from verenigingen.templates.pages.manage_donations import update_recurring_donation
+
+        origin, _charge = self._setup_origin_and_charge()
+        with self.as_user(self.user):
+            frappe.form_dict = frappe._dict({"donation_id": origin.name, "new_amount": 99.0})
+            try:
+                result = update_recurring_donation()
+            finally:
+                frappe.form_dict = frappe._dict()
+
+        self.assertEqual(result.get("status"), "success", f"the origin must still be updatable: {result}")
+        origin.reload()
+        self.assertEqual(origin.amount, 99.0)
+
+    def test_cancel_rejects_a_charge_donation(self):
+        from verenigingen.templates.pages.manage_donations import cancel_recurring_donation
+
+        _origin, charge = self._setup_origin_and_charge()
+        with self.as_user(self.user):
+            frappe.form_dict = frappe._dict({"donation_id": charge.name})
+            try:
+                with self.assertRaises(frappe.ValidationError):
+                    cancel_recurring_donation()
+            finally:
+                frappe.form_dict = frappe._dict()
+
+        charge.reload()
+        self.assertFalse(
+            charge.recurring_cancelled_date,
+            "cancelling a past charge stamps one payment and leaves the subscription charging",
+        )
+
+    def test_cancel_still_accepts_the_origin_donation(self):
+        """CONTROL, as above."""
+        from verenigingen.templates.pages.manage_donations import cancel_recurring_donation
+
+        origin, _charge = self._setup_origin_and_charge()
+        with self.as_user(self.user):
+            frappe.form_dict = frappe._dict({"donation_id": origin.name})
+            try:
+                result = cancel_recurring_donation()
+            finally:
+                frappe.form_dict = frappe._dict()
+
+        self.assertEqual(result.get("status"), "success", f"the origin must still be cancellable: {result}")
+        origin.reload()
+        self.assertTrue(origin.recurring_cancelled_date)

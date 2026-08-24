@@ -177,6 +177,44 @@ def _make_eur_invoice(
     return inv
 
 
+def ensure_clearing_bank_account(company: str, clearing: str) -> str:
+    """Get-or-create the Bank Account that `bank_transaction_creator` resolves.
+
+    Keyed on `clearing` in BOTH places. The guard asks "does a Bank Account point
+    at THIS GL account?"; the docname erpnext derives is `<account_name> - <bank>`,
+    with no company component. A fixed `account_name = "Mollie Clearing"` made
+    those two different keys, so the first class whose `clearing` resolved to a
+    different GL account than its predecessor's passed the guard and then died on
+    `Duplicate entry 'Mollie Clearing - Mollie Test Bank' for key 'PRIMARY'` --
+    in `setUpClass`, taking five whole classes with it (#395).
+
+    Same lesson as `_persist_company_bank_account` in
+    `tests/payment/test_bulk_transaction_importer_sweep.py`, which disambiguates
+    with the company abbreviation because *its* varying dimension is the company.
+    Here the company is fixed and the clearing account is what varies, so the
+    clearing account is the right key -- and it already ends in that abbr.
+    """
+    existing = frappe.db.get_value("Bank Account", {"account": clearing}, "name")
+    if existing:
+        return existing
+
+    if not frappe.db.exists("Bank", "Mollie Test Bank"):
+        frappe.get_doc({"doctype": "Bank", "bank_name": "Mollie Test Bank"}).insert(ignore_permissions=True)
+    return (
+        frappe.get_doc(
+            {
+                "doctype": "Bank Account",
+                "account_name": f"Mollie Clearing {clearing}",
+                "account": clearing,
+                "bank": "Mollie Test Bank",
+                "company": company,
+            }
+        )
+        .insert(ignore_permissions=True)
+        .name
+    )
+
+
 class DuesCreationTestBase(EnhancedTestCase):
     @classmethod
     def setUpClass(cls):
@@ -214,20 +252,24 @@ class DuesCreationTestBase(EnhancedTestCase):
         # Account via its `account` link to the clearing GL account. On a site
         # where no such Bank Account exists yet, create one (plus its Bank parent)
         # idempotently so the BT-creation branch is exercisable on ANY site.
-        if clearing and not frappe.db.get_value("Bank Account", {"account": clearing}, "name"):
-            if not frappe.db.exists("Bank", "Mollie Test Bank"):
-                frappe.get_doc({"doctype": "Bank", "bank_name": "Mollie Test Bank"}).insert(
-                    ignore_permissions=True
-                )
-            frappe.get_doc(
-                {
-                    "doctype": "Bank Account",
-                    "account_name": "Mollie Clearing",
-                    "account": clearing,
-                    "bank": "Mollie Test Bank",
-                    "company": company,
-                }
-            ).insert(ignore_permissions=True)
+        #
+        # The account_name carries the clearing account so that the docname
+        # erpnext derives (`<account_name> - <bank>`) is keyed on the same thing
+        # the guard checks. The fixed name "Mollie Clearing" was not: the guard
+        # asked "does a Bank Account point at THIS GL account?" while the PRIMARY
+        # key was "Mollie Clearing - Mollie Test Bank", so the first time
+        # `clearing` resolved to a different GL account than the previous class
+        # had used, the guard found nothing and the insert died with
+        # `Duplicate entry 'Mollie Clearing - Mollie Test Bank' for key 'PRIMARY'`
+        # -- taking out five classes in setUpClass rather than one test (#395).
+        #
+        # Same lesson as `_persist_company_bank_account` in
+        # tests/payment/test_bulk_transaction_importer_sweep.py, which disambiguates
+        # with the company abbreviation because its varying dimension is the company.
+        # Here the company is fixed and the clearing account is what varies, so the
+        # clearing account is the right key -- and it already ends in that abbr.
+        if clearing:
+            ensure_clearing_bank_account(company, clearing)
 
         settings = frappe.get_single("Verenigingen Settings")
         settings.company = company
@@ -287,6 +329,68 @@ class DuesCreationTestBase(EnhancedTestCase):
 # ===========================================================================
 # _create_payment_entry_for_dues  — the largest uncovered method
 # ===========================================================================
+class TestClearingBankAccountFixture(DuesCreationTestBase):
+    """#395: the fixture that took out five classes in `setUpClass`."""
+
+    SQUATTER = "Mollie Clearing - Mollie Test Bank"
+
+    def test_it_survives_a_row_squatting_on_the_old_fixed_docname(self):
+        """The squatter is the condition; make sure one is present, don't hope for it.
+
+        On CI this arrived by co-tenancy: a sibling class ran first, its `clearing`
+        resolved to a different GL account, and it left a
+        `Mollie Clearing - Mollie Test Bank` pointing there. The next class's guard
+        -- keyed on `account`, not on the docname -- found nothing and tried to
+        insert a docname that was already taken.
+
+        A first draft skipped when that row already existed, which is exactly
+        backwards: on every warm test site it DOES exist, so the gate skipped itself
+        away. A pre-existing squatter satisfies the precondition; only its absence
+        needs fixing.
+
+        We ask the helper for a GL account `setUpClass` has not already claimed,
+        because asking for `cls.clearing_account` would return early on the guard
+        and never reach the insert this test is about.
+        """
+        claimed = [a for a in frappe.get_all("Bank Account", pluck="account") if a]
+        spares = frappe.get_all(
+            "Account",
+            filters={"account_type": "Bank", "is_group": 0, "name": ["not in", claimed]},
+            fields=["name", "company"],
+            limit=2,
+        )
+        squatting_on = frappe.db.get_value("Bank Account", self.SQUATTER, "account")
+        needed = 1 if squatting_on else 2
+        if len(spares) < needed:
+            self.skipTest(f"needs {needed} unclaimed bank GL account(s); found {len(spares)}")
+
+        if not squatting_on:
+            # No ignore_permissions: these tests run as Administrator, so the bypass
+            # would be redundant -- and test-quality-enforcer rightly rejects one
+            # outside a setup/teardown/factory method.
+            if not frappe.db.exists("Bank", "Mollie Test Bank"):
+                frappe.get_doc({"doctype": "Bank", "bank_name": "Mollie Test Bank"}).insert()
+            frappe.get_doc(
+                {
+                    "doctype": "Bank Account",
+                    "account_name": "Mollie Clearing",
+                    "bank": "Mollie Test Bank",
+                    "company": spares[0].company,
+                    "account": spares[0].name,
+                }
+            ).insert()
+        self.assertTrue(
+            frappe.db.exists("Bank Account", self.SQUATTER),
+            "the condition this test recreates was not reached",
+        )
+
+        ask_for = spares[-1]
+        name = ensure_clearing_bank_account(ask_for.company, ask_for.name)
+
+        self.assertNotEqual(name, self.SQUATTER)
+        self.assertEqual(frappe.db.get_value("Bank Account", name, "account"), ask_for.name)
+
+
 class TestCreatePaymentEntryForDues(DuesCreationTestBase):
     def _invoice_for_member(self, member, amount=25.0):
         """A real submitted, unpaid EUR Sales Invoice for the member's customer."""

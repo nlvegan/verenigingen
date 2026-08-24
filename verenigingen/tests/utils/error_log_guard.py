@@ -41,6 +41,8 @@ from contextlib import contextmanager
 
 import frappe
 
+from verenigingen.tests.harness_logger import get_harness_logger
+
 # Environment variable that flips the automatic tearDown check from warn -> fail.
 FAIL_ON_ERROR_LOG_ENV = "VERENIGINGEN_FAIL_ON_ERROR_LOG"
 
@@ -186,7 +188,10 @@ class ErrorLogGuardMixin:
         try:
             self._captured_error_logs = self._error_logs_since(getattr(self, "_test_start_time", None))
         except Exception as e:  # never let the guard's own bookkeeping break a test
-            frappe.logger().error(f"Error Log guard capture failed: {e}")
+            # get_harness_logger, NOT frappe.logger(): the latter writes only to
+            # logs/frappe.log, which CI does not surface -- so a guard that had
+            # stopped capturing anything would say so nowhere (#433).
+            get_harness_logger("error-log-guard").error("Error Log guard capture failed: %s", e)
             self._captured_error_logs = []
 
     def _finalize_error_log_check(self):
@@ -200,5 +205,8 @@ class ErrorLogGuardMixin:
         )
         if fail_on_error_log_enabled():
             raise AssertionError(summary)
-        frappe.logger().error(summary)
+        # No logger call here on purpose: the `print` below is what a CI reader
+        # actually sees. A bare `frappe.logger().error(summary)` used to sit above
+        # it, writing the same string a second time to logs/frappe.log -- which CI
+        # does not upload -- so it was invisible duplication (#485).
         print(f"WARNING: {summary}")

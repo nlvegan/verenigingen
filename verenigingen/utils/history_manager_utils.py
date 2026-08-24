@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 import frappe
 
 from verenigingen.utils.safe_error_logging import safe_log_error
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 class HistoryOperationResult:
@@ -179,6 +180,16 @@ def safe_child_table_update(
 
         return HistoryOperationResult(success=True, message="Child table updated successfully")
 
+    # #475: BaseHistoryManager._with_doc was given an `except NON_RESUMABLE_DB_ERRORS: raise`
+    # by #460 precisely so its callers would see these -- but that guard sits OUTSIDE this
+    # helper, which is where _with_doc delegates the actual write. So it never fired for the
+    # one call it was written to protect. This guard must come first: a 1205/1213 is not a
+    # ValidationError (it derives straight from Exception), so it would otherwise fall
+    # through to the trailing catch-all and be returned as an ordinary failed result,
+    # indistinguishable from a broken link.
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
+
     except frappe.TimestampMismatchError as e:
         # Handle concurrent modification
         return HistoryOperationResult(
@@ -231,6 +242,13 @@ def safe_child_table_update(
                             success=True,
                             message=f"Child table updated after cleanup: {cleanup_result.message}",
                         )
+                    # Defence in depth, NOT tested depth: mutation shows no test binds this
+                    # one. Reaching it needs the first update_child_table to raise a
+                    # link-shaped ValidationError, auto_cleanup on, cleanup to find
+                    # something, and the retry to then deadlock. Said plainly so the guard
+                    # above is not read as covering it.
+                    except NON_RESUMABLE_DB_ERRORS:
+                        raise
                     except Exception as retry_error:
                         frappe.logger().error(f"Retry after cleanup still failed: {str(retry_error)}")
                         return HistoryOperationResult(

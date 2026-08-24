@@ -66,7 +66,7 @@ def get_donation_summary(member_name):
         donations = frappe.get_all(
             "Donation",
             filters={"donor_email": member.email},
-            fields=["name", "amount", "status", "paid", "donation_date"],
+            fields=["name", "amount", "status", "paid", "donation_date", "recurring_origin_donation"],
         )
 
         total_donated = 0
@@ -77,7 +77,11 @@ def get_donation_summary(member_name):
             if donation.paid:
                 total_donated += flt(donation.amount)
 
-            if donation.status == "Recurring":
+            # A charge donation (recurring_origin_donation set) is a past
+            # payment under the origin's subscription, not a subscription of
+            # its own -- same distinction get_recurring_donations makes, so
+            # this count matches the list rendered below it on the page.
+            if donation.status == "Recurring" and not donation.recurring_origin_donation:
                 # Count everything not CONFIRMED inactive, so this counter agrees
                 # with the list get_recurring_donations() renders next to it.
                 if get_recurring_donation_state(donation.name) != RECURRING_STATE_INACTIVE:
@@ -109,6 +113,10 @@ def get_recurring_donations(member_name):
             filters={
                 "donor_email": member.email,
                 "status": "Recurring",
+                # A donation created from a subscription charge is a past gift,
+                # not a standing arrangement the donor can cancel. Without this
+                # a monthly donor accumulates one identical row per charge.
+                "recurring_origin_donation": ["is", "not set"],
             },
             fields=[
                 "name",
@@ -319,6 +327,16 @@ def cancel_recurring_donation():
         if not donation.donor_email or not member.email or donation.donor_email != member.email:
             frappe.throw(_("You can only cancel your own donations"))
 
+        # A charge donation satisfies every other gate below: it carries
+        # status="Recurring" and the SAME mollie_subscription_id, so the liveness
+        # check asks Mollie about the real subscription and gets "active".
+        # Cancelling it would stamp recurring_cancelled_date on one past payment
+        # and leave the subscription charging. The donor is handed these ids --
+        # send_payment_confirmation_email puts the charge's document name in its
+        # context every period -- so this is reachable without guessing.
+        if donation.recurring_origin_donation:
+            frappe.throw(_("This is a past charge, not the recurring donation. Use the subscription itself."))
+
         # Verify it's a recurring donation
         if donation.status != "Recurring":
             frappe.throw(_("This is not a recurring donation"))
@@ -350,6 +368,13 @@ def cancel_recurring_donation():
                 frappe.log_error(
                     "Mollie integration not available for subscription cancellation", "Manage Donations"
                 )
+            except frappe.ValidationError:
+                # The "Failed to cancel Mollie subscription" throw above is deliberate and
+                # already carries Mollie's reason. The handler below would catch it and
+                # re-wrap it as an "Error cancelling..." message, so the donor saw the
+                # reason twice, relabelled as an unexpected error.
+                raise
+
             except Exception as e:
                 frappe.log_error(f"Error cancelling Mollie subscription: {str(e)}", "Manage Donations")
                 frappe.throw(_("Error cancelling Mollie subscription: {0}").format(str(e)))
@@ -372,6 +397,14 @@ def cancel_recurring_donation():
             "message": _("Recurring donation cancelled successfully"),
             "donation_id": donation_id,
         }
+
+    except (frappe.ValidationError, frappe.PermissionError):
+        # Every refusal above is a deliberate, translated frappe.throw. Letting the
+        # blanket handler below catch them replaced all of them with one catch-all
+        # sentence, so the donor was never told what actually went wrong and the
+        # guards were indistinguishable from outside the endpoint. Both classes are
+        # needed: frappe.PermissionError does NOT subclass frappe.ValidationError.
+        raise
 
     except Exception as e:
         frappe.log_error(f"Recurring donation cancellation error: {str(e)}", "Manage Donations")
@@ -411,6 +444,17 @@ def update_recurring_donation():
         if not donation.donor_email or not member.email or donation.donor_email != member.email:
             frappe.throw(_("You can only update your own donations"))
 
+        # A charge donation passes every other gate below (status "Recurring",
+        # the origin's mollie_subscription_id, so the liveness check reports the
+        # real subscription as active), and the db_set at the end of this
+        # function does NOT check whether the row is already booked. Updating one
+        # would rewrite the historical amount of a settled record -- the Journal
+        # Entry, the GL and the agreement's child row would keep the real figure
+        # while the Donation claimed another. The donor is handed these ids:
+        # send_payment_confirmation_email carries the charge's document name.
+        if donation.recurring_origin_donation:
+            frappe.throw(_("This is a past charge, not the recurring donation. Use the subscription itself."))
+
         # Verify it's a recurring donation
         if donation.status != "Recurring":
             frappe.throw(_("This is not a recurring donation"))
@@ -444,6 +488,11 @@ def update_recurring_donation():
                     "Mollie integration not available for subscription update", "Manage Donations"
                 )
                 frappe.throw(_("Mollie subscription update not available. Please contact support."))
+            except frappe.ValidationError:
+                # See cancel_recurring_donation: the deliberate "Failed to update Mollie
+                # subscription" throw above must not be re-wrapped by the handler below.
+                raise
+
             except Exception as e:
                 frappe.log_error(f"Error updating Mollie subscription: {str(e)}", "Manage Donations")
                 frappe.throw(_("Error updating Mollie subscription: {0}").format(str(e)))
@@ -466,6 +515,11 @@ def update_recurring_donation():
             "old_amount": old_amount,
             "new_amount": new_amount,
         }
+
+    except (frappe.ValidationError, frappe.PermissionError):
+        # See cancel_recurring_donation: the endpoint's own refusals must reach the
+        # donor unchanged instead of being genericised by the handler below.
+        raise
 
     except Exception as e:
         frappe.log_error(f"Recurring donation update error: {str(e)}", "Manage Donations")

@@ -141,23 +141,59 @@ class CoreTestDataFactory:
         idx = seq - 1
         base_name = names[idx % len(names)]
         if name_type == "last":
-            return f"{base_name}-{self.test_run_id[-5:]}{seq}"
+            # `frappe.generate_hash` because `test_run_id[-5:]` is a 10^5 space and
+            # constant per factory, so two factories built in the same microsecond
+            # produce the same last name -- and Customer uses full_name as its primary
+            # key, which is what this suffix exists to protect (#552).
+            return f"{base_name}-{self.test_run_id[-5:]}{seq}-{frappe.generate_hash(length=4)}"
         return base_name
 
     def _generate_email(self, purpose: str = "member") -> str:
         """Email generation with run-unique component to prevent collisions."""
         seq = self._get_next_sequence(f"email_{purpose}")
-        return f"test-{purpose}-{seq:04d}-{self.test_run_id}@test.invalid"
+        # Per-call entropy for the same reason as `_generate_name` and `_generate_member_id`:
+        # `test_run_id` is clock-derived and constant per factory, so two factories built in
+        # the same microsecond emit the same address. `Member.email` is not a UNIQUE column
+        # (those are `member_id`, `application_id`, `user`), so this is the lower-stakes of
+        # the three -- fixed together because they are the same defect (#552).
+        return f"test-{purpose}-{seq:04d}-{self.test_run_id}-{frappe.generate_hash(length=4)}@test.invalid"
 
     def _generate_member_id(self) -> str:
         """Generate explicit member_id to avoid autoname counter collisions.
 
-        Uses microsecond timestamp + sequence for uniqueness across factory
-        instances even when they share the same seed.
+        ``member_id`` is a UNIQUE column, and the old format
+        ``f"TEST{microsec:06d}{seq:03d}"`` did NOT give uniqueness "across factory
+        instances" the way this docstring used to claim. ``VereningingenTestCase.setUp``
+        builds a NEW factory per test method, so ``_sequence_counters`` restarts and the
+        first member of every test method is ``...001`` -- every one of them drawing from
+        the same 10^6 sub-second space. Measured 2026-08-23, two shards, two modules,
+        both ending ``001``: ``TEST153429001`` (#524 shard 3) and ``TEST311263001``
+        (develop shard 9) -> IntegrityError 1062 (#549).
+
+        Same format as ``EnhancedTestDataFactory._generate_unique_test_member_id``
+        (``enhanced_test_factory.py:589``), which was fixed for this first; the fix
+        simply never reached this copy. That method has **zero callers**, so the format
+        is inherited from it, not proven by it -- the reason to duplicate rather than
+        share is purely import cost. Measured 2026-08-23 on test_site_1, delta over an
+        already-connected frappe:
+
+            import enhanced_test_factory -> 6.48s, +1392 modules
+            import THIS module (control)  -> 0.05s,   +54 modules
+
+        It pulls ``erpnext.tests.utils``, whose body runs ``BootStrapTestData()``, and
+        this light factory must not pay for that.
+
+        ``rand_part`` is what actually carries it: ``pid`` is equal across factories in
+        one process and ``test_run_id`` is itself clock-derived, so two factories built
+        in the same microsecond share both. Only per-call entropy survives that window.
         """
+        import os
+
         seq = self._get_next_sequence("member_id")
         microsec = int(datetime.now().timestamp() * 1000000) % 1000000
-        return f"TEST{microsec:06d}{seq:03d}"
+        pid_part = os.getpid() % 100000
+        rand_part = frappe.generate_hash(length=6)
+        return f"TEST{microsec:06d}{seq:03d}{pid_part:05d}{rand_part}"
 
     def _validate_fields(self, doctype: str, data: dict) -> dict:
         """Validate field names exist in DocType meta. Raises on unknown fields.

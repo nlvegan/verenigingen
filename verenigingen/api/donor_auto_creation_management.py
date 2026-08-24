@@ -251,13 +251,18 @@ def get_donations_gl_accounts() -> OperationResult[Dict[str, Any]]:
     """
     try:
         # Get income accounts that could be used for donations.
-        # ERPNext stores income accounts under account_type == "Income Account"
-        # (there is no bare "Income" account_type), so filtering on "Income"
-        # always returned an empty list and silently broke the donations-account
-        # selector.
+        #
+        # Keyed on root_type, NOT account_type. An earlier fix moved this filter
+        # from a bare "Income" (which is not a valid account_type at all, so the
+        # selector was empty) to "Income Account" -- correcting the value while
+        # keeping the wrong FIELD. ERPNext's standard chart of accounts leaves
+        # account_type EMPTY on the Income subtree; only hand-typed rows carry it.
+        # Measured on the live site: 14 leaves match account_type against 239 that
+        # match root_type, so the selector was hiding 94% of the accounts a
+        # treasurer may legitimately book a donation to (#442).
         accounts = frappe.db.get_all(
             "Account",
-            filters={"account_type": "Income Account", "is_group": 0, "disabled": 0},
+            filters={"root_type": "Income", "is_group": 0, "disabled": 0},
             fields=["name", "account_name", "account_number", "company"],
             order_by="account_name",
         )
@@ -464,11 +469,12 @@ def check_test_accounts() -> OperationResult[Dict[str, Any]]:
         OperationResult: Available test accounts information
     """
     try:
-        # Check income accounts. ERPNext uses account_type == "Income Account"
-        # (not bare "Income"), so the previous filter always returned nothing.
+        # Check income accounts. Keyed on root_type for the same reason as
+        # get_donations_gl_accounts above: a standard chart of accounts leaves
+        # account_type empty on income leaves (#442).
         income_accounts = frappe.db.get_all(
             "Account",
-            filters={"account_type": "Income Account", "is_group": 0},
+            filters={"root_type": "Income", "is_group": 0},
             fields=["name", "account_name", "disabled"],
             limit=10,
         )

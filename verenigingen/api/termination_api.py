@@ -7,6 +7,7 @@ from verenigingen.utils.security.api_security_framework import (
     critical_api,
     high_security_api,
 )
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 @frappe.whitelist()
@@ -60,6 +61,21 @@ def execute_safe_termination(
             termination_date = frappe.utils.today()
 
         results = {"success": True, "actions_taken": [], "errors": []}
+
+        # Take the member's row lock BEFORE the first step, for the reason spelled out in
+        # TerminationExecutionService.execute_system_updates -- this is the second
+        # implementation of that termination and it takes the same two kinds of lock.
+        #
+        # Here the inversion was unconditional rather than data-dependent: this path has
+        # no DisableChapterMemberships equivalent at all, so nothing locks a Member row
+        # before step 3 ends board positions (Volunteer), and step 6's member.save() was
+        # always the first Member lock. Measured in tests/unit/test_history_lock_order.py.
+        # #459.
+        #
+        # frappe.db.exists above guarantees the row is there, so this really locks
+        # something; get_value on a missing name would emit WHERE name='' and silently
+        # lock nothing.
+        frappe.db.get_value("Member", member_name, "name", for_update=True)
 
         # Continue processing termination
         member = frappe.get_doc("Member", member_name)
@@ -146,6 +162,21 @@ def execute_safe_termination(
             results["message"] = "Termination completed successfully"
 
         return results
+
+    # #475. This endpoint has no savepoint of its own, so on a 1205 the steps that already ran
+    # are still live and Frappe would commit them at request end while the caller was handed an
+    # HTTP 200 saying "please try again". That is what the rollback is for -- NOT for the
+    # log_error below it, which lands either way: tabError Log is MyISAM and therefore
+    # non-transactional (measured on test_site_1 and veg11). Then re-raise so the class
+    # survives; `@critical_api` logs and re-raises rather than converting, so this really does
+    # reach Frappe as an error.
+    except NON_RESUMABLE_DB_ERRORS:
+        frappe.db.rollback()
+        frappe.log_error(
+            f"Non-resumable DB error during termination of member {member_name}",
+            "Member Termination Error",
+        )
+        raise
 
     except frappe.PermissionError as e:
         return {

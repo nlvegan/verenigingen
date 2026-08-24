@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Dict, List
 
 import frappe
 
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+
 if TYPE_CHECKING:
     from verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request import (
         MembershipTerminationRequest,
@@ -565,6 +567,8 @@ class UpdateMemberStatusOperation(TerminationOperation):
                     f"Total membership duration recalculated for {self.member_name}: "
                     f"{member_doc.cumulative_membership_duration}"
                 )
+            except NON_RESUMABLE_DB_ERRORS:
+                raise
             except Exception as duration_error:
                 error_msg = f"Failed to recalculate membership duration: {str(duration_error)}"
                 results.record_error(error_msg)
@@ -617,6 +621,8 @@ class TerminationExecutor:
 
             try:
                 operation.execute(results)
+            except NON_RESUMABLE_DB_ERRORS:
+                raise
             except Exception as e:
                 error_msg = f"{operation.operation_name} failed: {str(e)}"
                 results.record_error(error_msg)

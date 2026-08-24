@@ -1,0 +1,400 @@
+"""The Territory root is a fixture this harness must build, not inherit.
+
+A fresh `bench --site <site> reinstall` leaves `tabTerritory` EMPTY. The tree,
+root included, comes from erpnext's `BootStrapTestData()`, which this app reaches
+either through `ensure_erpnext_base_masters()` or as an import side effect of
+`enhanced_test_factory` -- and the latter sits behind a bare
+`except Exception: pass`. Whichever path runs, it is a neighbour's doing, and CI
+shard bins re-pack on measured runtime, so nothing makes that neighbour run first
+(#516).
+
+The module that surfaced it, `verenigingen.tests.api.test_dues_invoice_workflow`,
+could not have fixed it itself: the raise is inside `super().setUpClass()` --
+`tests/utils/base.py` -> `ensure_netherlands_territory()` -> "Could not find
+Parent Territory: All Territories" -- before a single line of the module runs.
+So the guard belongs on the seeder that consumes the root, which is what the
+behavioural tests below pin.
+
+`unittest.TestCase` / `FrappeTestCase` classes reach neither harness base, so
+they depend entirely on those import side effects. They are the residual class,
+and the source guard at the bottom is what keeps the next one from being written
+-- read its docstring for what was measured about it, which is narrower than the
+shape it enforces.
+"""
+
+import ast
+import contextlib
+import unittest
+
+import frappe
+
+from verenigingen.tests.utils.paths import APP_ROOT
+from verenigingen.tests.utils.source_probes import called_names
+
+ROOT = "All Territories"
+
+# Bases whose setUp/setUpClass reaches `ensure_netherlands_territory()` and
+# therefore, after this fix, the root. `BaseTestCase` is an alias for both
+# `VereningingenTestCase` and an `EnhancedTestCase` subclass depending on the
+# importing module; either way it is covered.
+_HARNESS_BASES = {"VereningingenTestCase", "EnhancedTestCase", "BaseTestCase"}
+
+# Callables that guarantee the root before it is used.
+_ROOT_SEEDERS = (
+    "ensure_root_territory",
+    "ensure_erpnext_base_masters",
+    "ensure_member_test_masters",
+    "_ensure_territory",
+)
+
+# Modules that name the root but never write it to the database. Exempt with the
+# reason, not silently: an entry here is a claim that has to stay true.
+_NO_DATABASE_WRITE = {
+    # Asserts on a MagicMock's attribute; `frappe` itself is patched out, so no
+    # Territory row is read or written.
+    "verenigingen/tests/e_boekhouden/test_party_resolver.py",
+}
+
+
+@contextlib.contextmanager
+def _rows_deleted(doctype, *names):
+    """Take the named rows away for the block, then put them back.
+
+    Raw SQL rather than `frappe.delete_doc`: on any warm site the root has
+    children and NestedSet refuses to delete it. A savepoint rollback undoes
+    both the delete and whatever the code under test inserted, so the tree is
+    identical afterwards -- measured on test_site_1: 9 rows before, 9 after,
+    same names.
+
+    The row count is checked rather than assumed, because the savepoint is one
+    `commit()` away from being gone. `ensure_erpnext_base_masters()` -- listed in
+    this module's own `_ROOT_SEEDERS` -- commits, and measured on test_site_1: a
+    `frappe.db.commit()` inside a savepoint makes `rollback(save_point=...)` raise
+    `OperationalError (1305, 'SAVEPOINT ... does not exist')` and leaves the write
+    standing. Wire such a seeder into the chain below and this raw DELETE becomes
+    PERMANENT, taking the Territory tree away from every later class in the shard.
+    Nothing on the current path commits; the check is here so that if one ever
+    does, the damage is reported where it happened rather than as a link error in
+    an unrelated module.
+    """
+    before = frappe.db.count(doctype)
+    # A UNIQUE savepoint name per invocation, not a shared constant. MariaDB lets
+    # a second SAVEPOINT of the SAME name replace the first, so two nested blocks
+    # sharing one name make the inner `ROLLBACK TO` land on the inner point and
+    # the OUTER delete stand -- measured: nesting two of these on test_site_1
+    # deleted `All Supplier Groups` permanently and the guard below is what
+    # reported it. The guard caught it; the unique name is why it cannot recur.
+    save_point = f"row_probe_{frappe.generate_hash(length=8)}"
+    frappe.db.savepoint(save_point)
+    try:
+        for name in names:
+            frappe.db.sql(f"DELETE FROM `tab{doctype}` WHERE name = %s", name)
+        yield
+    finally:
+        # Nested `finally`: when the savepoint has been released the rollback
+        # itself raises, so the count has to be taken in a handler that runs
+        # anyway -- otherwise the only signal is a bare `OperationalError 1305`
+        # naming a savepoint, which says nothing about the tree being gone.
+        try:
+            frappe.db.rollback(save_point=save_point)
+        finally:
+            after = frappe.db.count(doctype)
+            if after != before:
+                raise AssertionError(
+                    f"this probe did not restore tab{doctype}: {before} rows before, "
+                    f"{after} after. Something inside the block committed, which released "
+                    "the savepoint and made the raw DELETE permanent. See this helper's "
+                    "docstring."
+                )
+
+
+def _territories_deleted(*names):
+    """Territory-shaped `_rows_deleted`, which is what every caller below wants."""
+    return _rows_deleted("Territory", *names)
+
+
+def _root_deleted():
+    return _territories_deleted(ROOT)
+
+
+class TerritoryRootIsSeededTest(unittest.TestCase):
+    """Behaviour, against the real seeders and the real database."""
+
+    @classmethod
+    def setUpClass(cls):
+        """Seed what these tests then take away.
+
+        A plain `unittest.TestCase` reaches neither harness base, so this module
+        would otherwise need the tree an earlier module left behind -- which is
+        the exact order-dependence it exists to close. `ensure_netherlands_territory`
+        seeds both rows and is the code under test, so a failure here is a
+        failure of the fix rather than a missing fixture.
+        """
+        super().setUpClass()
+        from verenigingen.tests.setup import ensure_netherlands_territory
+
+        ensure_netherlands_territory()
+
+    def test_the_probe_actually_removes_the_root(self):
+        """The control. Without this, every test below could pass on a warm site
+        while the code under test was never reached."""
+        self.assertTrue(frappe.db.exists("Territory", ROOT), "site has no root to remove")
+        with _root_deleted():
+            self.assertFalse(frappe.db.exists("Territory", ROOT))
+        self.assertTrue(frappe.db.exists("Territory", ROOT), "the probe must restore the root")
+
+    def test_the_netherlands_seeder_rebuilds_a_tree_that_is_entirely_absent(self):
+        """The fresh-reinstall shape: `tabTerritory` holds neither row (#516).
+
+        This raised `LinkValidationError: Could not find Parent Territory: All
+        Territories` from inside `VereningingenTestCase.setUpClass`.
+        """
+        from verenigingen.tests.setup import ensure_netherlands_territory
+
+        with _territories_deleted(ROOT, "Netherlands"):
+            ensure_netherlands_territory()
+            self.assertTrue(
+                frappe.db.exists("Territory", ROOT),
+                "the seeder must build the parent it links to",
+            )
+            self.assertTrue(frappe.db.exists("Territory", "Netherlands"))
+
+    def test_the_netherlands_seeder_seeds_the_root_before_its_own_early_return(self):
+        """ "Netherlands" present and the root gone is not a hypothetical: any
+        rollback that reaches an uncommitted root leaves exactly that state, and
+        the early return then skipped the root for the whole session."""
+        from verenigingen.tests.setup import ensure_netherlands_territory
+
+        with _root_deleted():
+            self.assertTrue(
+                frappe.db.exists("Territory", "Netherlands"),
+                "this test is only about the early-return path",
+            )
+            ensure_netherlands_territory()
+            self.assertTrue(frappe.db.exists("Territory", ROOT))
+
+    def test_the_root_seeder_creates_it_under_the_exact_hardcoded_name(self):
+        """ "It did not raise" is not evidence the row landed under the name every
+        caller hardcodes -- the `All Departments - _TC` bug was exactly that."""
+        from verenigingen.tests.setup import ensure_root_territory
+
+        with _root_deleted():
+            ensure_root_territory()
+            self.assertTrue(frappe.db.exists("Territory", ROOT))
+            self.assertEqual(1, frappe.db.get_value("Territory", ROOT, "is_group"))
+
+    def test_the_root_seeder_is_idempotent(self):
+        """It runs from every setUp on both harness bases; a second call must not
+        raise `DuplicateEntryError` or add a second row."""
+        from verenigingen.tests.setup import ensure_root_territory
+
+        with _root_deleted():
+            ensure_root_territory()
+            ensure_root_territory()
+        ensure_root_territory()
+        self.assertEqual(1, frappe.db.count("Territory", {"name": ROOT}))
+
+
+def _looks_like_a_test_class(node: ast.ClassDef, base_names: set) -> bool:
+    """A base ending in `TestCase`, or test methods regardless of the base name.
+
+    The base-name half alone skips a class that inherits an imported harness
+    subclass under some other name (`class X(ReconBase)`), which is exactly the
+    class this guard exists to find. Test methods are the property that does not
+    depend on what the author called the base.
+    """
+    if any(name.endswith("TestCase") for name in base_names):
+        return True
+    return any(
+        isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and (child.name.startswith("test") or child.name == "runTest")
+        for child in node.body
+    )
+
+
+def _non_harness_test_classes(tree: ast.Module) -> list:
+    """Names of test classes in `tree` that reach neither harness base."""
+    offenders = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        base_names = {
+            base.attr if isinstance(base, ast.Attribute) else getattr(base, "id", "") for base in node.bases
+        }
+        if not _looks_like_a_test_class(node, base_names):
+            continue
+        if base_names & _HARNESS_BASES:
+            continue
+        offenders.append(node.name)
+    return offenders
+
+
+BASE_MASTER_SENTINEL = ("Supplier Group", "All Supplier Groups")
+
+
+class SeedingTheRootMustNotCloseTheBaseMasterGateTest(unittest.TestCase):
+    """Seeding the root must not convince `ensure_erpnext_base_masters` it can skip.
+
+    `ensure_erpnext_base_masters()` gates BootStrapTestData,
+    `enable_all_roles_and_domains()`, `set_defaults_for_tests()` and
+    `ensure_test_fiscal_year_for_all_companies()` on ONE existence check, and its
+    own docstring shows that check standing for the whole master set rather than
+    for itself.
+
+    `ensure_root_territory` creates exactly that row, from three call sites that
+    never reach the gate. So the order "a harness-based class first, then any of
+    the 30+ modules calling `ensure_member_test_masters()` from `setUpClass`"
+    would leave the gate closed over an unseeded site -- and that order is as
+    reachable as #516 itself, since shard bins re-pack on measured runtime.
+
+    Impossible before `ensure_root_territory` existed: "Netherlands" linked to a
+    parent nothing created, so a missing root RAISED. Fixing the raise is what
+    made the sentinel forgeable, so the pin belongs in the same change.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        """Same reasoning as the class above: seed what these tests take away."""
+        super().setUpClass()
+        from verenigingen.tests.setup import ensure_netherlands_territory
+
+        ensure_netherlands_territory()
+
+    def test_the_probe_actually_removes_the_sentinel(self):
+        """The control. Without it, the test below could pass on a site that never
+        had the sentinel, saying nothing about the gate."""
+        doctype, name = BASE_MASTER_SENTINEL
+        self.assertTrue(frappe.db.exists(doctype, name), f"site has no {name} to remove")
+        with _rows_deleted(doctype, name):
+            self.assertFalse(frappe.db.exists(doctype, name))
+        self.assertTrue(frappe.db.exists(doctype, name), "the probe must restore the sentinel")
+
+    def test_a_fully_seeded_site_still_closes_the_gate(self):
+        """The other control: the gate must remain cheap on a warm site, or every
+        `setUpClass` in the suite starts re-running BootStrapTestData."""
+        from verenigingen.tests.setup import _erpnext_base_masters_present
+
+        self.assertTrue(_erpnext_base_masters_present())
+
+    def test_the_root_alone_does_not_close_the_gate(self):
+        """The pin. Both halves asserted together, because either alone is
+        satisfied in the buggy world too: the root IS present (so a root-only gate
+        would have closed and skipped the seeding) while the gate is still open.
+        """
+        from verenigingen.tests.setup import _erpnext_base_masters_present, ensure_root_territory
+
+        doctype, name = BASE_MASTER_SENTINEL
+        with _rows_deleted(doctype, name):
+            ensure_root_territory()
+
+            self.assertTrue(
+                frappe.db.exists("Territory", ROOT),
+                "precondition: the root is absent, so this says nothing about a root-only gate",
+            )
+            self.assertFalse(
+                _erpnext_base_masters_present(),
+                "the base-master gate closed on the root Territory alone, so "
+                "ensure_erpnext_base_masters() will early-return and seed nothing: "
+                "no Customer Groups, no Chart of Accounts, no set_defaults_for_tests()",
+            )
+
+    def test_the_root_seeder_writes_nothing_that_could_forge_the_sentinel(self):
+        """Scope statement, kept honest by measurement rather than by reading:
+        `ensure_root_territory` must touch no doctype the gate depends on."""
+        from verenigingen.tests.setup import ensure_root_territory
+
+        doctype, name = BASE_MASTER_SENTINEL
+        with _rows_deleted(doctype, name):
+            with _root_deleted():
+                ensure_root_territory()
+                self.assertFalse(
+                    frappe.db.exists(doctype, name),
+                    f"ensure_root_territory created a {doctype}; the gate needs a "
+                    "sentinel this app never writes",
+                )
+
+
+class TerritoryConsumersOutsideTheHarnessAreGuardedTest(unittest.TestCase):
+    """A source guard, because no behavioural test can see this one.
+
+    A module that consumes the root and never seeds it passes on every warm site
+    and on every shard where a builder ran first. It fails only when the packer
+    puts it first, on a branch that never touched it (#516, and #291/#431 before
+    it).
+
+    MEASURED, and this is the honest limit of it: on a `tabTerritory` emptied to
+    zero rows on test_site_1, BOTH modules this flagged -- `test_link_sanitizer`
+    and `test_harness_leak_attribution` -- pass WITHOUT any guard. Something in
+    each import chain builds the tree before the first Territory write (for the
+    latter, `enhanced_test_factory`'s module-level `import erpnext.tests.utils`,
+    which is where `BootStrapTestData()` runs); I did not isolate it for the
+    former. So the guards those two now carry are defensive, not fixes of a
+    measured failure. What makes them worth carrying is that the import they
+    depend on is wrapped in a bare `except Exception: pass`, so losing it is
+    silent -- unlike `test_dues_invoice_workflow`, which was measured red.
+
+    What this does NOT enforce, and the third item is the one that already cost a
+    defect: it cannot tell a Territory write from a string that merely mentions
+    the root (hence `_NO_DATABASE_WRITE`); it says nothing about the import side
+    effects above, which are the reason a flagged module can still be green; and
+    it is per-FILE, so one seeder call anywhere in a module exempts every class
+    in it.
+
+    That last one is not hypothetical. `test_harness_leak_attribution.py` calls
+    `ensure_root_territory()` at five sites and STILL had a sixth class linking
+    to the root unguarded -- `VereningingenBaseReportsLeaksTest`, whose nested
+    probe is driven as `case.run(...)`, which does not invoke `setUpClass`.
+    Measured: with that class back in its unguarded state and this guard's
+    call-detection in place, this module is 6/6 GREEN. Making it per-class needs
+    a call graph -- the module's own `_territory()` helper seeds on behalf of
+    four classes that never name a seeder themselves -- so the honest statement
+    is that this guard covers modules with no seeder at all, and nothing finer.
+
+    It catches the shape -- a class outside the harness naming the root, in a file
+    with no seeder call in sight -- and nothing more.
+    """
+
+    def test_every_test_module_naming_the_root_either_inherits_it_or_seeds_it(self):
+        app_root = APP_ROOT
+        offenders = []
+        checked = 0
+        # `test_*.py` only: the harness modules that DEFINE the base classes
+        # (`tests/utils/base.py`, `tests/fixtures/enhanced_test_factory.py`,
+        # `tests/setup/__init__.py`) also name the root, and they are the
+        # seeders rather than consumers.
+        for path in sorted(app_root.glob("verenigingen/**/test_*.py")):
+            source = path.read_text(encoding="utf-8")
+            if ROOT not in source:
+                continue
+            rel = str(path.relative_to(app_root))
+            if rel in _NO_DATABASE_WRITE:
+                continue
+            checked += 1
+            tree = ast.parse(source)
+            # A CALL, not a mention. `seeder in source` was satisfied by an
+            # import or by a comment naming the seeder -- measured: turning both
+            # real `ensure_root_territory()` calls in `tests/security/
+            # test_link_sanitizer.py` into `pass  # ensure_root_territory()` left
+            # this module 6/6 green, i.e. the guard could not tell a call from a
+            # comment about one. Still per-FILE, though -- see the class docstring
+            # for the site this consequently cannot see.
+            if called_names(tree) & set(_ROOT_SEEDERS):
+                continue
+            unguarded = _non_harness_test_classes(tree)
+            if unguarded:
+                offenders.append(f"{rel}: {', '.join(unguarded)}")
+
+        self.assertEqual(
+            [],
+            offenders,
+            "These classes reach neither harness base, so nothing seeds the "
+            "Territory root for them. Call `ensure_root_territory()` in setUp, or "
+            "add the file to `_NO_DATABASE_WRITE` with the reason it writes none.",
+        )
+        # A sweep that checked nothing would pass. This module itself names the
+        # root, so the floor is not zero.
+        self.assertGreater(checked, 1, "the sweep matched nothing; its glob is wrong")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -65,7 +65,18 @@ def _make_service(idempotency_manager=None):
 
 
 def _persist_donation(payment_id, with_payment_row=False):
-    """Create a real draft Donation (Donation is not submittable)."""
+    """Create a real draft Donation (Donation is not submittable).
+
+    Drops any donation already holding this payment_id first. The services under
+    test here commit (that is what "_atomic" means), which defeats the
+    rollback() in tearDown, so these rows outlive the run. That was harmless
+    until payment_id became unique (#345): the leaked row now makes the NEXT run
+    of this module fail with a duplicate-key error, so the module has to clear
+    its own path rather than assume a clean table.
+    """
+    for stale in frappe.get_all("Donation", filters={"payment_id": payment_id}, pluck="name"):
+        frappe.delete_doc("Donation", stale, force=True, ignore_permissions=True, delete_permanently=True)
+
     donor = frappe.new_doc("Donor")
     donor.donor_name = "Gap Test Donor"
     donor.donor_type = "Individual"
@@ -232,6 +243,74 @@ class TestHandlePartialProcessing(FrappeTestCase):
         # The status message references the actual created JE name.
         self.assertIn("JE-1", result["message"])
 
+    def test_a_journal_entry_failure_is_not_reported_as_success(self):
+        """The same half-booking defect as _handle_new_payment_processing.
+
+        _create_donation_financial_entries returns a TRUTHY dict when the Bank
+        Transaction landed and the Journal Entry did not. Before this fix,
+        `results` still ended up non-empty (the "Journal Entry creation failed
+        (partial)" string is itself appended to it), so `"success" if results
+        else "error"` reported success anyway.
+        """
+        donation = _persist_donation("tr_partial_je_fail")
+        state = PaymentIdempotencyCheckResult("tr_partial_je_fail")
+        # Nothing processed yet -- financial_entries is the only missing piece
+        # under test; leaving payment_history/donation_status missing too would
+        # let their own "updated" results paper over the financial failure.
+        state.payment_history_updated = True
+        state.donation_status_updated = True
+
+        self.svc._create_donation_financial_entries = lambda *a, **k: {
+            "bank_transaction_name": "BT-partial",
+            "journal_entry_name": None,
+            "partial_success": True,
+        }
+
+        with self._patch_fetch_and_find(donation):
+            result = self.svc._handle_partial_processing("tr_partial_je_fail", {}, state, 0.0)
+
+        self.assertEqual(result["status"], "error", "a missing Journal Entry must fail the webhook")
+
+    def test_a_status_update_failure_is_not_reported_as_success(self):
+        """#464's defect in the sibling handler, and the same shape as the Journal
+        Entry case above.
+
+        `results` is a list of prose. Appending "Donation status update failed: ..."
+        leaves it TRUTHY, so `"success" if results ... else "error"` went on
+        reporting success over a recorded failure -- a handler recording a failure
+        and still answering 200 is the whole of #464.
+        """
+        donation = _persist_donation("tr_partial_status_fail")
+        state = PaymentIdempotencyCheckResult("tr_partial_status_fail")
+        # donation_status is the only missing piece under test; leaving the others
+        # missing would let their own "updated" results paper over this failure.
+        state.payment_history_updated = True
+        state.payment_entry_exists = True  # "financial_entries" already done
+
+        self.svc._update_donation_status = lambda *a, **k: "boom: save failed"
+
+        with self._patch_fetch_and_find(donation):
+            result = self.svc._handle_partial_processing("tr_partial_status_fail", {}, state, 0.0)
+
+        self.assertEqual(result["status"], "error", "a failed status update must fail the webhook")
+        self.assertIn("donation status", result.get("component_failures", []))
+
+    def test_a_partial_run_with_no_failures_still_succeeds(self):
+        """Control for the test above: without an injected failure the same call
+        answers success, so the new check cannot be failing unconditionally."""
+        donation = _persist_donation("tr_partial_status_ok")
+        state = PaymentIdempotencyCheckResult("tr_partial_status_ok")
+        state.payment_history_updated = True
+        state.payment_entry_exists = True  # "financial_entries" already done
+
+        self.svc._update_donation_status = lambda *a, **k: None
+
+        with self._patch_fetch_and_find(donation):
+            result = self.svc._handle_partial_processing("tr_partial_status_ok", {}, state, 0.0)
+
+        self.assertEqual(result["status"], "success", f"unexpected: {result}")
+        self.assertEqual(result.get("component_failures"), [])
+
     def test_partial_no_donation_errors(self):
         state = PaymentIdempotencyCheckResult("tr_partial_nodon")
         with self.svc_fetch_returns({"status": "paid"}), self._patch_find(None):
@@ -356,8 +435,11 @@ class TestUpdateDonationStatus(FrappeTestCase):
 
     def test_subscription_marks_recurring_and_paid(self):
         donation = _persist_donation("tr_status_recur")
-        self.svc._update_donation_status(
-            donation, {"id": "tr_status_recur", "metadata": {"subscription_id": "sub_1"}}
+        self.assertIsNone(
+            self.svc._update_donation_status(
+                donation, {"id": "tr_status_recur", "metadata": {"subscription_id": "sub_1"}}
+            ),
+            "a successful status update must report no failure reason",
         )
         donation.reload()
         self.assertEqual(donation.status, "Recurring")
@@ -370,16 +452,26 @@ class TestUpdateDonationStatus(FrappeTestCase):
         self.assertEqual(donation.status, "One-time")
         self.assertEqual(donation.paid, 1)
 
-    def test_save_failure_is_swallowed(self):
-        """Status-update errors must not bubble (webhook keeps processing)."""
+    def test_save_failure_is_caught_but_answered_false(self):
+        """Status-update errors must not bubble -- the delivery has already booked
+        money and the remaining steps must run -- but they must be REPORTED.
+
+        Returning None here is what let the webhook answer 200 over a donation left
+        `paid = 0` while Mollie kept charging the donor (#464). "Does not raise" is
+        satisfied by both the broken and the fixed version, so it cannot bind the
+        contract on its own; the return value is what discriminates.
+        """
         donation = _persist_donation("tr_status_boom")
 
         def boom():
             raise RuntimeError("save failed")
 
         donation.save = boom  # type: ignore[method-assign]
-        # Should not raise.
-        self.svc._update_donation_status(donation, {"id": "tr_status_boom", "metadata": {}})
+        # Should not raise...
+        result = self.svc._update_donation_status(donation, {"id": "tr_status_boom", "metadata": {}})
+        # ...and must hand the caller the cause rather than silence.
+        self.assertIsNotNone(result, "a failed status update must not answer None -- that is the bug")
+        self.assertIn("save failed", result, "the failure reason must reach the caller")
 
 
 class TestUpdateDonationPaymentHistoryAtomic(FrappeTestCase):

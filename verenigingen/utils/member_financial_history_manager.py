@@ -16,8 +16,6 @@ from typing import Any, Callable, Dict, List, Optional
 import frappe
 from frappe.utils import now
 
-from verenigingen.utils.secure_operations import secure_document_operation
-
 
 class MemberFinancialHistoryManager:
     """
@@ -31,16 +29,19 @@ class MemberFinancialHistoryManager:
     - Standardized error handling
     """
 
-    def __init__(self, member_doc, history_field_name: str, max_entries: int = 30):
+    def __init__(self, doc, history_field_name: str, max_entries: int = 30):
         """
         Initialize the financial history manager.
 
         Args:
-            member_doc: Member document instance
+            doc: The document that OWNS the history table -- a Member on the
+                payment/expense/fee-change paths, a Donor on the Mollie
+                donation path. It was called `member_doc` until #424, which is
+                what let a `tabMember` lock sit unnoticed on the Donor path.
             history_field_name: Field name ('payment_history' or 'volunteer_expenses')
             max_entries: Maximum entries to maintain (default 30)
         """
-        self.member = member_doc
+        self.doc = doc
         self.history_field = history_field_name
         self.max_entries = max_entries
 
@@ -62,14 +63,27 @@ class MemberFinancialHistoryManager:
 
         for attempt in range(max_attempts):
             try:
-                # FIXED: Lock BEFORE reload to prevent race conditions
-                frappe.db.sql("SELECT name FROM `tabMember` WHERE name = %s FOR UPDATE", (self.member.name,))
+                # Lock BEFORE reload to prevent race conditions.
+                #
+                # The table comes from the document, not from this class's name:
+                # the manager is built with whatever doc the caller has, and the
+                # Mollie webhook builds it with a Donor. Hard-coding `tabMember`
+                # meant that lock matched zero rows on that path and silently
+                # took no lock at all -- a FOR UPDATE that matches nothing is not
+                # an error. #424.
+                #
+                # get_value has two shapes that lock nothing just as quietly: a
+                # Single (get_values_from_single ignores for_update) and a doc whose
+                # name EQUALS its doctype (get_values treats that as the Single form
+                # and emits no SQL at all). Neither is reachable from the callers --
+                # every one holds a saved Member or Donor, both series/format-named.
+                frappe.db.get_value(self.doc.doctype, self.doc.name, "name", for_update=True)
 
                 # Reload document to get latest version
-                self.member.reload()
+                self.doc.reload()
 
                 # Get current history list
-                history_list = getattr(self.member, self.history_field, []) or []
+                history_list = getattr(self.doc, self.history_field, []) or []
 
                 # Find existing entry
                 existing_idx = None
@@ -91,7 +105,7 @@ class MemberFinancialHistoryManager:
                 # Check if builder returned None (invoice not found, customer mismatch, etc.)
                 if entry_data is None:
                     frappe.logger("financial_history").debug(
-                        f"Entry builder returned None for {entry_id} in {self.member.name} {self.history_field} "
+                        f"Entry builder returned None for {entry_id} in {self.doc.name} {self.history_field} "
                         f"(likely invoice not found or customer mismatch)"
                     )
                     return False
@@ -109,15 +123,15 @@ class MemberFinancialHistoryManager:
                     if not data_changed:
                         # No changes, skip save
                         frappe.logger("financial_history").debug(
-                            f"No changes for {entry_id} in {self.member.name} {self.history_field}"
+                            f"No changes for {entry_id} in {self.doc.name} {self.history_field}"
                         )
                         return True
                 else:
                     # Add new entry at the beginning (newest first)
-                    self.member.append(self.history_field, entry_data)
+                    self.doc.append(self.history_field, entry_data)
 
                     # Move new entry to the front for proper chronological order
-                    history_list = getattr(self.member, self.history_field)
+                    history_list = getattr(self.doc, self.history_field)
                     if len(history_list) > 1:
                         new_entry = history_list.pop()  # Remove from end
                         history_list.insert(0, new_entry)  # Insert at beginning
@@ -130,7 +144,7 @@ class MemberFinancialHistoryManager:
                 if success:
                     frappe.logger("financial_history").info(
                         f"{'Updated' if existing_idx is not None else 'Added'} {entry_id} "
-                        f"in {self.member.name} {self.history_field}"
+                        f"in {self.doc.name} {self.history_field}"
                     )
                     return True
 
@@ -143,13 +157,13 @@ class MemberFinancialHistoryManager:
                     continue
                 else:
                     frappe.log_error(
-                        f"Race condition in {self.history_field} for {self.member.name} after {max_attempts} attempts",
+                        f"Race condition in {self.history_field} for {self.doc.name} after {max_attempts} attempts",
                         "Financial History Race Condition",
                     )
                     return False
             except Exception as e:
                 frappe.log_error(
-                    f"Error updating {self.history_field} for {self.member.name}: {str(e)}",
+                    f"Error updating {self.history_field} for {self.doc.name}: {str(e)}",
                     "Financial History Update Error",
                 )
                 return False
@@ -169,7 +183,7 @@ class MemberFinancialHistoryManager:
         """
         try:
             # Get current history list
-            history_list = getattr(self.member, self.history_field, []) or []
+            history_list = getattr(self.doc, self.history_field, []) or []
 
             # Filter out the entry to remove
             updated_history = []
@@ -183,7 +197,7 @@ class MemberFinancialHistoryManager:
 
             if removed:
                 # Remove entry directly from the child table (truly atomic)
-                history_list = getattr(self.member, self.history_field, [])
+                history_list = getattr(self.doc, self.history_field, [])
                 for i, entry in enumerate(history_list):
                     if getattr(entry, id_field_name, None) == entry_id:
                         # Remove the specific entry without touching others
@@ -194,7 +208,7 @@ class MemberFinancialHistoryManager:
                 success = self._save_with_retry()
                 if success:
                     frappe.logger("financial_history").info(
-                        f"Removed {entry_id} from {self.member.name} {self.history_field}"
+                        f"Removed {entry_id} from {self.doc.name} {self.history_field}"
                     )
                 return success
 
@@ -222,7 +236,7 @@ class MemberFinancialHistoryManager:
             bool: Success status
         """
         try:
-            history_list = getattr(self.member, self.history_field, []) or []
+            history_list = getattr(self.doc, self.history_field, []) or []
 
             # Find and update the entry
             updated = False
@@ -238,7 +252,7 @@ class MemberFinancialHistoryManager:
                 if success:
                     frappe.logger("financial_history").info(
                         f"Updated fields {list(field_updates.keys())} for {entry_id} "
-                        f"in {self.member.name} {self.history_field}"
+                        f"in {self.doc.name} {self.history_field}"
                     )
                 return success
 
@@ -253,20 +267,20 @@ class MemberFinancialHistoryManager:
 
     def _trim_history(self):
         """Trim history to max entries, keeping newest entries."""
-        history_list = getattr(self.member, self.history_field, [])
+        history_list = getattr(self.doc, self.history_field, [])
 
         if len(history_list) > self.max_entries:
             # Keep only the first N entries (newest)
             trimmed_history = history_list[: self.max_entries]
 
             # Clear and rebuild
-            setattr(self.member, self.history_field, [])
+            setattr(self.doc, self.history_field, [])
             for entry in trimmed_history:
-                self.member.append(self.history_field, entry)
+                self.doc.append(self.history_field, entry)
 
     def _save_with_retry(self, max_retries: int = 3) -> bool:
         """
-        Save member document with retry logic and proper flags.
+        Save the owning document with retry logic and proper flags.
         Uses targeted child table updates to avoid unnecessary validation.
 
         Args:
@@ -279,11 +293,36 @@ class MemberFinancialHistoryManager:
             try:
                 # Suppress version tracking for history table cleanup
                 # These are maintenance operations, not meaningful changes to track
-                self.member.flags.ignore_version = True
+                self.doc.flags.ignore_version = True
 
                 # Use Frappe's native update_child_table() - no timestamp conflicts!
-                self.member.update_child_table(self.history_field)
-                frappe.db.commit()
+                #
+                # Deliberately does NOT commit. This runs in ordinary request and
+                # hook context -- the financial-history batch queue is drained
+                # INLINE from add_invoice_to_payment_history(), and the fee-change
+                # recorder reaches this from a document save. A transaction-wide
+                # commit here flushed whatever the caller had half-finished, and
+                # took every savepoint with it (MariaDB discards them all on
+                # commit), so FinancialHistoryBatchProcessor's per-member scoped
+                # rollback silently became a no-op and its RELEASE raised 1305.
+                #
+                # Durability belongs to the owning request or scheduled job, which
+                # commits at its own boundary. The one caller that wanted it sooner
+                # -- bulk_invoice_generation_service, a scheduler job that already
+                # committed its invoices before writing history -- now commits for
+                # itself, where the decision is visible. #411.
+                #
+                # TRADE-OFF, stated because it is not free: add_or_update_entry takes
+                # `SELECT ... FOR UPDATE` on the owning document's row, and a row lock lives
+                # until the transaction ends. That commit used to release it on the
+                # spot; without it the lock is held for the rest of the caller's
+                # request. That is the correct transactional semantic -- you cannot
+                # hold a lock for consistency AND release it early without ending the
+                # transaction -- but it is longer contention than before, so a caller
+                # that loops over many members must commit per member rather than
+                # once at the end. bulk_update_payment_history does exactly that, and
+                # says so. The one inner commit still left on this path is #421.
+                self.doc.update_child_table(self.history_field)
                 return True
 
             except Exception as e:
@@ -293,7 +332,7 @@ class MemberFinancialHistoryManager:
                     # This is a chapter reference validation error
                     # Log it specifically and delegate cleanup to dedicated manager
                     frappe.log_error(
-                        f"Chapter reference validation error for {self.member.name}: {error_str}. "
+                        f"Chapter reference validation error for {self.doc.name}: {error_str}. "
                         f"This suggests invalid chapter references in chapter_membership_history.",
                         "Financial History Chapter Validation Error",
                     )
@@ -305,12 +344,12 @@ class MemberFinancialHistoryManager:
                             ChapterReferenceManager,
                         )
 
-                        chapter_manager = ChapterReferenceManager(self.member)
+                        chapter_manager = ChapterReferenceManager(self.doc)
                         removed_count = chapter_manager.cleanup_invalid_chapter_references()
 
                         if removed_count > 0:
                             frappe.logger().info(
-                                f"Chapter cleanup removed {removed_count} invalid references for {self.member.name}"
+                                f"Chapter cleanup removed {removed_count} invalid references for {self.doc.name}"
                             )
 
                         time.sleep(0.1 * (retry + 1))
@@ -328,7 +367,7 @@ class MemberFinancialHistoryManager:
                     error_msg = str(e)
                     truncated_error = (error_msg[:50] + "...") if len(error_msg) > 50 else error_msg
                     frappe.log_error(
-                        f"Save failed for {self.member.name} after {max_retries} retries: {truncated_error}",
+                        f"Save failed for {self.doc.name} after {max_retries} retries: {truncated_error}",
                         "Financial History Save Error",
                     )
                     return False

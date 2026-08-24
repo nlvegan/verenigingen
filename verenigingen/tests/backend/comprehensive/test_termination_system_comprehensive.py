@@ -10,6 +10,27 @@ import frappe
 from frappe.utils import today
 
 
+def _owned_company():
+    """A company for the Employee fixtures below -- OWNED, never scanned for.
+
+    This was three copies of ``Verenigingen Settings.company or get_value("Company",
+    {"default_currency": "EUR"}, "name") or get_value("Company", {}, "name")``. The middle
+    term is not "some EUR company": ``db.get_value`` has no ``order_by`` and so defaults to
+    ``creation DESC``, making it the NEWEST EUR company -- whatever a co-tenant suite in the
+    shard created last. Measured on test_site_2, 2026-08-23: 30 EUR companies, and it
+    returned an e_boekhouden fixture; one of the 30 has no receivable or income account at
+    all, which is the chart-less company that produced 101 failures in #237.
+
+    This class is a plain ``unittest.TestCase`` -- no harness, so no
+    ``self._get_test_company()`` -- hence the app's own EUR test company, which
+    ``get_eur_test_company`` owns by name and builds under ``suspend_insert_capture``.
+    The configured single is still preferred: reading a configured value is not a scan.
+    """
+    from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+
+    return frappe.db.get_single_value("Verenigingen Settings", "company") or get_eur_test_company()
+
+
 class TestTerminationSystemComprehensive(unittest.TestCase):
     """Comprehensive tests for the termination system enhancements"""
 
@@ -103,11 +124,7 @@ class TestTerminationSystemComprehensive(unittest.TestCase):
 
         # Create employee with the HRMS-mandatory fields populated (company,
         # date_of_birth, date_of_joining, gender).
-        company = (
-            frappe.db.get_single_value("Verenigingen Settings", "company")
-            or frappe.db.get_value("Company", {"default_currency": "EUR"}, "name")
-            or frappe.db.get_value("Company", {}, "name")
-        )
+        company = _owned_company()
         employee_doc = frappe.new_doc("Employee")
         employee_doc.first_name = "Test"
         employee_doc.last_name = "Termination"
@@ -176,11 +193,7 @@ class TestTerminationSystemComprehensive(unittest.TestCase):
 
         # Create employee with only personal_email (no user_id). Populate the
         # HRMS-mandatory fields (first_name/company/dob/doj/gender).
-        company = (
-            frappe.db.get_single_value("Verenigingen Settings", "company")
-            or frappe.db.get_value("Company", {"default_currency": "EUR"}, "name")
-            or frappe.db.get_value("Company", {}, "name")
-        )
+        company = _owned_company()
         alt_employee = frappe.new_doc("Employee")
         alt_employee.first_name = "Alternative"
         alt_employee.last_name = "Email"
@@ -452,11 +465,7 @@ class TestTerminationSystemComprehensive(unittest.TestCase):
         # Create a second employee linked to the same member via personal_email.
         # ERPNext enforces a UNIQUE user_id per Employee, so the duplicate cannot
         # reuse user_id; the termination detection also matches on personal_email.
-        company = (
-            frappe.db.get_single_value("Verenigingen Settings", "company")
-            or frappe.db.get_value("Company", {"default_currency": "EUR"}, "name")
-            or frappe.db.get_value("Company", {}, "name")
-        )
+        company = _owned_company()
         duplicate_employee = frappe.new_doc("Employee")
         duplicate_employee.first_name = "Duplicate"
         duplicate_employee.last_name = "Employee"

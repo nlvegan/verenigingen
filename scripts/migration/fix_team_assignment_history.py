@@ -92,6 +92,14 @@ def fix_team_assignment_history(team_name=None, volunteer_name=None):
                                 fixed_count += 1
                                 print(f"✅ Fixed assignment for {member.volunteer} in {team.name}")
 
+                # Per TEAM, and the reason is locks, not durability:
+                # add_assignment_history locks the Volunteer row it rewrites (#436)
+                # and a row lock lives until the transaction ends, so a single commit
+                # at the end would hold an X-lock on every volunteer in the site for
+                # the whole sweep. Same trade-off as
+                # team_admin_utilities.fix_all_missing_assignment_history (#411).
+                frappe.db.commit()
+
             return {"success": True, "message": f"Fixed {fixed_count} assignments"}
 
     except Exception as e:

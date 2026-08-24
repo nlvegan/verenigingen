@@ -61,9 +61,12 @@ class TestEmailServiceIntegration(EnhancedTestCase):
         # Create test templates for our tests
         self._create_test_email_templates()
 
-        # Create realistic test data
+        # Unique per test: ensure_test_chapter() reuses a chapter by name, and this
+        # setUp appends a roster row and saves. The fixed name was shared with
+        # tests/email/test_email_newsletter_system.py, which does the same (#533).
+        # Still tracked by the factory, so the drain removes it.
         self.test_chapter = self.factory.ensure_test_chapter(
-            "Integration Test Chapter",
+            f"Integration Test Chapter {frappe.generate_hash(length=6)}",
             {
                 "region": "Integration Region",
                 "introduction": "Chapter for integration testing",

@@ -52,9 +52,12 @@ class TestDutchBusinessRulesPhase3Integration(EnhancedTestCase):
             {"amount": 25.00, "billing_period": "Monthly"}
         )
         
-        # Ensure chapter exists  
+        # Unique per test: tests/backend/components/test_membership_application.py
+        # creates a class-scoped chapter under the fixed name "Test Chapter
+        # Amsterdam" and asserts on it by literal, so this get-or-create silently
+        # adopted that chapter on a warm site (#533).
         self.test_chapter = self.ensure_test_chapter(
-            "Test Chapter Amsterdam",
+            f"Test Chapter Amsterdam {frappe.generate_hash(length=6)}",
             {"region": "North Holland", "postal_codes": "1000-1099"}
         )
 

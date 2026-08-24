@@ -477,8 +477,12 @@ class MollieGateway(PaymentGateway):
             dict: New payment result
         """
         try:
-            # Clear old payment ID
-            donation.db_set("payment_id", "")
+            # Clear old payment ID. None, not "": payment_id is unique, and
+            # db_set goes through neither validate() nor get_valid_dict(), so ""
+            # would be written verbatim -- and MariaDB permits many NULLs under a
+            # unique index but only one "". Two donations whose payments were
+            # recreated would otherwise collide on the empty string.
+            donation.db_set("payment_id", None)
             if hasattr(donation, "payment_status"):
                 donation.db_set("payment_status", "")
 
@@ -1334,6 +1338,175 @@ def retry_failed_subscription_activations():
         return {"error": str(e)}
 
 
+def _payment_anchor_date(payment):
+    """The date a subscription's start date is computed from, fixed per payment.
+
+    Must not be "today": see the startDate comment in
+    _activate_direct_subscription_after_first_payment. Returns None -- meaning
+    "no anchor, fall back to the clock" -- only when the payment carries no
+    timestamp at all, which is the pre-existing behaviour and no worse than it.
+
+    A timestamp that is present but unparseable is NOT caught here. Mollie
+    always sends ISO 8601, so that would be a real anomaly, and the caller
+    already turns it into a logged, classified activation failure. Swallowing it
+    into a silent clock fallback would reintroduce exactly the
+    non-determinism this function exists to remove.
+    """
+    stamp = getattr(payment, "paid_at", None) or getattr(payment, "created_at", None)
+    if not stamp:
+        return None
+    return frappe.utils.getdate(stamp)
+
+
+# Mollie subscription statuses from which no further charge can ever come
+# (mollie.api.objects.Subscription defines active / pending / canceled /
+# suspended / completed). The two exclusions are deliberate and both matter:
+#
+#   `suspended` -- Mollie suspends on an invalid mandate and resumes when a new
+#       one arrives, so it can still charge.
+#   `pending`   -- "waiting for a valid mandate", which is the NORMAL state of a
+#       subscription just created against a first payment. That is exactly when
+#       these helpers fire, so treating it as terminal would duplicate on the
+#       happy path, not on an edge case.
+#
+# Adding either to this set double-bills the donor.
+_TERMINAL_SUBSCRIPTION_STATUSES = frozenset({"canceled", "completed"})
+
+
+def _find_subscription_for_payment(customer, payment_id, log_category):
+    """Return the LIVE subscription this payment already created at Mollie, if any.
+
+    The durable half of the duplicate guard. Every subscription these helpers
+    create carries ``metadata.payment_id``; unlike an idempotency key (cached by
+    Mollie for one hour, against a webhook retry ladder that runs twenty-six)
+    that fingerprint never expires.
+
+    A terminal subscription is not a match. Mollie's list endpoint returns
+    canceled subscriptions alongside live ones (measured read-only against the
+    test account: all five subscriptions on ``cst_9yahc9xjkb`` are ``canceled``
+    and every one is listed). Adopting a canceled subscription would write its id
+    to ``Donation.mollie_subscription_id`` and report success, leaving the
+    donation recorded as subscribed against something Mollie will never charge --
+    silently, with no retry left to repair it.
+
+    Returns None when nothing matches, and also when the lookup itself fails --
+    a listing error must not stop a first-time donor subscribing. The
+    idempotency key still covers the common, fast retry in that case.
+
+    Args:
+        customer: Mollie customer object
+        payment_id: the payment whose fingerprint to match
+        log_category: Error Log category for a listing failure. Passed in rather
+            than hardcoded so the failure is grepable under the category the
+            calling helper uses for everything else.
+    """
+    try:
+        # Filtered client-side because it cannot be filtered server-side: Mollie
+        # rejects a `status` query parameter on this endpoint outright
+        # (measured: 'Non-existent query parameter "status"').
+        for subscription in customer.subscriptions.list():
+            metadata = getattr(subscription, "metadata", None) or {}
+            if not isinstance(metadata, dict) or metadata.get("payment_id") != payment_id:
+                continue
+            status = getattr(subscription, "status", None)
+            if status in _TERMINAL_SUBSCRIPTION_STATUSES:
+                frappe.logger().info(
+                    f"Mollie subscription {getattr(subscription, 'id', '?')} matches payment "
+                    f"{payment_id} but is {status}; it will never charge again, so it is not adopted"
+                )
+                continue
+            return subscription
+    except Exception as e:
+        frappe.log_error(
+            f"Could not list existing subscriptions for payment {payment_id} "
+            f"while checking for a duplicate: {e}",
+            log_category,
+        )
+    return None
+
+
+def _permanent_refusal_reason(error):
+    """Name a Mollie refusal a webhook redelivery cannot get past, else None.
+
+    A Mollie 400 says the request as sent is unacceptable. Every redelivery in
+    the retry ladder sends the identical request, so it is refused identically
+    -- ten attempts over twenty-six hours buying nothing but Error Log noise.
+    Without a name here the reason is absent from the error dict, and
+    ``_activate_donation_subscription``'s permanent-reason list treats an
+    unrecognised reason as retryable.
+
+    The 400 this path exists to survive is a reused Idempotency-Key whose
+    payload changed -- see ``_get_or_create_subscription``, and the design note
+    at docs/superpowers/specs/2026-08-15-recurring-donation-charges-design.md.
+    It is named apart from any other 400 because only a keyed request carries
+    the key back on the error: the SDK copies it from the failing request
+    (``ResponseError.factory(result, idempotency_key)``), and a GET sends none.
+    Neither name changes the classification -- both are permanent -- so a 400
+    from somewhere else is still handled correctly, just under the other name.
+    """
+    from mollie.api.error import BadRequestError
+
+    if not isinstance(error, BadRequestError):
+        return None
+    return "idempotency_key_conflict" if getattr(error, "idempotency_key", "") else "mollie_bad_request"
+
+
+def _get_or_create_subscription(customer, payment_id, subscription_data, *, key_prefix, log_category):
+    """Adopt the live subscription this payment already has at Mollie, or create it.
+
+    DURABLE duplicate guard, checked before creating anything.
+
+    The idempotency key is only a fast path: Mollie caches keys for ONE HOUR
+    ("Keys older than 1 hour will be removed from our cache"), while its webhook
+    retry ladder runs TWENTY-SIX hours over 10 attempts (T+0, 1m, 3m, 7m, 15m,
+    31m, 1h, 2h, 4h, 26h). Attempts 8-10 therefore arrive with no idempotency
+    protection at all -- and those are precisely the attempts a prolonged failure
+    reaches. If Mollie committed the subscription but we never recorded it (lost
+    response, then a failing local write), a late retry would create a second one
+    and charge the donor every period, forever.
+
+    The subscriptions we create carry ``metadata.payment_id``, which never
+    expires, so ask Mollie what already exists for this payment instead of
+    trusting a cache with a TTL.
+
+    Args:
+        customer: Mollie customer object
+        payment_id: the payment being activated
+        subscription_data: the payload to create, if nothing exists yet
+        key_prefix: idempotency-key namespace for the calling helper
+        log_category: Error Log category for the calling helper
+
+    ``key_prefix`` and ``log_category`` are keyword-only on purpose. They are
+    both bare strings, so transposing them positionally would be silent: the
+    idempotency key would become ``"Mollie Direct Subscription Creation-tr_x"``
+    and the Error Log category ``"donsub"``, and nothing would raise.
+
+    Returns:
+        The Mollie subscription object, whether adopted or created.
+    """
+    existing = _find_subscription_for_payment(customer, payment_id, log_category)
+    if existing is not None:
+        # NOT a create. Logged distinctly so an incident reader is not told a
+        # subscription was created when one was merely found. `key_prefix` names
+        # which activation helper ran -- both route through here, so without it
+        # the two paths are indistinguishable in an incident.
+        frappe.logger().info(
+            f"[{key_prefix}] Adopted the Mollie subscription {existing.id} that payment "
+            f"{payment_id} already had; nothing was created"
+        )
+        return existing
+
+    # Same key + identical payload returns the original subscription and creates
+    # only one; different keys create two (measured against Mollie).
+    subscription = customer.subscriptions.create(
+        data=subscription_data, idempotency_key=f"{key_prefix}-{payment_id}"
+    )
+    frappe.logger().info(
+        f"[{key_prefix}] Created Mollie subscription {subscription.id} for payment {payment_id}"
+    )
+    return subscription
+
+
 def _activate_direct_subscription_after_first_payment(gateway, payment):
     """
     Create Mollie subscription directly from payment metadata (no donation agreement needed)
@@ -1381,11 +1554,20 @@ def _activate_direct_subscription_after_first_payment(gateway, payment):
         if not customer_id:
             return create_error_response("No customer ID found in payment", {"reason": "missing_customer_id"})
 
+        mollie_settings = frappe.get_single("Mollie Settings")
+
         # Create subscription data
         subscription_data = {
             "amount": {"currency": subscription_currency, "value": subscription_amount},
             "interval": subscription_interval,  # Use original format from metadata
             "description": f"Recurring donation {donation_id}" if donation_id else "Recurring donation",
+            # Without this Mollie charges the donor every period and announces it
+            # to nobody -- issue #345. Deliberately get_webhook_url(), the
+            # guest-reachable payment webhook, NOT get_subscription_webhook_url():
+            # that one is the member-dues endpoint, which is not allow_guest,
+            # only accepts a sub_ id where Mollie posts id=tr_..., and gates on a
+            # Member plus an unpaid Sales Invoice a donor need not have (#343).
+            "webhookUrl": mollie_settings.get_webhook_url(),
             "metadata": {
                 "payment_id": payment.id,
                 "donation_id": donation_id,
@@ -1395,10 +1577,19 @@ def _activate_direct_subscription_after_first_payment(gateway, payment):
             },
         }
 
-        # For quarterly/yearly subscriptions, calculate optimal start date
+        # For quarterly/yearly subscriptions, calculate optimal start date.
+        #
+        # Anchored to the PAYMENT, not to the clock. Mollie rejects a reused
+        # idempotency key whose parameters differ ("400 Bad Request", documented),
+        # so every attempt for one payment must build a byte-identical payload.
+        # A clock-derived start date does not: two webhook deliveries straddling
+        # the day that `anchor + 2 months` crosses a configured payment month would
+        # send different startDates, and Mollie would 400 the retry instead of
+        # replaying it -- turning the guard below into its opposite.
         if subscription_interval in ["3 months", "6 months", "12 months"]:
-            mollie_settings = frappe.get_single("Mollie Settings")
-            calculated_start = mollie_settings.get_next_payment_date_for_scheduled_months(min_months_ahead=2)
+            calculated_start = mollie_settings.get_next_payment_date_for_scheduled_months(
+                min_months_ahead=2, anchor=_payment_anchor_date(payment)
+            )
             if calculated_start:
                 subscription_data["startDate"] = calculated_start
                 frappe.logger().info(
@@ -1406,12 +1597,13 @@ def _activate_direct_subscription_after_first_payment(gateway, payment):
                     f"(interval: {subscription_interval}, configured months: {mollie_settings.quarterly_yearly_payment_months})"
                 )
 
-        # Create subscription using Mollie API directly
         customer = gateway.client.customers.get(customer_id)
-        subscription = customer.subscriptions.create(data=subscription_data)
-
-        frappe.logger().info(
-            f"Successfully created direct subscription {subscription.id} for payment {payment.id}"
+        subscription = _get_or_create_subscription(
+            customer,
+            payment.id,
+            subscription_data,
+            key_prefix="donsub",
+            log_category="Mollie Direct Subscription Creation",
         )
 
         # Update donation with subscription ID if donation exists
@@ -1436,7 +1628,8 @@ def _activate_direct_subscription_after_first_payment(gateway, payment):
             f"Error creating direct subscription after first payment: {str(e)}",
             "Mollie Direct Subscription Creation",
         )
-        return create_error_response(str(e))
+        reason = _permanent_refusal_reason(e)
+        return create_error_response(str(e), {"reason": reason} if reason else None)
 
 
 def _activate_donation_subscription_after_first_payment(gateway, payment):
@@ -1485,27 +1678,44 @@ def _activate_donation_subscription_after_first_payment(gateway, payment):
             frappe.log_error(message, "Mollie Donation Subscription Creation")
             return create_error_response(message, {"reason": "invalid_interval", "interval": interval})
 
+        mollie_settings = frappe.get_single("Mollie Settings")
+
         subscription_data = {
             "amount": format_mollie_amount(donation.amount),
             "interval": interval,
             "description": f"Recurring donation - {donation.donation_purpose_type}",
+            # The guest-reachable payment webhook, for the reasons spelled out in
+            # _activate_direct_subscription_after_first_payment above (#345/#343).
+            "webhookUrl": mollie_settings.get_webhook_url(),
             "metadata": {
                 "donation_id": donation_id,
                 "donor_id": donation.donor,
                 "purpose": donation.donation_purpose_type,
+                # Marks which helper built this subscription, so it can be told
+                # apart in the Mollie account from the direct path's
+                # `created_from: "direct_subscription"`.
+                "created_from": "donation_agreement",
+                # The fingerprint the durable guard matches on. Unlike an
+                # idempotency key it never expires.
+                "payment_id": payment.id,
             },
         }
 
-        # Create subscription using Mollie API directly
         customer = gateway.client.customers.get(customer_id)
-        subscription = customer.subscriptions.create(data=subscription_data)
+        subscription = _get_or_create_subscription(
+            customer,
+            payment.id,
+            subscription_data,
+            key_prefix="donagr",
+            log_category="Mollie Donation Subscription Creation",
+        )
 
         # Persist the subscription id on the donation (the doctype that owns the field)
         donation.db_set("mollie_subscription_id", subscription.id)
 
-        frappe.logger().info(
-            f"Successfully created subscription {subscription.id} for donation {donation.name}"
-        )
+        # Deliberately does not say "created": _get_or_create_subscription may have
+        # adopted one, and it logs which of the two happened.
+        frappe.logger().info(f"Donation {donation.name} is subscribed as {subscription.id}")
 
         return {
             "status": "success",
@@ -1519,7 +1729,8 @@ def _activate_donation_subscription_after_first_payment(gateway, payment):
             f"Error creating donation subscription after first payment: {str(e)}",
             "Mollie Donation Subscription Creation",
         )
-        return create_error_response(str(e))
+        reason = _permanent_refusal_reason(e)
+        return create_error_response(str(e), {"reason": reason} if reason else None)
 
 
 @frappe.whitelist()
@@ -2303,8 +2514,15 @@ def manual_payment_confirmation(donation_id, payment_reference: str, notes=None)
         # "Not allowed to change ... after submission". Use db_set — the
         # canonical pattern in this controller (cf. Donation.on_payment_authorized
         # -> self.db_set("paid", 1)) — which persists regardless of docstatus.
-        donation.db_set("paid", 1)
+        # payment_id BEFORE paid, deliberately. payment_reference is
+        # operator-supplied and payment_id is unique, so a reference already
+        # recorded on another donation raises 1062 here. In the other order the
+        # duplicate aborts *after* paid=1 is written: MariaDB does not roll the
+        # transaction back on 1062, the except-branch below returns
+        # success: False without undoing anything, and the request's own commit
+        # then lands paid=1 on a donation the caller was told had failed.
         donation.db_set("payment_id", payment_reference)
+        donation.db_set("paid", 1)
 
         if notes:
             donation.add_comment("Comment", f"Manual payment confirmation: {notes}")
@@ -2316,6 +2534,18 @@ def manual_payment_confirmation(donation_id, payment_reference: str, notes=None)
         return {"success": True, "message": "Payment confirmed successfully"}
 
     except Exception as e:
+        if frappe.db.is_duplicate_entry(e):
+            # Say which donation already owns the reference; the raw 1062 names
+            # only the index. Nothing has been written at this point.
+            owner = frappe.db.get_value(
+                "Donation", {"payment_id": payment_reference, "name": ("!=", donation_id)}, "name"
+            )
+            message = _("Payment reference {0} is already recorded on donation {1}.").format(
+                payment_reference, owner or _("another donation")
+            )
+            frappe.log_error(f"Manual payment confirmation duplicate: {message}", "Payment Confirmation")
+            return {"success": False, "message": message}
+
         frappe.log_error(f"Manual payment confirmation error: {str(e)}", "Payment Confirmation")
         return {"success": False, "message": str(e)}
 

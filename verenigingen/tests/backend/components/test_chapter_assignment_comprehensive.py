@@ -674,41 +674,9 @@ class TestChapterAssignmentComprehensive(VereningingenTestCase):
         self.track_doc("Membership Dues Schedule", dues_schedule.name)
         return dues_schedule
 
-    def _get_company_with_current_fy(self):
-        """Return (company, income_account) for a company with a current Fiscal Year."""
-        from erpnext.accounts.utils import get_fiscal_year
-
-        company_with_fy = None
-        for company in ["_Test Company"] + frappe.get_all("Company", pluck="name"):
-            try:
-                get_fiscal_year(date=today(), company=company, as_dict=True)
-            except Exception:
-                continue
-            income = frappe.db.get_value(
-                "Account",
-                {"account_type": "Income Account", "company": company, "is_group": 0},
-                "name",
-            )
-            if income:
-                return company, income
-            if company_with_fy is None:
-                company_with_fy = company
-
-        if company_with_fy:
-            # The company has a current Fiscal Year but no non-group Income Account.
-            # This test used to require one to already exist, which made it depend on
-            # whichever earlier test in the same shard happened to create one — those
-            # accounts are created inside a test transaction and vanish on rollback,
-            # so the dependency was on shard composition, not on anything real. It
-            # surfaced as "No company with a current Fiscal Year and Income Account
-            # found" once the shard split changed. Create our own instead.
-            return company_with_fy, self._get_or_create_income_account(company_with_fy)
-
-        raise RuntimeError("No company with a current Fiscal Year found")
-
     def create_outstanding_invoice_for_member(self, member):
         """Create an outstanding invoice using a real company/item."""
-        company, income_account = self._get_company_with_current_fy()
+        company, income_account = self._owned_company_and_income_account()
 
         item_code = "TEST-MEMBERSHIP-MONTHLY"
         if not frappe.db.exists("Item", item_code):

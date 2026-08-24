@@ -151,6 +151,53 @@ class TestInvoiceErrorHandlerService(EnhancedTestCase):
         )
         self.assertEqual(flagged, 1)
 
+    def test_a_manual_review_flag_that_could_not_be_saved_is_reported(self):
+        """If the escalation write fails, somebody has to be told.
+
+        That write IS the escalation. Its result was discarded, so a failure left
+        the schedule returned as "skipped" but carrying no flag -- it re-enters the
+        retry loop indefinitely and never reaches the manual-review queue, which is
+        the one outcome this branch exists to prevent.
+
+        Nothing else would have noticed: `secure_document_operation` returns
+        `success=False` rather than raising, so there is no exception for a handler
+        to catch.
+        """
+        # The service imports secure_document_operation inside the function, so the
+        # name resolves from its source module at call time -- patch it there.
+        import verenigingen.utils.secure_operations as mod
+        from verenigingen.utils.secure_operations import SecureOperationResult
+
+        self.schedule.custom_invoice_retry_count = 2
+
+        failed = SecureOperationResult(success=False, operation_id="test-flag-fail")
+        failed.add_error("Simulated schedule save failure")
+        real = mod.secure_document_operation
+        calls = {"n": 0}
+
+        def only_fail_the_flag_write(**kwargs):
+            # The retry-tracking save earlier in this function must still succeed --
+            # otherwise the test would not reach the branch it is about.
+            calls["n"] += 1
+            return failed if "manual review" in kwargs.get("justification", "") else real(**kwargs)
+
+        mod.secure_document_operation = only_fail_the_flag_write
+        self.addCleanup(lambda: setattr(mod, "secure_document_operation", real))
+
+        before = frappe.db.count("Error Log", {"error": ["like", "%could NOT be flagged%"]})
+        result = self.service.handle_invoice_generation_failure(
+            self.schedule, "permission denied: cannot create Sales Invoice"
+        )
+        after = frappe.db.count("Error Log", {"error": ["like", "%could NOT be flagged%"]})
+
+        self.assertEqual(result["action_taken"], "skipped")
+        self.assertGreater(
+            after,
+            before,
+            "the schedule was never flagged for manual review and nothing recorded it, so it "
+            "will retry forever with no human in the loop",
+        )
+
     # ------------------------------------------------------------------
     # should_auto_advance_schedule - pattern classification
     # ------------------------------------------------------------------

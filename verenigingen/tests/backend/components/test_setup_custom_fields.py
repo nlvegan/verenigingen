@@ -237,12 +237,18 @@ class TestInitialSetupCompleteFlag(FrappeTestCase):
         # Verenigingen Settings is a Single doctype: its `initial_setup_complete`
         # flag lives in ONE globally-shared `tabSingles` row. The original test
         # wrote 0 (with a real commit, since the production reader/writer commit)
-        # and read it back -- but in CI, 8 shards run as parallel processes
-        # against ONE shared DB, so a SIBLING shard's _mark_initial_setup_complete
-        # (or any write to that Single) can flip the row to 1 between our write
-        # and our read. The committed write defeats the per-test transaction
-        # rollback, so there is no way to make a REAL round-trip through that
-        # shared row deterministic under parallel shards.
+        # and read it back -- but that row is shared by every test in the run, so
+        # any OTHER write to it (another class's _mark_initial_setup_complete, or
+        # the install path) can flip it to 1 between our write and our read. The
+        # committed write defeats the per-test transaction rollback, so there is
+        # no way to make a REAL round-trip through that shared row deterministic.
+        #
+        # NOT a sibling SHARD, which this used to claim: CI gives every shard job
+        # its own mariadb:10.6 service container (the services: block sits inside
+        # the matrix job in .github/workflows/_base-server-tests.yml), so shards
+        # share no database. The exposure is other classes in THIS shard, and the
+        # worker processes under `bench run-parallel-tests`, which do share one
+        # site. Either way the row is shared and the patch below is still needed.
         #
         # _is_initial_setup_complete / _mark_initial_setup_complete are thin
         # wrappers over frappe.db.exists + frappe.db.get_value/set_value on that

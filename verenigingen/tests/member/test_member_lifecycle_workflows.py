@@ -37,9 +37,12 @@ class TestMemberLifecycleWorkflows(EnhancedTestCase):
         """Set up test environment for member lifecycle testing"""
         super().setUp()
 
-        # Create test chapter for member assignment
+        # Unique per test: tests/backend/components/test_chapter_matching.py
+        # plain-inserts a chapter under the fixed name "Test Amsterdam", so on a warm
+        # site this get-or-create silently adopted that file's chapter -- with its
+        # postal codes and region -- or made its insert fail (#533).
         self.test_chapter = self.factory.ensure_test_chapter(
-            "Test Amsterdam",
+            f"Test Amsterdam {frappe.generate_hash(length=6)}",
             {
                 "postal_codes": "1000-1099",
                 "region": "Noord-Holland"

@@ -22,9 +22,13 @@ class TestChapterJoinRequest(EnhancedTestCase):
             first_name="Test", last_name="Member", birth_date="1990-01-01", status="Active"
         )
 
-        # Create test chapter with realistic data
+        # Unique per test: ensure_test_chapter() is a get-or-create keyed on the
+        # document name, and this class both appends roster rows and flips the
+        # chapter's status. "Test Chapter" was claimed by four files and
+        # "Inactive Chapter" by two, so whichever ran first owned the row (#533).
+        # Every use below goes through .name, so there is no literal to break.
         self.test_chapter = self.factory.ensure_test_chapter(
-            "Test Chapter",
+            f"Test Chapter {frappe.generate_hash(length=6)}",
             {
                 "status": "Active",
                 "published": 1,
@@ -45,7 +49,7 @@ class TestChapterJoinRequest(EnhancedTestCase):
 
         # Create inactive chapter for status validation tests
         self.inactive_chapter = self.factory.ensure_test_chapter(
-            "Inactive Chapter",
+            f"Inactive Chapter {frappe.generate_hash(length=6)}",
             {
                 "status": "Inactive",
                 "published": 0,

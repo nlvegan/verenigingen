@@ -612,8 +612,19 @@ class PublicDonationService(StatelessService):
                 # For recurring donations, use the dedicated recurring payment method that follows legacy pattern
                 payment_form_data.update(
                     {
-                        "donor_email": form_data.get("email", ""),
-                        "donor_name": f"{form_data.get('first_name', '')} {form_data.get('last_name', '')}".strip(),
+                        # donate.html posts `donor_email` / `donor_name` (the
+                        # form collects input `name=` attributes, and those are
+                        # the names). `email`/`first_name`/`last_name` are posted
+                        # by nothing -- donate.py puts them in the PAGE CONTEXT to
+                        # prefill the fields, which never reaches form_data. So
+                        # this built the Mollie customer with an empty email and
+                        # an empty name for every recurring donation. Same defect
+                        # as the interval below, same file, one loop later.
+                        "donor_email": form_data.get("donor_email") or form_data.get("email", ""),
+                        "donor_name": (
+                            form_data.get("donor_name")
+                            or f"{form_data.get('first_name', '')} {form_data.get('last_name', '')}".strip()
+                        ),
                         # donate.html posts `subscription_interval` (the hidden input the
                         # frequency buttons write). Reading only `recurring_interval` --
                         # a key nothing sends -- meant every recurring donation fell to

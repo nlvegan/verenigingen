@@ -20,6 +20,7 @@ from verenigingen.utils.security.api_security_framework import (
     standard_api,
     utility_api,
 )
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
@@ -102,6 +103,18 @@ def suspend_member(
             return OperationResult.fail(
                 _("Failed to suspend member: {0}").format(error_msg), error_code="SUSPENSION_FAILED"
             )
+    # #475: same class as bulk_suspend_members below. suspend_member_safe re-raises a
+    # 1205/1213 (#470), and this catch-all turned it back into an HTTP 200 with the class
+    # gone. Roll back first -- unlike the bulk endpoint this one has no @handle_api_error,
+    # so without the rollback Frappe commits the half-applied suspension at request end.
+    except NON_RESUMABLE_DB_ERRORS:
+        frappe.db.rollback()
+        frappe.log_error(
+            f"Non-resumable DB error in suspend_member for {{member_name}}\n{{traceback.format_exc()}}",
+            "Suspension API Exception",
+        )
+        raise
+
     except Exception as e:
         frappe.log_error(
             f"Exception in suspend_member for {member_name}: {str(e)}\n{traceback.format_exc()}",
@@ -187,6 +200,18 @@ def unsuspend_member(member_name: str, unsuspension_reason) -> OperationResult[D
                     _("Failed to unsuspend member: {0}").format(error_msg),
                     error_code="UNSUSPENSION_FAILED",
                 )
+    # #475: same class as bulk_suspend_members below. suspend_member_safe re-raises a
+    # 1205/1213 (#470), and this catch-all turned it back into an HTTP 200 with the class
+    # gone. Roll back first -- unlike the bulk endpoint this one has no @handle_api_error,
+    # so without the rollback Frappe commits the half-applied suspension at request end.
+    except NON_RESUMABLE_DB_ERRORS:
+        frappe.db.rollback()
+        frappe.log_error(
+            f"Non-resumable DB error in unsuspend_member for {{member_name}}\n{{traceback.format_exc()}}",
+            "Suspension API Exception",
+        )
+        raise
+
     except Exception as e:
         frappe.log_error(
             f"Exception in unsuspend_member for {member_name}: {str(e)}\n{traceback.format_exc()}",
@@ -458,6 +483,12 @@ def bulk_suspend_members(
                     "success": False,
                     "error": suspend_result.get("error", "Unknown error"),
                 }
+            # #475. Without this the loop below keeps suspending the remaining members on a
+            # transaction the server has already discarded -- the #470 shape, one frame up.
+            # There is no partial result worth reporting after a 1213: everything the loop
+            # did so far is gone, so a details list naming successes would be fiction.
+            except NON_RESUMABLE_DB_ERRORS:
+                raise
             except Exception as e:
                 return {"member": member_name, "success": False, "error": str(e)}
 
@@ -498,6 +529,21 @@ def bulk_suspend_members(
                 error_code="BULK_SUSPENSION_FAILED",
                 data=results,
             )
+    # #475. The inner guard already stops the loop; what THIS frame owns is the rollback.
+    # It ends the discarded transaction before the log below it, so the partial suspensions
+    # cannot be committed on the way out. (Until #481 this was also the ONLY rollback on the
+    # path, because @handle_api_error one frame up converted the re-raise into an
+    # OperationResult. It no longer does -- the exception now escapes the request -- but this
+    # rollback stays: it is what bounds the window, and it is the frame that knows the work
+    # was partial.)
+    except NON_RESUMABLE_DB_ERRORS:
+        frappe.db.rollback()
+        frappe.log_error(
+            f"Non-resumable DB error in bulk_suspend_members\n{traceback.format_exc()}",
+            "Suspension API Exception",
+        )
+        raise
+
     except Exception as e:
         frappe.log_error(
             f"Exception in bulk_suspend_members: {str(e)}\n{traceback.format_exc()}",
