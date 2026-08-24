@@ -190,6 +190,8 @@ comment explains why). Nine of the sixteen are payment-facing. This is a **diffe
   `BTR Test Company Account - BTR Test Bank`. I reported that as "a deployment blocker awaiting an
   accounting decision." **It is not**, on two counts I should have checked before escalating:
 
+  **#563 is another session's active work — do not pick it up.** Two reasons the escalation was wrong:
+
   1. **The test side needs no human input at all.** The invariants are objective — clearing ≠ bank
      (two ends of one transfer) and both in one company — and #563 says so in as many words, adding
      `tests/fixtures/mollie_account_fixtures.py` so the suite provisions a coherent configuration by
