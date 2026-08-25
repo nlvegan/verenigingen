@@ -398,16 +398,9 @@ class PaymentReconciliationManager:
                         # related invoice via the membership's member (Sales Invoice
                         # carries the `member` custom field).
                         membership_member = frappe.db.get_value("Membership", reference, "member")
-                        invoice = None
-                        if membership_member:
-                            invoice = frappe.db.get_value(
-                                "Sales Invoice",
-                                {
-                                    "member": membership_member,
-                                    "status": ["in", ["Unpaid", "Overdue"]],
-                                },
-                                "name",
-                            )
+                        invoice = self._unambiguous_member_invoice(
+                            membership_member, transaction.get("deposit")
+                        )
                         if invoice:
                             return {
                                 "type": "invoice",
@@ -429,6 +422,87 @@ class PaymentReconciliationManager:
 
         # Fuzzy matching on member names
         return self.fuzzy_match_member_name(description, transaction["deposit"])
+
+    def _unambiguous_member_invoice(self, member, deposit):
+        """The member's ONE unpaid invoice this deposit can be for, or None (#559).
+
+        This branch used to resolve the invoice with a bare
+        `frappe.db.get_value("Sales Invoice", {"member": ..., "status": ...})`,
+        which returns a single row ordered `creation` DESC -- so a member with more
+        than one unpaid invoice got whichever was created LAST, with no amount
+        comparison anywhere. That match is returned at 0.85, `match_transaction`
+        compares `>= self.match_threshold` (0.85), and `create_reconciliation` then
+        allocates the deposit to it. An arbitrary member of the candidate set was
+        being auto-posted against: the same "resolve to ONE" ambiguity as #544, and
+        as the settlement amount-twin fixed in #558.
+
+        The rule, in order:
+
+        1. One candidate -> that one, whatever the amount. A deposit smaller than
+           the outstanding is a legitimate partial payment, and
+           `create_payment_entry_from_transaction` bounds only the opposite case --
+           its own comment says so. Refusing here would remove that.
+        2. Several candidates, exactly one whose outstanding equals the deposit ->
+           that one. The discriminator was available all along and ignored.
+        3. Anything else -- no candidates, or several with nothing to separate them
+           -- is a CHOICE, not a match. Return None and let the branch fall through,
+           as it already did when no invoice was found.
+
+           That fall-through is newly REACHABLE for a case that previously always
+           returned a match, so it is worth saying where it lands: the remaining
+           `MEMBER ID` / `MANDATE` patterns cannot match a `MEMBERSHIP <id>` string,
+           so control reaches `fuzzy_match_member_name`, which cannot fire here.
+           Measured against 748 real member names on veg11, the best similarity to a
+           `MEMBERSHIP <id>` description is 0.333 and NO name exceeds 0.6 -- the
+           literal "MEMBERSHIP " prefix, guaranteed present because it is what the
+           regex matched, caps the ratio against any personal name, and it needs
+           0.9445 to clear the auto-match threshold. So the deposit ends as no match
+           at all, leaving its Bank Transaction `Pending` and therefore still in the
+           retry pool. Both of the outcomes this replaces were worse: allocate to an
+           arbitrary invoice, or (on the `deposit > outstanding` arm) get marked
+           permanently Unreconciled.
+
+        `docstatus: 1` is now explicit, matching `get_member_unpaid_invoices` and
+        `fuzzy_match_member_name`, both of which filter it while this one did not.
+        That is not the no-op it sounds like: veg11 carries **35** Sales Invoices with
+        status Unpaid/Overdue and `docstatus = 0`, **28** of them with a member.
+        ERPNext cannot produce that state -- `SalesInvoice.set_status` assigns
+        "Draft" whenever `docstatus != 1` -- so something writes `status` directly.
+        Under the old query those 28 members got a 0.85 match on a DRAFT invoice, the
+        Payment Entry build against it throws, and `create_reconciliation` then marks
+        the transaction permanently Unreconciled (nothing moves a transaction back
+        out of that state). Excluding them converts a guaranteed dead end into a
+        retryable no-match.
+
+        Compared at the field's own precision, as
+        `create_payment_entry_from_transaction` does, so a deposit differing by a
+        fraction of a cent that ERPNext itself rounds away is still recognised as
+        the amount match.
+        """
+        if not member:
+            return None
+
+        candidates = frappe.get_all(
+            "Sales Invoice",
+            filters={
+                "member": member,
+                "status": ["in", ["Unpaid", "Overdue"]],
+                "docstatus": 1,
+            },
+            fields=["name", "outstanding_amount"],
+        )
+        if not candidates:
+            return None
+        if len(candidates) == 1:
+            return candidates[0]["name"]
+
+        precision = frappe.get_precision("Sales Invoice", "outstanding_amount") or 2
+        deposit_amount = flt(deposit or 0, precision)
+        exact = [c for c in candidates if flt(c["outstanding_amount"], precision) == deposit_amount]
+        if len(exact) == 1:
+            return exact[0]["name"]
+
+        return None
 
     def match_mollie_settlement(self, transaction):
         """

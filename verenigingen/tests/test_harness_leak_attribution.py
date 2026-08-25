@@ -350,6 +350,23 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
                 f"the captured-insert drain will claim its rows for one test",
             )
 
+    def test_the_shared_mollie_account_helper_is_declared_shared(self):
+        """`ensure_mollie_gl_accounts` creates Accounts and a Bank Account.
+
+        Those are site-owned master data: without `@shared_fixture` the
+        captured-insert drain claims them for whichever test called first and
+        deletes them at that test's teardown, and every later class needing a
+        Mollie configuration then fails in setUp. The six helpers enforced above
+        are methods ON `EnhancedTestCase`; this one is a module-level function, so
+        it is not covered by that check and needs its own.
+        """
+        from verenigingen.tests.fixtures.mollie_account_fixtures import ensure_mollie_gl_accounts
+
+        self.assertTrue(
+            hasattr(ensure_mollie_gl_accounts, "__wrapped__"),
+            "ensure_mollie_gl_accounts creates shared master data and must be @shared_fixture",
+        )
+
     def test_no_shared_fixture_helper_is_decorated_in_one_copy_and_not_its_clone(self):
         """A helper family must not disagree with itself about being shared.
 

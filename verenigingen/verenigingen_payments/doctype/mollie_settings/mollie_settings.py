@@ -118,6 +118,21 @@ class MollieSettings(Document):
         "ZAR",
     ]
 
+    def clear_configuration_cache(self):
+        """Drop MollieConfigurationService's cached settings.
+
+        `on_update` already does this, but `SingletonBackup._restore_singleton`
+        writes straight into `tabSingles` and `__Auth` WITHOUT `doc.save()` -- a
+        deliberate choice (#537) -- so no hook fires and the service would keep
+        serving the values a test had written. Registering this in
+        `CACHE_CLEARING_METHODS` is what makes a Mollie Settings restore complete.
+        """
+        from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
+            MollieConfigurationService,
+        )
+
+        MollieConfigurationService.clear_cache()
+
     def validate(self):
         """Validate the document before saving"""
         if not self.flags.ignore_mandatory:
