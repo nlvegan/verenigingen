@@ -90,7 +90,10 @@ from verenigingen.utils.security.authorization import (
     SEPAPermissionLevel,
     require_sepa_permission,
 )
-from verenigingen.verenigingen_payments.utils.invoice_candidates import unambiguous_invoice
+from verenigingen.verenigingen_payments.utils.invoice_candidates import (
+    log_ambiguous_refusal,
+    unambiguous_invoice,
+)
 
 # ========================
 # PHASE 1: CONSERVATIVE APPROACH
@@ -882,14 +885,10 @@ def process_individual_return(return_item):
             # Reversing nothing leaves the return for a human to place, which is
             # recoverable. Reversing the wrong invoice takes money back off a member
             # who paid, and tells them their payment failed.
-            # KEYWORD form. `log_error`'s signature is `log_error(title, message)`, so a
-            # positional `log_error(f"...", "Short Title")` passes the MESSAGE as the title:
-            # it lands in `Error Log.method` (Data, cut at 140 mid-word) and no title reaches
-            # the title column. Measured on test_site_1 -- `error` keeps the full text, so
-            # nothing is lost; the Error Log LIST becomes unreadable and unfilterable.
-            frappe.log_error(
+            log_ambiguous_refusal(
                 title="SEPA Return Ambiguous",
-                message=(
+                refused=choice,
+                detail=(
                     f"SEPA return of {return_item['amount']} for member {member[0]} "
                     f"matches {choice.candidates} settled invoices; refusing to choose "
                     "which one to reverse. Reverse it manually."

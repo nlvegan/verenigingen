@@ -15,7 +15,10 @@ from verenigingen.utils.security.authorization import (
 from verenigingen.utils.transaction_errors import insert_and_submit_atomically
 from verenigingen.verenigingen_payments.clients.settlements_client import SettlementsClient
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
-from verenigingen.verenigingen_payments.utils.invoice_candidates import unambiguous_invoice
+from verenigingen.verenigingen_payments.utils.invoice_candidates import (
+    log_ambiguous_refusal,
+    unambiguous_invoice,
+)
 from verenigingen.verenigingen_payments.utils.shared.money import safe_decimal
 
 #: Confidence for a Mollie settlement the bank description does NOT name (#547).
@@ -497,7 +500,23 @@ class PaymentReconciliationManager:
             amount=deposit,
             fields=["name", "outstanding_amount"],
         )
-        return choice.invoice["name"] if choice.invoice else None
+        if choice.invoice:
+            return choice.invoice["name"]
+        if choice.is_ambiguous:
+            # This was the one `unambiguous_invoice` caller that refused SILENTLY, while
+            # the rule's own docstring says "refuse, and let the caller say so". A
+            # refusal nobody can see is indistinguishable from "this member has no open
+            # invoice", and the operator has to act on the difference.
+            log_ambiguous_refusal(
+                title="Bank Reconciliation Invoice Ambiguous",
+                refused=choice,
+                detail=(
+                    f"A deposit of {deposit} for member {member} matches "
+                    f"{choice.candidates} open invoices and none of them by amount; "
+                    f"refusing to choose one. Reconcile this transaction manually."
+                ),
+            )
+        return None
 
     def match_mollie_settlement(self, transaction):
         """

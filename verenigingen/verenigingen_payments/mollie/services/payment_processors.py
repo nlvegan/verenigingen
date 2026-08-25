@@ -11,7 +11,10 @@ from typing import Any, Dict, Optional
 import frappe
 
 from verenigingen.utils.bank_utils import get_or_create_unknown_bank
-from verenigingen.verenigingen_payments.utils.invoice_candidates import unambiguous_invoice
+from verenigingen.verenigingen_payments.utils.invoice_candidates import (
+    log_ambiguous_refusal,
+    unambiguous_invoice,
+)
 
 from .payment_context_resolver import PaymentContext
 from .payment_entry_factory import PaymentEntryFactory
@@ -861,14 +864,10 @@ class MembershipPaymentProcessor(AbstractPaymentProcessor):
             if choice.is_ambiguous:
                 # Leaving the Payment Entry unallocated is recoverable by a human;
                 # settling one invoice with another invoice's money is not.
-                # KEYWORD form. `log_error`'s signature is `log_error(title, message)`, so a
-                # positional `log_error(f"...", "Short Title")` passes the MESSAGE as the title:
-                # it lands in `Error Log.method` (Data, cut at 140 mid-word) and no title reaches
-                # the title column. Measured on test_site_1 -- `error` keeps the full text, so
-                # nothing is lost; the Error Log LIST becomes unreadable and unfilterable.
-                frappe.log_error(
+                log_ambiguous_refusal(
                     title="Mollie Membership Payment Ambiguous",
-                    message=(
+                    refused=choice,
+                    detail=(
                         f"Mollie payment of {amount} for customer {customer} matches "
                         f"none of {choice.candidates} open invoices; refusing to "
                         "choose one. Allocate the Payment Entry manually."

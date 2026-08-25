@@ -35,6 +35,7 @@ from frappe.utils import flt, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
+from verenigingen.tests.support.error_log_assertions import assert_error_log
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.verenigingen_payments.utils import payment_processing_recovery as rec
 
@@ -358,6 +359,50 @@ class TestGetPaymentProcessingStatus(RecoveryBase):
         self.assertTrue(status.get("sinv_unlinked"))
         self.assertEqual(status["status"], "partial")
         self.assertIn("Sales Invoice Link", status["missing_documents"])
+
+    def test_two_invoices_on_the_coverage_window_are_refused(self):
+        """#578 item 3. Same coverage-period lookup as the test above, with the
+        uniqueness assumption removed.
+
+        `(customer, coverage_start, coverage_end)` is not unique -- the repo ships
+        `coverage_overlap_detector.find_overlapping_invoices` because the state occurs --
+        and this lookup was `frappe.db.get_value` with no `order_by`, i.e. `creation
+        DESC`. Both invoices carry the Bank Transaction's own amount, the ordinary
+        flat-fee case, in which the amount discriminator can separate nothing.
+
+        This function is a REPORTER, not a mover of money: it feeds `analyze_payment_gaps`
+        and the Mollie payment-processing page. So the cost of the old pick was a payment
+        reported as reconciled against an invoice nobody chose -- which is why the
+        assertion is that the status refuses, and the refusal is legible.
+        """
+        from verenigingen.services.billing.coverage_calculator import (
+            calculate_coverage_for_payment_date,
+        )
+
+        self.expectErrorLog("Payment Recovery Invoice Ambiguous")
+        member = self._make_member_with_customer("CovAmbig")
+        bt = self._make_bank_transaction(self.pid, party=member.customer)
+        pe = self._make_payment_entry(self.pid, customer=member.customer)
+        self._link_bt_pe(bt.name, pe.name)
+
+        cstart, cend = calculate_coverage_for_payment_date(member.name, today())
+        first = self._make_sales_invoice(member.customer, cstart, cend, outstanding=10.0)
+        second = self._make_sales_invoice(member.customer, cstart, cend, outstanding=10.0)
+
+        status = rec.get_payment_processing_status(self.pid)
+
+        self.assertFalse(
+            status["has_sales_invoice"],
+            f"two invoices share this coverage window; got {status['sales_invoice']}",
+        )
+        self.assertNotIn(status["sales_invoice"], (first.name, second.name))
+        self.assertFalse(status.get("sinv_unlinked"))
+        assert_error_log(
+            self,
+            "Payment Recovery Invoice Ambiguous",
+            member.customer,
+            must_contain=(member.customer, self.pid, first.name, second.name),
+        )
 
     def test_partial_when_bt_pe_present_but_not_linked(self):
         """BT + PE + linked SINV via PE reference, but BT not linked to PE ->

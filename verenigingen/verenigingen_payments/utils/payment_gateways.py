@@ -32,7 +32,10 @@ from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
     log_mollie_error,
     validate_mollie_interval,
 )
-from verenigingen.verenigingen_payments.utils.invoice_candidates import unambiguous_invoice
+from verenigingen.verenigingen_payments.utils.invoice_candidates import (
+    log_ambiguous_refusal,
+    unambiguous_invoice,
+)
 from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
 
 
@@ -2137,13 +2140,9 @@ def _process_subscription_payment(gateway, member_name, member_customer, payment
         )
 
         if choice.candidates == 0:
-            # KEYWORD form. `log_error`'s signature is `log_error(title, message)`, so a
-            # positional `log_error(f"...", "Short Title")` passes the MESSAGE as the title:
-            # it lands in `Error Log.method`, a Data field that cuts it at 140 chars mid-word,
-            # and no title reaches the title column. Measured on test_site_1 -- a 158-char
-            # message stored `method` at 140 while `error` kept the full text, so nothing is
-            # LOST; what breaks is the Error Log list, which becomes unreadable and cannot be
-            # filtered by title.
+            # KEYWORD form -- see `invoice_candidates.log_ambiguous_refusal` for why
+            # (the positional call puts the message in the title field). This branch is
+            # NOT a refusal, so it does not go through that helper.
             frappe.log_error(
                 title="Mollie Subscription Payment Unmatched",
                 message=(
@@ -2158,9 +2157,10 @@ def _process_subscription_payment(gateway, member_name, member_customer, payment
             # Refusing leaves the money unallocated on the Mollie side and this
             # webhook retryable, which is recoverable. Posting it against a guess is
             # not: it settles one invoice with another invoice's money.
-            frappe.log_error(
+            log_ambiguous_refusal(
                 title="Mollie Subscription Payment Ambiguous",
-                message=(
+                refused=choice,
+                detail=(
                     f"Mollie payment {payment_id} ({payment_amount}) for member "
                     f"{member_name} matches none of {choice.candidates} open invoices "
                     f"for customer {member_customer}; refusing to choose one. "

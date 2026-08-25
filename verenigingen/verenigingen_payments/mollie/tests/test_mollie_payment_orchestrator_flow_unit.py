@@ -234,7 +234,7 @@ class TestResolveInvoice(unittest.TestCase):
         orch = _make_orchestrator()
         # Pin find_matching_invoice to a no-match result (collaborator boundary)
         orch.find_matching_invoice = lambda **kw: SimpleNamespace(
-            found=False, invoice_name=None, match_type=None, overlap_warning=None
+            found=False, invoice_name=None, match_type=None, overlap_warning=None, ambiguous_candidates=None
         )
         result = PaymentProcessingResult(payment_id="tr_1")
         status = ProcessingStatus(payment_id="tr_1")  # no cached SINV
@@ -245,7 +245,7 @@ class TestResolveInvoice(unittest.TestCase):
     def test_fresh_match_returns_invoice(self):
         orch = _make_orchestrator()
         orch.find_matching_invoice = lambda **kw: SimpleNamespace(
-            found=True, invoice_name="SINV-7", match_type="exact", overlap_warning=None
+            found=True, invoice_name="SINV-7", match_type="exact", overlap_warning=None, ambiguous_candidates=None
         )
         result = PaymentProcessingResult(payment_id="tr_1")
         status = ProcessingStatus(payment_id="tr_1")
@@ -272,7 +272,7 @@ class TestResolveInvoice(unittest.TestCase):
 
         orch = _make_orchestrator()
         orch.find_matching_invoice = lambda **kw: SimpleNamespace(
-            found=True, invoice_name="SINV-NEW", match_type="amount", overlap_warning=None
+            found=True, invoice_name="SINV-NEW", match_type="amount", overlap_warning=None, ambiguous_candidates=None
         )
         result = PaymentProcessingResult(payment_id="tr_1")
         status = ProcessingStatus(payment_id="tr_1", sales_invoice="SINV-PAID")
@@ -296,7 +296,7 @@ class TestProcessPaymentFlow(unittest.TestCase):
         orch = _make_orchestrator(status=status, payment=_payment(), dues=dues, bt=bt)
         # Boundary: extractor + invoice match
         orch.find_matching_invoice = lambda **kw: SimpleNamespace(
-            found=True, invoice_name="SINV-1", match_type="exact", overlap_warning=None
+            found=True, invoice_name="SINV-1", match_type="exact", overlap_warning=None, ambiguous_candidates=None
         )
         return orch, dues, bt
 
@@ -330,7 +330,7 @@ class TestProcessPaymentFlow(unittest.TestCase):
         status = ProcessingStatus(payment_id="tr_1", status="unprocessed", member="Mem-1")
         orch, dues, bt = self._orch_for_flow(status, pe_to_return=None)
         orch.find_matching_invoice = lambda **kw: SimpleNamespace(
-            found=True, invoice_name="SINV-1", match_type="exact", overlap_warning=None
+            found=True, invoice_name="SINV-1", match_type="exact", overlap_warning=None, ambiguous_candidates=None
         )
         out = orch.process_payment("tr_1", create_missing_invoice=True)
         self.assertEqual(out.status, "partial")
@@ -344,7 +344,7 @@ class TestProcessPaymentFlow(unittest.TestCase):
         orch, dues, bt = self._orch_for_flow(status, pe_to_return=None)
         # No invoice found and recovery-mode creation also yields nothing.
         orch.find_matching_invoice = lambda **kw: SimpleNamespace(
-            found=False, invoice_name=None, match_type=None, overlap_warning=None
+            found=False, invoice_name=None, match_type=None, overlap_warning=None, ambiguous_candidates=None
         )
         orch._create_invoice_if_safe = lambda **kw: None
         out = orch.process_payment("tr_1", create_missing_invoice=True)
@@ -508,7 +508,7 @@ class TestProcessPaymentsBatch(unittest.TestCase):
         bt = _FakeBTCreator(bt_name="BT-1")
         orch = _make_orchestrator(status=status, payment=_payment(), dues=dues, bt=bt)
         orch.find_matching_invoice = lambda **kw: SimpleNamespace(
-            found=True, invoice_name="SINV-1", match_type="exact", overlap_warning=None
+            found=True, invoice_name="SINV-1", match_type="exact", overlap_warning=None, ambiguous_candidates=None
         )
         out = orch.process_payments_batch(["tr_1"])
         self.assertEqual(out["processed"], 1)

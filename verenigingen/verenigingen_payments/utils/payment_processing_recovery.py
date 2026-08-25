@@ -10,6 +10,10 @@ from typing import Dict, List, Optional, Tuple, Union
 import frappe
 
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.verenigingen_payments.utils.invoice_candidates import (
+    log_ambiguous_refusal,
+    unambiguous_invoice,
+)
 
 
 def get_payment_processing_status(payment_id: str) -> Dict[str, any]:
@@ -45,7 +49,10 @@ def get_payment_processing_status(payment_id: str) -> Dict[str, any]:
 
     # Check for Bank Transaction
     bt = frappe.db.get_value(
-        "Bank Transaction", {"reference_number": payment_id}, ["name", "party"], as_dict=True
+        "Bank Transaction",
+        {"reference_number": payment_id},
+        ["name", "party"],
+        as_dict=True,
     )
 
     if bt:
@@ -110,8 +117,13 @@ def get_payment_processing_status(payment_id: str) -> Dict[str, any]:
             # Look for invoice matching coverage period with outstanding balance
             member = frappe.get_doc("Member", status["member"])
             if member.customer:
-                existing_invoice = frappe.db.get_value(
-                    "Sales Invoice",
+                # `(customer, coverage_start, coverage_end)` is not unique -- the repo
+                # ships `coverage_overlap_detector.find_overlapping_invoices` because
+                # the state occurs -- and this was `frappe.db.get_value` with no
+                # `order_by`, i.e. `creation DESC`. Unlike the orchestrator's copy this
+                # function only REPORTS, so the cost was a payment shown as reconciled
+                # against an invoice nobody chose (#578).
+                choice = unambiguous_invoice(
                     filters={
                         "customer": member.customer,
                         "custom_coverage_start_date": coverage_start,
@@ -119,11 +131,28 @@ def get_payment_processing_status(payment_id: str) -> Dict[str, any]:
                         "docstatus": 1,  # Only submitted invoices
                         "outstanding_amount": [">", 0],  # Only unpaid invoices
                     },
-                    fieldname="name",
+                    # `amount=None`: see
+                    # `invoice_matcher._find_invoice_by_calculated_coverage` -- at a
+                    # coverage-keyed site the amount is not evidence, and a duplicate on
+                    # the window usually exists because the price changed.
+                    amount=None,
+                    fields=["name"],
                 )
-                if existing_invoice:
-                    sinv = existing_invoice
+                if choice.invoice:
+                    sinv = choice.invoice["name"]
                     status["sinv_unlinked"] = True  # Flag for linking later
+                elif choice.is_ambiguous:
+                    log_ambiguous_refusal(
+                        title="Payment Recovery Invoice Ambiguous",
+                        refused=choice,
+                        detail=(
+                            f"Mollie payment {payment_id} for customer "
+                            f"{member.customer} could be for any of {choice.candidates} "
+                            f"invoices covering {coverage_start} to {coverage_end}; "
+                            f"refusing to choose one, so this payment is reported as "
+                            f"missing its invoice rather than matched to a guess."
+                        ),
+                    )
 
     if sinv:
         status["has_sales_invoice"] = True

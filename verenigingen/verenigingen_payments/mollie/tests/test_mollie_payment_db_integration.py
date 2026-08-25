@@ -19,6 +19,8 @@ Targets:
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.error_log_assertions import assert_error_log
+from verenigingen.tests.support.invoice_payments import member_with_customer
 from verenigingen.utils.bank_utils import get_or_create_unknown_bank
 from verenigingen.verenigingen_payments.mollie.services.bulk_payment_checker import BulkPaymentChecker
 from verenigingen.verenigingen_payments.services.mollie_payment_orchestrator import (
@@ -240,3 +242,87 @@ class TestGetProcessingStatus(EnhancedTestCase):
         # Member should be resolved from the BT's Customer party
         self.assertEqual(status.member, member.name)
         self.assertFalse(status.is_complete)
+
+    def _invoice_on_the_calculated_window(self, member, customer, amount):
+        """A submitted, outstanding invoice on the window this member's payment maps to.
+
+        The window is ASKED of the production calculator rather than hard-coded: whether
+        it is the calendar period depends on the member's own coverage sequence, which is
+        a property of the fixture, not of the code under test.
+        """
+        from verenigingen.services.billing.coverage_calculator import (
+            calculate_coverage_for_payment_date,
+        )
+
+        start, end = calculate_coverage_for_payment_date(member.name, frappe.utils.today())
+        invoice = self.create_test_sales_invoice(
+            customer=customer,
+            grand_total=amount,
+            company=frappe.db.get_value("Bank Account", self._bank_account(), "company"),
+            is_membership_invoice=1,
+        )
+        invoice.db_set("custom_coverage_start_date", frappe.utils.getdate(start))
+        invoice.db_set("custom_coverage_end_date", frappe.utils.getdate(end))
+        invoice.reload()
+        return invoice
+
+    def test_one_unlinked_invoice_on_the_coverage_window_is_resolved(self):
+        """The working case for the coverage branch, pinned before the refusal below."""
+        token = frappe.generate_hash()[:10]
+        ba = self._bank_account()
+        if not ba:
+            self.skipTest("No Bank Account configured on this site")
+        payment_id = f"tr_cov_one_{token}"
+
+        # The SHARED helper, not a twelfth private copy of it: `_member_with_customer`
+        # already has ten, and the duplicate-helper ratchet caught the eleventh.
+        member = member_with_customer(self, f"Cov{token}")
+        customer = frappe.db.get_value("Member", member.name, "customer")
+        self.assertTrue(customer, "Member should have an auto-created Customer")
+        _create_bank_transaction(self, ba, payment_id, party_type="Customer", party=customer)
+        invoice = self._invoice_on_the_calculated_window(member, customer, 25.0)
+
+        status = MolliePaymentOrchestrator.get_processing_status(None, payment_id)
+
+        self.assertTrue(status.has_sales_invoice)
+        self.assertEqual(status.sales_invoice, invoice.name)
+
+    def test_two_invoices_on_the_coverage_window_are_refused(self):
+        """#578 item 2. This status is not read-only: `_resolve_invoice` returns
+        `status.sales_invoice` straight to `_create_payment_entry_for_dues`, so the
+        invoice named here is the one the money lands on.
+
+        The pick was `frappe.db.get_value` with no `order_by`, i.e. `creation DESC` --
+        the most recently created of however many invoices share the window. Both
+        invoices carry the Bank Transaction's own amount, which is the ordinary flat-fee
+        case and exactly the one where the amount can separate nothing.
+        """
+        self.expectErrorLog("Mollie Payment Status Invoice Ambiguous")
+        token = frappe.generate_hash()[:10]
+        ba = self._bank_account()
+        if not ba:
+            self.skipTest("No Bank Account configured on this site")
+        payment_id = f"tr_cov_two_{token}"
+
+        # The SHARED helper, not a twelfth private copy of it: `_member_with_customer`
+        # already has ten, and the duplicate-helper ratchet caught the eleventh.
+        member = member_with_customer(self, f"Cov{token}")
+        customer = frappe.db.get_value("Member", member.name, "customer")
+        self.assertTrue(customer, "Member should have an auto-created Customer")
+        _create_bank_transaction(self, ba, payment_id, party_type="Customer", party=customer)
+        first = self._invoice_on_the_calculated_window(member, customer, 25.0)
+        second = self._invoice_on_the_calculated_window(member, customer, 25.0)
+
+        status = MolliePaymentOrchestrator.get_processing_status(None, payment_id)
+
+        self.assertFalse(
+            status.has_sales_invoice,
+            f"two invoices share this coverage window; got {status.sales_invoice}",
+        )
+        self.assertNotIn(status.sales_invoice, (first.name, second.name))
+        assert_error_log(
+            self,
+            "Mollie Payment Status Invoice Ambiguous",
+            customer,
+            must_contain=(customer, payment_id, first.name, second.name),
+        )

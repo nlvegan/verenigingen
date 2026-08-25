@@ -22,6 +22,10 @@ from frappe.utils import add_days, getdate, today
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.operation_result import OperationResult
+from verenigingen.verenigingen_payments.utils.invoice_candidates import (
+    choose_unambiguous,
+    log_ambiguous_refusal,
+)
 
 
 @dataclass
@@ -892,6 +896,14 @@ def find_invoice_for_payment(
     # Look for unpaid invoices within a reasonable date window (e.g., 3 months before payment)
     amount_tolerance = 0.01  # Allow for small rounding differences
 
+    # `LIMIT 1` used to end this query, behind `ORDER BY ABS(outstanding_amount -
+    # amount) ASC, posting_date DESC`. The first key is real evidence; the second
+    # decided every tie it left, so two unpaid invoices of the SAME amount -- the
+    # ordinary flat-fee case -- silently sent the money to the more recent one. This
+    # function is reached from the Ponto webhook (`webhook_handlers.py:569` ->
+    # `create_ponto_payment_entry(invoice_name=...)`), so that was a payment allocated
+    # to an invoice nobody chose. Same class as #578; found by grepping raw SQL for
+    # `LIMIT 1` rather than by the three call sites the issue names.
     unpaid_invoices = frappe.db.sql(
         """
         SELECT name, grand_total, outstanding_amount, posting_date
@@ -903,21 +915,42 @@ def find_invoice_for_payment(
         ORDER BY
             ABS(outstanding_amount - %s) ASC,  -- Prefer exact amount match
             posting_date DESC  -- Then most recent
-        LIMIT 1
     """,
         (customer, payment_date, payment_date, payment_amount),
         as_dict=True,
     )
 
-    if unpaid_invoices:
-        invoice = unpaid_invoices[0]
-        # Check if amount matches within tolerance
-        if abs(flt(invoice.outstanding_amount) - flt(payment_amount)) <= amount_tolerance:
-            frappe.logger().info(
-                f"Found invoice {invoice.name} by amount match "
-                f"(outstanding: {invoice.outstanding_amount}, payment: {payment_amount}) for member {member_name}"
-            )
-            return invoice.name
+    # The amount is a FILTER here, not a discriminator: strategies 1 and 2 above are the
+    # ones that know WHICH invoice, and this fallback only claims "an unpaid invoice for
+    # exactly this amount". So the tolerance test runs first, and the shared #567 rule
+    # then decides what to do about however many survive it -- rather than the rule's
+    # own "one candidate wins whatever the amount", which would hand a payment to an
+    # unrelated invoice of a different amount.
+    matching = [
+        invoice
+        for invoice in unpaid_invoices
+        if abs(flt(invoice.outstanding_amount) - flt(payment_amount)) <= amount_tolerance
+    ]
+    choice = choose_unambiguous(matching, payment_amount, "outstanding_amount")
+    if choice.invoice:
+        frappe.logger().info(
+            f"Found invoice {choice.invoice['name']} by amount match "
+            f"(outstanding: {choice.invoice['outstanding_amount']}, payment: {payment_amount}) "
+            f"for member {member_name}"
+        )
+        return choice.invoice["name"]
+    if choice.is_ambiguous:
+        log_ambiguous_refusal(
+            title="Payment Invoice Match Ambiguous",
+            refused=choice,
+            detail=(
+                f"A payment of {payment_amount} on {payment_date} for member "
+                f"{member_name} (customer {customer}) matches {choice.candidates} "
+                f"unpaid invoices of the same amount; refusing to choose one. "
+                f"Allocate it manually to the intended invoice."
+            ),
+        )
+        return None
 
     # No matching invoice found
     frappe.logger().info(
