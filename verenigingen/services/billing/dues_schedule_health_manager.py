@@ -17,6 +17,7 @@ from verenigingen.utils.security.api_security_framework import (
     high_security_api,
     standard_api,
 )
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 
 
 class DuesScheduleHealthManager:
@@ -406,8 +407,12 @@ class DuesScheduleHealthManager:
                 },
             }
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # The counter reset below restores this manager's in-memory tally, which is
+            # meaningless once the server has thrown the transaction away.
+            raise
         except Exception as e:
-            frappe.db.rollback(save_point=sp)
+            rollback_to_savepoint(sp)
             # Savepoint context manager handles rollback automatically
             # Reset counters to pre-transaction state
             self.results["members_processed"] = initial_processed

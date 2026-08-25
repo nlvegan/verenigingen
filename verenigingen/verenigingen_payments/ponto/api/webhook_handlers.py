@@ -15,6 +15,7 @@ from typing import Any, Dict
 
 import frappe
 
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 from verenigingen.verenigingen_payments.ponto.services.payment_entry_service import (
     create_ponto_payment_entry,
 )
@@ -332,8 +333,14 @@ def handle_payment_request_closed(event_data: Dict[str, Any]) -> Dict[str, Any]:
                 doc.update_status_from_webhook(mapped_status)
                 frappe.logger().info(f"Updated Ponto Payment Request {pr.name} to status {mapped_status}")
                 updated_requests.append(pr.name)
+            except NON_RESUMABLE_DB_ERRORS:
+                # A 1205/1213 is not one bad row: the server has discarded or half-applied the
+                # whole transaction, so the rows already marked failed and the rows still to come
+                # are all being decided against state that is gone. The webhook must fail so Ponto
+                # retries it, rather than report a partial result as a complete one.
+                raise
             except Exception as e:
-                frappe.db.rollback(save_point=savepoint_name)
+                rollback_to_savepoint(savepoint_name)
                 frappe.logger().error(f"Failed to update Ponto Payment Request {pr.name}: {e}")
                 frappe.log_error(
                     title=f"Payment webhook status update failed: {pr.name}",
@@ -458,8 +465,14 @@ def _update_payment_link_status(
                     )
                     payment_entries_queued.append(pl.name)
 
+            except NON_RESUMABLE_DB_ERRORS:
+                # A 1205/1213 is not one bad row: the server has discarded or half-applied the
+                # whole transaction, so the rows already marked failed and the rows still to come
+                # are all being decided against state that is gone. The webhook must fail so Ponto
+                # retries it, rather than report a partial result as a complete one.
+                raise
             except Exception as e:
-                frappe.db.rollback(save_point=savepoint_name)
+                rollback_to_savepoint(savepoint_name)
                 frappe.logger().error(f"Failed to update Ponto Payment Link {pl.name}: {e}")
                 frappe.log_error(
                     title=f"Payment link webhook status update failed: {pl.name}",
@@ -784,8 +797,14 @@ def handle_periodic_payment_execution(event_data: Dict[str, Any]) -> Dict[str, A
             )
             updated_links.append(pl.name)
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # A 1205/1213 is not one bad row: the server has discarded or half-applied the
+            # whole transaction, so the rows already marked failed and the rows still to come
+            # are all being decided against state that is gone. The webhook must fail so Ponto
+            # retries it, rather than report a partial result as a complete one.
+            raise
         except Exception as e:
-            frappe.db.rollback(save_point=savepoint_name)
+            rollback_to_savepoint(savepoint_name)
             frappe.logger().error(f"Failed to process periodic payment execution for {pl.name}: {e}")
             frappe.log_error(
                 title=f"Periodic payment execution failed: {pl.name}",
