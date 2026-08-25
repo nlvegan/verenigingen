@@ -37,22 +37,27 @@ def receive_against_invoice(test_case, invoice_name, paid, mode_of_payment=None)
     fixture really did leave the two columns different -- a silently-failed
     part payment would make the caller's test pass for the wrong reason.
 
-    FAILS -- does not skip -- if the invoice's company has no default bank account.
-    Four tests depend on this fixture, and a skip is indistinguishable from a pass in a
-    CI summary, so a shard where the shared EUR company is built differently would
-    silently stop testing anything. A fixture that picks a company and *then* looks for
-    an account inside it is how a test comes to prove nothing (2026-08-24c handoff); the
-    answer is to make that loud, not to skip.
+    PROVISIONS the company's default bank account rather than reading one, and FAILS --
+    does not skip -- if that still leaves none. Reading was not enough: erpnext's
+    `get_default_bank_cash_account` falls back to "the only non-group Bank account" and
+    returns `{}` when the company has none or several, and on this bench there is exactly
+    one, left behind by `test_bank_transaction_reconciliation`. So this fixture passed
+    locally and failed in CI shard 11/12, which packs neither that module nor
+    `test_sepa_reconciliation` (whose setUpClass provisions the same account) -- a
+    fixture that picks a company and *then* looks for an account inside it is how a test
+    comes to prove nothing (2026-08-24c handoff). Four tests depend on this one, and a
+    skip is indistinguishable from a pass in a CI summary, so the answer is to guarantee
+    the account and keep the failure loud if that is somehow impossible.
     """
-    from erpnext.accounts.doctype.journal_entry.journal_entry import get_default_bank_cash_account
+    from verenigingen.tests.support.sepa_test_company import ensure_default_gl_bank_account
 
     invoice = frappe.get_doc("Sales Invoice", invoice_name)
-    bank = get_default_bank_cash_account(invoice.company, "Bank")
-    if not bank or not bank.get("account"):
+    bank_account = ensure_default_gl_bank_account(invoice.company)
+    if not bank_account:
         test_case.fail(
-            f"{invoice.company} has no default bank account, so this fixture cannot "
-            f"receive a payment. Provision it rather than skipping -- a skipped test "
-            f"proves exactly as much as one that never ran."
+            f"{invoice.company} has no default bank account and one could not be "
+            f"provisioned, so this fixture cannot receive a payment -- a skipped or "
+            f"absent test proves exactly as much as one that never ran."
         )
 
     payment_entry = frappe.get_doc(
@@ -66,7 +71,7 @@ def receive_against_invoice(test_case, invoice_name, paid, mode_of_payment=None)
             "paid_amount": paid,
             "received_amount": paid,
             "paid_from": invoice.debit_to,
-            "paid_to": bank["account"],
+            "paid_to": bank_account,
             "paid_from_account_currency": "EUR",
             "paid_to_account_currency": "EUR",
             "source_exchange_rate": 1,
