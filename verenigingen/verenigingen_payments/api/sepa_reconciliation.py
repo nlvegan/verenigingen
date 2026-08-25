@@ -90,6 +90,7 @@ from verenigingen.utils.security.authorization import (
     SEPAPermissionLevel,
     require_sepa_permission,
 )
+from verenigingen.verenigingen_payments.utils.invoice_candidates import unambiguous_invoice
 
 # ========================
 # PHASE 1: CONSERVATIVE APPROACH
@@ -843,31 +844,68 @@ def process_individual_return(return_item):
                 "Member", {"member_id": return_item["member_reference"]}, ["name", "customer"]
             )
 
-        # Find the invoice by amount and member
+        # Which of the member's settled invoices this return claws back.
+        #
+        # This filtered on the amount, so it looked like the narrowest member of
+        # #559's class -- but `db.get_value` returns ONE row, `ORDER BY creation
+        # DESC LIMIT 1` emitted into the SQL, and two settled invoices of the same
+        # grand_total for one customer is ordinary for recurring dues. The
+        # consequence is worse than a misapplied payment: reverse_failed_sepa_payment
+        # CANCELS the original Receive Payment Entry, so an arbitrary pick re-opens a
+        # settled invoice and notifies the member about a payment that did not fail
+        # (#567).
+        #
+        # `grand_total` is the discriminator here, not `outstanding_amount`: these
+        # candidates are already settled, so their outstanding is 0 and carries no
+        # information. `docstatus: 1` is new -- veg11 holds invoices whose `status`
+        # was written directly while `docstatus = 0` (#559 measured 35), and a
+        # never-issued invoice is not something a return can reverse.
+        choice = None
         if member:
-            invoice = frappe.db.get_value(
-                "Sales Invoice",
-                {
+            choice = unambiguous_invoice(
+                filters={
                     "customer": member[1],
+                    "docstatus": 1,
                     "grand_total": return_item["amount"],
                     "status": ["in", ["Paid", "Partly Paid"]],
                 },
-                ["name", "outstanding_amount"],
+                amount=return_item["amount"],
+                amount_field="grand_total",
+                fields=["name", "outstanding_amount"],
             )
+            invoice = choice.invoice
+
+        if choice is not None and choice.is_ambiguous:
+            # Reversing nothing leaves the return for a human to place, which is
+            # recoverable. Reversing the wrong invoice takes money back off a member
+            # who paid, and tells them their payment failed.
+            frappe.log_error(
+                f"SEPA return of {return_item['amount']} for member {member[0]} matches "
+                f"{choice.candidates} settled invoices; refusing to choose which one to "
+                "reverse. Reverse it manually.",
+                "SEPA Return Ambiguous",
+            )
+            return {
+                "member_reference": return_item.get("member_reference"),
+                "status": "ambiguous",
+                "action": f"{choice.candidates} settled invoices of this amount; manual reversal required",
+            }
 
         if invoice:
+            invoice_name = invoice["name"]
+
             # Reverse the payment entry
-            reverse_failed_sepa_payment(invoice[0], return_item)
+            reverse_failed_sepa_payment(invoice_name, return_item)
 
             # Create failed payment record
-            create_failed_payment_record(member[0], invoice[0], return_item)
+            create_failed_payment_record(member[0], invoice_name, return_item)
 
             # Notify member of failed payment
-            notify_member_of_failed_payment(member[0], invoice[0], return_item)
+            notify_member_of_failed_payment(member[0], invoice_name, return_item)
 
             return {
                 "member_reference": return_item.get("member_reference"),
-                "invoice": invoice[0],
+                "invoice": invoice_name,
                 "status": "processed",
                 "action": "Payment reversed and member notified",
             }

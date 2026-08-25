@@ -21,6 +21,8 @@ import frappe
 from frappe import _
 from frappe.utils import flt, today
 
+from verenigingen.verenigingen_payments.utils.invoice_candidates import unambiguous_invoice
+
 # Pattern to EXTRACT an IBAN-like substring from free text (MT940 :25:/:86: blobs).
 # This is extraction, not validation — it locates a candidate IBAN inside a larger
 # string. Defined once and reused so both extraction sites share the same pattern.
@@ -317,24 +319,48 @@ class BankStatementImporter:
         if invoice_from_reference:
             return invoice_from_reference
 
-        # Try to match by amount and customer
+        # Try to match by amount and customer.
+        #
+        # This compounded TWO arbitrary picks, and `_create_payment_entry` builds a
+        # Payment Entry against whatever comes back (#567):
+        #
+        #   * across invoices -- `limit=1` took one of the customer's invoices of
+        #     that amount, and two open invoices of one amount is ordinary for
+        #     recurring dues;
+        #   * across PARTIES -- the loop returned on the first customer that happened
+        #     to have a match. `LIKE %debtor_name%` matches more than one real
+        #     customer ("Jansen" also matches "Jansenius"), so a payment could be
+        #     booked against a DIFFERENT member's invoice.
+        #
+        # Asking once with `customer IN (...)` puts every candidate customer in ONE
+        # candidate set, so the shared rule sees the real ambiguity instead of having
+        # it hidden by the order the loop happened to visit customers in.
         if debtor_name and amount:
             # Find customer by name
             customers = frappe.get_all(
                 "Customer", filters={"customer_name": ["like", f"%{debtor_name}%"]}, fields=["name"]
             )
 
-            for customer in customers:
-                # Find unpaid invoice with matching amount
-                invoices = frappe.get_all(
-                    "Sales Invoice",
-                    filters={"customer": customer.name, "outstanding_amount": amount, "docstatus": 1},
+            if customers:
+                choice = unambiguous_invoice(
+                    filters={
+                        "customer": ["in", [c.name for c in customers]],
+                        "docstatus": 1,
+                        "outstanding_amount": amount,
+                    },
+                    amount=amount,
                     fields=["name"],
-                    limit=1,
                 )
-
-                if invoices:
-                    return invoices[0].name
+                if choice.invoice:
+                    return choice.invoice["name"]
+                if choice.is_ambiguous:
+                    frappe.log_error(
+                        f"Bank import: debtor '{debtor_name}' and amount {amount} match "
+                        f"{choice.candidates} outstanding invoices across "
+                        f"{len(customers)} customer(s); refusing to choose one. "
+                        "Reconcile this transaction manually.",
+                        "Bank Import Invoice Ambiguous",
+                    )
 
         return None
 

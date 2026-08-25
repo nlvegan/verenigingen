@@ -32,6 +32,7 @@ from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
     log_mollie_error,
     validate_mollie_interval,
 )
+from verenigingen.verenigingen_payments.utils.invoice_candidates import unambiguous_invoice
 from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
 
 
@@ -2100,40 +2101,80 @@ def _process_subscription_payment(gateway, member_name, member_customer, payment
                 "reason": f"Payment {payment_id} is not paid (status: {payment.status})",
             }
 
-        # Find the most recent unpaid Sales Invoice for this member
-        unpaid_invoices = frappe.get_all(
-            "Sales Invoice",
+        # The payment amount is the DISCRIMINATOR for which invoice this pays, so it
+        # is read before the candidate query rather than after it (#567).
+        extractor = get_payment_data_extractor()
+        payment_amount = extractor.extract_amount(payment, allow_zero=False)
+
+        # Which of the member's open invoices this payment is for.
+        #
+        # This used to take `order_by="posting_date desc", limit=1` -- so a member
+        # with two open invoices had the payment posted against whichever was
+        # posted later, and nothing about a subscription charge says which invoice
+        # it belongs to. The amount mismatch WAS computed below and then discarded
+        # with "# Continue anyway", announced through `frappe.logger().warning`,
+        # which is dropped on level and written only to a rotating file -- so no
+        # operator ever saw it. This runs unattended off a Mollie webhook.
+        #
+        # `outstanding_amount`, not `grand_total`: "Partly Paid" is in this status
+        # list, and on such an invoice grand_total is a number nobody still owes.
+        # It was also the wrong bound for the allocation below -- min(payment,
+        # grand_total) exceeds the outstanding and ERPNext then throws
+        # "Allocated Amount cannot be greater than outstanding amount"
+        # (payment_entry.py:377), failing the whole webhook.
+        choice = unambiguous_invoice(
             filters={
                 "customer": member_customer,
                 "docstatus": 1,
                 "status": ["in", ["Unpaid", "Overdue", "Partly Paid"]],
             },
-            fields=["name", "grand_total", "currency", "posting_date", "company"],
-            order_by="posting_date desc",
-            limit=1,
+            amount=payment_amount,
+            fields=["name", "grand_total", "outstanding_amount", "currency", "posting_date", "company"],
         )
 
-        if not unpaid_invoices:
-            frappe.logger().warning(
+        if choice.candidates == 0:
+            frappe.log_error(
                 f"No unpaid invoices found for member {member_name} (customer: {member_customer}) "
-                f"when processing subscription payment {payment_id}"
+                f"when processing subscription payment {payment_id}",
+                "Mollie Subscription Payment Unmatched",
             )
             return {"status": "no_invoice", "reason": "No unpaid invoices found for this member"}
 
-        invoice = unpaid_invoices[0]
-
-        # Verify payment amount matches invoice (with some tolerance for currency precision)
-        # Use centralized extractor for payment amount
-        extractor = get_payment_data_extractor()
-        payment_amount = extractor.extract_amount(payment, allow_zero=False)
-        invoice_amount = float(invoice["grand_total"])
-
-        if abs(payment_amount - invoice_amount) > 0.01:  # 1 cent tolerance
-            frappe.logger().warning(
-                f"Payment amount mismatch: Mollie payment {payment_id} is {payment_amount} "
-                f"but invoice {invoice['name']} is {invoice_amount}"
+        if choice.is_ambiguous:
+            # Refusing leaves the money unallocated on the Mollie side and this
+            # webhook retryable, which is recoverable. Posting it against a guess is
+            # not: it settles one invoice with another invoice's money.
+            frappe.log_error(
+                f"Mollie payment {payment_id} ({payment_amount}) for member {member_name} matches "
+                f"none of {choice.candidates} open invoices for customer {member_customer}; "
+                f"refusing to choose one. Allocate it manually.",
+                "Mollie Subscription Payment Ambiguous",
             )
-            # Continue anyway - partial payments are handled by ERPNext
+            return {
+                "status": "ambiguous_invoice",
+                "reason": (
+                    f"{choice.candidates} open invoices and none matching the payment amount; "
+                    "manual allocation required"
+                ),
+                "payment_id": payment_id,
+            }
+
+        invoice = choice.invoice
+        invoice_amount = float(invoice["outstanding_amount"])
+
+        # A payment SMALLER than the outstanding is a legitimate partial payment on
+        # the one open invoice, ERPNext handles it, and it needs no operator: that is
+        # what "# Continue anyway" was right about. A payment LARGER than the
+        # outstanding is different -- the allocation below is bounded by the
+        # outstanding, so the surplus stays unallocated on the Payment Entry as an
+        # on-account credit that somebody has to place. That one is surfaced.
+        #
+        # Deliberately NOT logged here. `frappe.db.begin()` below runs under the
+        # implicit-commit guard, and a `log_error` on this path writes a row before
+        # it, which makes START TRANSACTION raise ImplicitCommitError and fails the
+        # whole webhook -- exactly the arming this function's own transaction comment
+        # warns about. So the note is emitted after the commit.
+        overpaid_by = payment_amount - invoice_amount if payment_amount - invoice_amount > 0.01 else 0
 
         # TRANSACTION SAFETY: Wrap payment processing in database transaction.
         # This uses the begin()+FOR UPDATE+commit pattern documented in CLAUDE.md
@@ -2270,6 +2311,16 @@ def _process_subscription_payment(gateway, member_name, member_customer, payment
             # Rollback on error
             frappe.db.rollback()
             raise
+
+        if overpaid_by:
+            # After the commit, for the reason given where overpaid_by is computed.
+            frappe.log_error(
+                f"Mollie payment {payment_id} is {payment_amount} but invoice "
+                f"{invoice['name']} had only {invoice_amount} outstanding. Allocated "
+                f"{invoice_amount}; {overpaid_by:.2f} remains unallocated on Payment Entry "
+                f"{payment_entry.name} and needs placing.",
+                "Mollie Subscription Payment Overpaid",
+            )
 
         # Check if this was a first payment (sequenceType: "first") and activate subscription
         subscription_activation_result = None

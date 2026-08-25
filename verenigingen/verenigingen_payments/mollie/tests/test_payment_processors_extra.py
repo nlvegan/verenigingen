@@ -26,6 +26,7 @@ is a types.SimpleNamespace shaped like a Mollie payment object.
 import types
 
 import frappe
+from frappe.utils import add_days, getdate, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.mollie.services.payment_context_resolver import PaymentContext
@@ -84,8 +85,13 @@ class TestMembershipInvoiceLinking(EnhancedTestCase):
         self.mollie_account = ensure_mollie_bank_gl_account(self.company)
         ensure_mollie_mode_of_payment()
 
-    def _make_sales_invoice(self, customer, amount):
-        """Fixtures helper: create+submit an unpaid Sales Invoice for the customer."""
+    def _make_sales_invoice(self, customer, amount, posting_date=None, submit=True):
+        """Fixtures helper: create+submit an unpaid Sales Invoice for the customer.
+
+        `posting_date` is exposed because the defect being tested ordered on it;
+        `submit=False` leaves a DRAFT, which is what the old `status != "Cancelled"`
+        filter wrongly admitted.
+        """
         income = frappe.db.get_value(
             "Account", {"company": self.company, "account_type": "Income Account", "is_group": 0}, "name"
         ) or frappe.db.get_value(
@@ -99,8 +105,9 @@ class TestMembershipInvoiceLinking(EnhancedTestCase):
                 "doctype": "Sales Invoice",
                 "customer": customer,
                 "company": self.company,
-                "posting_date": frappe.utils.today(),
-                "due_date": frappe.utils.today(),
+                "posting_date": posting_date or frappe.utils.today(),
+                "set_posting_time": 1,
+                "due_date": posting_date or frappe.utils.today(),
                 "items": [
                     {
                         "item_code": ensure_service_item(),
@@ -114,7 +121,8 @@ class TestMembershipInvoiceLinking(EnhancedTestCase):
             }
         )
         si.insert(ignore_permissions=True)
-        si.submit()
+        if submit:
+            si.submit()
         return si
 
     def test_link_no_customer_returns_no_customer(self):
@@ -154,6 +162,100 @@ class TestMembershipInvoiceLinking(EnhancedTestCase):
         pe.reload()
         ref_invoices = [r.reference_name for r in pe.references]
         self.assertIn(si.name, ref_invoices)
+
+    def test_two_unpaid_invoices_and_nothing_to_choose_on_is_refused(self):
+        """`posting_date desc limit 1`, and NO amount comparison at all (#567).
+
+        Unlike the subscription path, this site never computed the discriminator --
+        it took the most recently posted invoice with an outstanding balance and
+        appended a Payment Entry reference against it. A member with two open dues
+        invoices had a Mollie payment allocated to whichever was posted later.
+
+        Red against develop: `linked`, against the 90.00 invoice, for a 17.50 payment.
+        """
+        self.expectErrorLog("Mollie Membership Payment Ambiguous")
+        member = self.create_test_member(
+            first_name="AmbigTwo", last_name="Link", email="ambigtwo.link@example.com"
+        )
+        customer = customer_for_member(member)
+        member.reload()
+        older = self._make_sales_invoice(customer, 25.0, posting_date=add_days(today(), -10))
+        newer = self._make_sales_invoice(customer, 90.0)
+        pe = self.create_test_payment_entry(
+            paid_amount=17.50, reference_no=f"tr_ambig_{frappe.generate_hash()[:8]}", party=customer
+        )
+
+        result = self.processor._link_to_membership_invoice(member, {"amount": "17.50"}, pe)
+
+        self.assertNotEqual(result["status"], "linked", msg=result)
+        pe.reload()
+        referenced = [r.reference_name for r in pe.references]
+        for invoice in (older, newer):
+            self.assertNotIn(
+                invoice.name,
+                referenced,
+                "no reference may be appended when the invoice is a choice, not a match",
+            )
+
+    def test_the_invoice_matching_the_amount_is_chosen(self):
+        """The matching invoice is deliberately the OLDER one.
+
+        So `posting_date desc limit 1` picks the other one deterministically -- with
+        both invoices posted today the tie-break is unspecified and the test could
+        pass against the bug by luck.
+        """
+        member = self.create_test_member(
+            first_name="MatchTwo", last_name="Link", email="matchtwo.link@example.com"
+        )
+        customer = customer_for_member(member)
+        member.reload()
+        wanted = self._make_sales_invoice(customer, 25.0, posting_date=add_days(today(), -10))
+        decoy = self._make_sales_invoice(customer, 90.0)
+        self.assertGreater(getdate(decoy.posting_date), getdate(wanted.posting_date))
+        pe = self.create_test_payment_entry(
+            paid_amount=25.0, reference_no=f"tr_match_{frappe.generate_hash()[:8]}", party=customer
+        )
+
+        result = self.processor._link_to_membership_invoice(member, {"amount": "25.00"}, pe)
+
+        self.assertEqual(result["status"], "linked", msg=result)
+        self.assertEqual(result["invoice"], wanted.name)
+
+    def test_a_draft_invoice_is_not_a_candidate(self):
+        """`status != "Cancelled"` admits DRAFTS; the filter has to be `docstatus: 1`.
+
+        Reproduces the state veg11 actually carries: #559 measured 35 Sales Invoices
+        with an Unpaid/Overdue status and `docstatus = 0`, 28 of them with a member --
+        a state `SalesInvoice.set_status` cannot produce, so something writes `status`
+        directly. The forgery below is that state, not an invented one.
+
+        Red against develop: the draft is posted later, so it wins `posting_date desc`
+        and the payment is referenced against an invoice that was never issued.
+        """
+        member = self.create_test_member(
+            first_name="DraftCand", last_name="Link", email="draftcand.link@example.com"
+        )
+        customer = customer_for_member(member)
+        member.reload()
+        real = self._make_sales_invoice(customer, 25.0, posting_date=add_days(today(), -10))
+        draft = self._make_sales_invoice(customer, 25.0, submit=False)
+        frappe.db.set_value(
+            "Sales Invoice",
+            draft.name,
+            {"status": "Unpaid", "outstanding_amount": 25.0},
+            update_modified=False,
+        )
+        self.assertEqual(frappe.db.get_value("Sales Invoice", draft.name, "docstatus"), 0)
+        pe = self.create_test_payment_entry(
+            paid_amount=25.0, reference_no=f"tr_draft_{frappe.generate_hash()[:8]}", party=customer
+        )
+
+        result = self.processor._link_to_membership_invoice(member, {"amount": "25.00"}, pe)
+
+        self.assertEqual(result["status"], "linked", msg=result)
+        self.assertEqual(
+            result["invoice"], real.name, "an unsubmitted invoice is not a payable candidate"
+        )
 
 
 class TestMembershipProcessorFlows(EnhancedTestCase):

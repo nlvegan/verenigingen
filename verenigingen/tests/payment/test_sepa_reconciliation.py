@@ -40,6 +40,7 @@ from frappe.utils import add_days, flt, getdate, today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
 from verenigingen.tests.harness_logger import get_harness_logger
+from verenigingen.tests.support.invoice_payments import receive_against_invoice
 from verenigingen.tests.support.sepa_test_company import get_eur_bank_account, get_eur_test_company
 from verenigingen.verenigingen_payments.api import sepa_reconciliation as recon
 
@@ -1045,6 +1046,109 @@ class TestProcessIndividualReturn(ReconBase):
         )
         self.assertTrue(any("SEPA Payment Failed" in (c.get("content") or "") for c in
                             [frappe.get_doc("Comment", c.name) for c in comments]))
+
+    def test_two_settled_invoices_of_the_same_amount_are_not_reversed(self):
+        """A returned direct debit must not claw money back off an arbitrary invoice (#567).
+
+        This site DOES filter on the amount -- `{customer, grand_total, status in
+        Paid/Partly Paid}` -- so it looked like the narrowest of the class. But two
+        settled invoices of one amount for one customer is ordinary for recurring
+        dues, and `db.get_value` then hands back whichever was created last
+        (`ORDER BY creation DESC LIMIT 1`, emitted into the SQL). The consequence is
+        worse than a misapplied payment: `reverse_failed_sepa_payment` CANCELS the
+        original Receive Payment Entry, so the wrong member's settled invoice is
+        re-opened and a failure notice is sent about a payment that did not fail.
+
+        Red against develop: `processed`, one of the two Payment Entries cancelled.
+        """
+        self.expectErrorLog("SEPA Return Ambiguous")
+        first = self._make_member_with_invoice(first_name="RetAmbig", grand_total=42.0)
+        member = first["member"]
+        member_id = frappe.db.get_value("Member", member.name, "member_id")
+        self.assertTrue(member_id, "member should have a member_id")
+
+        # A SECOND invoice of the SAME amount for the same customer, settled too.
+        second_invoice = self.sepa.create_test_sales_invoice(
+            customer=first["customer"],
+            member=member.name,
+            membership=first["membership"].name,
+            grand_total=42.0,
+            submit=True,
+        )
+        self.assertNotEqual(second_invoice.name, first["invoice"].name)
+
+        # mode_of_payment is load-bearing: reverse_failed_sepa_payment only cancels a
+        # "SEPA Direct Debit" Payment Entry, so without it this test would assert
+        # "nothing reversed" against payments the reversal could never have found.
+        # test_a_draft_invoice_is_not_a_reversal_candidate is the control that the
+        # reversal DOES fire on a fixture built this way.
+        _first_paid, first_pe = receive_against_invoice(
+            self, first["invoice"].name, 42.0, mode_of_payment="SEPA Direct Debit"
+        )
+        _second_paid, second_pe = receive_against_invoice(
+            self, second_invoice.name, 42.0, mode_of_payment="SEPA Direct Debit"
+        )
+
+        result = recon.process_individual_return(
+            {
+                "member_reference": member_id,
+                "amount": 42.0,
+                "return_reason": "Insufficient funds",
+                "return_code": "AM04",
+            }
+        )
+
+        self.assertNotEqual(result["status"], "processed", msg=result)
+        for payment_entry in (first_pe, second_pe):
+            payment_entry.reload()
+            self.assertEqual(
+                payment_entry.docstatus,
+                1,
+                "neither settled payment may be reversed when the return names no single invoice",
+            )
+        for invoice_name in (first["invoice"].name, second_invoice.name):
+            self.assertEqual(
+                float(frappe.db.get_value("Sales Invoice", invoice_name, "outstanding_amount")),
+                0.0,
+                "no settled invoice may be re-opened by an ambiguous return",
+            )
+
+    def test_a_draft_invoice_is_not_a_reversal_candidate(self):
+        """A never-issued invoice must not be the thing a return reverses.
+
+        The filter carried no `docstatus`, and veg11 holds invoices whose `status`
+        was written directly while `docstatus = 0` (#559 measured 35). Posted later
+        than the real one, such a row wins `creation DESC` and the return reverses
+        nothing while reporting success.
+        """
+        bundle = self._make_member_with_invoice(first_name="RetDraft", grand_total=42.0)
+        member_id = frappe.db.get_value("Member", bundle["member"].name, "member_id")
+        _paid, real_pe = receive_against_invoice(
+            self, bundle["invoice"].name, 42.0, mode_of_payment="SEPA Direct Debit"
+        )
+
+        draft = self.sepa.create_test_sales_invoice(
+            customer=bundle["customer"],
+            member=bundle["member"].name,
+            membership=bundle["membership"].name,
+            grand_total=42.0,
+            submit=False,
+        )
+        frappe.db.set_value(
+            "Sales Invoice", draft.name, {"status": "Paid", "outstanding_amount": 0.0},
+            update_modified=False,
+        )
+        self.assertEqual(frappe.db.get_value("Sales Invoice", draft.name, "docstatus"), 0)
+
+        result = recon.process_individual_return(
+            {"member_reference": member_id, "amount": 42.0,
+             "return_reason": "Insufficient funds", "return_code": "AM04"}
+        )
+
+        self.assertEqual(result["status"], "processed", msg=result)
+        self.assertEqual(result["invoice"], bundle["invoice"].name)
+        real_pe.reload()
+        self.assertEqual(real_pe.docstatus, 2, "the submitted payment is the one to reverse")
 
 
 # =============================================================================

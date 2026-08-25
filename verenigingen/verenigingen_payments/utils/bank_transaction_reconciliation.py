@@ -15,6 +15,7 @@ from verenigingen.utils.security.authorization import (
 from verenigingen.utils.transaction_errors import insert_and_submit_atomically
 from verenigingen.verenigingen_payments.clients.settlements_client import SettlementsClient
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
+from verenigingen.verenigingen_payments.utils.invoice_candidates import unambiguous_invoice
 from verenigingen.verenigingen_payments.utils.shared.money import safe_decimal
 
 #: Confidence for a Mollie settlement the bank description does NOT name (#547).
@@ -482,27 +483,21 @@ class PaymentReconciliationManager:
         if not member:
             return None
 
-        candidates = frappe.get_all(
-            "Sales Invoice",
+        # The rule itself lives in `invoice_candidates` because #567 found four more
+        # places doing this, and keeping a second copy here is how a fix gets applied
+        # to one instance and missed on its siblings -- the failure mode CLAUDE.md
+        # names as its most productive rule. This method stays as the member-keyed
+        # spelling of it, and its own tests hold the behaviour unchanged.
+        choice = unambiguous_invoice(
             filters={
                 "member": member,
                 "status": ["in", ["Unpaid", "Overdue"]],
                 "docstatus": 1,
             },
+            amount=deposit,
             fields=["name", "outstanding_amount"],
         )
-        if not candidates:
-            return None
-        if len(candidates) == 1:
-            return candidates[0]["name"]
-
-        precision = frappe.get_precision("Sales Invoice", "outstanding_amount") or 2
-        deposit_amount = flt(deposit or 0, precision)
-        exact = [c for c in candidates if flt(c["outstanding_amount"], precision) == deposit_amount]
-        if len(exact) == 1:
-            return exact[0]["name"]
-
-        return None
+        return choice.invoice["name"] if choice.invoice else None
 
     def match_mollie_settlement(self, transaction):
         """
