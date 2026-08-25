@@ -12,6 +12,7 @@ from frappe.utils import add_days, cint, today
 from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
 from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 def create_membership_invoice_with_amount(member, membership, amount):
@@ -272,6 +273,18 @@ def create_customer_for_member(member):
         if primary_mobile:
             customer_fields["mobile_no"] = primary_mobile
         customer.db_set(customer_fields, update_modified=False)
+    except NON_RESUMABLE_DB_ERRORS:
+        # A 1213 has already rolled the ENTIRE transaction back, savepoints
+        # included, so the rollback below cannot run: it raises 1305 and that
+        # 1305 REPLACES the deadlock as the propagating exception. Every caller
+        # then asks "is this a deadlock?" of an OperationalError and gets False,
+        # so the one error that must never be swallowed is the one that always
+        # is. Measured on test_site_1 with two contending connections; the
+        # non-victim control kept its savepoint, so this is the deadlock's doing.
+        # Same order as utils/transaction_errors.py::_atomically. There is
+        # nothing left to undo and nothing safe to resume. See #561 for the
+        # other 15 handlers in this shape.
+        raise
     except Exception as e:
         frappe.db.rollback(save_point=savepoint_name)
         # frappe.log_error signature is (title, message, ...). A positional

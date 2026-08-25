@@ -480,22 +480,53 @@ class Member(
                     # 1213/1205: the server has already destroyed the transaction, so
                     # keeping the Member would name a row that no longer exists.
                     raise
+                if getattr(frappe.flags, "bulk_member_operations", False) or self.flags.get(
+                    "bulk_member_operations", False
+                ):
+                    # Keeping the member is only an improvement where somebody reads
+                    # the message. A bulk import runs in a background job where
+                    # msgprint reaches nobody, and all three importers already roll
+                    # the row back and report the reason in their per-row status
+                    # (member_import_service, member_import, vip_import). Swallowing
+                    # here turns a reported failure into a reported success, so one
+                    # misconfigured customer group takes a 5000-row import green with
+                    # nothing but an Error Log row per member. Same flag pair as
+                    # Volunteer.after_insert: importers set it globally, VIP import
+                    # per document.
+                    raise
                 frappe.log_error(
                     message=f"Member {self.name} inserted without a Customer: {error}",
                     title="Member customer creation failed",
                 )
                 frappe.msgprint(
-                    _("The member was saved, but no customer record could be created: {0}").format(error),
+                    self._customer_not_created_message(error),
                     title=_("Customer not created"),
                     indicator="orange",
                 )
                 return
-            if customer_name:
-                self.customer = customer_name
-                # Security: Direct db_set required in after_insert hook.
-                # After insert, in-memory changes don't persist - reload() would wipe them.
-                # Using db_set() instead of save() avoids triggering validation hooks again.
-                self.db_set("customer", customer_name, update_modified=False)
+            self.customer = customer_name
+            # Security: Direct db_set required in after_insert hook.
+            # After insert, in-memory changes don't persist - reload() would wipe them.
+            # Using db_set() instead of save() avoids triggering validation hooks again.
+            self.db_set("customer", customer_name, update_modified=False)
+
+    def _customer_not_created_message(self, error):
+        """Tell the user the member is safe, and why its Customer is missing.
+
+        Only a ValidationError's text is echoed. Those are the deliberate,
+        translated frappe.throw() messages the user is meant to read ("Could not
+        find Customer Group: X", "Insufficient permissions to create Customer").
+        Anything else can carry internal detail - a driver error arrives here as
+        e.g. "(1305, 'SAVEPOINT kdxtcsgjli does not exist')" - and after_insert
+        runs on the public application form, so that text would be rendered to an
+        anonymous applicant. The Error Log row keeps it for whoever can act on it.
+        """
+        if isinstance(error, frappe.ValidationError):
+            return _("The member was saved, but no customer record could be created: {0}").format(error)
+        return _(
+            "The member was saved, but no customer record could be created."
+            " The reason has been recorded in the Error Log."
+        )
 
     def on_trash(self):
         """
@@ -573,20 +604,22 @@ class Member(
         from verenigingen.services.customer_handling_service import CustomerHandlingService
 
         suppress_messages = getattr(self, "_suppress_customer_messages", False)
+        # Raises on every failure - see CustomerHandlingService.create_customer_for_member.
+        # This is the repair path behind member.js's "Create Customer" button, so it
+        # must stay loud: a button that reports nothing and changes nothing is worse
+        # than an error.
         customer_name = CustomerHandlingService().create_customer_for_member(self, suppress_messages)
 
-        # Update member with customer reference if we got a customer name
-        if customer_name:
-            # Security: Direct db_set for simple reference link.
-            # Full save() would trigger all validation hooks and update timestamps,
-            # which is unnecessary for linking a reference and may conflict with
-            # concurrent operations. Transaction commit handled by calling code.
-            self.db_set("customer", customer_name, update_modified=False)
-            self.customer = customer_name  # Keep in-memory object in sync
+        # Security: Direct db_set for simple reference link.
+        # Full save() would trigger all validation hooks and update timestamps,
+        # which is unnecessary for linking a reference and may conflict with
+        # concurrent operations. Transaction commit handled by calling code.
+        self.db_set("customer", customer_name, update_modified=False)
+        self.customer = customer_name  # Keep in-memory object in sync
 
-            # Only show success message if not during application submission
-            if not suppress_messages:
-                frappe.msgprint(_("Customer {0} created successfully").format(customer_name))
+        # Only show success message if not during application submission
+        if not suppress_messages:
+            frappe.msgprint(_("Customer {0} created successfully").format(customer_name))
 
         return customer_name
 

@@ -153,9 +153,14 @@ class CustomerHandlingService(StatefulService):
             self.logger.error(
                 f"Customer creation failed for member {member_name}: {type(e).__name__}: {str(e)}"
             )
-            # handle_error() defaults to raise_error=True, so this re-raises as a
-            # ServiceError and never returns - a `return None` here was unreachable.
+            # handle_error() defaults to raise_error=True, so it re-raises as a
+            # ServiceError - a `return None` here was unreachable. The bare raise
+            # below makes the `-> str` contract true by construction rather than by
+            # a default argument three files away: falling off the end of an except
+            # returns None, which is exactly the value the docstring promises never
+            # to return.
             self.handle_error(e, operation_name, {"member": member_name})
+            raise
 
     def check_similar_customers(self, full_name: str, limit: int = 10) -> list:
         """Check for existing customers with similar names.
