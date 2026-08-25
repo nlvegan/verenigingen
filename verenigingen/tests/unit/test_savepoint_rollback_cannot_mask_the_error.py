@@ -44,11 +44,25 @@ class TestRollbackToSavepoint(VereningingenTestCase):
         frappe.db.savepoint(name)
         return name
 
-    def test_it_rolls_back_when_the_savepoint_is_there(self):
-        """The control. Without it, "returns False and does not raise" would be equally
-        consistent with the helper never having rolled anything back at all."""
+    def test_it_really_rolls_the_write_back_when_the_savepoint_is_there(self):
+        """The control, asserting the WRITE rather than the return value.
+
+        Asserting only ``assertTrue(rollback_to_savepoint(...))`` does not discriminate:
+        replacing the body with ``pass; return True`` leaves that green, so it would be
+        equally consistent with the helper never rolling anything back at all.
+        """
+        tag = frappe.generate_hash(length=10)
         name = self._savepoint()
-        self.assertTrue(rollback_to_savepoint(name), "a live savepoint must actually be rolled back")
+        frappe.db.set_value("DocType", "ToDo", "description", tag, update_modified=False)
+        self.assertEqual(frappe.db.get_value("DocType", "ToDo", "description"), tag)
+
+        self.assertTrue(rollback_to_savepoint(name), "a live savepoint must be rolled back")
+
+        self.assertNotEqual(
+            frappe.db.get_value("DocType", "ToDo", "description"),
+            tag,
+            "the write made after the savepoint must be gone",
+        )
 
     def test_it_reports_a_savepoint_that_is_already_gone_instead_of_raising(self):
         """The real 1305, produced by the real driver.
@@ -203,13 +217,24 @@ class TestEverySavepointRollbackInAnExcept(VereningingenTestCase):
 
     @staticmethod
     def _ends_in_a_raise(handler):
-        """The handler cannot swallow, because its last statement re-raises unconditionally.
+        """The handler cannot swallow, and cannot substitute.
 
-        The LAST statement, not "contains a raise anywhere": mt940_import re-raises inside a
-        nested handler around its own rollback and then returns a dict, which swallows the
-        batch error just as thoroughly as no raise at all.
+        Three things all have to hold, and each was a hole the first version had:
+
+        * the LAST statement re-raises -- not "contains a raise somewhere", because
+          mt940_import re-raises inside a nested handler around its own rollback and then
+          returns a dict, which swallows the batch error just as thoroughly;
+        * it is a BARE ``raise``. ``raise Wrapper(str(e))`` is #561's own defect written by
+          hand: it replaces the exception, so every guard keyed on the original type fails
+          exactly as it does after a 1305;
+        * no ``return`` anywhere in the handler, or an earlier branch swallows conditionally
+          while the last line still reads like a re-raise.
         """
-        return bool(handler.body) and isinstance(handler.body[-1], ast.Raise)
+        if not handler.body or not isinstance(handler.body[-1], ast.Raise):
+            return False
+        if handler.body[-1].exc is not None:
+            return False
+        return not any(isinstance(node, ast.Return) for node in ast.walk(handler))
 
     @classmethod
     def _reraises_non_resumable(cls, handler):
@@ -222,8 +247,13 @@ class TestEverySavepointRollbackInAnExcept(VereningingenTestCase):
         if handler.type is None:
             return False
         types = handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
-        named = {ast.unparse(t) for t in types}
-        if "NON_RESUMABLE_DB_ERRORS" not in named:
+        # Accept `NON_RESUMABLE_DB_ERRORS`, `te.NON_RESUMABLE_DB_ERRORS`, and the tuple
+        # spelled out -- application_payments names the classes directly, on purpose.
+        named = {ast.unparse(t).rsplit(".", 1)[-1] for t in types}
+        if "NON_RESUMABLE_DB_ERRORS" not in named and not {
+            "QueryDeadlockError",
+            "QueryTimeoutError",
+        } <= named:
             return False
         return cls._ends_in_a_raise(handler)
 
@@ -239,18 +269,80 @@ class TestEverySavepointRollbackInAnExcept(VereningingenTestCase):
             and any(k.arg == "save_point" for k in node.keywords)
         ]
 
+    @classmethod
+    def _rolls_back_a_savepoint(cls, handler):
+        """Either spelling. The swallow rule has to be gated on THIS, not on the by-hand
+        spelling: gating it on the bare call made rule 2 unreachable the moment every site
+        was converted to the helper, so a newly added swallowing handler that used the
+        helper correctly was invisible. Measured by planting exactly that in
+        dues_schedule_health_manager -- 11/11 green, on a ratchet whose docstring said it
+        stopped the sixteenth site."""
+        helper_calls = [
+            node
+            for node in ast.walk(handler)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "rollback_to_savepoint"
+        ]
+        return cls._bare_savepoint_rollbacks(handler) + helper_calls
+
+    _SAVEPOINT_OPS = ("rollback", "release_savepoint")
+
+    @classmethod
+    def _is_savepoint_only(cls, statements):
+        """Every statement is a savepoint call (possibly under a plain `if`), nothing else."""
+        if not statements:
+            return False
+        for stmt in statements:
+            if isinstance(stmt, ast.If):
+                if not cls._is_savepoint_only(stmt.body + stmt.orelse):
+                    return False
+                continue
+            if not isinstance(stmt, ast.Expr) or not isinstance(stmt.value, ast.Call):
+                return False
+            func = stmt.value.func
+            if not isinstance(func, ast.Attribute) or func.attr not in cls._SAVEPOINT_OPS:
+                return False
+        return True
+
+    @classmethod
+    def _hand_written_copies(cls, tree, lines):
+        """A bare rollback wrapped in its OWN try/except is a copy of the helper.
+
+        Rules 1 and 2 look only inside `except` handlers, which is a proxy for the real
+        condition ("an exception is in flight"). A helper called FROM a handler defeats the
+        proxy: termination_execution_service._rollback_savepoint is called at two sites
+        that are inside `except` blocks, and neither rule can see it. This rule catches the
+        shape instead of the position.
+        """
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Try):
+                continue
+            if not node.handlers:
+                continue
+            # The copy signature is a try whose body does NOTHING BUT savepoint work.
+            # Requiring "contains a rollback somewhere" instead matched every operation-wide
+            # try block that happens to roll back on an early return -- 4 false positives on
+            # the first attempt, which is how a ratchet trains people to add exemptions.
+            if not cls._is_savepoint_only(node.body):
+                continue
+            if EXEMPTION_MARKER in lines[node.handlers[0].lineno - 1]:
+                continue
+            yield node.lineno, "hand-written copy of rollback_to_savepoint()"
+
     def _offenders(self, source, tree):
         lines = source.splitlines()
+        yield from self._hand_written_copies(tree, lines)
         for node in ast.walk(tree):
             if not isinstance(node, ast.Try):
                 continue
             for position, handler in enumerate(node.handlers):
-                calls = self._bare_savepoint_rollbacks(handler)
-                if not calls:
+                if not self._rolls_back_a_savepoint(handler):
                     continue
                 if EXEMPTION_MARKER in lines[handler.lineno - 1]:
                     continue
-                yield handler.lineno, "writes frappe.db.rollback(save_point=...) by hand"
+                if self._bare_savepoint_rollbacks(handler):
+                    yield handler.lineno, "writes frappe.db.rollback(save_point=...) by hand"
                 if not self._is_catch_all(handler):
                     continue
                 # A catch-all that re-raises unconditionally cannot swallow anything, so it
@@ -320,6 +412,35 @@ class TestEverySavepointRollbackInAnExcept(VereningingenTestCase):
                 "except Exception:\n    frappe.db.rollback(save_point=sp)\n",
                 2,
             ),
+            # The hole that shipped: gating rule 2 on the by-hand spelling made it
+            # unreachable once every site used the helper. Planted in a real file
+            # (dues_schedule_health_manager) it ran 11/11 green.
+            "helper + swallow + no guard is the sixteenth site": (
+                "try:\n    f()\nexcept Exception:\n    rollback_to_savepoint(sp)\n    return None\n",
+                1,
+            ),
+            "a guard below a helper-using catch-all is still dead code": (
+                "try:\n    f()\nexcept Exception:\n    rollback_to_savepoint(sp)\n    return None\n"
+                "except NON_RESUMABLE_DB_ERRORS:\n    raise\n",
+                1,
+            ),
+            # `raise Wrapper(e)` IS #561's defect written by hand -- it replaces the
+            # exception, so a guard keyed on the original type fails just as it does
+            # after a 1305.
+            "re-raising a DIFFERENT exception does not count as re-raising": (
+                "try:\n    f()\nexcept Exception as e:\n    rollback_to_savepoint(sp)\n"
+                "    raise Wrapper(str(e))\n",
+                1,
+            ),
+            "a conditional swallow before a trailing raise does not count": (
+                "try:\n    f()\nexcept Exception:\n    rollback_to_savepoint(sp)\n"
+                "    if not critical:\n        return None\n    raise\n",
+                1,
+            ),
+            "a bare rollback wrapped in its own try/except is a copy of the helper": (
+                "try:\n    frappe.db.rollback(save_point=sp)\nexcept Exception as e:\n    log(e)\n",
+                1,
+            ),
             "bare except is a catch-all too": (
                 "try:\n    f()\nexcept:\n    frappe.db.rollback(save_point=sp)\n",
                 2,
@@ -344,8 +465,21 @@ class TestEverySavepointRollbackInAnExcept(VereningingenTestCase):
             "a re-raising catch-all needs no guard": (
                 "try:\n    f()\nexcept Exception:\n    rollback_to_savepoint(sp)\n    raise\n"
             ),
+            "the guard may be spelled as the two classes": (
+                "try:\n    f()\n"
+                "except (frappe.QueryDeadlockError, frappe.QueryTimeoutError):\n    raise\n"
+                "except Exception:\n    rollback_to_savepoint(sp)\n    return None\n"
+            ),
+            "the guard may be reached through a module alias": (
+                "try:\n    f()\nexcept te.NON_RESUMABLE_DB_ERRORS:\n    raise\n"
+                "except Exception:\n    rollback_to_savepoint(sp)\n    return None\n"
+            ),
             "a narrow handler using the helper": (
                 "try:\n    f()\nexcept ValueError:\n    rollback_to_savepoint(sp)\n"
+            ),
+            "an exempted hand-written copy": (
+                "try:\n    frappe.db.rollback(save_point=sp)\n"
+                "except Exception as e:  # non-resumable-ok: deliberately swallows more\n    log(e)\n"
             ),
             "an exempted handler": (
                 "try:\n    f()\nexcept Exception:  # non-resumable-ok: runs after the failure\n"

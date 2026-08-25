@@ -226,6 +226,11 @@ class BaseRoleProfileManager(ABC):
 
             return config
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # One frame below a guard added in this change: without this, the 1205/1213 is
+            # recorded here as one member's error and the guard above never fires (the #505
+            # shape -- the guard and the swallow one frame apart).
+            raise
         except Exception as e:
             frappe.logger().warning(
                 f"Could not get {self.config.entity_type} config for {entity_name}: {str(e)}"
@@ -1015,6 +1020,11 @@ class BaseRoleProfileManager(ABC):
                 ),
             }
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # One frame below a guard added in this change: without this, the 1205/1213 is
+            # recorded here as one member's error and the guard above never fires (the #505
+            # shape -- the guard and the swallow one frame apart).
+            raise
         except Exception as e:
             return {
                 "user": user,

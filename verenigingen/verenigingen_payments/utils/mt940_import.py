@@ -9,7 +9,11 @@ import frappe
 from frappe.utils import getdate, today
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
-from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
+from verenigingen.utils.transaction_errors import (
+    NON_RESUMABLE_DB_ERRORS,
+    release_savepoint_if_present,
+    rollback_to_savepoint,
+)
 from verenigingen.verenigingen_payments.utils.bank_utils import get_or_create_unknown_bank
 
 # =============================================================================
@@ -977,15 +981,7 @@ def process_mt940_document(mt940_content, bank_account, company):
                 # import succeeded and its rows are already persisted. Treat a
                 # missing savepoint on release as a no-op rather than failing an
                 # otherwise-successful import.
-                try:
-                    frappe.db.release_savepoint(savepoint_name)
-                except Exception as release_error:
-                    if "does not exist" not in str(release_error):
-                        raise
-                    frappe.logger().info(
-                        f"[MT940] Savepoint {savepoint_name} already released by a nested "
-                        f"commit; import already persisted ({transactions_created} created)."
-                    )
+                release_savepoint_if_present(savepoint_name)
 
             except NON_RESUMABLE_DB_ERRORS:
                 # The return below reports "import failed and rolled back". On a 1205/1213
@@ -998,8 +994,8 @@ def process_mt940_document(mt940_content, bank_account, company):
                 # cleared by a nested commit (see release note above); if so the partial
                 # rows are already committed and cannot be rolled back here, so don't let a
                 # missing-savepoint error mask the real batch error. That is what
-                # rollback_to_savepoint() does -- this file hand-wrote it twice before it
-                # was a helper (#561).
+                # rollback_to_savepoint() does -- this file hand-wrote both halves of it
+                # before they were helpers (#561).
                 rollback_to_savepoint(savepoint_name)
                 frappe.log_error(
                     title="MT940 Import Batch Failed",

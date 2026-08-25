@@ -131,6 +131,9 @@ class MijnRoodPollingService(StatefulService):
         """Per-row savepoint: roll back this row's writes on failure, keep
         the rest of the batch. Logs a warning and increments stats["errors"]
         instead of propagating, so one bad row doesn't poison the table.
+
+        A 1205/1213 is the exception: it propagates, because the transaction the
+        rest of the batch would be written into is gone. See the handler below.
         """
         sp = "row_" + "".join(random.choices(string.ascii_lowercase, k=10))
         frappe.db.savepoint(sp)

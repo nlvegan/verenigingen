@@ -337,7 +337,8 @@ def handle_payment_request_closed(event_data: Dict[str, Any]) -> Dict[str, Any]:
                 # A 1205/1213 is not one bad row: the server has discarded or half-applied the
                 # whole transaction, so the rows already marked failed and the rows still to come
                 # are all being decided against state that is gone. The webhook must fail so Ponto
-                # retries it, rather than report a partial result as a complete one.
+                # fail (the handler sets HTTP 500) rather than report a partial result as a
+                # complete one. Whether Ponto retries a 500 is its policy, not verified here.
                 raise
             except Exception as e:
                 rollback_to_savepoint(savepoint_name)
@@ -469,7 +470,8 @@ def _update_payment_link_status(
                 # A 1205/1213 is not one bad row: the server has discarded or half-applied the
                 # whole transaction, so the rows already marked failed and the rows still to come
                 # are all being decided against state that is gone. The webhook must fail so Ponto
-                # retries it, rather than report a partial result as a complete one.
+                # fail (the handler sets HTTP 500) rather than report a partial result as a
+                # complete one. Whether Ponto retries a 500 is its policy, not verified here.
                 raise
             except Exception as e:
                 rollback_to_savepoint(savepoint_name)
@@ -801,7 +803,8 @@ def handle_periodic_payment_execution(event_data: Dict[str, Any]) -> Dict[str, A
             # A 1205/1213 is not one bad row: the server has discarded or half-applied the
             # whole transaction, so the rows already marked failed and the rows still to come
             # are all being decided against state that is gone. The webhook must fail so Ponto
-            # retries it, rather than report a partial result as a complete one.
+            # fail (the handler sets HTTP 500) rather than report a partial result as a
+            # complete one. Whether Ponto retries a 500 is its policy, not verified here.
             raise
         except Exception as e:
             rollback_to_savepoint(savepoint_name)

@@ -128,7 +128,10 @@ class INGCheckoutTransaction(Document):
             # The db_set and add_comment below are writes, and on a 1205/1213 they land on
             # a transaction the server has discarded or half-applied -- so the "Paid -
             # Payment Entry Failed" marker that exists to make this visible is itself the
-            # thing most likely to vanish. Propagate and let the job be retried.
+            # thing most likely to vanish. This runs synchronously inside the webhook, so
+            # propagating reaches ing_checkout/api/webhook.py, which sets HTTP 500 -- what
+            # the gateway retries on. (Whether Pay.nl in fact retries a 500 is the gateway's
+            # policy and is NOT verified here.)
             raise
         except Exception as e:
             rollback_to_savepoint(savepoint_name)
