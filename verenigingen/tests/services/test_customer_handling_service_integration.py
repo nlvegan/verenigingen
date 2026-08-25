@@ -247,8 +247,12 @@ class TestCustomerHandlingServiceIntegration(EnhancedTestCase):
         # Verify email was set
         self.assertEqual(customer.email_id, member.email)
 
-    def test_return_type_is_optional_string(self):
-        """Test that create_customer_for_member returns Optional[str]"""
+    def test_it_returns_the_customer_name_and_never_none(self):
+        """The contract is `-> str`: every failure raises, so there is no None to test for.
+
+        The previous version asserted `result is None or isinstance(result, str)`,
+        which no return value can fail.
+        """
         member = self.create_test_member(
             first_name="Return",
             last_name="Type",
@@ -264,10 +268,10 @@ class TestCustomerHandlingServiceIntegration(EnhancedTestCase):
 
         result = self.service.create_customer_for_member(member, suppress_messages=True)
 
-        # Result should be a string (customer name) or None
-        self.assertTrue(result is None or isinstance(result, str))
-        if result:
-            self._created_customers.append(result)
+        self.assertIsInstance(result, str)
+        self.assertTrue(result, "a successful call must name the Customer it created")
+        self._created_customers.append(result)
+        self.assertTrue(frappe.db.exists("Customer", result))
 
     def test_resolve_non_group_customer_group_accepts_settings_when_leaf(self):
         """When Selling Settings.customer_group is a leaf Customer Group

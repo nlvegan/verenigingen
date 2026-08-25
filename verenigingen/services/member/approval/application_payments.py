@@ -272,6 +272,29 @@ def create_customer_for_member(member):
         if primary_mobile:
             customer_fields["mobile_no"] = primary_mobile
         customer.db_set(customer_fields, update_modified=False)
+    except frappe.QueryDeadlockError:
+        # A 1213 has already rolled the ENTIRE transaction back, savepoints
+        # included, so the rollback below cannot run: it raises 1305 and that
+        # 1305 REPLACES the deadlock as the propagating exception. Every caller
+        # then asks "is this a deadlock?" of an OperationalError and gets False,
+        # so the one error that must never be swallowed is the one that always
+        # is. Measured on test_site_1 with two contending connections; the
+        # non-victim control kept its savepoint, so this is the deadlock's doing.
+        #
+        # Deliberately 1213 ONLY, not the whole NON_RESUMABLE_DB_ERRORS tuple:
+        # savepoint destruction is what makes the rollback impossible, and a 1205
+        # does not destroy them. With innodb_rollback_on_timeout=OFF (the default,
+        # and OFF on this deployment) a 1205 rolls back only the failed statement,
+        # so this function's savepoint survives and a Customer inserted before the
+        # Contact step timed out is still there to undo -- it takes the ordinary
+        # path below, which rolls back and re-raises. Both still abort the caller's
+        # unit of work; only 1213 has nothing left to undo.
+        #
+        # Nothing to release either: the savepoint taken above no longer exists,
+        # which is the whole point. Same order as
+        # utils/transaction_errors.py::_atomically, the only other handler of 18
+        # that gets this right; #561 tracks the remaining 16.
+        raise
     except Exception as e:
         frappe.db.rollback(save_point=savepoint_name)
         # frappe.log_error signature is (title, message, ...). A positional
