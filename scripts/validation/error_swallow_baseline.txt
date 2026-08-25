@@ -121,7 +121,6 @@ verenigingen/repositories/dues_schedule_repository.py::DuesScheduleRepository.up
 verenigingen/services/approval/contribution_amendment_approval_service.py::ContributionAmendmentApprovalService.check_respects_minimum_fee::1
 verenigingen/services/approval/termination_approval_service.py::TerminationApprovalService.get_eligible_approvers::1
 verenigingen/services/billing/dues_schedule_creation_service.py::DuesScheduleCreationService._should_circuit_break::1
-verenigingen/services/billing/invoice_matcher.py::_find_invoice_by_calculated_coverage::1
 verenigingen/services/chapter/chapter_board_permissions.py::update_membership_permissions::1
 verenigingen/services/chapter/chapter_board_permissions.py::update_membership_termination_request_permissions::1
 verenigingen/services/chapter/chapter_board_permissions.py::update_volunteer_expense_permissions::1
