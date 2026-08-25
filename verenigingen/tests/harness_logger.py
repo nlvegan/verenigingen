@@ -146,10 +146,38 @@ class _StderrHandler(logging.StreamHandler):
     record, and a single-module run is the workflow this module exists for.
 
     The old bound handler bypassed the captures, so those records were always visible.
-    That was an accident of the very bug this class fixes, but it was load-bearing:
-    nine class-teardown call sites log through this logger, ``SingletonBackup.restore()``
-    among them, whose "Failed to restore %s: %s" is tracked precisely because a Single
-    restored wrongly once said so nowhere (#433).
+    That was an accident of the very bug this class fixes, but it was load-bearing.
+    Measured 2026-08-25 by an AST call-graph walk over ``verenigingen/`` (real defs only,
+    so the ``tearDownClass`` in this package's own docstring examples does not count):
+    **eleven** ``tearDownClass`` bodies reach this logger -- nine through
+    ``SingletonBackup.restore()`` -> ``_restore_singleton``, one through
+    ``TestWebhookUserSetup._sweep_webhook_users``, and one through
+    ``cls._test_instance.tearDown()`` (``test_chapter_permission_service_integration.py:182``),
+    the only place in the repo where a class teardown invokes a per-test ``tearDown`` on a
+    stashed instance -- which binds to ``EnhancedTestCase.tearDown`` and so drags the whole
+    drain onto a class-teardown path. Between them they reach NINETEEN logging calls at
+    three levels, of which TWO are at ERROR: ``_restore_singleton``'s "Failed to restore
+    %s: %s" (``singleton_backup.py:292``) and ``ErrorLogGuardMixin._capture_test_error_logs``'
+    "Error Log guard capture failed" (``error_log_guard.py:194``) -- both tracked precisely
+    because a failure that said so nowhere is #433.
+
+    Edges were resolved by callee name, EXCEPT that an attribute call's receiver was
+    resolved to its class and bound through the MRO. That exception is not cosmetic:
+    ``tearDown`` has 498 defs in this repo (``cleanup`` 7, ``restore`` 4), so resolving
+    ``cls._test_instance.tearDown()`` by name alone links to all 498 and the walk returns
+    34 calls at 6 ERRORs instead of 19 at 2. Receiver resolution is what excludes those,
+    and it is also the only thing that keeps the phantom ``factories.py:260`` out of the
+    set -- six teardowns call ``cls.factory.cleanup()``, but that receiver is
+    ``CoreTestDataFactory``, whose ``cleanup`` uses ``print()``.
+
+    Lifecycle methods were excluded as call TARGETS except on a non-``super()`` receiver.
+    That second exception is the entirety of the third route, and dropping it
+    unconditionally is what made an earlier revision of this paragraph say "ten" and
+    "exactly one ERROR". Both alias-form loggers (``logger = get_harness_logger(...)``, as
+    ``enhanced_test_factory`` and ``tests/setup`` cache them) and inline
+    ``get_harness_logger(...).level(...)`` calls were matched; a scan for only one shape
+    misses the other entirely, and route 3 is 13 alias-form calls to 1 inline -- an
+    alias-blind scan reports it as a single call and the sixteen WARNINGs become one.
 
     So ``emit`` mirrors onto ``sys.__stderr__``, which the runner never swaps, for
     records at ERROR and above. Measured through the real ``TestResult`` with
@@ -163,11 +191,16 @@ class _StderrHandler(logging.StreamHandler):
 
     The gate is what keeps the middle row from happening: mirroring everything
     duplicates every in-test record and gives back the attribution the lazy read was
-    for. ERROR is the level all nine of those teardown sites use.
+    for. ERROR is where the gate sits because that is the level of the two
+    class-teardown records that must not be lost, above. It does NOT cover the other
+    seventeen -- see the residual limit.
 
-    **The residual limit:** a ``.warning()`` or ``.info()`` from class teardown is
-    still lost. Fixing that properly means draining the buffer in ``stopTestRun``,
-    which is ``frappe/``'s to do, not this app's.
+    **The residual limit:** anything below ERROR from class teardown is still lost -- a
+    ``.warning()``, ``.info()`` or ``.debug()``. Measured, that is seventeen of the
+    nineteen: sixteen WARNING and one DEBUG. No INFO site is class-teardown-reachable
+    today, so the gate's INFO behaviour is untested by that census rather than confirmed
+    by it. Fixing the loss properly means draining the buffer in ``stopTestRun``, which is
+    ``frappe/``'s to do, not this app's.
     """
 
     def __init__(self):
