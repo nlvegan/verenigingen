@@ -146,10 +146,15 @@ class _StderrHandler(logging.StreamHandler):
     record, and a single-module run is the workflow this module exists for.
 
     The old bound handler bypassed the captures, so those records were always visible.
-    That was an accident of the very bug this class fixes, but it was load-bearing:
-    nine class-teardown call sites log through this logger, ``SingletonBackup.restore()``
-    among them, whose "Failed to restore %s: %s" is tracked precisely because a Single
-    restored wrongly once said so nowhere (#433).
+    That was an accident of the very bug this class fixes, but it was load-bearing.
+    Measured 2026-08-25 by an AST call-graph walk over ``verenigingen/`` (real defs only,
+    so the ``tearDownClass`` in this package's own docstring examples does not count):
+    **ten** ``tearDownClass`` bodies reach this logger -- nine through
+    ``SingletonBackup.restore()`` -> ``_restore_singleton``, one through
+    ``TestWebhookUserSetup._sweep_webhook_users``. Between them they reach five logging
+    calls at three levels, and exactly ONE is at ERROR: ``_restore_singleton``'s
+    "Failed to restore %s: %s" (``singleton_backup.py:292``), tracked precisely because a
+    Single restored wrongly once said so nowhere (#433).
 
     So ``emit`` mirrors onto ``sys.__stderr__``, which the runner never swaps, for
     records at ERROR and above. Measured through the real ``TestResult`` with
@@ -163,7 +168,9 @@ class _StderrHandler(logging.StreamHandler):
 
     The gate is what keeps the middle row from happening: mirroring everything
     duplicates every in-test record and gives back the attribution the lazy read was
-    for. ERROR is the level all nine of those teardown sites use.
+    for. ERROR is where the gate sits because that is the level of the one
+    class-teardown record that must not be lost, above. It does NOT cover the other
+    four -- see the residual limit.
 
     **The residual limit:** a ``.warning()`` or ``.info()`` from class teardown is
     still lost. Fixing that properly means draining the buffer in ``stopTestRun``,
