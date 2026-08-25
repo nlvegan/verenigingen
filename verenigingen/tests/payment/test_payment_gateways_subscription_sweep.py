@@ -42,6 +42,7 @@ from frappe.utils import add_days, getdate, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.payment.test_payment_gateways_unit import _StubAmount, _StubPayment
+from verenigingen.tests.support.error_log_assertions import assert_error_log
 from verenigingen.tests.support.invoice_payments import member_with_customer, receive_against_invoice
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.verenigingen_payments.doctype.mollie_settings.mollie_settings import MollieSettings
@@ -603,8 +604,10 @@ class TestSubscriptionPaymentInvoiceChoice(EnhancedTestCase):
 
         result, ref_no = self._process_subscription(member, 17.50)
 
-        self.assertNotEqual(
-            (result or {}).get("status"), "success", msg=f"must not auto-post: {result}"
+        self.assertEqual(
+            (result or {}).get("status"),
+            "ambiguous_invoice",
+            msg=f"must refuse by the ambiguity branch specifically, not by any error: {result}",
         )
         self.assertFalse(
             self._payment_entries_for(ref_no),
@@ -614,6 +617,16 @@ class TestSubscriptionPaymentInvoiceChoice(EnhancedTestCase):
         for invoice in (first, second):
             invoice.reload()
             self.assertEqual(float(invoice.outstanding_amount), float(invoice.grand_total))
+
+        # The refusal has to be VISIBLE, which is the whole point of the branch --
+        # and `expectErrorLog` above is only a suppression, so without this the
+        # log_error could be deleted and this test would still pass.
+        assert_error_log(
+            self,
+            "Mollie Subscription Payment Ambiguous",
+            unique=ref_no,
+            must_contain=[member.customer, "Allocate it manually"],
+        )
 
     def test_the_invoice_matching_the_payment_is_chosen(self):
         """The discriminator was available all along and this site ignored it.
@@ -658,7 +671,9 @@ class TestSubscriptionPaymentInvoiceChoice(EnhancedTestCase):
         Red against develop with an exception, not a wrong answer: the allocation was
         `min(payment, grand_total)` = min(40, 45) = 40 against an outstanding of 30,
         and ERPNext throws "Allocated Amount cannot be greater than outstanding
-        amount" (payment_entry.py:377). The same wrong column was also the amount
+        amount" (payment_entry.py:498 -- the identically-worded check at :377 is
+        unreachable here, because `validate_allocated_amount` returns at :373 for a
+        Customer). The same wrong column was also the amount
         discriminator.
         """
         # 40 against an outstanding of 30 is an OVERpayment: the surplus stays
@@ -671,7 +686,7 @@ class TestSubscriptionPaymentInvoiceChoice(EnhancedTestCase):
         self._committed_pes.append(part_payment.name)
         self.assertAlmostEqual(float(part_paid.outstanding_amount), 30.0, places=2)
 
-        result, _ref_no = self._process_subscription(member, 40.0)
+        result, ref_no = self._process_subscription(member, 40.0)
 
         self.assertEqual((result or {}).get("status"), "success", msg=result)
         pe = frappe.get_doc("Payment Entry", result["payment_entry"])
@@ -680,6 +695,15 @@ class TestSubscriptionPaymentInvoiceChoice(EnhancedTestCase):
             30.0,
             places=2,
             msg="allocation must be bounded by what is still outstanding",
+        )
+
+        # The surplus notice must name the Payment Entry -- that identifier sits at the
+        # END of the message and is precisely what a positional log_error truncates away.
+        assert_error_log(
+            self,
+            "Mollie Subscription Payment Overpaid",
+            unique=ref_no,
+            must_contain=[part_paid.name, pe.name, "needs placing"],
         )
 
 

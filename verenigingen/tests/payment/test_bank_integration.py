@@ -20,6 +20,7 @@ import unittest
 
 import frappe
 
+from verenigingen.tests.support.error_log_assertions import assert_error_log
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.verenigingen_payments.utils.bank_integration import (
     BankAPIClient,
@@ -581,7 +582,10 @@ class TestInvoiceAmountMatching(VereningingenTestCase):
     def setUp(self):
         super().setUp()
         self.importer = BankStatementImporter()
-        self.company, self.income_account = self._owned_company_and_income_account()
+        # Only the company is needed -- the base invoice helper resolves its own
+        # income account. `_owned_company_and_income_account` is still the right
+        # call: it OWNS a company rather than scanning for one.
+        self.company, _income_account = self._owned_company_and_income_account()
 
     def _debtor_customer(self, customer_name):
         customer = frappe.new_doc("Customer")
@@ -634,6 +638,12 @@ class TestInvoiceAmountMatching(VereningingenTestCase):
             matched,
             f"two invoices of the same amount narrow nothing; got {matched}",
         )
+        assert_error_log(
+            self,
+            "Bank Import Invoice Ambiguous",
+            unique=token,
+            must_contain=["Reconcile this transaction manually"],
+        )
 
     def test_two_customers_matching_the_debtor_name_is_refused(self):
         """The arbitrary pick crossed PARTIES, not just invoices.
@@ -655,6 +665,14 @@ class TestInvoiceAmountMatching(VereningingenTestCase):
             matched,
             f"a debtor name matching two customers names no invoice; got {matched} "
             f"(candidates {mine.name} / {theirs.name})",
+        )
+        # "across 2 customer(s)" is the part that distinguishes the cross-PARTY
+        # ambiguity from the single-customer one, and it sits mid-message.
+        assert_error_log(
+            self,
+            "Bank Import Invoice Ambiguous",
+            unique=token,
+            must_contain=["2 customer(s)", "Reconcile this transaction manually"],
         )
 
 

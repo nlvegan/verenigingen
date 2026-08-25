@@ -40,6 +40,7 @@ from frappe.utils import add_days, flt, getdate, today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
 from verenigingen.tests.harness_logger import get_harness_logger
+from verenigingen.tests.support.error_log_assertions import assert_error_log
 from verenigingen.tests.support.invoice_payments import receive_against_invoice
 from verenigingen.tests.support.sepa_test_company import get_eur_bank_account, get_eur_test_company
 from verenigingen.verenigingen_payments.api import sepa_reconciliation as recon
@@ -1098,7 +1099,11 @@ class TestProcessIndividualReturn(ReconBase):
             }
         )
 
-        self.assertNotEqual(result["status"], "processed", msg=result)
+        # The EXACT status, not merely "not processed": `process_individual_return`
+        # swallows any exception into {"status": "error"} (the pre-existing deadlock
+        # flake, #576), which would satisfy a `assertNotEqual(..., "processed")` while
+        # the ambiguity branch never ran.
+        self.assertEqual(result["status"], "ambiguous", msg=result)
         for payment_entry in (first_pe, second_pe):
             payment_entry.reload()
             self.assertEqual(
@@ -1112,6 +1117,12 @@ class TestProcessIndividualReturn(ReconBase):
                 0.0,
                 "no settled invoice may be re-opened by an ambiguous return",
             )
+        assert_error_log(
+            self,
+            "SEPA Return Ambiguous",
+            unique=member.name,
+            must_contain=["Reverse it manually"],
+        )
 
     def test_a_draft_invoice_is_not_a_reversal_candidate(self):
         """A never-issued invoice must not be the thing a return reverses.

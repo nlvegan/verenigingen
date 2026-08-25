@@ -857,9 +857,12 @@ def process_individual_return(return_item):
         #
         # `grand_total` is the discriminator here, not `outstanding_amount`: these
         # candidates are already settled, so their outstanding is 0 and carries no
-        # information. `docstatus: 1` is new -- veg11 holds invoices whose `status`
-        # was written directly while `docstatus = 0` (#559 measured 35), and a
-        # never-issued invoice is not something a return can reverse.
+        # information. `docstatus: 1` is new, and a never-issued invoice is not
+        # something a return can reverse. #559's figure of 35 such rows does NOT
+        # support this filter -- those are `Unpaid`/`Overdue`, which this filter can
+        # never admit. The rows that matter here are `docstatus = 0 AND status =
+        # 'Paid'`, of which veg11 holds **4**. (veg11 is a TEST instance; that count
+        # shows the state occurs, and says nothing about any production population.)
         choice = None
         if member:
             choice = unambiguous_invoice(
@@ -879,11 +882,18 @@ def process_individual_return(return_item):
             # Reversing nothing leaves the return for a human to place, which is
             # recoverable. Reversing the wrong invoice takes money back off a member
             # who paid, and tells them their payment failed.
+            # KEYWORD form. `log_error`'s signature is `log_error(title, message)`, so a
+            # positional `log_error(f"...", "Short Title")` passes the MESSAGE as the title:
+            # it lands in `Error Log.method` (Data, cut at 140 mid-word) and no title reaches
+            # the title column. Measured on test_site_1 -- `error` keeps the full text, so
+            # nothing is lost; the Error Log LIST becomes unreadable and unfilterable.
             frappe.log_error(
-                f"SEPA return of {return_item['amount']} for member {member[0]} matches "
-                f"{choice.candidates} settled invoices; refusing to choose which one to "
-                "reverse. Reverse it manually.",
-                "SEPA Return Ambiguous",
+                title="SEPA Return Ambiguous",
+                message=(
+                    f"SEPA return of {return_item['amount']} for member {member[0]} "
+                    f"matches {choice.candidates} settled invoices; refusing to choose "
+                    "which one to reverse. Reverse it manually."
+                ),
             )
             return {
                 "member_reference": return_item.get("member_reference"),

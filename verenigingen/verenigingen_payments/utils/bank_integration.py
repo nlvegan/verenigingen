@@ -354,12 +354,19 @@ class BankStatementImporter:
                 if choice.invoice:
                     return choice.invoice["name"]
                 if choice.is_ambiguous:
+                    # KEYWORD form. `log_error`'s signature is `log_error(title, message)`, so a
+                    # positional `log_error(f"...", "Short Title")` passes the MESSAGE as the title:
+                    # it lands in `Error Log.method` (Data, cut at 140 mid-word) and no title reaches
+                    # the title column. Measured on test_site_1 -- `error` keeps the full text, so
+                    # nothing is lost; the Error Log LIST becomes unreadable and unfilterable.
                     frappe.log_error(
-                        f"Bank import: debtor '{debtor_name}' and amount {amount} match "
-                        f"{choice.candidates} outstanding invoices across "
-                        f"{len(customers)} customer(s); refusing to choose one. "
-                        "Reconcile this transaction manually.",
-                        "Bank Import Invoice Ambiguous",
+                        title="Bank Import Invoice Ambiguous",
+                        message=(
+                            f"Bank import: debtor '{debtor_name}' and amount {amount} "
+                            f"match {choice.candidates} outstanding invoices across "
+                            f"{len(customers)} customer(s); refusing to choose one. "
+                            "Reconcile this transaction manually."
+                        ),
                     )
 
         return None

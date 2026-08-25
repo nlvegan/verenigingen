@@ -1,7 +1,17 @@
 """Resolving ONE Sales Invoice out of a party's candidate set (#559, #567).
 
 Four places in this app queried a party's invoices, took the first row, and then
-moved money against it. None of them was choosing -- each was letting
+moved money against it.
+
+**This module is the rule, not a census of its users.** The AST sweep that found those
+four matched `get_all`/`get_list`/`get_value` only, so **raw `frappe.db.sql` with
+`LIMIT 1` is invisible to it** -- and `services/billing/invoice_matcher.py`
+`_find_invoice_by_coverage_sql` is exactly that, ~100 lines above a site the sweep DID
+surface and clear. It is reachable in production (Mollie Bulk Run ->
+`mollie_bulk_run_service` -> `MolliePaymentOrchestrator.process_payment` ->
+`_resolve_invoice_fresh`) and allocates against
+`ORDER BY match_priority ASC, custom_coverage_start_date DESC LIMIT 1`. Tracked in
+**#578**, with two coverage-keyed siblings, not fixed here. Before adding a fifth caller, grep for `LIMIT 1` in raw SQL too. None of them was choosing -- each was letting
 `ORDER BY ... LIMIT 1` choose, on `creation` or `posting_date`, for a payment that
 said nothing about which invoice it was for. #559 fixed the fifth (the
 reconciliation MEMBERSHIP branch) and named the rule; this module is that rule,

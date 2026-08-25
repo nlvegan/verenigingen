@@ -29,6 +29,7 @@ import frappe
 from frappe.utils import add_days, getdate, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.error_log_assertions import assert_error_log
 from verenigingen.verenigingen_payments.mollie.services.payment_context_resolver import PaymentContext
 from verenigingen.verenigingen_payments.mollie.services.payment_processors import (
     DonationPaymentProcessor,
@@ -187,7 +188,11 @@ class TestMembershipInvoiceLinking(EnhancedTestCase):
 
         result = self.processor._link_to_membership_invoice(member, {"amount": "17.50"}, pe)
 
-        self.assertNotEqual(result["status"], "linked", msg=result)
+        self.assertEqual(
+            result["status"],
+            "ambiguous_invoice",
+            msg=f"must refuse by the ambiguity branch, not by the generic except: {result}",
+        )
         pe.reload()
         referenced = [r.reference_name for r in pe.references]
         for invoice in (older, newer):
@@ -196,6 +201,12 @@ class TestMembershipInvoiceLinking(EnhancedTestCase):
                 referenced,
                 "no reference may be appended when the invoice is a choice, not a match",
             )
+        assert_error_log(
+            self,
+            "Mollie Membership Payment Ambiguous",
+            unique=customer,
+            must_contain=["Allocate the Payment Entry manually"],
+        )
 
     def test_the_invoice_matching_the_amount_is_chosen(self):
         """The matching invoice is deliberately the OLDER one.

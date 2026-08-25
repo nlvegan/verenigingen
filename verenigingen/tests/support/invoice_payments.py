@@ -5,7 +5,9 @@ comparing an incoming payment against `grand_total` on a Partly Paid invoice
 compares it to a number nobody still owes, and allocating `min(payment,
 grand_total)` against one over-allocates -- ERPNext throws
 "Allocated Amount cannot be greater than outstanding amount"
-(`erpnext/accounts/doctype/payment_entry/payment_entry.py:377`).
+(`erpnext/accounts/doctype/payment_entry/payment_entry.py:498`, inside
+`validate_allocated_amount_with_latest_data` -- the identically-worded check at :377 is
+unreachable for a Customer, because `validate_allocated_amount` returns at :373).
 
 A test cannot tell which column was read unless the two differ, so this lives in
 one place rather than being re-derived per suite.
@@ -35,16 +37,23 @@ def receive_against_invoice(test_case, invoice_name, paid, mode_of_payment=None)
     fixture really did leave the two columns different -- a silently-failed
     part payment would make the caller's test pass for the wrong reason.
 
-    Skips the calling test if the invoice's company has no default bank account:
-    a fixture that picks a company and *then* looks for an account inside it is
-    how a test comes to prove nothing (see the 2026-08-24c handoff).
+    FAILS -- does not skip -- if the invoice's company has no default bank account.
+    Four tests depend on this fixture, and a skip is indistinguishable from a pass in a
+    CI summary, so a shard where the shared EUR company is built differently would
+    silently stop testing anything. A fixture that picks a company and *then* looks for
+    an account inside it is how a test comes to prove nothing (2026-08-24c handoff); the
+    answer is to make that loud, not to skip.
     """
     from erpnext.accounts.doctype.journal_entry.journal_entry import get_default_bank_cash_account
 
     invoice = frappe.get_doc("Sales Invoice", invoice_name)
     bank = get_default_bank_cash_account(invoice.company, "Bank")
     if not bank or not bank.get("account"):
-        test_case.skipTest(f"no default bank account on {invoice.company}; cannot part-pay")
+        test_case.fail(
+            f"{invoice.company} has no default bank account, so this fixture cannot "
+            f"receive a payment. Provision it rather than skipping -- a skipped test "
+            f"proves exactly as much as one that never ran."
+        )
 
     payment_entry = frappe.get_doc(
         {
