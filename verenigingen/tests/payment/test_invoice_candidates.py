@@ -17,12 +17,25 @@ import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.support.invoice_payments import member_with_customer, receive_against_invoice
-from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+from verenigingen.tests.support.sepa_test_company import get_eur_bank_account, get_eur_test_company
 from verenigingen.verenigingen_payments.utils.invoice_candidates import unambiguous_invoice
 
 
 class InvoiceCandidatesBase(EnhancedTestCase):
     """A member with a customer in the EUR test company, plus invoice builders."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # Provision the company's bank account (committed) ONCE, before any
+        # per-test transaction opens -- `receive_against_invoice` reads it and
+        # fails loudly if it is absent. Same shape and the same reason as
+        # `ReconBase.setUpClass` (test_sepa_reconciliation.py:95): provisioning
+        # from a test body would commit that test's in-flight fixtures.
+        # Without this, whether the read succeeds depends on whether an EARLIER
+        # module in the shard happened to stamp `Company.default_bank_account` --
+        # which is what reddened shard 11/12 of #575.
+        get_eur_bank_account(get_eur_test_company())
 
     def setUp(self):
         super().setUp()

@@ -44,7 +44,7 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.payment.test_payment_gateways_unit import _StubAmount, _StubPayment
 from verenigingen.tests.support.error_log_assertions import assert_error_log
 from verenigingen.tests.support.invoice_payments import member_with_customer, receive_against_invoice
-from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+from verenigingen.tests.support.sepa_test_company import get_eur_bank_account, get_eur_test_company
 from verenigingen.verenigingen_payments.doctype.mollie_settings.mollie_settings import MollieSettings
 from verenigingen.verenigingen_payments.mollie.tests.fixtures.webhook_fixtures import (
     install_fake_request,
@@ -540,6 +540,19 @@ class TestSubscriptionPaymentInvoiceChoice(EnhancedTestCase):
     Entry it creates survives FrappeTestCase rollback; committed PEs are force-
     cleaned in tearDown to keep this class out of the next one's way.
     """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # Provision the company's bank account (committed) ONCE, before any
+        # per-test transaction opens -- `receive_against_invoice` reads it and
+        # fails loudly if it is absent, which is how shard 11/12 of #575 went
+        # red: of the five suites that stamp `Company.default_bank_account`,
+        # only `test_bank_transaction_reconciliation` sorts ahead of this one,
+        # and that shard did not pack it. Provisioning from a test body instead
+        # would commit that test's in-flight fixtures (see
+        # `ReconBase.setUpClass`, test_sepa_reconciliation.py:95).
+        get_eur_bank_account(get_eur_test_company())
 
     def setUp(self):
         super().setUp()

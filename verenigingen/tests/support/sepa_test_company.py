@@ -309,7 +309,7 @@ def get_eur_bank_account(company: str | None = None) -> str:
     rather than racing to create rivals.
     """
     company = company or get_eur_test_company()
-    gl_account = ensure_default_gl_bank_account(company)
+    gl_account = _ensure_default_gl_bank_account(company)
 
     existing = frappe.db.get_value("Bank Account", {"account": gl_account}, "name")
     if existing:
@@ -337,47 +337,29 @@ def _make_bank_account_(company: str, gl_account: str) -> str:
     return account.name
 
 
-def ensure_default_gl_bank_account(company: str) -> str:
+def _ensure_default_gl_bank_account(company: str) -> str:
     """The company's default Bank-type GL Account, created if absent.
 
     `Company.default_bank_account` is a Link to **Account**, not to
     `Bank Account` -- a distinction worth stating, because reading it and then
     testing `frappe.db.exists("Bank Account", ...)` on the result is a branch
     that can never be true.
-
-    Public because reading the default back is not equivalent to calling this.
-    erpnext's `get_default_bank_cash_account` falls back to "the only non-group
-    Bank account" and returns `{}` when the company has none or several -- and on
-    this bench there is exactly one, created by
-    `test_bank_transaction_reconciliation`, so a fixture that only reads passes
-    locally and fails in whichever CI shard runs without that module. That is
-    what reddened shard 11/12 of #575. Callers that need a bank account must
-    ensure one, not read one.
     """
     existing = frappe.db.get_value("Company", company, "default_bank_account")
     if existing and frappe.db.exists("Account", existing):
         return existing
 
-    # Shared master data, built lazily from inside whichever test asks first --
-    # and unlike the other callers here, `receive_against_invoice` asks from a
-    # test BODY, where the harness's captured-insert drain is installed (it goes
-    # on in setUp). Without this the drain claims the Account below as that one
-    # test's property and deletes it at teardown, leaving every later class in the
-    # shard behind a `default_bank_account` pointing at a row that no longer
-    # exists -- the dangling-company-default shape of #462. Mark shared fixtures
-    # at their build site (CLAUDE.md).
-    with _suspend_insert_capture():
-        gl_account = frappe.db.get_value(
-            "Account", {"company": company, "account_type": "Bank", "is_group": 0}, "name"
+    gl_account = frappe.db.get_value(
+        "Account", {"company": company, "account_type": "Bank", "is_group": 0}, "name"
+    )
+    if not gl_account:
+        parent = frappe.db.get_value(
+            "Account", {"company": company, "is_group": 1, "root_type": "Asset"}, "name"
         )
-        if not gl_account:
-            parent = frappe.db.get_value(
-                "Account", {"company": company, "is_group": 1, "root_type": "Asset"}, "name"
-            )
-            gl_account = _make_gl_bank_account_(company, parent)
+        gl_account = _make_gl_bank_account_(company, parent)
 
-        frappe.db.set_value("Company", company, "default_bank_account", gl_account)
-        frappe.db.commit()
+    frappe.db.set_value("Company", company, "default_bank_account", gl_account)
+    frappe.db.commit()
     return gl_account
 
 
