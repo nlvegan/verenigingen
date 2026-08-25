@@ -25,6 +25,11 @@ import pathlib
 
 import frappe
 
+from verenigingen.tests.support.non_resumable_ast import (
+    catches_bare_exception,
+    reraises_non_resumable,
+    reraises_unconditionally,
+)
 from verenigingen.tests.support.non_resumable_errors import deadlock, lock_wait_timeout
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
@@ -123,7 +128,7 @@ class TestAPollingRowAbandonsOnANonResumableError(VereningingenTestCase):
     error on the way out.
     """
 
-    def _row_savepoint(self, stats):
+    def _open_row_savepoint(self, stats):
         from verenigingen.mijnrood_sync.services.polling_service import MijnRoodPollingService
 
         return MijnRoodPollingService()._row_savepoint("row-1", "members", stats)
@@ -144,7 +149,7 @@ class TestAPollingRowAbandonsOnANonResumableError(VereningingenTestCase):
         """The control. Without it, the two tests below would also pass if per-row
         isolation had been removed altogether."""
         stats = {}
-        with self._row_savepoint(stats):
+        with self._open_row_savepoint(stats):
             raise ValueError("one bad row")
 
         self.assertEqual(stats["errors"], 1, "an ordinary row failure is counted and skipped")
@@ -152,7 +157,7 @@ class TestAPollingRowAbandonsOnANonResumableError(VereningingenTestCase):
     def test_a_deadlock_abandons_the_scan_instead_of_counting_it_as_one_bad_row(self):
         stats = {}
         with self.assertRaises(frappe.QueryDeadlockError):
-            with self._row_savepoint(stats):
+            with self._open_row_savepoint(stats):
                 raise deadlock()
 
         self.assertEqual(
@@ -164,7 +169,7 @@ class TestAPollingRowAbandonsOnANonResumableError(VereningingenTestCase):
     def test_a_lock_timeout_abandons_the_scan_too(self):
         stats = {}
         with self.assertRaises(frappe.QueryTimeoutError):
-            with self._row_savepoint(stats):
+            with self._open_row_savepoint(stats):
                 raise lock_wait_timeout()
 
         self.assertEqual(stats.get("errors", 0), 0)
@@ -179,7 +184,7 @@ class TestAPollingRowAbandonsOnANonResumableError(VereningingenTestCase):
         """
         taken = self._capture_savepoint_names()
         stats = {}
-        with self._row_savepoint(stats):
+        with self._open_row_savepoint(stats):
             frappe.db.sql(f"RELEASE SAVEPOINT {taken[-1]}")
             raise ValueError("one bad row, and the savepoint is gone")
 
@@ -205,57 +210,7 @@ class TestEverySavepointRollbackInAnExcept(VereningingenTestCase):
     reading a green run here as coverage of behaviour.
     """
 
-    CATCH_ALLS = ("Exception", "BaseException")
     SKIP_DIRS = ("/tests/", "/node_modules/", "/__pycache__/")
-
-    @classmethod
-    def _is_catch_all(cls, handler):
-        if handler.type is None:
-            return True
-        types = handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
-        return any(isinstance(t, ast.Name) and t.id in cls.CATCH_ALLS for t in types)
-
-    @staticmethod
-    def _ends_in_a_raise(handler):
-        """The handler cannot swallow, and cannot substitute.
-
-        Three things all have to hold, and each was a hole the first version had:
-
-        * the LAST statement re-raises -- not "contains a raise somewhere", because
-          mt940_import re-raises inside a nested handler around its own rollback and then
-          returns a dict, which swallows the batch error just as thoroughly;
-        * it is a BARE ``raise``. ``raise Wrapper(str(e))`` is #561's own defect written by
-          hand: it replaces the exception, so every guard keyed on the original type fails
-          exactly as it does after a 1305;
-        * no ``return`` anywhere in the handler, or an earlier branch swallows conditionally
-          while the last line still reads like a re-raise.
-        """
-        if not handler.body or not isinstance(handler.body[-1], ast.Raise):
-            return False
-        if handler.body[-1].exc is not None:
-            return False
-        return not any(isinstance(node, ast.Return) for node in ast.walk(handler))
-
-    @classmethod
-    def _reraises_non_resumable(cls, handler):
-        """A preceding clause that re-raises the class.
-
-        Only a body that ends in a ``raise`` counts -- the lesson from #470's ratchet, which
-        accepted `except NON_RESUMABLE_DB_ERRORS: log(); return False`, i.e. the defect
-        wearing the right clause.
-        """
-        if handler.type is None:
-            return False
-        types = handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
-        # Accept `NON_RESUMABLE_DB_ERRORS`, `te.NON_RESUMABLE_DB_ERRORS`, and the tuple
-        # spelled out -- application_payments names the classes directly, on purpose.
-        named = {ast.unparse(t).rsplit(".", 1)[-1] for t in types}
-        if "NON_RESUMABLE_DB_ERRORS" not in named and not {
-            "QueryDeadlockError",
-            "QueryTimeoutError",
-        } <= named:
-            return False
-        return cls._ends_in_a_raise(handler)
 
     @staticmethod
     def _bare_savepoint_rollbacks(handler):
@@ -343,14 +298,14 @@ class TestEverySavepointRollbackInAnExcept(VereningingenTestCase):
                     continue
                 if self._bare_savepoint_rollbacks(handler):
                     yield handler.lineno, "writes frappe.db.rollback(save_point=...) by hand"
-                if not self._is_catch_all(handler):
+                if not catches_bare_exception(handler):
                     continue
                 # A catch-all that re-raises unconditionally cannot swallow anything, so it
                 # needs no guard: application_payments and the ING webhooks are that shape.
-                if self._ends_in_a_raise(handler):
+                if reraises_unconditionally(handler):
                     continue
                 # Python matches handlers in order, so a guard below the catch-all is dead.
-                if any(self._reraises_non_resumable(e) for e in node.handlers[:position]):
+                if any(reraises_non_resumable(e) for e in node.handlers[:position]):
                     continue
                 yield handler.lineno, "swallowing catch-all with no `except NON_RESUMABLE_DB_ERRORS: raise` above it"
 
