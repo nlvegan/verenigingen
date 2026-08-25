@@ -266,15 +266,17 @@ class ClassTeardownRecordsMustSurviveTest(unittest.TestCase):
     The middle row is why the mirror is level-gated. Duplicating every in-test record
     would undo the attribution this handler gained, and attribution is the reason it
     resolves lazily at all. ERROR is where the gate sits because that is the level of
-    the one class-teardown record that must not be lost: `SingletonBackup.restore()`'s
+    the two class-teardown records that must not be lost: `SingletonBackup.restore()`'s
     "Failed to restore %s: %s" (`singleton_backup.py:292`), the message that is in
     `HARNESS_FILES` precisely because a Single restored wrongly once said so nowhere
-    (#433). It is the only ERROR among the five logging calls the ten known
-    harness-logger-backed class-teardown sites reach; see `_StderrHandler` for the walk.
+    (#433), and `ErrorLogGuardMixin._capture_test_error_logs`' "Error Log guard capture
+    failed" (`error_log_guard.py:194`). They are the only two ERRORs among the nineteen
+    logging calls the eleven known harness-logger-backed class-teardown sites reach; see
+    `_StderrHandler` for the walk and the one non-obvious edge it turns on.
 
-    The residual limit, stated because it is not fixed: a `.warning()` or `.info()`
-    from class teardown is still lost. Only `frappe/` can fix that properly, by
-    draining the buffer in `stopTestRun`.
+    The residual limit, stated because it is not fixed: a `.warning()`, `.info()` or
+    `.debug()` from class teardown is still lost -- measured, seventeen of the nineteen.
+    Only `frappe/` can fix that properly, by draining the buffer in `stopTestRun`.
     """
 
     def setUp(self):

@@ -149,12 +149,25 @@ class _StderrHandler(logging.StreamHandler):
     That was an accident of the very bug this class fixes, but it was load-bearing.
     Measured 2026-08-25 by an AST call-graph walk over ``verenigingen/`` (real defs only,
     so the ``tearDownClass`` in this package's own docstring examples does not count):
-    **ten** ``tearDownClass`` bodies reach this logger -- nine through
+    **eleven** ``tearDownClass`` bodies reach this logger -- nine through
     ``SingletonBackup.restore()`` -> ``_restore_singleton``, one through
-    ``TestWebhookUserSetup._sweep_webhook_users``. Between them they reach five logging
-    calls at three levels, and exactly ONE is at ERROR: ``_restore_singleton``'s
-    "Failed to restore %s: %s" (``singleton_backup.py:292``), tracked precisely because a
-    Single restored wrongly once said so nowhere (#433).
+    ``TestWebhookUserSetup._sweep_webhook_users``, and one through
+    ``cls._test_instance.tearDown()`` (``test_chapter_permission_service_integration.py:182``),
+    the only place in the repo where a class teardown invokes a per-test ``tearDown`` on a
+    stashed instance -- which binds to ``EnhancedTestCase.tearDown`` and so drags the whole
+    drain onto a class-teardown path. Between them they reach NINETEEN logging calls at
+    three levels, of which TWO are at ERROR: ``_restore_singleton``'s "Failed to restore
+    %s: %s" (``singleton_backup.py:292``) and ``ErrorLogGuardMixin._capture_test_error_logs``'
+    "Error Log guard capture failed" (``error_log_guard.py:194``) -- both tracked precisely
+    because a failure that said so nowhere is #433.
+
+    Edges were resolved by name, with lifecycle methods excluded as call TARGETS except on
+    a non-``super()`` receiver. That exception is the entirety of the third route, and
+    dropping it unconditionally is what made an earlier revision of this paragraph say
+    "ten" and "exactly one ERROR". Both alias-form loggers (``logger =
+    get_harness_logger(...)``, as ``enhanced_test_factory`` and ``tests/setup`` cache them)
+    and inline ``get_harness_logger(...).level(...)`` calls were matched; a scan for only
+    one shape misses the other entirely.
 
     So ``emit`` mirrors onto ``sys.__stderr__``, which the runner never swaps, for
     records at ERROR and above. Measured through the real ``TestResult`` with
@@ -168,13 +181,14 @@ class _StderrHandler(logging.StreamHandler):
 
     The gate is what keeps the middle row from happening: mirroring everything
     duplicates every in-test record and gives back the attribution the lazy read was
-    for. ERROR is where the gate sits because that is the level of the one
-    class-teardown record that must not be lost, above. It does NOT cover the other
-    four -- see the residual limit.
+    for. ERROR is where the gate sits because that is the level of the two
+    class-teardown records that must not be lost, above. It does NOT cover the other
+    seventeen -- see the residual limit.
 
-    **The residual limit:** a ``.warning()`` or ``.info()`` from class teardown is
-    still lost. Fixing that properly means draining the buffer in ``stopTestRun``,
-    which is ``frappe/``'s to do, not this app's.
+    **The residual limit:** a ``.warning()``, ``.info()`` or ``.debug()`` from class
+    teardown is still lost -- measured, seventeen of the nineteen. Fixing that properly
+    means draining the buffer in ``stopTestRun``, which is ``frappe/``'s to do, not this
+    app's.
     """
 
     def __init__(self):
