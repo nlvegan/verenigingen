@@ -103,6 +103,28 @@ wrong instrument, because the logging is *indirect*: teardown calls `restore()`,
 which I did not do. Treat the number as unverified; the ERROR gate stands on the one site I
 did check plus the mechanism, not on the count.
 
+**Resolved 2026-08-25 — the count did not survive, so both places were reworded** (branch
+`docs/harness-logger-teardown-count`). The call-graph walk got done. **Ten** `tearDownClass`
+bodies reach this logger: nine through `SingletonBackup.restore()` -> `_restore_singleton`
+(logging at `:207` WARNING, `:269` WARNING, `:279` DEBUG, `:292` ERROR) and one through
+`TestWebhookUserSetup._sweep_webhook_users` (`:143` WARNING). Five logging calls, three
+levels, **exactly one at ERROR**. So the nine was real but mislabelled — it counts teardowns
+that call `restore()`, not logging sites, and `restore()` is their shared callee rather than
+"among them" — and "ERROR is the level all nine of those teardown sites use" was simply
+false, as this module's own "residual limit" paragraph said six lines below it. One more
+line-number drift to note: `:288` above is a comment line; the call is `:292`.
+
+Two properties of the instrument are the reusable part. It was built to **over-approximate**
+(name-based edges, every def of that name), so its untightened answer — 34 sites, 6 at ERROR
+— already refuted "nine, all ERROR" before a single site was hand-checked: *an
+over-approximation that comes back below the claimed number is a real refutation*, where a
+small exact-looking answer from a blind instrument settles nothing. It still nearly lied the
+other way, reporting `factories.py:260` (ERROR) reachable via six `cls.factory.cleanup()`
+teardowns — but that is `CoreTestDataFactory.cleanup()`, which uses `print()`. Resolve the
+receiver's class, never the method name. What made the total trustworthy was a **control**:
+assert the instrument finds `singleton_backup.py:292`, the site this section names by hand,
+before believing any number it reports.
+
 **Finding 5 was verified before being fixed, and held.** `StreamHandler.emit` does route write
 errors to `handleError`, so "a closed stderr raises into the caller" needed checking. It does:
 `Handler.handleError` writes its own diagnostic to the **same** closed object and catches only
@@ -224,6 +246,9 @@ that had gone stale (`bank_transaction_reconciliation.py`, `application_helpers.
      mechanism and one site, never the total. Either verify it with a call-graph walk and
      keep it, or reword both to the property ("class-teardown records are lost, and the
      restore-failure site is one") which is what the gate actually rests on.
+     **Done 2026-08-25:** the walk was run and the claim did not survive it — the real
+     figures are ten teardowns, five logging calls, one ERROR — so both places were
+     reworded to the property, carrying the measurement's date and method. See §3.
 
    This is the repo's own "the census is always bigger" rule biting from the other side: a
    number that arrives inside a correct finding still needs its own check before it goes into
