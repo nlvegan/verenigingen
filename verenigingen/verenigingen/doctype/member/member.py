@@ -483,16 +483,28 @@ class Member(
                 if getattr(frappe.flags, "bulk_member_operations", False) or self.flags.get(
                     "bulk_member_operations", False
                 ):
-                    # Keeping the member is only an improvement where somebody reads
-                    # the message. A bulk import runs in a background job where
-                    # msgprint reaches nobody, and all three importers already roll
-                    # the row back and report the reason in their per-row status
-                    # (member_import_service, member_import, vip_import). Swallowing
-                    # here turns a reported failure into a reported success, so one
-                    # misconfigured customer group takes a 5000-row import green with
-                    # nothing but an Error Log row per member. Same flag pair as
-                    # Volunteer.after_insert: importers set it globally, VIP import
-                    # per document.
+                    # Keeping the member is only an improvement where the caller has
+                    # no other way to learn what happened. Under this flag it always
+                    # does: the caller catches, and reports the reason per row.
+                    # Swallowing here would turn a reported failure into a reported
+                    # success - one misconfigured customer group takes a 5000-row
+                    # import green with nothing but an Error Log row per member
+                    # (measured: MemberImportService returned status "created").
+                    #
+                    # Not "nobody reads msgprint here": MemberImportService._bulk_context
+                    # sets the flag for EVERY caller, including the foreground desk
+                    # button MijnRood Sync Event.apply_event. The load-bearing property
+                    # is the caller's reporting, not the absence of a user.
+                    #
+                    # Rollback is the caller's too, and only two of the three importers
+                    # do it: member_import_service (savepoint per row) and vip_import
+                    # (savepoint per row) roll back; the Member Import doctype has no
+                    # savepoint at all, so its row stays committed and is reported
+                    # "skipped" with the reason in the import's error log. That is
+                    # develop's behaviour and predates this change - filed as #570.
+                    #
+                    # Same flag pair as Volunteer.after_insert: importers set it
+                    # globally, VIP import also per document.
                     raise
                 frappe.log_error(
                     message=f"Member {self.name} inserted without a Customer: {error}",
@@ -513,16 +525,33 @@ class Member(
     def _customer_not_created_message(self, error):
         """Tell the user the member is safe, and why its Customer is missing.
 
-        Only a ValidationError's text is echoed. Those are the deliberate,
-        translated frappe.throw() messages the user is meant to read ("Could not
-        find Customer Group: X", "Insufficient permissions to create Customer").
-        Anything else can carry internal detail - a driver error arrives here as
-        e.g. "(1305, 'SAVEPOINT kdxtcsgjli does not exist')" - and after_insert
-        runs on the public application form, so that text would be rendered to an
-        anonymous applicant. The Error Log row keeps it for whoever can act on it.
+        Only text the framework or this app deliberately wrote FOR a user is
+        echoed: a ValidationError's message ("Could not find Customer Group: X",
+        "Insufficient permissions to create Customer") and the sentence
+        raise_no_permission_to() leaves behind for a PermissionError.
+
+        Everything else is withheld, because after_insert runs on the public
+        application form and those messages carry internal detail - a driver error
+        arrives here as e.g. "(1305, 'SAVEPOINT kdxtcsgjli does not exist')", and a
+        DuplicateEntryError as a raw primary-key collision. The Error Log row keeps
+        the detail for whoever can act on it.
         """
-        if isinstance(error, frappe.ValidationError):
-            return _("The member was saved, but no customer record could be created: {0}").format(error)
+        # The service re-raises a ValidationError unwrapped but wraps everything else
+        # in a ServiceError, so the shape has to be recovered before it can be judged
+        # - the same unwrap the NON_RESUMABLE guard in after_insert does.
+        original = getattr(error, "original_error", None) or error
+        reason = None
+        if isinstance(original, frappe.ValidationError):
+            reason = str(original)
+        elif isinstance(original, frappe.PermissionError):
+            # PermissionError is not a ValidationError, and Document.raise_no_permission_to()
+            # raises it BARE - it leaves the human sentence ("You need the 'create'
+            # permission on Customer ...") in frappe.flags.error_message. Reading it
+            # back is the only way not to discard the one message the framework
+            # deliberately prepared for this user.
+            reason = frappe.flags.error_message
+        if reason:
+            return _("The member was saved, but no customer record could be created: {0}").format(reason)
         return _(
             "The member was saved, but no customer record could be created."
             " The reason has been recorded in the Error Log."

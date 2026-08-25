@@ -82,6 +82,21 @@ class TestCustomerCreationFailureSurvivesMemberInsert(EnhancedTestCase):
         application_payments_shim.create_customer_for_member = _boom
         self.addCleanup(setattr, application_payments_shim, "create_customer_for_member", original)
 
+    def _fail_the_customer_insert_with(self, error_factory):
+        """Fault at the frame that really inserts the Customer, savepoint untouched.
+
+        Unlike ``_raise_from_customer_creation`` this keeps
+        ``create_customer_for_member`` -- and therefore its savepoint and its
+        handlers -- in the picture, which is what the savepoint assertions need.
+        """
+        original = approval_payments.insert_customer_with_duplicate_retry
+
+        def _fail(customer_doc, max_attempts=3):
+            raise error_factory()
+
+        approval_payments.insert_customer_with_duplicate_retry = _fail
+        self.addCleanup(setattr, approval_payments, "insert_customer_with_duplicate_retry", original)
+
     def _deadlock_that_destroyed_the_savepoint(self):
         """Inject a 1213 at the frame that really raises one, savepoint already gone.
 
@@ -368,3 +383,88 @@ class TestCustomerCreationFailureSurvivesMemberInsert(EnhancedTestCase):
             member.create_customer()
 
         self.assertFalse(frappe.db.get_value("Member", member.name, "customer"))
+
+    # ------------------------------------------- 1205 is not the same shape as 1213
+
+    def test_a_lock_timeout_rolls_its_savepoint_back_and_still_aborts_the_insert(self):
+        """The other member of NON_RESUMABLE_DB_ERRORS behaves differently at the savepoint.
+
+        With ``innodb_rollback_on_timeout=OFF`` -- the default, and measured OFF on
+        this deployment -- a 1205 rolls back only the failed statement. The
+        savepoint SURVIVES, so a Customer inserted before the Contact step timed
+        out is still there to undo, and skipping the rollback the way a 1213
+        requires would leave it behind. The unit of work is still half-applied, so
+        the insert must abort either way.
+
+        Without this, narrowing the guard in ``create_customer_for_member`` to 1213
+        would be indistinguishable from widening it to both.
+        """
+        self.expectErrorLog("Customer Creation Error", "customer_handling Error")
+        rolled_back = self._spy_on_savepoint_rollbacks()
+        self._fail_the_customer_insert_with(
+            lambda: frappe.QueryTimeoutError("Lock wait timeout exceeded; try restarting transaction")
+        )
+
+        with self.assertRaises(Exception) as caught:
+            self._insert_member()
+
+        raised = caught.exception
+        self.assertTrue(
+            isinstance(raised, frappe.QueryTimeoutError)
+            or isinstance(getattr(raised, "original_error", None), frappe.QueryTimeoutError),
+            f"a 1205 must still abort the insert, got {type(raised).__name__}: {raised}",
+        )
+        self.assertEqual(
+            len(rolled_back),
+            1,
+            f"a 1205 leaves its savepoint alive, so the half-built Customer must be undone, got {rolled_back}",
+        )
+
+    # ---------------------------------------------- the per-document bulk flag
+
+    def test_the_per_document_bulk_flag_also_aborts_the_insert(self):
+        """VIP import sets the flag on the document, not globally (vip_import.py:298).
+
+        The global half of the condition is exercised by the import-service test
+        above; without this one, deleting ``self.flags.get("bulk_member_operations")``
+        leaves the whole suite green.
+        """
+        self.expectErrorLog("Customer Creation Error")
+        self._break_customer_group()
+        self.assertFalse(
+            getattr(frappe.flags, "bulk_member_operations", False),
+            "this test is about the per-doc flag, so the global one must be off",
+        )
+
+        member = frappe.get_doc(self._member_payload())
+        member.flags.bulk_member_operations = True
+
+        with self.assertRaises(frappe.ValidationError):
+            member.insert()
+
+    # ------------------------------------- a framework permission failure is a message
+
+    def test_a_framework_permission_failure_still_reaches_the_user(self):
+        """``raise_no_permission_to()`` raises PermissionError BARE.
+
+        It is not a ValidationError and ``str(error)`` is empty; the human sentence
+        is left in ``frappe.flags.error_message``. Discarding it would send the one
+        operator-actionable failure to the Error Log and show the user nothing.
+        """
+        self.expectErrorLog("Member customer creation failed", "customer_handling Error", "Customer Creation Error")
+        sentence = "You need the 'create' permission on Customer to perform this action."
+
+        def _no_permission():
+            frappe.flags.error_message = sentence
+            return frappe.PermissionError()
+
+        self._fail_the_customer_insert_with(_no_permission)
+        self.addCleanup(frappe.flags.pop, "error_message", None)
+        frappe.clear_messages()
+
+        member = self._insert_member()
+
+        self._assert_member_survived_without_customer(member)
+        messages = str(frappe.get_message_log())
+        self.assertIn(CUSTOMER_KEPT_MESSAGE, messages)
+        self.assertIn(sentence, messages, "the framework's own permission sentence must not be discarded")
