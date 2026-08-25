@@ -274,9 +274,11 @@ class ClassTeardownRecordsMustSurviveTest(unittest.TestCase):
     logging calls the eleven known harness-logger-backed class-teardown sites reach; see
     `_StderrHandler` for the walk and the one non-obvious edge it turns on.
 
-    The residual limit, stated because it is not fixed: a `.warning()`, `.info()` or
-    `.debug()` from class teardown is still lost -- measured, seventeen of the nineteen.
-    Only `frappe/` can fix that properly, by draining the buffer in `stopTestRun`.
+    The residual limit, stated because it is not fixed: anything below ERROR from class
+    teardown is still lost -- a `.warning()`, `.info()` or `.debug()`. Measured, that is
+    seventeen of the nineteen: sixteen WARNING and one DEBUG, no INFO site being
+    class-teardown-reachable today. Only `frappe/` can fix the loss properly, by draining
+    the buffer in `stopTestRun`.
     """
 
     def setUp(self):
