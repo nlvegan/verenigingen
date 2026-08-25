@@ -18,13 +18,7 @@ from typing import Any, Dict, List, Set
 import frappe
 from frappe.utils import get_datetime, now
 
-SAVEPOINT_DOES_NOT_EXIST = 1305  # MariaDB: SAVEPOINT ... does not exist
-
-
-def _mysql_error_code(exc):
-    """First positional arg of a MySQLdb-style error, or None."""
-    args = getattr(exc, "args", None)
-    return args[0] if args else None
+from verenigingen.utils.transaction_errors import release_savepoint_if_present, rollback_to_savepoint
 
 
 class FinancialHistoryBatchProcessor:
@@ -334,14 +328,10 @@ class FinancialHistoryBatchProcessor:
         here now means some OTHER inner path committed -- which is worth the log
         line rather than being routine noise.
         """
-        try:
-            frappe.db.release_savepoint(save_point)
-        except Exception as release_error:
-            if _mysql_error_code(release_error) != SAVEPOINT_DOES_NOT_EXIST:
-                raise
+        if not release_savepoint_if_present(save_point):
             # .error(), not .debug(): bare loggers default to ERROR under
             # `bench run-tests`, so a .debug() here would be invisible exactly where
-            # it matters.
+            # it matters. The helper logs the generic fact; this adds the local why.
             frappe.logger("financial_batch").error(
                 f"savepoint {save_point} already released by an inner commit "
                 "(the invoice-retry path in payment_mixin still has one -- #421)"
@@ -358,17 +348,13 @@ class FinancialHistoryBatchProcessor:
         since the committed rows cannot be rolled back. Report it and let the
         ORIGINAL exception propagate rather than masking it with the 1305.
         """
-        try:
-            frappe.db.rollback(save_point=save_point)
-        except Exception as rollback_error:
-            if _mysql_error_code(rollback_error) != SAVEPOINT_DOES_NOT_EXIST:
-                # 1213 (deadlock) and 2006 (server gone) reach here too, and they are
-                # a different situation: the whole transaction is already gone, so
-                # continuing to feed members into it would let each one "succeed"
-                # against a discarded transaction. Only the benign case is swallowed.
-                raise
+        # 1213 (deadlock) and 2006 (server gone) reach the helper too, and they are a
+        # different situation: the whole transaction is already gone, so continuing to feed
+        # members into it would let each one "succeed" against a discarded transaction. The
+        # helper re-raises those and swallows only the benign 1305.
+        if not rollback_to_savepoint(save_point):
             frappe.logger("financial_batch").error(
-                f"Could not roll back to {save_point} for {member_name}: {rollback_error}. "
+                f"Could not roll back to {save_point} for {member_name}. "
                 "An inner commit had already made this member's work durable, so there "
                 "was nothing scoped left to undo; NOT escalated to a full rollback."
             )

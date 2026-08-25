@@ -37,6 +37,10 @@ from unittest.mock import patch
 import frappe
 from frappe.utils import today
 
+from verenigingen.tests.support.non_resumable_ast import (
+    catches_bare_exception,
+    reraises_non_resumable,
+)
 from verenigingen.tests.support.non_resumable_errors import deadlock as _deadlock
 from verenigingen.tests.support.termination_request import create_termination_request
 from verenigingen.tests.utils.base import VereningingenTestCase
@@ -269,31 +273,13 @@ class TestEverySwallowInTheTerminationPackage(VereningingenTestCase):
     trusting a green run here as coverage of anything but handler SHAPE.
     """
 
-    CATCH_ALLS = ("Exception", "BaseException")
-
-    @classmethod
-    def _catches_bare_exception(cls, handler):
-        if handler.type is None:
-            return True
-        types = handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
-        return any(isinstance(t, ast.Name) and t.id in cls.CATCH_ALLS for t in types)
-
-    @staticmethod
-    def _reraises_non_resumable(handler):
-        """A guard counts only if its body is a bare ``raise``.
-
-        Checking the handler TYPE alone is what this test originally did, and it accepted
-        `except NON_RESUMABLE_DB_ERRORS: frappe.log_error(...); return False` -- which is
-        precisely the #470 defect wearing the right clause. A ratchet that can be satisfied
-        by the bug it exists to block is worse than none, because the docstring above it
-        starts telling people they are covered.
-        """
-        types = handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
-        if not any(isinstance(t, ast.Name) and t.id == "NON_RESUMABLE_DB_ERRORS" for t in types):
-            return False
-        return (
-            len(handler.body) == 1 and isinstance(handler.body[0], ast.Raise) and handler.body[0].exc is None
-        )
+    # Both predicates moved to tests/support/non_resumable_ast.py when #561's ratchet needed
+    # the same two questions. The shared rule is the STRICTER one: it also rejects
+    # `raise Wrapper(e)`, which replaces the exception and so defeats every caller keyed on
+    # the original class. This test's own rule -- "a guard counts only if its body is a bare
+    # raise" -- is preserved: checking the handler TYPE alone is what it did originally, and
+    # that accepted `except NON_RESUMABLE_DB_ERRORS: log(); return False`, i.e. the #470
+    # defect wearing the right clause.
 
     def _unguarded(self, source, tree):
         lines = source.splitlines()
@@ -301,14 +287,14 @@ class TestEverySwallowInTheTerminationPackage(VereningingenTestCase):
             if not isinstance(node, ast.Try):
                 continue
             for position, handler in enumerate(node.handlers):
-                if not self._catches_bare_exception(handler):
+                if not catches_bare_exception(handler):
                     continue
                 if EXEMPTION_MARKER in lines[handler.lineno - 1]:
                     continue
                 # The guard must come FIRST: Python matches handlers in order, so a
                 # NON_RESUMABLE clause below `except Exception` is dead code.
                 if any(
-                    self._reraises_non_resumable(earlier) and earlier.type is not None
+                    reraises_non_resumable(earlier) and earlier.type is not None
                     for earlier in node.handlers[:position]
                 ):
                     continue

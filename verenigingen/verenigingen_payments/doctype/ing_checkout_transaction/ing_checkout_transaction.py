@@ -21,6 +21,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt
 
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
+
 # Status code mapping from Pay.nl
 STATUS_MAP = {
     20: "Pending",
@@ -122,8 +124,17 @@ class INGCheckoutTransaction(Document):
                     f"ING Checkout transaction {self.name} paid but Payment Entry not created: {result['error']}"
                 )
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # The db_set and add_comment below are writes, and on a 1205/1213 they land on
+            # a transaction the server has discarded or half-applied -- so the "Paid -
+            # Payment Entry Failed" marker that exists to make this visible is itself the
+            # thing most likely to vanish. This runs synchronously inside the webhook, so
+            # propagating reaches ing_checkout/api/webhook.py, which sets HTTP 500 -- what
+            # the gateway retries on. (Whether Pay.nl in fact retries a 500 is the gateway's
+            # policy and is NOT verified here.)
+            raise
         except Exception as e:
-            frappe.db.rollback(save_point=savepoint_name)
+            rollback_to_savepoint(savepoint_name)
 
             # Mark transaction with failure status for visibility
             self.db_set("status", "Paid - Payment Entry Failed")

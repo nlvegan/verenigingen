@@ -12,6 +12,7 @@ from frappe.utils import add_days, cint, today
 from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
 from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.transaction_errors import rollback_to_savepoint
 
 
 def create_membership_invoice_with_amount(member, membership, amount):
@@ -296,7 +297,7 @@ def create_customer_for_member(member):
         # that gets this right; #561 tracks the remaining 16.
         raise
     except Exception as e:
-        frappe.db.rollback(save_point=savepoint_name)
+        rollback_to_savepoint(savepoint_name)
         # frappe.log_error signature is (title, message, ...). A positional
         # call with the long detail string first stores it as `title` (the
         # 140-char `method` field in Error Log) - the framework either
@@ -341,7 +342,7 @@ def insert_customer_with_duplicate_retry(customer_doc, max_attempts=3):
             frappe.db.release_savepoint(savepoint)
             return customer_doc
         except frappe.exceptions.DuplicateEntryError:
-            frappe.db.rollback(save_point=savepoint)
+            rollback_to_savepoint(savepoint)
             if attempt == max_attempts:
                 raise
             # Clear the assigned name + naming flag so the next insert re-derives
