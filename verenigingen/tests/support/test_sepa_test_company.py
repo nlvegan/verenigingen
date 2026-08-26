@@ -353,8 +353,8 @@ class TestOwnedGlBankAccount(FrappeTestCase):
         ba.account = gl_account
         ba.insert()
         frappe.db.commit()
-        self.addCleanup(self._delete_doc, "Bank", bank_name)
-        self.addCleanup(self._delete_doc, "Bank Account", ba.name)
+        self.addCleanup(self._delete_committed_doc, "Bank", bank_name)
+        self.addCleanup(self._delete_committed_doc, "Bank Account", ba.name)
         return ba.name
 
     def _delete_account_named(self, account_name):
@@ -363,9 +363,9 @@ class TestOwnedGlBankAccount(FrappeTestCase):
             "Account", {"company": self.company, "account_name": account_name}, "name"
         )
         if name:
-            self._delete_doc("Account", name)
+            self._delete_committed_doc("Account", name)
 
-    def _delete_doc(self, doctype, name):
+    def _delete_committed_doc(self, doctype, name):
         """The helpers under test commit, so their rows outlive the rollback."""
         if frappe.db.exists(doctype, name):
             frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
