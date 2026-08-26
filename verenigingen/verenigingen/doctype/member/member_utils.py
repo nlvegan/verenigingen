@@ -12,6 +12,10 @@ from verenigingen.utils.security.api_security_framework import (
     public_api,
     standard_api,
 )
+from verenigingen.verenigingen_payments.utils.mandate_candidates import (
+    cancel_active_mandates,
+    carry_forward_purposes,
+)
 
 
 def get_member_settings():
@@ -365,6 +369,14 @@ def create_sepa_mandate_from_bank_details(
     if not account_holder_name:
         account_holder_name = member_doc.full_name
 
+    # Cancel first. This endpoint created an Active mandate and superseded nothing,
+    # so it was a manufacturer of the two-Active-mandate state #584 is about --
+    # measured: on develop a second call with a new IBAN was accepted and left the
+    # member with 2 Active mandates.
+    superseded = cancel_active_mandates(
+        member, f"Replaced by a mandate created from bank details on {today()}"
+    )
+
     timestamp = now().replace(" ", "").replace("-", "").replace(":", "")[:14]
     mandate_id = f"M-{member_doc.member_id}-{timestamp}"
 
@@ -381,6 +393,8 @@ def create_sepa_mandate_from_bank_details(
 
     mandate.used_for_memberships = 1 if used_for_memberships else 0
     mandate.used_for_donations = 1 if used_for_donations else 0
+    # A replacement must not narrow what the member is collected for (#584).
+    carry_forward_purposes(mandate, superseded["purposes"])
 
     mandate.status = "Active"
     mandate.is_active = 1
@@ -836,45 +850,17 @@ def create_and_link_mandate(
         "SEPA Mandate", filters={"member": member, "status": "Active", "is_active": 1}, fields=["name"]
     )
 
-    if used_for_memberships:
-        for mandate_data in existing_mandates:
-            mandate = frappe.get_doc("SEPA Mandate", mandate_data.name)
-            if mandate.used_for_memberships:
-                mandate.status = "Suspended"
-                mandate.is_active = 0
-                from verenigingen.utils.secure_operations import secure_document_operation
-
-                suspend_result = secure_document_operation(
-                    operation="save",
-                    doc=mandate,
-                    justification=f"Suspend existing SEPA mandate {mandate.name} before creating new membership mandate for member {member}",
-                    required_permissions=["SEPA Mandate:write"],
-                )
-                if not suspend_result.success:
-                    frappe.throw(
-                        _("Failed to suspend existing mandate: {0}").format("; ".join(suspend_result.errors))
-                    )
-
-    if used_for_donations:
-        for mandate_data in existing_mandates:
-            mandate = frappe.get_doc("SEPA Mandate", mandate_data.name)
-            if mandate.used_for_donations and mandate.status == "Active":
-                mandate.status = "Suspended"
-                mandate.is_active = 0
-                from verenigingen.utils.secure_operations import secure_document_operation
-
-                suspend_result = secure_document_operation(
-                    operation="save",
-                    doc=mandate,
-                    justification=f"Suspend existing donation SEPA mandate {mandate.name} for member {member}",
-                    required_permissions=["SEPA Mandate:write"],
-                )
-                if not suspend_result.success:
-                    frappe.throw(
-                        _("Failed to suspend existing donation mandate: {0}").format(
-                            "; ".join(suspend_result.errors)
-                        )
-                    )
+    # Supersede EVERY Active mandate, not only those matching this call's purpose.
+    # A member may hold at most one Active mandate (#584), so the purpose-scoped
+    # version of this loop would leave a membership mandate Active while activating a
+    # donations one, and the guard would then reject the new mandate -- measured: on
+    # develop this call succeeded, on the branch it raised. Suspended (not Cancelled)
+    # is preserved: this flow's supersession has always been recoverable.
+    superseded = cancel_active_mandates(
+        member,
+        f"Superseded by a new SEPA mandate for member {member}",
+        new_status="Suspended",
+    )
 
     timestamp = now().replace(" ", "").replace("-", "").replace(":", "")[:14]
     mandate_id = f"M-{member_doc.member_id}-{timestamp}"
@@ -892,6 +878,8 @@ def create_and_link_mandate(
 
     mandate.used_for_memberships = 1 if used_for_memberships else 0
     mandate.used_for_donations = 1 if used_for_donations else 0
+    # A replacement must not narrow what the member is collected for (#584).
+    carry_forward_purposes(mandate, superseded["purposes"])
 
     mandate.status = "Active"
     mandate.is_active = 1

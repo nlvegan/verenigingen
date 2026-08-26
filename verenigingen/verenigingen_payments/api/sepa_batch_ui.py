@@ -194,7 +194,7 @@ def get_invoice_mandate_info(invoice: str):
     # given by name, so the old `ORDER BY sm.creation DESC LIMIT 1` was picking among
     # Active mandates, not among invoices, and its result is written straight into the
     # Direct Debit Batch row the SEPA XML is generated from (#584).
-    choice = unambiguous_active_mandate(data.member, "SEPA Batch UI: ambiguous mandate")
+    choice = unambiguous_active_mandate(data.member, "SEPA Batch UI: ambiguous mandate (invoice row)")
 
     if choice.is_ambiguous:
         return {
@@ -223,34 +223,30 @@ def validate_invoice_mandate(invoice: str, member: str):
     """Validate mandate for a specific invoice - optimized single query"""
 
     try:
-        # Single query to get member and active mandate data
-        result = frappe.db.sql(
-            """
-            SELECT
-                mem.name as member,
-                mem.full_name as member_name,
-                sm.name as mandate_name,
-                sm.iban,
-                sm.bic,
-                sm.mandate_id,
-                sm.sign_date,
-                sm.first_collection_date,
-                sm.expiry_date,
-                sm.status
-            FROM `tabMember` mem
-            LEFT JOIN `tabSEPA Mandate` sm ON sm.member = mem.name AND sm.status = 'Active'
-            WHERE mem.name = %(member)s
-            ORDER BY sm.creation DESC
-            LIMIT 1
-        """,
-            {"member": member},
-            as_dict=True,
-        )
-
-        if not result:
+        if not frappe.db.exists("Member", member):
             return {"valid": False, "error": _("Member not found")}
 
-        data = result[0]
+        # Same defect as `get_invoice_mandate_info` and, until #584, the same file:
+        # the member is given BY NAME, so `ORDER BY sm.creation DESC LIMIT 1` was
+        # picking among that member's Active mandates by recency. This one matters
+        # more -- `direct_debit_batch.js:578` calls it in a loop over every invoice
+        # in the batch and writes iban/bic/mandate_reference/mandate_date into each
+        # child row, which is what the SEPA XML is generated from.
+        choice = unambiguous_active_mandate(member, "SEPA Batch UI: ambiguous mandate (batch validation)")
+
+        if choice.is_ambiguous:
+            return {
+                "valid": False,
+                "error": _(
+                    "Member {0} has {1} active SEPA mandates; refusing to guess which "
+                    "IBAN to debit. Cancel all but one."
+                ).format(member, choice.candidates),
+            }
+
+        if not choice:
+            return {"valid": False, "error": _("No active SEPA mandate")}
+
+        data = choice.mandate
 
         if not data.iban or not data.mandate_id:
             return {"valid": False, "error": _("No active SEPA mandate")}

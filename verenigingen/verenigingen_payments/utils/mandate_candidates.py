@@ -1,4 +1,7 @@
-"""Resolve a member's Active SEPA Mandate, or refuse when the pick is ambiguous.
+"""The one-Active-mandate invariant: resolve it, or supersede it.
+
+Two halves of the same rule live here so that every flow enforcing it shares one
+implementation rather than a copy per call site.
 
 `get_invoice_mandate_info` used to resolve the mandate inside its invoice query as
 
@@ -29,7 +32,7 @@ from typing import Optional
 
 import frappe
 
-MANDATE_FIELDS = ["name", "mandate_id", "iban", "bic", "sign_date"]
+MANDATE_FIELDS = ["name", "mandate_id", "iban", "bic", "sign_date", "expiry_date", "status"]
 
 
 class MandateChoice:
@@ -86,3 +89,64 @@ def unambiguous_active_mandate(member: str, refusal_title: str) -> MandateChoice
         ),
     )
     return MandateChoice(None, len(rows))
+
+
+PURPOSE_FLAGS = ("used_for_memberships", "used_for_donations", "used_for_other")
+
+
+def cancel_active_mandates(member: str, reason: str, new_status: str = "Cancelled") -> dict:
+    """Cancel every Active mandate of a member; report what they were used for.
+
+    A member may hold at most one Active mandate (#584), so a replacement has to
+    cancel what is there first -- in that order. Activating first and tidying up
+    afterwards trips `SEPAMandate.validate_single_active_mandate` before the cleanup
+    can run.
+
+    Returns the cancelled names AND the union of their purpose flags. The union is
+    the part that is easy to get wrong: `SEPA Mandate` carries
+    `used_for_memberships` / `used_for_donations` / `used_for_other` as independent
+    checkboxes, so one mandate can serve several purposes. Replacing a
+    memberships mandate with a donations-only one and dropping the first would
+    silently stop that member's membership collections. Callers are expected to OR
+    the returned flags into the replacement.
+
+    `new_status` exists because `create_and_link_mandate` deliberately SUSPENDS
+    rather than cancels -- `enforce_terminal_status` treats Cancelled and Expired as
+    irreversible, Suspended as recoverable -- and converging these flows must not
+    quietly make a recoverable state terminal. Either satisfies the guard; only
+    `Active` does not.
+
+    Measured on veg11: all 66 Active mandates are memberships-only, and there are no
+    donation-only or dual-purpose mandates -- so this union is defensive today
+    rather than load-bearing. It is here because the flag combination is reachable
+    (three independent checkboxes) and the failure it prevents is silent.
+    """
+    cancelled = frappe.get_all(
+        "SEPA Mandate",
+        filters={"member": member, "status": "Active"},
+        fields=["name", *PURPOSE_FLAGS],
+    )
+
+    purposes = {flag: 0 for flag in PURPOSE_FLAGS}
+    names = []
+    for row in cancelled:
+        for flag in PURPOSE_FLAGS:
+            if row.get(flag):
+                purposes[flag] = 1
+        doc = frappe.get_doc("SEPA Mandate", row.name)
+        doc.status = new_status
+        doc.is_active = 0
+        if new_status == "Cancelled":
+            doc.cancelled_date = frappe.utils.today()
+            doc.cancellation_reason = reason
+        doc.save()
+        names.append(row.name)
+
+    return {"names": names, "purposes": purposes}
+
+
+def carry_forward_purposes(mandate, purposes: dict) -> None:
+    """OR a superseded mandate's purpose flags into its replacement."""
+    for flag, was_set in (purposes or {}).items():
+        if was_set:
+            mandate.set(flag, 1)

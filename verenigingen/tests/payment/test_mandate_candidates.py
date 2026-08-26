@@ -18,7 +18,11 @@ import frappe
 from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.verenigingen_payments.utils.mandate_candidates import unambiguous_active_mandate
+from verenigingen.verenigingen_payments.utils.mandate_candidates import (
+    cancel_active_mandates,
+    carry_forward_purposes,
+    unambiguous_active_mandate,
+)
 
 REFUSAL_TITLE = "Test: ambiguous mandate"
 
@@ -137,3 +141,153 @@ class TestUnambiguousActiveMandate(EnhancedTestCase):
         self.assertFalse(choice)
         self.assertFalse(choice.is_ambiguous)
         self.assertEqual(choice.candidates, 0)
+
+
+class TestCancelActiveMandates(EnhancedTestCase):
+    """The supersede half of the one-Active-mandate invariant (#584).
+
+    Four flows activate a mandate, and every one of them now has to cancel first.
+    The property that is easy to get wrong is not the cancelling -- it is that the
+    replacement must not silently NARROW what the member is collected for.
+    `used_for_memberships` / `used_for_donations` / `used_for_other` are three
+    independent checkboxes, so replacing a memberships mandate with a donations-only
+    one would otherwise end that member's membership collections with no error.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.member = self.create_test_member(first_name="CancelMand", last_name="Test")
+
+    def _mandate(self, iban, **flags):
+        doc = frappe.get_doc(
+            {
+                "doctype": "SEPA Mandate",
+                "mandate_id": f"CANC-{frappe.generate_hash(length=8)}",
+                "member": self.member.name,
+                "account_holder_name": self.member.full_name,
+                "iban": iban,
+                "sign_date": today(),
+                "status": "Draft",
+                "is_active": 0,
+                "mandate_type": "RCUR",
+                "scheme": "SEPA",
+                **flags,
+            }
+        )
+        doc.insert()
+        frappe.db.set_value(
+            "SEPA Mandate", doc.name, {"status": "Active", "is_active": 1}, update_modified=False
+        )
+        doc.reload()
+        return doc
+
+    def test_it_cancels_the_active_mandate_and_reports_it(self):
+        mandate = self._mandate("NL91ABNA0417164300")
+
+        result = cancel_active_mandates(self.member.name, "test reason")
+
+        self.assertEqual(result["names"], [mandate.name])
+        self.assertEqual(frappe.db.get_value("SEPA Mandate", mandate.name, "status"), "Cancelled")
+        self.assertEqual(frappe.db.get_value("SEPA Mandate", mandate.name, "is_active"), 0)
+        self.assertEqual(
+            frappe.db.get_value("SEPA Mandate", mandate.name, "cancellation_reason"), "test reason"
+        )
+
+    def test_it_leaves_non_active_mandates_alone(self):
+        """Draft siblings are how a replacement is staged -- cancelling them would
+        break the very flow the guard is meant to permit."""
+        draft = frappe.get_doc(
+            {
+                "doctype": "SEPA Mandate",
+                "mandate_id": f"CANC-{frappe.generate_hash(length=8)}",
+                "member": self.member.name,
+                "account_holder_name": self.member.full_name,
+                "iban": "NL39RABO0300065264",
+                "sign_date": today(),
+                "status": "Draft",
+                "is_active": 0,
+                "mandate_type": "RCUR",
+                "scheme": "SEPA",
+            }
+        )
+        draft.insert()
+
+        result = cancel_active_mandates(self.member.name, "test reason")
+
+        self.assertEqual(result["names"], [])
+        self.assertEqual(frappe.db.get_value("SEPA Mandate", draft.name, "status"), "Draft")
+
+    def test_the_purposes_of_what_it_cancelled_are_returned(self):
+        self._mandate("NL91ABNA0417164300", used_for_memberships=1, used_for_donations=0)
+
+        result = cancel_active_mandates(self.member.name, "test reason")
+
+        self.assertEqual(result["purposes"]["used_for_memberships"], 1)
+        self.assertEqual(result["purposes"]["used_for_donations"], 0)
+        self.assertEqual(result["purposes"]["used_for_other"], 0)
+
+    def test_a_donations_replacement_does_not_drop_memberships(self):
+        """The silent-narrowing failure, end to end."""
+        self._mandate("NL91ABNA0417164300", used_for_memberships=1, used_for_donations=0)
+
+        superseded = cancel_active_mandates(self.member.name, "test reason")
+
+        replacement = frappe.get_doc(
+            {
+                "doctype": "SEPA Mandate",
+                "mandate_id": f"CANC-{frappe.generate_hash(length=8)}",
+                "member": self.member.name,
+                "account_holder_name": self.member.full_name,
+                "iban": "NL39RABO0300065264",
+                "sign_date": today(),
+                "status": "Active",
+                "is_active": 1,
+                "mandate_type": "RCUR",
+                "scheme": "SEPA",
+                "used_for_memberships": 0,   # a donations-only replacement
+                "used_for_donations": 1,
+            }
+        )
+        carry_forward_purposes(replacement, superseded["purposes"])
+        replacement.insert()
+
+        self.assertEqual(
+            replacement.used_for_memberships,
+            1,
+            "the replacement dropped memberships -- this member would stop being collected",
+        )
+        self.assertEqual(replacement.used_for_donations, 1)
+
+    def test_suspended_is_available_and_does_not_stamp_a_cancellation(self):
+        """`create_and_link_mandate` supersedes recoverably; converging the flows
+        must not quietly turn that into a terminal state (`enforce_terminal_status`
+        treats Cancelled as irreversible, Suspended as not)."""
+        mandate = self._mandate("NL91ABNA0417164300")
+
+        cancel_active_mandates(self.member.name, "test reason", new_status="Suspended")
+
+        self.assertEqual(frappe.db.get_value("SEPA Mandate", mandate.name, "status"), "Suspended")
+        self.assertFalse(frappe.db.get_value("SEPA Mandate", mandate.name, "cancelled_date"))
+
+    def test_it_clears_the_way_for_the_guard(self):
+        """The point of the helper: after it runs, activating a replacement works."""
+        self._mandate("NL91ABNA0417164300")
+        cancel_active_mandates(self.member.name, "test reason")
+
+        replacement = frappe.get_doc(
+            {
+                "doctype": "SEPA Mandate",
+                "mandate_id": f"CANC-{frappe.generate_hash(length=8)}",
+                "member": self.member.name,
+                "account_holder_name": self.member.full_name,
+                "iban": "NL39RABO0300065264",
+                "sign_date": today(),
+                "status": "Active",
+                "is_active": 1,
+                "mandate_type": "RCUR",
+                "scheme": "SEPA",
+            }
+        )
+        replacement.insert()   # would raise if the old mandate were still Active
+
+        self.assertEqual(replacement.status, "Active")

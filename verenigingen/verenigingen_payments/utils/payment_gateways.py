@@ -36,6 +36,10 @@ from verenigingen.verenigingen_payments.utils.invoice_candidates import (
     log_ambiguous_refusal,
     unambiguous_invoice,
 )
+from verenigingen.verenigingen_payments.utils.mandate_candidates import (
+    cancel_active_mandates,
+    carry_forward_purposes,
+)
 from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
 
 
@@ -869,6 +873,20 @@ class SEPAGateway(PaymentGateway):
             # acceptable. `member` is not a required field.
             if donor.member:
                 mandate.member = donor.member
+
+                # A member holds at most one Active mandate (#584). Without this the
+                # insert below would be rejected for any member-donor who already has
+                # a membership mandate, and the rejection would surface to the donor
+                # as the generic "Failed to create SEPA mandate" -- a donation failing
+                # for a reason nobody could read. Supersede first, and carry the old
+                # purposes forward so paying by donation does not silently end the
+                # member's membership collections.
+                superseded = cancel_active_mandates(
+                    donor.member,
+                    f"Replaced by a donation mandate for donation {donation.name}",
+                )
+                carry_forward_purposes(mandate, superseded["purposes"])
+                mandate.used_for_donations = 1
 
             # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
             mandate_result = secure_document_operation(

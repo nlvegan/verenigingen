@@ -113,11 +113,15 @@ class TestSEPAMandateManager(EnhancedTestCase):
         anything -- the assertion that matters is that the Active mandate is
         returned and the Cancelled one is not.
         """
-        cancelled = self._create_test_mandate(
-            self.test_member.name, self.alternative_iban, status="Cancelled", is_active=0
-        )
+        # ACTIVE FIRST, deliberately. `get_active_mandates` orders `creation desc`,
+        # so creating the Cancelled one first would let creation order alone satisfy
+        # the assertion below: measured, the test then passed with the status filter
+        # deleted entirely. This ordering makes the status filter load-bearing.
         active = self._create_test_mandate(
             self.test_member.name, self.valid_iban, status="Active", is_active=1
+        )
+        cancelled = self._create_test_mandate(
+            self.test_member.name, self.alternative_iban, status="Cancelled", is_active=0
         )
 
         default_mandate = self.manager.get_default_mandate(self.test_member.name)

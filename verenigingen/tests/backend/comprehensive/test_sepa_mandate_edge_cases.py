@@ -216,11 +216,14 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
 
         This test used to assert the opposite for a different IBAN, on the grounds
         that "it supersedes mandate1 via the Member SEPA Mandate Link is_current
-        flag". Measured on test_site_1, no such supersession happens: both writers
-        compute ``is_current = 1 if status == "Active"``, so BOTH mandates are
-        flagged current, and the only code that clears a sibling's flag
-        (``MemberSEPAMandateLink.check_current_mandate``) is never called -- Frappe
-        does not run child-DocType ``validate()``. With no discriminator,
+        flag". Measured on test_site_1, no such supersession happens -- and it could
+        not have helped even if it did, because no mandate-resolution query reads
+        ``is_current`` at all; they all filter on ``status``. It is also unmaintained:
+        both writers compute ``is_current = 1 if status == "Active" and is_active``,
+        so BOTH mandates are flagged current, and the flag-clearing code that runs
+        automatically (``MemberSEPAMandateLink.check_current_mandate``) is never
+        called, because Frappe does not run child-DocType ``validate()`` (#596).
+        With no discriminator,
         ``get_invoice_mandate_info`` fell back to ``ORDER BY sm.creation DESC
         LIMIT 1`` and debited an arbitrary IBAN (#584).
 

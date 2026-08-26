@@ -73,13 +73,24 @@ class SEPAMandate(Document):
         "supersedes via the Member SEPA Mandate Link `is_current` flag". Measured on
         test_site_1, that mechanism does not exist:
 
-        - both writers compute ``is_current = 1 if status == "Active"``
+        - **no mandate-resolution query reads `is_current` at all.**
+          `get_invoice_mandate_info`, `validate_invoice_mandate` and
+          `get_active_mandates` all filter on `SEPA Mandate.status`; the only
+          `is_current = 1` readers are `sepa_mandate_diagnostics.py:171` and
+          `sepa_mandate_management.py:382`. Even a perfectly maintained flag could
+          not have disambiguated a direct debit;
+        - and it is not maintained: both writers compute
+          ``is_current = 1 if status == "Active" and is_active else 0``
           (`sepa_mandate_manager.py:678`,
           `sepa_mandate_member_integration_service.py:186`), so two Active mandates
           are BOTH flagged current;
-        - the only code that clears a sibling's flag,
+        - the flag-clearing code that runs automatically,
           ``MemberSEPAMandateLink.check_current_mandate``, is never called -- Frappe
-          does not run child-DocType ``validate()``. Spying the bound controller
+          does not run child-DocType ``validate()`` (#596). Three other sites do
+          clear siblings (`member_utils.py:757`, `member_utils.py:922`,
+          `member_sepa_mandate_link.js:70`), but the two Python ones are whitelisted
+          endpoints with no internal callers, so nothing clears it during an ordinary
+          save. Spying the bound controller
           class across an insert of two mandates plus an explicit ``member.save()``
           counted 0 invocations, and had it run it would have raised: it does
           ``self.parent.sepa_mandates`` where ``self.parent`` is a name, a string;
