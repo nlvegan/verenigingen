@@ -640,7 +640,8 @@ class SentinelObjectReturnTest(unittest.TestCase):
         """An explicit error return is the remedy this validator ASKS for.
 
         `Result(False, str(e))` hands the caller the cause, so it is not a swallow --
-        the same reason a non-empty dict has never been flagged.
+        the same reason a dict with a real value in it is not (`DictOfFalsyValuesTest`
+        below: a dict of ZEROS is flagged, an error report is not).
         """
         self.assertEqual(
             _flagged(
@@ -692,6 +693,281 @@ class FalsySequenceReturnTest(unittest.TestCase):
             ),
             [],
         )
+
+
+class DictOfFalsyValuesTest(unittest.TestCase):
+    """A non-empty dict whose every value is a falsy literal carries no cause (#589).
+
+    This reverses an exclusion the validator made on purpose from the day it was
+    written: `{"success": False, "error": str(e)}` is the remedy it PRINTS, and the
+    project's own notes record that shape as truthy-but-CORRECT. The distinction the
+    branch draws is not "empty vs non-empty" but "is there anywhere the cause could
+    be" -- `{"today": 0, "week": 0}` has nowhere, `{"error": str(e)}` has one.
+
+    Measured over both SCAN_ROOTS against the shipped rule, in BOTH directions: adds
+    exactly 8 sites, removes 0. The negative tests here are anchored by the positive
+    ones above them, so a predicate that simply stopped matching dicts would fail.
+    """
+
+    def test_dict_of_zeros_is_flagged(self):
+        """The dashboard-fallback shape: 7 of the 8 sites this adds."""
+        self.assertEqual(
+            len(
+                _flagged(
+                    "def f(x):\n"
+                    "    try:\n"
+                    "        return compute(x)\n"
+                    "    except Exception as e:\n"
+                    "        frappe.log_error('boom')\n"
+                    "        return {'today': 0, 'week': 0, 'daily_average': 0}\n"
+                )
+            ),
+            1,
+        )
+
+    def test_dict_of_all_false_permissions_is_flagged(self):
+        """The 8th site, and the one worth reading first.
+
+        `ChapterQueryService.get_user_permissions_optimized` hands back an all-`False`
+        permission dict when the roles query raises. That direction is fail-CLOSED, so
+        it is not PR #191 repeating -- there a permission hook returned `""`, which
+        ERPNext reads as UNRESTRICTED. It is still the same swallow: the caller cannot
+        tell "this user has no rights" from "the query blew up".
+        """
+        self.assertEqual(
+            len(
+                _flagged(
+                    "def get_user_permissions_optimized(user):\n"
+                    "    try:\n"
+                    "        return build_permissions(user)\n"
+                    "    except Exception as e:\n"
+                    "        frappe.log_error('boom')\n"
+                    "        return {'can_edit': False, 'can_delete': False}\n"
+                )
+            ),
+            1,
+        )
+
+    def test_empty_dict_is_still_flagged(self):
+        """The arm that existed before this one; it must survive the widening."""
+        self.assertEqual(
+            len(
+                _flagged(
+                    "def f(x):\n"
+                    "    try:\n"
+                    "        return compute(x)\n"
+                    "    except Exception:\n"
+                    "        frappe.log_error('boom')\n"
+                    "        return {}\n"
+                )
+            ),
+            1,
+        )
+
+    def test_dict_carrying_the_cause_is_not_flagged(self):
+        """The load-bearing negative: this is the remedy the validator prints.
+
+        Flagging `{"success": False, "error": str(e)}` would make the guard demand a
+        change it has no better answer for, and would redden a shape the project uses
+        deliberately.
+        """
+        self.assertEqual(
+            _flagged(
+                "def f(x):\n"
+                "    try:\n"
+                "        return compute(x)\n"
+                "    except Exception as e:\n"
+                "        frappe.log_error('boom')\n"
+                "        return {'success': False, 'error': str(e)}\n"
+            ),
+            [],
+        )
+
+    def test_one_real_value_keeps_the_whole_dict_unflagged(self):
+        """`all()` over the VALUES, not any(): one informative entry is enough."""
+        self.assertEqual(
+            _flagged(
+                "def f(x):\n"
+                "    try:\n"
+                "        return compute(x)\n"
+                "    except Exception:\n"
+                "        frappe.log_error('boom')\n"
+                "        return {'count': 0, 'message': 'lookup failed'}\n"
+            ),
+            [],
+        )
+
+    def test_a_non_literal_value_is_not_a_falsy_literal(self):
+        """`{**defaults}` and `{'rows': []}` hold expressions, not falsy CONSTANTS.
+
+        The arm deliberately matches `ast.Constant` only, exactly like the sequence
+        arm beside it. A nested empty container is a known limit, not an oversight:
+        widening to it is a separate measurement.
+        """
+        for value in ("{**defaults}", "{'rows': []}", "{'n': count}"):
+            with self.subTest(value=value):
+                self.assertEqual(
+                    _flagged(
+                        "def f(x):\n"
+                        "    try:\n"
+                        "        return compute(x)\n"
+                        "    except Exception:\n"
+                        "        frappe.log_error('boom')\n"
+                        f"        return {value}\n"
+                    ),
+                    [],
+                )
+
+    def test_widening_can_REMOVE_a_finding_through_condition_5(self):
+        """The hazard that makes the measurement two-directional, pinned as behaviour.
+
+        `_is_falsy_return` also feeds condition (5) -- "the enclosing function
+        elsewhere returns a real value". So a function whose ONLY non-handler return
+        is now recognised as falsy stops qualifying, and its swallow LEAVES the
+        report. That is how a previous widening deleted 6 genuine findings while
+        adding 7 false ones.
+
+        Measured on this tree the widening removes 0, because no such function exists
+        today -- this test is the construction that would have been removed, so the
+        mechanism is documented rather than merely asserted absent.
+        """
+        src = (
+            "def f(x):\n"
+            "    if x:\n"
+            "        return {'total': 0}\n"
+            "    try:\n"
+            "        return {'total': compute(x)}\n"
+            "    except Exception:\n"
+            "        frappe.log_error('boom')\n"
+            "        return None\n"
+        )
+        # The `try` branch returns a REAL dict, so (5) still holds and the site stands.
+        self.assertEqual(len(_flagged(src)), 1)
+        # Make every non-handler return a dict of zeros and (5) fails: nothing reported.
+        self.assertEqual(_flagged(src.replace("compute(x)", "0")), [])
+
+
+class EmptyFStringReturnTest(unittest.TestCase):
+    """`return f""` is `return ""`, but it parses as `ast.JoinedStr` (#589).
+
+    0 occurrences in the tree today. It is closed anyway because `""` is this
+    validator's flagship incident -- a permission hook returning it gave board members
+    org-wide project access (PR #191) -- and an f-string is a one-character edit away
+    from a plain string literal.
+    """
+
+    def test_empty_fstring_is_flagged(self):
+        self.assertEqual(
+            len(
+                _flagged(
+                    "def get_conditions(user):\n"
+                    "    try:\n"
+                    "        return build_condition(user)\n"
+                    "    except Exception:\n"
+                    "        frappe.log_error('boom')\n"
+                    '        return f""\n'
+                )
+            ),
+            1,
+        )
+
+    def test_fstring_interpolating_the_cause_is_not_flagged(self):
+        """`f"{e}"` has a FormattedValue part, so it is not an empty string."""
+        self.assertEqual(
+            _flagged(
+                "def get_conditions(user):\n"
+                "    try:\n"
+                "        return build_condition(user)\n"
+                "    except Exception as e:\n"
+                "        frappe.log_error('boom')\n"
+                '        return f"failed: {e}"\n'
+            ),
+            [],
+        )
+
+    def test_a_nonempty_fstring_literal_is_not_flagged(self):
+        self.assertEqual(
+            _flagged(
+                "def get_conditions(user):\n"
+                "    try:\n"
+                "        return build_condition(user)\n"
+                "    except Exception:\n"
+                "        frappe.log_error('boom')\n"
+                '        return f"1=0"\n'
+            ),
+            [],
+        )
+
+
+class EmptyConstructorReturnTest(unittest.TestCase):
+    """`dict()` IS `{}`, but `all([])` is True so the >=1-argument guard excludes it.
+
+    The guard cannot be relaxed -- measured, dropping it adds 7 false findings and
+    removes 6 real ones -- so these are reached by NAME instead. 0 occurrences in the
+    tree today; the negative tests below are what keep the allowlist from becoming the
+    relaxation it exists to avoid.
+    """
+
+    def test_empty_constructors_are_flagged(self):
+        for ctor in ("dict()", "list()", "tuple()", "set()", "frappe._dict()", "_dict()"):
+            with self.subTest(ctor=ctor):
+                self.assertEqual(
+                    len(
+                        _flagged(
+                            "def f(x):\n"
+                            "    try:\n"
+                            "        return compute(x)\n"
+                            "    except Exception:\n"
+                            "        frappe.log_error('boom')\n"
+                            f"        return {ctor}\n"
+                        )
+                    ),
+                    1,
+                )
+
+    def test_the_seven_false_positives_the_guard_exists_to_drop_stay_dropped(self):
+        """Every zero-argument call in the tree's broad handlers is one of these.
+
+        Measured over both SCAN_ROOTS: 11 distinct zero-argument calls are returned
+        from inside a broad `except`, all of them fallbacks, retries or
+        `OperationResult.fail(...).to_dict()` chains, and NOT ONE is an allowlisted
+        name. The allowlist is therefore additive by construction.
+        """
+        for call in (
+            "get_fallback_cost_center()",
+            "_get_empty_statistics()",
+            "get_empty_coverage_analysis()",
+            "self._load_payment_history_original()",
+            "OperationResult.fail('boom', errors=[], user=None).to_dict()",
+        ):
+            with self.subTest(call=call):
+                self.assertEqual(
+                    _flagged(
+                        "def f(x):\n"
+                        "    try:\n"
+                        "        return compute(x)\n"
+                        "    except Exception:\n"
+                        "        frappe.log_error('boom')\n"
+                        f"        return {call}\n"
+                    ),
+                    [],
+                )
+
+    def test_the_allowlist_matches_the_DOTTED_name_not_the_last_attribute(self):
+        """`self.dict()` is a method call, not the builtin; `x.list()` likewise."""
+        for call in ("self.dict()", "response.list()", "cache.set()"):
+            with self.subTest(call=call):
+                self.assertEqual(
+                    _flagged(
+                        "def f(x):\n"
+                        "    try:\n"
+                        "        return compute(x)\n"
+                        "    except Exception:\n"
+                        "        frappe.log_error('boom')\n"
+                        f"        return {call}\n"
+                    ),
+                    [],
+                )
 
 
 class ReturnsTheCauseTest(unittest.TestCase):

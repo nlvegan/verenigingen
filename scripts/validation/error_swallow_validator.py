@@ -57,12 +57,20 @@ None`` two lines below an identical no-data ``return None, None``. A call carryi
 the cause -- ``Result(False, str(e))`` -- is not a swallow, for the same reason a
 non-empty dict never was.
 
-Still out of scope on purpose: a non-empty DICT whose every value is a falsy
-literal (``{"today": 0, "week": 0}``), 8 sites. A non-empty dict is the shape this
-validator has always let through, because ``{"success": False, "error": str(e)}``
-is the remedy it prints; separating a zero-stats fallback from an error report is a
-different rule with its own false-positive surface, and it is tracked separately
-rather than smuggled in here.
+A non-empty DICT whose every value is a falsy literal (``{"today": 0, "week": 0}``)
+is now in scope too, 8 sites (#589). A non-empty dict was the shape this validator
+always let through, because ``{"success": False, "error": str(e)}`` is the remedy it
+prints -- but that dict has somewhere to put the cause and a dict of zeros does not.
+The caller cannot tell "no activity" from "the query blew up"; one of the 8 is an
+all-``False`` PERMISSION dict. An error report is still let through, because a value
+that is not a falsy literal is a place the cause can live.
+
+Two shapes with 0 occurrences today are closed alongside it rather than waited for:
+an empty f-string (``return f""`` parses as ``ast.JoinedStr``, not ``ast.Constant``,
+so the falsy-literal arm never saw it), and the argument-less falsy constructors
+``dict()``/``list()``/``tuple()``/``set()``/``frappe._dict()``, which the ``>= 1
+argument`` guard below necessarily excludes -- reachable only through a NAME
+allowlist, never by dropping that guard.
 
 On (3): this is a set of DISQUALIFIERS, not a whitelist of allowed statements.
 It used to require a body of only logging calls and returns, which meant a single
@@ -199,6 +207,16 @@ PROPAGATING_CALLS = {"throw", "exit", "_exit"}
 # inventing a swallow where the failure actually escapes.
 RAISE_UNLESS_DISABLED = {"handle_error", "handle_service_error"}
 
+# Argument-less constructors that ARE a falsy value. `all([])` is True, so the
+# `v.args or v.keywords` guard in `_is_falsy_return` excludes every zero-argument
+# call -- which is what keeps `get_fallback_cost_center()` and
+# `_get_empty_statistics()` out, and must keep doing so. A NAME allowlist is the
+# narrow way back in for the handful of calls whose value is falsy by definition.
+# Measured over both scan roots: the 11 distinct zero-argument calls returned from
+# inside a broad `except` are all of that fallback/retry kind, and NOT ONE is one of
+# these names -- so this reintroduces none of the 7 false positives (#589).
+FALSY_EMPTY_CONSTRUCTORS = {"dict", "list", "tuple", "set", "frappe._dict", "_dict"}
+
 # A def inside a handler puts real returns out of reach of this analysis.
 NESTED_DEFS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
 
@@ -243,8 +261,28 @@ def _is_falsy_return(node: ast.AST) -> bool:
     # only used to be caught here by the accident of `0 == False`.
     if isinstance(v, ast.Constant) and not v.value:
         return True
-    if isinstance(v, ast.Dict) and not v.keys:
-        return True
+    # `return f""` parses as a JoinedStr, not a Constant, so the arm above never sees
+    # it -- and `""` is the flagship incident. An f-string with no parts, or with only
+    # empty constant parts, IS `""`. 0 occurrences today (#589); the shape is closed
+    # here rather than waited for, because the cost of closing it is one branch.
+    if isinstance(v, ast.JoinedStr):
+        return all(isinstance(part, ast.Constant) and not part.value for part in v.values)
+    # An empty dict, or a non-empty one whose every value is a falsy LITERAL. The
+    # second half is new (#589) and reverses a deliberate exclusion: a non-empty dict
+    # was always let through because `{"success": False, "error": str(e)}` is the
+    # remedy this validator prints. That dict has somewhere to put the cause;
+    # `{"today": 0, "week": 0, "daily_average": 0}` does not, and its caller cannot
+    # tell "no activity" from "the query blew up". One of the 8 sites this adds
+    # returns an all-`False` PERMISSION dict. Measured over both scan roots, against
+    # the shipped rule and in BOTH directions: adds exactly 8 sites, removes none.
+    #
+    # A value that is not a falsy literal -- `str(e)`, a list of errors, a real count
+    # -- still makes the whole dict unflagged, which is what keeps an error report an
+    # error report.
+    if isinstance(v, ast.Dict):
+        return not v.keys or all(
+            isinstance(d, ast.Constant) and not d.value for d in v.values
+        )
     # An EMPTY sequence, or one holding nothing but falsy literals -- the same
     # argument, one step out. `return None, None` sits two lines below an identical
     # no-data `return None, None` in `MT940Import.get_transaction_date_range`, so the
@@ -274,14 +312,22 @@ def _is_falsy_return(node: ast.AST) -> bool:
     #          returns a real value" and their swallows would vanish.
     #
     # That second half is the standing hazard, and it applies to ANY future widening
-    # here: check both directions. The arms below were verified to remove nothing.
+    # here: check both directions. Every arm added since -- the sequence arm, the
+    # dict-of-falsy-values arm, the f-string arm, the allowlisted constructors --
+    # was measured against the shipped rule in BOTH directions and removes nothing.
     #
     # A call carrying the cause -- `Result(False, str(e))` -- stays unflagged for the
-    # same reason a non-empty dict always has: the caller can learn WHY it failed.
-    if isinstance(v, ast.Call) and (v.args or v.keywords):
-        return all(isinstance(a, ast.Constant) and not a.value for a in v.args) and all(
-            isinstance(k.value, ast.Constant) and not k.value.value for k in v.keywords
-        )
+    # same reason a dict with a real value in it is: the caller can learn WHY it failed.
+    if isinstance(v, ast.Call):
+        if v.args or v.keywords:
+            return all(isinstance(a, ast.Constant) and not a.value for a in v.args) and all(
+                isinstance(k.value, ast.Constant) and not k.value.value for k in v.keywords
+            )
+        # The zero-argument case the guard above excludes wholesale. `dict()` IS `{}`,
+        # so losing it is a real gap -- but it is closed by NAMING the constructors,
+        # never by relaxing the guard, which is what the 7-for-6 measurement above
+        # forbids. 0 occurrences today (#589).
+        return ast.unparse(v.func) in FALSY_EMPTY_CONSTRUCTORS
     return False
 
 
