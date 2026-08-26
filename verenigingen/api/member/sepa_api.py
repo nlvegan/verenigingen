@@ -18,6 +18,7 @@ Functions:
 
 import frappe
 from frappe import _
+from frappe.utils import today
 
 from verenigingen.utils.boolean_utils import cbool
 from verenigingen.utils.security.api_security_framework import (
@@ -26,6 +27,28 @@ from verenigingen.utils.security.api_security_framework import (
     high_security_api,
     self_service_api,
 )
+
+
+def _cancel_active_mandates(member: str, reason: str) -> list:
+    """Cancel every Active SEPA Mandate of a member, returning what was cancelled.
+
+    A member may hold at most one Active mandate (#584), so a replacement must cancel
+    what is there first. Both flows that activate a mandate need this, in this order:
+    activating first and cancelling afterwards would trip
+    ``SEPAMandate.validate_single_active_mandate`` before the cleanup could run.
+    """
+    cancelled = []
+    for old in frappe.get_all(
+        "SEPA Mandate", filters={"member": member, "status": "Active"}, fields=["name"]
+    ):
+        old_doc = frappe.get_doc("SEPA Mandate", old.name)
+        old_doc.status = "Cancelled"
+        old_doc.is_active = 0
+        old_doc.cancelled_date = today()
+        old_doc.cancellation_reason = reason
+        old_doc.save()
+        cancelled.append(old.name)
+    return cancelled
 
 
 @frappe.whitelist()
@@ -156,6 +179,11 @@ def create_and_link_mandate_enhanced(
         response_data = dict(result.data) if result.data else {}
         if response_data.get("mandate_name"):
             mandate_doc = frappe.get_doc("SEPA Mandate", response_data["mandate_name"])
+            # Cancel first: a member may hold at most one Active mandate (#584), and
+            # this flow used to activate without cancelling anything -- which is how
+            # two Active mandates came to exist and `get_invoice_mandate_info` came
+            # to pick between them by recency.
+            _cancel_active_mandates(member, f"Replaced by mandate {mandate_doc.mandate_id} on {today()}")
             mandate_doc.status = "Active"
             mandate_doc.is_active = 1
             mandate_doc.save()
@@ -369,17 +397,11 @@ def setup_sepa_direct_debit(iban: str = None, account_holder_name: str = None):
                 "redirect": "/payment_dashboard?success=bank_details_updated",
             }
 
-        # Deactivate any other active mandates for this member
-        old_mandates = frappe.get_all(
-            "SEPA Mandate",
-            filters={"member": member_name, "status": "Active", "is_active": 1},
-            fields=["name"],
-        )
-        for old in old_mandates:
-            old_doc = frappe.get_doc("SEPA Mandate", old.name)
-            old_doc.status = "Cancelled"
-            old_doc.is_active = 0
-            old_doc.save()
+        # Deactivate any other active mandates for this member. Note the filter no
+        # longer requires is_active=1: `status` is the field the guard and the batch
+        # query both read, and a row with status Active but is_active 0 would have
+        # been left behind to block the new mandate.
+        _cancel_active_mandates(member_name, f"Replaced by a new mandate on {today()}")
 
         # Generate unique mandate ID
         mandate_id = _generate_sepa_mandate_id(member_name)

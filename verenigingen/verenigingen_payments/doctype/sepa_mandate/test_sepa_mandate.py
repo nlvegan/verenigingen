@@ -42,6 +42,96 @@ class TestSEPAMandate(EnhancedTestCase):
             frappe.db.rollback()
         super().tearDown()
 
+    def test_second_active_mandate_with_a_different_iban_is_rejected(self):
+        """One Active mandate per member, whatever the IBAN.
+
+        The guard this widens keyed on member + IBAN, on the stated grounds that a
+        member switching banks legitimately holds two Active mandates and the older
+        one "supersedes via the Member SEPA Mandate Link is_current flag". Measured
+        on test_site_1, that mechanism does not exist:
+
+          - both writers compute ``is_current = 1 if status == "Active"``
+            (``sepa_mandate_manager.py:678``,
+            ``sepa_mandate_member_integration_service.py:186``), so two Active
+            mandates are BOTH flagged current;
+          - the only code that clears a sibling's flag,
+            ``MemberSEPAMandateLink.check_current_mandate``, is never called --
+            Frappe does not run child-DocType ``validate()``. Spying the bound
+            controller class across an insert of two mandates plus an explicit
+            ``member.save()`` counted 0 invocations. Had it run it would have
+            raised, because it does ``self.parent.sepa_mandates`` and ``self.parent``
+            is the parent's name, a string;
+          - ``deactivate_mandates_for_iban_change``, the purpose-built superseder,
+            has no production caller.
+
+        With no discriminator, ``get_invoice_mandate_info``'s
+        ``ORDER BY sm.creation DESC LIMIT 1`` decides which IBAN is debited (#584).
+        Blocking the second Active mandate is what makes that pick unambiguous.
+        """
+        self.mandate.status = "Active"
+        self.mandate.insert()
+
+        second = frappe.get_doc(
+            {
+                "doctype": "SEPA Mandate",
+                "mandate_id": f"TEST-MANDATE-{frappe.utils.random_string(8)}",
+                "member": self.test_member.name,
+                "account_holder_name": self.test_member.full_name,
+                # DIFFERENT IBAN -- the case the old guard deliberately allowed.
+                "iban": "NL39RABO0300065264",
+                "sign_date": today(),
+                "status": "Active",
+                "mandate_type": "RCUR",
+                "scheme": "SEPA",
+                "is_active": 1,
+                "used_for_memberships": 1,
+            }
+        )
+        with self.assertRaises(frappe.ValidationError) as caught:
+            second.insert()
+
+        # The message must name the mandate standing in the way, or an operator
+        # cannot act on it. Asserting only that *something* raised would also pass
+        # for an unrelated validation error -- the IBAN validator, say.
+        message = str(caught.exception)
+        self.assertIn(self.mandate.mandate_id, message)
+        self.assertFalse(
+            frappe.db.exists("SEPA Mandate", {"name": second.name or "", "status": "Active"}),
+            "the second Active mandate was persisted despite the guard",
+        )
+
+    def test_a_second_mandate_is_allowed_while_it_is_not_active(self):
+        """The guard must gate on Active, not on existence.
+
+        A bank switch is prepared by creating the new mandate and cancelling the
+        old one; if a Draft second mandate were rejected outright there would be no
+        way to stage that. This is the control for the test above -- without it,
+        that test would also pass against a guard that rejected every second
+        mandate, which would break the sanctioned flow.
+        """
+        self.mandate.status = "Active"
+        self.mandate.insert()
+
+        draft = frappe.get_doc(
+            {
+                "doctype": "SEPA Mandate",
+                "mandate_id": f"TEST-MANDATE-{frappe.utils.random_string(8)}",
+                "member": self.test_member.name,
+                "account_holder_name": self.test_member.full_name,
+                "iban": "NL39RABO0300065264",
+                "sign_date": today(),
+                "status": "Draft",
+                "mandate_type": "RCUR",
+                "scheme": "SEPA",
+                "is_active": 0,
+                "used_for_memberships": 1,
+            }
+        )
+        draft.insert()
+        self.addCleanup(frappe.delete_doc, "SEPA Mandate", draft.name, force=True)
+
+        self.assertEqual(frappe.db.get_value("SEPA Mandate", draft.name, "status"), "Draft")
+
     def test_validate_dates_future_sign_date(self):
         """Test that validation fails when sign date is in the future"""
         self.mandate.sign_date = add_days(today(), 5)  # 5 days in the future

@@ -40,7 +40,7 @@ class SEPAMandate(Document):
 
         # Run last: relies on the normalized IBAN (set by validate_iban) and the
         # final status (set by set_status_based_on_dates / sync_status_is_active).
-        self.validate_no_duplicate_active_mandate()
+        self.validate_single_active_mandate()
 
     def enforce_terminal_status(self):
         """Prevent reactivating a mandate that is in a terminal state.
@@ -65,32 +65,70 @@ class SEPAMandate(Document):
             self.status = previous_status
             self.is_active = 0
 
-    def validate_no_duplicate_active_mandate(self):
-        """Reject a second Active mandate that duplicates an existing one (same IBAN).
+    def validate_single_active_mandate(self):
+        """A member may hold at most ONE Active mandate, whatever the IBAN.
 
-        A member legitimately switches banks by creating a new mandate with a
-        different IBAN, which supersedes the old one via the Member SEPA Mandate
-        Link `is_current` flag. But two Active mandates sharing the same IBAN are a
-        genuine duplicate and must be rejected as a data-integrity error.
+        This used to key on member + IBAN, on the stated grounds that a member
+        switching banks legitimately holds two Active mandates and the older one
+        "supersedes via the Member SEPA Mandate Link `is_current` flag". Measured on
+        test_site_1, that mechanism does not exist:
+
+        - both writers compute ``is_current = 1 if status == "Active"``
+          (`sepa_mandate_manager.py:678`,
+          `sepa_mandate_member_integration_service.py:186`), so two Active mandates
+          are BOTH flagged current;
+        - the only code that clears a sibling's flag,
+          ``MemberSEPAMandateLink.check_current_mandate``, is never called -- Frappe
+          does not run child-DocType ``validate()``. Spying the bound controller
+          class across an insert of two mandates plus an explicit ``member.save()``
+          counted 0 invocations, and had it run it would have raised: it does
+          ``self.parent.sepa_mandates`` where ``self.parent`` is a name, a string;
+        - ``deactivate_mandates_for_iban_change``, the purpose-built superseder, has
+          no production caller.
+
+        With no discriminator, ``get_invoice_mandate_info``'s
+        ``ORDER BY sm.creation DESC LIMIT 1`` decides which IBAN a direct debit
+        collects on -- an arbitrary pick with real money behind it (#584).
+
+        A bank switch is still supported, and is what the sanctioned flow already
+        does (`api/member/sepa_api.setup_sepa_direct_debit`): cancel the old mandate,
+        then activate the new one. Draft and Suspended siblings are untouched, so a
+        replacement can still be staged before the switch.
+
+        This is defence in depth, not the only gate: `frappe.db.set_value` on
+        ``status`` bypasses ``validate`` entirely, which is why the read side refuses
+        an ambiguous pick rather than trusting this.
         """
-        if self.status != "Active" or not self.member or not self.iban:
+        if self.status != "Active" or not self.member:
             return
 
-        duplicate = frappe.db.exists(
+        existing = frappe.db.get_value(
             "SEPA Mandate",
             {
                 "member": self.member,
-                "iban": self.iban,
                 "status": "Active",
                 "name": ["!=", self.name or ""],
             },
+            ["name", "mandate_id", "iban"],
+            as_dict=True,
         )
-        if duplicate:
+        if not existing:
+            return
+
+        # Name the blocking mandate: without it an operator cannot act on the error.
+        if existing.iban and self.iban and existing.iban == self.iban:
             frappe.throw(
-                _("Member {0} already has an active SEPA mandate with this IBAN ({1}).").format(
-                    self.member, self.iban
+                _("Member {0} already has an active SEPA mandate with this IBAN ({1}): {2}.").format(
+                    self.member, self.iban, existing.mandate_id
                 )
             )
+        frappe.throw(
+            _(
+                "Member {0} already has an active SEPA mandate ({1}, IBAN {2}). "
+                "Cancel it before activating a new one -- a member with two active "
+                "mandates gets an arbitrarily chosen IBAN debited."
+            ).format(self.member, existing.mandate_id, existing.iban or _("not set"))
+        )
 
     def set_scheme_default(self):
         """Apply the JSON 'SEPA' default for the mandatory scheme field.
