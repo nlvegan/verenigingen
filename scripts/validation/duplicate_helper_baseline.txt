@@ -167,9 +167,7 @@ _ensure_cost_center::12  # clone family, 53% of pairs near-identical
 _ensure_current_fiscal_year::5  # clone family, 30% of pairs near-identical
 _ensure_customer::6
 _ensure_customer_bank_account::2
-_ensure_default_bank_account::2  # clone family, 100% of pairs near-identical
 _ensure_dues_item::2
-_ensure_eur_bank_account_doc::2
 _ensure_fiscal_year::13  # clone family, 27% of pairs near-identical
 _ensure_income_account::2  # clone family, 100% of pairs near-identical
 _ensure_item::2

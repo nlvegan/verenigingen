@@ -217,7 +217,7 @@ class ReconBase(EnhancedTestCase):
         bt.reference_number = reference_number or frappe.generate_hash(length=10)
         # Bank Transaction requires a bank account. Use the one belonging to the
         # company THIS class owns (setUpClass -> get_eur_test_company +
-        # _ensure_default_bank_account guarantee it exists). This used to be
+        # get_eur_bank_account guarantee it exists). This used to be
         # `get_value("Bank Account", {"is_company_account": 1}) or
         # get_value("Bank Account", {})` -- "whichever account is there", which
         # attaches these transactions to a company this module does not own and
