@@ -616,6 +616,19 @@ def _rel(path: Path) -> str:
 
 
 def _iter_py(paths: list[str]):
+    """Yield the .py files under `paths`, each PHYSICAL file exactly once.
+
+    Same dedupe, and the same reason, as `error_swallow_validator._iter_py`: a
+    symlinked module and its target are two `os.walk` entries but one file, and `_rel`
+    keys findings by `path.resolve()`, so both visits land on the same baseline key
+    and its count DOUBLES. That cost the swallow guard four free ratchet slots (#588).
+
+    Here it is LATENT rather than live, which is the only reason the baseline looks
+    clean: this validator walks the same collision -- measured, 3227 files, one
+    symlink, one same-target pair on `templates/pages/member_portal.py` -- and simply
+    has no finding in that file yet. The first one to land would arrive as `::2`.
+    """
+    candidates: list[Path] = []
     for raw in paths:
         p = Path(raw)
         if p.is_dir():
@@ -625,11 +638,17 @@ def _iter_py(paths: list[str]):
                     for d in dirnames
                     if d not in {"node_modules", ".git", "__pycache__", "worktrees", ".claude", "archived"}
                 ]
-                for fn in filenames:
-                    if fn.endswith(".py"):
-                        yield Path(dirpath) / fn
+                candidates.extend(Path(dirpath) / fn for fn in filenames if fn.endswith(".py"))
         elif p.suffix == ".py" and p.exists():
-            yield p
+            candidates.append(p)
+
+    seen: set[Path] = set()
+    for path in sorted(candidates, key=lambda q: (q.is_symlink(), str(q))):
+        target = path.resolve()
+        if target in seen:
+            continue
+        seen.add(target)
+        yield path
 
 
 def _counts(paths: list[str]) -> tuple[Counter, Counter, dict[str, list], list[str]]:

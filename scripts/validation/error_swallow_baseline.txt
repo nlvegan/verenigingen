@@ -48,12 +48,14 @@ verenigingen/api/email_template_manager.py::send_template_email::1
 verenigingen/api/member/financial_api.py::get_current_dues_schedule_details::1
 verenigingen/api/member_management.py::can_assign_member_to_chapter::1
 verenigingen/api/member_management.py::extract_transaction_data_improved::1
+verenigingen/api/mollie_payment.py::_check_mandate_validity::1
 verenigingen/api/payment_processing.py::send_chapter_notification::1
 verenigingen/api/payment_processing.py::send_payment_reminder_email::1
 verenigingen/api/security_monitoring_dashboard.py::_get_active_security_alerts::1
 verenigingen/api/security_monitoring_dashboard.py::_get_recent_security_events::1
 verenigingen/api/sepa_duplicate_prevention.py::_release_idempotency_lock::1
 verenigingen/api/sepa_duplicate_prevention.py::_release_redis_lock::1
+verenigingen/api/sepa_duplicate_prevention.py::_try_redis_lock::1
 verenigingen/auth_hooks.py::has_member_role::1
 verenigingen/auth_hooks.py::has_system_access::1
 verenigingen/auth_hooks.py::has_volunteer_role::1
@@ -121,6 +123,7 @@ verenigingen/repositories/dues_schedule_repository.py::DuesScheduleRepository.up
 verenigingen/services/approval/contribution_amendment_approval_service.py::ContributionAmendmentApprovalService.check_respects_minimum_fee::1
 verenigingen/services/approval/termination_approval_service.py::TerminationApprovalService.get_eligible_approvers::1
 verenigingen/services/billing/dues_schedule_creation_service.py::DuesScheduleCreationService._should_circuit_break::1
+verenigingen/services/billing/invoice_matcher.py::_find_invoice_by_calculated_coverage::1
 verenigingen/services/chapter/chapter_board_permissions.py::update_membership_permissions::1
 verenigingen/services/chapter/chapter_board_permissions.py::update_membership_termination_request_permissions::1
 verenigingen/services/chapter/chapter_board_permissions.py::update_volunteer_expense_permissions::1
@@ -200,10 +203,10 @@ verenigingen/templates/pages/chapter_dashboard.py::get_members_without_payment_i
 verenigingen/templates/pages/chapter_dashboard.py::get_pending_expense_approvals::1
 verenigingen/templates/pages/manage_donations.py::get_recent_donations::1
 verenigingen/templates/pages/manage_donations.py::get_recurring_donations::1
-verenigingen/templates/pages/member_portal.py::_build_chapter_info::2
-verenigingen/templates/pages/member_portal.py::get_all_member_chapters::2
-verenigingen/templates/pages/member_portal.py::get_member_chapter_info::2
-verenigingen/templates/pages/member_portal.py::get_payment_status::2
+verenigingen/templates/pages/member_portal.py::_build_chapter_info::1
+verenigingen/templates/pages/member_portal.py::get_all_member_chapters::1
+verenigingen/templates/pages/member_portal.py::get_member_chapter_info::1
+verenigingen/templates/pages/member_portal.py::get_payment_status::1
 verenigingen/templates/pages/membership_adjustment.py::get_member_fee_history::1
 verenigingen/templates/pages/volunteer/skills.py::get_skills_grouped_by_category::1
 verenigingen/utils/address_matching/dutch_address_normalizer.py::AddressFingerprintCollisionHandler.detect_collision::1
@@ -340,6 +343,7 @@ verenigingen/verenigingen/doctype/member/mixins/financial_mixin.py::FinancialMix
 verenigingen/verenigingen/doctype/member_contact_request/contact_request_automation.py::get_contact_request_analytics::1
 verenigingen/verenigingen/doctype/membership_dues_schedule/membership_dues_schedule.py::MembershipDuesSchedule.validate_member_eligibility_for_invoice::1
 verenigingen/verenigingen/doctype/membership_termination_request/membership_termination_request.py::send_disciplinary_notification::1
+verenigingen/verenigingen/doctype/mt940_import/mt940_import.py::MT940Import.get_transaction_date_range::1
 verenigingen/verenigingen/doctype/region/region.py::Region.get_region_chapters::1
 verenigingen/verenigingen/doctype/region/region.py::Region.get_region_statistics::1
 verenigingen/verenigingen/doctype/system_alert/system_alert.py::SystemAlert.create_alert::1

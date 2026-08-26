@@ -183,6 +183,47 @@ jobs:
         fi
         echo "Baseline did not grow."
 
+    # The other direction is the one that actually shipped. A SHRINK was accepted
+    # without question, and #586 is what that costs: a handler changed its return
+    # from `None` to `InvoiceChoice(None, 0)` -- same swallow, still logging, no
+    # behavioural change -- and the entry silently LEFT the baseline. The remedy the
+    # step above prints is `--update-baseline`, and the resulting diff shows a REMOVED
+    # line, so both read as progress.
+    #
+    # Deliberately NOT exempted when the validator changes, unlike the growth gate:
+    # a validator PR is exactly where a detection rule can be narrowed by accident,
+    # and this is the only step that would say so. It distinguishes three reasons an
+    # entry can leave without being fixed -- the falsy test no longer recognising the
+    # return, the logging call being DELETED (which makes it a silent swallow, worse
+    # than what was recorded), and the file dropping out of the SCAN. That last one
+    # matters because `.pre-commit-config.yaml` couples its `exclude` to SCAN_ROOTS by
+    # hand: measured, excluding `templates/` silently dropped 10 baselined entries and
+    # dropping the `scripts` root dropped 33.
+    #
+    # Known limit: the explainer shares the validator's own structural predicates, so
+    # narrowing `_is_broad` or `LOG_NAMES` is invisible to it. It sees a narrowing of
+    # the falsy test -- the heuristic, which has now been widened twice.
+    - name: Every shrink was actually a fix
+      if: github.event_name == 'pull_request'
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      run: |
+        BASELINE=scripts/validation/error_swallow_baseline.txt
+        if ! git cat-file -e "$BASE_SHA:$BASELINE" 2>/dev/null; then
+          echo "No baseline on the base branch yet — nothing to compare."
+          exit 0
+        fi
+        git show "$BASE_SHA:$BASELINE" > "$RUNNER_TEMP/base_swallow_baseline.txt"
+        # The base TREE, not just its baseline. Deleting a logging call takes an entry
+        # out of the baseline while making the code worse, and from the head tree alone
+        # that is indistinguishable from a function that always had a silent sibling --
+        # 2 of 435 baselined functions do, and reporting those turned the CORRECT fix
+        # into a red gate citing a deletion that never happened.
+        git worktree add --detach "$RUNNER_TEMP/base_tree" "$BASE_SHA" >/dev/null
+        python scripts/validation/error_swallow_validator.py \
+          --check-shrink "$RUNNER_TEMP/base_swallow_baseline.txt" \
+          --base-tree "$RUNNER_TEMP/base_tree"
+
   # Same shape as the swallowed-exception ratchet above, and for the same reason:
   # the pre-commit hook can be skipped (`git commit -n`, `SKIP=`), and it only ever
   # sees the files in one change. That is how this rule died the first time -- 40
