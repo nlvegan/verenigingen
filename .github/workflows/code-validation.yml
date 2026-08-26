@@ -183,6 +183,33 @@ jobs:
         fi
         echo "Baseline did not grow."
 
+    # The other direction is the one that actually shipped. A SHRINK was accepted
+    # without question, and #586 is what that costs: a handler changed its return
+    # from `None` to `InvoiceChoice(None, 0)` -- same swallow, still logging, no
+    # behavioural change -- and the entry silently LEFT the baseline. The remedy the
+    # step above prints is `--update-baseline`, and the resulting diff shows a REMOVED
+    # line, so both read as progress.
+    #
+    # Deliberately NOT exempted when the validator changes, unlike the growth gate:
+    # a validator PR is exactly where a detection rule can be narrowed by accident,
+    # and this is the only step that would say so. Known limit -- the explainer shares
+    # the validator's own predicates, so narrowing `_is_broad` or `LOG_NAMES` is
+    # invisible to it; it sees a narrowing of the FALSY test, which is the heuristic
+    # that has now been widened twice.
+    - name: Every shrink was actually a fix
+      if: github.event_name == 'pull_request'
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      run: |
+        BASELINE=scripts/validation/error_swallow_baseline.txt
+        if ! git cat-file -e "$BASE_SHA:$BASELINE" 2>/dev/null; then
+          echo "No baseline on the base branch yet — nothing to compare."
+          exit 0
+        fi
+        git show "$BASE_SHA:$BASELINE" > "$RUNNER_TEMP/base_swallow_baseline.txt"
+        python scripts/validation/error_swallow_validator.py \
+          --check-shrink "$RUNNER_TEMP/base_swallow_baseline.txt"
+
   # Same shape as the swallowed-exception ratchet above, and for the same reason:
   # the pre-commit hook can be skipped (`git commit -n`, `SKIP=`), and it only ever
   # sees the files in one change. That is how this rule died the first time -- 40

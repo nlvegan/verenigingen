@@ -48,6 +48,15 @@ trailing ``try`` on purpose -- falling off a handler in the MIDDLE of a function
 resumes it, so the caller still gets a real value and flagging it would be a
 false positive.
 
+Also on (4): a falsy-MEANING sentinel counts, not only a falsy-SHAPED literal. A
+handler changed from ``return None`` to ``return InvoiceChoice(None, 0)`` -- same
+swallow, still logging -- and the site silently LEFT the baseline. So a call whose
+arguments are ALL falsy literals is falsy too, provided it has at least one
+argument: without that guard the rule is satisfied vacuously by any argument-less
+call (``all([])`` is True), which measured 1 true positive against 10 false
+positives on this tree. A call carrying the cause -- ``Result(False, str(e))`` --
+is not a swallow, for the same reason a non-empty dict never was.
+
 On (3): this is a set of DISQUALIFIERS, not a whitelist of allowed statements.
 It used to require a body of only logging calls and returns, which meant a single
 ``cleanup()`` call or an ``error_msg = str(e)[:100]`` truncation hid the site
@@ -94,6 +103,16 @@ an ALREADY-baselined function is still caught.
 
     python scripts/validation/error_swallow_validator.py --update-baseline
 
+A SHRINK is the one direction this ratchet used to accept without question, which
+is how the sentinel gap above nearly shipped: nothing in the output distinguishes
+"this swallow was fixed" from "this swallow became unrecognisable", and the diff
+shows a REMOVED line either way. ``--check-shrink <base baseline>`` re-reads every
+entry whose count dropped and fails if the handler is still broad, still logging,
+still non-propagating and still in a function that returns real values -- i.e. if
+only the falsy test stopped recognising it::
+
+    python scripts/validation/error_swallow_validator.py --check-shrink base.txt
+
 Escape hatch, matching the ``cache-guard-ok`` convention already used by
 ``cache_guard_validator.py``::
 
@@ -114,6 +133,7 @@ import re
 import sys
 from collections import Counter
 from pathlib import Path
+from typing import NamedTuple
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BASELINE = Path(__file__).with_name("error_swallow_baseline.txt")
@@ -212,6 +232,27 @@ def _is_falsy_return(node: ast.AST) -> bool:
         return True
     if isinstance(v, (ast.List, ast.Tuple, ast.Set)) and not v.elts:
         return True
+    # A falsy-MEANING sentinel is not a falsy-SHAPED literal. One handler was
+    # changed from `return None` to `return InvoiceChoice(None, 0)` -- the same
+    # swallow, still logging, no behavioural change at all -- and the site silently
+    # LEFT the baseline, which reads as progress (#586).
+    #
+    # The `v.args or v.keywords` guard is the load-bearing part. "A call whose
+    # arguments are all falsy" -- the shape the issue itself suggested -- is
+    # satisfied VACUOUSLY by a call with no arguments, because `all([])` is True.
+    # Measured over both scan roots, that rule scored 1 true positive and 10 false
+    # positives: `get_fallback_cost_center()`, `_get_empty_statistics()`,
+    # `get_empty_coverage_analysis()`, `self._load_payment_history_original()` and
+    # three `OperationResult.fail(...).to_dict()` chains, whose OUTER call is the
+    # argument-less `to_dict()`. Requiring one argument keeps the true positive and
+    # drops all ten.
+    #
+    # A call carrying the cause -- `Result(False, str(e))` -- stays unflagged for the
+    # same reason a non-empty dict always has: the caller can learn WHY it failed.
+    if isinstance(v, ast.Call) and (v.args or v.keywords):
+        return all(isinstance(a, ast.Constant) and not a.value for a in v.args) and all(
+            isinstance(k.value, ast.Constant) and not k.value.value for k in v.keywords
+        )
     return False
 
 
@@ -350,6 +391,132 @@ def scan_file(path: Path):
     return findings, bad_pragmas
 
 
+class UnexplainedShrink(NamedTuple):
+    """A baseline entry that left while its handler still looks like a swallow."""
+
+    key: str
+    lineno: int
+    source: str
+
+
+def _mentions_bound_exception(handler: ast.ExceptHandler) -> bool:
+    """True if what the caller receives can carry the cause.
+
+    `except Exception as e: ... return {"success": False, "error": str(e)}` is the
+    remedy this validator PRINTS, so a baseline entry leaving because it changed into
+    that shape is a real fix. A handler with no `as` binding cannot name the cause in
+    its return at all, so it never qualifies.
+
+    Known limit: only the bound name counts. A return built from
+    `frappe.get_traceback()` also carries the cause and is reported here as
+    unexplained -- a false alarm on a genuine fix, which is the safe direction for a
+    check whose whole purpose is to make a shrink get looked at.
+    """
+    if not handler.name:
+        return False
+    return any(
+        isinstance(n, ast.Name) and n.id == handler.name
+        for r in ast.walk(handler)
+        if isinstance(r, ast.Return) and r.value is not None
+        for n in ast.walk(r.value)
+    )
+
+
+def _unrecognised_swallows(fn: ast.AST, lines: list[str]) -> list[ast.ExceptHandler]:
+    """Handlers satisfying every condition EXCEPT (4), the falsy test.
+
+    (4) is the heuristic; 1-3 and 5 are structural. A handler that still is broad,
+    still logs, still never propagates and still sits in a function returning real
+    values has NOT been fixed if it left the baseline -- it has become unrecognisable.
+
+    Handlers whose return can carry the cause are excluded: that is the remedy this
+    validator prints, so shrinking into it is a real fix. Handlers with no return at
+    all are excluded too -- falling off a handler in the middle of a function resumes
+    it, which the main rule already treats as a true negative.
+
+    Dropping (4) alone matches 936 sites tree-wide, so this is deliberately NOT a
+    second detector. It is only ever asked about the handful of entries a PR removes.
+    """
+    returns_real = any(
+        isinstance(n, ast.Return) and n.value is not None and not _is_falsy_return(n)
+        for n in _own_nodes(fn)
+    )
+    if not returns_real:
+        return []  # (5) gone: the falsy return is no longer load-bearing
+
+    out: list[ast.ExceptHandler] = []
+    for node in _own_nodes(fn):
+        if not isinstance(node, ast.ExceptHandler) or not _is_broad(node):
+            continue
+        if _propagates(node):
+            continue  # the failure leaves the handler now: a real fix
+        inner = list(ast.walk(node))
+        if not any(_is_log_call(n) for n in inner):
+            continue
+        if any(isinstance(n, NESTED_DEFS) for n in inner):
+            continue
+        if any(isinstance(n, (ast.Continue, ast.Break)) for n in inner):
+            continue
+        rets = [n for n in inner if isinstance(n, ast.Return)]
+        if not rets or all(_is_falsy_return(r) for r in rets):
+            continue  # no return, or still recognised -- either way not this gap
+        if _suppressed(node, lines)[0]:
+            continue  # deliberately marked, which is a reviewable exit
+        if _mentions_bound_exception(node):
+            continue
+        out.append(node)
+    return sorted(out, key=lambda h: h.lineno)
+
+
+def explain_shrink(baseline: dict[str, int], paths: list[str]) -> list[UnexplainedShrink]:
+    """Baseline entries whose count DROPPED without the swallow being fixed.
+
+    A shrink is the one direction the ratchet accepts without question, and that is
+    how #586 nearly shipped: a handler's return changed from ``None`` to
+    ``InvoiceChoice(None, 0)`` and the entry left the baseline. The instruction
+    printed on that failure is ``--update-baseline``, and the resulting diff shows a
+    REMOVED line -- both read as progress.
+
+    The comparison is a COUNT, not a search, because a function may hold several
+    swallows. Fixing one of two leaves the other still flagged, and a find-first rule
+    reported that survivor as an unexplained shrink -- four such false alarms on the
+    symlink fix in this very commit. Only ``missing - <entries still counted>`` can
+    possibly be unrecognised, so at most that many are reported.
+    """
+    counts, _ = _counts(paths)
+    by_path: dict[str, list[tuple[str, int]]] = {}
+    for key, known in baseline.items():
+        missing = known - counts.get(key, 0)
+        if missing <= 0:
+            continue
+        rel, _, qualname = key.partition("::")
+        by_path.setdefault(rel, []).append((qualname, missing))
+
+    out: list[UnexplainedShrink] = []
+    for rel in sorted(by_path):
+        try:
+            source = (REPO_ROOT / rel).read_text(encoding="utf-8")
+            tree = ast.parse(source)
+        except (OSError, SyntaxError):
+            continue  # the file is gone or unparseable: the shrink explains itself
+        lines = source.splitlines()
+        fns = dict(_qualnames(tree))
+        for qualname, missing in sorted(by_path[rel]):
+            fn = fns.get(qualname)
+            if fn is None:
+                continue  # deleted or renamed: explained
+            for handler in _unrecognised_swallows(fn, lines)[:missing]:
+                segment = ast.get_source_segment(source, handler) or ""
+                out.append(
+                    UnexplainedShrink(
+                        f"{rel}::{qualname}",
+                        handler.lineno,
+                        segment.splitlines()[0].strip() if segment else "",
+                    )
+                )
+    return out
+
+
 def _rel(path: Path) -> str:
     try:
         return str(path.resolve().relative_to(REPO_ROOT))
@@ -358,6 +525,27 @@ def _rel(path: Path) -> str:
 
 
 def _iter_py(paths: list[str]):
+    """Yield the .py files under `paths`, each PHYSICAL file exactly once.
+
+    A symlinked module and its target are two `os.walk` entries but one file, and
+    `_rel` keys findings by `path.resolve()` -- so both visits land on the SAME
+    baseline key and its count doubles. `templates/pages/me.py` is a symlink to
+    `member_portal.py`, which is why all four of that file's swallow sites were
+    recorded as `::2`: the gate fires on `count > baseline`, so `2 > 2` is false and
+    a second real swallow could be added to any of those four functions unnoticed
+    (#588).
+
+    Neither CI gate could see it. "Baseline is in sync with the tree" regenerates
+    and diffs, and the doubling is deterministic, so the regenerated file is
+    byte-identical. "Baseline did not grow" compares totals that were already
+    inflated on both sides.
+
+    Deduping here rather than in `_rel` also means the file is parsed once instead
+    of twice and merged. The real file is preferred over the link so the baseline
+    key names a path a reader can open, and the walk is sorted so which of two
+    links to the same target wins does not depend on directory order.
+    """
+    candidates: list[Path] = []
     for raw in paths:
         p = Path(raw)
         if p.is_dir():
@@ -367,11 +555,17 @@ def _iter_py(paths: list[str]):
                     for d in dirnames
                     if d not in {"node_modules", ".git", "__pycache__", "worktrees", ".claude", "archived"}
                 ]
-                for fn in filenames:
-                    if fn.endswith(".py"):
-                        yield Path(dirpath) / fn
+                candidates.extend(Path(dirpath) / fn for fn in filenames if fn.endswith(".py"))
         elif p.suffix == ".py" and p.exists():
-            yield p
+            candidates.append(p)
+
+    seen: set[Path] = set()
+    for path in sorted(candidates, key=lambda q: (q.is_symlink(), str(q))):
+        target = path.resolve()
+        if target in seen:
+            continue
+        seen.add(target)
+        yield path
 
 
 def _counts(paths: list[str]) -> tuple[Counter, list[str]]:
@@ -434,9 +628,35 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE)
     ap.add_argument("--update-baseline", action="store_true")
     ap.add_argument("--stats", action="store_true", help="print totals and exit 0")
+    ap.add_argument(
+        "--check-shrink",
+        type=Path,
+        metavar="BASE_BASELINE",
+        help="report entries that LEFT that baseline without the swallow being fixed",
+    )
     args = ap.parse_args(argv[1:])
 
     paths = args.paths or list(SCAN_ROOTS)
+
+    if args.check_shrink:
+        unexplained = explain_shrink(
+            load_baseline(args.check_shrink), [str(REPO_ROOT / root) for root in SCAN_ROOTS]
+        )
+        if not unexplained:
+            print("Every entry that left the baseline was fixed, deleted or marked.")
+            return 0
+        print("\n\U0001f6d1 Baseline entries that LEFT without the swallow being fixed\n")
+        for u in unexplained:
+            print(f"  {u.key}  (line {u.lineno})\n      {u.source}")
+        print(
+            "\n  Each handler above is still broad, still logs, still never propagates, and\n"
+            "  still sits in a function that returns real values -- only the falsy test\n"
+            "  stopped recognising what it hands back. Nothing distinguishes that from a\n"
+            "  fix, and the diff shows a REMOVED line, so both read as progress.\n\n"
+            "  Either fix the handler, mark it `# swallow-ok: <reason>`, or teach\n"
+            "  `_is_falsy_return` the new shape IN THE SAME COMMIT as the regeneration.\n"
+        )
+        return 1
 
     if args.update_baseline:
         counts, _ = _counts([str(REPO_ROOT / root) for root in SCAN_ROOTS])

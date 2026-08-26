@@ -556,5 +556,241 @@ class PragmaTest(unittest.TestCase):
         self.assertEqual(findings, [])
 
 
+class SentinelObjectReturnTest(unittest.TestCase):
+    """Condition (4) beyond literals: a falsy-MEANING sentinel (#586).
+
+    PR #585 changed one handler from `return None` to `return InvoiceChoice(None, 0)`
+    -- no behavioural change at all -- and the site DROPPED OUT of the baseline,
+    because every branch of `_is_falsy_return` matched only a literal. A swallow that
+    leaves the baseline reads as progress, and the printed remedy is
+    `--update-baseline`, so the default action converts a guarded site into an
+    unguarded one.
+
+    Measured across `verenigingen/` and `scripts/`: handlers whose every return is a
+    call with at least one argument, all of them falsy literals -- ONE, the site
+    above. So this is a narrow widening, not a class; the tests below pin the two
+    shapes that must NOT be swept in with it.
+    """
+
+    def test_call_with_all_falsy_args_is_flagged(self):
+        """The #585 shape: a result object carrying no information at all."""
+        self.assertEqual(
+            len(
+                _flagged(
+                    "def f(x):\n"
+                    "    try:\n"
+                    "        return Choice(compute(x), 1)\n"
+                    "    except Exception:\n"
+                    "        frappe.log_error('boom')\n"
+                    "        return Choice(None, 0)\n"
+                )
+            ),
+            1,
+        )
+
+    def test_zero_argument_call_is_not_flagged(self):
+        """The issue's own suggested rule -- "all arguments are falsy" -- is wrong.
+
+        `all([])` is True, so a call with NO arguments satisfies it vacuously. That
+        rule was measured against the tree: 1 true positive and 10 false positives,
+        every one of them a real fallback or an explicit error return --
+        `get_fallback_cost_center()`, `_get_empty_statistics()`,
+        `self._load_payment_history_original()`, and three
+        `OperationResult.fail(...).to_dict()` chains whose OUTER call is `to_dict()`.
+        """
+        self.assertEqual(
+            _flagged(
+                "def f(x):\n"
+                "    try:\n"
+                "        return compute(x)\n"
+                "    except Exception:\n"
+                "        frappe.log_error('boom')\n"
+                "        return get_fallback_cost_center()\n"
+            ),
+            [],
+        )
+
+    def test_call_carrying_the_cause_is_not_flagged(self):
+        """An explicit error return is the remedy this validator ASKS for.
+
+        `Result(False, str(e))` hands the caller the cause, so it is not a swallow --
+        the same reason a non-empty dict has never been flagged.
+        """
+        self.assertEqual(
+            _flagged(
+                "def f(x):\n"
+                "    try:\n"
+                "        return compute(x)\n"
+                "    except Exception as e:\n"
+                "        frappe.log_error('boom')\n"
+                "        return Result(False, str(e))\n"
+            ),
+            [],
+        )
+
+
+class SymlinkedModuleTest(unittest.TestCase):
+    """A symlinked module must be counted ONCE (#588).
+
+    `_iter_py` walks with os.walk, which yields a symlink and its target as two
+    files, and `_rel` keys the finding by `path.resolve()` -- which collapses them
+    onto the same baseline key. `verenigingen/templates/pages/me.py` is a symlink to
+    `member_portal.py`, so all four of that file's swallow sites were recorded as
+    `::2`, and the ratchet fires only on `count > baseline`. Four free slots.
+
+    Neither of the guard's CI gates can see it: "baseline is in sync" regenerates and
+    the doubling is deterministic, and "baseline did not grow" compares totals that
+    were already inflated on both sides.
+    """
+
+    def _tree(self, d: Path) -> None:
+        pkg = d / "pkg"
+        pkg.mkdir()
+        (pkg / "mod.py").write_text(
+            "def f(x):\n"
+            "    try:\n"
+            "        return compute(x)\n"
+            "    except Exception:\n"
+            "        frappe.log_error('boom')\n"
+            "        return None\n"
+        )
+        (pkg / "alias.py").symlink_to("mod.py")
+
+    def test_iter_py_yields_each_file_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            self._tree(d)
+            found = sorted(p.name for p in esv._iter_py([str(d)]))
+            self.assertEqual(found, ["mod.py"])
+
+    def test_symlinked_module_is_counted_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp).resolve()
+            self._tree(d)
+            original = esv.REPO_ROOT
+            esv.REPO_ROOT = d
+            try:
+                counts, _ = esv._counts([str(d)])
+            finally:
+                esv.REPO_ROOT = original
+            self.assertEqual(dict(counts), {"pkg/mod.py::f": 1})
+
+
+class ShrinkExplanationTest(unittest.TestCase):
+    """A baseline entry that LEAVES must say why (#586).
+
+    The gate is the point of the issue: nothing in the guard distinguishes "this
+    swallow was fixed" from "this swallow became unrecognisable", and a diff showing
+    a REMOVED line reads as good news either way. Only the shrunken keys are
+    examined, so the discriminator does not need to be right across the whole tree --
+    only on the handful of entries a PR actually removes.
+    """
+
+    def _shrink(self, src: str, key: str):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp).resolve()
+            (d / "mod.py").write_text(src)
+            original = esv.REPO_ROOT
+            esv.REPO_ROOT = d
+            try:
+                return esv.explain_shrink({key: 1}, [str(d)])
+            finally:
+                esv.REPO_ROOT = original
+
+    def test_unrecognised_shape_is_reported(self):
+        """The #585 incident, with the widening reverted -- an enum member."""
+        unexplained = self._shrink(
+            "def f(x):\n"
+            "    try:\n"
+            "        return compute(x)\n"
+            "    except Exception:\n"
+            "        frappe.log_error('boom')\n"
+            "        return State.NOT_FOUND\n",
+            "mod.py::f",
+        )
+        self.assertEqual([u.key for u in unexplained], ["mod.py::f"])
+
+    def test_a_reraise_explains_the_shrink(self):
+        """The failure now leaves the handler: a real fix, reported as one."""
+        self.assertEqual(
+            self._shrink(
+                "def f(x):\n"
+                "    try:\n"
+                "        return compute(x)\n"
+                "    except Exception:\n"
+                "        frappe.log_error('boom')\n"
+                "        raise\n",
+                "mod.py::f",
+            ),
+            [],
+        )
+
+    def test_a_return_carrying_the_cause_explains_the_shrink(self):
+        """The remedy the validator prints: hand the caller an explicit error."""
+        self.assertEqual(
+            self._shrink(
+                "def f(x):\n"
+                "    try:\n"
+                "        return compute(x)\n"
+                "    except Exception as e:\n"
+                "        frappe.log_error('boom')\n"
+                "        return {'success': False, 'error': str(e)}\n",
+                "mod.py::f",
+            ),
+            [],
+        )
+
+    def test_a_deleted_function_explains_the_shrink(self):
+        """The commonest legitimate shrink of all: the code is gone."""
+        self.assertEqual(self._shrink("def g(x):\n    return x\n", "mod.py::f"), [])
+
+    def test_fixing_one_of_two_swallows_does_not_report_the_survivor(self):
+        """The false alarm a find-first rule produced, pinned.
+
+        A function may hold several swallows. Fixing one leaves the other still
+        counted, and asking "is there STILL a swallow-shaped handler here" answers
+        yes -- which reported four `member_portal.py` survivors as unexplained when
+        the symlink double-count was removed. Only `missing - still counted` entries
+        can possibly have become unrecognisable.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp).resolve()
+            (d / "mod.py").write_text(
+                "def f(x):\n"
+                "    try:\n"
+                "        return compute(x)\n"
+                "    except Exception:\n"
+                "        frappe.log_error('one')\n"
+                "        raise\n"
+                "    try:\n"
+                "        return compute(x)\n"
+                "    except Exception:\n"
+                "        frappe.log_error('two')\n"
+                "        return None\n"
+            )
+            original = esv.REPO_ROOT
+            esv.REPO_ROOT = d
+            try:
+                # the baseline knew TWO; one now re-raises, the other is still counted
+                self.assertEqual(esv.explain_shrink({"mod.py::f": 2}, [str(d)]), [])
+            finally:
+                esv.REPO_ROOT = original
+
+    def test_a_pragma_explains_the_shrink(self):
+        """A `swallow-ok` marker is a deliberate, reviewable exit from the baseline."""
+        self.assertEqual(
+            self._shrink(
+                "def f(x):\n"
+                "    try:\n"
+                "        return compute(x)\n"
+                "    except Exception:  # swallow-ok: best-effort\n"
+                "        frappe.log_error('boom')\n"
+                "        return None\n",
+                "mod.py::f",
+            ),
+            [],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

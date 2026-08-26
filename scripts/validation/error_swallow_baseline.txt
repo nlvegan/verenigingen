@@ -121,6 +121,7 @@ verenigingen/repositories/dues_schedule_repository.py::DuesScheduleRepository.up
 verenigingen/services/approval/contribution_amendment_approval_service.py::ContributionAmendmentApprovalService.check_respects_minimum_fee::1
 verenigingen/services/approval/termination_approval_service.py::TerminationApprovalService.get_eligible_approvers::1
 verenigingen/services/billing/dues_schedule_creation_service.py::DuesScheduleCreationService._should_circuit_break::1
+verenigingen/services/billing/invoice_matcher.py::_find_invoice_by_calculated_coverage::1
 verenigingen/services/chapter/chapter_board_permissions.py::update_membership_permissions::1
 verenigingen/services/chapter/chapter_board_permissions.py::update_membership_termination_request_permissions::1
 verenigingen/services/chapter/chapter_board_permissions.py::update_volunteer_expense_permissions::1
@@ -200,10 +201,10 @@ verenigingen/templates/pages/chapter_dashboard.py::get_members_without_payment_i
 verenigingen/templates/pages/chapter_dashboard.py::get_pending_expense_approvals::1
 verenigingen/templates/pages/manage_donations.py::get_recent_donations::1
 verenigingen/templates/pages/manage_donations.py::get_recurring_donations::1
-verenigingen/templates/pages/member_portal.py::_build_chapter_info::2
-verenigingen/templates/pages/member_portal.py::get_all_member_chapters::2
-verenigingen/templates/pages/member_portal.py::get_member_chapter_info::2
-verenigingen/templates/pages/member_portal.py::get_payment_status::2
+verenigingen/templates/pages/member_portal.py::_build_chapter_info::1
+verenigingen/templates/pages/member_portal.py::get_all_member_chapters::1
+verenigingen/templates/pages/member_portal.py::get_member_chapter_info::1
+verenigingen/templates/pages/member_portal.py::get_payment_status::1
 verenigingen/templates/pages/membership_adjustment.py::get_member_fee_history::1
 verenigingen/templates/pages/volunteer/skills.py::get_skills_grouped_by_category::1
 verenigingen/utils/address_matching/dutch_address_normalizer.py::AddressFingerprintCollisionHandler.detect_collision::1
