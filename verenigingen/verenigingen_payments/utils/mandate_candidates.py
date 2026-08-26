@@ -34,6 +34,14 @@ import frappe
 
 MANDATE_FIELDS = ["name", "mandate_id", "iban", "bic", "sign_date", "expiry_date", "status"]
 
+PURPOSE_FLAGS = ("used_for_memberships", "used_for_donations", "used_for_other")
+
+PURPOSE_LABELS = {
+    "used_for_memberships": "memberships",
+    "used_for_donations": "donations",
+    "used_for_other": "other collections",
+}
+
 
 class MandateChoice:
     """One Active mandate, nothing, or a refusal -- three outcomes, not two."""
@@ -52,20 +60,41 @@ class MandateChoice:
         return self.mandate is not None
 
 
-def unambiguous_active_mandate(member: str, refusal_title: str) -> MandateChoice:
-    """The member's single Active SEPA Mandate, or a refusal.
+def unambiguous_active_mandate(
+    member: str, refusal_title: str, purpose: str = "used_for_memberships"
+) -> MandateChoice:
+    """The member's single Active SEPA Mandate FOR A PURPOSE, or a refusal.
+
+    The purpose filter is the point, not a refinement. A member may legitimately
+    hold an Active membership mandate and an Active donation mandate at once, so a
+    query that asks only for "Active" is ambiguous by construction -- and
+    `test_payment_history_writer_parity` already records a real divergence caused by
+    exactly that: `get_default_mandate` picked the newest Active mandate with no
+    purpose filter while the incremental writer filtered on `used_for_memberships`,
+    and the two disagreed whenever a member's donation mandate was newer.
+
+    Callers resolving a mandate for a MEMBERSHIP invoice want the default,
+    `used_for_memberships`. Pass `purpose=None` only to ask "any Active mandate",
+    which is almost never what a collection wants.
 
     Args:
         member: Member name.
         refusal_title: Error Log title, per flow, so an operator can filter the list
             by WHICH flow refused.
+        purpose: One of PURPOSE_FLAGS, or None for no purpose filter.
     """
     if not member:
         return MandateChoice(None, 0)
 
+    filters = {"member": member, "status": "Active"}
+    if purpose:
+        if purpose not in PURPOSE_FLAGS:
+            raise ValueError(f"unknown mandate purpose {purpose!r}")
+        filters[purpose] = 1
+
     rows = frappe.get_all(
         "SEPA Mandate",
-        filters={"member": member, "status": "Active"},
+        filters=filters,
         fields=MANDATE_FIELDS,
         order_by="creation desc",
     )
@@ -80,12 +109,13 @@ def unambiguous_active_mandate(member: str, refusal_title: str) -> MandateChoice
     # `Error Log.method` (Data, truncated at 140 chars) and no title reaches the title
     # column -- see `invoice_candidates.log_ambiguous_refusal` for the measurement.
     listed = ", ".join(f"{r.mandate_id} ({r.iban})" for r in rows)
+    scope = PURPOSE_LABELS.get(purpose, "any purpose")
     frappe.log_error(
         title=refusal_title,
         message=(
-            f"Member {member} has {len(rows)} Active SEPA Mandates, so no IBAN can be "
-            f"chosen for direct debit without guessing. Cancel all but one. "
-            f"Candidates: {listed}."
+            f"Member {member} has {len(rows)} Active SEPA Mandates for {scope}, so no "
+            f"IBAN can be chosen for direct debit without guessing. Cancel all but "
+            f"one. Candidates: {listed}."
         ),
     )
     return MandateChoice(None, len(rows))
@@ -94,13 +124,17 @@ def unambiguous_active_mandate(member: str, refusal_title: str) -> MandateChoice
 PURPOSE_FLAGS = ("used_for_memberships", "used_for_donations", "used_for_other")
 
 
-def cancel_active_mandates(member: str, reason: str, new_status: str = "Cancelled") -> dict:
+def cancel_active_mandates(member: str, reason: str, purposes=None, new_status: str = "Cancelled") -> dict:
     """Cancel every Active mandate of a member; report what they were used for.
 
-    A member may hold at most one Active mandate (#584), so a replacement has to
-    cancel what is there first -- in that order. Activating first and tidying up
-    afterwards trips `SEPAMandate.validate_single_active_mandate` before the cleanup
-    can run.
+    A member may hold at most one Active mandate PER PURPOSE (#584), so a
+    replacement has to cancel the overlapping ones first -- in that order.
+    Activating first and tidying up afterwards trips
+    `SEPAMandate.validate_single_active_mandate_per_purpose` before the cleanup can
+    run.
+
+    `purposes` is the set the REPLACEMENT will serve; pass None to supersede every
+    Active mandate regardless of purpose.
 
     Returns the cancelled names AND the union of their purpose flags. The union is
     the part that is easy to get wrong: `SEPA Mandate` carries
@@ -121,11 +155,20 @@ def cancel_active_mandates(member: str, reason: str, new_status: str = "Cancelle
     rather than load-bearing. It is here because the flag combination is reachable
     (three independent checkboxes) and the failure it prevents is silent.
     """
-    cancelled = frappe.get_all(
+    wanted = tuple(purposes) if purposes else PURPOSE_FLAGS
+    for flag in wanted:
+        if flag not in PURPOSE_FLAGS:
+            raise ValueError(f"unknown mandate purpose {flag!r}")
+
+    active = frappe.get_all(
         "SEPA Mandate",
         filters={"member": member, "status": "Active"},
         fields=["name", *PURPOSE_FLAGS],
     )
+    # Only mandates that OVERLAP the incoming purposes are superseded. Cancelling a
+    # member's donation mandate because they re-signed for memberships would end a
+    # collection nobody asked to stop.
+    cancelled = [row for row in active if any(row.get(flag) for flag in wanted)]
 
     purposes = {flag: 0 for flag in PURPOSE_FLAGS}
     names = []

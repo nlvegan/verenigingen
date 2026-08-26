@@ -731,16 +731,18 @@ class TestSEPAMandateMemberIntegrationService(EnhancedTestCase):
             status='Active'
         )
 
-        # Create second mandate for same member. A second Active mandate must use
-        # a DIFFERENT IBAN: the SEPA Mandate controller rejects two active mandates
-        # sharing the same IBAN as a duplicate (a real member switches banks, which
-        # changes the IBAN). The _create_test_mandate default IBAN would collide.
+        # Create second mandate for same member. It needs a DIFFERENT IBAN and a
+        # DIFFERENT PURPOSE: since #584 a member holds at most one Active mandate per
+        # purpose, so the co-existing pair this test is about is a membership mandate
+        # plus a donation mandate.
         unique_suffix2 = str(uuid.uuid4())[:8]
         mandate2 = self._create_test_mandate(
             member=member.name,
             mandate_id=f'VEG-MULTI-{unique_suffix2}',
             status='Active',
-            iban='NL39RABO0300065264'
+            iban='NL39RABO0300065264',
+            used_for_memberships=0,
+            used_for_donations=1,
         )
 
         # Mock justified: Infrastructure - audit logging and cache management, not business logic

@@ -166,8 +166,11 @@ def create_and_link_mandate_enhanced(
             # two Active mandates came to exist and `get_invoice_mandate_info` came
             # to pick between them by recency. Purposes are carried forward so a
             # donations-only replacement cannot silently end membership collections.
+            wanted = [f for f in ("used_for_memberships", "used_for_donations") if mandate_doc.get(f)]
             superseded = cancel_active_mandates(
-                member, f"Replaced by mandate {mandate_doc.mandate_id} on {today()}"
+                member,
+                f"Replaced by mandate {mandate_doc.mandate_id} on {today()}",
+                purposes=wanted,
             )
             carry_forward_purposes(mandate_doc, superseded["purposes"])
             mandate_doc.status = "Active"
@@ -387,7 +390,13 @@ def setup_sepa_direct_debit(iban: str = None, account_holder_name: str = None):
         # longer requires is_active=1: `status` is the field the guard and the batch
         # query both read, and a row with status Active but is_active 0 would have
         # been left behind to block the new mandate.
-        superseded = cancel_active_mandates(member_name, f"Replaced by a new mandate on {today()}")
+        # Membership self-service: supersede only the membership mandate, so a
+        # member's separate donation mandate keeps collecting (#584).
+        superseded = cancel_active_mandates(
+            member_name,
+            f"Replaced by a new mandate on {today()}",
+            purposes=["used_for_memberships"],
+        )
 
         # Generate unique mandate ID
         mandate_id = _generate_sepa_mandate_id(member_name)

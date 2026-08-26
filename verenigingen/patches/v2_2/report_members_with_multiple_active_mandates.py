@@ -1,8 +1,13 @@
-"""Report members holding more than one Active SEPA Mandate (#584).
+"""Report members holding more than one Active SEPA Mandate FOR A PURPOSE (#584).
 
-`SEPAMandate.validate_single_active_mandate` now rejects a second Active mandate for
-a member. Rows that predate that guard are not rewritten by it, so this patch finds
-them and says so.
+`SEPAMandate.validate_single_active_mandate_per_purpose` now rejects a second Active
+mandate for the same purpose. Holding an Active membership mandate alongside an
+Active donation mandate stays legitimate -- that is a shape the app models, and
+`test_payment_history_writer_parity` has a regression test for it -- so this patch
+groups by (member, purpose) rather than by member.
+
+Rows that predate the guard are not rewritten by it, so this patch finds them and
+says so.
 
 It REPORTS; it does not throw, and that is the difference from
 `enforce_unique_volunteer_per_member`, which is the obvious model for this and the
@@ -36,37 +41,52 @@ def execute():
     if not frappe.db.table_exists("SEPA Mandate"):
         return
 
-    duplicates = frappe.db.sql(
-        """
-        SELECT member,
-               COUNT(*) AS count,
-               GROUP_CONCAT(mandate_id ORDER BY creation) AS mandates
-        FROM `tabSEPA Mandate`
-        WHERE status = 'Active' AND member IS NOT NULL AND member != ''
-        GROUP BY member
-        HAVING count > 1
-        ORDER BY count DESC
-        """,
-        as_dict=True,
-    )
+    duplicates = []
+    for flag, label in (
+        ("used_for_memberships", "memberships"),
+        ("used_for_donations", "donations"),
+        ("used_for_other", "other collections"),
+    ):
+        rows = frappe.db.sql(
+            f"""
+            SELECT member,
+                   COUNT(*) AS count,
+                   GROUP_CONCAT(mandate_id ORDER BY creation) AS mandates
+            FROM `tabSEPA Mandate`
+            WHERE status = 'Active' AND `{flag}` = 1
+              AND member IS NOT NULL AND member != ''
+            GROUP BY member
+            HAVING count > 1
+            ORDER BY count DESC
+            """,
+            as_dict=True,
+        )
+        for row in rows:
+            row.purpose = label
+            duplicates.append(row)
 
     if not duplicates:
         return
 
     shown = duplicates[:20]
-    lines = [f"  - {d.member}: {d.count} active mandates ({d.mandates})" for d in shown]
+    lines = [
+        f"  - {d.member}: {d.count} active mandates for {d.purpose} ({d.mandates})" for d in shown
+    ]
     if len(duplicates) > len(shown):
         lines.append(f"  ... and {len(duplicates) - len(shown)} more")
 
     message = (
-        f"{len(duplicates)} member(s) hold more than one Active SEPA Mandate.\n\n"
+        f"{len(duplicates)} member/purpose combination(s) hold more than one Active "
+        f"SEPA Mandate.\n\n"
         + "\n".join(lines)
-        + "\n\nSince #584 a member may hold only one. These rows are not rewritten "
-        "automatically: which mandate a member intends to be charged on is a data "
-        "decision, and choosing wrongly debits the wrong account. Until each of these "
-        "members has a single Active mandate, direct debit batches will REFUSE to "
-        "select an IBAN for them (rather than guess), and saving any of the mandates "
-        "will raise. Cancel the superseded ones."
+        + "\n\nSince #584 a member may hold only one Active mandate PER PURPOSE. An "
+        "Active membership mandate alongside an Active donation mandate is fine; two "
+        "for the same purpose are not. These rows are not rewritten automatically: "
+        "which mandate a member intends to be charged on is a data decision, and "
+        "choosing wrongly debits the wrong account. Until each combination above has "
+        "a single Active mandate, direct debit batches will REFUSE to select an IBAN "
+        "for it (rather than guess), and saving any of those mandates will raise. "
+        "Cancel the superseded ones."
     )
 
     # print() as well as log_error: this runs under `bench migrate`, where stdout is

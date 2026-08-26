@@ -32,7 +32,7 @@ class TestUnambiguousActiveMandate(EnhancedTestCase):
         super().setUp()
         self.member = self.create_test_member(first_name="MandateCand", last_name="Test")
 
-    def _make_mandate(self, iban, status="Active"):
+    def _mandate_with_purposes(self, iban, status="Active"):
         mandate = frappe.get_doc(
             {
                 "doctype": "SEPA Mandate",
@@ -57,7 +57,7 @@ class TestUnambiguousActiveMandate(EnhancedTestCase):
         return mandate
 
     def test_one_active_mandate_is_returned(self):
-        mandate = self._make_mandate("NL91ABNA0417164300")
+        mandate = self._mandate_with_purposes("NL91ABNA0417164300")
 
         choice = unambiguous_active_mandate(self.member.name, REFUSAL_TITLE)
 
@@ -68,7 +68,7 @@ class TestUnambiguousActiveMandate(EnhancedTestCase):
 
     def test_no_active_mandate_is_not_a_refusal(self):
         """Nothing found and refusing to choose must not look the same to a caller."""
-        self._make_mandate("NL91ABNA0417164300", status="Cancelled")
+        self._mandate_with_purposes("NL91ABNA0417164300", status="Cancelled")
 
         choice = unambiguous_active_mandate(self.member.name, REFUSAL_TITLE)
 
@@ -79,8 +79,8 @@ class TestUnambiguousActiveMandate(EnhancedTestCase):
 
     def test_two_active_mandates_are_refused_not_ordered(self):
         self.expectErrorLog(REFUSAL_TITLE)
-        first = self._make_mandate("NL91ABNA0417164300")
-        second = self._make_mandate("NL39RABO0300065264")
+        first = self._mandate_with_purposes("NL91ABNA0417164300")
+        second = self._mandate_with_purposes("NL39RABO0300065264")
 
         choice = unambiguous_active_mandate(self.member.name, REFUSAL_TITLE)
 
@@ -104,8 +104,8 @@ class TestUnambiguousActiveMandate(EnhancedTestCase):
         Filtering on `method` here pins that the title reached the right column.
         """
         self.expectErrorLog(REFUSAL_TITLE)
-        first = self._make_mandate("NL91ABNA0417164300")
-        second = self._make_mandate("NL39RABO0300065264")
+        first = self._mandate_with_purposes("NL91ABNA0417164300")
+        second = self._mandate_with_purposes("NL39RABO0300065264")
         before = frappe.db.count("Error Log", {"method": REFUSAL_TITLE})
 
         unambiguous_active_mandate(self.member.name, REFUSAL_TITLE)
@@ -158,7 +158,7 @@ class TestCancelActiveMandates(EnhancedTestCase):
         super().setUp()
         self.member = self.create_test_member(first_name="CancelMand", last_name="Test")
 
-    def _mandate(self, iban, **flags):
+    def _active_mandate_for(self, iban, **flags):
         doc = frappe.get_doc(
             {
                 "doctype": "SEPA Mandate",
@@ -182,7 +182,7 @@ class TestCancelActiveMandates(EnhancedTestCase):
         return doc
 
     def test_it_cancels_the_active_mandate_and_reports_it(self):
-        mandate = self._mandate("NL91ABNA0417164300")
+        mandate = self._active_mandate_for("NL91ABNA0417164300")
 
         result = cancel_active_mandates(self.member.name, "test reason")
 
@@ -218,7 +218,7 @@ class TestCancelActiveMandates(EnhancedTestCase):
         self.assertEqual(frappe.db.get_value("SEPA Mandate", draft.name, "status"), "Draft")
 
     def test_the_purposes_of_what_it_cancelled_are_returned(self):
-        self._mandate("NL91ABNA0417164300", used_for_memberships=1, used_for_donations=0)
+        self._active_mandate_for("NL91ABNA0417164300", used_for_memberships=1, used_for_donations=0)
 
         result = cancel_active_mandates(self.member.name, "test reason")
 
@@ -228,7 +228,7 @@ class TestCancelActiveMandates(EnhancedTestCase):
 
     def test_a_donations_replacement_does_not_drop_memberships(self):
         """The silent-narrowing failure, end to end."""
-        self._mandate("NL91ABNA0417164300", used_for_memberships=1, used_for_donations=0)
+        self._active_mandate_for("NL91ABNA0417164300", used_for_memberships=1, used_for_donations=0)
 
         superseded = cancel_active_mandates(self.member.name, "test reason")
 
@@ -262,7 +262,7 @@ class TestCancelActiveMandates(EnhancedTestCase):
         """`create_and_link_mandate` supersedes recoverably; converging the flows
         must not quietly turn that into a terminal state (`enforce_terminal_status`
         treats Cancelled as irreversible, Suspended as not)."""
-        mandate = self._mandate("NL91ABNA0417164300")
+        mandate = self._active_mandate_for("NL91ABNA0417164300")
 
         cancel_active_mandates(self.member.name, "test reason", new_status="Suspended")
 
@@ -271,7 +271,7 @@ class TestCancelActiveMandates(EnhancedTestCase):
 
     def test_it_clears_the_way_for_the_guard(self):
         """The point of the helper: after it runs, activating a replacement works."""
-        self._mandate("NL91ABNA0417164300")
+        self._active_mandate_for("NL91ABNA0417164300")
         cancel_active_mandates(self.member.name, "test reason")
 
         replacement = frappe.get_doc(

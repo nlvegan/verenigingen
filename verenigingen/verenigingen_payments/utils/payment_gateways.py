@@ -881,9 +881,12 @@ class SEPAGateway(PaymentGateway):
                 # for a reason nobody could read. Supersede first, and carry the old
                 # purposes forward so paying by donation does not silently end the
                 # member's membership collections.
+                # Donations only: a member's membership mandate is a different
+                # collection and must not be cancelled by donating (#584).
                 superseded = cancel_active_mandates(
                     donor.member,
                     f"Replaced by a donation mandate for donation {donation.name}",
+                    purposes=["used_for_donations"],
                 )
                 carry_forward_purposes(mandate, superseded["purposes"])
                 mandate.used_for_donations = 1

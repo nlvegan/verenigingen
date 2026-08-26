@@ -175,15 +175,22 @@ class TestMemberLifecycleWorkflows(EnhancedTestCase):
 
         for iban in dutch_ibans:
             with self.subTest(iban=iban):
+                # One member per IBAN: since #584 a member holds at most one Active
+                # mandate per purpose, and each of these is an Active memberships
+                # mandate. What the loop is about is per-bank IBAN handling.
+                iban_member = self.create_test_member(
+                    first_name="Maria", last_name=f"vanderBerg{frappe.generate_hash(length=5)}",
+                    birth_date="1990-07-20",
+                )
                 # Create SEPA mandate using factory
                 mandate = self.create_test_sepa_mandate(
-                    member.name,  # Positional argument
+                    iban_member.name,  # Positional argument
                     iban=iban,
                     account_holder_name="Maria van der Berg"
                 )
 
                 # Verify mandate creation
-                self.assertEqual(mandate.member, member.name)
+                self.assertEqual(mandate.member, iban_member.name)
                 # IBAN is normalized to standard format with spaces every 4 characters
                 from verenigingen.verenigingen_payments.utils.sepa_utilities import SEPAUtilities
                 expected_iban = SEPAUtilities.format_iban_display(iban)

@@ -374,7 +374,16 @@ def create_sepa_mandate_from_bank_details(
     # measured: on develop a second call with a new IBAN was accepted and left the
     # member with 2 Active mandates.
     superseded = cancel_active_mandates(
-        member, f"Replaced by a mandate created from bank details on {today()}"
+        member,
+        f"Replaced by a mandate created from bank details on {today()}",
+        purposes=[
+            f
+            for f, on in (
+                ("used_for_memberships", used_for_memberships),
+                ("used_for_donations", used_for_donations),
+            )
+            if on
+        ],
     )
 
     timestamp = now().replace(" ", "").replace("-", "").replace(":", "")[:14]
@@ -859,6 +868,14 @@ def create_and_link_mandate(
     superseded = cancel_active_mandates(
         member,
         f"Superseded by a new SEPA mandate for member {member}",
+        purposes=[
+            f
+            for f, on in (
+                ("used_for_memberships", used_for_memberships),
+                ("used_for_donations", used_for_donations),
+            )
+            if on
+        ],
         new_status="Suspended",
     )
 

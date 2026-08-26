@@ -42,8 +42,8 @@ class TestSEPAMandate(EnhancedTestCase):
             frappe.db.rollback()
         super().tearDown()
 
-    def test_second_active_mandate_with_a_different_iban_is_rejected(self):
-        """One Active mandate per member, whatever the IBAN.
+    def test_second_active_mandate_for_the_same_purpose_is_rejected(self):
+        """One Active mandate per member PER PURPOSE, whatever the IBAN.
 
         The guard this widens keyed on member + IBAN, on the stated grounds that a
         member switching banks legitimately holds two Active mandates and the older
@@ -100,9 +100,61 @@ class TestSEPAMandate(EnhancedTestCase):
         # for an unrelated validation error -- the IBAN validator, say.
         message = str(caught.exception)
         self.assertIn(self.mandate.mandate_id, message)
+        self.assertIn(
+            "memberships",
+            message,
+            "the error must name the purpose, or an operator "
+            "cannot tell which of a member's mandates to cancel",
+        )
         self.assertFalse(
             frappe.db.exists("SEPA Mandate", {"name": second.name or "", "status": "Active"}),
             "the second Active mandate was persisted despite the guard",
+        )
+
+    def test_a_second_active_mandate_for_a_DIFFERENT_purpose_is_allowed(self):
+        """The capability the per-purpose scoping exists to keep.
+
+        A member may hold an Active membership mandate and an Active donation
+        mandate at the same time. This is not a tolerated edge case -- it is a shape
+        the app models and already has a regression test for:
+        `test_payment_history_writer_parity.test_mandate_resolution_matches_with_
+        newer_donation_only_mandate` guards a real divergence caused by resolving a
+        membership invoice's mandate WITHOUT a purpose filter, and its fix was to
+        filter, not to forbid.
+
+        This is also the control for the test above: without it, that test would
+        pass equally against a guard that rejected every second Active mandate,
+        which would break donations.
+        """
+        self.mandate.status = "Active"
+        self.mandate.used_for_memberships = 1
+        self.mandate.used_for_donations = 0
+        self.mandate.insert()
+
+        donation_mandate = frappe.get_doc(
+            {
+                "doctype": "SEPA Mandate",
+                "mandate_id": f"TEST-MANDATE-{frappe.utils.random_string(8)}",
+                "member": self.test_member.name,
+                "account_holder_name": self.test_member.full_name,
+                "iban": "NL39RABO0300065264",
+                "sign_date": today(),
+                "status": "Active",
+                "mandate_type": "RCUR",
+                "scheme": "SEPA",
+                "is_active": 1,
+                "used_for_memberships": 0,
+                "used_for_donations": 1,
+            }
+        )
+        donation_mandate.insert()
+        self.addCleanup(frappe.delete_doc, "SEPA Mandate", donation_mandate.name, force=True)
+
+        self.assertEqual(donation_mandate.status, "Active")
+        self.assertEqual(
+            frappe.db.count("SEPA Mandate", {"member": self.test_member.name, "status": "Active"}),
+            2,
+            "a member must be able to hold a membership AND a donation mandate at once",
         )
 
     def test_a_second_mandate_is_allowed_while_it_is_not_active(self):

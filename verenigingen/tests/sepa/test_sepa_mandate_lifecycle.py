@@ -190,10 +190,15 @@ class TestSEPAMandateLifecycle(VereningingenTestCase):
         # 2. Create first mandate
         mandate1 = self.create_test_sepa_mandate(member=member.name)
 
-        # 3. Create second mandate with different IBAN
+        # 3. Create second mandate with a different IBAN AND a different purpose.
+        # Since #584 a member holds at most one Active mandate PER PURPOSE, which is
+        # exactly the shape this test is about: a membership mandate and a donation
+        # mandate side by side.
         mandate2 = self.create_test_sepa_mandate(
             member=member.name,
-            iban="NL02ABNA0123456789"  # Different valid IBAN
+            iban="NL02ABNA0123456789",  # Different valid IBAN
+            used_for_memberships=0,
+            used_for_donations=1,
         )
 
         # 4. Verify both mandates have unique IDs
