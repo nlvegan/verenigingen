@@ -659,8 +659,8 @@ class FalsySequenceReturnTest(unittest.TestCase):
     """A sequence holding nothing but falsy literals carries no more than an empty one.
 
     `MT940Import.get_transaction_date_range` returns `None, None` from its handler --
-    and `return None, None` sits TWO LINES ABOVE it as the legitimate "no transactions
-    in range" answer. The caller cannot tell them apart, which is this bug class
+    and an identical `return None, None` sits FOUR LINES ABOVE it (149 vs 153) as the
+    legitimate "no transactions in range" answer. The caller cannot tell them apart, which is this bug class
     exactly. Measured: extending the branch adds 3 sites tree-wide and removes none.
     """
 
@@ -689,6 +689,97 @@ class FalsySequenceReturnTest(unittest.TestCase):
                 "    except Exception:\n"
                 "        frappe.log_error('boom')\n"
                 "        return False, 'lookup failed'\n"
+            ),
+            [],
+        )
+
+
+class ReturnsTheCauseTest(unittest.TestCase):
+    """Each of the three ways a return can carry the cause needs its own test.
+
+    `_returns_the_cause` advertises "as a call argument, through an attribute, or
+    interpolated into an f-string". Two of those three had no test at all, and the
+    keyword-argument half of the first had none either -- all three mutants survived.
+    These are negative assertions, so they are anchored by
+    `test_a_bare_mention_of_the_exception_does_not_count_as_carrying_it`, which proves
+    the reporter fires when the cause is genuinely absent.
+    """
+
+    def _shrink(self, ret: str):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp).resolve()
+            (d / "mod.py").write_text(
+                "def f(x):\n"
+                "    try:\n"
+                "        return compute(x)\n"
+                "    except Exception as e:\n"
+                "        frappe.log_error('boom')\n"
+                f"        return {ret}\n"
+            )
+            original = esv.REPO_ROOT
+            esv.REPO_ROOT = d
+            try:
+                return esv.explain_shrink({"mod.py::f": 1}, [str(d)])
+            finally:
+                esv.REPO_ROOT = original
+
+    def test_the_cause_through_an_attribute(self):
+        self.assertEqual(self._shrink("Result(False, e.args)"), [])
+
+    def test_the_cause_interpolated_into_an_fstring(self):
+        self.assertEqual(self._shrink('f"lookup failed: {e}"'), [])
+
+    def test_the_cause_as_a_keyword_argument(self):
+        self.assertEqual(self._shrink("Result(ok=False, err=e)"), [])
+
+    def test_a_DIFFERENT_name_is_not_the_bound_exception(self):
+        """`_is_bound_name` must compare the name, not merely be an `ast.Name`.
+
+        Without the comparison any name in a return would read as "carries the cause",
+        which is every non-falsy return there is.
+        """
+        self.assertEqual(
+            [u.reason for u in self._shrink("Choice(fallback, 0)")], ["unrecognised"]
+        )
+
+
+class StructuralDisqualifierTest(unittest.TestCase):
+    """Target the disqualifiers in `_is_structural_swallow` DIRECTLY.
+
+    The pre-existing tests for these two exercised something else: the nested-`def`
+    case was excluded because `ast.walk` reached the nested real return, and the
+    `continue` case because its handler had no return and its `try` was not last. Both
+    mutants survived. These snippets fail on the disqualifier and nothing else.
+    """
+
+    def test_a_nested_def_disqualifies_even_with_only_a_falsy_return(self):
+        self.assertEqual(
+            _flagged(
+                "def f(x):\n"
+                "    try:\n"
+                "        return compute(x)\n"
+                "    except Exception:\n"
+                "        def _cleanup():\n"
+                "            pass\n"
+                "        frappe.log_error('boom')\n"
+                "        return None\n"
+            ),
+            [],
+        )
+
+    def test_a_continue_disqualifies_even_alongside_a_falsy_return(self):
+        self.assertEqual(
+            _flagged(
+                "def f(items):\n"
+                "    for i in items:\n"
+                "        try:\n"
+                "            return compute(i)\n"
+                "        except Exception:\n"
+                "            frappe.log_error('boom')\n"
+                "            if i:\n"
+                "                continue\n"
+                "            return None\n"
+                "    return fallback()\n"
             ),
             [],
         )
@@ -890,6 +981,38 @@ class ShrinkExplanationTest(unittest.TestCase):
         self.assertEqual(len(self._shrink_src(src, {"mod.py::f": 1})), 1)
         self.assertEqual(len(self._shrink_src(src, {"mod.py::f": 2})), 2)
 
+    LOGGED = (
+        "def f(x):\n"
+        "    try:\n"
+        "        return compute(x)\n"
+        "    except Exception:\n"
+        "        frappe.log_error('boom')\n"
+        "        return None\n"
+    )
+    SILENCED = (
+        "def f(x):\n"
+        "    try:\n"
+        "        return compute(x)\n"
+        "    except Exception:\n"
+        "        cleanup()\n"
+        "        return None\n"
+    )
+
+    def _shrink_pair(self, head_src: str, base_src: str, baseline: dict):
+        """Run the explainer with a BASE TREE beside the head tree."""
+        with tempfile.TemporaryDirectory() as tmp:
+            head, base = Path(tmp).resolve() / "head", Path(tmp).resolve() / "base"
+            head.mkdir()
+            base.mkdir()
+            (head / "mod.py").write_text(head_src)
+            (base / "mod.py").write_text(base_src)
+            original = esv.REPO_ROOT
+            esv.REPO_ROOT = head
+            try:
+                return esv.explain_shrink(baseline, [str(head)], base_root=base)
+            finally:
+                esv.REPO_ROOT = original
+
     def test_deleting_the_logging_call_is_reported_as_a_silent_swallow(self):
         """#586's failure mode one door along.
 
@@ -899,16 +1022,103 @@ class ShrinkExplanationTest(unittest.TestCase):
         leaves the baseline, every gate goes green, and the code is now worse than the
         swallow that was recorded.
         """
-        reported = self._shrink_src(
+        reported = self._shrink_pair(self.SILENCED, self.LOGGED, {"mod.py::f": 1})
+        self.assertEqual([(u.reason, u.lineno) for u in reported], [("silent", 4)])
+
+    def test_a_PRE_EXISTING_silent_sibling_is_not_reported(self):
+        """The false alarm the first draft of the silent arm produced.
+
+        `_shrink_causes` sees every handler in the function, not only ones that were
+        counted -- so a function that has ALWAYS had a never-logging falsy handler had
+        it reported as `silent` the moment any sibling was fixed, under a message
+        asserting a deletion that never happened. Measured: 2 of 435 baselined
+        functions carry such a sibling, and the report fired on the CORRECT fix.
+
+        The base tree is what distinguishes them, and it is why `base_root` is
+        required rather than optional.
+        """
+        both = (
             "def f(x):\n"
             "    try:\n"
             "        return compute(x)\n"
             "    except Exception:\n"
-            "        cleanup()\n"
-            "        return None\n",
-            {"mod.py::f": 1},
+            "        cleanup()\n"          # silent in BOTH trees
+            "        return None\n"
+            "    try:\n"
+            "        return compute(x)\n"
+            "    except Exception:\n"
+            "        frappe.log_error('two')\n"
+            "        raise\n"              # head: this one was properly FIXED
         )
-        self.assertEqual([(u.reason, u.lineno) for u in reported], [("silent", 4)])
+        base = both.replace("        raise\n", "        return None\n")
+        self.assertEqual(self._shrink_pair(both, base, {"mod.py::f": 2}), [])
+
+    def test_a_function_with_no_real_return_is_exempt_from_the_explainer(self):
+        """Condition (5) again: a falsy return nobody can branch on is not a swallow.
+
+        Reached through the `silent` arm -- via `unrecognised` the guard is unreachable,
+        because an unrecognised return is itself a real one.
+        """
+        allfalsy = (
+            "def f(x):\n"
+            "    try:\n"
+            "        return None\n"
+            "    except Exception:\n"
+            "        cleanup()\n"
+            "        return None\n"
+        )
+        self.assertEqual(
+            self._shrink_pair(allfalsy, allfalsy.replace("cleanup()", "frappe.log_error('b')"),
+                              {"mod.py::f": 1}),
+            [],
+        )
+
+    def test_only_the_NEWLY_silent_handler_is_reported(self):
+        """A mixed shrink: one swallow properly fixed, one silenced, two always silent.
+
+        Reporting by POSITION gets the count right and the handler wrong. The
+        always-silent handlers deliberately sit FIRST and LAST in source order, so
+        neither end of a positional slice can land on the right one by luck --
+        `_own_nodes` walks a stack it pops from the end, so "first" is not the order a
+        reader would guess. The match is on the handler's exception type and its
+        returns, which do not move when the lines above them do.
+        """
+        head = (
+            "def f(x):\n"
+            "    try:\n"                       # 2
+            "        return compute(x)\n"
+            "    except Exception:\n"          # 4  always silent
+            "        cleanup()\n"
+            "        return ()\n"
+            "    try:\n"                       # 7
+            "        return compute(x)\n"
+            "    except Exception:\n"          # 9  log DELETED in head
+            "        cleanup()\n"
+            "        return False\n"
+            "    try:\n"                       # 12
+            "        return compute(x)\n"
+            "    except Exception:\n"          # 14 always silent
+            "        cleanup()\n"
+            "        return None\n"
+            "    try:\n"                       # 17
+            "        return compute(x)\n"
+            "    except Exception:\n"          # 19 properly FIXED in head
+            "        frappe.log_error('d')\n"
+            "        raise\n"
+        )
+        base = head.replace(
+            "        cleanup()\n        return False\n",
+            "        frappe.log_error('b')\n        return False\n",
+        ).replace("        raise\n", "        return {}\n")
+        reported = self._shrink_pair(head, base, {"mod.py::f": 2})
+        self.assertEqual([(u.reason, u.lineno) for u in reported], [("silent", 9)])
+
+    def test_without_a_base_tree_the_silent_arm_does_not_accuse(self):
+        """No base tree means the two cases above are indistinguishable.
+
+        Refusing to report beats reporting a reason that may be false.
+        """
+        self.assertEqual(self._shrink_src(self.SILENCED, {"mod.py::f": 1}), [])
 
     def test_a_still_logging_falsy_handler_is_not_a_shrink_cause(self):
         """The control for the test above: still recognised AND still logging.

@@ -82,7 +82,7 @@ positives.
 never returns anything meaningful (fire-and-forget cache invalidation, a
 best-effort notification) is not reported: its falsy return is not load-bearing,
 because no caller can branch on it. Measured on this repo, (5) is what makes the
-rule usable: conditions 1-4 alone match 926 sites, and (5) cuts that to 450.
+rule usable: conditions 1-4 alone match 929 sites, and (5) cuts that to 449.
 
 KNOWN FALSE NEGATIVES
 ---------------------
@@ -96,8 +96,8 @@ worse bug class -- a silent swallow -- and reporting it here would bury this one
 
 RATCHET, NOT BIG-BANG
 ---------------------
-There are 450 such sites today, across ``verenigingen/`` and ``scripts/``.
-Failing on all of them would block every commit, and pragma-ing 450 sites in one
+There are 449 such sites today, across ``verenigingen/`` and ``scripts/``.
+Failing on all of them would block every commit, and pragma-ing 449 sites in one
 diff would be unreviewable. So this validator fails only on sites NOT already
 recorded in the baseline.
 
@@ -113,12 +113,20 @@ an ALREADY-baselined function is still caught.
 A SHRINK is the one direction this ratchet used to accept without question, which
 is how the sentinel gap above nearly shipped: nothing in the output distinguishes
 "this swallow was fixed" from "this swallow became unrecognisable", and the diff
-shows a REMOVED line either way. ``--check-shrink <base baseline>`` re-reads every
-entry whose count dropped and fails if the handler is still broad, still logging,
-still non-propagating and still in a function that returns real values -- i.e. if
-only the falsy test stopped recognising it::
+shows a REMOVED line either way. ``--check-shrink`` re-reads every entry whose count
+dropped and names one of three reasons it left without being fixed -- the falsy test
+no longer recognises the return (``unrecognised``), the logging call was deleted so
+this detector's own silent-swallow exemption now hides it (``silent``), or the file
+stopped being SCANNED at all (``unscanned``)::
 
-    python scripts/validation/error_swallow_validator.py --check-shrink base.txt
+    python scripts/validation/error_swallow_validator.py \
+        --check-shrink base_baseline.txt --base-tree /path/to/base/checkout
+
+``--base-tree`` is a checkout of the base commit. Without it the ``silent`` reason is
+not reported at all: a deleted logging call and a function that has ALWAYS had a
+silent sibling look identical from the head tree, and 2 of the 435 baselined
+functions have such a sibling -- so guessing turns the CORRECT fix into a red gate
+citing a deletion that never happened.
 
 Escape hatch, matching the ``cache-guard-ok`` convention already used by
 ``cache_guard_validator.py``::
@@ -356,7 +364,9 @@ def _returns_real_value(fn: ast.AST) -> bool:
 def _is_structural_swallow(node: ast.AST, *, require_log: bool = True) -> bool:
     """Conditions (1), (2) and (3) for one handler -- everything except the returns.
 
-    Shared by ``scan_file`` and ``_unrecognised_swallows`` on purpose. They used to
+    Condition (5) is a function-level question and lives in ``_returns_real_value``;
+    (4) is the returns, which is what the two callers ask differently. Shared by
+    ``scan_file`` and ``_falsy_swallow_handlers`` on purpose. They used to
     carry two copies of this ladder, which is a "must stay in step" hazard of exactly
     the kind this repo keeps paying for: add a condition to the detector and the
     shrink explainer silently stops explaining.
@@ -462,13 +472,23 @@ def _returns_the_cause(handler: ast.ExceptHandler) -> bool:
     The bound name must reach the returned VALUE -- as a call argument, through an
     attribute (`e.args`), or interpolated into an f-string. An earlier version matched
     the name anywhere inside any return, which made `return None if e else None` a
-    one-token bypass; 477 of the 489 broad handlers in baselined functions bind `e`,
+    one-token bypass; 480 of the 492 broad handlers in baselined functions bind a name
+    (467 of them literally `e`),
     so that predicate was doing far too much work to be that loose.
 
-    Known limit: `Choice(None, len(str(e)))` still counts as carrying the cause. The
-    name reaches a call argument, and distinguishing informative uses from decorative
-    ones is not something an AST can settle -- so this errs toward a false negative on
-    a deliberately obfuscated swallow rather than a false alarm on a real fix.
+    Known limits, in BOTH directions -- the false-alarm ones matter more, because only
+    they can redden CI:
+
+    * a genuine fix can still be reported. A return built from `frappe.get_traceback()`
+      in a handler with no `as` binding carries the cause and is called
+      `unrecognised`; so does a container holding the BARE name (`{"error": e}`,
+      `return e`, `(None, e)`), which the older, looser predicate did accept. Measured
+      as a class: `"error": e` occurs 0 times in `verenigingen/` and `scripts/`,
+      against 719 occurrences of `"error": str(e)`, and tree-wide this narrowing
+      produces zero new findings -- so the exposure is real but currently empty.
+    * a swallow can still slip through: `Choice(None, len(str(e)))` counts as carrying
+      the cause, because the name does reach a call argument. Distinguishing
+      informative uses from decorative ones is not something an AST can settle.
     """
     if not handler.name:
         return False
@@ -489,51 +509,134 @@ def _returns_the_cause(handler: ast.ExceptHandler) -> bool:
     return False
 
 
-def _shrink_causes(fn: ast.AST, lines: list[str]) -> list[tuple[ast.ExceptHandler, str]]:
-    """Handlers that could explain why this function LEFT the baseline, with a reason.
+def _falsy_swallow_handlers(fn: ast.AST, lines: list[str]) -> list[ast.ExceptHandler]:
+    """Handlers that swallow into a falsy value, whether or not they log.
 
-    Conditions (1), (2) and (5) are structural and shared with the detector via
-    `_is_structural_swallow`; the two things this asks differently are the two the
-    detector uses to STOP looking:
-
-    * ``require_log=False`` -- the detector skips a handler that logs nothing, because
-      a silent swallow is a different and worse bug class. Here that exemption is a
-      hole: deleting the logging call takes the entry out of the baseline while making
-      the code worse, which is #586's exact failure mode one door along. Reported as
-      ``silent``.
-    * the falsy test is the heuristic, so a handler that still swallows but is no
-      longer RECOGNISED as falsy is not a fix. Reported as ``unrecognised``.
-
-    Measured with the shipped predicates, tree-wide over both scan roots (tests
-    excluded, 1705 files): 483 handlers in 462 functions. That is why this is a shrink
-    explainer and not a second detector -- it is only ever asked about the handful of
-    entries a PR actually removes, so its precision has to hold there and nowhere
-    else.
+    Conditions (1), (2), (3-minus-logging), (4) and (5). The detector adds "and it
+    logs"; splitting that out is what lets the shrink explainer see a handler the
+    detector deliberately ignores.
     """
     if not _returns_real_value(fn):
-        return []  # (5) gone: the falsy return is no longer load-bearing
+        return []
 
     tail = fn.body[-1] if getattr(fn, "body", None) else None
     trailing = {id(h) for h in tail.handlers} if isinstance(tail, ast.Try) else set()
 
-    out: list[tuple[ast.ExceptHandler, str]] = []
+    out: list[ast.ExceptHandler] = []
     for node in _own_nodes(fn):
         if not _is_structural_swallow(node, require_log=False):
             continue
         if _suppressed(node, lines)[0]:
-            continue  # deliberately marked, which is a reviewable exit
-
+            continue
         rets = [n for n in ast.walk(node) if isinstance(n, ast.Return)]
         if not rets and id(node) not in trailing:
             continue  # falling off mid-function resumes it: never was a swallow
+        if not all(_is_falsy_return(r) for r in rets):
+            continue
+        out.append(node)
+    return out
 
-        logs = any(_is_log_call(n) for n in ast.walk(node))
-        if all(_is_falsy_return(r) for r in rets):
-            # Still hands back a falsy value. If it also still logs, the detector is
-            # still counting it, so it is not why the entry left.
-            if logs:
-                continue
-            out.append((node, "silent"))
+
+def _handler_fingerprint(handler: ast.ExceptHandler) -> str:
+    """A line-independent identity for one handler: its exception type and its returns.
+
+    Line numbers rot, so the base and head trees are matched on this instead. Two
+    handlers in the same function that catch the same thing and return the same
+    expression are interchangeable for this purpose -- which is the right granularity,
+    because what is being asked is "did a NEW silent falsy handler appear here".
+    """
+    kind = ast.unparse(handler.type) if handler.type is not None else "bare"
+    rets = tuple(
+        ast.unparse(n.value) if n.value is not None else "None"
+        for n in ast.walk(handler)
+        if isinstance(n, ast.Return)
+    )
+    return f"{kind}|{'&'.join(rets)}"
+
+
+def _silent_handlers(fn: ast.AST, lines: list[str]) -> list[ast.ExceptHandler]:
+    """Falsy swallows in `fn` that log NOTHING, so the detector cannot see them."""
+    return [
+        h
+        for h in _falsy_swallow_handlers(fn, lines)
+        if not any(_is_log_call(n) for n in ast.walk(h))
+    ]
+
+
+def _silent_census(root: Path, rel: str) -> dict[str, Counter]:
+    """Per-function count of falsy swallows that log NOTHING, in the tree at `root`.
+
+    The base tree is the only thing that can tell "the logging call was deleted" from
+    "this function has always had a silent sibling". Without it the two are
+    indistinguishable, so `explain_shrink` refuses to report `silent` rather than
+    accuse: measured, 2 of 435 baselined functions carry a pre-existing silent
+    sibling, and reporting those turns the CORRECT fix into a red gate with a false
+    reason.
+    """
+    try:
+        source = (root / rel).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+    except (OSError, SyntaxError):
+        return {}
+    lines = source.splitlines()
+    out: dict[str, Counter] = {}
+    for qualname, fn in _qualnames(tree):
+        silent = _silent_handlers(fn, lines)
+        if silent:
+            out[qualname] = Counter(_handler_fingerprint(h) for h in silent)
+    return out
+
+
+def _shrink_causes(
+    fn: ast.AST, lines: list[str], base_silent: Counter | None
+) -> list[tuple[ast.ExceptHandler, str]]:
+    """Handlers that could explain why this function LEFT the baseline, with a reason.
+
+    Conditions (1), (2) and (3) come from `_is_structural_swallow` and (5) from
+    `_returns_real_value`, both shared with the detector so that adding a condition
+    to one cannot silently stop the other explaining. What this asks differently:
+
+    ``unrecognised``
+        the falsy test is the heuristic, so a handler that still swallows but is no
+        longer RECOGNISED as falsy has not been fixed. Handlers whose return can carry
+        the cause are excluded -- that is the remedy this validator prints.
+    ``silent``
+        the detector skips a handler that logs nothing, because a silent swallow is a
+        different and worse bug class. That exemption is a hole here: deleting the
+        logging call takes the entry out of the baseline while making the code worse.
+        Reported only for a handler whose fingerprint is absent from ``base_silent``
+        -- see `_silent_census` for why the base tree is required rather than nice to
+        have, and `_handler_fingerprint` for why the match is not by line or position.
+
+    Measured with the shipped predicates, tree-wide over both scan roots (tests
+    excluded, 1705 files): 483 handlers in 462 functions. That is why this is a shrink
+    explainer and not a second detector -- it is only ever asked about the handful of
+    entries a PR actually removes, so its precision has to hold there and nowhere else.
+    """
+    falsy = _falsy_swallow_handlers(fn, lines)
+    out: list[tuple[ast.ExceptHandler, str]] = []
+
+    if base_silent is not None:
+        # Only handlers whose fingerprint is NEW. A pre-existing silent sibling
+        # explains nothing, and picking by position would report the right COUNT
+        # against the wrong handler.
+        appeared = Counter(_handler_fingerprint(h) for h in _silent_handlers(fn, lines))
+        appeared.subtract(base_silent)
+        for handler in _silent_handlers(fn, lines):
+            key = _handler_fingerprint(handler)
+            if appeared[key] > 0:
+                appeared[key] -= 1
+                out.append((handler, "silent"))
+
+    for node in _own_nodes(fn):
+        if node in falsy or not _is_structural_swallow(node, require_log=False):
+            continue
+        if _suppressed(node, lines)[0]:
+            continue  # deliberately marked, which is a reviewable exit
+        if not _returns_real_value(fn):
+            continue  # (5) gone: the falsy return is no longer load-bearing
+        rets = [n for n in ast.walk(node) if isinstance(n, ast.Return)]
+        if not rets:
             continue
         if _returns_the_cause(node):
             continue  # the caller can learn WHY: a real fix
@@ -541,7 +644,9 @@ def _shrink_causes(fn: ast.AST, lines: list[str]) -> list[tuple[ast.ExceptHandle
     return sorted(out, key=lambda pair: pair[0].lineno)
 
 
-def explain_shrink(baseline: dict[str, int], paths: list[str]) -> list[UnexplainedShrink]:
+def explain_shrink(
+    baseline: dict[str, int], paths: list[str], base_root: Path | None = None
+) -> list[UnexplainedShrink]:
     """Baseline entries whose count DROPPED without the swallow being fixed.
 
     A shrink was the one direction this ratchet accepted without question, and that is
@@ -556,19 +661,17 @@ def explain_shrink(baseline: dict[str, int], paths: list[str]) -> list[Unexplain
         the file stopped being SCANNED rather than stopping being a swallow. Narrowing
         `SCAN_ROOTS`, or adding a directory to `_iter_py`'s exclusions, silently drops
         every entry under it -- measured on this tree, adding ``templates`` drops 10
-        and dropping ``scripts`` drops 33. `scan_file` is the control: it re-reads the
-        file directly, so a site it still finds that `_counts` no longer reports left
-        the scan, not the code.
+        and dropping ``scripts`` drops 33. `scan_file` is the control: a site it still
+        finds that `_counts` no longer reports left the scan, not the code.
     ``silent``
-        the logging call was removed, so the detector's own "silent swallows are a
-        different bug class" exemption now hides it.
+        the logging call was deleted. Requires ``base_root``; see `_silent_census`.
     ``unrecognised``
         the falsy test stopped recognising what it hands back.
 
-    The comparison is capped at ``missing`` per key, so a function holding several
-    swallows cannot report more than actually went away. Note that the cap is NOT what
-    prevents the common false alarm of fixing one of two swallows -- the survivor is
-    excluded because it is still recognised, and therefore still counted.
+    The report is capped at ``missing`` per key, so a function holding several swallows
+    cannot report more than actually went away. The cap is NOT what prevents the common
+    false alarm of fixing one of two swallows -- a survivor that still logs and is still
+    recognised is still COUNTED, so it never enters `_shrink_causes` at all.
     """
     counts, _ = _counts(paths)
     by_path: dict[str, list[tuple[str, int]]] = {}
@@ -590,6 +693,7 @@ def explain_shrink(baseline: dict[str, int], paths: list[str]) -> list[Unexplain
         lines = source.splitlines()
         fns = dict(_qualnames(tree))
         still_scanned, _ = scan_file(full)
+        base_silent = _silent_census(base_root, rel) if base_root is not None else None
 
         for qualname, missing in sorted(by_path[rel]):
             fn = fns.get(qualname)
@@ -598,11 +702,14 @@ def explain_shrink(baseline: dict[str, int], paths: list[str]) -> list[Unexplain
 
             # Does a direct scan of the file still find sites `_counts` did not
             # report? Then the file left the SCAN, and the code never changed.
-            direct = [ln for qn, ln in still_scanned if qn == qualname]
-            unscanned = len(direct) - (counts.get(f"{rel}::{qualname}", 0))
-            causes = [(ln, "unscanned") for ln in sorted(direct)[:max(unscanned, 0)]]
+            direct = sorted(ln for qn, ln in still_scanned if qn == qualname)
+            unscanned = len(direct) - counts.get(f"{rel}::{qualname}", 0)
+            causes = [(ln, "unscanned") for ln in direct[: max(unscanned, 0)]]
             causes += [
-                (h.lineno, reason) for h, reason in _shrink_causes(fn, lines)
+                (h.lineno, reason)
+                for h, reason in _shrink_causes(
+                    fn, lines, None if base_silent is None else base_silent.get(qualname, Counter())
+                )
             ]
 
             for lineno, reason in causes[:missing]:
@@ -730,20 +837,31 @@ def main(argv: list[str]) -> int:
         metavar="BASE_BASELINE",
         help="report entries that LEFT that baseline without the swallow being fixed",
     )
+    ap.add_argument(
+        "--base-tree",
+        type=Path,
+        metavar="DIR",
+        help="a checkout of the base commit; required to report a DELETED logging call, "
+        "which is otherwise indistinguishable from a pre-existing silent sibling",
+    )
     args = ap.parse_args(argv[1:])
 
     paths = args.paths or list(SCAN_ROOTS)
 
     if args.check_shrink:
         unexplained = explain_shrink(
-            load_baseline(args.check_shrink), [str(REPO_ROOT / root) for root in SCAN_ROOTS]
+            load_baseline(args.check_shrink),
+            [str(REPO_ROOT / root) for root in SCAN_ROOTS],
+            base_root=args.base_tree,
         )
+        if args.base_tree is None:
+            print("note: no --base-tree, so a DELETED logging call cannot be reported.")
         if not unexplained:
             print("Every entry that left the baseline was fixed, deleted or marked.")
             return 0
         why = {
             "unrecognised": "the falsy test no longer recognises what it hands back",
-            "silent": "the logging call is gone -- this is now a SILENT swallow, which is worse",
+            "silent": "the logging call was DELETED -- this is now a silent swallow, which is worse",
             "unscanned": "the file stopped being SCANNED; the handler never changed",
         }
         print("\n\U0001f6d1 Baseline entries that LEFT without the swallow being fixed\n")

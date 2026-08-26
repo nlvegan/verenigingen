@@ -214,8 +214,15 @@ jobs:
           exit 0
         fi
         git show "$BASE_SHA:$BASELINE" > "$RUNNER_TEMP/base_swallow_baseline.txt"
+        # The base TREE, not just its baseline. Deleting a logging call takes an entry
+        # out of the baseline while making the code worse, and from the head tree alone
+        # that is indistinguishable from a function that always had a silent sibling --
+        # 2 of 435 baselined functions do, and reporting those turned the CORRECT fix
+        # into a red gate citing a deletion that never happened.
+        git worktree add --detach "$RUNNER_TEMP/base_tree" "$BASE_SHA" >/dev/null
         python scripts/validation/error_swallow_validator.py \
-          --check-shrink "$RUNNER_TEMP/base_swallow_baseline.txt"
+          --check-shrink "$RUNNER_TEMP/base_swallow_baseline.txt" \
+          --base-tree "$RUNNER_TEMP/base_tree"
 
   # Same shape as the swallowed-exception ratchet above, and for the same reason:
   # the pre-commit hook can be skipped (`git commit -n`, `SKIP=`), and it only ever
