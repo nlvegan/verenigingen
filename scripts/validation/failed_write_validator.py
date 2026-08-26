@@ -35,6 +35,18 @@ The two rules are complementary and must stay separate: this one deliberately
 returns nothing for a handler that swallows into a falsy value, because that is
 the sibling's turf and reporting it twice would double every message.
 
+That split is drawn by two SEPARATE copies of ``_is_falsy_return`` -- one here, one
+in ``error_swallow_validator`` -- and they have DIVERGED. #589 taught the sibling
+that a non-empty dict of falsy literals is falsy; this copy still recognises only
+``{}``, so ``return {"rows_written": 0}`` from a failed write is the sibling's turf by
+the sibling's rule and ``RETURNS_TRUTHY`` by this one. Measured when they diverged:
+the overlap on the 8 sites #589 added is ZERO (all read paths, none reported here),
+and this rule is advisory in CI, so nothing is double-reported today. It is a
+"must stay in step" hazard rather than a live defect -- widen this copy only with the
+same both-directions measurement, since ``_is_falsy_return`` feeds
+``_classify`` the way the sibling's feeds its condition (5). Applying #589's widening
+here today was measured at 0 change (159 sites / 130 functions before and after).
+
 WHAT IS FLAGGED
 ---------------
 A ``try``/``except`` is reported when ALL of these hold:

@@ -62,15 +62,24 @@ is now in scope too, 8 sites (#589). A non-empty dict was the shape this validat
 always let through, because ``{"success": False, "error": str(e)}`` is the remedy it
 prints -- but that dict has somewhere to put the cause and a dict of zeros does not.
 The caller cannot tell "no activity" from "the query blew up"; one of the 8 is an
-all-``False`` PERMISSION dict. An error report is still let through, because a value
-that is not a falsy literal is a place the cause can live.
+all-falsy PERMISSION dict.
+
+The TEST is cruder than that rationale, and deliberately so: ANY value that is not a
+falsy literal exempts the whole dict. ``{"error": str(e)}`` is exempt for the right
+reason and ``{"count": 0, "status": "error"}`` for no reason at all -- a hard-coded
+string is not a place the cause can live. For an ALREADY-baselined site that evasion
+is caught by ``--check-shrink``, which reports ``unrecognised``; for NEW code nothing
+catches it. Tightening it means adopting the key/value calibration that
+``failed_write_validator._reports_failure`` already carries, which is its own
+measurement and not smuggled in here.
 
 Two shapes with 0 occurrences today are closed alongside it rather than waited for:
 an empty f-string (``return f""`` parses as ``ast.JoinedStr``, not ``ast.Constant``,
-so the falsy-literal arm never saw it), and the argument-less falsy constructors
-``dict()``/``list()``/``tuple()``/``set()``/``frappe._dict()``, which the ``>= 1
-argument`` guard below necessarily excludes -- reachable only through a NAME
-allowlist, never by dropping that guard.
+so the falsy-literal arm never saw it), and the argument-less falsy constructors --
+``dict()``, ``frappe._dict()``, ``str()`` and the rest of ``FALSY_EMPTY_CONSTRUCTORS``
+-- which the ``>= 1 argument`` guard below necessarily excludes. They are reachable
+only through a NAME allowlist, never by dropping that guard. ``str()`` is in the set
+for the same reason the f-string arm exists: it IS ``""``.
 
 On (3): this is a set of DISQUALIFIERS, not a whitelist of allowed statements.
 It used to require a body of only logging calls and returns, which meant a single
@@ -90,7 +99,7 @@ positives.
 never returns anything meaningful (fire-and-forget cache invalidation, a
 best-effort notification) is not reported: its falsy return is not load-bearing,
 because no caller can branch on it. Measured on this repo, (5) is what makes the
-rule usable: conditions 1-4 alone match 929 sites, and (5) cuts that to 449.
+rule usable: conditions 1-4 alone match 937 sites, and (5) cuts that to 457.
 
 KNOWN FALSE NEGATIVES
 ---------------------
@@ -104,8 +113,8 @@ worse bug class -- a silent swallow -- and reporting it here would bury this one
 
 RATCHET, NOT BIG-BANG
 ---------------------
-There are 449 such sites today, across ``verenigingen/`` and ``scripts/``.
-Failing on all of them would block every commit, and pragma-ing 449 sites in one
+There are 457 such sites today, across ``verenigingen/`` and ``scripts/``.
+Failing on all of them would block every commit, and pragma-ing 457 sites in one
 diff would be unreviewable. So this validator fails only on sites NOT already
 recorded in the baseline.
 
@@ -132,7 +141,7 @@ stopped being SCANNED at all (``unscanned``)::
 
 ``--base-tree`` is a checkout of the base commit. Without it the ``silent`` reason is
 not reported at all: a deleted logging call and a function that has ALWAYS had a
-silent sibling look identical from the head tree, and 2 of the 435 baselined
+silent sibling look identical from the head tree, and 2 of the 443 baselined
 functions have such a sibling -- so guessing turns the CORRECT fix into a red gate
 citing a deletion that never happened.
 
@@ -212,10 +221,16 @@ RAISE_UNLESS_DISABLED = {"handle_error", "handle_service_error"}
 # call -- which is what keeps `get_fallback_cost_center()` and
 # `_get_empty_statistics()` out, and must keep doing so. A NAME allowlist is the
 # narrow way back in for the handful of calls whose value is falsy by definition.
-# Measured over both scan roots: the 11 distinct zero-argument calls returned from
-# inside a broad `except` are all of that fallback/retry kind, and NOT ONE is one of
-# these names -- so this reintroduces none of the 7 false positives (#589).
-FALSY_EMPTY_CONSTRUCTORS = {"dict", "list", "tuple", "set", "frappe._dict", "_dict"}
+# Measured over both scan roots: 13 zero-argument calls (11 distinct names) are
+# returned from inside a broad `except` -- fallbacks, retries, lookups and a mode
+# probe -- and NOT ONE is one of these names, so this reintroduces none of the 7
+# false positives (#589). `str()`/`int()`/`bool()` and friends are here because they
+# are falsy BY DEFINITION; adding them was measured at 0 added, 0 removed.
+FALSY_EMPTY_CONSTRUCTORS = {
+    "dict", "list", "tuple", "set", "frappe._dict", "_dict",
+    "str", "bytes", "bytearray", "frozenset",
+    "bool", "int", "float", "complex",
+}
 
 # A def inside a handler puts real returns out of reach of this analysis.
 NESTED_DEFS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
@@ -273,16 +288,18 @@ def _is_falsy_return(node: ast.AST) -> bool:
     # remedy this validator prints. That dict has somewhere to put the cause;
     # `{"today": 0, "week": 0, "daily_average": 0}` does not, and its caller cannot
     # tell "no activity" from "the query blew up". One of the 8 sites this adds
-    # returns an all-`False` PERMISSION dict. Measured over both scan roots, against
+    # returns an all-falsy PERMISSION dict. Measured over both scan roots, against
     # the shipped rule and in BOTH directions: adds exactly 8 sites, removes none.
     #
-    # A value that is not a falsy literal -- `str(e)`, a list of errors, a real count
-    # -- still makes the whole dict unflagged, which is what keeps an error report an
-    # error report.
+    # ANY value that is not a falsy literal exempts the whole dict, which is cruder
+    # than the reason above and knowingly so: `{"error": str(e)}` earns the exemption,
+    # `{"count": 0, "status": "error"}` does not and gets it anyway. On an already
+    # baselined site `--check-shrink` calls that `unrecognised`; on new code nothing
+    # does. Two more limits, shared with the sequence arm beside it: the test is
+    # `ast.Constant`, so a nested empty container (`{"rows": []}`) and an empty
+    # f-string (`{"msg": f""}`) both read as real values.
     if isinstance(v, ast.Dict):
-        return not v.keys or all(
-            isinstance(d, ast.Constant) and not d.value for d in v.values
-        )
+        return not v.keys or all(isinstance(d, ast.Constant) and not d.value for d in v.values)
     # An EMPTY sequence, or one holding nothing but falsy literals -- the same
     # argument, one step out. `return None, None` sits two lines below an identical
     # no-data `return None, None` in `MT940Import.get_transaction_date_range`, so the
@@ -615,7 +632,7 @@ def _silent_census(root: Path, rel: str) -> dict[str, Counter]:
     The base tree is the only thing that can tell "the logging call was deleted" from
     "this function has always had a silent sibling". Without it the two are
     indistinguishable, so `explain_shrink` refuses to report `silent` rather than
-    accuse: measured, 2 of 435 baselined functions carry a pre-existing silent
+    accuse: measured, 2 of 443 baselined functions carry a pre-existing silent
     sibling, and reporting those turns the CORRECT fix into a red gate with a false
     reason.
     """
@@ -655,7 +672,7 @@ def _shrink_causes(
         have, and `_handler_fingerprint` for why the match is not by line or position.
 
     Measured with the shipped predicates, tree-wide over both scan roots (tests
-    excluded, 1705 files): 483 handlers in 462 functions. That is why this is a shrink
+    excluded, 1705 files): 475 handlers in 454 functions. That is why this is a shrink
     explainer and not a second detector -- it is only ever asked about the handful of
     entries a PR actually removes, so its precision has to hold there and nowhere else.
     """

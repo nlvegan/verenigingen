@@ -728,11 +728,14 @@ class DictOfFalsyValuesTest(unittest.TestCase):
     def test_dict_of_all_false_permissions_is_flagged(self):
         """The 8th site, and the one worth reading first.
 
-        `ChapterQueryService.get_user_permissions_optimized` hands back an all-`False`
-        permission dict when the roles query raises. That direction is fail-CLOSED, so
-        it is not PR #191 repeating -- there a permission hook returned `""`, which
-        ERPNext reads as UNRESTRICTED. It is still the same swallow: the caller cannot
-        tell "this user has no rights" from "the query blew up".
+        `ChapterQueryService.get_user_permissions_optimized` hands back an all-falsy
+        permission dict (`is_board_member=False`, `board_role=None`, ...) when the roles
+        query raises. Read off the VALUE that direction is fail-closed, so it is not PR
+        #191 repeating -- there a permission hook returned `""`, which ERPNext reads as
+        UNRESTRICTED. That is as far as the claim goes: the only in-repo consumer is
+        `Chapter.get_user_permissions_optimized` (chapter.py:577), which has no callers
+        at all, so there is nothing to check the direction against. The swallow is the
+        same either way -- a caller could not tell "no rights" from "the query blew up".
         """
         self.assertEqual(
             len(
@@ -847,6 +850,42 @@ class DictOfFalsyValuesTest(unittest.TestCase):
         self.assertEqual(_flagged(src.replace("compute(x)", "0")), [])
 
 
+    def test_the_shrink_explainer_inherits_the_widening(self):
+        """Widening the falsy test widens the gate that guards its own removals.
+
+        The arm has a knowingly crude exemption -- ANY non-falsy value lets the dict
+        through, a hard-coded string included. For an already-baselined site that is
+        not a free bypass: dropping out of the count sends the entry to
+        `explain_shrink`, which asks a DIFFERENT question (`_returns_the_cause`), and a
+        truthy-but-uninformative value fails it. The third case is the control: a fix
+        that really does carry the cause must NOT be accused.
+        """
+        cases = {
+            "{'today': 0, 'status': 'error'}": ["unrecognised"],  # evasion: reported
+            "{'today': 0, 'error': str(e)}": [],  # a real fix: silent
+            "{'today': 0}": [],  # still falsy, so still COUNTED: never a shrink
+        }
+        for ret, expected in cases.items():
+            with self.subTest(ret=ret):
+                with tempfile.TemporaryDirectory() as tmp:
+                    d = Path(tmp).resolve()
+                    (d / "mod.py").write_text(
+                        "def f(x):\n"
+                        "    try:\n"
+                        "        return compute(x)\n"
+                        "    except Exception as e:\n"
+                        "        frappe.log_error('boom')\n"
+                        f"        return {ret}\n"
+                    )
+                    original = esv.REPO_ROOT
+                    esv.REPO_ROOT = d
+                    try:
+                        reported = esv.explain_shrink({"mod.py::f": 1}, [str(d)])
+                    finally:
+                        esv.REPO_ROOT = original
+                self.assertEqual([u.reason for u in reported], expected)
+
+
 class EmptyFStringReturnTest(unittest.TestCase):
     """`return f""` is `return ""`, but it parses as `ast.JoinedStr` (#589).
 
@@ -906,10 +945,20 @@ class EmptyConstructorReturnTest(unittest.TestCase):
     removes 6 real ones -- so these are reached by NAME instead. 0 occurrences in the
     tree today; the negative tests below are what keep the allowlist from becoming the
     relaxation it exists to avoid.
+
+    `str()` is in the set for the same reason `EmptyFStringReturnTest` exists: it IS
+    `""`, the value ERPNext reads as UNRESTRICTED from a permission hook. Closing the
+    f-string shape on that reasoning while leaving `str()` open would have been
+    inconsistent with it. Adding the remaining argument-less builtins was measured at
+    0 added / 0 removed.
     """
 
     def test_empty_constructors_are_flagged(self):
-        for ctor in ("dict()", "list()", "tuple()", "set()", "frappe._dict()", "_dict()"):
+        for ctor in (
+            "dict()", "list()", "tuple()", "set()", "frappe._dict()", "_dict()",
+            "str()", "bytes()", "bytearray()", "frozenset()",
+            "bool()", "int()", "float()", "complex()",
+        ):
             with self.subTest(ctor=ctor):
                 self.assertEqual(
                     len(
@@ -1307,7 +1356,7 @@ class ShrinkExplanationTest(unittest.TestCase):
         `_shrink_causes` sees every handler in the function, not only ones that were
         counted -- so a function that has ALWAYS had a never-logging falsy handler had
         it reported as `silent` the moment any sibling was fixed, under a message
-        asserting a deletion that never happened. Measured: 2 of 435 baselined
+        asserting a deletion that never happened. Measured: 2 of 443 baselined
         functions carry such a sibling, and the report fired on the CORRECT fix.
 
         The base tree is what distinguishes them, and it is why `base_root` is
