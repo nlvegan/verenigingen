@@ -50,12 +50,19 @@ false positive.
 
 Also on (4): a falsy-MEANING sentinel counts, not only a falsy-SHAPED literal. A
 handler changed from ``return None`` to ``return InvoiceChoice(None, 0)`` -- same
-swallow, still logging -- and the site silently LEFT the baseline. So a call whose
-arguments are ALL falsy literals is falsy too, provided it has at least one
-argument: without that guard the rule is satisfied vacuously by any argument-less
-call (``all([])`` is True), which measured 1 true positive against 10 false
-positives on this tree. A call carrying the cause -- ``Result(False, str(e))`` --
-is not a swallow, for the same reason a non-empty dict never was.
+swallow, still logging -- and the site silently LEFT the baseline. Two arms follow
+from that: a call whose arguments are ALL falsy literals (given at least one
+argument), and a SEQUENCE holding nothing but falsy literals -- ``return None,
+None`` two lines below an identical no-data ``return None, None``. A call carrying
+the cause -- ``Result(False, str(e))`` -- is not a swallow, for the same reason a
+non-empty dict never was.
+
+Still out of scope on purpose: a non-empty DICT whose every value is a falsy
+literal (``{"today": 0, "week": 0}``), 8 sites. A non-empty dict is the shape this
+validator has always let through, because ``{"success": False, "error": str(e)}``
+is the remedy it prints; separating a zero-stats fallback from an error report is a
+different rule with its own false-positive surface, and it is tracked separately
+rather than smuggled in here.
 
 On (3): this is a set of DISQUALIFIERS, not a whitelist of allowed statements.
 It used to require a body of only logging calls and returns, which meant a single
@@ -230,22 +237,36 @@ def _is_falsy_return(node: ast.AST) -> bool:
         return True
     if isinstance(v, ast.Dict) and not v.keys:
         return True
-    if isinstance(v, (ast.List, ast.Tuple, ast.Set)) and not v.elts:
-        return True
+    # An EMPTY sequence, or one holding nothing but falsy literals -- the same
+    # argument, one step out. `return None, None` sits two lines below an identical
+    # no-data `return None, None` in `MT940Import.get_transaction_date_range`, so the
+    # caller cannot tell "no transactions in range" from "the query blew up" (#586).
+    # Measured: extending this branch adds exactly 3 sites and removes none.
+    if isinstance(v, (ast.List, ast.Tuple, ast.Set)):
+        return all(isinstance(e, ast.Constant) and not e.value for e in v.elts)
     # A falsy-MEANING sentinel is not a falsy-SHAPED literal. One handler was
     # changed from `return None` to `return InvoiceChoice(None, 0)` -- the same
     # swallow, still logging, no behavioural change at all -- and the site silently
     # LEFT the baseline, which reads as progress (#586).
     #
     # The `v.args or v.keywords` guard is the load-bearing part. "A call whose
-    # arguments are all falsy" -- the shape the issue itself suggested -- is
-    # satisfied VACUOUSLY by a call with no arguments, because `all([])` is True.
-    # Measured over both scan roots, that rule scored 1 true positive and 10 false
-    # positives: `get_fallback_cost_center()`, `_get_empty_statistics()`,
-    # `get_empty_coverage_analysis()`, `self._load_payment_history_original()` and
-    # three `OperationResult.fail(...).to_dict()` chains, whose OUTER call is the
-    # argument-less `to_dict()`. Requiring one argument keeps the true positive and
-    # drops all ten.
+    # arguments are all falsy" -- the shape the issue itself suggested -- is satisfied
+    # VACUOUSLY by a call with no arguments, because `all([])` is True. Measured
+    # against this rule over both scan roots, dropping the guard would:
+    #
+    #   ADD    7 false findings -- `get_fallback_cost_center()`,
+    #          `_get_empty_statistics()`, `get_empty_coverage_analysis()`,
+    #          `self._load_payment_history_original()` and friends: real fallbacks
+    #          and retries, plus `OperationResult.fail(...).to_dict()` chains whose
+    #          OUTER call is the argument-less `to_dict()`;
+    #   REMOVE 6 findings that are in the baseline TODAY, because this predicate also
+    #          feeds condition (5): `get_mollie_settings` returns only
+    #          `settings.as_dict()`, `get_chapter_stats` only
+    #          `chapter.get_chapter_statistics()`, so both would read as "never
+    #          returns a real value" and their swallows would vanish.
+    #
+    # That second half is the standing hazard, and it applies to ANY future widening
+    # here: check both directions. The arms below were verified to remove nothing.
     #
     # A call carrying the cause -- `Result(False, str(e))` -- stays unflagged for the
     # same reason a non-empty dict always has: the caller can learn WHY it failed.
@@ -319,6 +340,53 @@ def _suppressed(handler: ast.ExceptHandler, lines: list[str]) -> tuple[bool, str
     return False, None
 
 
+def _returns_real_value(fn: ast.AST) -> bool:
+    """(5): does this function hand a caller a real value somewhere else?
+
+    A function that never returns anything meaningful (fire-and-forget cache
+    invalidation, a best-effort notification) is not reported: no caller can branch
+    on its falsy return.
+    """
+    return any(
+        isinstance(n, ast.Return) and n.value is not None and not _is_falsy_return(n)
+        for n in _own_nodes(fn)
+    )
+
+
+def _is_structural_swallow(node: ast.AST, *, require_log: bool = True) -> bool:
+    """Conditions (1), (2) and (3) for one handler -- everything except the returns.
+
+    Shared by ``scan_file`` and ``_unrecognised_swallows`` on purpose. They used to
+    carry two copies of this ladder, which is a "must stay in step" hazard of exactly
+    the kind this repo keeps paying for: add a condition to the detector and the
+    shrink explainer silently stops explaining.
+
+    ``require_log`` is the one place they legitimately differ. The detector skips a
+    handler that logs nothing, because a SILENT swallow is a different and worse bug
+    class and reporting it here would bury this one. The explainer must NOT skip it:
+    deleting the logging call is otherwise an accepted "fix" that drops the entry out
+    of the baseline while making the code worse.
+    """
+    if not isinstance(node, ast.ExceptHandler) or not _is_broad(node):
+        return False
+    # (2) the failure must not leave the handler -- `raise`, but also `frappe.throw`
+    # and `msgprint(raise_exception=True)`, which raise.
+    if _propagates(node):
+        return False
+    # (3) the handler must not do anything that lets the caller learn the cause or
+    # resume real work. This is a set of disqualifiers rather than a whitelist of
+    # allowed statements: requiring a body of ONLY logs and returns meant a single
+    # `cleanup()` call hid the site completely.
+    inner = list(ast.walk(node))
+    if require_log and not any(_is_log_call(n) for n in inner):
+        return False
+    if any(isinstance(n, NESTED_DEFS) for n in inner):
+        return False
+    if any(isinstance(n, (ast.Continue, ast.Break)) for n in inner):
+        return False
+    return True
+
+
 def scan_file(path: Path):
     """Return (findings, bad_pragmas) for one file.
 
@@ -335,12 +403,7 @@ def scan_file(path: Path):
     findings, bad_pragmas = [], []
 
     for qualname, fn in _qualnames(tree):
-        # (5) does this function elsewhere return a REAL value?
-        returns_real = any(
-            isinstance(n, ast.Return) and n.value is not None and not _is_falsy_return(n)
-            for n in _own_nodes(fn)
-        )
-        if not returns_real:
+        if not _returns_real_value(fn):
             continue
 
         # Handlers of a `try` that is the LAST statement of the function: falling off
@@ -350,29 +413,13 @@ def scan_file(path: Path):
         trailing = {id(h) for h in tail.handlers} if isinstance(tail, ast.Try) else set()
 
         for node in _own_nodes(fn):
-            if not isinstance(node, ast.ExceptHandler) or not _is_broad(node):
+            if not _is_structural_swallow(node):
                 continue
-            # (2) the failure must not leave the handler -- `raise`, but also
-            # `frappe.throw` and `msgprint(raise_exception=True)`, which raise.
-            if _propagates(node):
-                continue
-
-            # (3) the handler must not do anything that lets the caller learn the
-            # cause or resume real work. This is a set of disqualifiers rather than
-            # a whitelist of allowed statements: requiring a body of ONLY logs and
-            # returns meant a single `cleanup()` call hid the site completely.
-            inner = list(ast.walk(node))
-            if not any(_is_log_call(n) for n in inner):
-                continue  # silent returns are a different (worse) bug class
-            if any(isinstance(n, NESTED_DEFS) for n in inner):
-                continue
-            if any(isinstance(n, (ast.Continue, ast.Break)) for n in inner):
-                continue  # resumes the loop; nothing falsy reaches a caller
 
             # Returns at ANY depth, now that an `if` no longer disqualifies the
             # handler: one real return on one branch means the caller can still
             # get a usable value, so the handler is not a swallow.
-            rets = [n for n in inner if isinstance(n, ast.Return)]
+            rets = [n for n in ast.walk(node) if isinstance(n, ast.Return)]
             if not all(_is_falsy_return(r) for r in rets):
                 continue
 
@@ -397,91 +444,131 @@ class UnexplainedShrink(NamedTuple):
     key: str
     lineno: int
     source: str
+    reason: str
 
 
-def _mentions_bound_exception(handler: ast.ExceptHandler) -> bool:
+def _is_bound_name(node: ast.AST, name: str) -> bool:
+    return isinstance(node, ast.Name) and node.id == name
+
+
+def _returns_the_cause(handler: ast.ExceptHandler) -> bool:
     """True if what the caller receives can carry the cause.
 
     `except Exception as e: ... return {"success": False, "error": str(e)}` is the
-    remedy this validator PRINTS, so a baseline entry leaving because it changed into
-    that shape is a real fix. A handler with no `as` binding cannot name the cause in
-    its return at all, so it never qualifies.
+    remedy this validator PRINTS, so an entry leaving the baseline because it changed
+    into that shape is a real fix. A handler with no `as` binding cannot name the
+    cause in its return at all, so it never qualifies.
 
-    Known limit: only the bound name counts. A return built from
-    `frappe.get_traceback()` also carries the cause and is reported here as
-    unexplained -- a false alarm on a genuine fix, which is the safe direction for a
-    check whose whole purpose is to make a shrink get looked at.
+    The bound name must reach the returned VALUE -- as a call argument, through an
+    attribute (`e.args`), or interpolated into an f-string. An earlier version matched
+    the name anywhere inside any return, which made `return None if e else None` a
+    one-token bypass; 477 of the 489 broad handlers in baselined functions bind `e`,
+    so that predicate was doing far too much work to be that loose.
+
+    Known limit: `Choice(None, len(str(e)))` still counts as carrying the cause. The
+    name reaches a call argument, and distinguishing informative uses from decorative
+    ones is not something an AST can settle -- so this errs toward a false negative on
+    a deliberately obfuscated swallow rather than a false alarm on a real fix.
     """
     if not handler.name:
         return False
-    return any(
-        isinstance(n, ast.Name) and n.id == handler.name
-        for r in ast.walk(handler)
-        if isinstance(r, ast.Return) and r.value is not None
-        for n in ast.walk(r.value)
-    )
+    name = handler.name
+    for r in ast.walk(handler):
+        if not isinstance(r, ast.Return) or r.value is None:
+            continue
+        for n in ast.walk(r.value):
+            if isinstance(n, ast.Call) and (
+                any(_is_bound_name(a, name) for a in n.args)
+                or any(_is_bound_name(k.value, name) for k in n.keywords)
+            ):
+                return True
+            if isinstance(n, ast.Attribute) and _is_bound_name(n.value, name):
+                return True
+            if isinstance(n, ast.FormattedValue) and _is_bound_name(n.value, name):
+                return True
+    return False
 
 
-def _unrecognised_swallows(fn: ast.AST, lines: list[str]) -> list[ast.ExceptHandler]:
-    """Handlers satisfying every condition EXCEPT (4), the falsy test.
+def _shrink_causes(fn: ast.AST, lines: list[str]) -> list[tuple[ast.ExceptHandler, str]]:
+    """Handlers that could explain why this function LEFT the baseline, with a reason.
 
-    (4) is the heuristic; 1-3 and 5 are structural. A handler that still is broad,
-    still logs, still never propagates and still sits in a function returning real
-    values has NOT been fixed if it left the baseline -- it has become unrecognisable.
+    Conditions (1), (2) and (5) are structural and shared with the detector via
+    `_is_structural_swallow`; the two things this asks differently are the two the
+    detector uses to STOP looking:
 
-    Handlers whose return can carry the cause are excluded: that is the remedy this
-    validator prints, so shrinking into it is a real fix. Handlers with no return at
-    all are excluded too -- falling off a handler in the middle of a function resumes
-    it, which the main rule already treats as a true negative.
+    * ``require_log=False`` -- the detector skips a handler that logs nothing, because
+      a silent swallow is a different and worse bug class. Here that exemption is a
+      hole: deleting the logging call takes the entry out of the baseline while making
+      the code worse, which is #586's exact failure mode one door along. Reported as
+      ``silent``.
+    * the falsy test is the heuristic, so a handler that still swallows but is no
+      longer RECOGNISED as falsy is not a fix. Reported as ``unrecognised``.
 
-    Dropping (4) alone matches 936 sites tree-wide, so this is deliberately NOT a
-    second detector. It is only ever asked about the handful of entries a PR removes.
+    Measured with the shipped predicates, tree-wide over both scan roots (tests
+    excluded, 1705 files): 483 handlers in 462 functions. That is why this is a shrink
+    explainer and not a second detector -- it is only ever asked about the handful of
+    entries a PR actually removes, so its precision has to hold there and nowhere
+    else.
     """
-    returns_real = any(
-        isinstance(n, ast.Return) and n.value is not None and not _is_falsy_return(n)
-        for n in _own_nodes(fn)
-    )
-    if not returns_real:
+    if not _returns_real_value(fn):
         return []  # (5) gone: the falsy return is no longer load-bearing
 
-    out: list[ast.ExceptHandler] = []
+    tail = fn.body[-1] if getattr(fn, "body", None) else None
+    trailing = {id(h) for h in tail.handlers} if isinstance(tail, ast.Try) else set()
+
+    out: list[tuple[ast.ExceptHandler, str]] = []
     for node in _own_nodes(fn):
-        if not isinstance(node, ast.ExceptHandler) or not _is_broad(node):
+        if not _is_structural_swallow(node, require_log=False):
             continue
-        if _propagates(node):
-            continue  # the failure leaves the handler now: a real fix
-        inner = list(ast.walk(node))
-        if not any(_is_log_call(n) for n in inner):
-            continue
-        if any(isinstance(n, NESTED_DEFS) for n in inner):
-            continue
-        if any(isinstance(n, (ast.Continue, ast.Break)) for n in inner):
-            continue
-        rets = [n for n in inner if isinstance(n, ast.Return)]
-        if not rets or all(_is_falsy_return(r) for r in rets):
-            continue  # no return, or still recognised -- either way not this gap
         if _suppressed(node, lines)[0]:
             continue  # deliberately marked, which is a reviewable exit
-        if _mentions_bound_exception(node):
+
+        rets = [n for n in ast.walk(node) if isinstance(n, ast.Return)]
+        if not rets and id(node) not in trailing:
+            continue  # falling off mid-function resumes it: never was a swallow
+
+        logs = any(_is_log_call(n) for n in ast.walk(node))
+        if all(_is_falsy_return(r) for r in rets):
+            # Still hands back a falsy value. If it also still logs, the detector is
+            # still counting it, so it is not why the entry left.
+            if logs:
+                continue
+            out.append((node, "silent"))
             continue
-        out.append(node)
-    return sorted(out, key=lambda h: h.lineno)
+        if _returns_the_cause(node):
+            continue  # the caller can learn WHY: a real fix
+        out.append((node, "unrecognised"))
+    return sorted(out, key=lambda pair: pair[0].lineno)
 
 
 def explain_shrink(baseline: dict[str, int], paths: list[str]) -> list[UnexplainedShrink]:
     """Baseline entries whose count DROPPED without the swallow being fixed.
 
-    A shrink is the one direction the ratchet accepts without question, and that is
+    A shrink was the one direction this ratchet accepted without question, and that is
     how #586 nearly shipped: a handler's return changed from ``None`` to
-    ``InvoiceChoice(None, 0)`` and the entry left the baseline. The instruction
-    printed on that failure is ``--update-baseline``, and the resulting diff shows a
-    REMOVED line -- both read as progress.
+    ``InvoiceChoice(None, 0)`` and the entry left the baseline. The instruction printed
+    on that failure is ``--update-baseline``, and the resulting diff shows a REMOVED
+    line -- both read as progress.
 
-    The comparison is a COUNT, not a search, because a function may hold several
-    swallows. Fixing one of two leaves the other still flagged, and a find-first rule
-    reported that survivor as an unexplained shrink -- four such false alarms on the
-    symlink fix in this very commit. Only ``missing - <entries still counted>`` can
-    possibly be unrecognised, so at most that many are reported.
+    Three reasons an entry can leave without being fixed, each reported distinctly:
+
+    ``unscanned``
+        the file stopped being SCANNED rather than stopping being a swallow. Narrowing
+        `SCAN_ROOTS`, or adding a directory to `_iter_py`'s exclusions, silently drops
+        every entry under it -- measured on this tree, adding ``templates`` drops 10
+        and dropping ``scripts`` drops 33. `scan_file` is the control: it re-reads the
+        file directly, so a site it still finds that `_counts` no longer reports left
+        the scan, not the code.
+    ``silent``
+        the logging call was removed, so the detector's own "silent swallows are a
+        different bug class" exemption now hides it.
+    ``unrecognised``
+        the falsy test stopped recognising what it hands back.
+
+    The comparison is capped at ``missing`` per key, so a function holding several
+    swallows cannot report more than actually went away. Note that the cap is NOT what
+    prevents the common false alarm of fixing one of two swallows -- the survivor is
+    excluded because it is still recognised, and therefore still counted.
     """
     counts, _ = _counts(paths)
     by_path: dict[str, list[tuple[str, int]]] = {}
@@ -494,25 +581,34 @@ def explain_shrink(baseline: dict[str, int], paths: list[str]) -> list[Unexplain
 
     out: list[UnexplainedShrink] = []
     for rel in sorted(by_path):
+        full = REPO_ROOT / rel
         try:
-            source = (REPO_ROOT / rel).read_text(encoding="utf-8")
+            source = full.read_text(encoding="utf-8")
             tree = ast.parse(source)
         except (OSError, SyntaxError):
             continue  # the file is gone or unparseable: the shrink explains itself
         lines = source.splitlines()
         fns = dict(_qualnames(tree))
+        still_scanned, _ = scan_file(full)
+
         for qualname, missing in sorted(by_path[rel]):
             fn = fns.get(qualname)
             if fn is None:
                 continue  # deleted or renamed: explained
-            for handler in _unrecognised_swallows(fn, lines)[:missing]:
-                segment = ast.get_source_segment(source, handler) or ""
+
+            # Does a direct scan of the file still find sites `_counts` did not
+            # report? Then the file left the SCAN, and the code never changed.
+            direct = [ln for qn, ln in still_scanned if qn == qualname]
+            unscanned = len(direct) - (counts.get(f"{rel}::{qualname}", 0))
+            causes = [(ln, "unscanned") for ln in sorted(direct)[:max(unscanned, 0)]]
+            causes += [
+                (h.lineno, reason) for h, reason in _shrink_causes(fn, lines)
+            ]
+
+            for lineno, reason in causes[:missing]:
+                segment = lines[lineno - 1] if 0 < lineno <= len(lines) else ""
                 out.append(
-                    UnexplainedShrink(
-                        f"{rel}::{qualname}",
-                        handler.lineno,
-                        segment.splitlines()[0].strip() if segment else "",
-                    )
+                    UnexplainedShrink(f"{rel}::{qualname}", lineno, segment.strip(), reason)
                 )
     return out
 
@@ -645,16 +741,26 @@ def main(argv: list[str]) -> int:
         if not unexplained:
             print("Every entry that left the baseline was fixed, deleted or marked.")
             return 0
+        why = {
+            "unrecognised": "the falsy test no longer recognises what it hands back",
+            "silent": "the logging call is gone -- this is now a SILENT swallow, which is worse",
+            "unscanned": "the file stopped being SCANNED; the handler never changed",
+        }
         print("\n\U0001f6d1 Baseline entries that LEFT without the swallow being fixed\n")
         for u in unexplained:
-            print(f"  {u.key}  (line {u.lineno})\n      {u.source}")
+            print(f"  {u.key}  (line {u.lineno})  [{u.reason}]")
+            print(f"      {u.source}\n      -> {why[u.reason]}")
         print(
-            "\n  Each handler above is still broad, still logs, still never propagates, and\n"
-            "  still sits in a function that returns real values -- only the falsy test\n"
-            "  stopped recognising what it hands back. Nothing distinguishes that from a\n"
-            "  fix, and the diff shows a REMOVED line, so both read as progress.\n\n"
-            "  Either fix the handler, mark it `# swallow-ok: <reason>`, or teach\n"
-            "  `_is_falsy_return` the new shape IN THE SAME COMMIT as the regeneration.\n"
+            "\n  Each handler above is still broad, still never propagates, and still sits in\n"
+            "  a function that returns real values. Nothing in a baseline diff distinguishes\n"
+            "  that from a fix -- a REMOVED line reads as progress either way.\n\n"
+            "  To resolve one:\n"
+            "    * include the cause in what you return (`str(e)`, `repr(e)`, `e.args`) --\n"
+            "      that is the fix this guard exists to ask for, and it goes quiet;\n"
+            "    * or re-raise / `frappe.throw`;\n"
+            "    * or teach `_is_falsy_return` the new shape IN THE SAME COMMIT as the\n"
+            "      regeneration, if the shape really is falsy;\n"
+            "    * `# swallow-ok: <reason>` only if the failure genuinely does not matter.\n"
         )
         return 1
 

@@ -610,6 +610,32 @@ class SentinelObjectReturnTest(unittest.TestCase):
             [],
         )
 
+    def test_a_bare_mention_of_the_exception_does_not_count_as_carrying_it(self):
+        """`_returns_the_cause` must not be satisfied by a one-token bypass.
+
+        477 of the 489 broad handlers in baselined functions bind `e`, so a predicate
+        that matched the name ANYWHERE in a return was doing far too much work to be
+        that loose: `return Choice(None, 0) if e else Choice(None, 0)` mentions `e` and
+        hands the caller nothing.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp).resolve()
+            (d / "mod.py").write_text(
+                "def f(x):\n"
+                "    try:\n"
+                "        return compute(x)\n"
+                "    except Exception as e:\n"
+                "        frappe.log_error('boom')\n"
+                "        return Choice(None, 0) if e else Choice(None, 0)\n"
+            )
+            original = esv.REPO_ROOT
+            esv.REPO_ROOT = d
+            try:
+                reported = esv.explain_shrink({"mod.py::f": 1}, [str(d)])
+            finally:
+                esv.REPO_ROOT = original
+        self.assertEqual([u.reason for u in reported], ["unrecognised"])
+
     def test_call_carrying_the_cause_is_not_flagged(self):
         """An explicit error return is the remedy this validator ASKS for.
 
@@ -624,6 +650,45 @@ class SentinelObjectReturnTest(unittest.TestCase):
                 "    except Exception as e:\n"
                 "        frappe.log_error('boom')\n"
                 "        return Result(False, str(e))\n"
+            ),
+            [],
+        )
+
+
+class FalsySequenceReturnTest(unittest.TestCase):
+    """A sequence holding nothing but falsy literals carries no more than an empty one.
+
+    `MT940Import.get_transaction_date_range` returns `None, None` from its handler --
+    and `return None, None` sits TWO LINES ABOVE it as the legitimate "no transactions
+    in range" answer. The caller cannot tell them apart, which is this bug class
+    exactly. Measured: extending the branch adds 3 sites tree-wide and removes none.
+    """
+
+    def test_tuple_of_falsy_literals_is_flagged(self):
+        self.assertEqual(
+            len(
+                _flagged(
+                    "def f(x):\n"
+                    "    try:\n"
+                    "        return compute(x), other(x)\n"
+                    "    except Exception:\n"
+                    "        frappe.log_error('boom')\n"
+                    "        return None, None\n"
+                )
+            ),
+            1,
+        )
+
+    def test_tuple_carrying_a_real_element_is_not_flagged(self):
+        """`return False, "no mandate"` tells the caller which failure it got."""
+        self.assertEqual(
+            _flagged(
+                "def f(x):\n"
+                "    try:\n"
+                "        return True, compute(x)\n"
+                "    except Exception:\n"
+                "        frappe.log_error('boom')\n"
+                "        return False, 'lookup failed'\n"
             ),
             [],
         )
@@ -685,6 +750,17 @@ class ShrinkExplanationTest(unittest.TestCase):
     examined, so the discriminator does not need to be right across the whole tree --
     only on the handful of entries a PR actually removes.
     """
+
+    def _shrink_src(self, src: str, baseline: dict):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp).resolve()
+            (d / "mod.py").write_text(src)
+            original = esv.REPO_ROOT
+            esv.REPO_ROOT = d
+            try:
+                return esv.explain_shrink(baseline, [str(d)])
+            finally:
+                esv.REPO_ROOT = original
 
     def _shrink(self, src: str, key: str):
         with tempfile.TemporaryDirectory() as tmp:
@@ -777,7 +853,12 @@ class ShrinkExplanationTest(unittest.TestCase):
                 esv.REPO_ROOT = original
 
     def test_a_pragma_explains_the_shrink(self):
-        """A `swallow-ok` marker is a deliberate, reviewable exit from the baseline."""
+        """A `swallow-ok` marker is a deliberate, reviewable exit from the baseline.
+
+        The return must be an UNRECOGNISED one. With `return None` the handler is
+        excluded for still being recognised, so `_suppressed` is never reached and the
+        test passes for the wrong reason -- mutating that branch away left it green.
+        """
         self.assertEqual(
             self._shrink(
                 "def f(x):\n"
@@ -785,11 +866,114 @@ class ShrinkExplanationTest(unittest.TestCase):
                 "        return compute(x)\n"
                 "    except Exception:  # swallow-ok: best-effort\n"
                 "        frappe.log_error('boom')\n"
-                "        return None\n",
+                "        return State.NOT_FOUND\n",
                 "mod.py::f",
             ),
             [],
         )
+
+    def test_the_report_is_capped_at_what_actually_went_missing(self):
+        """Two unrecognised handlers, but the baseline only ever knew about one."""
+        src = (
+            "def f(x):\n"
+            "    try:\n"
+            "        return compute(x)\n"
+            "    except Exception:\n"
+            "        frappe.log_error('one')\n"
+            "        return State.NOT_FOUND\n"
+            "    try:\n"
+            "        return compute(x)\n"
+            "    except Exception:\n"
+            "        frappe.log_error('two')\n"
+            "        return State.NOT_FOUND\n"
+        )
+        self.assertEqual(len(self._shrink_src(src, {"mod.py::f": 1})), 1)
+        self.assertEqual(len(self._shrink_src(src, {"mod.py::f": 2})), 2)
+
+    def test_deleting_the_logging_call_is_reported_as_a_silent_swallow(self):
+        """#586's failure mode one door along.
+
+        The detector deliberately skips a handler that logs nothing -- a silent
+        swallow is a different and worse bug class, and reporting it there would bury
+        this one. That exemption made DELETING the log an accepted "fix": the entry
+        leaves the baseline, every gate goes green, and the code is now worse than the
+        swallow that was recorded.
+        """
+        reported = self._shrink_src(
+            "def f(x):\n"
+            "    try:\n"
+            "        return compute(x)\n"
+            "    except Exception:\n"
+            "        cleanup()\n"
+            "        return None\n",
+            {"mod.py::f": 1},
+        )
+        self.assertEqual([(u.reason, u.lineno) for u in reported], [("silent", 4)])
+
+    def test_a_still_logging_falsy_handler_is_not_a_shrink_cause(self):
+        """The control for the test above: still recognised AND still logging.
+
+        Such a handler is still being counted, so it cannot be why an entry left.
+        Reporting it would fire on every partial shrink.
+        """
+        self.assertEqual(
+            self._shrink_src(
+                "def f(x):\n"
+                "    try:\n"
+                "        return compute(x)\n"
+                "    except Exception:\n"
+                "        frappe.log_error('boom')\n"
+                "        return None\n",
+                {"mod.py::f": 2},
+            ),
+            [],
+        )
+
+    def test_a_mid_function_handler_that_neither_logs_nor_returns_is_not_reported(self):
+        """Falling off a handler in the MIDDLE of a function resumes it.
+
+        Nothing falsy reaches the caller, so this was never a swallow -- and without
+        the trailing-`try` guard it would be reported as a silent one.
+        """
+        self.assertEqual(
+            self._shrink_src(
+                "def f(x):\n"
+                "    try:\n"
+                "        prepare(x)\n"
+                "    except Exception:\n"
+                "        cleanup()\n"
+                "    return compute(x)\n",
+                {"mod.py::f": 1},
+            ),
+            [],
+        )
+
+    def test_a_file_leaving_the_SCAN_is_reported_as_unscanned(self):
+        """The entry left because the walk stopped visiting the file (#586 H2).
+
+        Narrowing SCAN_ROOTS, or adding a directory to `_iter_py`'s exclusions, drops
+        every baselined entry beneath it while the handler is untouched. Measured on
+        the real tree: excluding `templates/` drops 10 entries and dropping the
+        `scripts` root drops 33, and before this both reported ZERO.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp).resolve()
+            (d / "mod.py").write_text(
+                "def f(x):\n"
+                "    try:\n"
+                "        return compute(x)\n"
+                "    except Exception:\n"
+                "        frappe.log_error('boom')\n"
+                "        return None\n"
+            )
+            original_root, original_iter = esv.REPO_ROOT, esv._iter_py
+            esv.REPO_ROOT = d
+            esv._iter_py = lambda paths: iter(())  # the file stops being visited
+            try:
+                reported = esv.explain_shrink({"mod.py::f": 1}, [str(d)])
+            finally:
+                esv.REPO_ROOT, esv._iter_py = original_root, original_iter
+        self.assertEqual([(u.reason, u.lineno) for u in reported], [("unscanned", 4)])
 
 
 if __name__ == "__main__":

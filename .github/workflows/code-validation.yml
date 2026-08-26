@@ -192,10 +192,17 @@ jobs:
     #
     # Deliberately NOT exempted when the validator changes, unlike the growth gate:
     # a validator PR is exactly where a detection rule can be narrowed by accident,
-    # and this is the only step that would say so. Known limit -- the explainer shares
-    # the validator's own predicates, so narrowing `_is_broad` or `LOG_NAMES` is
-    # invisible to it; it sees a narrowing of the FALSY test, which is the heuristic
-    # that has now been widened twice.
+    # and this is the only step that would say so. It distinguishes three reasons an
+    # entry can leave without being fixed -- the falsy test no longer recognising the
+    # return, the logging call being DELETED (which makes it a silent swallow, worse
+    # than what was recorded), and the file dropping out of the SCAN. That last one
+    # matters because `.pre-commit-config.yaml` couples its `exclude` to SCAN_ROOTS by
+    # hand: measured, excluding `templates/` silently dropped 10 baselined entries and
+    # dropping the `scripts` root dropped 33.
+    #
+    # Known limit: the explainer shares the validator's own structural predicates, so
+    # narrowing `_is_broad` or `LOG_NAMES` is invisible to it. It sees a narrowing of
+    # the falsy test -- the heuristic, which has now been widened twice.
     - name: Every shrink was actually a fix
       if: github.event_name == 'pull_request'
       env:
