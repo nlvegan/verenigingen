@@ -112,7 +112,15 @@ class MollieBase(BTRBase):
     def _make_gl_account(self, name_prefix, root_type="Asset", account_type=None):
         """Create a leaf GL Account on the EUR test company."""
         company = self.company
-        parent = frappe.db.get_value(
+        # A Bank leaf goes under the Bank group. Asking only for the newest
+        # `root_type` group is the #581 class: 12 Asset groups exist and
+        # `get_value` orders `creation DESC`, so it resolves `Temporary Accounts`.
+        parent = None
+        if account_type == "Bank":
+            parent = frappe.db.get_value(
+                "Account", {"company": company, "account_type": "Bank", "is_group": 1}, "name"
+            )
+        parent = parent or frappe.db.get_value(
             "Account", {"company": company, "is_group": 1, "root_type": root_type}, "name"
         )
         acc = frappe.new_doc("Account")
