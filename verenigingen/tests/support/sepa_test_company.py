@@ -317,7 +317,22 @@ def get_eur_bank_account(company: str | None = None) -> str:
     company = company or get_eur_test_company()
     gl_account = ensure_default_gl_bank_account(company)
 
-    existing = frappe.db.get_value("Bank Account", {"account": gl_account}, "name")
+    # Prefer the company account, and only then fall back to any Bank Account on
+    # the owned GL row. ERPNext's one-Bank-Account-per-GL rule is gated on
+    # `is_company_account` (`Bank Account.validate_account`), so a GL row can carry
+    # several NON-company rows, and the unfiltered lookup picks among them by
+    # recency -- measured on test_site_3, it returns `Mollie Clearing - Mollie Test
+    # Bank`, another module's row.
+    #
+    # The fallback is deliberate and NOT redundant: once a squatter holds the GL
+    # row, ERPNext refuses to create a company account on it at all, so filtering
+    # this lookup to `is_company_account: 1` would wedge such a site instead of
+    # resolving it. That leaves the document layer only partially owned, which is
+    # tracked separately -- the GL account, which is what everything keys on, is
+    # owned outright.
+    existing = frappe.db.get_value(
+        "Bank Account", {"account": gl_account, "is_company_account": 1}, "name"
+    ) or frappe.db.get_value("Bank Account", {"account": gl_account}, "name")
     if existing:
         return existing
 
@@ -326,19 +341,23 @@ def get_eur_bank_account(company: str | None = None) -> str:
 
 def _make_bank_account_(company: str, gl_account: str) -> str:
     """Create the Bank Account (and its Bank) this module owns."""
-    if not frappe.db.exists("Bank", _OWNED_BANK_NAME):
-        bank = frappe.new_doc("Bank")
-        bank.bank_name = _OWNED_BANK_NAME
-        bank.insert(ignore_permissions=True)
+    # Shared master data, built lazily from inside whichever test needed it
+    # first -- so the captured-insert drain must not claim it, exactly as for
+    # the company and the payment-terms template above (#581 point 3).
+    with _suspend_insert_capture():
+        if not frappe.db.exists("Bank", _OWNED_BANK_NAME):
+            bank = frappe.new_doc("Bank")
+            bank.bank_name = _OWNED_BANK_NAME
+            bank.insert(ignore_permissions=True)
 
-    account = frappe.new_doc("Bank Account")
-    account.account_name = _OWNED_BANK_ACCOUNT_NAME
-    account.bank = _OWNED_BANK_NAME
-    account.is_company_account = 1
-    account.company = company
-    account.account = gl_account
-    account.insert(ignore_permissions=True)
-    frappe.db.commit()
+        account = frappe.new_doc("Bank Account")
+        account.account_name = _OWNED_BANK_ACCOUNT_NAME
+        account.bank = _OWNED_BANK_NAME
+        account.is_company_account = 1
+        account.company = company
+        account.account = gl_account
+        account.insert(ignore_permissions=True)
+        frappe.db.commit()
     return account.name
 
 
@@ -353,9 +372,15 @@ def ensure_default_gl_bank_account(company: str) -> str:
     Identity comes from the account NAME, not from `Company.default_bank_account`
     and not from "any Bank-type leaf of this company". Both of those are borrows
     by recency, and unlike an ordinary borrow this one is **committed into shared
-    master data** that five production readers consult (the Mollie webhook, the
-    Mollie dues processor, `payment_entry_factory`, `unified_payment_entry_creator`
-    and the Ponto payment-entry service).
+    master data**.
+
+    What that is worth is test determinism, not production safety: five production
+    readers consult this field (the Mollie webhook, the Mollie dues processor,
+    `payment_entry_factory`, `unified_payment_entry_creator` and the Ponto
+    payment-entry service), but every one of them is a last-resort fallback behind
+    both a configured setting and a named-account lookup, and the company being
+    stamped here is test-only. The reason to fix it is that a shard's outcome
+    stopping depending on which suite ran first.
 
     Measured on `test_site_1`..`test_site_5` before this was owned: the company
     holds 3 / 4 / 2 / 1 / 2 Bank-type leaf accounts, and the borrow resolved to
@@ -373,12 +398,16 @@ def ensure_default_gl_bank_account(company: str) -> str:
     if not owned:
         owned = _make_gl_bank_account_(company)
 
-    # Re-stamp unconditionally: the point of owning the account is that the
-    # company default is the same row on every site and every run, and
-    # `test_payment_webhook_db_helpers` clears this field mid-shard.
+    # Commit ONLY when the stamp actually moved. This helper is reachable from
+    # test BODIES (`test_sepa_reconciliation._make_bank_transaction`, 34 call
+    # sites), and committing there commits that test's in-flight fixtures --
+    # the hazard `ReconBase.setUpClass`, `test_invoice_candidates` and
+    # `support/invoice_payments` each already document. Measured: committing
+    # unconditionally took `test_sepa_reconciliation`'s TEST-LEAK count from
+    # 3/3/3 to 6/6/4; moving the commit inside this guard restored 3/3.
     if frappe.db.get_value("Company", company, "default_bank_account") != owned:
         frappe.db.set_value("Company", company, "default_bank_account", owned)
-    frappe.db.commit()
+        frappe.db.commit()
     return owned
 
 
@@ -403,11 +432,12 @@ def _make_gl_bank_account_(company: str) -> str:
     under the old borrowed parent are left where they are -- some already carry
     GL Entries, and reparenting those buys nothing once identity is owned by name.
     """
-    account = frappe.new_doc("Account")
-    account.account_name = _OWNED_GL_BANK_ACCOUNT_NAME
-    account.company = company
-    account.account_type = "Bank"
-    account.parent_account = _bank_account_parent(company)
-    account.account_currency = "EUR"
-    account.insert(ignore_permissions=True)
+    with _suspend_insert_capture():
+        account = frappe.new_doc("Account")
+        account.account_name = _OWNED_GL_BANK_ACCOUNT_NAME
+        account.company = company
+        account.account_type = "Bank"
+        account.parent_account = _bank_account_parent(company)
+        account.account_currency = "EUR"
+        account.insert(ignore_permissions=True)
     return account.name

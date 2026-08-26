@@ -197,9 +197,8 @@ class TestOwnedGlBankAccount(FrappeTestCase):
 
         ``default_bank_account`` is cleared first because otherwise the old code
         short-circuits on it and never reaches the decoy. That is not a contrived
-        state: a fresh CI site has the field unset, and
-        ``test_payment_webhook_db_helpers.test_returns_none_when_bank_account_missing``
-        clears it mid-shard.
+        state -- a fresh CI site has the field unset, which is every CI shard's
+        starting point.
         """
         decoy = self._plant_decoy_bank_gl()
         # Clearing the stamp is a committed write to shared master data, so it
@@ -228,51 +227,78 @@ class TestOwnedGlBankAccount(FrappeTestCase):
         )
 
     def test_the_owned_bank_account_doc_is_keyed_on_the_owned_gl_account(self):
-        """``get_eur_bank_account`` must hang off the owned GL account, not a rival.
+        """`get_eur_bank_account` must hang off the OWNED GL account, not a newer one.
 
-        The two payment suites that carried their own copies of this helper each
-        created a *different* Bank Account (``BTR Test Company Account``,
-        ``ReconCov Test Company Account``) against a *different* GL account, so
-        which one a shard ended up using depended on class ordering.
+        The decoy is a newer Bank-type GL account carrying its own company Bank
+        Account, so a resolver that picks the GL account by recency lands on it.
+        It is planted here rather than inherited: an earlier version of this test
+        only went red as part of a whole-module run, because the preceding test's
+        residue was doing the work -- run alone it passed under the same mutation.
+
+        What is NOT asserted, deliberately: that the resolved document is a
+        *company* account. ERPNext gates its one-Bank-Account-per-GL rule on
+        `is_company_account`, so a GL row can accumulate non-company rows and then
+        refuse a company one entirely -- which is the state test_site_3 is in. The
+        GL account is owned outright; the document layer is not, and pinning it
+        here would fail on site state this change cannot safely repair.
         """
+        decoy_gl = self._plant_decoy_bank_gl()
+        decoy_doc = self._plant_decoy_bank_account(decoy_gl, is_company_account=1)
+
+        self.addCleanup(ensure_default_gl_bank_account, self.company)
+        frappe.db.set_value("Company", self.company, "default_bank_account", None)
+        frappe.db.commit()
+
         bank_account = get_eur_bank_account(self.company)
 
         self.assertTrue(bank_account, "no Bank Account resolved")
+        self.assertNotEqual(bank_account, decoy_doc, "borrowed the newest GL account's document")
         gl_account = frappe.db.get_value("Bank Account", bank_account, "account")
         self.assertEqual(
             frappe.db.get_value("Account", gl_account, "account_name"),
             _OWNED_GL_BANK_ACCOUNT_NAME,
+            "the resolved Bank Account does not sit on the owned GL account",
         )
         self.assertEqual(
             frappe.db.get_value("Bank Account", bank_account, "company"), self.company
         )
 
-    def test_new_bank_accounts_are_parented_under_the_bank_group(self):
-        """The parent must be the is_group **Bank** account, not the newest Asset group.
+    def test_a_created_gl_bank_account_is_parented_under_the_bank_group(self):
+        """The account the maker CREATES must sit under the is_group Bank account.
 
-        ``_unusable_reasons`` already guarantees an is_group Bank account exists and
-        says why. The predicate this replaced asked for ``{"is_group": 1,
-        "root_type": "Asset"}``; the test company has 12 such groups, so that query
-        was ambiguous and ``creation DESC`` decided it -- landing on
-        ``Temporary Accounts`` on all five measured sites.
+        Asserting what `_bank_account_parent` returns is not enough -- that only
+        re-states the helper's own filter, and a maker that ignored the helper and
+        inlined the old predicate would still pass. Measured: mutating
+        `_make_gl_bank_account_` to bypass `_bank_account_parent` left that version
+        of this test green.
 
-        This asserts the property rather than "not Temporary Accounts": on a fresh
-        CI site the chart of accounts is built in one transaction, so which Asset
-        group is newest is not something to pin. The final assertion is the control
-        -- without more than one Asset group the old predicate was never ambiguous
-        here, and this test would be passing for the wrong reason.
+        So point the module at a name that does not exist yet, forcing the create
+        path, and read the parent off the row it actually wrote. Same technique as
+        `patch_preferred_company` above.
         """
-        parent = _bank_account_parent(self.company)
+        from unittest.mock import patch
 
-        self.assertTrue(parent, "no is_group Bank account to parent under")
-        self.assertEqual(frappe.db.get_value("Account", parent, "account_type"), "Bank")
-        self.assertEqual(frappe.db.get_value("Account", parent, "is_group"), 1)
+        scratch = "TEST-581-Scratch-Owned-Bank"
+        self.addCleanup(ensure_default_gl_bank_account, self.company)
+        self.addCleanup(self._delete_account_named, scratch)
+
+        with patch.object(sepa_test_company, "_OWNED_GL_BANK_ACCOUNT_NAME", scratch):
+            created = ensure_default_gl_bank_account(self.company)
+
+        self.assertEqual(frappe.db.get_value("Account", created, "account_name"), scratch)
+        parent = frappe.db.get_value("Account", created, "parent_account")
+        self.assertEqual(
+            frappe.db.get_value("Account", parent, "account_type"),
+            "Bank",
+            f"created account was parented under {parent!r}, not the Bank group",
+        )
         self.assertGreater(
             frappe.db.count(
                 "Account", {"company": self.company, "is_group": 1, "root_type": "Asset"}
             ),
             1,
-            "only one Asset group exists, so the old predicate was not ambiguous here",
+            "only one Asset group exists, so the old predicate was not ambiguous here "
+            "and this test would be passing for the wrong reason",
         )
 
     # -- helpers ---------------------------------------------------------------
@@ -309,4 +335,38 @@ class TestOwnedGlBankAccount(FrappeTestCase):
         """``ensure_default_gl_bank_account`` commits, so the decoy outlives the rollback."""
         if frappe.db.exists("Account", name):
             frappe.delete_doc("Account", name, force=True, ignore_permissions=True)
+            frappe.db.commit()
+
+    def _plant_decoy_bank_account(self, gl_account, is_company_account):
+        """A Bank Account on `gl_account`, newer than anything already there."""
+        suffix = frappe.generate_hash(length=6)
+        bank_name = f"TEST-581-Decoy-Bank-{suffix}"
+        bank = frappe.new_doc("Bank")
+        bank.bank_name = bank_name
+        bank.insert()
+
+        ba = frappe.new_doc("Bank Account")
+        ba.account_name = f"TEST-581-Decoy-Acct-{suffix}"
+        ba.bank = bank_name
+        ba.is_company_account = is_company_account
+        ba.company = self.company
+        ba.account = gl_account
+        ba.insert()
+        frappe.db.commit()
+        self.addCleanup(self._delete_doc, "Bank", bank_name)
+        self.addCleanup(self._delete_doc, "Bank Account", ba.name)
+        return ba.name
+
+    def _delete_account_named(self, account_name):
+        """Remove a scratch Account by its `account_name` (not its full id)."""
+        name = frappe.db.get_value(
+            "Account", {"company": self.company, "account_name": account_name}, "name"
+        )
+        if name:
+            self._delete_doc("Account", name)
+
+    def _delete_doc(self, doctype, name):
+        """The helpers under test commit, so their rows outlive the rollback."""
+        if frappe.db.exists(doctype, name):
+            frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
             frappe.db.commit()

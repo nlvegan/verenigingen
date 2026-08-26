@@ -1327,7 +1327,12 @@ class TestManualReconciliation(ReconBase):
         than one — which makes get_default_bank_cash_account's 'exactly one'
         fallback return nothing when there is no configured default. Uncommitted;
         rolls back with the test."""
+        # Bank group, not "newest Asset group": the company has 12 Asset groups and
+        # `get_value` orders `creation DESC`, which lands on `Temporary Accounts`.
+        # Same class as #581; uncommitted here, so this is tidiness, not a defect.
         parent = frappe.db.get_value(
+            "Account", {"company": company, "account_type": "Bank", "is_group": 1}, "name"
+        ) or frappe.db.get_value(
             "Account", {"company": company, "is_group": 1, "root_type": "Asset"}, "name"
         )
         acc = frappe.new_doc("Account")
