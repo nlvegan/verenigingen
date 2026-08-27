@@ -44,6 +44,7 @@ class SEPAMandate(Document):
 
         # Run last: relies on the normalized IBAN (set by validate_iban) and the
         # final status (set by set_status_based_on_dates / sync_status_is_active).
+        self.validate_active_mandate_has_a_purpose()
         self.validate_single_active_mandate_per_purpose()
 
     def enforce_terminal_status(self):
@@ -68,6 +69,50 @@ class SEPAMandate(Document):
             )
             self.status = previous_status
             self.is_active = 0
+
+    def validate_active_mandate_has_a_purpose(self):
+        """An Active mandate must be marked for at least one purpose (#606).
+
+        `validate_single_active_mandate_per_purpose` loops over the purpose flags
+        that are set, so a mandate with NONE of them set had an empty loop and the
+        one-Active-per-purpose invariant simply did not apply to it. Two
+        all-purposes-zero Active mandates for one member were measured coexisting.
+
+        Bucketing "no purpose" as a fourth purpose would close that hole and leave
+        a larger one open. Since #597 every mandate-resolution query filters by
+        purpose, so an all-zero Active mandate is found by NONE of them: it is an
+        authorization that authorizes nothing. And creating one was not inert --
+        the whitelisted `create_and_link_mandate_enhanced(used_for_memberships=0,
+        used_for_donations=0)` computes `wanted = []` and hands it to
+        `cancel_active_mandates(purposes=[])`, whose
+        `tuple(purposes) if purposes else PURPOSE_FLAGS` reads an empty list as
+        "every purpose": it cancelled the member's real membership mandate and
+        then activated one that cannot collect. That activation is what now
+        raises. Requiring a purpose makes the shape unreachable rather than
+        merely unique.
+
+        Scoped to Active, like its sibling: a purposeless Draft or Suspended
+        mandate can still be staged, and Cancelled/Expired rows are untouched, so
+        this cannot lock an operator out of a mandate they are trying to retire.
+
+        Measured 2026-08-27: `tabSEPA Mandate` holds zero all-zero rows on veg11
+        (71 rows, all `used_for_memberships = 1`) and zero on test_site_1. That
+        bounds those two sites, not every install -- an install that does hold such
+        a row will find it unsaveable while Active until a purpose is ticked.
+        """
+        if self.status != "Active":
+            return
+        if any(self.get(flag) for flag in PURPOSE_FLAGS):
+            return
+
+        frappe.throw(
+            _(
+                "SEPA mandate {0} is Active but is not marked for any purpose. "
+                "Every direct debit query filters by purpose, so this mandate can "
+                "never be used to collect anything -- and creating it supersedes "
+                "the mandates that can. Tick at least one of {1}."
+            ).format(self.mandate_id or self.name or _("(new)"), ", ".join(PURPOSE_FLAGS))
+        )
 
     def validate_single_active_mandate_per_purpose(self):
         """At most ONE Active mandate per member PER PURPOSE.
@@ -114,6 +159,10 @@ class SEPAMandate(Document):
 
         overlapping = [flag for flag in PURPOSE_FLAGS if self.get(flag)]
         if not overlapping:
+            # Unreachable for an Active mandate since #606 --
+            # validate_active_mandate_has_a_purpose runs first and throws. Kept so
+            # this method is safe to call on its own; it used to be the hole that
+            # let two all-purposes-zero Active mandates coexist.
             return
 
         for flag in overlapping:
