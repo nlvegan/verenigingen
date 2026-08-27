@@ -15,7 +15,55 @@ from verenigingen.utils.security.authorization import (
 from verenigingen.utils.transaction_errors import insert_and_submit_atomically
 from verenigingen.verenigingen_payments.clients.settlements_client import SettlementsClient
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
+from verenigingen.verenigingen_payments.utils.invoice_candidates import (
+    log_ambiguous_refusal,
+    unambiguous_invoice,
+)
 from verenigingen.verenigingen_payments.utils.shared.money import safe_decimal
+
+#: Confidence for a Mollie settlement the bank description does NOT name (#547).
+#:
+#: Deliberately below ``PaymentReconciliationManager.match_threshold`` (0.85), which
+#: is what ``match_transaction`` compares against before calling
+#: ``create_reconciliation``. Raising this above the threshold reinstates #547.
+#:
+#: What this DOES buy: the transaction is left ``Pending`` and unallocated, so it
+#: stays in the operator's bank-reconciliation queue instead of being booked against
+#: a guess. What it does NOT buy, contrary to an earlier version of this comment:
+#: the ``match_reason`` built below is not persisted anywhere. ``match_transaction``
+#: returns False on a sub-threshold best match and writes nothing -- no comment, no
+#: Error Log -- so WHICH settlement nearly matched, and why it was refused, is
+#: currently discarded for every strategy, not just this one. Filed separately;
+#: do not restate the visibility claim until something reads this string.
+SETTLEMENT_UNCONFIRMED_CONFIDENCE = 0.60
+
+#: Minimum length for a settlement `reference` to be trusted as an identifier.
+#:
+#: The reference is an external string and it IS the security property here: a
+#: one- or two-character value would be contained in almost any description, making
+#: the gate vacuous exactly when the upstream data is degenerate. Mollie's documented
+#: shape is `<merchantId>.<yyMM>.<seq>` (16 chars on this account). A length floor
+#: rather than a shape regex on purpose -- a strict pattern that Mollie later widens
+#: would close the gate outright, which is the failure mode `is_company_account: 1`
+#: had in #544.
+MIN_SETTLEMENT_REFERENCE_LENGTH = 8
+
+
+def _squash_whitespace(value):
+    """Drop ALL whitespace, so a reference broken across a wrap still compares.
+
+    Measured on veg11: the bank breaks the remittance text at a fixed column, and
+    in one real settlement payout the break landed INSIDE the reference --
+
+        ... 509081651a68d4db7864.22175631 REF T13606591.231 0.01 Mollie betalingen
+
+    which is `13606591.2310.01` with a space in it. Plain containment returns False
+    there and the payout silently stops auto-reconciling. The same wrap lands in
+    "Mo llie betalingen" in other months, so the column is fixed and the token it
+    splits depends on the length of the variable-length payment id before it: it
+    can hit the reference again.
+    """
+    return re.sub(r"\s+", "", value or "")
 
 
 def _log_error_with_traceback(title, reason):
@@ -64,6 +112,16 @@ class PaymentReconciliationManager:
     # acting user can SUBMIT all of them -- see `_require_submit_permission`.
     SETTLEMENT_SUBMIT_DOCTYPES = ("Payment Entry", "Journal Entry")
 
+    # `custom_mollie_settlement_id` + `voucher_type` are a COUPLED key: both settlement
+    # Journal Entries carry the same settlement id and are told apart only by voucher
+    # type. Named here because Journal Entry's `voucher_type` DEFAULTS to "Journal Entry"
+    # (measured: `frappe.new_doc("Journal Entry").voucher_type == "Journal Entry"`), so a
+    # future settlement voucher that simply omits it becomes indistinguishable from the
+    # fee entry -- and therefore becomes the settlement-level idempotency key, silently
+    # short-circuiting every later run. Read by the two writers and the two guards.
+    SETTLEMENT_FEE_VOUCHER_TYPE = "Journal Entry"
+    SETTLEMENT_PAYOUT_VOUCHER_TYPE = "Bank Entry"
+
     def __init__(self):
         self.settings = frappe.get_single("Verenigingen Settings")
         self.config = get_mollie_config()  # Use cached configuration service
@@ -71,6 +129,8 @@ class PaymentReconciliationManager:
         self._validate_bank_transaction_fields()
         self._validate_mollie_accounts()
         self._processed_mollie_payments = set()  # Track processed payment IDs
+        # (window) -> settlements, for the length of this run. See _settlements_in_window.
+        self._settlement_window_cache = {}
 
     def _validate_mollie_accounts(self):
         """
@@ -342,16 +402,9 @@ class PaymentReconciliationManager:
                         # related invoice via the membership's member (Sales Invoice
                         # carries the `member` custom field).
                         membership_member = frappe.db.get_value("Membership", reference, "member")
-                        invoice = None
-                        if membership_member:
-                            invoice = frappe.db.get_value(
-                                "Sales Invoice",
-                                {
-                                    "member": membership_member,
-                                    "status": ["in", ["Unpaid", "Overdue"]],
-                                },
-                                "name",
-                            )
+                        invoice = self._unambiguous_member_invoice(
+                            membership_member, transaction.get("deposit")
+                        )
                         if invoice:
                             return {
                                 "type": "invoice",
@@ -374,6 +427,97 @@ class PaymentReconciliationManager:
         # Fuzzy matching on member names
         return self.fuzzy_match_member_name(description, transaction["deposit"])
 
+    def _unambiguous_member_invoice(self, member, deposit):
+        """The member's ONE unpaid invoice this deposit can be for, or None (#559).
+
+        This branch used to resolve the invoice with a bare
+        `frappe.db.get_value("Sales Invoice", {"member": ..., "status": ...})`,
+        which returns a single row ordered `creation` DESC -- so a member with more
+        than one unpaid invoice got whichever was created LAST, with no amount
+        comparison anywhere. That match is returned at 0.85, `match_transaction`
+        compares `>= self.match_threshold` (0.85), and `create_reconciliation` then
+        allocates the deposit to it. An arbitrary member of the candidate set was
+        being auto-posted against: the same "resolve to ONE" ambiguity as #544, and
+        as the settlement amount-twin fixed in #558.
+
+        The rule, in order:
+
+        1. One candidate -> that one, whatever the amount. A deposit smaller than
+           the outstanding is a legitimate partial payment, and
+           `create_payment_entry_from_transaction` bounds only the opposite case --
+           its own comment says so. Refusing here would remove that.
+        2. Several candidates, exactly one whose outstanding equals the deposit ->
+           that one. The discriminator was available all along and ignored.
+        3. Anything else -- no candidates, or several with nothing to separate them
+           -- is a CHOICE, not a match. Return None and let the branch fall through,
+           as it already did when no invoice was found.
+
+           That fall-through is newly REACHABLE for a case that previously always
+           returned a match, so it is worth saying where it lands: the remaining
+           `MEMBER ID` / `MANDATE` patterns cannot match a `MEMBERSHIP <id>` string,
+           so control reaches `fuzzy_match_member_name`, which cannot fire here.
+           Measured against 748 real member names on veg11, the best similarity to a
+           `MEMBERSHIP <id>` description is 0.333 and NO name exceeds 0.6 -- the
+           literal "MEMBERSHIP " prefix, guaranteed present because it is what the
+           regex matched, caps the ratio against any personal name, and it needs
+           0.9445 to clear the auto-match threshold. So the deposit ends as no match
+           at all, leaving its Bank Transaction `Pending` and therefore still in the
+           retry pool. Both of the outcomes this replaces were worse: allocate to an
+           arbitrary invoice, or (on the `deposit > outstanding` arm) get marked
+           permanently Unreconciled.
+
+        `docstatus: 1` is now explicit, matching `get_member_unpaid_invoices` and
+        `fuzzy_match_member_name`, both of which filter it while this one did not.
+        That is not the no-op it sounds like: veg11 carries **35** Sales Invoices with
+        status Unpaid/Overdue and `docstatus = 0`, **28** of them with a member.
+        ERPNext cannot produce that state -- `SalesInvoice.set_status` assigns
+        "Draft" whenever `docstatus != 1` -- so something writes `status` directly.
+        Under the old query those 28 members got a 0.85 match on a DRAFT invoice, the
+        Payment Entry build against it throws, and `create_reconciliation` then marks
+        the transaction permanently Unreconciled (nothing moves a transaction back
+        out of that state). Excluding them converts a guaranteed dead end into a
+        retryable no-match.
+
+        Compared at the field's own precision, as
+        `create_payment_entry_from_transaction` does, so a deposit differing by a
+        fraction of a cent that ERPNext itself rounds away is still recognised as
+        the amount match.
+        """
+        if not member:
+            return None
+
+        # The rule itself lives in `invoice_candidates` because #567 found four more
+        # places doing this, and keeping a second copy here is how a fix gets applied
+        # to one instance and missed on its siblings -- the failure mode CLAUDE.md
+        # names as its most productive rule. This method stays as the member-keyed
+        # spelling of it, and its own tests hold the behaviour unchanged.
+        choice = unambiguous_invoice(
+            filters={
+                "member": member,
+                "status": ["in", ["Unpaid", "Overdue"]],
+                "docstatus": 1,
+            },
+            amount=deposit,
+            fields=["name", "outstanding_amount"],
+        )
+        if choice.invoice:
+            return choice.invoice["name"]
+        if choice.is_ambiguous:
+            # This was the one `unambiguous_invoice` caller that refused SILENTLY, while
+            # the rule's own docstring says "refuse, and let the caller say so". A
+            # refusal nobody can see is indistinguishable from "this member has no open
+            # invoice", and the operator has to act on the difference.
+            log_ambiguous_refusal(
+                title="Bank Reconciliation Invoice Ambiguous",
+                refused=choice,
+                detail=(
+                    f"A deposit of {deposit} for member {member} matches "
+                    f"{choice.candidates} open invoices and none of them by amount; "
+                    f"refusing to choose one. Reconcile this transaction manually."
+                ),
+            )
+        return None
+
     def match_mollie_settlement(self, transaction):
         """
         Match bank transaction with Mollie bulk settlement payouts.
@@ -390,13 +534,63 @@ class PaymentReconciliationManager:
         in real-time via webhook (see integrations/mollie/api/payment_webhook.py).
         """
 
-        # Only check transactions on the configured Mollie bank account
+        # Only check transactions on the configured Mollie bank account.
+        #
+        # The configured value is a GL **Account** name; `transaction["bank_account"]` is
+        # what `reconcile_bank_transactions` selected from `Bank Transaction.bank_account`,
+        # a Link to **Bank Account**. Those are different namespaces -- `Bank Account`
+        # autonames `account_name + " - " + bank` and `Account` autonames
+        # `account_name + " - " + abbr` -- so comparing them directly could only be equal
+        # by naming coincidence, and this gate rejected EVERY transaction (#523). Measured
+        # on veg11: 409 Bank Accounts, none with `name == account`, and zero settlement
+        # vouchers across 7,664 Bank Transactions.
+        #
+        # Resolved GL -> Bank Account, the same direction
+        # `bank_transaction_creator.get_mollie_bank_account_config` and
+        # `settlement_bank_transaction_processor._validate_configuration` already use.
         try:
             mollie_bank_account = self.config.get_bank_account_gl()
         except frappe.ValidationError:
             return None
 
-        if transaction.get("bank_account") != mollie_bank_account:
+        # Membership of the set, not a resolved docname (#544). Resolving one row is
+        # ambiguous: ERPNext enforces one Bank Account per GL account in
+        # `validate_account()`, reachable only from `validate_is_company_account()` and so
+        # gated on `if self.is_company_account:`, and `account` carries no `unique` flag and
+        # no index. Measured -- inserting flag=1 then flag=0 against one GL account both
+        # succeed, while a second flag=1 is rejected (the control) -- and `Bank Account`
+        # sorts `creation DESC`, so `get_value` returns whichever was created LAST. Six
+        # places in this app create Bank Accounts, some for parties; any one of them writing
+        # this GL account would silently reinstate #523.
+        #
+        # Filtering on `is_company_account: 1` is NOT the fix -- on test_site_4 the only Bank
+        # Account on the company's default GL account has that flag clear, so the filtered
+        # lookup returns None and closes the gate outright.
+        #
+        # Membership needs neither choice: the money lands in the configured GL account
+        # whichever Bank Account names it, and the amount/keyword/settlement checks below do
+        # the discriminating work.
+        mollie_bank_account_docs = frappe.get_all(
+            "Bank Account", filters={"account": mollie_bank_account}, pluck="name"
+        )
+        if not mollie_bank_account_docs:
+            # Configured GL account with no Bank Account record: settlements cannot be
+            # matched at all until one exists, and silence is how this went unnoticed for
+            # as long as it did.
+            _log_error_with_traceback(
+                "Mollie Settlement Matching",
+                f"No Bank Account record is linked to the configured Mollie bank account "
+                f"{mollie_bank_account!r}; settlement deposits cannot be matched until one "
+                f"exists.",
+            )
+            return None
+
+        # NOT redundant with the guard above, contrary to #538's commit message.
+        # `Bank Transaction.bank_account` is not mandatory: with an empty set and a bare
+        # `!=`, `None != None` is False and an accountless transaction falls through to be
+        # matched at 0.98 confidence. `not in` holds in that case. Pinned by
+        # `test_unlinked_gl_account_does_not_match_an_accountless_transaction`.
+        if transaction.get("bank_account") not in mollie_bank_account_docs:
             return None
 
         amount = self._safe_decimal(transaction.get("deposit", 0))
@@ -411,35 +605,122 @@ class PaymentReconciliationManager:
             return None
 
         try:
-            # Initialize Mollie clients to fetch settlement data
-            settlements_client = SettlementsClient()
-
             # Get settlements around the transaction date
             from frappe.utils import add_days
 
             date_from = add_days(transaction["date"], -3)
             date_to = add_days(transaction["date"], 3)
 
-            settlements = settlements_client.get_settlements_by_date_range(date_from, date_to)
+            settlements = self._settlements_in_window(date_from, date_to)
 
-            # Look for exact amount match with proper decimal precision
+            # The amount is the primary filter; Mollie's own bank reference decides
+            # whether an amount-matching candidate may reconcile UNATTENDED (#547).
+            #
+            # Amount + a +/-3 day window + one of `mollie|settlement|payout` in the
+            # description used to return 0.98 (or 0.92 within the 0.1% tolerance),
+            # both above `match_threshold` of 0.85, and `create_reconciliation` books
+            # Payment Entries and a fee Journal Entry against whatever settlement it
+            # is handed. Nothing identified the counterparty or the settlement, so a
+            # coincidence posted accounting -- and on an account with ordinary
+            # traffic "payout" is not a rare word and 0.1% of a four-figure amount is
+            # several euros wide.
+            #
+            # The discriminator was already inside the string the keyword check reads.
+            # Measured over veg11's Bank Transactions, 102 rows with a real Mollie
+            # counterparty: the settlement's own bank reference is in the description --
+            #
+            #   NL70CITI2032329018 CITINL2X Stichting Mollie Payments
+            #   T13606591.2510.01 REF T13606591.2510.01 Mollie betalingen
+            #
+            # where `13606591.2510.01` is `Settlement.reference` (`<merchantId>.<yyMM>.<seq>`,
+            # core/models/settlement.py). The raw dicts this loop iterates do carry the
+            # key: `bulk_transaction_importer` already reads `settlement.get("reference")`
+            # off the same `get_settlements_by_date_range` output, so this is not the
+            # gate-closes-on-everything failure of #544.
+            #
+            # NOT "verbatim in every payout", which an earlier version of this comment
+            # claimed on the strength of 25 rows: exactly one real payout has the
+            # reference broken across a line wrap, which is why both sides are
+            # whitespace-squashed. See `_squash_whitespace`.
+            #
+            # Demoting below the threshold hands the transaction to the other
+            # strategies, which at 0.98 could never outrank this one. Measured over the
+            # same 102 rows, none of them can post either: `match_by_batch_reference`
+            # and all four `match_by_description` regexes score 0 hits (no INVOICE /
+            # MEMBERSHIP / MEMBER ID / MANDATE / BATCH- token appears), the
+            # `reference_number` is always an `EB-####` eBoekhouden id that matches no
+            # Direct Debit Batch or Sales Invoice, and `fuzzy_match_member_name` peaks
+            # at 0.2556 similarity against 743 member names where it needs 0.9444 to
+            # clear 0.85.
+            amount_only_candidate = None
+            named_but_amount_differs = None
+            amount_decimal = self._safe_decimal(amount)
+            squashed_description = _squash_whitespace(description)
+
             for settlement in settlements:
                 settlement_amount = self._safe_decimal(settlement.get("amount", {}).get("value", 0))
-                amount_decimal = self._safe_decimal(amount)
 
                 is_valid, match_type, difference = self._validate_transaction_amount(
                     amount_decimal, settlement_amount, tolerance_percent=0.1  # 0.1% tolerance
                 )
+                named = self._description_names_settlement(squashed_description, settlement)
 
-                if is_valid:
-                    confidence = 0.98 if match_type == "exact_match" else 0.92
-                    return {
-                        "type": "mollie_settlement",
-                        "reference": settlement.get("id"),
-                        "confidence": confidence,
-                        "match_reason": f"Mollie settlement {settlement.get('id')} {match_type} (diff: €{difference})",
-                        "settlement_data": settlement,
-                    }
+                if is_valid and named:
+                    return self._settlement_match(
+                        settlement,
+                        confidence=0.98 if match_type == "exact_match" else 0.92,
+                        reason=(
+                            f"Mollie settlement {settlement.get('id')} {match_type} "
+                            f"(diff: EUR {difference}), bank reference {settlement.get('reference')!r} "
+                            f"found in the description"
+                        ),
+                    )
+
+                # The bank named this settlement but the amounts disagree. Not a
+                # match, and NOT nothing either: it is the most actionable signal
+                # this matcher can produce, so it is reported below the threshold
+                # rather than dropped. Measured on veg11: six settlement references
+                # each appear on TWO bank lines (a payout plus a separate donation
+                # credit), so at most one of the pair can equal the settlement
+                # amount and the other lands here -- every month, on real data.
+                if named and not is_valid:
+                    if named_but_amount_differs is None:
+                        named_but_amount_differs = (settlement, difference, settlement_amount)
+                    continue
+
+                # Keep the FIRST amount match only as a fallback. A settlement whose
+                # reference the bank actually named must win over it -- returning on
+                # the first amount hit picked an arbitrary member of the amount-equal
+                # set, the same ambiguity as #544 one layer in.
+                if is_valid and amount_only_candidate is None:
+                    amount_only_candidate = (settlement, match_type, difference)
+
+            if named_but_amount_differs:
+                settlement, difference, settlement_amount = named_but_amount_differs
+                return self._settlement_match(
+                    settlement,
+                    confidence=SETTLEMENT_UNCONFIRMED_CONFIDENCE,
+                    reason=(
+                        f"Mollie settlement {settlement.get('id')} is NAMED in the description "
+                        f"(bank reference {settlement.get('reference')!r}) but the amounts differ: "
+                        f"deposit EUR {amount_decimal} vs settlement EUR {settlement_amount} "
+                        f"(diff: EUR {difference}). Needs manual review -- this is a discrepancy, "
+                        f"not a failed match"
+                    ),
+                )
+
+            if amount_only_candidate:
+                settlement, match_type, difference = amount_only_candidate
+                return self._settlement_match(
+                    settlement,
+                    confidence=SETTLEMENT_UNCONFIRMED_CONFIDENCE,
+                    reason=(
+                        f"Mollie settlement {settlement.get('id')} {match_type} "
+                        f"(diff: EUR {difference}) on amount and date ALONE -- the settlement's "
+                        f"bank reference is not in the description, so this needs manual "
+                        f"confirmation before it is booked"
+                    ),
+                )
 
         except Exception as e:
             _log_error_with_traceback(
@@ -447,6 +728,76 @@ class PaymentReconciliationManager:
             )
 
         return None
+
+    def _description_names_settlement(self, squashed_description, settlement):
+        """Whether the bank description names this settlement's own reference.
+
+        Both sides are whitespace-squashed: see `_squash_whitespace` for the real
+        veg11 payout whose reference the bank broke across a wrap. Squashing can
+        only ADD matches, and a 16-character run of digits and dots does not appear
+        in an unrelated description by accident.
+
+        Short references are refused outright -- see
+        `MIN_SETTLEMENT_REFERENCE_LENGTH`.
+        """
+        reference = _squash_whitespace((settlement.get("reference") or "").strip().lower())
+        if len(reference) < MIN_SETTLEMENT_REFERENCE_LENGTH:
+            return False
+        return reference in squashed_description
+
+    def _settlement_match(self, settlement, confidence, reason):
+        """A ``mollie_settlement`` match, as ``match_transaction`` consumes them."""
+        return {
+            "type": "mollie_settlement",
+            "reference": settlement.get("id"),
+            "confidence": confidence,
+            "match_reason": reason,
+            "settlement_data": settlement,
+        }
+
+    def _settlements_in_window(self, date_from, date_to):
+        """Settlements in a date window, fetched once per window per run (#546).
+
+        ``get_settlements_by_date_range`` pages Mollie's ENTIRE settlement history
+        and filters it in memory -- the API takes no date parameters, which
+        ``clients/settlements_client.py`` documents at the call site -- and it is
+        the one settlement path that does NOT go through ``get_cached``, unlike its
+        siblings ``get_settlement`` (180s TTL) and ``list_settlements`` (300s).
+
+        It used to be called from inside ``match_mollie_settlement``, i.e. once per
+        candidate transaction, so a run downloaded that whole history N times.
+        Measured on three transactions sharing a date: three fetches of the
+        identical ``('2026-08-21', '2026-08-27')`` window. The manager is built
+        fresh per run (see the module-level ``reconcile_bank_transactions``), so
+        this dict lives exactly as long as the run does -- the same lifetime as
+        ``_processed_mollie_payments``.
+
+        A failed fetch is cached too. ``get_settlements_by_date_range`` wraps its
+        own errors with ``suppress_errors=True`` and returns ``[]``, and the API is
+        up or down for the length of a run; retrying it once per transaction only
+        multiplied the log entries.
+
+        This does NOT collapse a run to a single fetch: transactions on D distinct
+        dates still ask for D windows. Doing better needs either a union window
+        plus a per-transaction date filter here, or routing the client method
+        through ``get_cached`` like its siblings -- both larger changes than #546's
+        report, and the second alters the bulk importer that shares the method.
+
+        Deliberately NOT ``services/settlement_cache.SettlementCache``, which also
+        caches settlements and carries a ``_reference_index``. Three reasons: it
+        indexes reference -> settlement, and this matcher has a description rather
+        than a reference, so it must test candidate references against the text and
+        compare amounts across the whole window; it hands back ``Settlement`` model
+        objects where this path (and ``bulk_transaction_importer``) reads the raw
+        dicts; and its 30-minute TTL spans runs, where a per-run dict is
+        deterministic within the run that owns it.
+        """
+        key = (str(date_from), str(date_to))
+        if key not in self._settlement_window_cache:
+            self._settlement_window_cache[key] = SettlementsClient().get_settlements_by_date_range(
+                date_from, date_to
+            )
+        return self._settlement_window_cache[key]
 
     def fuzzy_match_member_name(self, description, amount):
         """Try to match based on member name in description"""
@@ -668,7 +1019,46 @@ class PaymentReconciliationManager:
                             f"/{settlement_result['total_payments']} payments. "
                             f"Fees: €{settlement_result['mollie_fees']}"
                         )
+                        if not settlement_result.get("fee_stated", True):
+                            # Silence here would read as "no fees", which is a different
+                            # statement from "Mollie did not say".
+                            summary += " (settlement states no costs; no fee entry booked)"
                     self._add_comment_without_failing(bank_trans, f"Mollie settlement processed: {summary}")
+
+                    # A settlement whose payments are only PARTLY allocated to invoices
+                    # must not be reported as reconciled -- the batch branch above gates
+                    # exactly this (`allocated_total == deposit_total`) and this one did
+                    # not. Left in the retry pool rather than marked Unreconciled: an
+                    # invoice that did not exist on this run may exist on the next, the
+                    # per-payment dedup makes the retry safe, and MAX_SETTLEMENT_RETRIES
+                    # bounds it so a settlement that never completes still reaches an
+                    # operator.
+                    if not settlement_result.get("already_processed") and not settlement_result.get(
+                        "fully_reconciled", True
+                    ):
+                        unresolved = ", ".join(
+                            sorted(
+                                {
+                                    d["status"]
+                                    for d in settlement_result["details"]
+                                    if d["status"] not in ("success", "duplicate")
+                                }
+                            )
+                        )
+                        # The Select already carries this state, and
+                        # api/sepa_reconciliation.py uses it for the same semantic. Set it
+                        # so an operator can filter for these rather than reading Comments.
+                        self._set_processing_status(bank_trans, "Partial - Manual Review Required")
+                        self._comment_transaction_failure(
+                            transaction,
+                            f"Mollie settlement {settlement_result['settlement_id']} only "
+                            f"partly allocated: {settlement_result['processed_count']} of "
+                            f"{settlement_result['total_payments']} payments booked, "
+                            f"{settlement_result['unaccounted_count']} unresolved "
+                            f"({unresolved}). No fee entry booked and the deposit is not "
+                            "closed out until every payment is accounted for.",
+                        )
+                        return False
 
                     # Update bank transaction with settlement processing details
                     bank_trans.custom_processing_status = "Mollie Settlement Processed"
@@ -726,7 +1116,16 @@ class PaymentReconciliationManager:
         the fee entry it re-books is NOT for the fees. Every payment lands in the
         ``duplicate`` branch, which ``continue``s without touching ``total_reconciled``,
         so ``mollie_fees = 0 - settlement_amount`` and the Journal Entry is for the
-        ENTIRE settlement amount, expensed as Mollie charges.
+        ENTIRE settlement amount, expensed as Mollie charges. That arithmetic has since
+        been replaced -- the fee is now the settlement's gross minus its payout, booked
+        only once every payment is accounted for -- but the guard is still what stops a
+        completed settlement being re-entered at all.
+
+        This applies to a settlement that RAISED. A settlement that returns normally
+        having allocated only part of its payments does not come through here at all: it
+        goes straight to ``_comment_transaction_failure``, deliberately staying retryable
+        even though it has posted Payment Entries, because the per-payment dedup makes the
+        retry safe and the missing invoices may yet appear.
 
         The discriminator is the posted accounting itself, not where the exception was
         raised: ``process_mollie_settlement`` submits its Payment Entries before it
@@ -758,11 +1157,20 @@ class PaymentReconciliationManager:
             return False
 
         try:
-            return bool(
-                frappe.db.exists(
-                    "Payment Entry", {"custom_mollie_settlement_id": settlement_id, "docstatus": 1}
+            return (
+                bool(
+                    frappe.db.exists(
+                        "Payment Entry", {"custom_mollie_settlement_id": settlement_id, "docstatus": 1}
+                    )
                 )
-            ) or bool(self._existing_settlement_fee_entry(settlement_id))
+                or bool(self._existing_settlement_fee_entry(settlement_id))
+                or bool(
+                    # The payout leg counts as posted accounting in its own right: a run
+                    # that got as far as it has written to the ledger, and the fee guard
+                    # above deliberately no longer matches it.
+                    self._existing_settlement_payout_entry(settlement_id)
+                )
+            )
         except Exception as e:
             _log_error_with_traceback(
                 "Mollie Settlement Reconciliation",
@@ -782,7 +1190,38 @@ class PaymentReconciliationManager:
         if not settlement_id:
             return None
         return frappe.db.exists(
-            "Journal Entry", {"custom_mollie_settlement_id": settlement_id, "docstatus": 1}
+            "Journal Entry",
+            {
+                "custom_mollie_settlement_id": settlement_id,
+                # The FEE entry specifically. The payout leg (#508) carries the same
+                # settlement id, and without this filter it satisfies this guard: a
+                # settlement that reconciled before Mollie stated its costs would then
+                # short-circuit on its own payout leg and never book the fee at all.
+                # The fee entry is the only "Journal Entry" voucher_type this pipeline
+                # writes, so this filter is a no-op for rows booked before the payout
+                # leg existed.
+                "voucher_type": self.SETTLEMENT_FEE_VOUCHER_TYPE,
+                "docstatus": 1,
+            },
+        )
+
+    def _existing_settlement_payout_entry(self, settlement_id):
+        """Return the name of the submitted payout leg for *settlement_id*, if any.
+
+        The payout leg's own idempotency key, and it needs one of its own: the fee
+        guard above no longer covers it (they are told apart by ``voucher_type``), so
+        without this a re-run would credit clearing a second time and double-count the
+        money arriving in the bank.
+        """
+        if not settlement_id:
+            return None
+        return frappe.db.exists(
+            "Journal Entry",
+            {
+                "custom_mollie_settlement_id": settlement_id,
+                "voucher_type": self.SETTLEMENT_PAYOUT_VOUCHER_TYPE,
+                "docstatus": 1,
+            },
         )
 
     def _require_submit_permission(self, *doctypes):
@@ -938,6 +1377,23 @@ class PaymentReconciliationManager:
                 "content": ["like", f"%{self.RETRY_COMMENT_MARKER}%"],
             },
         )
+
+    def _set_processing_status(self, bank_trans, status):
+        """Persist ``custom_processing_status`` without letting it change the outcome.
+
+        A direct write rather than a ``save()``: this runs on the failure path, where the
+        document is deliberately NOT saved, and a validation error raised from here would
+        reach ``_record_settlement_failure`` and mark an otherwise-retryable deposit
+        Unreconciled because a *status label* failed -- the same trap
+        ``_add_comment_without_failing`` exists for.
+        """
+        try:
+            bank_trans.db_set("custom_processing_status", status, update_modified=False)
+        except Exception as e:
+            _log_error_with_traceback(
+                "Bank Transaction Processing Status",
+                f"Could not set processing status {status!r} on {bank_trans.name}: {str(e)}",
+            )
 
     def _add_comment_without_failing(self, bank_trans, content):
         """Add a Comment, never letting its failure change the transaction's fate.
@@ -1369,18 +1825,55 @@ class PaymentReconciliationManager:
                         f"Unexpected error processing Mollie payment {mollie_payment_id}: {str(e)}",
                     )
 
-            # Handle Mollie fees by creating clearing account entries
+            # Handle Mollie fees by creating clearing account entries.
+            #
+            # The fee is read from the settlement, never derived from what reconciled.
+            # `total_reconciled` counts only the payments THIS run matched to an invoice,
+            # and deriving a fee from it is wrong in both directions: on a partial run the
+            # value of every unmatched payment is indistinguishable from a Mollie charge
+            # (1 of 2 matched, 30.00 reconciled against a 48.50 payout, 18.50 expensed as
+            # fees), and on a run that completes a settlement an earlier run started the
+            # payments the earlier run booked come back as `duplicate` and drop out of it
+            # entirely. See `_settlement_stated_fee` for why the payments cannot be summed
+            # instead.
             settlement_amount = self._safe_decimal(settlement_data.get("amount", {}).get("value", 0))
-            mollie_fees = total_reconciled - settlement_amount
+            stated_fee = self._settlement_stated_fee(settlement_data)
             processed_count = len([p for p in processed_payments if p["status"] == "success"])
 
-            # `total_reconciled` is only incremented on the per-payment SUCCESS path, so
-            # when nothing reconciled it is 0 and `mollie_fees` degenerates to
-            # `-settlement_amount` -- which would expense the ENTIRE settlement as Mollie
-            # charges. Fees are the difference between what the payments were worth and
-            # what Mollie paid out; with no reconciled payment there is no such
-            # difference to book.
-            if processed_count and abs(mollie_fees) > Decimal("0.01"):
+            # Every payment must be accounted for -- booked by this run (`success`) or by
+            # an earlier one (`duplicate`) -- before the settlement can be closed out.
+            # Booking the fee entry any earlier is not merely an amount error: that entry
+            # IS the settlement-level idempotency key (`_existing_settlement_fee_entry`),
+            # so one written while payments are still unmatched short-circuits every
+            # later run, and those payments can then never be booked at all.
+            unaccounted = [p for p in processed_payments if p["status"] not in ("success", "duplicate")]
+            fully_reconciled = bool(payments) and not unaccounted
+            bookable = fully_reconciled and stated_fee is not None
+            mollie_fees = stated_fee if bookable else Decimal("0")
+
+            # The payout leg goes FIRST and the fee entry LAST, and the order is not
+            # arbitrary: the FEE entry is the settlement-level idempotency key
+            # (`_existing_settlement_fee_entry` -> `_already_processed_result`) and the
+            # payout leg deliberately is NOT, because the two guards are now told apart by
+            # `voucher_type`. So whichever is written last is the one whose failure is
+            # recoverable, and the key must be written last of all.
+            #
+            # MEASURED, both directions, with the fee first:
+            #   run 1 (payout leg fails) -> fee=1 payout=0, returns False
+            #   run 2 (misconfiguration fixed) -> short-circuits on run 1's fee entry,
+            #        returns TRUE, deposit marked Reconciled, allocated_amount=0.00,
+            #        27.50 stranded in clearing -- verbatim the #508 symptom, permanently
+            # With the payout first, a failure in EITHER leg recovers fully on the next
+            # run. An earlier version of this comment argued the opposite, reasoning from
+            # the pre-fix world in which the payout leg was still a short-circuit key.
+            # See `test_a_failed_payout_leg_does_not_close_out_the_settlement`.
+            #
+            # Gated on `fully_reconciled`: closing out the payout while payments are still
+            # unmatched declares the settlement finished.
+            if fully_reconciled:
+                self._book_settlement_payout(bank_trans, settlement_data)
+
+            if bookable and abs(mollie_fees) > Decimal("0.01"):
                 self._create_mollie_fee_entry(bank_trans, mollie_fees, settlement_data)
 
             return {
@@ -1390,7 +1883,15 @@ class PaymentReconciliationManager:
                 "processed_count": processed_count,
                 "failed_count": len([p for p in processed_payments if p["status"] == "error"]),
                 "unmatched_count": len([p for p in processed_payments if p["status"] == "no_invoice_match"]),
+                "unaccounted_count": len(unaccounted),
+                # Whether the deposit may be closed out: see the caller, which leaves a
+                # partly-allocated settlement in the retry pool instead of Reconciled.
+                "fully_reconciled": fully_reconciled,
+                # False when the settlement payload carries no costs, i.e. no fee entry
+                # was booked because Mollie did not say what it charged.
+                "fee_stated": stated_fee is not None,
                 "total_reconciled": str(total_reconciled),
+                "settlement_amount": str(settlement_amount),
                 "mollie_fees": str(mollie_fees),
                 "details": processed_payments,
             }
@@ -1416,8 +1917,15 @@ class PaymentReconciliationManager:
             "processed_count": 0,
             "failed_count": 0,
             "unmatched_count": 0,
+            "unaccounted_count": 0,
             "total_reconciled": "0",
+            "settlement_amount": "0",
             "mollie_fees": "0",
+            # The fee entry whose existence got us here IS the statement.
+            "fee_stated": True,
+            # Complete by definition: the fee entry is only booked once every payment
+            # in the settlement is accounted for.
+            "fully_reconciled": True,
             "already_processed": True,
             "fee_journal_entry": fee_entry_name,
             "details": [],
@@ -1512,6 +2020,53 @@ class PaymentReconciliationManager:
 
         return payment_entry
 
+    def _settlement_stated_fee(self, settlement_data):
+        """What Mollie says it charged for this settlement, or None if it did not say.
+
+        Read from ``periods[<year>][<month>].costs[*].amountNet`` -- Mollie's own figure.
+        Deliberately NOT derived by summing the settlement's payments and subtracting the
+        payout, which is what this code used to do by way of ``total_reconciled``:
+
+        * ``sum(payments) - payout`` is ``fees + refunds + chargebacks``. Refunds and
+          chargebacks are separate endpoints (``list_settlement_refunds`` /
+          ``list_settlement_chargebacks``) and never appear in
+          ``get_payments_for_settlement``, so a settlement carrying one refund would book
+          the refund as a processing fee -- the same fabrication the completeness gate
+          below exists to stop, with different arithmetic underneath it.
+        * a payment's ``amount`` is in the payment's own currency, while the payout is in
+          the settlement's. ``list_settlement_reconciliation`` and
+          ``settlement_bank_transaction_processor`` both read ``settlementAmount`` for
+          exactly that reason.
+        * those two siblings do compute ``payments - refunds - chargebacks``, but their
+          client calls return ``[]`` on failure as well as on "none"
+          (``suppress_errors=True``), so a failed refunds fetch silently overstates the
+          fee. There is no such failure mode in reading a number the payload already
+          carries.
+
+        Returns ``None`` -- distinct from ``Decimal("0")``, which is a real answer -- when
+        the payload carries no costs at all, so the caller can decline to book rather than
+        book a guess. The walk does not assume a nesting depth: the API nests periods by
+        year and then by month, while this app's ``Settlement`` model assumes a single
+        level, and this has never been exercised against a real settlement payload.
+        """
+        found = False
+        total = Decimal("0")
+
+        def walk(node):
+            nonlocal found, total
+            if not isinstance(node, dict):
+                return
+            for item in node.get("costs") or []:
+                net = (item or {}).get("amountNet") or {}
+                if "value" in net:
+                    found = True
+                    total += self._safe_decimal(net["value"], "settlement cost")
+            for value in node.values():
+                walk(value)
+
+        walk(settlement_data.get("periods") or {})
+        return total if found else None
+
     def _create_mollie_fee_entry(self, bank_trans, fee_amount, settlement_data):
         """Create journal entry for Mollie fees"""
 
@@ -1549,19 +2104,39 @@ class PaymentReconciliationManager:
         # required for 'Profit and Loss' account ...".
         default_cost_center = erpnext.get_default_cost_center(company)
 
-        # Create journal entry for fees
+        # A fee is a COST: it debits the expense account and credits clearing.
+        #
+        # This app states the clearing convention in words in two places --
+        # `donation_journal_entry_creator`: "Debit: Mollie Clearing Account (asset
+        # increases - we received money)", and `donation_refund_journal_entry_creator`:
+        # "Credit: Mollie Clearing Account (money leaves the clearing account)". A Mollie
+        # fee is money that leaves: Mollie keeps it out of the payout.
+        #
+        # It follows from the surrounding entries too. `_create_mollie_payment_entry` sets
+        # `paid_to = clearing`, so every matched payment DEBITS clearing by its gross;
+        # with the deposit crediting clearing by the payout, the residual left in clearing
+        # is a debit equal to the fee, and clearing has to be CREDITED to clear it. This
+        # used to debit clearing a second time and credit the expense account, so clearing
+        # drifted by twice the fee per settlement while the fees account accumulated a
+        # credit balance (#501). Both directions were pinned by tests that asserted the
+        # behaviour without asking whether it was right.
+        #
+        # A negative fee is Mollie crediting a charge back -- money arriving -- and is the
+        # exact mirror.
+        fee_leg = float(abs(fee_amount_decimal))
+        fee_is_a_cost = fee_amount_decimal > 0
         accounts = [
             {
                 "account": mollie_clearing_account,
                 "cost_center": default_cost_center,
-                "debit_in_account_currency": float(abs(fee_amount_decimal)) if fee_amount_decimal > 0 else 0,
-                "credit_in_account_currency": float(abs(fee_amount_decimal)) if fee_amount_decimal < 0 else 0,
+                "debit_in_account_currency": 0 if fee_is_a_cost else fee_leg,
+                "credit_in_account_currency": fee_leg if fee_is_a_cost else 0,
             },
             {
                 "account": self._get_payment_processing_fees_account(),
                 "cost_center": default_cost_center,
-                "debit_in_account_currency": float(abs(fee_amount_decimal)) if fee_amount_decimal < 0 else 0,
-                "credit_in_account_currency": float(abs(fee_amount_decimal)) if fee_amount_decimal > 0 else 0,
+                "debit_in_account_currency": fee_leg if fee_is_a_cost else 0,
+                "credit_in_account_currency": 0 if fee_is_a_cost else fee_leg,
             },
         ]
 
@@ -1586,6 +2161,178 @@ class PaymentReconciliationManager:
         self._insert_and_submit(journal_entry)
 
         return journal_entry
+
+    def _book_settlement_payout(self, bank_trans, settlement_data):
+        """Book the payout leg AND allocate the deposit to it.
+
+        Named for both halves because it does both: a name saying only "create entry"
+        hid the fact that it mutates the caller's ``bank_trans.payment_entries``.
+
+        This is the FIRST of the three legs ``process_mollie_settlement``'s docstring
+        names -- "The bulk settlement deposit in your bank -> Mollie Clearing Account" --
+        and it was never implemented (#508). Without it clearing accumulates a debit
+        balance of gross-minus-fees on every settlement and the physical bank account
+        never records the payout through this path at all.
+
+        Direction follows the same convention the fee entry documents: the matched
+        payments DEBIT clearing by their gross, the fee CREDITS it by what Mollie kept,
+        and the payout CREDITS it by what Mollie actually sent -- leaving clearing at
+        zero, which is the property worth asserting about a settled settlement.
+
+        The amount is the BANK's figure (``bank_trans.deposit``), not the settlement's
+        stated ``amount``. The bank statement is the authority for what arrived in the
+        bank, and the matcher admits a settlement within a tolerance (0.1%), so the two
+        can differ. Booking the bank's number keeps the physical bank account equal to
+        what the statement says and leaves any difference as a residual in the clearing
+        BALANCE, instead of absorbing it into a leg that claims to be the payout. Using
+        the settlement's stated amount would be strictly worse: it would put a number
+        the bank never received into the one account that must reconcile to a statement.
+
+        Note what this does NOT do: nothing announces that residual. It is visible in
+        the clearing account's balance and nowhere else -- no comment, no Error Log, no
+        status flag -- so at the matcher's tolerance ceiling a difference can sit in
+        clearing unremarked. Surfacing it is worth doing and is not done here.
+        """
+        # `<=`, not `abs(...) <`: the debit/credit direction below is FIXED, so a negative
+        # deposit would post a debit to the bank for the positive amount -- the wrong
+        # direction -- rather than refusing. Its sibling `_create_mollie_fee_entry` pairs
+        # `abs()` with an explicit `fee_is_a_cost` flag so a negative value mirrors; there
+        # is no such mirror here, and a negative payout is not a real state
+        # (`match_mollie_settlement` never matches a non-positive deposit).
+        payout = self._safe_decimal(bank_trans.deposit)
+        if payout <= Decimal("0.01"):
+            return None
+
+        # A re-run must REPAIR the allocation, not just skip the booking. A first run
+        # can insert and submit the payout leg and then die before the caller's
+        # `bank_trans.save()` persists the child row -- the entry is on the ledger and the
+        # deposit is left unallocated. Returning early on the idempotency key alone left
+        # that state permanent, because nothing else ever appends the row.
+        existing_payout = self._existing_settlement_payout_entry(settlement_data.get("id"))
+        if existing_payout:
+            self._ensure_deposit_allocated(bank_trans, existing_payout, float(payout))
+            return None
+
+        import erpnext
+        from frappe import get_doc
+
+        try:
+            clearing_account = self.config.get_clearing_account()
+            bank_account = self.config.get_bank_account_gl()
+        except frappe.ValidationError:
+            _log_error_with_traceback(
+                "Mollie Settlement Bank Leg",
+                "Cannot book the settlement payout - clearing or bank account not configured",
+            )
+            return None
+
+        # One account configured as both sides needs no payout leg, and this is NOT a
+        # misconfiguration: with no intermediate account there is nothing to drain.
+        # `_create_mollie_payment_entry` sets `paid_to = clearing`, so the payments land
+        # directly in the bank account and the fee reduces it, leaving exactly the
+        # deposit -- measured, and asserted by
+        # `test_one_account_configured_as_both_sides_needs_no_payout_leg`. A transfer
+        # from an account to itself would post two rows that cancel.
+        #
+        # Deliberately NOT logged. veg11 is in this configuration today, so an Error Log
+        # row here would fire on every settlement to report a ledger that is already
+        # correct.
+        if clearing_account == bank_account:
+            return None
+
+        # As in `_create_mollie_fee_entry`: refuse before inserting, because an
+        # unsubmitted entry is invisible to every `docstatus: 1` guard here.
+        self._require_submit_permission("Journal Entry")
+
+        company = frappe.db.get_value("Account", clearing_account, "company")
+        default_cost_center = erpnext.get_default_cost_center(company)
+
+        leg = float(payout)
+        journal_entry = get_doc(
+            {
+                "doctype": "Journal Entry",
+                "company": company,
+                "posting_date": bank_trans.date,
+                # "Bank Entry", not "Journal Entry": this is what distinguishes the
+                # payout leg from the fee entry, which carries the same settlement id.
+                # `_existing_settlement_fee_entry` filters on the fee entry's own
+                # voucher_type for exactly that reason -- without the distinction this
+                # entry would silently become the fee entry's idempotency key.
+                "voucher_type": self.SETTLEMENT_PAYOUT_VOUCHER_TYPE,
+                # ERPNext makes Reference No / Reference Date MANDATORY for a Bank
+                # Entry (Journal Entry.validate_reference_doc -> "Reference No &
+                # Reference Date is required for Bank Entry"). The bank statement line
+                # is the natural reference: it is the record of the payout arriving.
+                "cheque_no": bank_trans.reference_number or settlement_data.get("id"),
+                "cheque_date": bank_trans.date,
+                "user_remark": f"Mollie settlement payout - Settlement {settlement_data.get('id')}",
+                "custom_mollie_settlement_id": settlement_data.get("id"),
+                "accounts": [
+                    {
+                        "account": bank_account,
+                        "cost_center": default_cost_center,
+                        "debit_in_account_currency": leg,
+                        "credit_in_account_currency": 0,
+                    },
+                    {
+                        "account": clearing_account,
+                        "cost_center": default_cost_center,
+                        "debit_in_account_currency": 0,
+                        "credit_in_account_currency": leg,
+                    },
+                ],
+            }
+        )
+
+        self._insert_and_submit(journal_entry)
+
+        # Stamp the clearance date ourselves, because ERPNext will not. Its
+        # `clear_linked_payment_entry` is reached only from `allocate_payment_entries`,
+        # which skips any row already carrying a non-zero `allocated_amount`; and even
+        # with a zero row, `get_clearance_details`' `should_clear` only clears a voucher
+        # whose OTHER bank accounts are fully allocated -- and this voucher's other leg is
+        # the clearing account, which is itself `account_type = "Bank"`. A Bank-to-Bank
+        # transfer is a shape ERPNext never auto-clears, so without this the payout sits
+        # on the Bank Reconciliation Statement as an outstanding item forever while the
+        # Bank Transaction reads Reconciled -- two ERPNext views disagreeing, which is the
+        # class of disagreement #508 was filed about.
+        frappe.db.set_value("Journal Entry", journal_entry.name, "clearance_date", bank_trans.date)
+
+        self._ensure_deposit_allocated(bank_trans, journal_entry.name, leg)
+
+        return journal_entry
+
+    def _ensure_deposit_allocated(self, bank_trans, journal_entry_name, amount):
+        """Allocate the deposit to its payout leg, idempotently.
+
+        Without an allocation the deposit is marked Reconciled with
+        ``allocated_amount = 0``, which is what ERPNext's own bank reconciliation view --
+        and ``reconcile_bank_transactions``' own fetch filter,
+        ``allocated_amount in (0, None)`` -- read as UNRECONCILED.
+
+        The row is appended to the caller's in-memory document and persisted by the
+        ``bank_trans.save()`` in ``create_reconciliation``'s mollie_settlement branch;
+        ERPNext recomputes ``allocated_amount`` from this child table in
+        ``before_validate``, so nothing sets that field directly. Callers that never save
+        (the direct-call tests) get the row in memory and drop it, which is why this is
+        idempotent rather than assuming it runs once.
+        """
+        already = [
+            row
+            for row in (bank_trans.payment_entries or [])
+            if row.payment_document == "Journal Entry" and row.payment_entry == journal_entry_name
+        ]
+        if already:
+            return
+
+        bank_trans.append(
+            "payment_entries",
+            {
+                "payment_document": "Journal Entry",
+                "payment_entry": journal_entry_name,
+                "allocated_amount": amount,
+            },
+        )
 
     def _get_payment_processing_fees_account(self):
         """Get configured payment processing fees account"""

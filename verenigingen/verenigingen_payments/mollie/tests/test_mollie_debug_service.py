@@ -162,7 +162,7 @@ class _MandateCollection:
                 return m
         return _Mandate(mandate_id=mandate_id)
 
-    def create(self, data=None):
+    def create(self, data=None, idempotency_key="", **params):
         self._recorder.mandates_created.append(data)
         return _Mandate()
 

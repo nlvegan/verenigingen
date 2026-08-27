@@ -569,6 +569,13 @@ class TestMembershipCoverage(EnhancedTestCase):
             member=self.member.name,
             status="Active",
             used_for_memberships=0,
+            # An Active mandate must carry at least one purpose (#606), and
+            # `used_for_donations`/`used_for_other` both default to 0. Without a
+            # sibling purpose this fixture is an Active mandate for nothing and
+            # `validate_active_mandate_has_a_purpose` rejects it. The test's
+            # subject is unaffected: `get_member_sepa_mandates` filters on
+            # `used_for_memberships`, not on "has some purpose".
+            used_for_donations=1,
         )
         result = get_member_sepa_mandates(
             doctype="SEPA Mandate",

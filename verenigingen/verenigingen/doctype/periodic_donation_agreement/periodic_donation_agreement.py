@@ -320,7 +320,51 @@ class PeriodicDonationAgreement(Document):
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.FINANCIAL)
     def link_donation(self, donation_name: str):
-        """Link a donation to this agreement"""
+        """Link a donation to this agreement (interactive entry point).
+
+        Thin delegate. The decorators are the point of this method: they gate
+        the desk button and the whitelisted API against an authenticated user
+        and an interactive rate-limit bucket. Server-side callers must use
+        ``add_donation_link`` instead -- see its docstring.
+
+        ``@frappe.whitelist()`` stays OUTERMOST: Frappe matches whitelisted
+        methods by object identity, so a security decorator wrapping first
+        yields "Method Not Allowed".
+        """
+        return self.add_donation_link(donation_name)
+
+    def add_donation_link(self, donation_name: str):
+        """Append a donation to this agreement's ``donations`` table.
+
+        The undecorated body, so a server-side caller does not consume an
+        interactive rate-limit bucket. ``link_donation`` carries
+        ``@high_security_api(FINANCIAL)``, and Critical Operation Rule
+        ``link_donation`` caps it at 100 calls / 3600s scoped ``per_user``. The
+        Mollie webhook books a recurring charge per donor per period from a
+        single service user, so one monthly billing run of more than 100 charges
+        in an hour would start raising VPermissionError partway through -- and
+        the caller there records the failure rather than throwing, so the
+        agreement's total_donated would silently stop moving for the remainder.
+        A redelivery does re-attempt the link (recurring_donation_charge.
+        _repair_agreement_link), but only if Mollie re-delivers that charge --
+        which it will not once the webhook has answered 200.
+
+        The rate limit is invisible under test (``rate_limit_engine`` returns
+        allowed unconditionally when ``frappe.flags.in_test``), which is why it
+        has to be reasoned about here rather than caught by a test.
+
+        DEPLOYMENT NOTE: the ``self.save()`` below runs under normal permissions
+        on purpose -- widening a financial doctype would be the wrong trade. The
+        Mollie webhook is not Guest here: ``webhook_security.py`` calls
+        ``frappe.set_user(webhook_user)`` before dispatch, so this executes as
+        the configured service user. That user therefore needs **write on
+        Periodic Donation Agreement** (on veg11 it has it via ``Accounts
+        User``). Nothing in code or tests enforces that, so a deployment which
+        provisions a leaner webhook user will see the link fail -- and the
+        caller records rather than raises, so it will show up as a
+        ``recurring_charge_agreement_link_error`` audit row and a
+        ``total_donated`` that stops moving, not as an exception.
+        """
         donation = frappe.get_doc("Donation", donation_name)
 
         # Verify donor matches

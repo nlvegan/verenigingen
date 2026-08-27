@@ -1,0 +1,22 @@
+# Internal links shipped in verenigingen/fixtures/custom_html_block.json that
+# resolve to Frappe's NotFoundPage. Baseline for test_shipped_links_resolve.py.
+#
+# These blocks are FIXTURES: they re-import on every `bench migrate`, so editing
+# the record in the desk does not fix a bad link -- the next migrate puts it back.
+#
+# This file should only ever SHRINK. The test fails both ways: a link that dies
+# without being listed here, and a listed link that now resolves. Do not add a
+# line to silence a new finding -- point the link at the route that exists, or
+# remove the link.
+#
+# Origin: the eight below were already dead when the guard was written; they are
+# recorded, not endorsed. See the issue linked from that file's docstring.
+
+/expense_claim
+/expense_claim_new
+/fix_account_types
+/install_email_templates
+/member_dashboard
+/membership_fee_adjustment
+/membership_portal
+/my_account

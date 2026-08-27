@@ -38,6 +38,7 @@ from verenigingen.api.chapter_validation import (
     validate_chapter_head,
     validate_region,
 )
+from verenigingen.tests.fixtures.enhanced_test_factory import allocate_free_region_code
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 
@@ -197,7 +198,8 @@ class TestChapterValidation(VereningingenTestCase):
             {
                 "doctype": "Region",
                 "region_name": region_name,
-                "region_code": frappe.generate_hash(length=4).upper()[:4],
+                # unchecked hex slice -> allocate one verified free instead
+                "region_code": allocate_free_region_code(),
                 "country": "Netherlands",
                 "is_active": 1,
             }

@@ -91,7 +91,6 @@ verenigingen.tests.payment.test_payment_history_reconciliation 1
 verenigingen.tests.payment.test_real_world_dues_amendment_scenarios 33
 verenigingen.tests.payment.test_regression_invoice_due_date_calculation 3
 verenigingen.tests.payment.test_regression_payment_history_draft_status 1
-verenigingen.tests.payment.test_self_service_fee_adjustment 9
 verenigingen.tests.report.test_expiring_memberships 6
 verenigingen.tests.report.test_member_end_date_reconstruction 4
 verenigingen.tests.report.test_membership_dues_coverage_analysis 5

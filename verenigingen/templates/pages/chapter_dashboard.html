@@ -97,19 +97,22 @@
                 </div>
             </div>
 
+            {# expenses.error means the query failed: show "--", never a fabricated €0 (#593) #}
+            {% set expenses = dashboard_data.key_metrics.expenses if dashboard_data and dashboard_data.key_metrics else None %}
+            {% set expenses_ok = expenses and not expenses.error %}
             <div class="bg-white rounded-xl p-6 flex flex-col items-center text-center shadow-sm border-t-4 border-primary-500 hover:-translate-y-1 hover:shadow-lg transition-all duration-200 cursor-pointer">
                 <div class="text-5xl mb-3"><i class="fa fa-money"></i></div>
                 <div>
-                    <h3 class="text-3xl font-bold m-0 text-gray-700">€{{ "%.0f"|format(dashboard_data.key_metrics.expenses.pending_amount) if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.expenses else "0" }}</h3>
+                    <h3 class="text-3xl font-bold m-0 text-gray-700">{{ "€%.0f"|format(expenses.pending_amount) if expenses_ok else "--" }}</h3>
                     <p class="mt-1 text-gray-600 font-medium mb-0">{{ _("Pending Expenses") }}</p>
-                    <small class="text-xs font-semibold uppercase tracking-wide text-gray-600">{{ dashboard_data.key_metrics.expenses.pending_count if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.expenses else "0" }} {{ _("claims") }}</small>
+                    <small class="text-xs font-semibold uppercase tracking-wide text-gray-600">{{ expenses.pending_count if expenses_ok else "--" }} {{ _("claims") }}</small>
                 </div>
             </div>
 
             <div class="bg-white rounded-xl p-6 flex flex-col items-center text-center shadow-sm border-t-4 border-success-500 hover:-translate-y-1 hover:shadow-lg transition-all duration-200 cursor-pointer">
                 <div class="text-5xl mb-3"><i class="fa fa-check-circle"></i></div>
                 <div>
-                    <h3 class="text-3xl font-bold m-0 text-gray-700">€{{ "%.0f"|format(dashboard_data.key_metrics.expenses.ytd_total) if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.expenses else "0" }}</h3>
+                    <h3 class="text-3xl font-bold m-0 text-gray-700">{{ "€%.0f"|format(expenses.ytd_total) if expenses_ok else "--" }}</h3>
                     <p class="mt-1 text-gray-600 font-medium mb-0">{{ _("Approved Expenses") }}</p>
                     <small class="text-xs font-semibold uppercase tracking-wide text-gray-600">{{ _("Year to Date") }}</small>
                 </div>
@@ -298,7 +301,13 @@
                     </div>
                 </div>
                 <div class="p-6">
-                    {% if dashboard_data and dashboard_data.financial_summary %}
+                    {% if dashboard_data and dashboard_data.financial_summary and dashboard_data.financial_summary.error %}
+                    <div class="bg-warning-100 border border-warning-300 text-warning-800 p-4 rounded-lg">
+                        <i class="fa fa-exclamation-triangle mr-2"></i>
+                        {{ _("The financial summary could not be loaded.") }}
+                    </div>
+                    {% endif %}
+                    {% if dashboard_data and dashboard_data.financial_summary and not dashboard_data.financial_summary.error %}
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                         <div class="bg-gray-50 rounded-lg p-4">
                             <h4 class="m-0 mb-4 text-base font-semibold text-gray-800">{{ _("This Month") }}</h4>

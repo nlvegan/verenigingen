@@ -32,6 +32,7 @@ from verenigingen.mijnrood_sync.services.application_approval_correlator import 
 )
 from verenigingen.mijnrood_sync.utils import safe_int
 from verenigingen.services.infrastructure.base_service import StatefulService
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 
 # Cache key + TTL for the cross-run lock. TTL is generous so a long-but-
 # healthy sync never expires mid-flight; a crashed/killed sync clears
@@ -130,14 +131,23 @@ class MijnRoodPollingService(StatefulService):
         """Per-row savepoint: roll back this row's writes on failure, keep
         the rest of the batch. Logs a warning and increments stats["errors"]
         instead of propagating, so one bad row doesn't poison the table.
+
+        A 1205/1213 is the exception: it propagates, because the transaction the
+        rest of the batch would be written into is gone. See the handler below.
         """
         sp = "row_" + "".join(random.choices(string.ascii_lowercase, k=10))
         frappe.db.savepoint(sp)
         try:
             yield
             frappe.db.release_savepoint(sp)
+        except NON_RESUMABLE_DB_ERRORS:
+            # Per-row isolation is the point of this helper, but a 1205/1213 is not one
+            # bad row: the server has discarded or half-applied the transaction, so the
+            # rows already "skipped" and the rows still to come are all being counted
+            # against state that is gone. Abandon the scan and let the caller restart it.
+            raise
         except Exception as exc:
-            frappe.db.rollback(save_point=sp)
+            rollback_to_savepoint(sp)
             self.logger.warning("Table %s row %s skipped: %s", table, row_id, exc)
             stats["errors"] = stats.get("errors", 0) + 1
 

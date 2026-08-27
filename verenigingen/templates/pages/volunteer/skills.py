@@ -40,7 +40,14 @@ def get_context(context):
     context["skills_by_category"] = get_skills_grouped_by_category(chapter_member_ids)
 
     # Get summary statistics (filtered by chapter members)
-    context["skills_stats"] = get_skills_statistics(chapter_member_ids)
+    try:
+        context["skills_stats"] = get_skills_statistics(chapter_member_ids)
+    except Exception as e:
+        frappe.log_error(f"Error getting skills statistics: {str(e)}", "Volunteer Skills")
+        # None, not zeros: the template's `{% if skills_stats %}` then drops the
+        # overview rather than showing four counts that were never counted.
+        context["skills_stats"] = None
+        context["skills_stats_error"] = True
 
     # Handle search if requested
     search_skill = frappe.form_dict.get("skill", "")
@@ -196,38 +203,32 @@ def get_skills_statistics(member_ids=None):
             "skill_categories": 0,
         }
 
-    try:
-        stats = frappe.db.sql(
-            """
-            SELECT
-                COUNT(DISTINCT vs.volunteer_skill) as total_unique_skills,
-                COUNT(DISTINCT vs.parent) as volunteers_with_skills,
-                COUNT(*) as total_skill_entries,
-                COUNT(DISTINCT COALESCE(vs.skill_category, 'Other')) as skill_categories
-            FROM `tabVolunteer Skill` vs
-            INNER JOIN `tabVolunteer` v ON vs.parent = v.name
-            WHERE v.status IN ('Active', 'New')
-                AND v.member IN %(member_ids)s
-                AND vs.volunteer_skill IS NOT NULL
-                AND vs.volunteer_skill != ''
-                AND TRIM(vs.volunteer_skill) != ''
-        """,
-            {"member_ids": member_ids},
-            as_dict=True,
-        )
+    # No `except` here on purpose. The zero-returns above and below are real
+    # answers -- no members to ask about, no skills recorded -- and a swallowed
+    # query failure returning the SAME zeros made them unreadable. get_context()
+    # now hides the statistics block instead of publishing invented zeros (#593).
+    stats = frappe.db.sql(
+        """
+        SELECT
+            COUNT(DISTINCT vs.volunteer_skill) as total_unique_skills,
+            COUNT(DISTINCT vs.parent) as volunteers_with_skills,
+            COUNT(*) as total_skill_entries,
+            COUNT(DISTINCT COALESCE(vs.skill_category, 'Other')) as skill_categories
+        FROM `tabVolunteer Skill` vs
+        INNER JOIN `tabVolunteer` v ON vs.parent = v.name
+        WHERE v.status IN ('Active', 'New')
+            AND v.member IN %(member_ids)s
+            AND vs.volunteer_skill IS NOT NULL
+            AND vs.volunteer_skill != ''
+            AND TRIM(vs.volunteer_skill) != ''
+    """,
+        {"member_ids": member_ids},
+        as_dict=True,
+    )
 
-        if stats:
-            return stats[0]
-        else:
-            return {
-                "total_unique_skills": 0,
-                "volunteers_with_skills": 0,
-                "total_skill_entries": 0,
-                "skill_categories": 0,
-            }
-
-    except Exception as e:
-        frappe.log_error(f"Error getting skills statistics: {str(e)}")
+    if stats:
+        return stats[0]
+    else:
         return {
             "total_unique_skills": 0,
             "volunteers_with_skills": 0,

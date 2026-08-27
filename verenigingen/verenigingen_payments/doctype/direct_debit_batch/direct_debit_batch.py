@@ -74,9 +74,97 @@ class DirectDebitBatch(Document):
     def validate(self):
         """Validation logic - runs on save"""
         # All document-modifying logic runs here during save
+        self.validate_no_duplicate_invoices()
         self.validate_invoices()
         self.validate_sequence_types()
         self.calculate_totals()
+
+    def validate_no_duplicate_invoices(self):
+        """Reject a batch that lists the same Sales Invoice more than once (#606).
+
+        Each child row becomes one transaction in the SEPA XML, so two rows for
+        one invoice are two debits of one member's account for one debt. Nothing
+        upstream deduplicates:
+
+        - `batch_processing_service.validate_batch_invoices_optimized` validates
+          each row's Sales Invoice in isolation and never compares the rows to
+          each other (measured -- it reports a duplicated invoice as two valid
+          rows);
+        - `batch_performance_optimizer.process_batch_invoices_optimized` iterates
+          its `invoice_names` argument as a list;
+        - `dd_batch_optimizer`'s `processed_invoices` set removes invoices already
+          claimed by an EARLIER batching strategy, never duplicates within one
+          group.
+
+        Every batch pipeline ends at this document's `save()`/`insert()` -- 14
+        persistence statements across 8 production files, and no production code
+        INSERTS a `Direct Debit Batch Invoice` row without going through its
+        parent. It says inserts, not writes, deliberately: `dd_batch_api.
+        apply_conflict_resolutions` loads existing child rows standalone and
+        `save()`s and `delete_doc()`s them (see the consolidation note below), so
+        those mutations never re-enter this check.
+        So one check here covers the class rather than one dedup per producer, and
+        it fails the batch loudly instead of quietly collecting twice.
+
+        WHY IT THROWS EVEN UNDER `_automated_processing`, and the cost. The
+        sequence-type criticals below are recorded on the document and acted on by
+        `sepa_batch_notifications.handle_automated_batch_validation`, which flips
+        the batch to "Validation Failed" and notifies. `dd_batch_optimizer.
+        create_dd_batch_document` never calls it -- it inserts and never reads
+        `validation_status` -- but its scheduler caller `dd_batch_scheduler` DOES,
+        for every batch name `create_optimal_batches` returns. So the recorded
+        route is not unreachable, and throwing has a real price on that pipeline:
+        `create_optimal_batches` wraps the whole group loop in `except Exception`,
+        so a duplicate in group 3 leaves groups 1-2 inserted, discards
+        `batch_names` (nobody handles their validation status) and reports
+        `batches_created: 0`. Worse, `dd_batch_scheduler` then reports that as
+        "No batches created - no eligible invoices" through `frappe.logger().info`,
+        which reaches nothing anyone reads, so the run looks like a quiet no-op.
+        And the retry is NOT the next day: the scheduled task is daily but
+        `_daily_batch_optimization_impl` returns unless `is_batch_creation_day()`,
+        which reads `Verenigingen Payments Settings.batch_creation_days` --
+        default `"1"` -- so by default the next attempt is the 1st of next month.
+        The tradeoff is still taken deliberately: a lost optimization run is
+        recoverable and re-runnable by hand, whereas a batch that persists with a
+        duplicate can be submitted by a path that never reads `validation_status`
+        -- and that money does not come back. The silent-loss half of this is
+        tracked separately; it is a pre-existing property of that pipeline's
+        `except Exception`, not something this guard introduces.
+
+        SCOPE. This is a WITHIN-batch check. Two batches each listing the invoice
+        once are still two debits, and the guard cannot see that;
+        `sepa_batch_ui`/`_secure` check it per invoice ("already in batch X") and
+        `dd_batch_optimizer` excludes already-batched invoices in SQL evaluated
+        once per run, before any batch in that run exists.
+
+        It also does not see a duplicate that has been merged rather than removed:
+        `dd_batch_api.apply_conflict_resolutions`' `consolidate_entries` groups
+        rows by `mandate_reference` and collapses them into one row carrying the
+        SUM, so two rows for one invoice become one row at twice the amount and
+        pass this check. That is a separate defect in the consolidation key.
+        """
+        rows_by_invoice = {}
+        for position, row in enumerate(self.invoices or [], start=1):
+            if row.invoice:
+                rows_by_invoice.setdefault(row.invoice, []).append(position)
+
+        duplicates = {inv: rows for inv, rows in rows_by_invoice.items() if len(rows) > 1}
+        if not duplicates:
+            return
+
+        # Name the invoice AND the row numbers: an operator has to find the rows
+        # to delete, and a batch can be hundreds of lines long.
+        listed = "; ".join(
+            "{0} (rows {1})".format(invoice, ", ".join(str(r) for r in rows))
+            for invoice, rows in sorted(duplicates.items())
+        )
+        frappe.throw(
+            _(
+                "This batch lists the same invoice more than once, which would "
+                "debit the member more than once for one debt: {0}. Remove the "
+                "duplicate rows."
+            ).format(listed)
+        )
 
     def validate_invoices(self):
         """Validate that all invoices are valid for direct debit using performance optimization"""
@@ -103,7 +191,32 @@ class DirectDebitBatch(Document):
 
         for invoice in self.invoices:
             if not invoice.mandate_reference:
-                continue  # Will be caught by validate_invoices
+                # NOT caught by validate_invoices, whatever the comment that used
+                # to sit here claimed (#606). That path calls
+                # `InvoiceManagementUtilities.validate_invoice_for_sepa`, which
+                # reads name/customer/outstanding_amount/currency/status off the
+                # Sales Invoice and never looks at the batch row's
+                # mandate_reference at all -- measured: a row with none comes back
+                # is_valid, errors []. A row with no mandate reference has no
+                # MndtId to present in the SEPA XML, so it cannot be collected.
+                #
+                # What DOES catch it on the way to the database is
+                # `mandate_reference` being `reqd: 1` on Direct Debit Batch
+                # Invoice: `validate` runs before `_validate_mandatory`, so in the
+                # manual path this critical error fires first and says something
+                # an operator can act on, but in the automated path the recorded
+                # `validation_status` is never observed -- the insert dies on
+                # MandatoryError before anything can read it. This branch is
+                # therefore about the ERROR MESSAGE, not about a state that would
+                # otherwise reach the bank.
+                critical_errors.append(
+                    {
+                        "invoice": invoice.invoice,
+                        "issue": "No mandate reference on batch row",
+                        "mandate_reference": None,
+                    }
+                )
+                continue
 
             # Get mandate for this member
             mandate_name = frappe.db.get_value(

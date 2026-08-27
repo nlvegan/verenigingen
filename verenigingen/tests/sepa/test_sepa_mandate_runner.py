@@ -136,9 +136,14 @@ class SEPAMandateValidationTests(EnhancedTestCase, SEPAMandateTestMixin):
             # Get bank-specific IBAN
             bank_code = scenario["bank_preference"]
             test_iban = self.sepa_factory.get_random_dutch_iban(bank_code=bank_code)
-            
+
+            # One member per scenario: since #584 a member holds at most one Active
+            # mandate per purpose, and every scenario here is an Active memberships
+            # mandate. What the loop is about is the per-mandate configuration.
+            scenario_member = self.create_test_member(birth_date="1990-01-01")
+
             mandate = self.create_test_sepa_mandate(
-                member=member,
+                member=scenario_member,
                 status="Active",
                 iban=test_iban,
                 mandate_type=scenario["mandate_type"],
@@ -171,8 +176,10 @@ class SEPAMandateValidationTests(EnhancedTestCase, SEPAMandateTestMixin):
         usage_scenarios = ["regular", "irregular", "failed"]
         
         for scenario in usage_scenarios:
+            # One member per scenario -- see test_multiple_mandate_scenarios (#584).
+            scenario_member = self.create_test_member(birth_date="1990-01-01")
             mandate = self.create_test_sepa_mandate_with_usage(
-                member=member,
+                member=scenario_member,
                 usage_scenario=scenario,
                 status="Active"
             )
@@ -413,17 +420,29 @@ class SEPAMandateIntegrationTests(EnhancedTestCase, SEPAMandateTestMixin):
         self.assertTrue(our_mandate.is_current, "First mandate should be marked as current")
         self.assertEqual(our_mandate.status, "Active")
         
-        # Create second mandate
+        # Create second mandate, for a DIFFERENT purpose. Since #584 a member holds
+        # at most one Active mandate per purpose, so the co-existing pair this test
+        # asserts is a membership mandate plus a donation mandate.
         mandate2 = self.create_test_sepa_mandate(
             member=member,
-            status="Active", 
-            iban=self.sepa_factory.get_random_dutch_iban("RABO")
+            status="Active",
+            iban=self.sepa_factory.get_random_dutch_iban("RABO"),
+            used_for_memberships=0,
+            used_for_donations=1,
         )
-        
+
         # Test multiple mandate handling
         member.reload()
         active_mandates = [m for m in member.get("sepa_mandates", []) if m.status == "Active"]
         self.assertEqual(len(active_mandates), 2, "Member should have two active mandates")
+        self.assertEqual(
+            frappe.db.count(
+                "SEPA Mandate",
+                {"member": member.name, "status": "Active", "used_for_memberships": 1},
+            ),
+            1,
+            "only ONE Active mandate may serve memberships (#584)",
+        )
         
     def test_payment_processing_integration(self):
         """
@@ -481,12 +500,14 @@ class SEPAMandateIntegrationTests(EnhancedTestCase, SEPAMandateTestMixin):
         """
         member = self.create_test_member(birth_date="1990-01-01")
         
-        # Create multiple mandates for performance testing
+        # Create multiple mandates for performance testing. Only ONE may be Active:
+        # since #584 a member holds at most one Active mandate per purpose, and these
+        # all default to memberships. Ten rows still exercise the lookup.
         mandates = []
         for i in range(10):
             mandate = self.create_test_sepa_mandate(
                 member=member,
-                status="Active" if i % 3 == 0 else "Cancelled",
+                status="Active" if i == 0 else "Cancelled",
                 iban=self.sepa_factory.get_random_dutch_iban()
             )
             mandates.append(mandate)

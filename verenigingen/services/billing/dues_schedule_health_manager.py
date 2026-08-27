@@ -17,6 +17,7 @@ from verenigingen.utils.security.api_security_framework import (
     high_security_api,
     standard_api,
 )
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 
 
 class DuesScheduleHealthManager:
@@ -184,6 +185,11 @@ class DuesScheduleHealthManager:
                 )
                 return None
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # One frame below a guard added in this change: without this, the 1205/1213 is
+            # recorded here as one member's error and the guard above never fires (the #505
+            # shape -- the guard and the swallow one frame apart).
+            raise
         except Exception as e:
             self.results["errors"].append(f"Error reconstructing membership for {member_name}: {str(e)}")
             return None
@@ -303,6 +309,11 @@ class DuesScheduleHealthManager:
                 )
                 return None
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # One frame below a guard added in this change: without this, the 1205/1213 is
+            # recorded here as one member's error and the guard above never fires (the #505
+            # shape -- the guard and the swallow one frame apart).
+            raise
         except Exception as e:
             self.results["errors"].append(f"Error reconstructing dues schedule for {member_name}: {str(e)}")
             return None
@@ -355,6 +366,11 @@ class DuesScheduleHealthManager:
                     f"Synchronized fields for {member_name}: {', '.join(changes_made)}"
                 )
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # One frame below a guard added in this change: without this, the 1205/1213 is
+            # recorded here as one member's error and the guard above never fires (the #505
+            # shape -- the guard and the swallow one frame apart).
+            raise
         except Exception as e:
             self.results["errors"].append(f"Error syncing fields for {member_name}: {str(e)}")
 
@@ -406,9 +422,12 @@ class DuesScheduleHealthManager:
                 },
             }
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # The counter reset below restores this manager's in-memory tally, which is
+            # meaningless once the server has thrown the transaction away.
+            raise
         except Exception as e:
-            frappe.db.rollback(save_point=sp)
-            # Savepoint context manager handles rollback automatically
+            rollback_to_savepoint(sp)
             # Reset counters to pre-transaction state
             self.results["members_processed"] = initial_processed
             self.results["memberships_reconstructed"] = initial_reconstructed

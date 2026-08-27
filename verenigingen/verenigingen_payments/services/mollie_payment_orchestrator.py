@@ -22,6 +22,10 @@ from frappe.utils import getdate
 
 from verenigingen.services.billing.invoice_matcher import InvoiceMatchResult, find_matching_invoice
 from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
+from verenigingen.verenigingen_payments.utils.invoice_candidates import (
+    log_ambiguous_refusal,
+    unambiguous_invoice,
+)
 
 
 def is_payment_successful(payment) -> bool:
@@ -275,8 +279,13 @@ class MolliePaymentOrchestrator:
 
             member_doc = frappe.get_doc("Member", status.member)
             if member_doc.customer:
-                existing_invoice = frappe.db.get_value(
-                    "Sales Invoice",
+                # This status is NOT read-only: `_resolve_invoice` hands
+                # `status.sales_invoice` straight to `_create_payment_entry_for_dues`,
+                # so whatever is named here is what the money lands on. It used to be
+                # `frappe.db.get_value` with no `order_by` -- `creation DESC` -- and
+                # `(customer, coverage_start, coverage_end)` is not unique, which is
+                # why `coverage_overlap_detector` exists (#578).
+                choice = unambiguous_invoice(
                     filters={
                         "customer": member_doc.customer,
                         "custom_coverage_start_date": coverage_start,
@@ -284,11 +293,31 @@ class MolliePaymentOrchestrator:
                         "docstatus": 1,
                         "outstanding_amount": [">", 0],
                     },
-                    fieldname="name",
+                    # `amount=None`: at a coverage-keyed site the amount is not
+                    # evidence, and a duplicate on this window usually exists BECAUSE
+                    # the price changed -- so the invoice matching an unchanged standing
+                    # order is the stale one. One candidate still wins; several are
+                    # refused. Same reasoning as
+                    # `invoice_matcher._find_invoice_by_calculated_coverage`.
+                    amount=None,
+                    fields=["name"],
                 )
-                if existing_invoice:
-                    status.sales_invoice = existing_invoice
+                if choice.invoice:
+                    status.sales_invoice = choice.invoice["name"]
                     status.has_sales_invoice = True
+                elif choice.is_ambiguous:
+                    log_ambiguous_refusal(
+                        title="Mollie Payment Status Invoice Ambiguous",
+                        refused=choice,
+                        detail=(
+                            f"Mollie payment {payment_id} for customer "
+                            f"{member_doc.customer} could be for any of "
+                            f"{choice.candidates} invoices covering "
+                            f"{coverage_start} to {coverage_end}; refusing to choose "
+                            f"one, so this payment is reported as missing its invoice. "
+                            f"Link it manually to the intended invoice."
+                        ),
+                    )
 
         # Determine overall status
         if status.has_bank_transaction and status.has_payment_entry and status.has_sales_invoice:
@@ -619,6 +648,20 @@ class MolliePaymentOrchestrator:
             if match_result.overlap_warning:
                 result.actions_taken.append(f"Warning: {match_result.overlap_warning}")
             return match_result.invoice_name
+
+        # A REFUSAL is not "no invoice found", and the difference matters most here:
+        # recovery mode (`create_missing_invoice=True`, set by
+        # `payment_processing_recovery.complete_partial_payments`) would otherwise treat
+        # a refusal as "nothing exists" and CREATE a third invoice. A member two months
+        # in arrears on a flat fee who pays one month would then be billed a third for
+        # having paid, with both arrears still open -- strictly worse than the arbitrary
+        # pick this refusal replaced. `ambiguous_candidates` exists for this branch.
+        if match_result.ambiguous_candidates:
+            result.actions_taken.append(
+                f"Refused to choose between {match_result.ambiguous_candidates} candidate "
+                f"invoices; no invoice was resolved and none was created"
+            )
+            return None
 
         if create_missing_invoice:
             invoice_name = self._create_invoice_if_safe(

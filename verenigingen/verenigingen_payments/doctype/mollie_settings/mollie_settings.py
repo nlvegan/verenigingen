@@ -118,6 +118,21 @@ class MollieSettings(Document):
         "ZAR",
     ]
 
+    def clear_configuration_cache(self):
+        """Drop MollieConfigurationService's cached settings.
+
+        `on_update` already does this, but `SingletonBackup._restore_singleton`
+        writes straight into `tabSingles` and `__Auth` WITHOUT `doc.save()` -- a
+        deliberate choice (#537) -- so no hook fires and the service would keep
+        serving the values a test had written. Registering this in
+        `CACHE_CLEARING_METHODS` is what makes a Mollie Settings restore complete.
+        """
+        from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
+            MollieConfigurationService,
+        )
+
+        MollieConfigurationService.clear_cache()
+
     def validate(self):
         """Validate the document before saving"""
         if not self.flags.ignore_mandatory:
@@ -597,7 +612,7 @@ class MollieSettings(Document):
         """Get live webhook secret key"""
         return self.get_password(fieldname="live_webhook_secret_key", raise_exception=False)
 
-    def get_next_payment_date_for_scheduled_months(self, min_months_ahead=2):
+    def get_next_payment_date_for_scheduled_months(self, min_months_ahead=2, anchor=None):
         """
         Calculate the next payment date based on configured quarterly/yearly payment months.
 
@@ -606,7 +621,12 @@ class MollieSettings(Document):
         from now, scheduled for the configured payment_day_of_month.
 
         Args:
-            min_months_ahead: Minimum number of months from current date (default: 2)
+            min_months_ahead: Minimum number of months from the anchor date (default: 2)
+            anchor: Date to count from (``date``/``datetime``/ISO string). Defaults to
+                today. Callers that must produce the SAME date on a repeated attempt --
+                anything feeding a Mollie idempotency key, whose payload has to be
+                byte-identical across retries or Mollie 400s it -- must pass a fixed
+                anchor derived from the thing being created, not leave it to the clock.
 
         Returns:
             str: ISO date string (YYYY-MM-DD) for the configured day of the selected month,
@@ -656,8 +676,8 @@ class MollieSettings(Document):
         # Sort months for easier iteration
         configured_months.sort()
 
-        # Calculate minimum eligible date (min_months_ahead from now)
-        today = datetime.now().date()
+        # Calculate minimum eligible date (min_months_ahead from the anchor)
+        today = frappe.utils.getdate(anchor) if anchor else datetime.now().date()
         min_date = today + relativedelta(months=min_months_ahead)
 
         # Find the first configured month that is >= min_date

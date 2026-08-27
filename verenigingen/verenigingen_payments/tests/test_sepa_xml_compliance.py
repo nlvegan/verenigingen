@@ -28,6 +28,12 @@ from typing import Any, Dict, Optional
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.harness_logger import get_harness_logger
+from verenigingen.tests.support.sepa_test_configuration import (
+    SEPA_TEST_FIELDS,
+    apply_sepa_test_configuration,
+    verify_sepa_configuration,
+)
 from verenigingen.verenigingen_payments.services.sepa_configuration_service import sepa_config_service
 from verenigingen.verenigingen_payments.services.sepa_xml_generation_service import sepa_xml_service
 from verenigingen.verenigingen_payments.utils.sepa_utilities import SEPAUtilities, SEPAXMLValidator
@@ -50,26 +56,31 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
 
     @classmethod
     def _setup_sepa_test_configuration(cls):
-        """Configure SEPA settings for testing"""
-        try:
-            settings = frappe.get_single("Verenigingen Settings")
+        """Configure SEPA settings for testing, and return the configured company.
 
-            # Set up comprehensive SEPA configuration
-            settings.sepa_creditor_id = "NL12ZZZ123456789"
-            settings.company_iban = "NL91ABNA0417164300"
-            settings.company_bic = "ABNANL2A"
-            settings.company = "Test Vereniging"
-            settings.enable_strict_sepa_validation = True
-
-            settings.save()
-            frappe.db.commit()
-
-        except Exception as e:
-            frappe.logger().warning(f"SEPA test configuration setup failed: {str(e)}")
+        #466: this used to write ``sepa_creditor_id`` / ``company_iban`` /
+        ``company_bic`` / ``enable_strict_sepa_validation`` onto *Verenigingen
+        Settings*, where none of those four fields exist -- silent no-ops, every
+        run -- and ``company = "Test Vereniging"``, a Company that does not exist,
+        whose LinkValidationError took the rest of the helper down inside a
+        ``try/except``. The real creditor fields live on *Verenigingen Payments
+        Settings*; ``enable_strict_sepa_validation`` has no counterpart on either
+        Single (see the shared helper's docstring) and is deliberately not
+        guessed at.
+        """
+        cls.eur_company = apply_sepa_test_configuration()
+        return cls.eur_company
 
     def setUp(self):
         """Set up each test with fresh batch data"""
         super().setUp()
+        # Re-assert per test: EnhancedTestCase.setUp re-points Verenigingen
+        # Settings.company at the ERPNext "_Test Company" on EVERY test method, so
+        # setUpClass's configuration is already undone by the time a body runs
+        # (#528). Measured, with the other four callers, under "Callers on
+        # EnhancedTestCase must re-apply this PER TEST" in
+        # tests/support/sepa_test_configuration.
+        self._setup_sepa_test_configuration()
         self.test_batch = None
         # The batch child rows below require a real Sales Invoice link (the
         # `invoice` field is a reqd Link to Sales Invoice). On a fresh CI-mirror
@@ -82,15 +93,53 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
             email="sepaxml.compliance@example.com",
         )
         # Direct Debit Batch validation (validate_invoice_for_sepa) only accepts
-        # EUR invoices, so the invoices must belong to a EUR company. The default
-        # test company on a CI-mirror site may not be EUR, so resolve one and
-        # ensure it can post invoices for the current date (active fiscal year).
-        self._eur_company = frappe.db.get_value("Company", {"default_currency": "EUR"}, "name")
-        if self._eur_company:
-            self._ensure_active_fiscal_year(self._eur_company)
+        # EUR invoices, so the invoices must belong to a EUR company.
+        #
+        # This used to be `frappe.db.get_value("Company", {"default_currency": "EUR"},
+        # "name")`, which carries two defects in one line: it borrows a fixture instead of
+        # owning one (which company wins depends on what else ran first in the shard, and
+        # shard bins re-pack on measured runtime), and `db.get_value` has no `order_by` so
+        # it defaults to `creation DESC` -- not "some EUR company" but the NEWEST one.
+        # Measured on test_site_2, 2026-08-23: 30 EUR companies; the old expression
+        # returned 'TEST EBkh Cleanup Cov Co' (an e_boekhouden fixture) while the owned
+        # helper returned 'TEST-Payment-Integration-Company'. One of those 30
+        # ('EBH Migration Test Co') has neither `default_receivable_account` nor
+        # `default_income_account` -- the chart-less company whose borrow produced 101
+        # failures across two shards (#237).
+        #
+        # `cls.eur_company` is what `apply_sepa_test_configuration()` configured the SEPA
+        # creditor identity against, so using it keeps the invoices and the settings under
+        # the same company rather than merely the same currency.
+        self._eur_company = self.eur_company
+        self._ensure_active_fiscal_year(self._eur_company)
         # Batch child rows require reqd Links to Member and Membership; create a
         # membership for the test member so rows can be inserted on a fresh site.
         self._membership = self.create_test_membership(member_name=self._invoice_member.name)
+
+    def test_invoices_are_posted_under_the_owned_company_not_the_newest_eur_one(self):
+        """Mint a real invoice with a newer EUR company present and read back its company.
+
+        The earlier version of this pin called a one-line ``_resolve_invoice_company()``
+        wrapper inside the decoy window and asserted its return value. That wrapper was
+        ``return self.eur_company`` -- an attribute resolved in ``setUpClass``, long before
+        the decoy existed -- so the window contained no database work at all and the pin
+        could not have failed for the reason it claimed. It pinned a getter, not a
+        behaviour. Both the wrapper and that assertion are gone; the invoice path is the
+        thing that actually has to be right, so post one and read the persisted row.
+        """
+        from verenigingen.tests.support.eur_company_decoy import newest_eur_company
+
+        with newest_eur_company() as decoy:
+            invoice_name = self._real_invoice_name()
+            company = frappe.db.get_value("Sales Invoice", invoice_name, "company")
+
+        self.assertEqual(company, "TEST-Payment-Integration-Company")
+        self.assertNotEqual(company, decoy)
+        self.assertEqual(
+            frappe.db.get_value("Company", company, "default_currency"),
+            "EUR",
+            "validate_invoice_for_sepa rejects a non-EUR invoice",
+        )
 
     def _ensure_active_fiscal_year(self, company):
         """Ensure an active Fiscal Year covers today and permits `company`.
@@ -119,9 +168,13 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
         The batch's `invoice` child field is a reqd Link to Sales Invoice and
         the batch validates each as a valid (EUR, outstanding) SEPA invoice.
         """
-        kwargs = {"customer": self._invoice_member.name, "grand_total": amount}
-        if self._eur_company:
-            kwargs["company"] = self._eur_company
+        # Unconditional: `self._eur_company` is the owned company `setUp` resolved by
+        # name, so there is no "no EUR company found" case left to fall through.
+        kwargs = {
+            "customer": self._invoice_member.name,
+            "grand_total": amount,
+            "company": self._eur_company,
+        }
         invoice = self.create_test_sales_invoice(**kwargs)
         return invoice.name
 
@@ -137,10 +190,22 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
         When ``recurring`` is True, a prior "Collected" usage row is recorded so
         get_mandate_sequence_type() returns RCUR (otherwise first use → FRST,
         which makes a RCUR batch row a critical SEPA compliance violation).
+
+        Each mandate gets its OWN member. A batch has one row per debtor in
+        reality, and since #584 a member may hold at most one Active mandate per
+        purpose -- so hanging every mandate off ``_invoice_member`` (as this used to)
+        is both unrealistic and now rejected. ``validate_sequence_types`` resolves
+        the mandate by ``mandate_id`` + ``status`` alone
+        (``direct_debit_batch.py:109-111``), with no member cross-check, so the batch
+        rows can keep naming ``_invoice_member`` as the debtor.
         """
         from verenigingen.utils.validation.iban_validator import generate_test_iban
 
         if not frappe.db.exists("SEPA Mandate", {"mandate_id": mandate_reference}):
+            # One member per mandate -- see the docstring.
+            mandate_member = self.create_test_member(
+                first_name="XMLMandate", last_name=frappe.generate_hash(length=6)
+            )
             # Date the mandate in the past so a prior usage can legitimately
             # post after sign_date (renewal logic would otherwise force FRST).
             sign_date = frappe.utils.add_days(frappe.utils.today(), -60)
@@ -148,11 +213,11 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
                 {
                     "doctype": "SEPA Mandate",
                     "mandate_id": mandate_reference,
-                    "member": self._invoice_member.name,
-                    "account_holder_name": f"{self._invoice_member.first_name} {self._invoice_member.last_name}",
+                    "member": mandate_member.name,
+                    "account_holder_name": f"{mandate_member.first_name} {mandate_member.last_name}",
                     # Unique account number per mandate: a fixed test IBAN would
                     # collide on the second mandate for the same member ("already
-                    # has an active SEPA mandate with this IBAN").
+                    # has an active SEPA mandate ... for memberships").
                     "iban": generate_test_iban(
                         "TEST", account_number=str(abs(hash(mandate_reference)) % (10**10)).zfill(10)
                     ),
@@ -185,6 +250,57 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
                 frappe.delete_doc("Direct Debit Batch", self.test_batch.name, force=True)
             except:
                 pass
+
+    def test_the_class_setup_writes_a_configuration_that_lands(self):
+        """#466: this class's SEPA setup configured nothing, on every run.
+
+        It wrote ``sepa_creditor_id``, ``company_iban``, ``company_bic`` and
+        ``enable_strict_sepa_validation`` onto *Verenigingen Settings*, where
+        **none of those four fields exist** -- assigning a nonexistent field on a
+        Frappe Document is a silent no-op. The only assignment that did anything
+        was ``company = "Test Vereniging"``, a Company that does not exist, whose
+        LinkValidationError took the helper down and was swallowed.
+
+        Damage-first: every test site already holds the expected creditor id, so a
+        read-back with no damage is green against the broken helper.
+
+        Named "writes", not "applies": this test RE-APPLIES the configuration in
+        its own body, so it is green whether or not the class's other tests run
+        under it -- which for this class they demonstrably did not. The
+        per-test-body property is pinned separately, by
+        test_an_ordinary_test_body_runs_under_the_sepa_configuration.
+        """
+        original = {
+            fieldname: frappe.db.get_single_value("Verenigingen Payments Settings", fieldname)
+            for fieldname in SEPA_TEST_FIELDS["Verenigingen Payments Settings"]
+        }
+
+        def restore():
+            for fieldname, value in original.items():
+                frappe.db.set_single_value("Verenigingen Payments Settings", fieldname, value)
+            frappe.db.commit()
+
+        self.addCleanup(restore)
+
+        for fieldname in original:
+            frappe.db.set_single_value("Verenigingen Payments Settings", fieldname, None)
+        frappe.db.commit()
+
+        # The class's own setup path, not the shared helper directly.
+        company = type(self)._setup_sepa_test_configuration()
+
+        verify_sepa_configuration(company)
+
+    def test_an_ordinary_test_body_runs_under_the_sepa_configuration(self):
+        """The property the class-setup test above cannot prove: an ordinary body,
+        which applies nothing itself, is running under the configuration.
+
+        This is the pin for the setUp re-assertion. EnhancedTestCase.setUp reverts
+        Verenigingen Settings.company to "_Test Company" before every test method
+        (#528), so with that line removed this test goes red -- no damage step is
+        needed, the harness supplies the damage on every run.
+        """
+        verify_sepa_configuration(self.eur_company)
 
     def test_pain_008_001_08_xml_structure(self):
         """Test compliance with pain.008.001.08 XML structure"""
@@ -633,7 +749,14 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
                 )
             return None
         except Exception as e:
-            frappe.logger().warning(f"Could not extract XML content: {str(e)}")
+            # NOT the record of the nine vacuous tests, though it reads like it.
+            # Measured on test_site_4: this method is never entered -- 0 occurrences of
+            # this message in a full run -- because generate_sepa_xml_for_batch() throws
+            # first and the nine test bodies swallow that. Their own handlers are what
+            # would have to be converted, and they are still bare frappe.logger()
+            # (#485, #490). Converted anyway because it is the right sink; claiming
+            # nothing about how often it fires.
+            get_harness_logger("sepa-xml-compliance").warning("Could not extract XML content: %s", e)
             return None
 
     def _validate_pain_008_structure(self, xml_content: str):

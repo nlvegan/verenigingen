@@ -61,6 +61,24 @@ class TestSEPAPerformanceOptimization(EnhancedTestCase):
             frappe.get_meta(dt)
         frappe.db.get_value("Sales Invoice", "__warm_cache__")  # warm table-info cache
 
+        # Warm the COLUMN-LIST cache for each table too. `get_meta` does not do it:
+        # `Database.get_db_table_columns` keeps its own
+        # `table_columns::tab<DocType>` entry in `frappe.client_cache` (Redis), and
+        # on a miss it issues an extra
+        #     SELECT column_name FROM information_schema.columns WHERE table_name=...
+        # INSIDE whatever assertQueryCount window happens to be open. Because that
+        # cache is Redis-backed it is shared across processes and survives between
+        # runs, so whether the query fires depends on whether anything earlier in
+        # the shard touched the table -- and shard bins re-pack whenever any test
+        # file is edited. That made `test_validate_invoice_mandate_single_query`
+        # fail on a branch that changed none of the code it measures, while passing
+        # on the same commit in a differently-packed shard.
+        #
+        # Reproduce the failure with:
+        #     frappe.client_cache.delete_value("table_columns::tabSEPA Mandate")
+        for dt in ("Sales Invoice", "Membership Dues Schedule", "Member", "SEPA Mandate"):
+            frappe.db.get_table_columns(dt)
+
     def test_load_unpaid_invoices_query_efficiency(self):
         """Test that load_unpaid_invoices uses efficient batch queries"""
         

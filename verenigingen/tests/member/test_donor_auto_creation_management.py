@@ -299,10 +299,17 @@ class TestDonorAutoCreationManagement(VereningingenTestCase):
     def test_get_donations_gl_accounts_returns_real_income_accounts(self):
         """REGRESSION: the endpoint must surface the site's income accounts.
 
-        ERPNext stores income accounts under account_type == "Income Account"
-        (there is no "Income" account_type). Before the fix the endpoint filtered
-        on "Income" and therefore returned an EMPTY list on every site that has
-        income accounts, silently breaking the donations-account selector.
+        Historical note, corrected: this docstring used to say "ERPNext stores
+        income accounts under account_type == 'Income Account'". That is false --
+        the standard chart of accounts leaves `account_type` EMPTY on income
+        leaves, which carry `root_type = "Income"` (#442). What the older fix did
+        correct is that a bare `"Income"` is not a valid `account_type` at all, so
+        the selector really was returning an empty list.
+
+        This test provisions its account through `_get_or_create_income_account`,
+        which sets `account_type` explicitly, so it can only ever see the shape the
+        OLD filter could already find. `test_get_donations_gl_accounts_surfaces_
+        untyped_income_leaves` below is the one that covers the other shape.
         """
         income_account, _company, _cash = self._income_account()
         if not income_account:
@@ -317,11 +324,14 @@ class TestDonorAutoCreationManagement(VereningingenTestCase):
         )
 
     def test_check_test_accounts_lists_income_accounts(self):
-        """REGRESSION mirror: with the old wrong "Income" account_type filter,
+        """REGRESSION mirror: with the old wrong bare-"Income" account_type filter,
         income_accounts was ALWAYS empty. check_test_accounts caps the list at
         limit=10 (no order_by), so on a site with >10 income accounts our specific
-        one need not appear — assert the list is non-empty instead, since empty vs
-        non-empty is exactly what the "Income Account" fix restored."""
+        one need not appear -- assert the list is non-empty instead.
+
+        Deliberately weak, and worth knowing why: `len >= 1` passes under BOTH the
+        account_type and the root_type filter, so this test does not bind #442's
+        change at all. It binds only the older empty-list regression."""
         income_account, _company, _cash = self._income_account()
         if not income_account:
             self.skipTest("No income account provisioned on this site")
@@ -332,6 +342,72 @@ class TestDonorAutoCreationManagement(VereningingenTestCase):
         self.assertGreaterEqual(len(income_names), 1)
         # Respects the production limit=10 cap.
         self.assertLessEqual(len(income_names), 10)
+
+    # ------------------------------------ the shape a standard chart of accounts makes
+
+    def _standard_coa_shaped_income_leaf(self):
+        """An income leaf shaped the way ERPNext's own chart of accounts makes them.
+
+        ERPNext's `standard_chart_of_accounts` leaves `account_type` EMPTY on the
+        Income subtree -- those leaves carry `root_type = "Income"` and nothing
+        else. Every row on a test site that DOES carry
+        `account_type = "Income Account"` was planted by a fixture (#431, #442).
+
+        The two regression tests above provision their account through
+        `_get_or_create_income_account`, which sets `account_type` explicitly, so
+        they assert the endpoint finds an account of exactly the shape the buggy
+        filter could already find. This helper builds the other shape.
+        """
+        company = self._infra()["company"]
+        parent = frappe.get_all(
+            "Account",
+            filters={"company": company, "root_type": "Income", "is_group": 1},
+            limit=1,
+            pluck="name",
+        )
+        if not parent:
+            self.skipTest(f"No Income group account on {company}")
+
+        acct = frappe.new_doc("Account")
+        acct.account_name = f"Untyped Donation Income {frappe.generate_hash(length=6)}"
+        acct.company = company
+        acct.parent_account = parent[0]
+        acct.is_group = 0
+        # Deliberately NOT setting account_type -- that is the whole point.
+        acct.insert()
+        self.track_doc("Account", acct.name)
+
+        # Assert the fixture is the shape claimed rather than assuming it: erpnext
+        # inherits some fields from the parent, and a test whose premise silently
+        # changed would pass for the wrong reason.
+        self.assertFalse(
+            frappe.db.get_value("Account", acct.name, "account_type"),
+            "fixture premise broken: erpnext gave the leaf an account_type",
+        )
+        self.assertEqual(frappe.db.get_value("Account", acct.name, "root_type"), "Income")
+        return acct.name
+
+    def test_get_donations_gl_accounts_surfaces_untyped_income_leaves(self):
+        """REGRESSION (#442): the picker must offer income accounts that carry no
+        `account_type`, because that is what a standard chart of accounts produces.
+
+        Measured on the live site: 14 income leaves match
+        `account_type = "Income Account"` against 239 that match
+        `root_type = "Income"`. The selector was therefore hiding 94% of the
+        accounts a treasurer could legitimately book a donation to.
+        """
+        untyped = self._standard_coa_shaped_income_leaf()
+
+        result = mgmt.get_donations_gl_accounts()
+        self.assertTrue(result["success"])
+        names = [a["name"] for a in result["data"]["accounts"]]
+
+        self.assertIn(
+            untyped,
+            names,
+            "get_donations_gl_accounts dropped an income leaf that carries no "
+            "account_type -- the shape ERPNext's standard chart of accounts creates",
+        )
 
     # --------------------------------------------- simulate_auto_creation happy path
 

@@ -22,6 +22,12 @@ from frappe.utils import today
 
 # The app's EUR test company, scoped to the current fiscal year. Preferred.
 _PREFERRED_EUR_COMPANY = "TEST-Payment-Integration-Company"
+
+# The bank identities this module OWNS. Every payment/SEPA suite resolves
+# through them, so they must be looked up by name rather than by recency.
+_OWNED_GL_BANK_ACCOUNT_NAME = "Test SEPA Bank"
+_OWNED_BANK_NAME = "SEPA Test Bank"
+_OWNED_BANK_ACCOUNT_NAME = "SEPA Test Company Account"
 # Kept beside the name because the two must move together: every account this
 # company owns is suffixed with the abbreviation ("Debtors - TPIC"), and Company
 # rejects an abbreviation another company already holds.
@@ -291,27 +297,42 @@ def ensure_membership_dues_item(billing_frequency: str = "Daily") -> str:
 
 
 def get_eur_bank_account(company: str | None = None) -> str:
-    """Return a Bank Account **document** owned by the EUR test company.
+    """Return the Bank Account **document** this module owns on the EUR test company.
 
     Bank Transaction needs a `Bank Account`, and the obvious way to get one --
     `get_value("Bank Account", {"is_company_account": 1})`, optionally narrowed
-    by company -- is a borrow: it returns whichever account some other module
-    created most recently (`get_value` orders by `creation` and the query
-    builder defaults that DESC). On these sites that resolves to accounts owned
-    by `test_bank_transaction_reconciliation` or the Mollie sweep tests. It can
+    by company -- is a borrow: it returns whichever row was created most
+    recently (`get_value` orders by `creation` and the query builder defaults
+    that DESC). On these sites that resolves to accounts owned by
+    `test_bank_transaction_reconciliation` or the Mollie sweep tests. It can
     also return None on a fresh shard, and `Bank Transaction.bank_account` is
     not mandatory, so the transaction then silently carries no account and the
     currency pin that depends on it never applies.
 
-    Keyed on the company's default GL bank account, so repeated calls -- and
-    the near-identical helper in `test_bank_transaction_reconciliation.py`,
-    which should eventually call this instead -- converge on the same row
-    rather than racing to create rivals.
+    Keyed on the account name this module owns, so every caller -- including
+    the payment and SEPA reconciliation suites, which used to carry their own
+    near-identical copies -- converges on the same row rather than racing to
+    create rivals.
     """
     company = company or get_eur_test_company()
-    gl_account = _ensure_default_gl_bank_account(company)
+    gl_account = ensure_default_gl_bank_account(company)
 
-    existing = frappe.db.get_value("Bank Account", {"account": gl_account}, "name")
+    # Prefer the company account, and only then fall back to any Bank Account on
+    # the owned GL row. ERPNext's one-Bank-Account-per-GL rule is gated on
+    # `is_company_account` (`Bank Account.validate_account`), so a GL row can carry
+    # several NON-company rows, and the unfiltered lookup picks among them by
+    # recency -- measured on test_site_3, it returns `Mollie Clearing - Mollie Test
+    # Bank`, another module's row.
+    #
+    # The fallback is deliberate and NOT redundant: once a squatter holds the GL
+    # row, ERPNext refuses to create a company account on it at all, so filtering
+    # this lookup to `is_company_account: 1` would wedge such a site instead of
+    # resolving it. That leaves the document layer only partially owned, which is
+    # tracked separately -- the GL account, which is what everything keys on, is
+    # owned outright.
+    existing = frappe.db.get_value(
+        "Bank Account", {"account": gl_account, "is_company_account": 1}, "name"
+    ) or frappe.db.get_value("Bank Account", {"account": gl_account}, "name")
     if existing:
         return existing
 
@@ -320,56 +341,103 @@ def get_eur_bank_account(company: str | None = None) -> str:
 
 def _make_bank_account_(company: str, gl_account: str) -> str:
     """Create the Bank Account (and its Bank) this module owns."""
-    bank_name = "SEPA Test Bank"
-    if not frappe.db.exists("Bank", bank_name):
-        bank = frappe.new_doc("Bank")
-        bank.bank_name = bank_name
-        bank.insert(ignore_permissions=True)
+    # Shared master data, built lazily from inside whichever test needed it
+    # first -- so the captured-insert drain must not claim it, exactly as for
+    # the company and the payment-terms template above (#581 point 3).
+    with _suspend_insert_capture():
+        if not frappe.db.exists("Bank", _OWNED_BANK_NAME):
+            bank = frappe.new_doc("Bank")
+            bank.bank_name = _OWNED_BANK_NAME
+            bank.insert(ignore_permissions=True)
 
-    account = frappe.new_doc("Bank Account")
-    account.account_name = "SEPA Test Company Account"
-    account.bank = bank_name
-    account.is_company_account = 1
-    account.company = company
-    account.account = gl_account
-    account.insert(ignore_permissions=True)
-    frappe.db.commit()
+        account = frappe.new_doc("Bank Account")
+        account.account_name = _OWNED_BANK_ACCOUNT_NAME
+        account.bank = _OWNED_BANK_NAME
+        account.is_company_account = 1
+        account.company = company
+        account.account = gl_account
+        account.insert(ignore_permissions=True)
+        frappe.db.commit()
     return account.name
 
 
-def _ensure_default_gl_bank_account(company: str) -> str:
-    """The company's default Bank-type GL Account, created if absent.
+def ensure_default_gl_bank_account(company: str) -> str:
+    """The Bank-type GL Account this module OWNS, created if absent, then stamped.
 
     `Company.default_bank_account` is a Link to **Account**, not to
     `Bank Account` -- a distinction worth stating, because reading it and then
     testing `frappe.db.exists("Bank Account", ...)` on the result is a branch
     that can never be true.
+
+    Identity comes from the account NAME, not from `Company.default_bank_account`
+    and not from "any Bank-type leaf of this company". Both of those are borrows
+    by recency, and unlike an ordinary borrow this one is **committed into shared
+    master data**.
+
+    What that is worth is test determinism, not production safety: five production
+    readers consult this field (the Mollie webhook, the Mollie dues processor,
+    `payment_entry_factory`, `unified_payment_entry_creator` and the Ponto
+    payment-entry service), but every one of them is a last-resort fallback behind
+    both a configured setting and a named-account lookup, and the company being
+    stamped here is test-only. The reason to fix it is that a shard's outcome
+    stopping depending on which suite ran first.
+
+    Measured on `test_site_1`..`test_site_5` before this was owned: the company
+    holds 3 / 4 / 2 / 1 / 2 Bank-type leaf accounts, and the borrow resolved to
+    a *gateway clearing* account -- `Ponto Clearing`, `Triodos 1`, `Mollie`,
+    `Mollie`, `Triodos 1` -- on all five. On two of them that borrow had already
+    been committed as the company default. Which account wins depends on what ran
+    first, which is exactly the "accident of ordering" the payment suites keep
+    being reddened by.
     """
-    existing = frappe.db.get_value("Company", company, "default_bank_account")
-    if existing and frappe.db.exists("Account", existing):
-        return existing
-
-    gl_account = frappe.db.get_value(
-        "Account", {"company": company, "account_type": "Bank", "is_group": 0}, "name"
+    owned = frappe.db.get_value(
+        "Account",
+        {"company": company, "account_name": _OWNED_GL_BANK_ACCOUNT_NAME, "is_group": 0},
+        "name",
     )
-    if not gl_account:
-        parent = frappe.db.get_value(
-            "Account", {"company": company, "is_group": 1, "root_type": "Asset"}, "name"
-        )
-        gl_account = _make_gl_bank_account_(company, parent)
+    if not owned:
+        owned = _make_gl_bank_account_(company)
 
-    frappe.db.set_value("Company", company, "default_bank_account", gl_account)
-    frappe.db.commit()
-    return gl_account
+    # Commit ONLY when the stamp actually moved. This helper is reachable from
+    # test BODIES (`test_sepa_reconciliation._make_bank_transaction`, 34 call
+    # sites), and committing there commits that test's in-flight fixtures --
+    # the hazard `ReconBase.setUpClass`, `test_invoice_candidates` and
+    # `support/invoice_payments` each already document. Measured: committing
+    # unconditionally took `test_sepa_reconciliation`'s TEST-LEAK count from
+    # 3/3/3 to 6/6/4; moving the commit inside this guard restored 3/3.
+    if frappe.db.get_value("Company", company, "default_bank_account") != owned:
+        frappe.db.set_value("Company", company, "default_bank_account", owned)
+        frappe.db.commit()
+    return owned
 
 
-def _make_gl_bank_account_(company: str, parent: str) -> str:
-    """Create the Bank-type GL Account backing the owned Bank Account."""
-    account = frappe.new_doc("Account")
-    account.account_name = "Test SEPA Bank"
-    account.company = company
-    account.account_type = "Bank"
-    account.parent_account = parent
-    account.account_currency = "EUR"
-    account.insert(ignore_permissions=True)
+def _bank_account_parent(company: str) -> str:
+    """The group account new bank accounts are parented under.
+
+    Must be the `is_group` **Bank** account, which `_unusable_reasons` already
+    guarantees exists and explains why. The version this replaced asked for
+    `{"is_group": 1, "root_type": "Asset"}`; the test company has 12 such groups
+    and `get_value` orders `creation DESC`, so it resolved `Temporary Accounts`
+    -- which is where the accounts created before this change actually sit.
+    """
+    return frappe.db.get_value(
+        "Account", {"company": company, "account_type": "Bank", "is_group": 1}, "name"
+    )
+
+
+def _make_gl_bank_account_(company: str) -> str:
+    """Create the Bank-type GL Account backing the owned Bank Account.
+
+    Only ever reached when no account of that name exists, so accounts created
+    under the old borrowed parent are left where they are -- some already carry
+    GL Entries, and reparenting those buys nothing once identity is owned by name.
+    """
+    with _suspend_insert_capture():
+        account = frappe.new_doc("Account")
+        account.account_name = _OWNED_GL_BANK_ACCOUNT_NAME
+        account.company = company
+        account.account_type = "Bank"
+        account.parent_account = _bank_account_parent(company)
+        account.account_currency = "EUR"
+        account.insert(ignore_permissions=True)
     return account.name

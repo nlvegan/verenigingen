@@ -136,7 +136,15 @@ def get_eligible_invoices_for_batching():
             `tabMember` mem
         JOIN `tabMembership` m ON m.member = mem.name
         JOIN `tabSales Invoice` si ON si.customer = mem.customer
-        LEFT JOIN `tabSEPA Mandate` sm ON sm.member = mem.name AND sm.status = 'Active'
+        -- Purpose filter (#597). Without it this join produced one row PER
+        -- Active mandate, so a member with a membership mandate and a donation
+        -- mandate yielded TWO rows for ONE invoice -- and `sm.mandate_id`/`sm.iban`
+        -- become the Direct Debit Batch child row, i.e. two debits. There is no
+        -- per-member dedup after this query.
+        LEFT JOIN `tabSEPA Mandate` sm
+            ON sm.member = mem.name
+            AND sm.status = 'Active'
+            AND sm.used_for_memberships = 1
         WHERE
             si.docstatus = 1
             AND si.status IN ('Unpaid', 'Overdue')
@@ -376,7 +384,16 @@ def analyze_invoices_for_optimization(invoices):
 
 
 def create_optimal_batch_groups(analysis, config):
-    """Create optimal groupings of invoices for batching"""
+    """Create optimal groupings of invoices for batching.
+
+    The `processed_invoices` sets below remove invoices already claimed by an
+    EARLIER strategy so the next one does not re-batch them. They do NOT protect
+    against the same invoice appearing twice WITHIN one strategy's output -- that
+    can only happen if `get_eligible_invoices_for_batching` returned it twice, and
+    collapsing it here would hide the producer's bug. It is rejected instead by
+    `DirectDebitBatch.validate_no_duplicate_invoices` when
+    `create_dd_batch_document` inserts the batch (#606).
+    """
 
     all_invoices = []
     for category in analysis["by_amount"].values():

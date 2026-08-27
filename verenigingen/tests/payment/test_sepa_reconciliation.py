@@ -40,6 +40,8 @@ from frappe.utils import add_days, flt, getdate, today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
 from verenigingen.tests.harness_logger import get_harness_logger
+from verenigingen.tests.support.error_log_assertions import assert_error_log
+from verenigingen.tests.support.invoice_payments import receive_against_invoice
 from verenigingen.tests.support.sepa_test_company import get_eur_bank_account, get_eur_test_company
 from verenigingen.verenigingen_payments.api import sepa_reconciliation as recon
 
@@ -82,7 +84,7 @@ def _cancel_and_delete(doctype, name):
         return True
     except Exception as e:
         frappe.db.rollback()
-        get_harness_logger("sepa-recon").warning(f"could not clean up {doctype} {name}: {e}")
+        get_harness_logger("sepa-recon").warning("could not clean up %s %s: %s", doctype, name, e)
         return False
 
 
@@ -215,7 +217,7 @@ class ReconBase(EnhancedTestCase):
         bt.reference_number = reference_number or frappe.generate_hash(length=10)
         # Bank Transaction requires a bank account. Use the one belonging to the
         # company THIS class owns (setUpClass -> get_eur_test_company +
-        # _ensure_default_bank_account guarantee it exists). This used to be
+        # get_eur_bank_account guarantee it exists). This used to be
         # `get_value("Bank Account", {"is_company_account": 1}) or
         # get_value("Bank Account", {})` -- "whichever account is there", which
         # attaches these transactions to a company this module does not own and
@@ -357,17 +359,11 @@ class TestReconBaseCleansUpAfterItself(ReconBase):
         account happened to be the newest match. So plant a decoy that a borrow
         would prefer, and require the owned one anyway.
         """
-        # A company that already has a Bank-type GL account: `is_company_account`
-        # makes `account` mandatory, and the decoy needs that flag to be the row
-        # a borrowing lookup would prefer.
-        decoy_gl = frappe.db.get_value(
-            "Account",
-            {"company": ["!=", self._company], "account_type": "Bank", "is_group": 0},
-            ["name", "company"],
-            as_dict=True,
-        )
+        decoy_gl = self._unclaimed_foreign_bank_gl()
         if not decoy_gl:
-            self.skipTest("needs another company with a bank account to tell owning from borrowing")
+            self.skipTest(
+                "needs another company with an unclaimed bank GL account to tell owning from borrowing"
+            )
 
         decoy = self._make_decoy_bank_account_(decoy_gl)
 
@@ -381,6 +377,105 @@ class TestReconBaseCleansUpAfterItself(ReconBase):
             frappe.db.get_value("Company", self._company, "default_bank_account"),
             "the resolved Bank Account is not the one keyed on this company's default GL account",
         )
+
+    def _unclaimed_foreign_bank_gl(self):
+        """A Bank-type GL account of another company that no Bank Account claims.
+
+        `is_company_account` makes `account` mandatory, and the decoy needs that
+        flag to be the row a borrowing lookup would prefer -- hence Bank-type,
+        another company.
+
+        The "no Bank Account claims it" half is the part this used to get wrong.
+        erpnext's `Bank Account.validate_account` permits exactly one Bank Account
+        per GL account, and the lookup asked only "Bank-type, someone else's
+        company" -- a different key from the one that must be unique. So the first
+        time a sibling fixture claimed the account this picked, the decoy insert
+        died with "'TEB Bank One - TEBPC' account is already used by ...", and
+        trunk went red (#395). Mildly ironic in a test whose whole point is that
+        a fixture must own rather than borrow.
+        """
+        # `if a`, not just pluck: most Bank Accounts on a test site are party
+        # accounts with no `account` link (measured: 400 of 410 on test_site_5), and
+        # a None in the list makes this `NOT IN (NULL, ...)`, which is
+        # NULL-propagating and matches ZERO rows -- turning the helper into a
+        # permanent, silent `skipTest`. It looks removable and is not.
+        claimed = [a for a in frappe.get_all("Bank Account", pluck="account") if a]
+        return frappe.db.get_value(
+            "Account",
+            {
+                "company": ["!=", self._company],
+                "account_type": "Bank",
+                "is_group": 0,
+                "name": ["not in", claimed],
+            },
+            ["name", "company"],
+            as_dict=True,
+        )
+
+    def test_the_decoy_lookup_skips_a_gl_account_another_bank_account_claims(self):
+        """#395: seed the competitor, because a site where none exists proves nothing.
+
+        On CI this happened by co-tenancy -- some other suite's Bank Account got
+        there first. Here it is made to happen, so the assertion discriminates.
+        """
+        # The target is CREATED, not found. Picking it with the SUT would make the
+        # assertion self-referential, but picking it with the pre-fix query -- the
+        # newest foreign bank GL, claimed or not -- made this test skip whenever that
+        # one was already claimed, which is EXACTLY the co-tenancy that reddened
+        # shard 4. Measured: seed a Bank Account onto the newest foreign bank GL and
+        # this test goes from a run to a skip, silently, while the bug it guards is
+        # live. Creating the account owes nothing to the helper and cannot skip.
+        #
+        # It is also strictly the stronger target: created moments ago, it is the
+        # NEWEST bank GL account on the site, so the pre-fix `creation DESC` lookup
+        # must return it -- the mutation cannot dodge this assertion by finding
+        # something else first.
+        target = self._make_foreign_bank_gl()
+        if not target:
+            self.skipTest("needs another company with a bank account to hang a decoy on")
+
+        competitor = self._make_decoy_bank_account_(target)
+        self.assertEqual(frappe.db.get_value("Bank Account", competitor.name, "account"), target.name)
+
+        after = self._unclaimed_foreign_bank_gl()
+        self.assertNotEqual(
+            after.name if after else None,
+            target.name,
+            "the lookup returned a GL account that is already claimed -- inserting a second "
+            "Bank Account against it is what erpnext's validate_account rejects",
+        )
+
+    def _make_foreign_bank_gl(self):
+        """A Bank-type leaf account of ANOTHER company, created rather than borrowed.
+
+        Only the place is borrowed -- an existing foreign bank account's parent,
+        which is what proves that company has a chart to hang this on. The account
+        itself is new, so nothing can already claim it: erpnext permits exactly one
+        Bank Account per GL account, and a test that needs a FREE one cannot get
+        there by guarding a lookup, only by owning what it uses.
+
+        Returns None when no other company has a bank account at all, which is a
+        genuine "cannot tell owning from borrowing here" rather than a lost race.
+        """
+        host = frappe.db.get_value(
+            "Account",
+            {"company": ["!=", self._company], "account_type": "Bank", "is_group": 0},
+            ["parent_account", "company"],
+            as_dict=True,
+        )
+        if not host:
+            return None
+
+        gl = frappe.new_doc("Account")
+        gl.account_name = f"Decoy Bank GL {frappe.generate_hash(length=6)}"
+        gl.parent_account = host.parent_account
+        gl.company = host.company
+        gl.account_type = "Bank"
+        gl.is_group = 0
+        gl.insert(ignore_permissions=True)
+        # Registered before any Bank Account is hung off it, so LIFO deletes that first.
+        self.addCleanup(frappe.delete_doc, "Account", gl.name, force=True)
+        return frappe._dict(name=gl.name, company=gl.company)
 
     def _make_decoy_bank_account_(self, decoy_gl):
         """A rival `is_company_account` row that a borrowing lookup would prefer."""
@@ -953,6 +1048,119 @@ class TestProcessIndividualReturn(ReconBase):
         self.assertTrue(any("SEPA Payment Failed" in (c.get("content") or "") for c in
                             [frappe.get_doc("Comment", c.name) for c in comments]))
 
+    def test_two_settled_invoices_of_the_same_amount_are_not_reversed(self):
+        """A returned direct debit must not claw money back off an arbitrary invoice (#567).
+
+        This site DOES filter on the amount -- `{customer, grand_total, status in
+        Paid/Partly Paid}` -- so it looked like the narrowest of the class. But two
+        settled invoices of one amount for one customer is ordinary for recurring
+        dues, and `db.get_value` then hands back whichever was created last
+        (`ORDER BY creation DESC LIMIT 1`, emitted into the SQL). The consequence is
+        worse than a misapplied payment: `reverse_failed_sepa_payment` CANCELS the
+        original Receive Payment Entry, so the wrong member's settled invoice is
+        re-opened and a failure notice is sent about a payment that did not fail.
+
+        Red against develop: `processed`, one of the two Payment Entries cancelled.
+        """
+        self.expectErrorLog("SEPA Return Ambiguous")
+        first = self._make_member_with_invoice(first_name="RetAmbig", grand_total=42.0)
+        member = first["member"]
+        member_id = frappe.db.get_value("Member", member.name, "member_id")
+        self.assertTrue(member_id, "member should have a member_id")
+
+        # A SECOND invoice of the SAME amount for the same customer, settled too.
+        second_invoice = self.sepa.create_test_sales_invoice(
+            customer=first["customer"],
+            member=member.name,
+            membership=first["membership"].name,
+            grand_total=42.0,
+            submit=True,
+        )
+        self.assertNotEqual(second_invoice.name, first["invoice"].name)
+
+        # mode_of_payment is load-bearing: reverse_failed_sepa_payment only cancels a
+        # "SEPA Direct Debit" Payment Entry, so without it this test would assert
+        # "nothing reversed" against payments the reversal could never have found.
+        # test_a_draft_invoice_is_not_a_reversal_candidate is the control that the
+        # reversal DOES fire on a fixture built this way.
+        _first_paid, first_pe = receive_against_invoice(
+            self, first["invoice"].name, 42.0, mode_of_payment="SEPA Direct Debit"
+        )
+        _second_paid, second_pe = receive_against_invoice(
+            self, second_invoice.name, 42.0, mode_of_payment="SEPA Direct Debit"
+        )
+
+        result = recon.process_individual_return(
+            {
+                "member_reference": member_id,
+                "amount": 42.0,
+                "return_reason": "Insufficient funds",
+                "return_code": "AM04",
+            }
+        )
+
+        # The EXACT status, not merely "not processed": `process_individual_return`
+        # swallows any exception into {"status": "error"} (the pre-existing deadlock
+        # flake, #576), which would satisfy a `assertNotEqual(..., "processed")` while
+        # the ambiguity branch never ran.
+        self.assertEqual(result["status"], "ambiguous", msg=result)
+        for payment_entry in (first_pe, second_pe):
+            payment_entry.reload()
+            self.assertEqual(
+                payment_entry.docstatus,
+                1,
+                "neither settled payment may be reversed when the return names no single invoice",
+            )
+        for invoice_name in (first["invoice"].name, second_invoice.name):
+            self.assertEqual(
+                float(frappe.db.get_value("Sales Invoice", invoice_name, "outstanding_amount")),
+                0.0,
+                "no settled invoice may be re-opened by an ambiguous return",
+            )
+        assert_error_log(
+            self,
+            "SEPA Return Ambiguous",
+            unique=member.name,
+            must_contain=["Reverse it manually"],
+        )
+
+    def test_a_draft_invoice_is_not_a_reversal_candidate(self):
+        """A never-issued invoice must not be the thing a return reverses.
+
+        The filter carried no `docstatus`, and veg11 holds invoices whose `status`
+        was written directly while `docstatus = 0` (#559 measured 35). Posted later
+        than the real one, such a row wins `creation DESC` and the return reverses
+        nothing while reporting success.
+        """
+        bundle = self._make_member_with_invoice(first_name="RetDraft", grand_total=42.0)
+        member_id = frappe.db.get_value("Member", bundle["member"].name, "member_id")
+        _paid, real_pe = receive_against_invoice(
+            self, bundle["invoice"].name, 42.0, mode_of_payment="SEPA Direct Debit"
+        )
+
+        draft = self.sepa.create_test_sales_invoice(
+            customer=bundle["customer"],
+            member=bundle["member"].name,
+            membership=bundle["membership"].name,
+            grand_total=42.0,
+            submit=False,
+        )
+        frappe.db.set_value(
+            "Sales Invoice", draft.name, {"status": "Paid", "outstanding_amount": 0.0},
+            update_modified=False,
+        )
+        self.assertEqual(frappe.db.get_value("Sales Invoice", draft.name, "docstatus"), 0)
+
+        result = recon.process_individual_return(
+            {"member_reference": member_id, "amount": 42.0,
+             "return_reason": "Insufficient funds", "return_code": "AM04"}
+        )
+
+        self.assertEqual(result["status"], "processed", msg=result)
+        self.assertEqual(result["invoice"], bundle["invoice"].name)
+        real_pe.reload()
+        self.assertEqual(real_pe.docstatus, 2, "the submitted payment is the one to reverse")
+
 
 # =============================================================================
 # create_failed_payment_record / notify_member_of_failed_payment (helpers)
@@ -1119,7 +1327,12 @@ class TestManualReconciliation(ReconBase):
         than one — which makes get_default_bank_cash_account's 'exactly one'
         fallback return nothing when there is no configured default. Uncommitted;
         rolls back with the test."""
+        # Bank group, not "newest Asset group": the company has 12 Asset groups and
+        # `get_value` orders `creation DESC`, which lands on `Temporary Accounts`.
+        # Same class as #581; uncommitted here, so this is tidiness, not a defect.
         parent = frappe.db.get_value(
+            "Account", {"company": company, "account_type": "Bank", "is_group": 1}, "name"
+        ) or frappe.db.get_value(
             "Account", {"company": company, "is_group": 1, "root_type": "Asset"}, "name"
         )
         acc = frappe.new_doc("Account")

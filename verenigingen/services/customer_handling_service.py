@@ -54,21 +54,25 @@ class CustomerHandlingService(StatefulService):
             self.logger.error(f"Configuration validation failed: {str(e)}")
             return False
 
-    def create_customer_for_member(self, member_doc, suppress_messages=False) -> Optional[str]:
+    def create_customer_for_member(self, member_doc, suppress_messages=False) -> str:
         """Create a customer for this member in ERPNext.
 
         Handles duplicate detection, secure operations, and proper ERPNext
         Customer record creation.
+
+        This never returns None: every failure raises. Callers that can carry on
+        without a Customer (Member.after_insert) must catch, not test the result.
 
         Args:
             member_doc: Member document instance
             suppress_messages (bool): Whether to suppress user messages
 
         Returns:
-            Optional[str]: Customer name (ID) of created customer, or None on error
+            str: Customer name (ID) of the created or already-linked customer
 
         Raises:
-            frappe.ValidationError: If customer creation fails
+            frappe.ValidationError: If customer creation fails a validation
+            ServiceError: Any other failure, wrapped by handle_error()
         """
         operation_name = "create_customer_for_member"
         start_time = self._start_operation(operation_name)
@@ -149,8 +153,14 @@ class CustomerHandlingService(StatefulService):
             self.logger.error(
                 f"Customer creation failed for member {member_name}: {type(e).__name__}: {str(e)}"
             )
+            # handle_error() defaults to raise_error=True, so it re-raises as a
+            # ServiceError - a `return None` here was unreachable. The bare raise
+            # below makes the `-> str` contract true by construction rather than by
+            # a default argument three files away: falling off the end of an except
+            # returns None, which is exactly the value the docstring promises never
+            # to return.
             self.handle_error(e, operation_name, {"member": member_name})
-            return None
+            raise
 
     def check_similar_customers(self, full_name: str, limit: int = 10) -> list:
         """Check for existing customers with similar names.

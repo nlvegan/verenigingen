@@ -38,9 +38,13 @@ from contextlib import contextmanager
 from unittest.mock import patch
 
 import frappe
+from frappe.utils import add_days, getdate, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.payment.test_payment_gateways_unit import _StubAmount, _StubPayment
+from verenigingen.tests.support.error_log_assertions import assert_error_log
+from verenigingen.tests.support.invoice_payments import member_with_customer, receive_against_invoice
+from verenigingen.tests.support.sepa_test_company import get_eur_bank_account, get_eur_test_company
 from verenigingen.verenigingen_payments.doctype.mollie_settings.mollie_settings import MollieSettings
 from verenigingen.verenigingen_payments.mollie.tests.fixtures.webhook_fixtures import (
     install_fake_request,
@@ -276,7 +280,9 @@ class TestSubscriptionWebhookEntry(EnhancedTestCase):
         self._committed_pes = []
 
     def tearDown(self):
-        for pe_name in self._committed_pes:
+        # Newest first: a later PE allocated against the same invoice must come
+        # off before the earlier one.
+        for pe_name in reversed(self._committed_pes):
             if frappe.db.exists("Payment Entry", pe_name):
                 doc = frappe.get_doc("Payment Entry", pe_name)
                 if doc.docstatus == 1:
@@ -514,6 +520,204 @@ class TestRetryFailedActivationsLoop(EnhancedTestCase):
         self.assertEqual(result["successful_activations"], 0)
         self.assertEqual(result["failed_retries"], 1)
         self.assertEqual(result["details"][0]["result"], "failed")
+
+# ===========================================================================
+# _process_subscription_payment - which invoice a subscription payment pays (#567)
+# ===========================================================================
+class TestSubscriptionPaymentInvoiceChoice(EnhancedTestCase):
+    """A subscription payment must not be posted against an arbitrary invoice.
+
+    This function took the member's unpaid invoices `order_by="posting_date desc",
+    limit=1`, so a member with two open invoices got the more recent one whatever
+    the payment was for. It then COMPUTED `abs(payment - invoice) > 0.01`, announced
+    the mismatch through a bare `frappe.logger().warning` -- dropped on level and
+    written only to a rotating file, so it reached no log anyone reads (CLAUDE.md
+    records this as having caused three separate defects) -- and continued anyway.
+
+    It is on the live Mollie subscription webhook path, so it runs unattended.
+
+    `_process_subscription_payment` owns a real begin()/commit(), so any Payment
+    Entry it creates survives FrappeTestCase rollback; committed PEs are force-
+    cleaned in tearDown to keep this class out of the next one's way.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # Provision the company's bank account (committed) ONCE, before any
+        # per-test transaction opens -- `receive_against_invoice` reads it and
+        # fails loudly if it is absent, which is how shard 11/12 of #575 went
+        # red: of the five suites that stamp `Company.default_bank_account`,
+        # only `test_bank_transaction_reconciliation` sorts ahead of this one,
+        # and that shard did not pack it. Provisioning from a test body instead
+        # would commit that test's in-flight fixtures (see
+        # `ReconBase.setUpClass`, test_sepa_reconciliation.py:95).
+        get_eur_bank_account(get_eur_test_company())
+
+    def setUp(self):
+        super().setUp()
+        self.company = get_eur_test_company()
+        self._committed_pes = []
+
+    def tearDown(self):
+        # Newest first: a later PE allocated against the same invoice must come
+        # off before the earlier one.
+        for pe_name in reversed(self._committed_pes):
+            if frappe.db.exists("Payment Entry", pe_name):
+                doc = frappe.get_doc("Payment Entry", pe_name)
+                if doc.docstatus == 1:
+                    doc.cancel()
+                frappe.delete_doc("Payment Entry", pe_name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+        super().tearDown()
+
+    def _open_invoice(self, member, grand_total, **kwargs):
+        return self.create_test_sales_invoice(
+            customer=member.name, grand_total=grand_total, company=self.company, **kwargs
+        )
+
+    def _process_subscription(self, member, amount):
+        """Drive the real function with only the Mollie SDK stubbed."""
+        ref_no = f"tr_choice_{frappe.generate_hash(length=8)}"
+        payment = _StubPayment(
+            id=ref_no,
+            paid=True,
+            amount=_StubAmount(value=str(amount)),
+            sequence_type="recurring",  # not "first" -> no activation branch
+        )
+        gateway = _make_gateway(payment=payment)
+        # Flush setup writes: the function calls frappe.db.begin(), which trips the
+        # implicit-commit guard if uncommitted work is pending.
+        frappe.db.commit()
+        result = pg._process_subscription_payment(
+            gateway, member.name, member.customer, ref_no, "sub_invoice_choice"
+        )
+        pe_name = (result or {}).get("payment_entry")
+        if pe_name:
+            self._committed_pes.append(pe_name)
+        return result, ref_no
+
+    def _payment_entries_for(self, ref_no):
+        return frappe.get_all("Payment Entry", filters={"reference_no": ref_no}, fields=["name"])
+
+    def test_two_open_invoices_and_nothing_to_choose_on_is_refused(self):
+        """Two open invoices is not a match, it is a choice -- and money moves here.
+
+        Red against develop: a Payment Entry was created against the 90.00 invoice
+        purely because it was posted later, for a payment of 17.50 that said nothing
+        about which invoice it belonged to.
+        """
+        # The refusal is stated as an Error Log row on purpose -- that is the part
+        # #567 asked for, since the old warning reached no log anyone reads.
+        self.expectErrorLog("Mollie Subscription Payment Ambiguous")
+        member = member_with_customer(self, "SubAmbig")
+        first = self._open_invoice(member, 25.0)
+        second = self._open_invoice(member, 90.0)
+        self.assertNotEqual(first.name, second.name)
+
+        result, ref_no = self._process_subscription(member, 17.50)
+
+        self.assertEqual(
+            (result or {}).get("status"),
+            "ambiguous_invoice",
+            msg=f"must refuse by the ambiguity branch specifically, not by any error: {result}",
+        )
+        self.assertFalse(
+            self._payment_entries_for(ref_no),
+            "no Payment Entry may be created when the invoice is a choice, not a match",
+        )
+        # Both invoices must be untouched.
+        for invoice in (first, second):
+            invoice.reload()
+            self.assertEqual(float(invoice.outstanding_amount), float(invoice.grand_total))
+
+        # The refusal has to be VISIBLE, which is the whole point of the branch --
+        # and `expectErrorLog` above is only a suppression, so without this the
+        # log_error could be deleted and this test would still pass.
+        assert_error_log(
+            self,
+            "Mollie Subscription Payment Ambiguous",
+            unique=ref_no,
+            must_contain=[member.customer, "Allocate it manually"],
+        )
+
+    def test_the_invoice_matching_the_payment_is_chosen(self):
+        """The discriminator was available all along and this site ignored it.
+
+        The matching invoice is deliberately given the EARLIER posting_date, so
+        `posting_date desc limit 1` picks the other one *deterministically*. An
+        earlier version of this test gave both invoices today's date, which leaves
+        the tie-break unspecified -- it passed against develop by luck, and a test
+        that can pass against the bug is not a test of the fix.
+        """
+        member = member_with_customer(self, "SubMatch")
+        wanted = self._open_invoice(member, 25.0, posting_date=add_days(today(), -10))
+        decoy = self._open_invoice(member, 90.0)
+        self.assertGreater(getdate(decoy.posting_date), getdate(wanted.posting_date))
+
+        result, ref_no = self._process_subscription(member, 25.0)
+
+        self.assertEqual((result or {}).get("status"), "success", msg=result)
+        self.assertEqual(result["invoice"], wanted.name)
+        pe = frappe.get_doc("Payment Entry", result["payment_entry"])
+        self.assertEqual(pe.references[0].reference_name, wanted.name)
+
+    def test_a_single_open_invoice_still_takes_a_partial_payment(self):
+        """Pins the behaviour the tempting version of this fix would remove.
+
+        A payment smaller than the outstanding is a legitimate partial payment.
+        Passes against develop too, deliberately.
+        """
+        member = member_with_customer(self, "SubPartial")
+        invoice = self._open_invoice(member, 50.0)
+
+        result, _ref_no = self._process_subscription(member, 20.0)
+
+        self.assertEqual((result or {}).get("status"), "success", msg=result)
+        self.assertEqual(result["invoice"], invoice.name)
+        pe = frappe.get_doc("Payment Entry", result["payment_entry"])
+        self.assertAlmostEqual(float(pe.references[0].allocated_amount), 20.0, places=2)
+
+    def test_a_part_paid_invoice_is_not_over_allocated(self):
+        """`Partly Paid` is in this query's status list, so grand_total is the wrong bound.
+
+        Red against develop with an exception, not a wrong answer: the allocation was
+        `min(payment, grand_total)` = min(40, 45) = 40 against an outstanding of 30,
+        and ERPNext throws "Allocated Amount cannot be greater than outstanding
+        amount" (payment_entry.py:498 -- the identically-worded check at :377 is
+        unreachable here, because `validate_allocated_amount` returns at :373 for a
+        Customer). The same wrong column was also the amount
+        discriminator.
+        """
+        # 40 against an outstanding of 30 is an OVERpayment: the surplus stays
+        # unallocated on the Payment Entry, which is surfaced for an operator.
+        self.expectErrorLog("Mollie Subscription Payment Overpaid")
+        member = member_with_customer(self, "SubPartPaid")
+        invoice = self._open_invoice(member, 45.0)
+        part_paid, part_payment = receive_against_invoice(self, invoice.name, 15.0)
+        # _process_subscription_payment commits, which commits this PE with it.
+        self._committed_pes.append(part_payment.name)
+        self.assertAlmostEqual(float(part_paid.outstanding_amount), 30.0, places=2)
+
+        result, ref_no = self._process_subscription(member, 40.0)
+
+        self.assertEqual((result or {}).get("status"), "success", msg=result)
+        pe = frappe.get_doc("Payment Entry", result["payment_entry"])
+        self.assertAlmostEqual(
+            float(pe.references[0].allocated_amount),
+            30.0,
+            places=2,
+            msg="allocation must be bounded by what is still outstanding",
+        )
+
+        # The surplus notice must name the Payment Entry -- that identifier sits at the
+        # END of the message and is precisely what a positional log_error truncates away.
+        assert_error_log(
+            self,
+            "Mollie Subscription Payment Overpaid",
+            unique=ref_no,
+            must_contain=[part_paid.name, pe.name, "needs placing"],
+        )
 
 
 if __name__ == "__main__":

@@ -45,8 +45,19 @@ def get_context(context):
     # Get member record using standardized utility
     context.member = get_current_user_member_doc()
 
-    # Get donation summary statistics
-    context.donation_summary = get_donation_summary(context.member.name)
+    # Get donation summary statistics. The helper no longer swallows (#593), so the
+    # failure is handled here instead: a donor looking at "€0.00 donated" cannot
+    # tell that from a query that blew up, and this page is where they would act
+    # on it. The zeros are gone entirely -- the template hides the block and shows
+    # the notice below.
+    try:
+        context.donation_summary = get_donation_summary(context.member.name)
+    except Exception as e:
+        frappe.log_error(f"Error getting donation summary: {str(e)}", "Manage Donations")
+        context.donation_summary = None
+        context.error_message = _(
+            "Your donation overview could not be loaded. Please refresh the page, or contact support if the problem persists."
+        )
 
     # Get active recurring donations
     context.recurring_donations = get_recurring_donations(context.member.name)
@@ -59,43 +70,42 @@ def get_context(context):
 
 def get_donation_summary(member_name):
     """Get donation summary statistics for a member"""
-    try:
-        # Get all donations for this member (by email matching)
-        member = frappe.get_doc("Member", member_name)
+    # No `except` here on purpose. get_donation_stats() below already returns
+    # {"error": ...} on failure -- the inner swallow made it answer
+    # {"status": "success", "data": {zeros}} instead -- and get_context() now
+    # degrades the page rather than showing the donor €0.00 donated (#593).
+    # Get all donations for this member (by email matching)
+    member = frappe.get_doc("Member", member_name)
 
-        donations = frappe.get_all(
-            "Donation",
-            filters={"donor_email": member.email},
-            fields=["name", "amount", "status", "paid", "donation_date"],
-        )
+    donations = frappe.get_all(
+        "Donation",
+        filters={"donor_email": member.email},
+        fields=["name", "amount", "status", "paid", "donation_date", "recurring_origin_donation"],
+    )
 
-        total_donated = 0
-        total_donations = len(donations)
-        active_recurring = 0
+    total_donated = 0
+    total_donations = len(donations)
+    active_recurring = 0
 
-        for donation in donations:
-            if donation.paid:
-                total_donated += flt(donation.amount)
+    for donation in donations:
+        if donation.paid:
+            total_donated += flt(donation.amount)
 
-            if donation.status == "Recurring":
-                # Count everything not CONFIRMED inactive, so this counter agrees
-                # with the list get_recurring_donations() renders next to it.
-                if get_recurring_donation_state(donation.name) != RECURRING_STATE_INACTIVE:
-                    active_recurring += 1
+        # A charge donation (recurring_origin_donation set) is a past
+        # payment under the origin's subscription, not a subscription of
+        # its own -- same distinction get_recurring_donations makes, so
+        # this count matches the list rendered below it on the page.
+        if donation.status == "Recurring" and not donation.recurring_origin_donation:
+            # Count everything not CONFIRMED inactive, so this counter agrees
+            # with the list get_recurring_donations() renders next to it.
+            if get_recurring_donation_state(donation.name) != RECURRING_STATE_INACTIVE:
+                active_recurring += 1
 
-        return {
-            "total_donated": total_donated,
-            "total_donations": total_donations,
-            "active_recurring": active_recurring,
-        }
-
-    except Exception as e:
-        frappe.log_error(f"Error getting donation summary: {str(e)}", "Manage Donations")
-        return {
-            "total_donated": 0,
-            "total_donations": 0,
-            "active_recurring": 0,
-        }
+    return {
+        "total_donated": total_donated,
+        "total_donations": total_donations,
+        "active_recurring": active_recurring,
+    }
 
 
 def get_recurring_donations(member_name):
@@ -109,6 +119,10 @@ def get_recurring_donations(member_name):
             filters={
                 "donor_email": member.email,
                 "status": "Recurring",
+                # A donation created from a subscription charge is a past gift,
+                # not a standing arrangement the donor can cancel. Without this
+                # a monthly donor accumulates one identical row per charge.
+                "recurring_origin_donation": ["is", "not set"],
             },
             fields=[
                 "name",
@@ -319,6 +333,16 @@ def cancel_recurring_donation():
         if not donation.donor_email or not member.email or donation.donor_email != member.email:
             frappe.throw(_("You can only cancel your own donations"))
 
+        # A charge donation satisfies every other gate below: it carries
+        # status="Recurring" and the SAME mollie_subscription_id, so the liveness
+        # check asks Mollie about the real subscription and gets "active".
+        # Cancelling it would stamp recurring_cancelled_date on one past payment
+        # and leave the subscription charging. The donor is handed these ids --
+        # send_payment_confirmation_email puts the charge's document name in its
+        # context every period -- so this is reachable without guessing.
+        if donation.recurring_origin_donation:
+            frappe.throw(_("This is a past charge, not the recurring donation. Use the subscription itself."))
+
         # Verify it's a recurring donation
         if donation.status != "Recurring":
             frappe.throw(_("This is not a recurring donation"))
@@ -425,6 +449,17 @@ def update_recurring_donation():
         # an anonymous / email-less donation ("" == "").
         if not donation.donor_email or not member.email or donation.donor_email != member.email:
             frappe.throw(_("You can only update your own donations"))
+
+        # A charge donation passes every other gate below (status "Recurring",
+        # the origin's mollie_subscription_id, so the liveness check reports the
+        # real subscription as active), and the db_set at the end of this
+        # function does NOT check whether the row is already booked. Updating one
+        # would rewrite the historical amount of a settled record -- the Journal
+        # Entry, the GL and the agreement's child row would keep the real figure
+        # while the Donation claimed another. The donor is handed these ids:
+        # send_payment_confirmation_email carries the charge's document name.
+        if donation.recurring_origin_donation:
+            frappe.throw(_("This is a past charge, not the recurring donation. Use the subscription itself."))
 
         # Verify it's a recurring donation
         if donation.status != "Recurring":

@@ -64,7 +64,7 @@ from decimal import Decimal
 from unittest import mock
 
 import frappe
-from frappe.utils import flt, today
+from frappe.utils import add_days, flt, getdate, today
 
 from verenigingen.tests.payment.test_bank_transaction_reconciliation import BTRBase
 from verenigingen.verenigingen_payments.utils import bank_transaction_reconciliation as btr
@@ -80,8 +80,13 @@ class _StubSettlementsClient:
 
     settlements = []
     payments = []
+    #: One entry per get_settlements_by_date_range call, as (date_from, date_to).
+    #: The COUNT is the subject of #546 -- the fetch used to run once per candidate
+    #: transaction -- so it has to be observed, not reasoned about.
+    windows = []
 
-    def get_settlements_by_date_range(self, _date_from, _date_to):
+    def get_settlements_by_date_range(self, date_from, date_to):
+        type(self).windows.append((str(date_from), str(date_to)))
         return list(type(self).settlements)
 
     def get_payments_for_settlement(self, _settlement_id):
@@ -96,6 +101,7 @@ class MollieBase(BTRBase):
         """Swap the module-level SettlementsClient for the canned-payload stub."""
         _StubSettlementsClient.settlements = settlements or []
         _StubSettlementsClient.payments = payments or []
+        _StubSettlementsClient.windows = []
         original = btr.SettlementsClient
         btr.SettlementsClient = _StubSettlementsClient
         try:
@@ -106,7 +112,15 @@ class MollieBase(BTRBase):
     def _make_gl_account(self, name_prefix, root_type="Asset", account_type=None):
         """Create a leaf GL Account on the EUR test company."""
         company = self.company
-        parent = frappe.db.get_value(
+        # A Bank leaf goes under the Bank group. Asking only for the newest
+        # `root_type` group is the #581 class: 12 Asset groups exist and
+        # `get_value` orders `creation DESC`, so it resolves `Temporary Accounts`.
+        parent = None
+        if account_type == "Bank":
+            parent = frappe.db.get_value(
+                "Account", {"company": company, "account_type": "Bank", "is_group": 1}, "name"
+            )
+        parent = parent or frappe.db.get_value(
             "Account", {"company": company, "is_group": 1, "root_type": root_type}, "name"
         )
         acc = frappe.new_doc("Account")
@@ -119,8 +133,33 @@ class MollieBase(BTRBase):
         acc.insert(ignore_permissions=True)
         return acc.name
 
-    def _ensure_company_cost_center(self):
+    def _make_party_bank_account(self, gl_account):
+        """A NON-company Bank Account on `gl_account`, newer than any existing one.
+
+        Insertable precisely because ERPNext's one-per-GL-account check is gated on
+        `is_company_account` -- see the caller.
+        """
+        bank_name = f"Party Bank {frappe.generate_hash(length=6)}"
+        bank = frappe.new_doc("Bank")
+        bank.bank_name = bank_name
+        bank.insert(ignore_permissions=True)
+        ba = frappe.new_doc("Bank Account")
+        ba.account_name = f"Party Acct {frappe.generate_hash(length=6)}"
+        ba.bank = bank_name
+        ba.is_company_account = 0
+        ba.account = gl_account
+        ba.insert(ignore_permissions=True)
+        return ba.name
+
+    def _ensure_eur_company_cost_center(self):
         """Ensure the EUR test company has a default cost center.
+
+        NOT named ``_ensure_company_cost_center``: ``EnhancedTestCase`` defines a
+        method of that name and calls it as ``self._ensure_company_cost_center(
+        company_name)`` from ``_ensure_master_data``, which every ``setUp`` runs. A
+        same-named helper here overrides it with an incompatible signature, so the
+        harness raised "takes 1 positional argument but 2 were given" and EVERY test
+        in this module errored in setUp -- the settlement regression tests included.
 
         ERPNext Journal Entry validation requires a cost center for P&L (Expense)
         accounts and auto-fills it from the company default. Real deployments set
@@ -158,6 +197,85 @@ class MollieBase(BTRBase):
                 frappe.db.set_value("Mollie Settings", "Mollie Settings", k, v)
             self.mgr.config.clear_cache()
 
+    def _stated_costs(self, value, year="2026", month="08"):
+        """Mollie's own statement of what it charged, in the API's shape.
+
+        ``periods`` is nested by year and then by month, and each period carries a
+        ``costs`` list of ``{description, amountNet: {value, currency}, ...}``. This is
+        the only source `_settlement_stated_fee` reads: the fee cannot be derived by
+        summing the settlement's payments, because that sum is
+        ``fees + refunds + chargebacks``.
+        """
+        return {
+            year: {
+                month: {
+                    "revenue": [],
+                    "costs": [
+                        {
+                            "description": "Payment fees",
+                            "amountNet": {"value": value, "currency": "EUR"},
+                        }
+                    ],
+                }
+            }
+        }
+
+    def _settlement_payload(self, settlement_id, value, reference=None):
+        """A settlement in the API's raw dict shape, as the client returns it.
+
+        ``reference`` is Mollie's own bank reference and is omitted ENTIRELY when
+        None -- an absent key and a non-matching value are different states, and
+        both have to stay non-postable (#547).
+        """
+        payload = {"id": settlement_id, "amount": {"value": value, "currency": "EUR"}}
+        if reference is not None:
+            payload["reference"] = reference
+        return payload
+
+    def _match(self, settlement_id, amount="30.00", stated_costs=None):
+        """A ``mollie_settlement`` match as ``match_mollie_settlement`` returns one.
+
+        ``stated_costs`` adds Mollie's stated fee to the settlement payload. Without it
+        the payload carries no costs, which is a real state (`fee_stated` False) and not
+        the same as a stated fee of zero -- so a test that expects a fee entry has to say
+        what Mollie charged.
+        """
+        settlement_data = {"id": settlement_id, "amount": {"value": amount, "currency": "EUR"}}
+        if stated_costs is not None:
+            settlement_data["periods"] = self._stated_costs(stated_costs)
+        return {
+            "type": "mollie_settlement",
+            "reference": settlement_id,
+            "confidence": 0.98,
+            "match_reason": "Mollie settlement exact match",
+            "settlement_data": settlement_data,
+        }
+
+    def _fee_journal_entries(self, settlement_id):
+        """Fee Journal Entries for a settlement.
+
+        Matched on ``user_remark`` rather than the tracking field so the query is
+        identical before and after the tracking field exists.
+        """
+        return frappe.get_all(
+            "Journal Entry",
+            filters={"user_remark": ["like", f"%{settlement_id}%"], "docstatus": 1},
+            fields=["name", "total_debit"],
+        )
+
+    def _bt_comments(self, bank_transaction_name):
+        return [
+            (c.get("content") or "")
+            for c in frappe.get_all(
+                "Comment",
+                filters={
+                    "reference_doctype": "Bank Transaction",
+                    "reference_name": bank_transaction_name,
+                },
+                fields=["content"],
+            )
+        ]
+
     def _mollie_payment(self, payment_id=None, value="25.00", invoice_id=None, description=None):
         p = {
             "id": payment_id or f"tr_{frappe.generate_hash(length=10)}",
@@ -175,16 +293,27 @@ class MollieBase(BTRBase):
 # =============================================================================
 class TestMatchMollieSettlementLive(MollieBase):
     def test_amount_match_returns_settlement_match(self):
+        """An exact amount on a settlement the bank named -> 0.98.
+
+        The description carries the settlement's `reference`, which is what makes
+        the match auto-postable at all (#547). Before that gate this test passed on
+        the keyword alone; the tier it is really about -- exact 0.98 vs
+        within-tolerance 0.92 -- is unchanged, it just applies to CONFIRMED matches
+        now. The unconfirmed tier is TestSettlementReferenceGate's subject.
+        """
         bank_gl = frappe.db.get_value("Company", self.company, "default_bank_account")
         bt = self._make_bank_transaction(
             deposit=123.45,
-            description="Mollie settlement payout",
+            description="Mollie settlement payout REF T13606591.2510.01",
             date=today(),
             bank_account=self._eur_bank_account,
         )
         txn = self._txn_dict(bt)
-        txn["bank_account"] = bank_gl  # force account equality with the configured Mollie account
-        settlement = {"id": "stl_TESTMATCH", "amount": {"value": "123.45", "currency": "EUR"}}
+        settlement = {
+            "id": "stl_TESTMATCH",
+            "amount": {"value": "123.45", "currency": "EUR"},
+            "reference": "13606591.2510.01",
+        }
         with self._mollie_settings(bank_account=bank_gl):
             with self._stub_client(settlements=[settlement]):
                 match = self.mgr.match_mollie_settlement(txn)
@@ -195,14 +324,23 @@ class TestMatchMollieSettlementLive(MollieBase):
         self.assertEqual(match["settlement_data"], settlement)
 
     def test_within_tolerance_lower_confidence(self):
+        """A confirmed match still drops 0.98 -> 0.92 when the amount is only
+        within tolerance. As above, the description carries the reference so the
+        tier under test is the amount tier, not the confirmation gate (#547)."""
         bank_gl = frappe.db.get_value("Company", self.company, "default_bank_account")
         bt = self._make_bank_transaction(
-            deposit=1000.00, description="mollie payout", date=today(), bank_account=self._eur_bank_account
+            deposit=1000.00,
+            description="mollie payout REF T13606591.2510.02",
+            date=today(),
+            bank_account=self._eur_bank_account,
         )
         txn = self._txn_dict(bt)
-        txn["bank_account"] = bank_gl
         # 0.5 off 1000 is within the 0.1% tolerance window (1.0) -> within_tolerance.
-        settlement = {"id": "stl_TOL", "amount": {"value": "1000.50", "currency": "EUR"}}
+        settlement = {
+            "id": "stl_TOL",
+            "amount": {"value": "1000.50", "currency": "EUR"},
+            "reference": "13606591.2510.02",
+        }
         with self._mollie_settings(bank_account=bank_gl):
             with self._stub_client(settlements=[settlement]):
                 match = self.mgr.match_mollie_settlement(txn)
@@ -215,7 +353,6 @@ class TestMatchMollieSettlementLive(MollieBase):
             deposit=50.00, description="mollie settlement", date=today(), bank_account=self._eur_bank_account
         )
         txn = self._txn_dict(bt)
-        txn["bank_account"] = bank_gl
         settlement = {"id": "stl_NOPE", "amount": {"value": "9999.00", "currency": "EUR"}}
         with self._mollie_settings(bank_account=bank_gl):
             with self._stub_client(settlements=[settlement]):
@@ -231,14 +368,183 @@ class TestMatchMollieSettlementLive(MollieBase):
             bank_account=self._eur_bank_account,
         )
         txn = self._txn_dict(bt)
-        txn["bank_account"] = bank_gl
         with self._mollie_settings(bank_account=bank_gl):
             with self._stub_client(settlements=[{"id": "x", "amount": {"value": "5.00"}}]):
                 self.assertIsNone(self.mgr.match_mollie_settlement(txn))
 
+    # =============================================================================
+    # process_mollie_settlement — the full payment breakdown pipeline (817-979)
 
-# =============================================================================
-# process_mollie_settlement — the full payment breakdown pipeline (817-979)
+    def test_a_later_party_bank_account_does_not_capture_the_gl_account(self):
+        """A second Bank Account on the same GL account must not shadow the first (#544).
+
+        ERPNext enforces one Bank Account per GL account in `validate_account()`, which is
+        reachable only from `validate_is_company_account()` and so gated on
+        `if self.is_company_account:`. `account` carries no `unique` flag and no index.
+        Measured: flag=1 then flag=0 against one GL account both insert, while a second
+        flag=1 is rejected -- the control. `Bank Account` sorts `creation DESC`.
+
+        So a gate that RESOLVES one docname reads the newest row, and a transaction on the
+        older one silently stops matching: #523 reinstated with no signal. Six places in
+        this app create Bank Accounts, some for parties.
+
+        This reddens under the resolving form, and also under the
+        `is_company_account: 1` filter that looks like the fix -- on test_site_4 the only
+        Bank Account on this GL account has that flag clear, so filtering returns None and
+        closes the gate outright. Membership survives both.
+        """
+        bank_gl = frappe.db.get_value("Company", self.company, "default_bank_account")
+        # Created AFTER the suite's own account, so `creation DESC` prefers it.
+        party_ba_name = self._make_party_bank_account(bank_gl)
+        self.assertEqual(
+            frappe.db.get_value("Bank Account", {"account": bank_gl}, "name"),
+            party_ba_name,
+            "precondition: the resolving lookup must now return the party row, or this "
+            "test cannot detect what it exists to detect",
+        )
+
+        bt = self._make_bank_transaction(
+            deposit=88.88,
+            description="Mollie settlement payout",
+            date=today(),
+            bank_account=self._eur_bank_account,
+        )
+        settlement = {"id": "stl_PARTY", "amount": {"value": "88.88", "currency": "EUR"}}
+        with self._mollie_settings(bank_account=bank_gl):
+            with self._stub_client(settlements=[settlement]):
+                match = self.mgr.match_mollie_settlement(self._txn_dict(bt))
+
+        self.assertIsNotNone(match, "a later party Bank Account captured the GL account and closed the gate")
+        self.assertEqual(match["reference"], "stl_PARTY")
+
+    def test_an_accountless_transaction_is_not_matched(self):
+        """`Bank Transaction.bank_account` is not mandatory, so NULL must not match.
+
+        This passes on `develop` too, via the unlinked-account guard, so it is not evidence
+        of a live defect -- it pins the `not in` semantics against #538's claim that that
+        guard is "behaviourally REDUNDANT". It is not: with the guard removed and a bare
+        `!=`, `None != None` is False and an accountless transaction falls through to be
+        matched at 0.98 confidence (measured). `not in` holds with an empty set, so the two
+        together are defence in depth rather than one of them being spare.
+        """
+        self.expectErrorLog("No Bank Account record is linked")
+        orphan_gl = self._make_gl_account("Mollie Unlinked GL", root_type="Asset", account_type="Bank")
+        self.assertIsNone(
+            frappe.db.get_value("Bank Account", {"account": orphan_gl}, "name"),
+            "precondition: nothing is linked to this GL account",
+        )
+        bt = self._make_bank_transaction(deposit=77.77, description="Mollie settlement payout", date=today())
+        txn = self._txn_dict(bt)
+        txn["bank_account"] = None  # the accountless shape
+
+        with self._mollie_settings(bank_account=orphan_gl):
+            with self._stub_client(settlements=[{"id": "stl_NULLACCT", "amount": {"value": "77.77"}}]):
+                self.assertIsNone(self.mgr.match_mollie_settlement(txn))
+
+    def test_the_account_gate_compares_bank_accounts_not_gl_accounts(self):
+        """The gate must resolve the configured GL account to its Bank Account.
+
+        ``reconcile_bank_transactions`` selects ``Bank Transaction.bank_account``, which is
+        a Link to **Bank Account** (a docname like ``BTR Test Company Account - BTR Test
+        Bank``). ``config.get_bank_account_gl()`` returns ``Mollie Settings.mollie_bank_
+        account``, which is a **GL Account** name (``10440 - Triodos 1 - TPIC``). Comparing
+        them directly can only be equal by naming coincidence: ``Bank Account`` autonames
+        ``account_name + " - " + bank`` and ``Account`` autonames
+        ``account_name + " - " + abbr``. Measured on veg11: 409 Bank Accounts, **zero**
+        where ``name == account``, and zero settlement vouchers across 7,664 Bank
+        Transactions -- the gate had never once passed (#523).
+
+        Both directions are asserted, because either one alone is satisfied in the buggy
+        world too: under the old code the GL name matched and the Bank Account name did
+        not, so a test asserting only "the Bank Account name matches" would look like a
+        fixture problem, and one asserting only "the GL name does not match" passed before
+        the fix. Together they pin the namespace.
+        """
+        bank_gl = frappe.db.get_value("Company", self.company, "default_bank_account")
+        linked_bank_account = frappe.db.get_value("Bank Account", {"account": bank_gl}, "name")
+        self.assertEqual(
+            linked_bank_account,
+            self._eur_bank_account,
+            "precondition: the suite's Bank Account is the one linked to this GL account",
+        )
+        self.assertNotEqual(linked_bank_account, bank_gl, "precondition: the two namespaces really do differ")
+
+        settlement = {"id": "stl_NAMESPACE", "amount": {"value": "77.00", "currency": "EUR"}}
+        bt = self._make_bank_transaction(
+            deposit=77.00,
+            description="Mollie settlement payout",
+            date=today(),
+            bank_account=self._eur_bank_account,
+        )
+
+        with self._mollie_settings(bank_account=bank_gl):
+            with self._stub_client(settlements=[settlement]):
+                # The real shape: the transaction carries a Bank Account docname.
+                on_bank_account = self.mgr.match_mollie_settlement(self._txn_dict(bt))
+
+                # And a transaction whose account is the GL NAME is not this account.
+                as_gl_name = self._txn_dict(bt)
+                as_gl_name["bank_account"] = bank_gl
+                on_gl_name = self.mgr.match_mollie_settlement(as_gl_name)
+
+        self.assertIsNotNone(
+            on_bank_account,
+            "a deposit on the Bank Account linked to the configured Mollie GL account "
+            "must match; comparing the GL account name against Bank Transaction."
+            "bank_account never matches, so this gate rejected every transaction",
+        )
+        self.assertEqual(on_bank_account["reference"], "stl_NAMESPACE")
+        self.assertIsNone(
+            on_gl_name,
+            "a GL account name is not a Bank Account docname and must not match -- if it "
+            "does, the comparison is still being made in the wrong namespace",
+        )
+
+    def test_a_configured_gl_account_with_no_bank_account_record_is_reported(self):
+        """A GL account with no Bank Account record must SAY so, not fail silently.
+
+        The guard is behaviourally redundant -- with no Bank Account resolved, the
+        comparison against the transaction's own account returns None either way -- so its
+        only effect is the Error Log row, and that is what this asserts. A silent gate is
+        exactly how #523 survived: the pipeline simply never matched anything and nothing
+        anywhere said why.
+
+        Asserted by querying Error Log directly. ``expectErrorLog`` is a tearDown
+        TOLERANCE, not an assertion -- it permits a row, it does not require one -- so it
+        cannot stand in for this.
+        """
+        self.expectErrorLog("No Bank Account record is linked")
+        orphan_gl = self._make_gl_account("Mollie Orphan GL", root_type="Asset", account_type="Bank")
+        self.assertIsNone(
+            frappe.db.get_value("Bank Account", {"account": orphan_gl}, "name"),
+            "precondition: nothing is linked to this GL account",
+        )
+        bt = self._make_bank_transaction(
+            deposit=55.00,
+            description="Mollie settlement payout",
+            date=today(),
+            bank_account=self._eur_bank_account,
+        )
+        marker = frappe.utils.now_datetime()
+
+        with self._mollie_settings(bank_account=orphan_gl):
+            with self._stub_client(settlements=[{"id": "stl_ORPHAN", "amount": {"value": "55.00"}}]):
+                self.assertIsNone(self.mgr.match_mollie_settlement(self._txn_dict(bt)))
+
+        rows = [
+            r
+            for r in frappe.get_all(
+                "Error Log", filters={"creation": [">=", marker]}, fields=["method", "error"]
+            )
+            if orphan_gl in f"{r.method}\n{r.error}"
+        ]
+        self.assertTrue(
+            rows,
+            "nothing recorded that the configured Mollie bank account has no Bank Account "
+            "record, so an operator has no way to learn why settlements never match",
+        )
+
+
 # =============================================================================
 class TestProcessMollieSettlement(MollieBase):
     def test_success_invoice_match_books_payment_entry(self):
@@ -357,28 +663,6 @@ class TestCreateReconciliationMollieBranchProduction(MollieBase):
     AFTER ``process_mollie_settlement`` has already inserted and SUBMITTED the
     Payment Entries and the fee Journal Entry, which are not rolled back.
     """
-
-    def _bt_comments(self, bank_transaction_name):
-        return [
-            (c.get("content") or "")
-            for c in frappe.get_all(
-                "Comment",
-                filters={
-                    "reference_doctype": "Bank Transaction",
-                    "reference_name": bank_transaction_name,
-                },
-                fields=["content"],
-            )
-        ]
-
-    def _match(self, settlement_id, amount="30.00"):
-        return {
-            "type": "mollie_settlement",
-            "reference": settlement_id,
-            "confidence": 0.98,
-            "match_reason": "Mollie settlement exact match",
-            "settlement_data": {"id": settlement_id, "amount": {"value": amount, "currency": "EUR"}},
-        }
 
     @contextlib.contextmanager
     def _boom_client(self, message="mollie api down"):
@@ -611,7 +895,7 @@ class TestCreateReconciliationMollieBranchProduction(MollieBase):
         so it never returns and its result is never bound. Retryability must be decided
         on whether accounting was posted, not on whether that call returned."""
         self.expectErrorLog("stl_FEEBOOM", "Mollie Settlement Reconciliation")
-        self._ensure_company_cost_center()
+        self._ensure_eur_company_cost_center()
         clearing = self._make_gl_account("Mollie Clearing FeeBoom", root_type="Asset", account_type="Bank")
         it = self._make_member_with_invoice(first_name="MollieFeeBoom", grand_total=30.0)
         # Mollie kept 1.50 in fees, so the settlement payout is 28.50 -> the fee
@@ -619,7 +903,7 @@ class TestCreateReconciliationMollieBranchProduction(MollieBase):
         bt = self._make_bank_transaction(
             deposit=28.50, date=today(), bank_account=self._eur_bank_account, status="Pending"
         )
-        match = self._match("stl_FEEBOOM", amount="28.50")
+        match = self._match("stl_FEEBOOM", amount="28.50", stated_costs="1.50")
         payment = self._mollie_payment(value="30.00", invoice_id=it["invoice"].name)
         with self._mollie_settings(
             clearing_account=clearing, fees_account="Mollie Fees Account That Does Not Exist"
@@ -665,45 +949,11 @@ class TestSettlementIdempotency(MollieBase):
     bogus Journal Entry re-booked on every run.
     """
 
-    def _fee_journal_entries(self, settlement_id):
-        """Fee Journal Entries for a settlement.
-
-        Matched on ``user_remark`` rather than the tracking field so the query is
-        identical before and after the tracking field exists.
-        """
-        return frappe.get_all(
-            "Journal Entry",
-            filters={"user_remark": ["like", f"%{settlement_id}%"], "docstatus": 1},
-            fields=["name", "total_debit"],
-        )
-
-    def _bt_comments(self, bank_transaction_name):
-        return [
-            (c.get("content") or "")
-            for c in frappe.get_all(
-                "Comment",
-                filters={
-                    "reference_doctype": "Bank Transaction",
-                    "reference_name": bank_transaction_name,
-                },
-                fields=["content"],
-            )
-        ]
-
-    def _match(self, settlement_id, amount):
-        return {
-            "type": "mollie_settlement",
-            "reference": settlement_id,
-            "confidence": 0.98,
-            "match_reason": "Mollie settlement exact match",
-            "settlement_data": {"id": settlement_id, "amount": {"value": amount, "currency": "EUR"}},
-        }
-
     def test_unmatched_settlement_never_books_a_fee_entry(self):
         """No payment resolved to an invoice -> nothing was reconciled -> there are no
         fees to book. The arithmetic says otherwise: ``0 - 30.00`` is a 30.00 "fee",
         i.e. the WHOLE settlement expensed as Mollie charges, once per scheduled run."""
-        self._ensure_company_cost_center()
+        self._ensure_eur_company_cost_center()
         clearing = self._make_gl_account("Mollie Clearing NoMatch", root_type="Asset", account_type="Bank")
         fees = self._make_gl_account("Payment Processing Fees NoMatch", root_type="Expense")
         settlement_id = f"stl_NOMATCH_{frappe.generate_hash(length=6)}"
@@ -740,7 +990,7 @@ class TestSettlementIdempotency(MollieBase):
         """The settlement really did reconcile (invoice 30.00, payout 28.50 -> 1.50 of
         fees). On a re-run every payment is skipped as a ``duplicate``, which does NOT
         add to ``total_reconciled``, so the fee arithmetic re-books the full 28.50."""
-        self._ensure_company_cost_center()
+        self._ensure_eur_company_cost_center()
         clearing = self._make_gl_account("Mollie Clearing Rerun", root_type="Asset", account_type="Bank")
         fees = self._make_gl_account("Payment Processing Fees Rerun", root_type="Expense")
         it = self._make_member_with_invoice(first_name="MollieRerun", grand_total=30.0)
@@ -752,13 +1002,15 @@ class TestSettlementIdempotency(MollieBase):
 
         with self._mollie_settings(clearing_account=clearing, fees_account=fees):
             with self._stub_client(payments=[payment]):
-                ok = self.mgr.create_reconciliation(self._txn_dict(bt), self._match(settlement_id, "28.50"))
+                ok = self.mgr.create_reconciliation(
+                    self._txn_dict(bt), self._match(settlement_id, "28.50", stated_costs="1.50")
+                )
                 self.assertTrue(ok)
                 after_first = self._fee_journal_entries(settlement_id)
                 # A fresh manager, as the next scheduled run would use (the in-memory
                 # dedup set is empty; the DB-backed guard still sees the submitted PE).
                 btr.PaymentReconciliationManager().create_reconciliation(
-                    self._txn_dict(bt), self._match(settlement_id, "28.50")
+                    self._txn_dict(bt), self._match(settlement_id, "28.50", stated_costs="1.50")
                 )
                 after_second = self._fee_journal_entries(settlement_id)
 
@@ -818,6 +1070,228 @@ class TestSettlementIdempotency(MollieBase):
             len(retry_comments),
             btr.PaymentReconciliationManager.MAX_SETTLEMENT_RETRIES,
             f"one 'will retry' comment per run, unbounded; comments={comments}",
+        )
+
+
+# =============================================================================
+# A settlement only PARTLY allocated to invoices (residual of issue #194)
+# =============================================================================
+class TestPartiallyAllocatedSettlement(MollieBase):
+    """A settlement whose payments are only partly matched to invoices must book no
+    fees and must not be reported as reconciled.
+
+    ``mollie_fees = total_reconciled - settlement_amount`` and ``total_reconciled``
+    counts only the payments THIS run matched to an invoice. 292a8d5c closed the
+    degenerate all-or-nothing case (``processed_count == 0`` no longer books an
+    entry), but the partial case is the same arithmetic: with 1 of 2 payments
+    matched, the value of the UNMATCHED payment is indistinguishable from a Mollie
+    charge, and the difference is inserted and SUBMITTED as a
+    payment-processing-fees expense.
+
+    It compounds, because that Journal Entry is the settlement-level idempotency
+    key (``_existing_settlement_fee_entry``): once the fabricated entry is on the
+    ledger the settlement short-circuits forever, so the payments that never
+    matched can never be booked.
+
+    The real fee is a fact about the settlement -- what Mollie was paid minus what
+    Mollie paid out -- and is knowable from the settlement payload regardless of
+    which invoices we found. What invoice matching decides is whether the
+    settlement is COMPLETE, and therefore whether it is safe to close it out.
+    """
+
+    def _partial_setup(self, tag):
+        """Two payments worth 50.00, payout 48.50, and Mollie states 1.50 of costs.
+        Only the 30.00 payment carries a resolvable invoice reference.
+
+        The stated fee is the point: it is real and knowable on every run, so a test
+        that finds no fee Journal Entry is saying something about the completeness gate
+        rather than about missing data."""
+        self._ensure_eur_company_cost_center()
+        clearing = self._make_gl_account(f"Mollie Clearing {tag}", root_type="Asset", account_type="Bank")
+        fees = self._make_gl_account(f"Payment Processing Fees {tag}", root_type="Expense")
+        matched = self._make_member_with_invoice(first_name=f"MolliePart{tag}", grand_total=30.0)
+        settlement_id = f"stl_{tag}_{frappe.generate_hash(length=6)}"
+        bt = self._make_bank_transaction(
+            deposit=48.50, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        return clearing, fees, matched, settlement_id, bt
+
+    def test_partial_settlement_books_no_fee_entry(self):
+        """1 of 2 payments matched -> the 20.00 that did not match is booked as
+        18.50 of "Mollie fees" (30.00 reconciled - 48.50 payout). The real fee is
+        1.50, and it cannot be booked yet because the settlement is not complete."""
+        clearing, fees, matched, settlement_id, bt = self._partial_setup("NOFEE")
+        payments = [
+            self._mollie_payment(value="30.00", invoice_id=matched["invoice"].name),
+            self._mollie_payment(value="20.00", description="grocery store purchase"),
+        ]
+
+        with self._mollie_settings(clearing_account=clearing, fees_account=fees):
+            with self._stub_client(payments=payments):
+                result = self.mgr.process_mollie_settlement(
+                    bt,
+                    settlement_id,
+                    self._match(settlement_id, "48.50", stated_costs="1.50")["settlement_data"],
+                )
+
+        self.assertEqual(result["processed_count"], 1)
+        booked = self._fee_journal_entries(settlement_id)
+        self.assertEqual(
+            booked,
+            [],
+            "one payment of two was matched, so the settlement is not closed out and "
+            "there is nothing to book; the entries here expense the unmatched payment "
+            f"as a Mollie charge: {booked}",
+        )
+
+    def test_partial_settlement_is_not_reported_as_reconciled(self):
+        """The deposit is marked Reconciled even though only 30.00 of the 48.50 was
+        allocated. The SEPA batch branch of the same method gates exactly this
+        (``allocated_total == deposit_total``); the settlement branch does not."""
+        clearing, fees, matched, settlement_id, bt = self._partial_setup("STATUS")
+        payments = [
+            self._mollie_payment(value="30.00", invoice_id=matched["invoice"].name),
+            self._mollie_payment(value="20.00", description="grocery store purchase"),
+        ]
+
+        with self._mollie_settings(clearing_account=clearing, fees_account=fees):
+            with self._stub_client(payments=payments):
+                ok = self.mgr.create_reconciliation(
+                    self._txn_dict(bt), self._match(settlement_id, "48.50", stated_costs="1.50")
+                )
+
+        bt.reload()
+        comments = self._bt_comments(bt.name)
+        self.assertFalse(
+            ok,
+            "create_reconciliation reported success for a settlement it only partly allocated",
+        )
+        self.assertNotEqual(
+            bt.status,
+            "Reconciled",
+            "a deposit whose payments are only partly allocated to invoices must stay "
+            f"visible; comments={comments}",
+        )
+        self.assertTrue(
+            any(btr.PaymentReconciliationManager.RETRY_COMMENT_MARKER in c for c in comments),
+            f"nothing on the transaction says the settlement is incomplete; comments={comments}",
+        )
+        self.assertEqual(
+            frappe.db.get_value("Bank Transaction", bt.name, "custom_processing_status"),
+            "Partial - Manual Review Required",
+            "an operator has to be able to FILTER for these, not read every Comment",
+        )
+
+    def test_completing_a_partial_settlement_books_the_true_fee_once(self):
+        """Run 1 matches only the 30.00 payment; run 2, with the second reference now
+        resolvable, matches the 20.00 one. On run 2 the first payment is a
+        ``duplicate``, so ``total_reconciled`` sees 20.00 alone and the arithmetic
+        gives a 28.50 "fee". The settlement's fee is 1.50 -- gross 50.00 minus the
+        48.50 payout -- and must be booked exactly once, when it completes.
+
+        Only the stub's payload changes between runs, and the payment ids do not:
+        the second payment's invoice reference is unresolvable on run 1 and
+        resolvable on run 2, which is what "the invoice showed up later" looks like
+        at this boundary.
+        """
+        clearing, fees, matched, settlement_id, bt = self._partial_setup("COMPLETE")
+        late = self._make_member_with_invoice(first_name="MollieLate", grand_total=20.0)
+        first = self._mollie_payment(value="30.00", invoice_id=matched["invoice"].name)
+        second_id = f"tr_{frappe.generate_hash(length=10)}"
+        unresolved = self._mollie_payment(
+            payment_id=second_id, value="20.00", description="grocery store purchase"
+        )
+        resolved = self._mollie_payment(payment_id=second_id, value="20.00", invoice_id=late["invoice"].name)
+
+        with self._mollie_settings(clearing_account=clearing, fees_account=fees):
+            with self._stub_client(payments=[first, unresolved]):
+                self.mgr.create_reconciliation(
+                    self._txn_dict(bt), self._match(settlement_id, "48.50", stated_costs="1.50")
+                )
+            after_first = self._fee_journal_entries(settlement_id)
+            with self._stub_client(payments=[first, resolved]):
+                # A fresh manager, as the next scheduled run would use.
+                btr.PaymentReconciliationManager().create_reconciliation(
+                    self._txn_dict(bt), self._match(settlement_id, "48.50", stated_costs="1.50")
+                )
+            after_second = self._fee_journal_entries(settlement_id)
+
+        self.assertEqual(after_first, [], f"nothing to book while the settlement is partial: {after_first}")
+        self.assertEqual(
+            len(after_second),
+            1,
+            f"the completing run must book the settlement fee exactly once: {after_second}",
+        )
+        self.assertEqual(
+            flt(after_second[0].total_debit, 2),
+            1.50,
+            "the fee is the settlement gross (50.00) minus the payout (48.50); the "
+            "amount booked here is whatever the LAST run happened to reconcile: "
+            f"{after_second}",
+        )
+        bt.reload()
+        self.assertEqual(
+            bt.status,
+            "Reconciled",
+            f"the completed settlement must close the deposit; comments={self._bt_comments(bt.name)}",
+        )
+
+
+# =============================================================================
+# Where the fee AMOUNT comes from
+# =============================================================================
+class TestSettlementFeeSource(MollieBase):
+    """The fee is read from the settlement, not derived from its payments.
+
+    Summing the payments and subtracting the payout looks equivalent, and on a
+    settlement of nothing but payments it is. It stops being equivalent the moment the
+    settlement carries a refund or a chargeback: those are separate Mollie endpoints
+    (``list_settlement_refunds`` / ``list_settlement_chargebacks``) and never appear in
+    ``get_payments_for_settlement``, so ``sum(payments) - payout`` is
+    ``fees + refunds + chargebacks``. The refunded amount would be expensed as a payment
+    processing fee -- and because the fee Journal Entry is the settlement-level
+    idempotency key, no later run can correct it.
+
+    This test exists because every other test in this file has a settlement whose
+    payments minus payout happens to EQUAL the stated fee, so all of them stay green
+    under the wrong arithmetic. Verified: replacing ``_settlement_stated_fee`` with
+    ``sum(payments) - payout`` leaves the other 41 tests passing and fails only this one.
+    """
+
+    def test_a_refund_in_the_settlement_is_not_expensed_as_a_fee(self):
+        """500.00 of payments, a 200.00 refund of an earlier payment, 7.50 of Mollie
+        costs -> a 292.50 payout. Both payments match their invoices, so the settlement
+        is complete and the fee is booked. It must be the 7.50 Mollie states, not the
+        207.50 the payout is short."""
+        self._ensure_eur_company_cost_center()
+        clearing = self._make_gl_account("Mollie Clearing Refund", root_type="Asset", account_type="Bank")
+        fees = self._make_gl_account("Payment Processing Fees Refund", root_type="Expense")
+        first = self._make_member_with_invoice(first_name="MollieRefundA", grand_total=250.0)
+        second = self._make_member_with_invoice(first_name="MollieRefundB", grand_total=250.0)
+        settlement_id = f"stl_REFUND_{frappe.generate_hash(length=6)}"
+        bt = self._make_bank_transaction(
+            deposit=292.50, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        payments = [
+            self._mollie_payment(value="250.00", invoice_id=first["invoice"].name),
+            self._mollie_payment(value="250.00", invoice_id=second["invoice"].name),
+        ]
+
+        with self._mollie_settings(clearing_account=clearing, fees_account=fees):
+            with self._stub_client(payments=payments):
+                result = self.mgr.create_reconciliation(
+                    self._txn_dict(bt), self._match(settlement_id, "292.50", stated_costs="7.50")
+                )
+
+        self.assertTrue(result, f"the settlement is complete; comments={self._bt_comments(bt.name)}")
+        booked = self._fee_journal_entries(settlement_id)
+        self.assertEqual(len(booked), 1, f"one fee entry for a completed settlement: {booked}")
+        self.assertEqual(
+            flt(booked[0].total_debit, 2),
+            7.50,
+            "the fee must be what Mollie stated it charged. 207.50 here means it was "
+            "derived as payments-minus-payout, which books the refunded 200.00 as a "
+            f"processing fee: {booked}",
         )
 
 
@@ -934,28 +1408,6 @@ class TestSettlementSubmitPermission(MollieBase):
             )
         return sorted(found)
 
-    def _bt_comments(self, bank_transaction_name):
-        return [
-            (c.get("content") or "")
-            for c in frappe.get_all(
-                "Comment",
-                filters={
-                    "reference_doctype": "Bank Transaction",
-                    "reference_name": bank_transaction_name,
-                },
-                fields=["content"],
-            )
-        ]
-
-    def _match(self, settlement_id, amount="30.00"):
-        return {
-            "type": "mollie_settlement",
-            "reference": settlement_id,
-            "confidence": 0.98,
-            "match_reason": "Mollie settlement exact match",
-            "settlement_data": {"id": settlement_id, "amount": {"value": amount, "currency": "EUR"}},
-        }
-
     def test_without_payment_entry_submit_rights_nothing_is_posted_or_multiplied(self):
         """The reported defect. Two runs by a user who cannot submit Payment Entries
         must leave ZERO settlement documents behind -- not N drafts, and certainly not
@@ -1031,7 +1483,7 @@ class TestSettlementSubmitPermission(MollieBase):
         settlement that has ALREADY posted -- the exact half-posted state this fix
         exists to prevent -- so the check has to be a precondition."""
         self.expectErrorLog("Insufficient permissions to submit")
-        self._ensure_company_cost_center()
+        self._ensure_eur_company_cost_center()
         clearing = self._make_gl_account("Mollie Clearing NoJESubmit", root_type="Asset", account_type="Bank")
         fees = self._make_gl_account("Payment Processing Fees NoJESubmit", root_type="Expense")
         it = self._make_member_with_invoice(first_name="MollieNoJESubmit", grand_total=30.0)
@@ -1279,35 +1731,641 @@ class TestCreateMollieFeeEntry(MollieBase):
         with self._mollie_settings(clearing_account=""):
             self.assertIsNone(self.mgr._create_mollie_fee_entry(bt, Decimal("1.50"), {"id": "stl_N"}))
 
-    def test_full_path_creates_balanced_journal_entry(self):
-        """Regression for the missing-company bug: a positive Mollie fee must book a
-        balanced, submitted Journal Entry (clearing debited, fees credited)."""
-        self._ensure_company_cost_center()
+    def _gl_rows(self, voucher_no):
+        """GL Entry rows for a voucher, keyed by account.
+
+        Asserted on instead of the Journal Entry's own child rows because
+        ``db_update()`` runs BEFORE ``on_submit``, so a throwing submit still leaves
+        ``docstatus = 1`` and a full ``accounts`` table behind (#382). A GL row exists
+        only if the entry actually posted.
+        """
+        return {
+            r.account: r
+            for r in frappe.get_all(
+                "GL Entry",
+                filters={"voucher_type": "Journal Entry", "voucher_no": voucher_no, "is_cancelled": 0},
+                fields=["account", "debit", "credit"],
+            )
+        }
+
+    def test_a_mollie_fee_debits_the_expense_account(self):
+        """A fee is a cost, so it DEBITS the expense account and CREDITS clearing.
+
+        The direction is not a matter of taste here, and it does not need the bank leg to
+        settle. This app states the clearing convention in words in two places:
+        ``donation_journal_entry_creator`` -- "Debit: Mollie Clearing Account (asset
+        increases - we received money)" -- and ``donation_refund_journal_entry_creator``
+        -- "Credit: Mollie Clearing Account (money leaves the clearing account)". A Mollie
+        fee is money that leaves: Mollie keeps it out of the payout. So clearing is
+        credited and the expense account is debited.
+
+        It also follows from the surrounding entries. ``_create_mollie_payment_entry``
+        sets ``paid_to = clearing``, so every matched payment DEBITS clearing by its
+        gross; with the deposit crediting clearing by the payout, the residual left in
+        clearing is a debit equal to the fee, and clearing must be CREDITED to clear it.
+        The pre-fix code debited it a second time, so clearing drifted by twice the fee
+        per settlement while the expense account accumulated a credit balance (#501).
+
+        Asserted on GL rows rather than the Journal Entry's own child table -- see
+        ``_gl_rows``.
+        """
+        self._ensure_eur_company_cost_center()
         clearing = self._make_gl_account("Mollie Clearing JE", root_type="Asset", account_type="Bank")
         fees = self._make_gl_account("Payment Processing Fees JE", root_type="Expense")
         bt = self._make_bank_transaction(deposit=10.0, date=today(), bank_account=self._eur_bank_account)
         with self._mollie_settings(clearing_account=clearing, fees_account=fees):
             je = self.mgr._create_mollie_fee_entry(bt, Decimal("2.50"), {"id": "stl_FEE"})
         self.assertIsNotNone(je)
-        self.assertTrue(frappe.db.exists("Journal Entry", je.name))
-        self.assertEqual(je.docstatus, 1)
         self.assertEqual(je.total_debit, je.total_credit)
-        rows = {r.account: r for r in je.accounts}
-        self.assertGreater(rows[clearing].debit_in_account_currency, 0)
-        self.assertGreater(rows[fees].credit_in_account_currency, 0)
 
-    def test_negative_fee_inverts_entry(self):
-        self._ensure_company_cost_center()
+        gl = self._gl_rows(je.name)
+        self.assertEqual(set(gl), {clearing, fees}, f"the fee entry must post exactly two GL rows: {gl}")
+        self.assertEqual(
+            flt(gl[fees].debit, 2),
+            2.50,
+            f"a cost debits its expense account; crediting one books negative expense: {gl}",
+        )
+        self.assertEqual(flt(gl[fees].credit, 2), 0.0, f"the expense account is not credited: {gl}")
+        self.assertEqual(
+            flt(gl[clearing].credit, 2),
+            2.50,
+            f"the fee LEAVES clearing, which is a credit -- Mollie kept it: {gl}",
+        )
+        self.assertEqual(flt(gl[clearing].debit, 2), 0.0, f"clearing is not debited again: {gl}")
+
+    def test_a_negative_fee_is_the_exact_inverse(self):
+        """Mollie crediting a fee back is money arriving, so it debits clearing.
+
+        ``_settlement_stated_fee`` reads Mollie's stated costs, and a negative cost is a
+        fee being refunded to us. That is the mirror of the case above, and it has to be
+        the mirror: a sign convention that is not symmetric leaves one direction
+        unbalanced against the other.
+        """
+        self._ensure_eur_company_cost_center()
         clearing = self._make_gl_account("Mollie Clearing Neg", root_type="Asset", account_type="Bank")
         fees = self._make_gl_account("Payment Processing Fees Neg", root_type="Expense")
         bt = self._make_bank_transaction(deposit=10.0, date=today(), bank_account=self._eur_bank_account)
         with self._mollie_settings(clearing_account=clearing, fees_account=fees):
             je = self.mgr._create_mollie_fee_entry(bt, Decimal("-1.75"), {"id": "stl_NEG"})
         self.assertIsNotNone(je)
-        rows = {r.account: r for r in je.accounts}
-        # Negative fee -> clearing credited, fees debited (the inverse of the positive case).
-        self.assertGreater(rows[clearing].credit_in_account_currency, 0)
-        self.assertGreater(rows[fees].debit_in_account_currency, 0)
+
+        gl = self._gl_rows(je.name)
+        self.assertEqual(flt(gl[clearing].debit, 2), 1.75, f"money arriving debits clearing: {gl}")
+        self.assertEqual(flt(gl[fees].credit, 2), 1.75, f"a refunded cost credits the expense account: {gl}")
+
+
+# =============================================================================
+# The settlement's bank leg (#508)
+# =============================================================================
+class TestSettlementBankLeg(MollieBase):
+    """A settled payout must leave the clearing account at zero.
+
+    ``process_mollie_settlement``'s own docstring names three legs:
+
+        - The bulk settlement deposit in your bank -> Mollie Clearing Account
+        - Individual payments in Clearing Account -> Customer invoices
+        - Processing fees as expenses
+
+    The middle one is the Payment Entries and the last is the fee Journal Entry. The
+    FIRST -- the payout actually arriving in the physical bank -- was never
+    implemented, so clearing accumulated a debit balance of gross-minus-fees per
+    settlement and the bank account never recorded the money through this path (#508).
+
+    The property is asserted on the clearing account's own balance rather than on the
+    presence of a voucher, because that is the thing that has to be true regardless of
+    how the leg is booked. Each test builds a FRESH clearing account, so every GL row
+    on it belongs to this settlement and the net is exact.
+
+    SCOPE of "nets to zero": it holds for a settlement whose components are payments and
+    Mollie's stated costs, which is what these tests build. It is NOT the general
+    invariant. A settlement containing refunds or chargebacks nets those off the payout,
+    and this pipeline books neither -- `_settlement_stated_fee`'s own docstring notes they
+    arrive on separate endpoints -- so clearing legitimately retains them. Nor does it
+    hold while Mollie has not yet stated its costs (see the re-run test, which asserts
+    the fee residual instead). The general form is
+
+        gross - stated_fee - payout == refunds + chargebacks + tolerance slack
+
+    and zero is the case where the right-hand side is empty. Stated because a test named
+    for an invariant is how the next reader learns what the invariant is, and this one is
+    narrower than its name.
+    """
+
+    def _clearing_net(self, account):
+        """Signed clearing balance: positive = debit-heavy (money still stuck there)."""
+        rows = frappe.get_all(
+            "GL Entry",
+            filters={"account": account, "is_cancelled": 0},
+            fields=["debit", "credit"],
+        )
+        return flt(sum(flt(r.debit) - flt(r.credit) for r in rows), 2)
+
+    def _gl_totals(self, account):
+        rows = frappe.get_all(
+            "GL Entry",
+            filters={"account": account, "is_cancelled": 0},
+            fields=["debit", "credit"],
+        )
+        return flt(sum(flt(r.debit) for r in rows), 2), flt(sum(flt(r.credit) for r in rows), 2)
+
+    def test_a_settled_payout_leaves_the_clearing_account_at_zero(self):
+        """Gross in, fees out, payout out -- clearing nets to zero.
+
+        NOT asserted as "the net is zero" alone: a run that posts NOTHING AT ALL also
+        nets to zero, and that is the shape of defect this suite has shipped before
+        (a test satisfied before the code under test runs, #475). So the gross debit
+        and the bank-side debit are asserted too. All three have to hold together:
+        the payments booked, the payout left clearing, and it landed in the bank.
+
+        This settlement is payments-plus-fee only, which is the case where zero is the
+        right answer -- see the class docstring for why that is narrower than it sounds.
+        """
+        self._ensure_eur_company_cost_center()
+        clearing = self._make_gl_account("Mollie Clearing Leg", root_type="Asset", account_type="Bank")
+        bank = self._make_gl_account("Mollie Payout Bank Leg", root_type="Asset", account_type="Bank")
+        fees = self._make_gl_account("Payment Processing Fees Leg", root_type="Expense")
+
+        it = self._make_member_with_invoice(first_name="MollieBankLeg", grand_total=30.0)
+        bt = self._make_bank_transaction(
+            deposit=27.50, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        # Gross 30.00, Mollie keeps 2.50, so 27.50 is paid out.
+        match = self._match("stl_BANKLEG", amount="27.50", stated_costs="2.50")
+        payment = self._mollie_payment(value="30.00", invoice_id=it["invoice"].name)
+
+        with self._mollie_settings(clearing_account=clearing, fees_account=fees, bank_account=bank):
+            with self._stub_client(payments=[payment]):
+                with self.production_validation():
+                    ok = self.mgr.create_reconciliation(self._txn_dict(bt), match)
+
+        self.assertTrue(ok, f"settlement did not reconcile; comments={self._bt_comments(bt.name)}")
+
+        clearing_debit, clearing_credit = self._gl_totals(clearing)
+        self.assertEqual(
+            clearing_debit,
+            30.00,
+            "the matched payment must DEBIT clearing by its gross -- without this the "
+            f"net-zero assertion below is vacuous. clearing debit/credit={clearing_debit}/{clearing_credit}",
+        )
+
+        bank_debit, _bank_credit = self._gl_totals(bank)
+        self.assertEqual(
+            bank_debit,
+            27.50,
+            "the payout must DEBIT the physical bank account: this is the leg "
+            f"process_mollie_settlement's docstring promises and never booked (#508). bank debit={bank_debit}",
+        )
+
+        self.assertEqual(
+            self._clearing_net(clearing),
+            0.0,
+            "clearing must net to ZERO once a settlement is fully booked: gross in "
+            f"(30.00), fees out (2.50), payout out (27.50). Residual debit means the "
+            f"payout was never booked. debit={clearing_debit} credit={clearing_credit}",
+        )
+
+    def _payout_entries(self, settlement_id):
+        """The payout legs for a settlement, matched on the tracking field.
+
+        Keyed on ``voucher_type`` as well, because the fee entry carries the SAME
+        ``custom_mollie_settlement_id``: the two are told apart by voucher type and
+        nothing else.
+        """
+        return frappe.get_all(
+            "Journal Entry",
+            filters={
+                "custom_mollie_settlement_id": settlement_id,
+                "voucher_type": "Bank Entry",
+                "docstatus": 1,
+            },
+            fields=["name", "total_debit"],
+        )
+
+    def _fee_entries(self, settlement_id):
+        return frappe.get_all(
+            "Journal Entry",
+            filters={
+                "custom_mollie_settlement_id": settlement_id,
+                "voucher_type": "Journal Entry",
+                "docstatus": 1,
+            },
+            fields=["name", "total_debit"],
+        )
+
+    def _run_settlement(self, bt, settlement_id, payment, amount, stated_costs=None):
+        """One scheduled run, with a fresh manager as the next run would use."""
+        return btr.PaymentReconciliationManager().create_reconciliation(
+            self._txn_dict(bt), self._match(settlement_id, amount, stated_costs=stated_costs)
+        )
+
+    def test_a_rerun_books_exactly_one_payout_leg(self):
+        """Re-running a settled settlement must not credit clearing a second time.
+
+        A duplicated payout leg would push clearing NEGATIVE by the payout and
+        double-count the money arriving in the bank, so this is the same class of
+        defect as the fee entry's own re-run bug (#194).
+
+        Deliberately run with NO stated fee. With one, ``_existing_settlement_fee_entry``
+        short-circuits the second run before the payout code is reached, so the payout
+        leg's own idempotency guard is never exercised and deleting it leaves this test
+        green -- measured: it reddened the fee-guard test instead. Without a fee entry
+        there is nothing else standing in the way, so this test is the guard's control.
+        """
+        self._ensure_eur_company_cost_center()
+        clearing = self._make_gl_account("Mollie Clearing Once", root_type="Asset", account_type="Bank")
+        bank = self._make_gl_account("Mollie Payout Bank Once", root_type="Asset", account_type="Bank")
+        fees = self._make_gl_account("Payment Processing Fees Once", root_type="Expense")
+        it = self._make_member_with_invoice(first_name="MollieOnce", grand_total=30.0)
+        settlement_id = f"stl_ONCE_{frappe.generate_hash(length=6)}"
+        bt = self._make_bank_transaction(
+            deposit=27.50, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        payment = self._mollie_payment(value="30.00", invoice_id=it["invoice"].name)
+
+        with self._mollie_settings(clearing_account=clearing, fees_account=fees, bank_account=bank):
+            with self._stub_client(payments=[payment]):
+                self.assertTrue(self._run_settlement(bt, settlement_id, payment, "27.50", stated_costs=None))
+                after_first = self._payout_entries(settlement_id)
+                self._run_settlement(bt, settlement_id, payment, "27.50", stated_costs=None)
+                after_second = self._payout_entries(settlement_id)
+
+        self.assertEqual(len(after_first), 1, f"the first run must book the payout once: {after_first}")
+        self.assertEqual(
+            len(after_second),
+            1,
+            f"re-running the settlement booked a SECOND payout leg: {after_second}",
+        )
+        # Mollie has not stated its costs, so the 2.50 it kept legitimately remains in
+        # clearing: 30.00 gross in, 27.50 paid out. A second payout leg would credit
+        # 27.50 again and drive this to -25.00.
+        self.assertEqual(
+            self._clearing_net(clearing),
+            2.50,
+            "clearing must hold exactly the not-yet-stated fee after a re-run; a "
+            "negative balance means the payout was credited twice",
+        )
+
+    def test_the_payout_leg_is_not_mistaken_for_the_fee_entry(self):
+        """A settlement whose fee Mollie has not yet stated must still book its fee later.
+
+        ``_existing_settlement_fee_entry`` is the settlement-level idempotency key and it
+        matched ANY submitted Journal Entry carrying the settlement id. The payout leg
+        carries that same id, so once it exists the guard reports the fee as already
+        booked -- and a settlement that reconciled before Mollie stated its costs would
+        never book them at all. The two entries are distinguished by voucher type.
+        """
+        self._ensure_eur_company_cost_center()
+        clearing = self._make_gl_account("Mollie Clearing Late", root_type="Asset", account_type="Bank")
+        bank = self._make_gl_account("Mollie Payout Bank Late", root_type="Asset", account_type="Bank")
+        fees = self._make_gl_account("Payment Processing Fees Late", root_type="Expense")
+        it = self._make_member_with_invoice(first_name="MollieLate", grand_total=30.0)
+        settlement_id = f"stl_LATE_{frappe.generate_hash(length=6)}"
+        bt = self._make_bank_transaction(
+            deposit=27.50, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        payment = self._mollie_payment(value="30.00", invoice_id=it["invoice"].name)
+
+        with self._mollie_settings(clearing_account=clearing, fees_account=fees, bank_account=bank):
+            with self._stub_client(payments=[payment]):
+                # Run 1: Mollie has not stated its costs yet, so no fee entry is due.
+                self._run_settlement(bt, settlement_id, payment, "27.50", stated_costs=None)
+                self.assertEqual(
+                    len(self._fee_entries(settlement_id)),
+                    0,
+                    "no fee is bookable before Mollie states its costs",
+                )
+                self.assertEqual(
+                    len(self._payout_entries(settlement_id)), 1, "the payout leg must still be booked"
+                )
+                # Run 2: the costs have arrived.
+                self._run_settlement(bt, settlement_id, payment, "27.50", stated_costs="2.50")
+
+        self.assertEqual(
+            len(self._fee_entries(settlement_id)),
+            1,
+            "the fee was never booked: the payout leg was taken for the fee entry by "
+            "_existing_settlement_fee_entry, which matches any Journal Entry with this "
+            "settlement id",
+        )
+        self.assertEqual(
+            len(self._payout_entries(settlement_id)), 1, "and the payout must not be booked twice"
+        )
+
+    def test_the_deposit_is_allocated_to_the_payout_leg(self):
+        """A deposit marked Reconciled must actually be allocated.
+
+        ``reconcile_bank_transactions`` picks up transactions on
+        ``allocated_amount in (0, None)``, and ERPNext's own bank reconciliation view
+        calls a deposit with ``allocated_amount = 0`` unreconciled however this app's
+        ``status`` field reads. The settlement branch set ``status = "Reconciled"`` and
+        allocated nothing, so the two disagreed (#508).
+
+        ERPNext derives ``allocated_amount`` from the ``payment_entries`` child table in
+        ``before_validate``, so the row has to be appended before the branch saves.
+        """
+        self._ensure_eur_company_cost_center()
+        clearing = self._make_gl_account("Mollie Clearing Alloc", root_type="Asset", account_type="Bank")
+        bank = self._make_gl_account("Mollie Payout Bank Alloc", root_type="Asset", account_type="Bank")
+        fees = self._make_gl_account("Payment Processing Fees Alloc", root_type="Expense")
+        it = self._make_member_with_invoice(first_name="MollieAlloc", grand_total=30.0)
+        settlement_id = f"stl_ALLOC_{frappe.generate_hash(length=6)}"
+        bt = self._make_bank_transaction(
+            deposit=27.50, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        payment = self._mollie_payment(value="30.00", invoice_id=it["invoice"].name)
+
+        with self._mollie_settings(clearing_account=clearing, fees_account=fees, bank_account=bank):
+            with self._stub_client(payments=[payment]):
+                with self.production_validation():
+                    ok = self.mgr.create_reconciliation(
+                        self._txn_dict(bt), self._match(settlement_id, "27.50", stated_costs="2.50")
+                    )
+
+        self.assertTrue(ok, f"settlement did not reconcile; comments={self._bt_comments(bt.name)}")
+        bt.reload()
+        payout = self._payout_entries(settlement_id)
+        self.assertEqual(len(payout), 1, f"expected exactly one payout leg: {payout}")
+        self.assertEqual(
+            flt(bt.allocated_amount, 2),
+            27.50,
+            f"the deposit is marked {bt.status!r} with allocated_amount="
+            f"{bt.allocated_amount!r}: ERPNext reads that as unreconciled",
+        )
+        self.assertEqual(
+            [(r.payment_document, r.payment_entry) for r in bt.payment_entries],
+            [("Journal Entry", payout[0].name)],
+            "the payout leg must be the voucher the deposit is allocated to",
+        )
+        # ERPNext will not set this itself: `clear_linked_payment_entry` is reached only
+        # from `allocate_payment_entries`, which skips a row that already carries a
+        # non-zero allocation -- and even with a zero row, `should_clear` refuses a
+        # voucher whose other leg is itself an `account_type = "Bank"` account. Without
+        # the explicit stamp the payout sits on the Bank Reconciliation Statement as an
+        # outstanding item forever while the Bank Transaction reads Reconciled.
+        self.assertEqual(
+            frappe.db.get_value("Journal Entry", payout[0].name, "clearance_date"),
+            getdate(bt.date),
+            "the payout leg must carry a clearance_date, or ERPNext's Bank "
+            "Reconciliation Statement lists it as uncleared indefinitely",
+        )
+
+    def test_one_account_configured_as_both_sides_needs_no_payout_leg(self):
+        """clearing == bank needs no payout leg, because the ledger is ALREADY right.
+
+        veg11's Mollie Settings holds exactly this today: ``mollie_clearing_account`` and
+        ``mollie_bank_account`` are the same account. With one account there is no
+        intermediate to drain -- ``_create_mollie_payment_entry`` sets
+        ``paid_to = clearing``, so the payments land directly in the bank account and the
+        fee reduces it, leaving exactly the deposit. A transfer from an account to itself
+        would post two rows that cancel.
+
+        So this asserts the ACCOUNTING, not merely that a voucher was skipped: the single
+        account must end at the deposit. Asserting only "no payout leg" would pass just as
+        well if the skip were wrong for the reason the code originally claimed (a
+        misconfiguration to be logged and warned about) as if it were right.
+        """
+        self._ensure_eur_company_cost_center()
+        one = self._make_gl_account("Mollie One Account", root_type="Asset", account_type="Bank")
+        fees = self._make_gl_account("Payment Processing Fees One", root_type="Expense")
+        it = self._make_member_with_invoice(first_name="MollieSame", grand_total=30.0)
+        settlement_id = f"stl_SAME_{frappe.generate_hash(length=6)}"
+        bt = self._make_bank_transaction(
+            deposit=27.50, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        payment = self._mollie_payment(value="30.00", invoice_id=it["invoice"].name)
+
+        with self._mollie_settings(clearing_account=one, fees_account=fees, bank_account=one):
+            with self._stub_client(payments=[payment]):
+                self._run_settlement(bt, settlement_id, payment, "27.50", "2.50")
+
+        self.assertEqual(
+            self._payout_entries(settlement_id),
+            [],
+            "a transfer from an account to itself must not be booked",
+        )
+        # 30.00 gross debited by the Payment Entry, 2.50 credited by the fee entry.
+        self.assertEqual(
+            self._clearing_net(one),
+            27.50,
+            "with a single account the payments land straight in the bank account and "
+            "the fee reduces it, so it must already hold exactly the deposit -- there is "
+            "nothing for a payout leg to move",
+        )
+
+    def test_a_payout_leg_alone_counts_as_posted_accounting(self):
+        """A settlement that booked only its payout leg has written to the ledger.
+
+        ``_record_settlement_failure`` uses ``_settlement_has_posted_accounting`` to
+        decide whether a failure is retryable: a settlement that posted nothing stays
+        Pending, one that posted anything is handed to an operator. That discriminator
+        read the FEE entry, and the fee guard no longer matches the payout leg -- so a
+        settlement that reconciled before Mollie stated its costs and then failed would
+        be read as "posted nothing" and re-run against a ledger it had already written
+        to.
+        """
+        self._ensure_eur_company_cost_center()
+        clearing = self._make_gl_account("Mollie Clearing Posted", root_type="Asset", account_type="Bank")
+        bank = self._make_gl_account("Mollie Payout Bank Posted", root_type="Asset", account_type="Bank")
+        settlement_id = f"stl_POSTED_{frappe.generate_hash(length=6)}"
+        bt = self._make_bank_transaction(
+            deposit=27.50, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+
+        self.assertFalse(
+            self.mgr._settlement_has_posted_accounting(settlement_id),
+            "nothing is posted yet",
+        )
+
+        with self._mollie_settings(clearing_account=clearing, bank_account=bank):
+            je = self.mgr._book_settlement_payout(bt, {"id": settlement_id})
+
+        self.assertIsNotNone(je, "the payout leg must have been booked for this test to mean anything")
+        self.assertEqual(
+            self._fee_entries(settlement_id), [], "and it must NOT be a fee entry -- that is the point"
+        )
+        self.assertTrue(
+            self.mgr._settlement_has_posted_accounting(settlement_id),
+            f"payout leg {je.name} is on the ledger but the settlement reads as having "
+            "posted nothing, so a failure after it would be treated as retryable",
+        )
+
+    def test_a_failed_payout_leg_does_not_close_out_the_settlement(self):
+        """A payout leg that fails must leave the settlement recoverable.
+
+        The fee entry is the settlement-level idempotency key
+        (``_existing_settlement_fee_entry`` -> ``_already_processed_result``), and the
+        payout leg deliberately is NOT (they are told apart by ``voucher_type``). So
+        whichever is written first, a failure in the second one leaves the first on the
+        ledger -- and if the first is the FEE, the next run short-circuits on it, returns
+        "already processed", and ``create_reconciliation`` marks the deposit Reconciled
+        with the payout never booked. That is verbatim the #508 symptom this change exists
+        to remove, reached through the failure path instead.
+
+        `create_reconciliation` swallows the exception, so nothing rolls back: the fee
+        entry really does persist.
+
+        The failure is induced with a real misconfiguration rather than a mock: a GROUP
+        account cannot be posted to, which is exactly what an operator picking the parent
+        node in Mollie Settings would produce.
+        """
+        self.expectErrorLog("")
+        self._ensure_eur_company_cost_center()
+        clearing = self._make_gl_account("Mollie Clearing Recover", root_type="Asset", account_type="Bank")
+        good_bank = self._make_gl_account(
+            "Mollie Payout Bank Recover", root_type="Asset", account_type="Bank"
+        )
+        fees = self._make_gl_account("Payment Processing Fees Recover", root_type="Expense")
+        group_bank = frappe.db.get_value(
+            "Account", {"company": self.company, "is_group": 1, "root_type": "Asset"}, "name"
+        )
+        self.assertIsNotNone(group_bank, "need a group Asset account to induce the failure")
+
+        it = self._make_member_with_invoice(first_name="MollieRecover", grand_total=30.0)
+        settlement_id = f"stl_RECOVER_{frappe.generate_hash(length=6)}"
+        bt = self._make_bank_transaction(
+            deposit=27.50, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        payment = self._mollie_payment(value="30.00", invoice_id=it["invoice"].name)
+
+        with self._stub_client(payments=[payment]):
+            # Run 1: the payout leg cannot post.
+            with self._mollie_settings(clearing_account=clearing, fees_account=fees, bank_account=group_bank):
+                self._run_settlement(bt, settlement_id, payment, "27.50", "2.50")
+            self.assertEqual(self._payout_entries(settlement_id), [], "the payout leg cannot have posted")
+            # Run 2: the misconfiguration is corrected.
+            with self._mollie_settings(clearing_account=clearing, fees_account=fees, bank_account=good_bank):
+                self._run_settlement(bt, settlement_id, payment, "27.50", "2.50")
+
+        bt.reload()
+        self.assertEqual(
+            len(self._payout_entries(settlement_id)),
+            1,
+            "the corrected run booked no payout leg: the first run's FEE entry satisfied "
+            "_existing_settlement_fee_entry, so process_mollie_settlement short-circuited "
+            "into _already_processed_result and never reached the payout. The deposit is "
+            f"now {bt.status!r} with allocated_amount={flt(bt.allocated_amount, 2)} and "
+            f"{self._clearing_net(clearing)} stranded in clearing -- the #508 symptom, "
+            "reached through the failure path",
+        )
+        self.assertEqual(self._clearing_net(clearing), 0.0, "clearing must end at zero once recovered")
+        self.assertEqual(flt(bt.allocated_amount, 2), 27.50, "and the deposit must end up allocated")
+
+    def test_the_payout_follows_the_bank_not_the_settlement_amount(self):
+        """The leg is booked for what the BANK received, not what Mollie said it sent.
+
+        This is the design claim the method's docstring argues for, and until this test
+        existed nothing discriminated it: every other test sets
+        ``deposit == settlement amount``, so substituting
+        ``settlement_data["amount"]["value"]`` for ``bank_trans.deposit`` left the module
+        green. The matcher admits a settlement within 0.1%, so the two figures really can
+        differ in production.
+
+        Mollie states a 27.52 payout; 27.50 actually arrived. The physical bank account
+        must equal the statement, and the 0.02 must not be absorbed into a leg claiming
+        to be the payout.
+        """
+        self._ensure_eur_company_cost_center()
+        clearing = self._make_gl_account("Mollie Clearing Bankfig", root_type="Asset", account_type="Bank")
+        bank = self._make_gl_account("Mollie Payout Bank Bankfig", root_type="Asset", account_type="Bank")
+        fees = self._make_gl_account("Payment Processing Fees Bankfig", root_type="Expense")
+        it = self._make_member_with_invoice(first_name="MollieBankfig", grand_total=30.0)
+        settlement_id = f"stl_BANKFIG_{frappe.generate_hash(length=6)}"
+        bt = self._make_bank_transaction(
+            deposit=27.50, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        payment = self._mollie_payment(value="30.00", invoice_id=it["invoice"].name)
+
+        with self._mollie_settings(clearing_account=clearing, fees_account=fees, bank_account=bank):
+            with self._stub_client(payments=[payment]):
+                # Settlement says 27.52; the bank says 27.50.
+                self._run_settlement(bt, settlement_id, payment, "27.52", "2.50")
+
+        bank_debit, _ = self._gl_totals(bank)
+        self.assertEqual(
+            bank_debit,
+            27.50,
+            "the bank account must hold what the STATEMENT says arrived; booking the "
+            "settlement's stated 27.52 would put a number the bank never received into "
+            "the one account that has to reconcile against a statement",
+        )
+        self.assertEqual(
+            self._clearing_net(clearing),
+            0.0,
+            "and the difference must not be absorbed into the payout leg",
+        )
+
+    def test_a_zero_deposit_books_no_payout_leg_and_does_not_fail_the_settlement(self):
+        """The amount guard must REFUSE, not post a zero-amount voucher.
+
+        Asserted on the return value, not on the absence of a leg: "no payout leg" is
+        true whether the guard refuses or a zero-amount Journal Entry throws and takes
+        the whole settlement down with it. Only the return value tells those apart.
+        """
+        self._ensure_eur_company_cost_center()
+        clearing = self._make_gl_account("Mollie Clearing Zero", root_type="Asset", account_type="Bank")
+        bank = self._make_gl_account("Mollie Payout Bank Zero", root_type="Asset", account_type="Bank")
+        fees = self._make_gl_account("Payment Processing Fees Zero", root_type="Expense")
+        it = self._make_member_with_invoice(first_name="MollieZero", grand_total=30.0)
+        settlement_id = f"stl_ZERO_{frappe.generate_hash(length=6)}"
+        bt = self._make_bank_transaction(
+            deposit=0.0, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        payment = self._mollie_payment(value="30.00", invoice_id=it["invoice"].name)
+
+        with self._mollie_settings(clearing_account=clearing, fees_account=fees, bank_account=bank):
+            with self._stub_client(payments=[payment]):
+                ok = self._run_settlement(bt, settlement_id, payment, "0.00", "2.50")
+
+        self.assertTrue(
+            ok,
+            "a zero deposit must be refused by the amount guard, not turned into a "
+            "zero-amount Journal Entry whose submit failure fails the settlement",
+        )
+        self.assertEqual(self._payout_entries(settlement_id), [], "and no leg is booked")
+
+    def test_a_rerun_repairs_an_allocation_the_first_run_never_persisted(self):
+        """A payout leg on the ledger with no allocation must be repaired, not skipped.
+
+        `_book_settlement_payout` appends the child row to the caller's IN-MEMORY
+        document; `create_reconciliation` persists it. So a first run can insert and
+        submit the Journal Entry and then die before that save -- the entry is on the
+        ledger and the deposit is left unallocated. Returning early on the idempotency
+        key alone made that permanent, because nothing else ever appends the row.
+
+        Reproduced by reloading the document between the two calls, which discards the
+        in-memory row exactly as an unsaved run would. Asserting on the recovery path
+        rather than on a second failure injection keeps the test about the repair.
+        """
+        self._ensure_eur_company_cost_center()
+        clearing = self._make_gl_account("Mollie Clearing Repair", root_type="Asset", account_type="Bank")
+        bank = self._make_gl_account("Mollie Payout Bank Repair", root_type="Asset", account_type="Bank")
+        settlement_id = f"stl_REPAIR_{frappe.generate_hash(length=6)}"
+        bt = self._make_bank_transaction(
+            deposit=27.50, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+
+        with self._mollie_settings(clearing_account=clearing, bank_account=bank):
+            je = self.mgr._book_settlement_payout(bt, {"id": settlement_id})
+            self.assertIsNotNone(je, "the first run must book the payout leg")
+
+            # The first run died before `create_reconciliation` could save: the Journal
+            # Entry is submitted, the child row was only ever in memory.
+            bt.reload()
+            self.assertEqual(
+                [(r.payment_document, r.payment_entry) for r in bt.payment_entries],
+                [],
+                "precondition: nothing was persisted",
+            )
+
+            self.mgr._book_settlement_payout(bt, {"id": settlement_id})
+
+        self.assertEqual(
+            [(r.payment_document, r.payment_entry) for r in bt.payment_entries],
+            [("Journal Entry", je.name)],
+            "the re-run returned early on the idempotency key and left the deposit "
+            "unallocated against a payout leg that is already on the ledger",
+        )
+        self.assertEqual(len(self._payout_entries(settlement_id)), 1, "and it must not book a second leg")
 
 
 # =============================================================================
@@ -1399,6 +2457,354 @@ class TestProcessSepaReturnFileLoop(MollieBase):
             fields=["content"],
         )
         self.assertTrue(any("SEPA payment accepted" in (c.get("content") or "") for c in comments))
+
+
+# =============================================================================
+# match_mollie_settlement — the bank reference is the discriminator (#547)
+# =============================================================================
+class TestSettlementReferenceGate(MollieBase):
+    """Amount + date + keyword must not be enough to auto-post accounting (#547).
+
+    The matcher used to return 0.98 (exact amount) or 0.92 (within a 0.1% window)
+    against a ``match_threshold`` of 0.85, on three criteria: amount, a +/-3 day
+    date window, and the description containing one of ``mollie|settlement|payout``.
+    Nothing identified the *counterparty* or the *settlement*, and
+    ``create_reconciliation`` books Payment Entries and a fee Journal Entry against
+    whichever settlement it is handed -- so a coincidence posted accounting.
+
+    The discriminator was already in the string the keyword check reads. Measured on
+    veg11's own ``tabBank Transaction``, over the 102 rows with a real Mollie
+    counterparty, the settlement ``reference`` is in the description:
+
+        NL70CITI2032329018 CITINL2X Stichting Mollie Payments
+        T13606591.2510.01 REF T13606591.2510.01 Mollie betalingen      (deposit 125.71)
+
+    ``13606591.2510.01`` is ``Settlement.reference`` (``<merchantId>.<yyMM>.<seq>``,
+    core/models/settlement.py:74). So the reference gates the auto-post, and an
+    unconfirmed candidate is returned BELOW the threshold instead of being reconciled
+    unattended.
+
+    NOT "verbatim in every payout" -- that claim was made here on the strength of 25
+    rows and is false. One real payout has the reference broken across the bank's
+    line wrap, which is why the comparison squashes whitespace; see
+    ``test_a_reference_broken_across_a_line_wrap_still_auto_reconciles``.
+    """
+
+    #: The reference and description shapes above, copied from veg11.
+    REAL_REFERENCE = "13606591.2510.01"
+    REAL_DESCRIPTION = (
+        "NL70CITI2032329018 CITINL2X Stichting Mollie Payments "
+        "T13606591.2510.01 REF T13606591.2510.01 Mollie betalingen"
+    )
+
+    def _match_on_mollie_account(self, *, deposit, description, settlements):
+        bank_gl = frappe.db.get_value("Company", self.company, "default_bank_account")
+        bt = self._make_bank_transaction(
+            deposit=deposit,
+            description=description,
+            date=today(),
+            bank_account=self._eur_bank_account,
+        )
+        with self._mollie_settings(bank_account=bank_gl):
+            with self._stub_client(settlements=settlements):
+                return self.mgr.match_mollie_settlement(self._txn_dict(bt))
+
+    def test_amount_and_keyword_alone_do_not_clear_the_auto_match_threshold(self):
+        """The #547 case: a coincidence must not auto-post.
+
+        Exact amount, a mollie keyword, inside the date window -- and a settlement
+        whose reference is NOT in the description. Before the fix this returned 0.98
+        and reconciled unattended.
+        """
+        match = self._match_on_mollie_account(
+            deposit=123.45,
+            description="Incoming payout from a customer",
+            settlements=[self._settlement_payload("stl_NOREF", "123.45", reference="13606591.2509.01")],
+        )
+        self.assertIsNotNone(match, "the candidate is still reported, just not auto-postable")
+        self.assertLess(
+            match["confidence"],
+            self.mgr.match_threshold,
+            "amount+date+keyword with no reference must stay below the auto-match "
+            "threshold, or create_reconciliation books accounting on a coincidence",
+        )
+
+    def test_a_settlement_carrying_no_reference_at_all_cannot_clear_the_threshold(self):
+        """An absent `reference` key is not the same as a non-matching one, and
+        neither identifies the deposit."""
+        match = self._match_on_mollie_account(
+            deposit=500.00,
+            description="mollie settlement payout",
+            settlements=[self._settlement_payload("stl_NOKEY", "500.00")],
+        )
+        self.assertIsNotNone(match)
+        self.assertLess(match["confidence"], self.mgr.match_threshold)
+
+    def test_the_bank_reference_in_the_description_clears_the_threshold(self):
+        """The real veg11 payout shape still auto-reconciles.
+
+        NOT a discriminating test on its own -- develop returns 0.98 here too. It
+        pins that the gate does not close on the traffic it exists to match, which
+        is the failure mode the `is_company_account` filter had (#544).
+        """
+        match = self._match_on_mollie_account(
+            deposit=125.71,
+            description=self.REAL_DESCRIPTION,
+            settlements=[self._settlement_payload("stl_REAL", "125.71", reference=self.REAL_REFERENCE)],
+        )
+        self.assertIsNotNone(match)
+        self.assertGreaterEqual(match["confidence"], self.mgr.match_threshold)
+        self.assertEqual(match["reference"], "stl_REAL")
+
+    def test_the_referenced_settlement_wins_over_an_earlier_amount_twin(self):
+        """Two settlements, same amount, one referenced in the description.
+
+        Develop returns the FIRST amount match in list order, so ordering the
+        unreferenced twin first makes this fail against develop -- it picks
+        `stl_TWIN` and posts against the wrong settlement. Same class of ambiguity
+        as #544, one layer in.
+        """
+        match = self._match_on_mollie_account(
+            deposit=250.00,
+            description=self.REAL_DESCRIPTION,
+            settlements=[
+                self._settlement_payload("stl_TWIN", "250.00", reference="13606591.2509.01"),
+                self._settlement_payload("stl_NAMED", "250.00", reference=self.REAL_REFERENCE),
+            ],
+        )
+        self.assertIsNotNone(match)
+        self.assertEqual(
+            match["reference"],
+            "stl_NAMED",
+            "the settlement the bank actually named must win over an amount twin",
+        )
+        self.assertGreaterEqual(match["confidence"], self.mgr.match_threshold)
+
+    def test_a_named_settlement_with_a_mismatched_amount_is_reported_not_dropped(self):
+        """The bank named this settlement and the amounts disagree.
+
+        Not a match -- it must not post -- but not nothing either: it is the most
+        actionable thing this matcher can say, so it comes back below the threshold
+        with both figures in the reason. Returning None here (the first version of
+        this change) threw the signal away.
+
+        Not hypothetical: on veg11 six settlement references each appear on TWO bank
+        lines -- a payout plus a separate donation credit on the same reference -- so
+        at most one of each pair can equal the settlement amount and the other lands
+        in exactly this branch, every month.
+        """
+        match = self._match_on_mollie_account(
+            deposit=125.71,
+            description=self.REAL_DESCRIPTION,
+            settlements=[self._settlement_payload("stl_WRONGAMT", "9999.00", reference=self.REAL_REFERENCE)],
+        )
+        self.assertIsNotNone(match, "a named settlement with a wrong amount must not vanish")
+        self.assertEqual(match["reference"], "stl_WRONGAMT")
+        self.assertLess(match["confidence"], self.mgr.match_threshold)
+        self.assertIn("amounts differ", match["match_reason"])
+        self.assertIn("9999", match["match_reason"], "the reason must carry both figures")
+
+    def test_a_named_settlement_outranks_an_amount_twin_that_is_not_named(self):
+        """Priority between the two sub-threshold outcomes.
+
+        A named-but-discrepant settlement is more informative than an unnamed
+        amount coincidence, so it must be the one reported when both exist.
+        """
+        match = self._match_on_mollie_account(
+            deposit=125.71,
+            description=self.REAL_DESCRIPTION,
+            settlements=[
+                self._settlement_payload("stl_COINCIDENCE", "125.71", reference="13606591.2509.01"),
+                self._settlement_payload("stl_NAMEDBADAMT", "9999.00", reference=self.REAL_REFERENCE),
+            ],
+        )
+        self.assertIsNotNone(match)
+        self.assertEqual(match["reference"], "stl_NAMEDBADAMT")
+        self.assertLess(match["confidence"], self.mgr.match_threshold)
+
+    def test_a_reference_broken_across_a_line_wrap_still_auto_reconciles(self):
+        """The real veg11 row whose reference the bank split (S1).
+
+        Verbatim from `tabBank Transaction` ACC-BTN-2026-17556, 2023-10-02, deposit
+        93.22 -- the remittance text is wrapped at a fixed column and the break
+        landed INSIDE the reference, giving `T13606591.231 0.01`. Plain containment
+        returns False on it, so the first version of this change silently stopped
+        auto-reconciling that payout. 1 of the 102 real Mollie-counterparty rows on
+        veg11; the same wrap lands in "Mo llie betalingen" in other months, so the
+        column is fixed and the token it splits varies.
+        """
+        match = self._match_on_mollie_account(
+            deposit=93.22,
+            description=(
+                "NL70CITI2032329018 CITINL2X STICHTING MOLLIE PAYMENTS "
+                "509081651a68d4db7864.22175631 REF T13606591.231 0.01 Mollie betalingen"
+            ),
+            settlements=[self._settlement_payload("stl_WRAPPED", "93.22", reference="13606591.2310.01")],
+        )
+        self.assertIsNotNone(match)
+        self.assertGreaterEqual(
+            match["confidence"],
+            self.mgr.match_threshold,
+            "a reference broken by the bank's line wrap is still the bank naming it",
+        )
+        self.assertEqual(match["reference"], "stl_WRAPPED")
+
+    def test_a_degenerate_short_reference_is_not_an_identifier(self):
+        """The reference IS the security property, so it cannot be trusted blind.
+
+        A one- or two-character reference is contained in almost any description,
+        which would make the gate vacuous exactly when the upstream data is
+        degenerate. Below MIN_SETTLEMENT_REFERENCE_LENGTH it does not confirm.
+        """
+        match = self._match_on_mollie_account(
+            deposit=64.00,
+            description="mollie payout 0",
+            settlements=[self._settlement_payload("stl_SHORTREF", "64.00", reference="0")],
+        )
+        self.assertIsNotNone(match)
+        self.assertLess(
+            match["confidence"],
+            self.mgr.match_threshold,
+            "a 1-character reference must not be accepted as identification",
+        )
+
+    def test_an_unnamed_within_tolerance_match_is_also_below_the_threshold(self):
+        """The 0.92 tier, unconfirmed. Both other sub-threshold tests use exact
+        amounts, so without this the within-tolerance path is never exercised
+        against the gate."""
+        match = self._match_on_mollie_account(
+            deposit=1000.00,
+            description="mollie payout",
+            settlements=[self._settlement_payload("stl_TOLNOREF", "1000.50", reference="13606591.2509.01")],
+        )
+        self.assertIsNotNone(match)
+        self.assertLess(match["confidence"], self.mgr.match_threshold)
+
+    def test_match_transaction_does_not_reconcile_a_keyword_only_settlement_deposit(self):
+        """End-to-end: the outcome, not the confidence number.
+
+        `match_transaction` takes the max confidence across strategies and reconciles
+        above the threshold, so this is what decides whether accounting is posted.
+        Fully staged so that the ONLY thing stopping the post is the gate: a clearing
+        account, a member invoice, and a Mollie payment that covers it, i.e. exactly
+        the fixture `TestCreateReconciliationMollieBranch` uses to reconcile
+        successfully. Against develop this books a Payment Entry and marks the
+        transaction Reconciled.
+
+        An earlier version of this test asserted the same thing with no payments in
+        the settlement, and passed against develop -- not because the match was
+        refused but because there was nothing to book. It proved nothing.
+        """
+        self._ensure_eur_company_cost_center()
+        clearing = self._make_gl_account("Mollie Clearing RefGate", root_type="Asset", account_type="Bank")
+        bank_gl = frappe.db.get_value("Company", self.company, "default_bank_account")
+        it = self._make_member_with_invoice(first_name="Zzqref", grand_total=777.13)
+        bt = self._make_bank_transaction(
+            deposit=777.13,
+            description="mollie payout received",
+            date=today(),
+            bank_account=self._eur_bank_account,
+            status="Pending",
+        )
+        txn = self._txn_dict(bt)
+        # Settlement amount matches the deposit exactly; its reference does not appear
+        # in the description.
+        settlements = [self._settlement_payload("stl_NOTMINE", "777.13", reference="13606591.2509.01")]
+        payment = self._mollie_payment(value="777.13", invoice_id=it["invoice"].name)
+        with self._mollie_settings(clearing_account=clearing, bank_account=bank_gl):
+            with self._stub_client(settlements=settlements, payments=[payment]):
+                candidate = self.mgr.match_mollie_settlement(txn)
+                reconciled = self.mgr.match_transaction(txn)
+
+        # Staging check: the settlement WAS found and amount-matched, so the gate is
+        # the only thing between it and create_reconciliation.
+        self.assertIsNotNone(candidate, "staging error: no settlement candidate, so nothing was gated")
+        self.assertEqual(candidate["reference"], "stl_NOTMINE")
+
+        self.assertFalse(reconciled, "a keyword-only settlement deposit must not reconcile")
+        self.assertEqual(
+            frappe.db.get_value("Bank Transaction", bt.name, "status"),
+            "Pending",
+            "the transaction must be left for a human, not marked reconciled",
+        )
+        self.assertFalse(
+            frappe.db.exists("Payment Entry", {"custom_mollie_payment_id": payment["id"]}),
+            "no Payment Entry may be booked against a settlement nothing identified",
+        )
+
+
+# =============================================================================
+# match_mollie_settlement — one settlement fetch per run, not per transaction (#546)
+# =============================================================================
+class TestSettlementWindowFetchedOncePerRun(MollieBase):
+    """`get_settlements_by_date_range` pages Mollie's ENTIRE settlement history and
+    filters in memory (clients/settlements_client.py: `self.get("settlements",
+    paginated=True)`), and unlike its two siblings `get_settlement` /
+    `list_settlements` it does not go through `get_cached`. It was called once per
+    candidate transaction from inside `match_mollie_settlement`, so a reconciliation
+    run downloaded that history N times (#546).
+    """
+
+    def test_the_settlement_window_is_fetched_once_for_transactions_sharing_a_date(self):
+        bank_gl = frappe.db.get_value("Company", self.company, "default_bank_account")
+        # Amounts deliberately match no settlement: the fetch happens BEFORE the
+        # amount comparison, so this measures the fetch count without letting any
+        # transaction reconcile and post accounting either side of the fix.
+        for amount in (11.11, 22.22, 33.33):
+            self._make_bank_transaction(
+                deposit=amount,
+                description="mollie settlement payout",
+                date=today(),
+                bank_account=self._eur_bank_account,
+                status="Pending",
+            )
+        settlements = [self._settlement_payload("stl_MISS", "9999.00")]
+        with self._mollie_settings(bank_account=bank_gl):
+            with self._stub_client(settlements=settlements):
+                result = self.mgr.reconcile_bank_transactions(
+                    bank_account=self._eur_bank_account, from_date=today(), to_date=today()
+                )
+                windows = list(_StubSettlementsClient.windows)
+        self.assertGreaterEqual(
+            result["total_transactions"], 3, "precondition: the three transactions were candidates"
+        )
+        self.assertEqual(
+            len(windows),
+            1,
+            f"the settlement history must be downloaded once per run, not once per "
+            f"transaction; windows requested: {windows}",
+        )
+
+    def test_a_second_window_is_still_fetched(self):
+        """The control: the cache is keyed on the window, so it must not serve one
+        window's settlements for another. Without this, `len(windows) == 1` above is
+        equally consistent with "fetches once" and "never fetches again"."""
+        bank_gl = frappe.db.get_value("Company", self.company, "default_bank_account")
+        early = add_days(today(), -30)
+        for date in (today(), early):
+            self._make_bank_transaction(
+                deposit=44.44,
+                description="mollie settlement payout",
+                date=date,
+                bank_account=self._eur_bank_account,
+                status="Pending",
+            )
+        settlements = [self._settlement_payload("stl_MISS2", "9999.00")]
+        with self._mollie_settings(bank_account=bank_gl):
+            with self._stub_client(settlements=settlements):
+                self.mgr.reconcile_bank_transactions(
+                    bank_account=self._eur_bank_account, from_date=early, to_date=today()
+                )
+                windows = list(_StubSettlementsClient.windows)
+        # Asserting `len(set(windows)) == 2` would be pollution-fragile: this runs
+        # against a SHARED bank account, so any leftover Pending transaction with a
+        # third date inside the 30-day range adds a window and reds the test on a
+        # co-tenanted shard. Assert the two windows are present, and separately that
+        # nothing was fetched twice -- which also upgrades this from a pure control
+        # into a discriminator for the cache KEY.
+        expected = {(str(add_days(d, -3)), str(add_days(d, 3))) for d in (today(), early)}
+        self.assertLessEqual(expected, set(windows), f"both date windows must be fetched; got {windows}")
+        self.assertEqual(len(windows), len(set(windows)), f"a window was fetched more than once: {windows}")
 
 
 if __name__ == "__main__":

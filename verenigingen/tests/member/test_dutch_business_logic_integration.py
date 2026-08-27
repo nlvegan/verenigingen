@@ -641,20 +641,37 @@ class TestDutchFinancialCompliance(EnhancedTestCase):
         self.assertIsNotNone(mandate.name)  # Mandate created successfully
         self.assertIsNotNone(mandate.mandate_id)  # Fixed: use correct field name
 
-        # A member legitimately gets a second Active mandate when switching banks
-        # — but only with a DIFFERENT IBAN. Two Active mandates sharing the same
-        # IBAN are rejected as a data-integrity duplicate
-        # (validate_no_duplicate_active_mandate), so use a different valid IBAN.
-        recurring_mandate = frappe.new_doc("SEPA Mandate")
-        recurring_mandate.member = member.name
-        recurring_mandate.account_holder_name = member.full_name
-        recurring_mandate.iban = "NL39RABO0300065264"  # Different valid IBAN (bank switch)
-        recurring_mandate.status = "Active"
-        recurring_mandate.sign_date = today()  # Fixed: use current date, not future date
+        # A bank switch must CANCEL the old mandate before activating the new one.
+        # This block used to assert the opposite -- that a second Active mandate with
+        # a different IBAN was allowed, on the grounds that it superseded the first
+        # via Member SEPA Mandate Link.is_current. That supersession never happened
+        # (both rows end up is_current=1, and the code that would clear the sibling is
+        # never called), so the direct-debit query picked an IBAN by recency (#584).
+        switched = frappe.new_doc("SEPA Mandate")
+        switched.member = member.name
+        switched.account_holder_name = member.full_name
+        switched.iban = "NL39RABO0300065264"  # Different valid IBAN (bank switch)
+        switched.status = "Active"
+        switched.sign_date = today()
 
-        # Should allow a second mandate with a different IBAN (real business logic)
-        recurring_mandate.save()
-        self.assertIsNotNone(recurring_mandate.name)
+        with self.assertRaises(frappe.ValidationError) as caught:
+            switched.save()
+        self.assertIn(mandate.mandate_id, str(caught.exception))
+
+        # Cancel the old one, and the replacement activates normally.
+        mandate.status = "Cancelled"
+        mandate.is_active = 0
+        mandate.save()
+
+        switched = frappe.new_doc("SEPA Mandate")
+        switched.member = member.name
+        switched.account_holder_name = member.full_name
+        switched.iban = "NL39RABO0300065264"
+        switched.status = "Active"
+        switched.sign_date = today()
+        switched.save()
+        self.assertIsNotNone(switched.name)
+        self.assertEqual(switched.status, "Active")
 
     def test_dutch_tax_compliance_real_rules(self):
         """Test Dutch tax compliance with real business rules"""

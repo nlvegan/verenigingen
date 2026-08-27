@@ -7,8 +7,9 @@ summary/recurring/recent helpers, get_donation_stats and the
 cancel/update input-validation guards. This module fills the REMAINING
 uncovered branches:
 
-- get_donation_summary / get_recurring_donations / get_recent_donations
-  exception path (missing member -> logged error, safe default returned)
+- get_recurring_donations / get_recent_donations exception path (missing
+  member -> logged error, safe default returned), and get_donation_summary's
+  missing-member path, which now RAISES rather than answering zeros (#593)
 - get_recurring_donation_state future-cancellation-date branch
 - get_donation_stats guest / no-member error returns (decorator allows the
   body to run as a non-guest member)
@@ -122,16 +123,16 @@ class TestPageManageDonationsCoverage(EnhancedTestCase):
 
     # ----- helper exception/default paths ------------------------------
 
-    def test_donation_summary_missing_member_returns_zero_default(self):
+    def test_donation_summary_missing_member_raises(self):
         from verenigingen.templates.pages.manage_donations import get_donation_summary
 
-        # frappe.get_doc on a missing member raises -> caught -> safe zero default,
-        # and a single Error Log row is written (legitimate, so expect it).
-        self.expectErrorLog("Manage Donations")
-        summary = get_donation_summary("Nonexistent-Member-XYZ")
-        self.assertEqual(summary["total_donated"], 0)
-        self.assertEqual(summary["total_donations"], 0)
-        self.assertEqual(summary["active_recurring"], 0)
+        # This test used to assert the opposite: that a missing member produced a
+        # zeroed summary. That WAS the defect -- a donor cannot tell "€0.00
+        # donated" from "the query blew up" -- so the helper no longer swallows
+        # and get_context() degrades the page instead (#593). No Error Log row is
+        # written here any more: the logging moved to the two callers.
+        with self.assertRaises(frappe.DoesNotExistError):
+            get_donation_summary("Nonexistent-Member-XYZ")
 
     def test_recurring_donations_missing_member_returns_empty(self):
         from verenigingen.templates.pages.manage_donations import get_recurring_donations

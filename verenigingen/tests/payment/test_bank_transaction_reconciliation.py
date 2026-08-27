@@ -61,8 +61,12 @@ import frappe
 from frappe.utils import add_days, flt, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.mollie_account_fixtures import provisioned_mollie_settings
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
-from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+from verenigingen.tests.support.sepa_test_company import (
+    get_eur_bank_account,
+    get_eur_test_company,
+)
 from verenigingen.verenigingen_payments.utils import bank_transaction_reconciliation as btr
 from verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation import (
     PaymentReconciliationManager,
@@ -77,8 +81,11 @@ class BTRBase(EnhancedTestCase):
         super().setUpClass()
         # Provision shared infra ONCE before any per-test transaction opens.
         cls._company = get_eur_test_company()
-        cls._ensure_default_bank_account(cls._company)
-        cls._eur_bank_account = cls._ensure_eur_bank_account_doc(cls._company)
+        # One Bank Account, owned by name, shared by every payment/SEPA suite.
+        # The per-suite copy this replaced resolved its GL account by recency
+        # and committed the winner into `Company.default_bank_account`, which
+        # five production readers consult (#581).
+        cls._eur_bank_account = get_eur_bank_account(cls._company)
         cls._ensure_modes_of_payment()
         frappe.db.commit()
 
@@ -102,58 +109,6 @@ class BTRBase(EnhancedTestCase):
                 doc.mode_of_payment = mop
                 doc.type = "Bank"
                 doc.insert(ignore_permissions=True)
-
-    @classmethod
-    def _ensure_default_bank_account(cls, company):
-        existing = frappe.db.get_value("Company", company, "default_bank_account")
-        if existing and frappe.db.exists("Account", existing):
-            return existing
-        bank_acc = frappe.db.get_value(
-            "Account", {"company": company, "account_type": "Bank", "is_group": 0}, "name"
-        )
-        if not bank_acc:
-            parent = frappe.db.get_value(
-                "Account", {"company": company, "is_group": 1, "root_type": "Asset"}, "name"
-            )
-            acc = frappe.new_doc("Account")
-            acc.account_name = "Test BTR Bank"
-            acc.company = company
-            acc.account_type = "Bank"
-            acc.parent_account = parent
-            acc.account_currency = "EUR"
-            acc.insert(ignore_permissions=True)
-            bank_acc = acc.name
-        frappe.db.set_value("Company", company, "default_bank_account", bank_acc)
-        return bank_acc
-
-    @classmethod
-    def _ensure_eur_bank_account_doc(cls, company):
-        """Get-or-create an EUR-currency Bank Account *doc* on the EUR company.
-
-        ``_make_bank_transaction`` falls back to a GLOBAL ``is_company_account``
-        Bank Account lookup; on a polluted multi-shard CI site that can resolve a
-        sibling shard's non-EUR account, whose currency precision then perturbs
-        the stored ``deposit`` and breaks the exact-equality reconciliation gate.
-        Returning a controlled EUR Bank Account the test passes explicitly removes
-        that dependency on global state.
-        """
-        gl = cls._ensure_default_bank_account(company)
-        existing = frappe.db.get_value("Bank Account", {"account": gl}, "name")
-        if existing:
-            return existing
-        bank_name = "BTR Test Bank"
-        if not frappe.db.exists("Bank", bank_name):
-            bank = frappe.new_doc("Bank")
-            bank.bank_name = bank_name
-            bank.insert(ignore_permissions=True)
-        ba = frappe.new_doc("Bank Account")
-        ba.account_name = "BTR Test Company Account"
-        ba.bank = bank_name
-        ba.is_company_account = 1
-        ba.company = company
-        ba.account = gl
-        ba.insert(ignore_permissions=True)
-        return ba.name
 
     # ---- builders ----------------------------------------------------------
 
@@ -487,6 +442,159 @@ class TestMatchByDescription(BTRBase):
         match = self.mgr.match_by_description(self._txn_dict(bt))
         self.assertIsNotNone(match)
         self.assertEqual(match["reference"], it["invoice"].name)
+
+    def test_a_second_unpaid_invoice_makes_the_membership_match_ambiguous(self):
+        """Two unpaid invoices for one member is not a match, it is a choice (#559).
+
+        The branch resolved the invoice with
+        `frappe.db.get_value("Sales Invoice", {member, status in Unpaid/Overdue})`,
+        which returns ONE row ordered `creation` DESC -- asked of the system, not
+        assumed: `get_value` with a dict filter passes `order_by="creation"` into the
+        query builder, and on this site it returns the most recently created row.
+
+        So with two unpaid invoices the newest won, at 0.85 against a `>=` threshold
+        of 0.85, with no amount comparison anywhere -- and `create_reconciliation`
+        then allocated the deposit to it. Nothing about the deposit said which
+        invoice it was for.
+        """
+        it = self._make_member_with_invoice(first_name="AmbigMemb", grand_total=25.0)
+        # A second unpaid invoice for the SAME member, deliberately created later so
+        # it is the one `creation DESC` would hand back.
+        second = self.sepa.create_test_sales_invoice(
+            customer=it["customer"], member=it["member"].name, grand_total=90.0, submit=True
+        )
+        self.assertNotEqual(second.name, it["invoice"].name)
+
+        # A deposit matching NEITHER outstanding, so there is genuinely nothing to
+        # choose on. An earlier version of this test used 25.00, which equals the
+        # first invoice -- that is a discriminable case, not an ambiguous one, and
+        # the branch rightly resolved it. The test was wrong, not the code.
+        bt = self._make_bank_transaction(
+            deposit=17.50, description=f"MEMBERSHIP {it['membership'].name}"
+        )
+        match = self.mgr.match_by_description(self._txn_dict(bt))
+
+        if match is not None:
+            self.assertNotEqual(
+                match["reference"],
+                second.name,
+                "the newest invoice must not win by creation order alone",
+            )
+        self.assertIsNone(
+            match,
+            "with two candidate invoices and nothing to choose between them, this "
+            "branch must not produce an auto-postable match",
+        )
+
+    def test_two_invoices_of_the_same_amount_are_still_ambiguous(self):
+        """The amount discriminator has to actually discriminate.
+
+        Two unpaid invoices whose outstanding both equal the deposit narrow nothing:
+        picking either would be the same arbitrary choice, just reached through a
+        filter instead of through `creation` order.
+        """
+        it = self._make_member_with_invoice(first_name="TwinMemb", grand_total=40.0)
+        twin = self.sepa.create_test_sales_invoice(
+            customer=it["customer"], member=it["member"].name, grand_total=40.0, submit=True
+        )
+        self.assertNotEqual(twin.name, it["invoice"].name)
+
+        bt = self._make_bank_transaction(
+            deposit=40.0, description=f"MEMBERSHIP {it['membership'].name}"
+        )
+        self.assertIsNone(
+            self.mgr.match_by_description(self._txn_dict(bt)),
+            "two invoices matching the deposit equally well is still a choice",
+        )
+
+    def test_the_invoice_whose_outstanding_matches_the_deposit_is_chosen(self):
+        """When there IS something to choose on, choose on it.
+
+        Two unpaid invoices, one whose outstanding equals the deposit. That is a
+        discriminator the branch already had available and ignored.
+        """
+        it = self._make_member_with_invoice(first_name="PickMemb", grand_total=25.0)
+        newer = self.sepa.create_test_sales_invoice(
+            customer=it["customer"], member=it["member"].name, grand_total=90.0, submit=True
+        )
+        self.assertNotEqual(newer.name, it["invoice"].name)
+
+        # 25.00 matches the FIRST invoice; the newer 90.00 one is what creation
+        # order would otherwise hand back.
+        bt = self._make_bank_transaction(
+            deposit=25.0, description=f"MEMBERSHIP {it['membership'].name}"
+        )
+        match = self.mgr.match_by_description(self._txn_dict(bt))
+        self.assertIsNotNone(match, "an unambiguous amount match must still reconcile")
+        self.assertEqual(match["reference"], it["invoice"].name)
+
+    def test_a_single_unpaid_invoice_still_matches_a_partial_payment(self):
+        """The control, and the guarantee that must NOT be removed.
+
+        One candidate invoice is unambiguous even when the deposit is smaller than
+        the outstanding -- that is a legitimate partial payment, and
+        `create_payment_entry_from_transaction`'s guard bounds only the opposite
+        case. Passes against develop too; it is here so that "refuse when
+        ambiguous" cannot quietly become "refuse whenever the amount differs".
+        """
+        it = self._make_member_with_invoice(first_name="PartialMemb", grand_total=80.0)
+        bt = self._make_bank_transaction(
+            deposit=30.0, description=f"MEMBERSHIP {it['membership'].name}"
+        )
+        match = self.mgr.match_by_description(self._txn_dict(bt))
+        self.assertIsNotNone(match, "a single candidate is unambiguous, partial payment or not")
+        self.assertEqual(match["reference"], it["invoice"].name)
+
+    def test_a_draft_invoice_is_not_a_candidate(self):
+        """`docstatus: 1` is load-bearing, not decorative (#559).
+
+        veg11 carries 35 Sales Invoices with status Unpaid/Overdue and
+        `docstatus = 0`, 28 of them with a member -- a state ERPNext itself cannot
+        produce, since `set_status` assigns "Draft" whenever `docstatus != 1`. The
+        old query had no docstatus filter, so those matched at 0.85 and then failed
+        when the Payment Entry was built against a draft, leaving the transaction
+        permanently Unreconciled. This asserts the filter, which no other test does.
+        """
+        it = self._make_member_with_invoice(first_name="DraftMemb", grand_total=25.0)
+        # Exactly the shape measured on veg11: submitted-looking status, unsubmitted
+        # docstatus. Written directly because no ERPNext path produces it.
+        frappe.db.set_value(
+            "Sales Invoice", it["invoice"].name, {"docstatus": 0, "status": "Overdue"},
+            update_modified=False,
+        )
+        bt = self._make_bank_transaction(
+            deposit=25.0, description=f"MEMBERSHIP {it['membership'].name}"
+        )
+        self.assertIsNone(
+            self.mgr.match_by_description(self._txn_dict(bt)),
+            "a draft invoice must not be a reconciliation candidate",
+        )
+
+    def test_the_unambiguous_invoice_rule_directly(self):
+        """The helper itself, so the rule is pinned rather than only its outcome.
+
+        The four branch-level tests above assert on `match_by_description`'s return,
+        which `assertIsNone` would also satisfy if the branch broke outright -- the
+        regex ceasing to match, or `frappe.db.exists("Membership", ...)` going false.
+        This states each arm of the rule against the helper.
+        """
+        it = self._make_member_with_invoice(first_name="RuleMemb", grand_total=25.0)
+        member = it["member"].name
+
+        # 1: one candidate wins whatever the deposit, partial payment included
+        self.assertEqual(self.mgr._unambiguous_member_invoice(member, 25.0), it["invoice"].name)
+        self.assertEqual(self.mgr._unambiguous_member_invoice(member, 9.99), it["invoice"].name)
+
+        second = self.sepa.create_test_sales_invoice(
+            customer=it["customer"], member=member, grand_total=90.0, submit=True
+        )
+        # 2: several candidates, exactly one matching the amount
+        self.assertEqual(self.mgr._unambiguous_member_invoice(member, 25.0), it["invoice"].name)
+        self.assertEqual(self.mgr._unambiguous_member_invoice(member, 90.0), second.name)
+        # 3: several candidates, nothing to choose on
+        self.assertIsNone(self.mgr._unambiguous_member_invoice(member, 17.5))
+        # and no member at all
+        self.assertIsNone(self.mgr._unambiguous_member_invoice(None, 25.0))
 
     def test_unknown_invoice_falls_through_to_no_match(self):
         bt = self._make_bank_transaction(deposit=12345.67, description="INVOICE SINV-DOES-NOT-EXIST-XYZ")
@@ -929,20 +1037,37 @@ class TestFeesAccount(BTRBase):
 # match_mollie_settlement (early-return branches only; no live Mollie API)
 # =============================================================================
 class TestMatchMollieSettlementEarlyReturns(BTRBase):
+    """Each early return states its OWN Mollie Settings precondition (#548).
+
+    These three depended on ambient `Mollie Settings` state: the first had no setup
+    at all, and the other two wrote the field and restored it to `None` rather than
+    to its previous value.
+
+    What that actually cost is NOT what #548 and an earlier version of this
+    docstring said. The claim was that the first test passed only because its
+    neighbours left the field `None`, making a correct restore a breaking change.
+    Measured on develop, with `mollie_bank_account` pre-set to `_Test Bank - _TC`
+    and only that test run: it PASSES. The real defect is a wrong target -- it exits
+    at the Bank-Account-membership gate, not at the `get_bank_account_gl()`
+    ValidationError branch its comment names, so it was exercising a branch it did
+    not claim to and would have kept passing if that branch broke.
+
+    `provisioned_mollie_settings` sets what each test needs and restores the
+    original, so each now reaches the branch it names.
+    """
+
     def test_returns_none_when_no_mollie_bank_account_configured(self):
-        # Test site has no mollie_bank_account -> get_bank_account_gl throws
-        # ValidationError -> match_mollie_settlement returns None.
+        # Says its own precondition instead of inheriting a neighbour's teardown:
+        # with no bank account configured, get_bank_account_gl throws
+        # ValidationError and match_mollie_settlement returns None.
         bt = self._make_bank_transaction(deposit=100.0, description="mollie settlement payout", date=today())
-        self.assertIsNone(self.mgr.match_mollie_settlement(self._txn_dict(bt)))
+        with provisioned_mollie_settings(mollie_bank_account=""):
+            self.assertIsNone(self.mgr.match_mollie_settlement(self._txn_dict(bt)))
 
     def test_returns_none_for_non_mollie_keyword_when_account_set(self):
-        # Configure a Mollie bank account that matches the txn's account, but use
-        # a description WITHOUT mollie keywords -> still None (keyword branch).
-        bank_acc = frappe.db.get_value("Company", self.company, "default_bank_account")
-        self.mgr.config.clear_cache()
-        frappe.db.set_value("Mollie Settings", "Mollie Settings", "mollie_bank_account", bank_acc)
-        self.mgr.config.clear_cache()
-        try:
+        # A configured account that DOES match the transaction, but a description
+        # without any mollie keyword -> still None, via the keyword branch.
+        with provisioned_mollie_settings() as accounts:
             bt = self._make_bank_transaction(
                 deposit=100.0,
                 description="ordinary deposit no keyword",
@@ -950,17 +1075,27 @@ class TestMatchMollieSettlementEarlyReturns(BTRBase):
                 bank_account=None,
             )
             txn = self._txn_dict(bt)
-            txn["bank_account"] = bank_acc  # force account equality
+            # The gate compares Bank Account docnames, not GL account names (#523),
+            # so this has to be the Bank Account. With the GL name here the call
+            # would return None at the ACCOUNT gate and this test would pass
+            # without ever reaching the keyword branch it exists to exercise.
+            txn["bank_account"] = accounts["bank_account_doc"]
             self.assertIsNone(self.mgr.match_mollie_settlement(txn))
-        finally:
-            frappe.db.set_value("Mollie Settings", "Mollie Settings", "mollie_bank_account", None)
-            self.mgr.config.clear_cache()
 
     def test_returns_none_for_account_mismatch(self):
+        # Configured and coherent, but the transaction is on a different Bank
+        # Account. Previously this relied on ambient settings, so it could return
+        # None at the "nothing configured" branch instead of the mismatch branch.
         bt = self._make_bank_transaction(deposit=100.0, description="mollie settlement", date=today())
         txn = self._txn_dict(bt)
-        txn["bank_account"] = "SOME-OTHER-GL-ACCOUNT"
-        self.assertIsNone(self.mgr.match_mollie_settlement(txn))
+        txn["bank_account"] = "SOME-OTHER-BANK-ACCOUNT"
+        with provisioned_mollie_settings() as accounts:
+            self.assertNotEqual(
+                txn["bank_account"],
+                accounts["bank_account_doc"],
+                "staging: the transaction must be on a DIFFERENT Bank Account",
+            )
+            self.assertIsNone(self.mgr.match_mollie_settlement(txn))
 
 
 # =============================================================================

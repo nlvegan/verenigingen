@@ -74,7 +74,10 @@ from frappe.utils import add_days, flt, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
-from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+from verenigingen.tests.support.sepa_test_company import (
+    get_eur_bank_account,
+    get_eur_test_company,
+)
 from verenigingen.verenigingen_payments.api import sepa_reconciliation as recon
 from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
     BankTransactionCreator,
@@ -93,8 +96,11 @@ class ReconCoverageBase(EnhancedTestCase):
         super().setUpClass()
         # Provision shared infra ONCE before any per-test transaction opens.
         cls._company = get_eur_test_company()
-        cls._ensure_default_bank_account(cls._company)
-        cls._eur_bank_account = cls._ensure_eur_bank_account_doc(cls._company)
+        # One Bank Account, owned by name, shared by every payment/SEPA suite.
+        # The per-suite copy this replaced resolved its GL account by recency
+        # and committed the winner into `Company.default_bank_account`, which
+        # five production readers consult (#581).
+        cls._eur_bank_account = get_eur_bank_account(cls._company)
         cls._ensure_modes_of_payment()
         frappe.db.commit()
 
@@ -146,50 +152,6 @@ class ReconCoverageBase(EnhancedTestCase):
                 doc.mode_of_payment = mop
                 doc.type = "Bank"
                 doc.insert(ignore_permissions=True)
-
-    @classmethod
-    def _ensure_default_bank_account(cls, company):
-        existing = frappe.db.get_value("Company", company, "default_bank_account")
-        if existing and frappe.db.exists("Account", existing):
-            return existing
-        bank_acc = frappe.db.get_value(
-            "Account", {"company": company, "account_type": "Bank", "is_group": 0}, "name"
-        )
-        if not bank_acc:
-            parent = frappe.db.get_value(
-                "Account", {"company": company, "is_group": 1, "root_type": "Asset"}, "name"
-            )
-            acc = frappe.new_doc("Account")
-            acc.account_name = "Test ReconCov Bank"
-            acc.company = company
-            acc.account_type = "Bank"
-            acc.parent_account = parent
-            acc.account_currency = "EUR"
-            acc.insert(ignore_permissions=True)
-            bank_acc = acc.name
-        frappe.db.set_value("Company", company, "default_bank_account", bank_acc)
-        return bank_acc
-
-    @classmethod
-    def _ensure_eur_bank_account_doc(cls, company):
-        """Get-or-create a controlled EUR-currency Bank Account doc."""
-        gl = cls._ensure_default_bank_account(company)
-        existing = frappe.db.get_value("Bank Account", {"account": gl}, "name")
-        if existing:
-            return existing
-        bank_name = "ReconCov Test Bank"
-        if not frappe.db.exists("Bank", bank_name):
-            bank = frappe.new_doc("Bank")
-            bank.bank_name = bank_name
-            bank.insert(ignore_permissions=True)
-        ba = frappe.new_doc("Bank Account")
-        ba.account_name = "ReconCov Test Company Account"
-        ba.bank = bank_name
-        ba.is_company_account = 1
-        ba.company = company
-        ba.account = gl
-        ba.insert(ignore_permissions=True)
-        return ba.name
 
     # ---- builders ----------------------------------------------------------
 

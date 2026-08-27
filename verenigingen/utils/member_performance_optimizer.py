@@ -31,6 +31,7 @@ from verenigingen.utils.security.api_security_framework import (
     OperationType,
     high_security_api,
 )
+from verenigingen.utils.transaction_errors import rollback_to_savepoint
 
 
 class MemberPerformanceOptimizer:
@@ -121,7 +122,7 @@ class MemberPerformanceOptimizer:
             return member.name
 
         except Exception as e:
-            frappe.db.rollback(save_point=savepoint)
+            rollback_to_savepoint(savepoint)
             frappe.log_error(f"Optimized member creation failed: {str(e)}")
             raise
 

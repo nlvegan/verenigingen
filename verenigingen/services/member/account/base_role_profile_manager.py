@@ -36,6 +36,7 @@ from frappe.query_builder import DocType
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 
 # Error codes for standardized API responses
 ERROR_CODES = {
@@ -225,6 +226,11 @@ class BaseRoleProfileManager(ABC):
 
             return config
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # One frame below a guard added in this change: without this, the 1205/1213 is
+            # recorded here as one member's error and the guard above never fires (the #505
+            # shape -- the guard and the swallow one frame apart).
+            raise
         except Exception as e:
             frappe.logger().warning(
                 f"Could not get {self.config.entity_type} config for {entity_name}: {str(e)}"
@@ -397,13 +403,13 @@ class BaseRoleProfileManager(ABC):
 
         except frappe.DoesNotExistError as e:
             if transaction_started:
-                frappe.db.rollback(save_point=save_point)
+                rollback_to_savepoint(save_point)
             return self._create_response(
                 success=False, error=f"Record not found: {str(e)}", error_code=ERROR_CODES["NOT_FOUND"]
             )
         except frappe.PermissionError as e:
             if transaction_started:
-                frappe.db.rollback(save_point=save_point)
+                rollback_to_savepoint(save_point)
             return self._create_response(
                 success=False,
                 error=f"Permission denied: {str(e)}",
@@ -411,15 +417,21 @@ class BaseRoleProfileManager(ABC):
             )
         except frappe.ValidationError as e:
             if transaction_started:
-                frappe.db.rollback(save_point=save_point)
+                rollback_to_savepoint(save_point)
             return self._create_response(
                 success=False,
                 error=f"Validation failed: {str(e)}",
                 error_code=ERROR_CODES["VALIDATION_ERROR"],
             )
+        except NON_RESUMABLE_DB_ERRORS:
+            # The response dicts below report an outcome to the caller. On a 1205/1213
+            # there is no outcome: the role-profile write is gone or half-applied, and a
+            # caller told "success: False, try again" cannot tell that from a rejected
+            # request. Let it reach whoever owns the transaction.
+            raise
         except Exception as e:
             if transaction_started:
-                frappe.db.rollback(save_point=save_point)
+                rollback_to_savepoint(save_point)
             error_msg = f"Error assigning role profile for {self.config.entity_type} {entity_name}: {str(e)}"
             frappe.log_error(
                 title=f"{self.config.log_context} Assignment Error",
@@ -552,9 +564,15 @@ class BaseRoleProfileManager(ABC):
                     action="not_assigned",
                 )
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # The response dicts below report an outcome to the caller. On a 1205/1213
+            # there is no outcome: the role-profile write is gone or half-applied, and a
+            # caller told "success: False, try again" cannot tell that from a rejected
+            # request. Let it reach whoever owns the transaction.
+            raise
         except Exception as e:
             if transaction_started:
-                frappe.db.rollback(save_point=save_point)
+                rollback_to_savepoint(save_point)
             error_msg = f"Error removing role profile for {self.config.entity_type} {entity_name}: {str(e)}"
             frappe.log_error(
                 title=f"{self.config.log_context} Removal Error",
@@ -569,15 +587,34 @@ class BaseRoleProfileManager(ABC):
 
         Handles both the Frappe v16 role_profiles child table (canonical) and the
         deprecated role_profile_name Link field for v15 compatibility.
+
+        Raises if the save fails, because this is an access **revocation**: a
+        silent failure leaves the user holding the profile while the caller reports
+        it removed. The one caller sits inside a try/except that turns this into a
+        failure response, which is the correct outcome and could not happen while
+        the result was discarded -- secure_document_operation returns
+        ``success=False`` rather than raising, so the handler never fired.
+
+        That matters here specifically. The caller's comment records that this path
+        once "claimed the profile was removed while leaving it assigned", and the
+        fix was to call this method -- which then re-introduced the same
+        reported-state-versus-reality gap one layer down.
         """
         user_doc = frappe.get_doc("User", user)
         _remove_single_role_profile(user_doc, role_profile)
-        secure_document_operation(
+        strip_result = secure_document_operation(
             operation="save",
             doc=user_doc,
             justification=f"Remove role profile '{role_profile}' from user {user} - role profile management for organizational access control",
             required_permissions=["User:write"],
         )
+        if not strip_result.success:
+            error_msg = "; ".join(strip_result.errors) if strip_result.errors else "Unknown error"
+            frappe.throw(
+                _("Failed to remove role profile '{0}' from user {1}: {2}").format(
+                    role_profile, user, error_msg
+                )
+            )
 
     def bulk_assign_role_profiles(self, entity_name: str) -> Dict[str, Any]:
         """
@@ -642,9 +679,15 @@ class BaseRoleProfileManager(ABC):
 
             return self._create_response(success=success, message=status_message, results=results)
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # The response dicts below report an outcome to the caller. On a 1205/1213
+            # there is no outcome: the role-profile write is gone or half-applied, and a
+            # caller told "success: False, try again" cannot tell that from a rejected
+            # request. Let it reach whoever owns the transaction.
+            raise
         except Exception as e:
             if transaction_started:
-                frappe.db.rollback(save_point=save_point)
+                rollback_to_savepoint(save_point)
             return self._create_response(success=False, error=str(e), error_code=ERROR_CODES["SYSTEM_ERROR"])
 
     def get_entities_requiring_role_profile(
@@ -977,6 +1020,11 @@ class BaseRoleProfileManager(ABC):
                 ),
             }
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # One frame below a guard added in this change: without this, the 1205/1213 is
+            # recorded here as one member's error and the guard above never fires (the #505
+            # shape -- the guard and the swallow one frame apart).
+            raise
         except Exception as e:
             return {
                 "user": user,

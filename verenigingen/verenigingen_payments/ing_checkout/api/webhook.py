@@ -27,6 +27,7 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
+from verenigingen.utils.transaction_errors import rollback_to_savepoint
 from verenigingen.utils.webhook_error_handler import WebhookErrorHandler
 from verenigingen.utils.webhook_rate_limiter import WebhookRateLimitExceeded, get_webhook_rate_limiter
 from verenigingen.verenigingen_payments.ing_checkout.utils.webhook_security import (
@@ -251,7 +252,7 @@ def handle_payment():
             )
 
         except Exception:
-            frappe.db.rollback(save_point=savepoint_name)
+            rollback_to_savepoint(savepoint_name)
             raise
 
     except WebhookRateLimitExceeded as e:
@@ -383,7 +384,7 @@ def handle_mandate():
             )
 
         except Exception:
-            frappe.db.rollback(save_point=savepoint_name)
+            rollback_to_savepoint(savepoint_name)
             raise
 
     except WebhookRateLimitExceeded as e:
@@ -501,7 +502,7 @@ def handle_direct_debit():
             )
 
         except Exception:
-            frappe.db.rollback(save_point=savepoint_name)
+            rollback_to_savepoint(savepoint_name)
             raise
 
     except WebhookRateLimitExceeded as e:

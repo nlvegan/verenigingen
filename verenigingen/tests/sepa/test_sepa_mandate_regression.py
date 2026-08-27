@@ -95,9 +95,16 @@ class TestSEPAMandateRegression(VereningingenTestCase):
         self.assertEqual(existing_mandate.mandate_id, "EXISTING-MANDATE-001",
                         "Existing mandate_id should be preserved")
         
-        # Create new mandate with auto-generation. Use a DIFFERENT IBAN than the
-        # existing active mandate (one active mandate per IBAN per member).
-        new_mandate = self.create_test_sepa_mandate(member=member.name, iban=self._get_test_iban("RABO"))
+        # Create new mandate with auto-generation, on its OWN member. Since #584 a
+        # member holds at most one Active mandate per purpose, and both of these are
+        # Active memberships mandates -- what the test is about is the ID format,
+        # which is a per-mandate property.
+        autogen_member = self.create_test_member(
+            first_name="Autogen", last_name=frappe.generate_hash(length=6)
+        )
+        new_mandate = self.create_test_sepa_mandate(
+            member=autogen_member.name, iban=self._get_test_iban("RABO")
+        )
 
         # Should get auto-generated ID
         self.assertTrue(new_mandate.mandate_id, "New mandate should get auto-generated ID")
@@ -296,10 +303,16 @@ class TestSEPAMandateRegression(VereningingenTestCase):
         payments_settings.sepa_mandate_starting_counter = 1000
         payments_settings.save()
         
-        # 3. New system mandate. Use the controller-autogen helper so the new
-        # naming pattern is applied, and a DIFFERENT IBAN so it does not collide
-        # with the legacy mandate's active IBAN (one active mandate per IBAN).
-        new_mandate = self._create_mandate_autogen_id(member.name, iban=self._get_test_iban("RABO"))
+        # 3. New system mandate. Use the controller-autogen helper so the new naming
+        # pattern is applied, on its OWN member: the legacy mandate is already this
+        # member's one Active memberships mandate (#584), and what "coexistence"
+        # means here is that both ID FORMATS survive, not that one member holds both.
+        new_system_member = self.create_test_member(
+            first_name="NewSystem", last_name=frappe.generate_hash(length=6)
+        )
+        new_mandate = self._create_mandate_autogen_id(
+            new_system_member.name, iban=self._get_test_iban("RABO")
+        )
         mixed_mandates.append(new_mandate)
         
         # 4. Verify coexistence

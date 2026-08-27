@@ -11,6 +11,10 @@ from typing import Any, Dict, Optional
 import frappe
 
 from verenigingen.utils.bank_utils import get_or_create_unknown_bank
+from verenigingen.verenigingen_payments.utils.invoice_candidates import (
+    log_ambiguous_refusal,
+    unambiguous_invoice,
+)
 
 from .payment_context_resolver import PaymentContext
 from .payment_entry_factory import PaymentEntryFactory
@@ -834,34 +838,70 @@ class MembershipPaymentProcessor(AbstractPaymentProcessor):
             if not customer:
                 return {"status": "no_customer", "message": "Member has no linked customer"}
 
-            unpaid_invoices = frappe.get_all(
-                "Sales Invoice",
-                filters={"customer": customer, "outstanding_amount": [">", 0], "status": ["!=", "Cancelled"]},
+            amount = float(mollie_data["amount"])
+
+            # Which of the member's open invoices this payment is for.
+            #
+            # This took `order_by="posting_date desc", limit=1` with NO amount
+            # comparison at all -- not even a discarded one -- and then appended a
+            # Payment Entry reference against the result. A member with two open
+            # dues invoices had the payment allocated to whichever was posted later
+            # (#567).
+            #
+            # `docstatus: 1` replaces `status != "Cancelled"`, which admitted DRAFTS.
+            # That is not the no-op it sounds like: #559 measured 35 Sales Invoices on
+            # veg11 with an Unpaid/Overdue status and `docstatus = 0`, 28 of them with
+            # a member -- a state `SalesInvoice.set_status` cannot produce, so
+            # something writes `status` directly. Picking one of those made the whole
+            # link fail with "Sales Invoice X must be submitted", so the payment was
+            # received and never linked to anything.
+            choice = unambiguous_invoice(
+                filters={"customer": customer, "docstatus": 1, "outstanding_amount": [">", 0]},
+                amount=amount,
                 fields=["name", "outstanding_amount", "grand_total"],
-                order_by="posting_date desc",
-                limit=1,
             )
 
-            if unpaid_invoices:
-                invoice = unpaid_invoices[0]
-                # Link Payment Entry to Sales Invoice through Payment Entry References
-                payment_entry.append(
-                    "references",
-                    {
-                        "reference_doctype": "Sales Invoice",
-                        "reference_name": invoice.name,
-                        "allocated_amount": min(float(mollie_data["amount"]), invoice.outstanding_amount),
-                    },
+            if choice.is_ambiguous:
+                # Leaving the Payment Entry unallocated is recoverable by a human;
+                # settling one invoice with another invoice's money is not.
+                log_ambiguous_refusal(
+                    title="Mollie Membership Payment Ambiguous",
+                    refused=choice,
+                    detail=(
+                        f"Mollie payment of {amount} for customer {customer} matches "
+                        f"none of {choice.candidates} open invoices; refusing to "
+                        "choose one. Allocate the Payment Entry manually."
+                    ),
                 )
-                payment_entry.save()
-
                 return {
-                    "status": "linked",
-                    "invoice": invoice.name,
-                    "allocated_amount": min(float(mollie_data["amount"]), invoice.outstanding_amount),
+                    "status": "ambiguous_invoice",
+                    "message": (
+                        f"{choice.candidates} open invoices and none matching {amount}; "
+                        "manual allocation required"
+                    ),
                 }
-            else:
+
+            if not choice.invoice:
                 return {"status": "no_unpaid_invoices", "message": "No unpaid invoices found"}
+
+            invoice = choice.invoice
+            allocated = min(amount, float(invoice["outstanding_amount"]))
+            # Link Payment Entry to Sales Invoice through Payment Entry References
+            payment_entry.append(
+                "references",
+                {
+                    "reference_doctype": "Sales Invoice",
+                    "reference_name": invoice["name"],
+                    "allocated_amount": allocated,
+                },
+            )
+            payment_entry.save()
+
+            return {
+                "status": "linked",
+                "invoice": invoice["name"],
+                "allocated_amount": allocated,
+            }
 
         except Exception as e:
             self.logger.warning(f"Could not link to membership invoice: {e}")

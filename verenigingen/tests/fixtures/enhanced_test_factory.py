@@ -196,6 +196,7 @@ from frappe.utils import getdate
 
 from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.tests.utils.error_log_guard import ErrorLogGuardMixin
+from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 
 from .field_validator import FieldValidationError, FieldValidator
 
@@ -589,14 +590,27 @@ class EnhancedTestDataFactory:
     def _generate_unique_test_member_id(self) -> str:
         """Generate unique member ID for test members to avoid database conflicts.
 
-        ``member_id`` is a UNIQUE column. CI runs 8 test shards as parallel
-        PROCESSES against ONE shared DB. The old format
-        ``TEST{microseconds:06d}{seq:03d}`` collided across shards: two processes
-        can hit the same microsecond AND each process's ``seq`` counter starts
-        fresh at 1 in its own memory, so both emit e.g. ``TEST161453001`` ->
-        IntegrityError 1062 Duplicate entry. We add PER-PROCESS entropy (the OS
-        pid plus a random hash) so two shards can never generate the same id,
-        while keeping the ``TEST`` prefix that other code keys on.
+        ``member_id`` is a UNIQUE column. The old format
+        ``TEST{microseconds:06d}{seq:03d}`` collided: a fresh factory per test
+        method restarts ``seq`` at 1, so every test's FIRST member is
+        ``...001`` and they all contend in one 10^6 sub-second space, e.g.
+        ``TEST161453001`` -> IntegrityError 1062 Duplicate entry. Adding a random
+        hash (with the OS pid) gives PER-CALL entropy, while keeping the ``TEST``
+        prefix that other code keys on.
+
+        NOT a cross-shard collision, which this used to claim. CI gives every
+        shard job its **own** ``mariadb:10.6`` service container (the
+        ``services:`` block sits inside the matrix job in
+        ``.github/workflows/_base-server-tests.yml``), so two shards cannot
+        collide on a UNIQUE column at all; the mechanism is entirely
+        within-process. The matrix also runs 12 shards, not 8. Measured twice on
+        2026-08-23 in single shards: ``TEST153429001`` and ``TEST311263001``
+        (#549). The pid is therefore NOT the load-bearing part -- it is equal for
+        every factory in one process -- the random hash is (#550).
+
+        Note this method has **no callers**; the live copies are
+        ``CoreTestDataFactory._generate_member_id`` and
+        ``SecureTestDataFactory._generate_secure_member_id``.
         """
         import os
 
@@ -1182,26 +1196,27 @@ class EnhancedTestDataFactory:
         if with_volunteer_skills:
             # Deterministic skill selection
             all_skills = [
-                "Technical|Web Development",
-                "Technical|Graphic Design",
-                "Communication|Writing",
-                "Leadership|Team Leadership",
-                "Financial|Fundraising",
-                "Organizational|Event Planning",
-                "Other|Photography",
+                {"name": "Web Development", "category": "Technical"},
+                {"name": "Graphic Design", "category": "Technical"},
+                {"name": "Writing", "category": "Communication"},
+                {"name": "Team Leadership", "category": "Leadership"},
+                {"name": "Fundraising", "category": "Financial"},
+                {"name": "Event Planning", "category": "Organizational"},
+                {"name": "Photography", "category": "Other"},
             ]
 
             # Select skills deterministically based on sequence
             num_skills = (seq % 3) + 4  # 4-6 skills
             skills = all_skills[:num_skills]
+            skill_level = ["1 - Beginner", "2 - Basic", "3 - Intermediate", "4 - Advanced", "5 - Expert"][seq % 5]
 
             volunteer_data = {
                 "interested_in_volunteering": True,
                 "volunteer_availability": ["Weekly", "Monthly", "Quarterly"][seq % 3],
                 "volunteer_experience_level": ["Beginner", "Intermediate", "Experienced"][seq % 3],
                 "volunteer_areas": ["events", "communications"],
-                "volunteer_skills": skills,
-                "volunteer_skill_level": str(((seq % 5) + 1)),  # 1-5
+                "volunteer_skills": [dict(skill, level=skill_level) for skill in skills],
+                "volunteer_skill_level": skill_level,
                 "volunteer_availability_time": "Weekends and evenings",
                 "volunteer_comments": f"Test volunteer application {seq}",
             }
@@ -1395,14 +1410,18 @@ class EnhancedTestDataFactory:
     def ensure_dues_schedule_template(self, template_name: str, attributes: dict = None) -> frappe._dict:
         """Ensure a dues schedule template exists, create if not.
 
-        Race-safety (CI runs 8 shards as parallel processes on ONE shared DB):
-        look the template up by ``schedule_name`` + ``is_template`` (the real
-        identity of a template) rather than only by document name, and wrap the
-        insert in a duplicate-tolerant guard. A sibling shard creating the same
-        named template concurrently would otherwise lose the insert race with a
-        DuplicateEntryError (``schedule_name`` is a UNIQUE field); instead we
-        catch that and return the row the sibling committed. This makes the
-        helper genuinely idempotent regardless of interleaving.
+        Idempotence: look the template up by ``schedule_name`` + ``is_template``
+        (the real identity of a template) rather than only by document name, and
+        wrap the insert in a duplicate-tolerant guard, so a caller that races
+        another writer on the same named template gets the committed row back
+        instead of a DuplicateEntryError (``schedule_name`` is a UNIQUE field).
+
+        NOT for cross-shard safety, which this used to claim. CI gives every shard
+        job its **own** ``mariadb:10.6`` service container
+        (``.github/workflows/_base-server-tests.yml``, the ``services:`` block), so
+        shards never share a database and cannot race each other at all. The
+        exposure this guard covers is within a single run: sibling classes in one
+        shard, and a warm local site carrying a template from an earlier run.
         """
         existing = self._find_dues_schedule_template(template_name)
         if existing:
@@ -1942,6 +1961,29 @@ class EnhancedTestDataFactory:
         return scenario
 
 
+def allocate_free_region_code():
+    """Allocate a Region code that is actually free.
+
+    region_code is UNIQUE and capped at 5 chars (^[A-Z0-9]{2,5}$), so the space is
+    small enough to collide and has to be checked rather than assumed. Tests derived
+    codes from a slice of a microsecond counter -- "R" + 4 digits is 10,000 values,
+    "TR" + 3 is 1,000, and one site used only 10 -- and CI failed with "Region Code
+    R7655 already exists". [A-Z0-9]**4 is 1.68M and the existence check makes it
+    certain instead of merely unlikely.
+
+    This is check-then-insert with no retry on the insert itself, which is safe
+    because each CI shard runs against its own site. test_data_factory's
+    create_test_region additionally retries on DuplicateEntryError; use that one if
+    a shared-site race is ever possible.
+    """
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    for _ in range(100):
+        code = "R" + "".join(random.choice(alphabet) for _ in range(4))
+        if not frappe.db.exists("Region", {"region_code": code}):
+            return code
+    raise RuntimeError("allocate_free_region_code: could not allocate a free region_code")
+
+
 class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
     """
     🔍 Business Logic Validation Framework - Production Issue Discovery
@@ -2004,11 +2046,16 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
     # it": the invoice's `customer_address` still referenced the Address (#328).
     DRAIN_PRIORITY_BY_DOCTYPE = {
         # Transaction documents first: they reference parties and addresses.
+        # Order WITHIN a tier is undefined (the sort is stable, so it falls back to
+        # tracking order) -- give a doctype its own tier if it must precede a peer.
         "Sales Invoice": 6,
         "Payment Entry": 6,
         "Journal Entry": 6,
         "Bank Transaction": 6,
         "Direct Debit Batch": 6,
+        # An Expense Claim is cancelled before deletion, and the cancel posts GL
+        # against its employee as party -- so it must drain before the Employee.
+        "Expense Claim": 6,
         # Then the domain records.
         "Membership": 5,
         "Member": 5,
@@ -2027,15 +2074,45 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         return cls.DRAIN_PRIORITY_BY_DOCTYPE.get(doctype, 0)
 
     def _remove_drained_record(self, doctype, name):
-        """Delete one record, cancelling it first if it is submitted.
+        """Delete one record, cancelling it first if it is submitted, then sweep the
+        ledger rows the delete leaves behind.
 
         `frappe.model.delete_doc` runs `check_permission_and_not_submitted(doc)`
         BEFORE its `if not force:` guard, so `force=True` does NOT bypass the
         submitted check -- a submitted document simply cannot be force-deleted.
-        Cancelling first is the only route, and it is also what removes the
-        derived ledger rows (GL Entry, Payment Ledger Entry). Deleting the parent
-        without cancelling would strand those, which is itself a leak: a stranded
-        Payment Ledger Entry is what made a later Sales Invoice undeletable (#328).
+        Cancelling first is the only route.
+
+        Cancelling does NOT remove the derived ledger rows. It WRITES MORE -- the
+        reversals -- and `delete_doc` takes none of them with the parent. An earlier
+        version of this docstring said the opposite, which is why #482 kept being
+        re-derived. Measured on test_site_3, one committed posted invoice through this
+        drain end to end:
+
+            submits recorded during the run   7, not 4
+            after the run                    parent GONE, 2 GL + 1 PLE resident
+            the run itself                   reported OK, no leak recorded
+
+        The surviving rows are not the invoice's original ledger rows -- the
+        captured-insert drain deletes those, because they were captured during the
+        test. They are the REVERSALS this method's own cancel wrote, created after
+        `_captured_inserts` was snapshotted, so nothing drains them and nothing counts
+        them. Which is why exempting GL Entry / Payment Ledger Entry from the drains
+        would make this worse rather than better.
+
+        And they do not merely sit there. `delete_doc` calls `revert_series_if_last()`,
+        so the series rewinds and the next voucher takes the same docname: the same
+        probe run twice produced one voucher_no owning 4 GL / 2 PLE, and the second
+        invoice read them at the moment it posted. A stranded Payment Ledger Entry is
+        what made a later Sales Invoice undeletable (#328).
+
+        So: purge them, using the same helper `VereningingenTestCase` already uses on
+        its customer-cleanup path, and only ever after the parent's own row is gone.
+        NOT the sibling's other rule -- `_cancel_if_submitted` refuses to cancel a
+        ledger-bearing voucher at all and lets the leak be reported under its own name.
+        That is the more conservative choice and it is the right one for a drain that
+        must not silently rewrite accounting, but adopting it here would leave a
+        submitted parent resident in every suite that commits a posted voucher, and
+        move the leak ratchet by an amount nobody has measured (#482 discussion).
         """
         if not frappe.db.exists(doctype, name):
             return
@@ -2047,10 +2124,8 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # those raises ("Individual GL Entry cannot be cancelled"), turning a delete
         # that previously succeeded into a leak. Child rows inherit docstatus from
         # their parent too, and would be put through a needless cancel/save cycle.
-        if (
-            frappe.get_meta(doctype).is_submittable
-            and frappe.db.get_value(doctype, name, "docstatus") == 1
-        ):
+        is_submittable = frappe.get_meta(doctype).is_submittable
+        if is_submittable and frappe.db.get_value(doctype, name, "docstatus") == 1:
             doc = frappe.get_doc(doctype, name)
             doc.flags.ignore_permissions = True
             doc.flags.ignore_links = True
@@ -2069,6 +2144,10 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 try:
                     frappe.db.rollback(save_point=savepoint)
                 except Exception:
+                    # Same decision as `tests/utils/cleanup_savepoint.py`, which names
+                    # the 1213 case instead of folding it in here; converging this copy
+                    # onto it is a behaviour change for the drain and needs shard-scale
+                    # proof (#499).
                     # The savepoint is gone -- an inner commit dropped it, or a
                     # deadlock rolled the whole transaction back (MySQL 1305). Letting
                     # THAT propagate would replace the real cancel failure, and
@@ -2079,6 +2158,25 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 raise
 
         frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+
+        # Only after the parent's row is gone -- that is `purge_ledger_rows`' contract,
+        # and it is what makes deleting real GL rows safe: there is no live voucher left
+        # for them to belong to. Gated on `is_submittable` so an ordinary row does not
+        # pay two queries per drained document.
+        #
+        # Keyed on voucher_no, so it also removes rows THIS test did not create when the
+        # docname was reused by an earlier run -- observed sweeping 6 where the test had
+        # produced 3. That is the accumulation being cleared, and those rows had no live
+        # parent either; it is why the count is worth logging rather than assuming.
+        if is_submittable:
+            swept = purge_ledger_rows(doctype, name)
+            if swept:
+                logger.warning(
+                    "drain swept %d ledger row(s) stranded by deleting %s %s",
+                    swept,
+                    doctype,
+                    name,
+                )
 
     def setUp(self):
         super().setUp()
@@ -2534,8 +2632,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 FinancialHistoryBatchProcessor,
             )
 
-            FinancialHistoryBatchProcessor._payment_queue.clear()
-            FinancialHistoryBatchProcessor._expense_queue.clear()
+            FinancialHistoryBatchProcessor.reset_queues()
         except Exception as e:  # pragma: no cover - defensive
             logger.warning(f"Financial batch queue reset failed: {e}")
 
@@ -3982,6 +4079,23 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         created = getattr(self, "created_records", None)
         if isinstance(created, list):
             created.append({"doctype": doctype, "name": name})
+
+    def unique_seed_name(self, tag):
+        """A document name no other row in the suite can already own.
+
+        ``db_insert`` autonames only ``if not self.name``, so presetting the name
+        keeps a directly-seeded row out of the shared naming series. That matters
+        for any series-named doctype other rows reference BY NAME: a submitted
+        document's GL / Payment Ledger Entries can outlive it while the series
+        counter rolls back with the test transaction, so a later row drawing the
+        same name inherits the orphans and can no longer be deleted -- seen in CI
+        as "is linked with Payment Ledger Entry".
+        """
+        return f"TEST-SEED-{tag[:12].replace(' ', '-').upper()}-{frappe.generate_hash(length=10)}"
+
+    def unique_region_code(self):
+        """Allocate a Region code that is actually free. See allocate_free_region_code."""
+        return allocate_free_region_code()
 
     def create_test_member(self, *args, **kwargs):
         """Convenience method for creating test members.
@@ -6942,6 +7056,38 @@ class SecureTestDataFactory:
         self.sequence_counters[prefix] = self.sequence_counters.get(prefix, 0) + 1
         return self.sequence_counters[prefix]
 
+    def _generate_secure_member_id(self) -> str:
+        """Unique `member_id`. `member_id` is a UNIQUE column (#552).
+
+        This used to be `str(int(self.test_run_id.split("-")[-1]) * 1000 + seq)`, and
+        `test_run_id` is `f"TEST-{random_string(8)}-{int(datetime.now().timestamp())}"` --
+        so `split("-")[-1]` **discarded the random component and kept whole epoch
+        seconds**. Two factories built in the same second therefore produced the same id
+        DETERMINISTICALLY, not probabilistically. Measured before the fix, two instances
+        with different seeds:
+
+            A  TEST-pMDXmlQg-1787520889 -> 1787520889001
+            B  TEST-tix8ymDH-1787520889 -> 1787520889001
+
+        Two changes, both load-bearing:
+
+        - `frappe.generate_hash` supplies PER-CALL entropy. Neither the seconds slice nor
+          the sequence distinguishes two factories in one second, and `test_run_id`'s own
+          random part was the thing being thrown away.
+        - the `TEST` prefix makes the id NON-NUMERIC. The old ids were pure digits, so
+          alone among the factories' ids they satisfied `member_id REGEXP '^[0-9]+$'` and
+          entered `member_id_manager`'s gap analysis (`:414`) and counter initialisation
+          with values around 1.79e12. Nothing depended on them being numeric (checked).
+
+        Named distinctly from `CoreTestDataFactory._generate_member_id` on purpose:
+        three similarly-named generators in this codebase already produced one wrong
+        docstring citation, so a grep for this name should land in exactly one class.
+        Same shape as that one (#549/#550).
+        """
+        seq = self.get_next_sequence("member_id")
+        epoch_seconds = int(self.test_run_id.split("-")[-1])
+        return f"TEST{epoch_seconds}{seq:03d}{frappe.generate_hash(length=6)}"
+
     def track_record(self, doctype, name):
         self.created_records.append({"doctype": doctype, "name": name})
 
@@ -6954,9 +7100,7 @@ class SecureTestDataFactory:
             "email": f"testmember{self.get_next_sequence('email')}_{self.test_run_id}@test.example",
             "birth_date": frappe.utils.add_days(frappe.utils.getdate(), -9000),
             "status": "Active",
-            "member_id": str(
-                int(self.test_run_id.split("-")[-1]) * 1000 + self.get_next_sequence("member_id")
-            ),
+            "member_id": self._generate_secure_member_id(),
         }
         data = {**defaults, **kwargs}
         data = self.validate_required_fields("Member", data)
@@ -6999,7 +7143,7 @@ class SecureTestDataFactory:
                 {
                     "doctype": "Region",
                     "region_name": region_name,
-                    "region_code": f"TR{self.get_next_sequence('region_code'):03d}",
+                    "region_code": allocate_free_region_code(),
                     "country": "Netherlands",
                     "is_active": 1,
                 }
@@ -7085,23 +7229,24 @@ class SecureTestDataFactory:
         }
         if with_volunteer_skills:
             all_skills = [
-                "Technical|Web Development",
-                "Technical|Graphic Design",
-                "Communication|Writing",
-                "Leadership|Team Leadership",
-                "Financial|Fundraising",
-                "Organizational|Event Planning",
-                "Other|Photography",
+                {"name": "Web Development", "category": "Technical"},
+                {"name": "Graphic Design", "category": "Technical"},
+                {"name": "Writing", "category": "Communication"},
+                {"name": "Team Leadership", "category": "Leadership"},
+                {"name": "Fundraising", "category": "Financial"},
+                {"name": "Event Planning", "category": "Organizational"},
+                {"name": "Photography", "category": "Other"},
             ]
             num_skills = (seq % 3) + 4
             skills = all_skills[:num_skills]
+            skill_level = ["1 - Beginner", "2 - Basic", "3 - Intermediate", "4 - Advanced", "5 - Expert"][seq % 5]
             volunteer_data = {
                 "interested_in_volunteering": True,
                 "volunteer_availability": ["Weekly", "Monthly", "Quarterly"][seq % 3],
                 "volunteer_experience_level": ["Beginner", "Intermediate", "Experienced"][seq % 3],
                 "volunteer_areas": ["events", "communications"],
-                "volunteer_skills": skills,
-                "volunteer_skill_level": str(((seq % 5) + 1)),
+                "volunteer_skills": [dict(skill, level=skill_level) for skill in skills],
+                "volunteer_skill_level": skill_level,
                 "volunteer_availability_time": "Weekends and evenings",
                 "volunteer_comments": f"Test volunteer application {seq}",
             }

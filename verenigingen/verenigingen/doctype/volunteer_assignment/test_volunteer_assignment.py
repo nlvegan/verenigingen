@@ -52,7 +52,9 @@ class TestVolunteerAssignment(EnhancedTestCase):
             {
                 "doctype": "Region",
                 "region_name": f"Test Region {unique_suffix}",
-                "region_code": f"TR{unique_suffix[:3]}",
+                # region_code is UNIQUE and capped at 5 chars; TR + 3 digits drew
+                # from only 1,000 values. Draw from [A-Z0-9] and verify it is free.
+                "region_code": self.unique_region_code(),
             }
         )
         test_region.insert()

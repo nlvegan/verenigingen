@@ -3425,7 +3425,12 @@ def _finalize_mutation_savepoint(savepoint_name, succeeded, debug_info):
         if not succeeded:
             frappe.db.rollback(save_point=savepoint_name)
         frappe.db.release_savepoint(savepoint_name)
-    except Exception as savepoint_error:
+    except Exception as savepoint_error:  # non-resumable-ok: see #572
+        # NOT converged onto transaction_errors.rollback_to_savepoint()/
+        # release_savepoint_if_present() with the rest of this class (#561): those re-raise
+        # anything that is not a missing savepoint, and this handler currently swallows a
+        # 1213 and a lost connection into debug_info as well. Making it loud changes what a
+        # long-running eBoekhouden migration does mid-batch, which needs its own proof.
         debug_info.append(f"SAVEPOINT WARNING - could not finalize {savepoint_name}: {savepoint_error}")
 
 

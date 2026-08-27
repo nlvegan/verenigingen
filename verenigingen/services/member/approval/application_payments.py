@@ -7,11 +7,12 @@ import string
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, today
+from frappe.utils import add_days, cint, today
 
 from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
 from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.transaction_errors import rollback_to_savepoint
 
 
 def create_membership_invoice_with_amount(member, membership, amount):
@@ -35,29 +36,14 @@ def create_membership_invoice_with_amount(member, membership, amount):
     # Legacy subscription period calculation replaced by dues schedule system
 
     # Calculate coverage period for the first billing cycle
-    from frappe.utils import add_months, add_years, getdate
-
     # billing_period is optional on membership type - default to Annual if not set
     billing_period = getattr(membership_type, "billing_period", None) or "Annual"
     period_start = today()
-
-    # Calculate period end based on billing frequency
-    if billing_period == "Daily":
-        period_end = add_days(period_start, 1)
-    elif billing_period == "Monthly":
-        period_end = add_months(period_start, 1)
-    elif billing_period == "Quarterly":
-        period_end = add_months(period_start, 3)
-    elif billing_period == "Biannual":
-        period_end = add_months(period_start, 6)
-    elif billing_period == "Annual":
-        period_end = add_years(period_start, 1)
-    elif billing_period == "Custom" and hasattr(membership_type, "billing_period_in_months"):
-        months = getattr(membership_type, "billing_period_in_months", 12) or 12
-        period_end = add_months(period_start, months)
-    else:
-        # Default to annual
-        period_end = add_years(period_start, 1)
+    period_end = coverage_end_for_billing_period(
+        billing_period,
+        period_start,
+        getattr(membership_type, "billing_period_in_months", None),
+    )
 
     # Determine invoice description with coverage period
     description = f"Membership Fee - {membership_type.membership_type_name}"
@@ -169,6 +155,59 @@ def create_membership_invoice_with_amount(member, membership, amount):
     return invoice
 
 
+# Membership Type.billing_period has its own vocabulary ("Biannual", "Lifetime")
+# while the billing pipeline's coverage functions use billing-frequency names
+# ("Semi-Annual", ...). The same Biannual -> Semi-Annual translation is applied by
+# ContributionAmendmentApprovalService._get_billing_frequency.
+_BILLING_PERIOD_TO_FREQUENCY = {
+    "Daily": "Daily",
+    "Monthly": "Monthly",
+    "Quarterly": "Quarterly",
+    "Biannual": "Semi-Annual",
+    "Annual": "Annual",
+    "Custom": "Custom",
+}
+
+
+def coverage_end_for_billing_period(billing_period, period_start, billing_period_in_months=None):
+    """Last day, INCLUSIVE, of the first billing period starting at period_start.
+
+    Delegates to billing_period_calculator.calculate_coverage_end so this path
+    seeds the coverage sequence that the rest of the billing pipeline continues.
+    Every other path ends a period the day BEFORE the next one starts; computing
+    it here as add_years(start, 1) produced a 366-day period whose last day was
+    already the next period's first day, and CoverageCalculator's sequential
+    branch (which rolls each later period off previous_end + 1) then carried that
+    one-day drift through every subsequent period (#206).
+
+    Args:
+        billing_period: A Membership Type ``billing_period`` value, or empty.
+        period_start: First day of the period.
+        billing_period_in_months: Period length for a Custom billing_period.
+
+    Returns:
+        date: Last day of the period.
+    """
+    from verenigingen.services.billing.billing_period_calculator import calculate_coverage_end
+
+    # Lifetime, blank and anything unrecognised keep this path's long-standing
+    # "default to annual" first period - NOT the Monthly that
+    # calculate_coverage_end falls back to for an unknown frequency.
+    billing_frequency = _BILLING_PERIOD_TO_FREQUENCY.get(billing_period, "Annual")
+
+    if billing_frequency == "Custom":
+        # billing_period_in_months is an unvalidated Int, so 0 and negatives both
+        # reach here. calculate_coverage_end turns anything < 1 into a MONTHLY
+        # period, which is not what "Custom" asked for - clamp to the 12-month
+        # default this path has always used instead.
+        months = cint(billing_period_in_months)
+        if months < 1:
+            months = 12
+        return calculate_coverage_end("Custom", period_start, months, "Months")
+
+    return calculate_coverage_end(billing_frequency, period_start)
+
+
 # The Customer Group resolution helper lives in
 # verenigingen.services.customer_group_resolver - shared across the donor,
 # donation, Mollie orphan-customer, and eBoekhouden Customer-creation paths.
@@ -234,8 +273,31 @@ def create_customer_for_member(member):
         if primary_mobile:
             customer_fields["mobile_no"] = primary_mobile
         customer.db_set(customer_fields, update_modified=False)
+    except frappe.QueryDeadlockError:
+        # A 1213 has already rolled the ENTIRE transaction back, savepoints
+        # included, so the rollback below cannot run: it raises 1305 and that
+        # 1305 REPLACES the deadlock as the propagating exception. Every caller
+        # then asks "is this a deadlock?" of an OperationalError and gets False,
+        # so the one error that must never be swallowed is the one that always
+        # is. Measured on test_site_1 with two contending connections; the
+        # non-victim control kept its savepoint, so this is the deadlock's doing.
+        #
+        # Deliberately 1213 ONLY, not the whole NON_RESUMABLE_DB_ERRORS tuple:
+        # savepoint destruction is what makes the rollback impossible, and a 1205
+        # does not destroy them. With innodb_rollback_on_timeout=OFF (the default,
+        # and OFF on this deployment) a 1205 rolls back only the failed statement,
+        # so this function's savepoint survives and a Customer inserted before the
+        # Contact step timed out is still there to undo -- it takes the ordinary
+        # path below, which rolls back and re-raises. Both still abort the caller's
+        # unit of work; only 1213 has nothing left to undo.
+        #
+        # Nothing to release either: the savepoint taken above no longer exists,
+        # which is the whole point. Same order as
+        # utils/transaction_errors.py::_atomically, the only other handler of 18
+        # that gets this right; #561 tracks the remaining 16.
+        raise
     except Exception as e:
-        frappe.db.rollback(save_point=savepoint_name)
+        rollback_to_savepoint(savepoint_name)
         # frappe.log_error signature is (title, message, ...). A positional
         # call with the long detail string first stores it as `title` (the
         # 140-char `method` field in Error Log) - the framework either
@@ -280,7 +342,7 @@ def insert_customer_with_duplicate_retry(customer_doc, max_attempts=3):
             frappe.db.release_savepoint(savepoint)
             return customer_doc
         except frappe.exceptions.DuplicateEntryError:
-            frappe.db.rollback(save_point=savepoint)
+            rollback_to_savepoint(savepoint)
             if attempt == max_attempts:
                 raise
             # Clear the assigned name + naming flag so the next insert re-derives

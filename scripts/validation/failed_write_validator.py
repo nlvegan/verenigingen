@@ -35,6 +35,18 @@ The two rules are complementary and must stay separate: this one deliberately
 returns nothing for a handler that swallows into a falsy value, because that is
 the sibling's turf and reporting it twice would double every message.
 
+That split is drawn by two SEPARATE copies of ``_is_falsy_return`` -- one here, one
+in ``error_swallow_validator`` -- and they have DIVERGED. #589 taught the sibling
+that a non-empty dict of falsy literals is falsy; this copy still recognises only
+``{}``, so ``return {"rows_written": 0}`` from a failed write is the sibling's turf by
+the sibling's rule and ``RETURNS_TRUTHY`` by this one. Measured when they diverged:
+the overlap on the 8 sites #589 added is ZERO (all read paths, none reported here),
+and this rule is advisory in CI, so nothing is double-reported today. It is a
+"must stay in step" hazard rather than a live defect -- widen this copy only with the
+same both-directions measurement, since ``_is_falsy_return`` feeds
+``_classify`` the way the sibling's feeds its condition (5). Applying #589's widening
+here today was measured at 0 change (159 sites / 130 functions before and after).
+
 WHAT IS FLAGGED
 ---------------
 A ``try``/``except`` is reported when ALL of these hold:
@@ -616,6 +628,19 @@ def _rel(path: Path) -> str:
 
 
 def _iter_py(paths: list[str]):
+    """Yield the .py files under `paths`, each PHYSICAL file exactly once.
+
+    Same dedupe, and the same reason, as `error_swallow_validator._iter_py`: a
+    symlinked module and its target are two `os.walk` entries but one file, and `_rel`
+    keys findings by `path.resolve()`, so both visits land on the same baseline key
+    and its count DOUBLES. That cost the swallow guard four free ratchet slots (#588).
+
+    Here it is LATENT rather than live, which is the only reason the baseline looks
+    clean: this validator walks the same collision -- measured, 3227 files, one
+    symlink, one same-target pair on `templates/pages/member_portal.py` -- and simply
+    has no finding in that file yet. The first one to land would arrive as `::2`.
+    """
+    candidates: list[Path] = []
     for raw in paths:
         p = Path(raw)
         if p.is_dir():
@@ -625,11 +650,17 @@ def _iter_py(paths: list[str]):
                     for d in dirnames
                     if d not in {"node_modules", ".git", "__pycache__", "worktrees", ".claude", "archived"}
                 ]
-                for fn in filenames:
-                    if fn.endswith(".py"):
-                        yield Path(dirpath) / fn
+                candidates.extend(Path(dirpath) / fn for fn in filenames if fn.endswith(".py"))
         elif p.suffix == ".py" and p.exists():
-            yield p
+            candidates.append(p)
+
+    seen: set[Path] = set()
+    for path in sorted(candidates, key=lambda q: (q.is_symlink(), str(q))):
+        target = path.resolve()
+        if target in seen:
+            continue
+        seen.add(target)
+        yield path
 
 
 def _counts(paths: list[str]) -> tuple[Counter, Counter, dict[str, list], list[str]]:

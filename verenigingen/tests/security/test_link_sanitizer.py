@@ -11,6 +11,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
+from verenigingen.tests.setup import ensure_root_territory
 from verenigingen.utils.link_sanitizer import (
     BrokenLinkError,
     get_broken_links_summary,
@@ -25,6 +26,11 @@ class TestLinkSanitizerUnit(FrappeTestCase):
 
     def setUp(self):
         """Set up test fixtures."""
+        # These classes are on the compat `FrappeTestCase`, so they reach neither
+        # harness base and nothing seeds the Territory root for them. A fresh
+        # reinstall leaves `tabTerritory` empty, and the Customer below hardcodes
+        # the root (#516).
+        ensure_root_territory()
         # Create a test customer for sanitization tests
         self.test_customer_name = f"_Test Sanitizer Customer {frappe.generate_hash(length=6)}"
         if not frappe.db.exists("Customer", self.test_customer_name):
@@ -143,6 +149,7 @@ class TestLinkSanitizerIntegration(FrappeTestCase):
 
     def setUp(self):
         """Set up test fixtures with real linked documents."""
+        ensure_root_territory()  # see TestLinkSanitizerUnit.setUp (#516)
         self.test_prefix = f"_Test_LS_{frappe.generate_hash(length=4)}"
 
         # Create a real member - capture the auto-generated name

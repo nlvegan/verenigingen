@@ -9,6 +9,11 @@ verenigingen.patches.v15_0.rename_procurios_csv_import_to_member_import
 verenigingen.patches.v2_2.enforce_unique_volunteer_per_member
 # Same contract for tabMember/member.json's now-unique `user`. See #269.
 verenigingen.patches.v2_2.enforce_unique_user_per_member
+# Same contract for tabDonation/donation.json's now-unique `payment_id`. It must
+# also stay here so the index reaches fresh installs at all: install-app marks
+# patches complete without running them, so only the schema sync can create it.
+# See #345.
+verenigingen.patches.v2_2.enforce_unique_donation_payment_id
 
 [post_model_sync]
 # Patches added in this section will be executed after doctypes are migrated
@@ -76,3 +81,4 @@ verenigingen.patches.v2_2.remove_dead_performance_optimization_critical_operatio
 verenigingen.patches.v2_2.clear_stale_membership_payment_history_links
 verenigingen.patches.v2_2.remove_workflow_demo_critical_operation_rules
 verenigingen.patches.v2_2.remove_membership_application_workflow
+verenigingen.patches.v2_2.report_members_with_multiple_active_mandates

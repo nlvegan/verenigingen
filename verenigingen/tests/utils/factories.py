@@ -13,6 +13,11 @@ from datetime import datetime
 import frappe
 from frappe.utils import random_string, today
 
+from verenigingen.tests.harness_logger import get_harness_logger
+from verenigingen.tests.utils.cleanup_savepoint import (
+    release_cleanup_savepoint,
+    rollback_cleanup_attempt,
+)
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
@@ -181,30 +186,143 @@ class TestCleanupManager:
         if dependencies:
             self._dependencies[f"{doctype}:{name}"] = dependencies
 
-    def cleanup(self, rollback_on_error=True):
-        """Clean up all registered documents in reverse order"""
+    def cleanup(self):
+        """Delete every registered document in reverse order. Returns the failures.
+
+        ONE UNDELETABLE DOCUMENT MUST NOT ABANDON THE REST OF THE CLEANUP. This
+        method used to roll the whole transaction back and RAISE on the first
+        document it could not delete, so every document still registered behind it
+        was left on the site (#483).
+
+        The raise cost more than this loop. Four of the five `tearDown`s that call
+        `TestDataBuilder.cleanup()` call it BEFORE `super().tearDown()` and do not
+        wrap it, so the exception skipped the base class's entire teardown as well:
+        the drain, the Error Log capture, the leak report and the mock restoration.
+        Three call sites in two of those suites also call it mid-test, where a
+        transaction-wide rollback discards the test's own `setUp` -- and any uncommitted `setUpClass` fixture
+        the class still needs, which is the #330 failure mode (measured in CI when
+        the drain's rollback was widened that way: 6 of 12 shards red).
+
+        So: a savepoint per document, and the failures come back as a list. The
+        `rollback_on_error` parameter is gone rather than kept and ignored -- no
+        caller ever passed it, and a parameter that no longer does what it says is
+        how this repo has been misled before.
+
+        WHAT CONTINUING COSTS, stated because it is not free: the loop deletes
+        dependents before dependencies, so carrying on past a failed dependent can
+        delete a link target the survivor still points at -- an orphan Membership
+        whose Member is gone. That is narrower than what it replaces (a rollback
+        that reaches other classes' uncommitted fixtures, and a raise that skips
+        the caller's entire base teardown), so it is the better trade, not a free
+        one. `self._dependencies` looks like it could prevent it by skipping the
+        dependencies of anything that failed, and it cannot: the map is sparse --
+        `with_membership` declares the Membership's dependency on the Member and
+        says nothing about its Membership Type, which is the exact link #433 was
+        about. Partial protection that reads as total is worse than none.
+
+        NOT DONE HERE, on purpose:
+
+        - **The ledger carve-out** that `VereningingenTestCase._cancel_if_submitted`
+          documents at length. What this class is actually handed is Chapter, Member,
+          Membership, Membership Type, Team, Team Role, plus two names that are not
+          DocTypes on any test site (`Verenigingen Volunteer` and `Volunteer Expense`
+          -- registered by `with_volunteer_profile` and `with_expense`, see #491).
+          `SEPA Mandate` is in none of them: `with_sepa_mandate` is a no-op stub that
+          registers nothing.
+          Checked against `tabDocType`: of the six real ones only Membership is
+          submittable, and none post GL or Payment Ledger rows, so there is nothing
+          for the carve-out to protect yet. Register a voucher and there will be --
+          that is #482, which has to fix the drains together.
+        - **A lock-timeout retry.** `VereningingenTestCase._cleanup_document_with_retry`
+          retries `QueryTimeoutError` three times at 0.5s; this returns the error on the
+          first one. Not a regression -- the old code raised -- but the omission is
+          deliberate rather than overlooked.
+        - **`ignore_permissions` / `ignore_links` on the cancel**, which
+          `_cancel_if_submitted` sets and explains at length. Not needed here yet:
+          `_sort_by_dependencies` plus `reversed` yields Membership -> Membership Type ->
+          Member -> Chapter, so a Membership is cancelled BEFORE its Membership Type is
+          deleted and the #433 link hazard does not arise. It arises the moment that
+          order changes.
+        """
         errors = []
 
         # Sort by dependencies and timestamp
         sorted_stack = self._sort_by_dependencies()
 
         for item in reversed(sorted_stack):
-            try:
-                if DocumentExistenceValidator.check_document_exists(item["doctype"], item["name"]):
-                    # Check if document is submitted and needs to be cancelled first
-                    doc = frappe.get_doc(item["doctype"], item["name"])
-                    if hasattr(doc, "docstatus") and doc.docstatus == 1:
-                        doc.cancel()
-                    frappe.delete_doc(item["doctype"], item["name"], force=True)
-            except Exception as e:
-                errors.append({"doctype": item["doctype"], "name": item["name"], "error": str(e)})
-
-                if rollback_on_error:
-                    # Rollback and stop cleanup
-                    frappe.db.rollback()
-                    raise Exception(f"Cleanup failed: {errors}")
+            error = self._delete_registered_document(item)
+            if error:
+                errors.append(error)
+                # Announced, not just returned: ALL EIGHT call sites discard the
+                # returned list (five tearDowns, three mid-test), and the old raise was
+                # at least loud. get_harness_logger rather than frappe.logger(), whose
+                # records reach only logs/frappe.log -- a file CI never uploads (#485).
+                get_harness_logger("test-cleanup-manager").error(
+                    "Could not delete %s %s: %s", error["doctype"], error["name"], error["error"]
+                )
 
         return errors
+
+    @staticmethod
+    def _delete_registered_document(item):
+        """Delete one registered document. Returns an error dict, or None on success.
+
+        The savepoint undoes this attempt and nothing else. `delete_doc` runs
+        `on_trash` before it removes anything and a failure part-way through can
+        leave the document mutated, so the attempt has to be undone -- but undoing
+        it with `frappe.db.rollback()` discards every uncommitted row in the
+        connection, including rows this cleanup does not own.
+
+        The savepoint's UNDO is not exercised by the tests that pin this method.
+        They fail the delete with `NestedSet.on_trash`, which calls
+        `validate_if_child_exists()` before it writes anything, so there is nothing
+        to roll back -- measured: zero mutations at the point of failure. What those
+        tests pin is the SCOPE (a sibling row survives). Pinning the undo needs a
+        document whose `on_trash` mutates before it throws.
+
+        `is_submittable`, not `docstatus == 1` alone: erpnext calls `gle.submit()` on
+        GL Entry, which is `is_submittable = 0`, and cancelling one of those raises --
+        `VereningingenTestCase._cancel_if_submitted` documents the same guard at length.
+        Nothing this class is handed today reaches it, which is exactly why the guard is
+        cheaper than the bug.
+
+        The shape is a class of 13 under `verenigingen/tests`: `docstatus == 1` leading
+        to a cancel. This is the one fixed; the other 12 were assessed and left. Eleven
+        are on doctypes that really are submittable (Membership, Sales Invoice, Donation,
+        Bank Transaction); the twelfth,
+        `EnhancedTestCase._cleanup_document_with_retry`, is generic over its argument
+        and so has the same latent hole -- but it has zero callers.
+        """
+        savepoint = f"testcleanup_{frappe.generate_hash(length=8)}"
+        # Whether the savepoint exists, tracked rather than assumed: undoing to a
+        # savepoint that was never created raises 1305, and the undo now WARNS on
+        # failure, so assuming it would turn "the existence check raised" into a
+        # spurious warning about a savepoint nobody set.
+        savepoint_taken = False
+        try:
+            # Inside the try, both of them: an existence check and a savepoint are
+            # ordinary statements that can raise a deadlock or a lost connection, and
+            # anything raised out of this method skips the caller's
+            # `super().tearDown()` -- the #483 defect verbatim, on the two paths its
+            # first fix left outside.
+            if not DocumentExistenceValidator.check_document_exists(item["doctype"], item["name"]):
+                return None
+            frappe.db.savepoint(savepoint)
+            savepoint_taken = True
+            # Check if document is submitted and needs to be cancelled first
+            if (
+                frappe.get_meta(item["doctype"]).is_submittable
+                and frappe.db.get_value(item["doctype"], item["name"], "docstatus") == 1
+            ):
+                frappe.get_doc(item["doctype"], item["name"]).cancel()
+            frappe.delete_doc(item["doctype"], item["name"], force=True)
+        except Exception as e:
+            if savepoint_taken:
+                rollback_cleanup_attempt(savepoint, e)
+            return {"doctype": item["doctype"], "name": item["name"], "error": str(e)}
+
+        release_cleanup_savepoint(savepoint)
+        return None
 
     def _sort_by_dependencies(self):
         """Sort cleanup stack considering dependencies"""
@@ -275,6 +393,25 @@ class TestDataBuilder:
 
         # Check if chapter already exists
         if DocumentExistenceValidator.check_document_exists("Chapter", name):
+            # BORROWED, so deliberately NOT registered. A chapter that is already
+            # here belongs to whoever built it -- typically the shared
+            # `Test Amsterdam Chapter` from `tests/utils/setup_helpers.py`, which the
+            # whole suite resolves. Registering it made `cleanup()` delete master data
+            # this builder never created (#498).
+            #
+            # And that delete is NOT reliably undone. There is no per-TEST rollback in
+            # the framework -- only `addClassCleanup(_rollback_db)`, per CLASS -- and
+            # `VereningingenTestCase._rollback_once_before_draining` returns early
+            # unless a tracked document still exists. Measured on test_site_5, same
+            # committed borrowed chapter both ways:
+            #
+            #   cleanup() in tearDown, one tracked doc  -> rollback fires, chapter back
+            #   cleanup() MID-TEST, then any commit     -> chapter GONE, committed
+            #
+            # Three suites call `cleanup()` mid-test (`test_member_api`,
+            # `test_member_controller` x2). They build member-only today, so no chapter
+            # is borrowed on that path -- which is the only reason this has not already
+            # taken the shared chapter out from under a shard (#330/#390).
             chapter = frappe.get_doc("Chapter", name)
         else:
             chapter = frappe.get_doc(
@@ -286,9 +423,9 @@ class TestDataBuilder:
                     "introduction": "Test chapter"}
             )
             chapter.insert()
+            self._cleanup_manager.register("Chapter", chapter.name)
 
         self._data["chapter"] = chapter
-        self._cleanup_manager.register("Chapter", chapter.name)
 
         return self
 
@@ -316,22 +453,68 @@ class TestDataBuilder:
         member = frappe.get_doc(member_data)
         member.insert()
 
+        # Registered BEFORE the chapter linkage below, not after: that linkage can
+        # raise, and a member inserted but never registered is a permanent leak.
+        self._data["member"] = member
+        self._cleanup_manager.register("Member", member.name)
+
         # Add to chapter if chapter exists (chapter linkage is via Chapter Member child rows)
         if "chapter" in self._data:
+            chapter_name = self._data["chapter"].name
             try:
-                chapter = frappe.get_doc("Chapter", self._data["chapter"].name)
+                chapter = frappe.get_doc("Chapter", chapter_name)
                 chapter.append(
                     "members",
                     {"member": member.name, "chapter_join_date": today(), "enabled": 1, "status": "Active"},
                 )
                 chapter.save()
-            except frappe.LinkValidationError:
-                # Skip chapter update if there are stale member references
-                # This is acceptable for test data - member still gets created
-                pass
-
-        self._data["member"] = member
-        self._cleanup_manager.register("Member", member.name)
+            except frappe.LinkValidationError as e:
+                # NOT swallowed any more. `chapter.save()` re-validates the WHOLE
+                # Chapter, so ONE persisted row whose link no longer resolves makes
+                # this save raise -- and keeps raising for every later member on that
+                # chapter. Swallowing it handed back a member with no chapter linkage
+                # from a call asked for both, so the caller's NEXT line failed naming
+                # the wrong cause: `test_member_controller.test_chapter_mixin_methods`
+                # asserts `db.get_value("Chapter Member", {"member": ...}, "parent")`.
+                #
+                # Nothing depended on log-and-continue. Measured on test_site_2 with
+                # the handler replaced by a bare `raise`:
+                #
+                #   controllers.test_member_controller          -> 21 OK (unchanged)
+                #   comprehensive.test_comprehensive_suite_demo -> 13 OK, 4 skipped
+                #   tests.test_harness_leak_attribution         -> the #515 pin ERRORS
+                #
+                # The third line is the control: the pin plants the stale row, so it
+                # proves the handler is reachable and the first two are not vacuous.
+                # `with_team_assignment` below already appends-and-saves a
+                # possibly-borrowed `Team` with no handler at all.
+                #
+                # Re-raised as the SAME class so existing `assertRaises` sites are
+                # unaffected, and chained, because Frappe's own message names the row
+                # ("Could not find Row #1: ...") but not the chapter or the member
+                # this call was building.
+                #
+                # NOT necessarily the roster: `Chapter` also links `chapter_head`,
+                # `region`, `cost_center`, `department` and
+                # `default_board_role_profile`, and carries `board_members`,
+                # `board_documents` and `board_role_specific_profiles`. A dangling
+                # `Chapter Board Member.volunteer` raises this same exception out of
+                # the same `save()` -- verified on test_site_2, which has 2 such rows.
+                # Hence "a stale link": the chained message names which one.
+                #
+                # ONE route to a stale roster row is `Member.on_trash` ->
+                # `MemberCleanupService`, which force-deletes a member's roster rows
+                # (member_cleanup_service.py:220-227) and swallows its own failures
+                # through a bare `frappe.logger().error` (#485). It is not the only
+                # one: measured 2026-08-23, dangling `Chapter Member.member` rows
+                # exist on three of five local test sites (test_site_2 72 of 91,
+                # test_site_3 18 of 225, test_site_4 40 of 1284; 0 of 716 on
+                # test_site_5). What has no current instance is a dangling row on a
+                # chapter this builder can BORROW -- 0 on all five (#515).
+                raise frappe.LinkValidationError(
+                    f"chapter linkage FAILED: Chapter {chapter_name} has a stale link, "
+                    f"so member {member.name} could not be added to it: {e}"
+                ) from e
 
         return self
 

@@ -1,0 +1,36 @@
+# Census of harness-logger logging calls reachable from a `tearDownClass` body.
+# Produced by scripts/validation/harness_logger_teardown_validator.py (--mode mro).
+#
+# This exists because verenigingen/tests/harness_logger.py's `_StderrHandler`
+# docstring justifies its `>= ERROR` mirror gate with these numbers, and that
+# figure has been wrong twice (#564, #571) precisely because nobody could re-run
+# it. Regenerate with --emit-baseline.
+#
+# If this file changes, DO NOT just regenerate. A new class-teardown logging
+# route means re-reading the gate rationale: the gate mirrors only `>= ERROR`,
+# so a new WARNING site from class teardown is LOST. Decide whether that is
+# acceptable, then regenerate in the same commit.
+#
+# Line numbers are deliberately absent -- they rot on any edit above them.
+teardowns 11
+calls 19
+level debug 1
+level error 2
+level warning 16
+teardown verenigingen/tests/payment/test_ponto_configuration_service.py::TestPontoConfigurationService.tearDownClass
+teardown verenigingen/tests/payment/test_ponto_oauth2_callback.py::TestPontoOAuth2Callback.tearDownClass
+teardown verenigingen/tests/payment/test_ponto_secure_cert_manager.py::TestSecureCertManagerFromSettings.tearDownClass
+teardown verenigingen/tests/payment/test_ponto_token_manager_unit.py::TestPontoTokenManagerUnit.tearDownClass
+teardown verenigingen/tests/sepa/test_ponto_betaalverzoek_client_unit.py::TestBetaalverzoekClientUnit.tearDownClass
+teardown verenigingen/tests/sepa/test_ponto_client.py::TestPontoClient.tearDownClass
+teardown verenigingen/tests/sepa/test_ponto_oauth2_service.py::TestPontoOAuth2Service.tearDownClass
+teardown verenigingen/tests/sepa/test_ponto_payment_initiation_service.py::TestPontoPaymentInitiationService.tearDownClass
+teardown verenigingen/tests/services/test_chapter_permission_service_integration.py::TestChapterPermissionServiceIntegration.tearDownClass
+teardown verenigingen/tests/test_singleton_backup_restoration.py::_Case.tearDownClass
+teardown verenigingen/tests/test_webhook_user_setup.py::TestWebhookUserSetup.tearDownClass
+site verenigingen/tests/fixtures/enhanced_test_factory.py warning 13
+site verenigingen/tests/fixtures/singleton_backup.py debug 1
+site verenigingen/tests/fixtures/singleton_backup.py error 1
+site verenigingen/tests/fixtures/singleton_backup.py warning 2
+site verenigingen/tests/test_webhook_user_setup.py warning 1
+site verenigingen/tests/utils/error_log_guard.py error 1

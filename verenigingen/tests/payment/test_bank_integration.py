@@ -20,6 +20,7 @@ import unittest
 
 import frappe
 
+from verenigingen.tests.support.error_log_assertions import assert_error_log
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.verenigingen_payments.utils.bank_integration import (
     BankAPIClient,
@@ -553,6 +554,126 @@ class TestInvoiceReferenceMatching(VereningingenTestCase):
         # resolver does for a reference that names the invoice.
         matched = self.importer._find_matching_invoice({"reference": self.invoice.name})
         self.assertEqual(matched, self.invoice.name)
+
+
+class TestInvoiceAmountMatching(VereningingenTestCase):
+    """The amount fallback in `_find_matching_invoice` chose arbitrarily -- twice (#567).
+
+    When no invoice reference is present the importer falls back to
+    `customer_name LIKE %debtor_name%` and then, per customer, one invoice of the
+    right amount by `limit=1`. Two arbitrary picks compound:
+
+      * **Across invoices** -- two open invoices of the same amount for one customer
+        is ordinary for recurring dues, and `limit=1` took whichever came first.
+      * **Across PARTIES** -- the loop returned on the first customer that happened
+        to have a matching invoice. A `LIKE` on a debtor name matches more than one
+        real customer (`Jansen` matches `Jansen` and `Jansenius`), so the money could
+        be allocated to a DIFFERENT MEMBER entirely.
+
+    `_create_payment_entry` builds a Payment Entry against whatever this returns, so
+    this is the same money-moving class as the other three sites. #567 lists three
+    unfixed instances; this is a fourth that grepping the class turned up.
+    """
+
+    # The base invoice helper's generated line is fixed at this rate; see
+    # _submitted_invoice for why it cannot be parameterised.
+    AMOUNT = 25.0
+
+    def setUp(self):
+        super().setUp()
+        self.importer = BankStatementImporter()
+        # Only the company is needed -- the base invoice helper resolves its own
+        # income account. `_owned_company_and_income_account` is still the right
+        # call: it OWNS a company rather than scanning for one.
+        self.company, _income_account = self._owned_company_and_income_account()
+
+    def _debtor_customer(self, customer_name):
+        customer = frappe.new_doc("Customer")
+        customer.customer_name = customer_name
+        customer.customer_type = "Individual"
+        customer.save()
+        self.track_doc("Customer", customer.name)
+        return customer.name
+
+    def _outstanding_invoice(self, customer):
+        """A submitted invoice with AMOUNT still outstanding.
+
+        The base helper only saves, and a DRAFT has outstanding 0 so it would never
+        be a candidate here. Its generated line is fixed at 25.0 and cannot be
+        overridden by passing `items`: the helper `setattr`s the value, which skips
+        Frappe's child-table coercion and dies with
+        "'dict' object has no attribute 'is_new'". So AMOUNT is the helper's own
+        figure rather than a parameter.
+        """
+        invoice = self.create_test_sales_invoice(customer=customer, company=self.company)
+        invoice.submit()
+        invoice.reload()
+        self.assertAlmostEqual(float(invoice.outstanding_amount), self.AMOUNT, places=2)
+        return invoice
+
+    def test_a_single_amount_match_still_resolves(self):
+        """Pins the behaviour the fix must not remove. Passes against develop too."""
+        token = f"AmtOne{frappe.generate_hash(length=6)}"
+        customer = self._debtor_customer(f"Debtor {token}")
+        invoice = self._outstanding_invoice(customer)
+
+        matched = self.importer._find_matching_invoice(
+            {"reference": "", "amount": self.AMOUNT, "debtor_name": token}
+        )
+        self.assertEqual(matched, invoice.name)
+
+    def test_two_invoices_of_the_amount_for_one_customer_is_refused(self):
+        """Red against develop: `limit=1` returned one of the two."""
+        self.expectErrorLog("Bank Import Invoice Ambiguous")
+        token = f"AmtTwo{frappe.generate_hash(length=6)}"
+        customer = self._debtor_customer(f"Debtor {token}")
+        first = self._outstanding_invoice(customer)
+        second = self._outstanding_invoice(customer)
+        self.assertNotEqual(first.name, second.name)
+
+        matched = self.importer._find_matching_invoice(
+            {"reference": "", "amount": self.AMOUNT, "debtor_name": token}
+        )
+        self.assertIsNone(
+            matched,
+            f"two invoices of the same amount narrow nothing; got {matched}",
+        )
+        assert_error_log(
+            self,
+            "Bank Import Invoice Ambiguous",
+            unique=token,
+            must_contain=["Reconcile this transaction manually"],
+        )
+
+    def test_two_customers_matching_the_debtor_name_is_refused(self):
+        """The arbitrary pick crossed PARTIES, not just invoices.
+
+        Red against develop: the loop returned the first customer's invoice, so a
+        payment from one member could be booked against another member's invoice.
+        """
+        self.expectErrorLog("Bank Import Invoice Ambiguous")
+        token = f"AmtParty{frappe.generate_hash(length=6)}"
+        one = self._debtor_customer(f"Debtor {token}")
+        two = self._debtor_customer(f"Debtor {token} Junior")  # also matches LIKE %token%
+        mine = self._outstanding_invoice(one)
+        theirs = self._outstanding_invoice(two)
+
+        matched = self.importer._find_matching_invoice(
+            {"reference": "", "amount": self.AMOUNT, "debtor_name": token}
+        )
+        self.assertIsNone(
+            matched,
+            f"a debtor name matching two customers names no invoice; got {matched} "
+            f"(candidates {mine.name} / {theirs.name})",
+        )
+        # "across 2 customer(s)" is the part that distinguishes the cross-PARTY
+        # ambiguity from the single-customer one, and it sits mid-message.
+        assert_error_log(
+            self,
+            "Bank Import Invoice Ambiguous",
+            unique=token,
+            must_contain=["2 customer(s)", "Reconcile this transaction manually"],
+        )
 
 
 if __name__ == "__main__":

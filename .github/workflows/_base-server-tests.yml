@@ -123,11 +123,14 @@ jobs:
       - name: Run Tests
         run: |
           source ${GITHUB_WORKSPACE}/env/bin/activate
-          # The suite has a large, long-standing red baseline (see
-          # docs/plans/2026-05-29-server-tests-red-baseline-triage.md). We do NOT
-          # fail the job on pre-existing failures here; the next step gates on
-          # NEW failures only. `tee` captures output for that comparison; `|| true`
-          # keeps a non-zero suite exit from failing this step.
+          # We do NOT fail the job on the suite's own exit code here; the next
+          # step gates on NEW failures only, against
+          # verenigingen/tests/known_test_failures.txt — read that file's header
+          # for what it currently contains. (This comment used to describe "a
+          # large, long-standing red baseline": a 2026-05-29 fact, false since.
+          # See #573.)
+          # `tee` captures output for the gate; `|| true` keeps a non-zero suite
+          # exit from failing this step.
           set -o pipefail
           bench --site test_site run-parallel-tests \
             --app ${{ github.event.repository.name }} \
@@ -164,8 +167,7 @@ jobs:
         # CodeCoverage.xml_report lands there — not the bench root). Each shard
         # uploads its own slice tagged flags=python; Codecov merges sharded
         # uploads server-side, so no combine/aggregate job is needed. always()
-        # so coverage still uploads when the new-failure gate above trips on the
-        # known red baseline.
+        # so coverage still uploads when the new-failure gate above trips.
         if: ${{ inputs.enable-coverage && always() }}
         uses: codecov/codecov-action@v5
         with:

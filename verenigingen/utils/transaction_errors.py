@@ -30,6 +30,84 @@ import frappe
 
 NON_RESUMABLE_DB_ERRORS = (frappe.QueryDeadlockError, frappe.QueryTimeoutError)
 
+# MariaDB "SAVEPOINT <name> does not exist". Canonical home: financial_history_batch_processor
+# had the only correct copy and now imports these from here.
+SAVEPOINT_DOES_NOT_EXIST = 1305
+
+
+def mysql_error_code(exc):
+    """First positional arg of a MySQLdb-style error, or None."""
+    args = getattr(exc, "args", None)
+    return args[0] if args else None
+
+
+def release_savepoint_if_present(save_point):
+    """``RELEASE SAVEPOINT`` on the success path, tolerating a savepoint a commit took.
+
+    The mirror of rollback_to_savepoint for the other exit: a nested commit clears the
+    savepoint stack, so an otherwise-successful unit of work can find its savepoint gone at
+    release time. Failing there would fail an import whose rows are already persisted.
+
+    Unlike the rollback case there is no exception in flight to protect, so this is purely
+    about not inventing a failure. Returns True if the release happened.
+    """
+    try:
+        frappe.db.release_savepoint(save_point)
+        return True
+    except Exception as release_error:  # non-resumable-ok: this IS the canonical copy
+        if mysql_error_code(release_error) != SAVEPOINT_DOES_NOT_EXIST:
+            raise
+        frappe.logger().info(
+            f"Savepoint {save_point} was already released by a nested commit; "
+            "the work it covered is already persisted."
+        )
+        return False
+
+
+def rollback_to_savepoint(save_point):
+    """``ROLLBACK TO SAVEPOINT`` from inside an ``except``, without replacing the error.
+
+    A raise from inside an ``except`` block replaces the exception being handled, and this
+    statement has two ways to raise 1305 for reasons that have nothing to do with the
+    failure being handled:
+
+    * **a 1213 deadlock** -- the server rolls the whole transaction back and discards every
+      savepoint in it. Measured on test_site_1 with two contending connections: the
+      victim's savepoint is gone, a non-victim control's survives, so the loss is the
+      deadlock's doing and not "savepoints do not work here";
+    * **a nested commit** -- any commit clears the savepoint stack, so a helper that commits
+      internally takes its caller's savepoint with it. Not hypothetical: mt940_import hit
+      it and hand-wrote this function twice.
+
+    In both cases the 1305 masks the real error, and every guard keyed on the real error's
+    TYPE then evaluates False -- which is how #481's guard could be correctly placed on 50
+    endpoints and still never fire for the one class it exists to catch (#561).
+
+    Returns True if the rollback happened, False if the savepoint was already gone.
+    Anything other than a missing savepoint still propagates: this hides one specific,
+    diagnosed condition, not savepoint bugs in general.
+    """
+    try:
+        frappe.db.rollback(save_point=save_point)
+        return True
+    except Exception as rollback_error:  # non-resumable-ok: this IS the canonical copy
+        # Matched on the error CODE, never on "does not exist" in the message: frappe's own
+        # DoesNotExistError says exactly that, and swallowing one here would hide the very
+        # kind of failure this function exists to preserve. Measured on test_site_1 -- the
+        # driver raises OperationalError with args (1305, 'SAVEPOINT x does not exist'), so
+        # the code is always present and a message fallback would be dead code.
+        if mysql_error_code(rollback_error) != SAVEPOINT_DOES_NOT_EXIST:
+            raise
+        # All 22 callers discard the return value, so without this the fact that the
+        # rollback did NOT happen is recorded nowhere -- and at the sites that swallow and
+        # report a structured failure ("import failed and rolled back") that sentence is
+        # then untrue. Error Log is MyISAM, so this lands whatever the transaction is doing.
+        frappe.log_error(
+            message=f"Savepoint {save_point} was already gone, so nothing was rolled back.",
+            title="Savepoint rollback skipped",
+        )
+        return False
+
 
 def insert_and_submit_atomically(doc):
     """Insert and submit as one unit: a failed submit must leave no draft behind.
@@ -83,7 +161,7 @@ def _atomically(*operations):
         # hide it. There is nothing left to undo.
         raise
     except Exception:
-        frappe.db.rollback(save_point=savepoint)
+        rollback_to_savepoint(savepoint)
         raise
     else:
         frappe.db.release_savepoint(savepoint)

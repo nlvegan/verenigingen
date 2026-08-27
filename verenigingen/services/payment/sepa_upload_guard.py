@@ -43,6 +43,7 @@ from frappe import _
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.sepa_sandbox import get_sandbox
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 
 
 class UploadBlockReason(str, Enum):
@@ -426,7 +427,7 @@ class SEPAUploadGuard(StatelessService):
 
         except frappe.DuplicateEntryError:
             # DB unique constraint caught the race condition - another worker won
-            frappe.db.rollback(save_point=savepoint)
+            rollback_to_savepoint(savepoint)
             self.logger.warning(
                 f"DuplicateEntryError in check_and_register (race condition caught by DB): hash={file_hash[:16]}..."
             )
@@ -456,8 +457,13 @@ class SEPAUploadGuard(StatelessService):
                     message=_("Duplicate file detected by database constraint."),
                 )
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # This guard exists to stop a duplicate SEPA file being uploaded twice. On a
+            # 1205/1213 the registration row it just wrote is gone or half-applied, so
+            # returning any UploadCheckResult here answers a question it can no longer see.
+            raise
         except Exception as e:
-            frappe.db.rollback(save_point=savepoint)
+            rollback_to_savepoint(savepoint)
 
             # Check if this is a DB integrity error (pymysql.IntegrityError, etc.)
             # These indicate constraint violations not caught by frappe.DuplicateEntryError

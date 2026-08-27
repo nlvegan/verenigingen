@@ -115,6 +115,14 @@ jobs:
     - name: Unit-test the failed-write guard
       run: python -m unittest discover -s scripts/validation/tests -p 'test_failed_write_validator.py' -v
 
+    # The class-teardown harness-logger census. verenigingen/tests/harness_logger.py
+    # justifies its `>= ERROR` mirror gate with a count of which teardown routes log
+    # at which level; that figure was wrong twice (#564, #571) because nobody could
+    # re-run it. Stdlib-only like its siblings, so it runs here rather than in the
+    # Frappe shards -- a whole-tree AST walk is ~20s and shards re-pack on runtime.
+    - name: Unit-test the harness-logger teardown census
+      run: python -m unittest discover -s scripts/validation/tests -p 'test_harness_logger_teardown_census.py' -v
+
     # Tests for the scripts/testing tools live outside the verenigingen package, and
     # get_all_tests() only walks apps/verenigingen/verenigingen, so the app suite never
     # sees them -- they were added green and unrun, and a location-dependent test in them
@@ -182,6 +190,47 @@ jobs:
           exit 1
         fi
         echo "Baseline did not grow."
+
+    # The other direction is the one that actually shipped. A SHRINK was accepted
+    # without question, and #586 is what that costs: a handler changed its return
+    # from `None` to `InvoiceChoice(None, 0)` -- same swallow, still logging, no
+    # behavioural change -- and the entry silently LEFT the baseline. The remedy the
+    # step above prints is `--update-baseline`, and the resulting diff shows a REMOVED
+    # line, so both read as progress.
+    #
+    # Deliberately NOT exempted when the validator changes, unlike the growth gate:
+    # a validator PR is exactly where a detection rule can be narrowed by accident,
+    # and this is the only step that would say so. It distinguishes three reasons an
+    # entry can leave without being fixed -- the falsy test no longer recognising the
+    # return, the logging call being DELETED (which makes it a silent swallow, worse
+    # than what was recorded), and the file dropping out of the SCAN. That last one
+    # matters because `.pre-commit-config.yaml` couples its `exclude` to SCAN_ROOTS by
+    # hand: measured, excluding `templates/` silently dropped 10 baselined entries and
+    # dropping the `scripts` root dropped 33.
+    #
+    # Known limit: the explainer shares the validator's own structural predicates, so
+    # narrowing `_is_broad` or `LOG_NAMES` is invisible to it. It sees a narrowing of
+    # the falsy test -- the heuristic, which has now been widened twice.
+    - name: Every shrink was actually a fix
+      if: github.event_name == 'pull_request'
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      run: |
+        BASELINE=scripts/validation/error_swallow_baseline.txt
+        if ! git cat-file -e "$BASE_SHA:$BASELINE" 2>/dev/null; then
+          echo "No baseline on the base branch yet — nothing to compare."
+          exit 0
+        fi
+        git show "$BASE_SHA:$BASELINE" > "$RUNNER_TEMP/base_swallow_baseline.txt"
+        # The base TREE, not just its baseline. Deleting a logging call takes an entry
+        # out of the baseline while making the code worse, and from the head tree alone
+        # that is indistinguishable from a function that always had a silent sibling --
+        # 2 of 443 baselined functions do, and reporting those turned the CORRECT fix
+        # into a red gate citing a deletion that never happened.
+        git worktree add --detach "$RUNNER_TEMP/base_tree" "$BASE_SHA" >/dev/null
+        python scripts/validation/error_swallow_validator.py \
+          --check-shrink "$RUNNER_TEMP/base_swallow_baseline.txt" \
+          --base-tree "$RUNNER_TEMP/base_tree"
 
   # Same shape as the swallowed-exception ratchet above, and for the same reason:
   # the pre-commit hook can be skipped (`git commit -n`, `SKIP=`), and it only ever
@@ -260,6 +309,86 @@ jobs:
           exit 1
         fi
         echo "Baseline did not grow."
+
+  # A copy-pasted helper is where a fix goes to die. On 2026-08-19 that shape
+  # produced four defects in one day -- each a fix applied to one copy, with a
+  # comment explaining why, while its siblings kept the bug (#392, #394, #399, plus
+  # two branches independently fixing the same test and colliding on merge).
+  # This does not stop the copies that already exist; it stops new ones.
+  duplicate-helper-ratchet:
+    name: 👯 Duplicate Helper Guard (ratchet)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        # Needed by the growth check below, which diffs against the base branch.
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    # Stdlib-only (ast, difflib, argparse, pathlib): no bench, no site, no install.
+    - name: Unit-test the validator itself
+      run: python -m unittest discover -s scripts/validation/tests -p 'test_duplicate_helper_validator.py' -v
+
+    - name: Ratchet check (whole tree)
+      run: python scripts/validation/duplicate_helper_validator.py
+
+    - name: Baseline is in sync with the tree
+      run: |
+        python scripts/validation/duplicate_helper_validator.py --update-baseline
+        if ! git diff --quiet -- scripts/validation/duplicate_helper_baseline.txt; then
+          echo "::error file=scripts/validation/duplicate_helper_baseline.txt::Baseline is out of sync with the tree."
+          echo "Regenerate it and commit the result:"
+          echo "    python scripts/validation/duplicate_helper_validator.py --update-baseline"
+          echo ""
+          git --no-pager diff -- scripts/validation/duplicate_helper_baseline.txt
+          exit 1
+        fi
+        echo "Baseline matches the tree."
+
+    # The step above cannot catch the abuse that defeats this gate: regenerating the
+    # baseline so a new copy is recorded rather than removed. That leaves baseline
+    # and tree in sync, and the ratchet green. The only signal is that the baseline
+    # GREW -- legitimate solely when the validator's own rules changed in the same PR.
+    #
+    # Counts only the lines marked `# clone family`, which is exactly the set the
+    # ratchet blocks on. Counting every line would re-impose the blocking the
+    # validator deliberately stopped doing: a new copy of a name collision is
+    # SUPPOSED to be recorded rather than removed, and failing here for it would
+    # leave the developer the same dead end -- rename the method -- by another door.
+    - name: Clone-family copies did not grow
+      if: github.event_name == 'pull_request'
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      run: |
+        BASELINE=scripts/validation/duplicate_helper_baseline.txt
+        VALIDATOR=scripts/validation/duplicate_helper_validator.py
+        total() { grep -e '# clone family' | awk -F'::' '{s+=$2+0} END {print s+0}'; }
+
+        if ! git cat-file -e "$BASE_SHA:$BASELINE" 2>/dev/null; then
+          echo "No baseline on the base branch yet — nothing to compare."
+          exit 0
+        fi
+        if ! git diff --quiet "$BASE_SHA" HEAD -- "$VALIDATOR"; then
+          echo "Validator changed in this PR, so a different baseline is expected."
+          exit 0
+        fi
+
+        before=$(git show "$BASE_SHA:$BASELINE" | total)
+        after=$(total < "$BASELINE")
+        echo "clone-family copies: base=$before  head=$after"
+        if [ "$after" -gt "$before" ]; then
+          echo "::error file=$BASELINE::Clone-family copies grew from $before to $after without a validator change."
+          echo "A near-identical helper was recorded into the baseline instead of consolidated."
+          exit 1
+        fi
+        echo "Clone-family copies did not grow."
 
   fast-validation:
     runs-on: ubuntu-latest

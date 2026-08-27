@@ -9,6 +9,10 @@ import unittest
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from verenigingen.tests.fixtures.mollie_account_fixtures import (
+    ensure_mollie_gl_accounts,
+    provisioned_mollie_settings,
+)
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
     MollieConfigurationService,
     get_mollie_config,
@@ -290,75 +294,74 @@ class TestMollieConfigurationService(FrappeTestCase):
         self.assertIsInstance(result["warnings"], list)
 
     def test_validate_all_mollie_accounts_with_configured_system(self):
-        """Test validate_all_mollie_accounts() with properly configured accounts"""
-        settings = frappe.get_single("Mollie Settings")
+        """A fully configured system validates clean.
 
-        # Only run if required accounts are configured
-        if settings.mollie_clearing_account and settings.mollie_bank_account:
-            config = get_mollie_config()
-            result = config.validate_all_mollie_accounts(raise_on_error=False)
+        Used to be wrapped in `if settings.mollie_clearing_account and
+        settings.mollie_bank_account:` and so asserted NOTHING on a site where the
+        Single was unconfigured -- which was every test site, since nothing
+        provisioned it. It now provisions the configuration it is about.
+        """
+        with provisioned_mollie_settings():
+            result = get_mollie_config().validate_all_mollie_accounts(raise_on_error=False)
 
-            # If accounts are configured, result should have proper structure
-            self.assertIn("valid", result)
-            self.assertIn("accounts", result)
-            self.assertIn("errors", result)
-
-            # At minimum, should have attempted validation for all 3 account types
-            self.assertIn("clearing_account", result["accounts"])
-            self.assertIn("bank_account", result["accounts"])
-            self.assertIn("fees_account", result["accounts"])
+        self.assertTrue(result["valid"], f"a provisioned system must validate: {result['errors']}")
+        for purpose in ("clearing_account", "bank_account", "fees_account"):
+            self.assertIn(purpose, result["accounts"])
+            self.assertTrue(
+                result["accounts"][purpose].get("valid"), f"{purpose}: {result['accounts'][purpose]}"
+            )
 
     def test_validate_all_mollie_accounts_identifies_missing_accounts(self):
-        """Test validate_all_mollie_accounts() identifies missing required accounts"""
-        settings = frappe.get_single("Mollie Settings")
+        """Each required account, blanked deliberately, is named in the errors.
 
-        # If any required account is missing, validation should fail
-        if not settings.mollie_clearing_account or not settings.mollie_bank_account:
-            config = get_mollie_config()
-
-            result = config.validate_all_mollie_accounts(raise_on_error=False)
-
-            # Should be invalid
-            self.assertFalse(result.get("valid"))
-            self.assertGreater(len(result.get("errors", [])), 0)
-
-            # Check that error mentions the missing account
-            errors_str = " ".join(result.get("errors", []))
-            if not settings.mollie_clearing_account:
-                self.assertIn("clearing", errors_str.lower())
-            if not settings.mollie_bank_account:
-                self.assertIn("bank", errors_str.lower())
+        Previously ran only `if not settings.mollie_clearing_account or not
+        settings.mollie_bank_account`, i.e. only on an unconfigured site, and then
+        asserted whichever half happened to be missing. Now it blanks each one in
+        turn and asserts that specific error.
+        """
+        for field, expected in (
+            ("mollie_clearing_account", "clearing"),
+            ("mollie_bank_account", "bank"),
+        ):
+            with self.subTest(missing=field):
+                with provisioned_mollie_settings(**{field: ""}):
+                    result = get_mollie_config().validate_all_mollie_accounts(raise_on_error=False)
+                self.assertFalse(result["valid"], f"blanking {field} must invalidate the configuration")
+                self.assertIn(expected, " ".join(result["errors"]).lower())
 
     def test_validate_all_mollie_accounts_handles_optional_fees_account(self):
-        """Test validate_all_mollie_accounts() handles optional fees_account correctly"""
-        config = get_mollie_config()
+        """A missing fees account is a WARNING, not an error -- it is optional.
 
-        result = config.validate_all_mollie_accounts(raise_on_error=False)
+        The `if not fees_result.get("configured", True):` this replaces meant the
+        body ran only when the fees account happened to be unset, and the "optional
+        means still valid" half was never asserted at all.
+        """
+        with provisioned_mollie_settings(payment_processing_fees_account=""):
+            result = get_mollie_config().validate_all_mollie_accounts(raise_on_error=False)
 
-        # fees_account is optional, so should have warning if missing
-        fees_result = result["accounts"].get("fees_account", {})
-
-        if not fees_result.get("configured", True):
-            # Should have a warning about fees account not configured
-            self.assertGreater(len(result.get("warnings", [])), 0)
-            warnings_str = " ".join(result.get("warnings", []))
-            self.assertIn("fees", warnings_str.lower())
+        self.assertTrue(result["valid"], "a missing fees account must not invalidate the configuration")
+        self.assertFalse(result["accounts"]["fees_account"].get("configured", True))
+        self.assertIn("fees", " ".join(result["warnings"]).lower())
 
     def test_validate_all_mollie_accounts_with_raise_on_error(self):
-        """Test validate_all_mollie_accounts() raises exception when raise_on_error=True"""
-        settings = frappe.get_single("Mollie Settings")
+        """`raise_on_error=True` raises on an incomplete configuration, and does
+        NOT raise on a complete one.
 
-        # Only test if configuration is incomplete
-        if not settings.mollie_clearing_account or not settings.mollie_bank_account:
-            config = get_mollie_config()
-
-            # Should raise ValidationError
+        Both halves matter and neither was asserted: the body ran only `if not
+        settings.mollie_clearing_account or not settings.mollie_bank_account`, so on
+        a configured site the test was a no-op, and the "does not raise" case had no
+        coverage anywhere.
+        """
+        with provisioned_mollie_settings(mollie_clearing_account=""):
             with self.assertRaises(frappe.ValidationError) as context:
-                config.validate_all_mollie_accounts(raise_on_error=True)
+                get_mollie_config().validate_all_mollie_accounts(raise_on_error=True)
+        self.assertIn("validation failed", str(context.exception).lower())
 
-            # Verify error message is comprehensive
-            error_msg = str(context.exception)
-            self.assertIn("validation failed", error_msg.lower())
+        with provisioned_mollie_settings():
+            # Must not raise. Without this half, the assertion above is equally
+            # consistent with "raises when incomplete" and "always raises".
+            result = get_mollie_config().validate_all_mollie_accounts(raise_on_error=True)
+        self.assertTrue(result["valid"])
 
     # ===== Company Validation Tests (Phase 3.3) =====
 
@@ -642,3 +645,148 @@ def run_tests():
     suite = unittest.TestLoader().loadTestsFromTestCase(TestMollieConfigurationService)
     runner = unittest.TextTestRunner(verbosity=2)
     return runner.run(suite)
+
+
+class TestMollieAccountCoherence(FrappeTestCase):
+    """The accounts must belong to the company this app books into (#540).
+
+    `validate_all_mollie_accounts` validated each account in isolation and so
+    accepted veg11's live state:
+
+        Verenigingen Settings.company    = 'Nederlandse Vereniging voor Veganisme'
+        mollie_bank_account     -> company 'TEST-Payment-Integration-Company'
+        mollie_clearing_account -> company 'TEST-Payment-Integration-Company'
+
+    Settlements are booked into `Verenigingen Settings.company`, so those accounts
+    post into a leaked test company's ledger. The deployment step recorded for #538
+    was "split these two fields", which against those values would have switched on
+    a live pipeline doing exactly that.
+
+    Every test provisions its own configuration, so none depends on ambient Singles
+    state.
+    """
+
+    def setUp(self):
+        MollieConfigurationService.clear_cache()
+        self.addCleanup(MollieConfigurationService.clear_cache)
+
+    def _validate(self, **overrides):
+        with provisioned_mollie_settings(**overrides):
+            return get_mollie_config().validate_all_mollie_accounts(raise_on_error=False)
+
+    def _foreign_account(self, company, account_type="Bank"):
+        """A leaf account in some OTHER company than `company`.
+
+        ONE query. Picking a company and then looking inside it made an earlier
+        version of this test skip: the company it happened to choose on test_site_1
+        had no bank account, and a test that skips proves as much as one that never
+        ran.
+        """
+        return frappe.db.get_value(
+            "Account",
+            {"company": ["!=", company], "account_type": account_type, "is_group": 0},
+            "name",
+        )
+
+    def test_a_provisioned_configuration_is_valid(self):
+        """The control. Without it, every assertion below is equally consistent with
+        "the guard fires" and "validation now rejects everything"."""
+        result = self._validate()
+        self.assertTrue(
+            result["valid"],
+            f"a coherent provisioned configuration must validate; errors: {result['errors']}",
+        )
+        self.assertEqual(result["errors"], [])
+
+    def test_one_account_configured_as_both_sides_is_still_valid(self):
+        """clearing == bank must NOT be rejected.
+
+        `_book_settlement_payout` treats one account as a supported configuration --
+        with no intermediate there is nothing to drain -- and
+        `test_one_account_configured_as_both_sides_needs_no_payout_leg` asserts the
+        resulting accounting. An earlier version of this guard rejected it, which
+        made the two settlement pipelines disagree about the same config and produced
+        the per-run Error Log row that code deliberately avoids. veg11 is in this
+        configuration today.
+        """
+        accounts = ensure_mollie_gl_accounts()
+        result = self._validate(mollie_bank_account=accounts["clearing_account"])
+        self.assertTrue(
+            result["valid"],
+            f"one account as both sides is supported, not an error; got {result['errors']}",
+        )
+
+    def test_a_bank_account_in_another_company_is_an_error(self):
+        accounts = ensure_mollie_gl_accounts()
+        foreign = self._foreign_account(accounts["company"])
+        self.assertTrue(foreign, "precondition: the site needs a leaf Bank account elsewhere")
+
+        result = self._validate(mollie_bank_account=foreign)
+        self.assertFalse(result["valid"], "an account outside the booking company must be refused")
+        errors = " ".join(result["errors"]).lower()
+        self.assertIn("bank account", errors)
+        self.assertIn("booked into", errors)
+
+    def test_a_clearing_account_in_another_company_is_an_error(self):
+        accounts = ensure_mollie_gl_accounts()
+        foreign = self._foreign_account(accounts["company"])
+        self.assertTrue(foreign)
+
+        result = self._validate(mollie_clearing_account=foreign)
+        self.assertFalse(result["valid"])
+        self.assertIn("clearing account", " ".join(result["errors"]).lower())
+
+    def test_a_fees_account_in_another_company_is_an_error(self):
+        """The fees account is in scope, contrary to an earlier version of this guard.
+
+        `_create_mollie_fee_entry` derives the Journal Entry's company from the
+        CLEARING account and stamps the fees account into the same entry, so a
+        cross-company fees account is rejected by ERPNext at posting time --
+        measured: "Account Tax Expense - _TC2 does not belong to Company
+        TEST-Payment-Integration-Company". Same coherence class, same rejection;
+        catching it here costs one comparison.
+        """
+        accounts = ensure_mollie_gl_accounts()
+        foreign = self._foreign_account(accounts["company"], account_type="")
+        foreign = foreign or frappe.db.get_value(
+            "Account", {"company": ["!=", accounts["company"]], "is_group": 0}, "name"
+        )
+        self.assertTrue(foreign, "precondition: the site needs a leaf account in another company")
+
+        result = self._validate(payment_processing_fees_account=foreign)
+        self.assertFalse(result["valid"], "a fees account outside the booking company must be refused")
+        self.assertIn("fees account", " ".join(result["errors"]).lower())
+
+    def test_the_coherence_errors_also_raise_when_asked_to(self):
+        """`raise_on_error=True` is what a pre-flight check uses, so the new errors
+        have to participate in it and not only in the result dict."""
+        accounts = ensure_mollie_gl_accounts()
+        foreign = self._foreign_account(accounts["company"])
+        self.assertTrue(foreign)
+        with provisioned_mollie_settings(mollie_bank_account=foreign):
+            with self.assertRaises(frappe.ValidationError):
+                get_mollie_config().validate_all_mollie_accounts(raise_on_error=True)
+
+    def test_skipping_the_settlement_account_skips_only_that_account(self):
+        """`skip_settlement_account=True` (virtual-account payments) must ignore a
+        foreign BANK account but still catch a foreign CLEARING one -- both callers
+        that pass it resolve the clearing account."""
+        accounts = ensure_mollie_gl_accounts()
+        foreign = self._foreign_account(accounts["company"])
+        self.assertTrue(foreign)
+
+        with provisioned_mollie_settings(mollie_bank_account=foreign):
+            skipped = get_mollie_config().validate_all_mollie_accounts(
+                raise_on_error=False, skip_settlement_account=True
+            )
+        self.assertNotIn("booked into", " ".join(skipped["errors"]).lower())
+
+        with provisioned_mollie_settings(mollie_clearing_account=foreign):
+            still_caught = get_mollie_config().validate_all_mollie_accounts(
+                raise_on_error=False, skip_settlement_account=True
+            )
+        self.assertFalse(still_caught["valid"], "a foreign clearing account must still be refused")
+
+
+if __name__ == "__main__":
+    unittest.main()

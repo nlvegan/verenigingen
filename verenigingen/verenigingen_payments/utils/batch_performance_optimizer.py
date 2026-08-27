@@ -65,6 +65,10 @@ class BatchPerformanceOptimizer:
             LEFT JOIN `tabSEPA Mandate` sm ON (
                 sm.member = m.name
                 AND sm.status = 'Active'
+                -- Purpose filter (#597). `result[member_name] = {...}` below is
+                -- last-wins with no ORDER BY, so without this a member's donation
+                -- mandate could become their dues mandate_data arbitrarily.
+                AND sm.used_for_memberships = 1
             )
             WHERE m.name IN %(member_names)s
             AND m.status = 'Active'
@@ -303,6 +307,14 @@ class BatchPerformanceOptimizer:
     def process_batch_invoices_optimized(self, invoice_names: List[str]) -> List[Dict[str, Any]]:
         """
         Process batch invoices with optimized data fetching
+
+        `invoice_names` is iterated as a LIST and deliberately not deduplicated: a
+        duplicate in it is a bug in whatever produced it, and it is rejected by
+        `DirectDebitBatch.validate_no_duplicate_invoices` when the caller saves the
+        batch these rows go into (#606). Silently collapsing it here would hide the
+        producer's bug from the one guard that can see it -- the batch document is
+        the single point every DD pipeline passes through, and each surviving row
+        becomes one debit in the SEPA XML.
 
         Args:
             invoice_names: List of invoice names to process

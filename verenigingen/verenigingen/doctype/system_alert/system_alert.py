@@ -237,4 +237,8 @@ def get_alert_summary():
         return summary
     except Exception as e:
         frappe.log_error(f"Failed to get alert summary: {str(e)}")
-        return {"active": 0, "acknowledged": 0, "resolved_today": 0, "critical_active": 0}
+        # The counts stay -- this is a @frappe.whitelist() endpoint, so a consumer
+        # outside this repo may index them -- but "error" now says the four zeros
+        # were never counted. "0 active alerts" and "the alert query failed" are
+        # not the same news for a monitoring dashboard (#593).
+        return {"active": 0, "acknowledged": 0, "resolved_today": 0, "critical_active": 0, "error": str(e)}

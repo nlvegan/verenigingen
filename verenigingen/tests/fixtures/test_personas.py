@@ -41,7 +41,6 @@ class TestPersonas:
                 payment_method="SEPA Direct Debit",
                 iban=generate_test_iban("TEST"),
                 bank_account_name="Hannah Happy",
-                newsletter_opt_in=1,
                 status="Active",
             )
             .with_membership(membership_type="Annual Membership", payment_method="SEPA Direct Debit")

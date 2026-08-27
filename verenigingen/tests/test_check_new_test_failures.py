@@ -190,5 +190,34 @@ class TestGateLogic(unittest.TestCase):
         self.assertEqual(rc, 0)
 
 
+class TestCommittedBaseline(unittest.TestCase):
+    """Keeps the prose about the committed baseline honest.
+
+    Three places assert, in the present tense, that the baseline is empty and
+    the gate therefore fully armed: this script's docstring,
+    `_base-server-tests.yml`'s step comment, and the baseline's own header.
+    Only the third lives in the file it describes; the other two are dated facts
+    restated elsewhere, which is exactly what made known_test_failures_v16.txt
+    misleading (#573). Nothing but this test keeps them in sync.
+
+    It also catches a subtler accident: the baseline is ~80 lines of `#` prose
+    and zero entries, so a header line that loses its leading `#` silently
+    becomes a baseline entry and quietly disarms the gate for that string.
+    """
+
+    def test_committed_baseline_is_empty(self):
+        entries = checker.load_baseline(checker.DEFAULT_BASELINE)
+        self.assertEqual(
+            entries,
+            set(),
+            "The committed baseline is no longer empty. That is allowed -- but "
+            "the docstring of scripts/testing/check_new_test_failures.py and the "
+            "step comment in .github/workflows/_base-server-tests.yml both state "
+            "it IS empty, and neither is generated. Update both, or this test is "
+            "the only thing that knew.\n"
+            f"Entries found: {sorted(entries)}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

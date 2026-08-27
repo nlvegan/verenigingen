@@ -80,6 +80,33 @@ hrms = ">=15.0.0"
 line-length = 110
 target-version = ['py310', 'py311']
 include = '\.pyi?$'
+# `exclude` governs directory TRAVERSAL only -- black happily reformats a file from
+# one of these paths when it is named explicitly on the command line, which is how a
+# 21-line addition under `verenigingen/tests/` became 107 changed lines. `force-exclude`
+# is what applies to named files, and these paths are hand-formatted on purpose.
+force-exclude = '''
+/(
+    \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+  | node_modules
+  | migrations
+  | patches
+  | scripts
+  | tests
+  | debug_utils
+  | dev_scripts
+  | integration_tests
+  | frontend_tests
+)/
+'''
 exclude = '''
 /(
     \.eggs

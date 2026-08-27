@@ -27,6 +27,7 @@ from verenigingen.services.billing.coverage_calculator import (
     get_coverage_calculator,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.error_log_assertions import assert_error_log
 
 
 def _sched_stub(**kwargs):
@@ -422,3 +423,52 @@ class TestFindInvoiceForPayment(EnhancedTestCase):
         # No invoices at all
         result = find_invoice_for_payment(member.name, getdate("2025-05-15"), 999.0)
         self.assertIsNone(result)
+
+    def test_two_unpaid_invoices_of_the_same_amount_are_refused(self):
+        """Strategy 3 must refuse, not fall back on `posting_date DESC` (#578 class).
+
+        Strategy 3's query ended `ORDER BY ABS(outstanding_amount - amount) ASC,
+        posting_date DESC LIMIT 1`: the first key is real evidence, the second decided
+        every tie it left. Two unpaid invoices of the SAME amount is the ordinary
+        consequence of a flat recurring fee, and this function is reached from the Ponto
+        webhook, which hands the answer to `create_ponto_payment_entry`.
+
+        Coverage dates are left unset so strategies 1 and 2 cannot resolve it first --
+        without that this test would pass on the coverage branch and prove nothing about
+        the amount branch.
+        """
+        self.expectErrorLog("Payment Invoice Match Ambiguous")
+        member = self._member_with_customer_and_schedule()
+        first = self.create_test_sales_invoice(customer=member.name)
+        second = self.create_test_sales_invoice(customer=member.name)
+        for inv in (first, second):
+            self._committed.append(("Sales Invoice", inv.name))
+            if inv.docstatus == 0:
+                inv.submit()
+            frappe.db.set_value(
+                "Sales Invoice",
+                inv.name,
+                {
+                    "posting_date": getdate("2025-05-10"),
+                    "outstanding_amount": 25.0,
+                    "custom_coverage_start_date": None,
+                    "custom_coverage_end_date": None,
+                },
+            )
+        frappe.db.commit()
+
+        result = find_invoice_for_payment(member.name, getdate("2025-05-15"), 25.0)
+
+        self.assertIsNone(
+            result, f"two unpaid invoices of this amount is a CHOICE, not a match; got {result}"
+        )
+        # `assertIsNone` alone would also pass if the fixture drifted so the query
+        # returned NOTHING -- and it would then pass against the UNFIXED code too. The
+        # Error Log row is the positive evidence that the refusal branch is what ran.
+        # `expectErrorLog` above cannot do this: it is a suppression, not an assertion.
+        assert_error_log(
+            self,
+            "Payment Invoice Match Ambiguous",
+            member.customer,
+            must_contain=(member.customer, first.name, second.name),
+        )

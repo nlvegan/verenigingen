@@ -18,6 +18,7 @@ Functions:
 
 import frappe
 from frappe import _
+from frappe.utils import today
 
 from verenigingen.utils.boolean_utils import cbool
 from verenigingen.utils.security.api_security_framework import (
@@ -25,6 +26,10 @@ from verenigingen.utils.security.api_security_framework import (
     critical_api,
     high_security_api,
     self_service_api,
+)
+from verenigingen.verenigingen_payments.utils.mandate_candidates import (
+    cancel_active_mandates,
+    carry_forward_purposes,
 )
 
 
@@ -156,6 +161,18 @@ def create_and_link_mandate_enhanced(
         response_data = dict(result.data) if result.data else {}
         if response_data.get("mandate_name"):
             mandate_doc = frappe.get_doc("SEPA Mandate", response_data["mandate_name"])
+            # Cancel first: a member may hold at most one Active mandate (#584), and
+            # this flow used to activate without cancelling anything -- which is how
+            # two Active mandates came to exist and `get_invoice_mandate_info` came
+            # to pick between them by recency. Purposes are carried forward so a
+            # donations-only replacement cannot silently end membership collections.
+            wanted = [f for f in ("used_for_memberships", "used_for_donations") if mandate_doc.get(f)]
+            superseded = cancel_active_mandates(
+                member,
+                f"Replaced by mandate {mandate_doc.mandate_id} on {today()}",
+                purposes=wanted,
+            )
+            carry_forward_purposes(mandate_doc, superseded["purposes"])
             mandate_doc.status = "Active"
             mandate_doc.is_active = 1
             mandate_doc.save()
@@ -369,17 +386,17 @@ def setup_sepa_direct_debit(iban: str = None, account_holder_name: str = None):
                 "redirect": "/payment_dashboard?success=bank_details_updated",
             }
 
-        # Deactivate any other active mandates for this member
-        old_mandates = frappe.get_all(
-            "SEPA Mandate",
-            filters={"member": member_name, "status": "Active", "is_active": 1},
-            fields=["name"],
+        # Deactivate any other active mandates for this member. Note the filter no
+        # longer requires is_active=1: `status` is the field the guard and the batch
+        # query both read, and a row with status Active but is_active 0 would have
+        # been left behind to block the new mandate.
+        # Membership self-service: supersede only the membership mandate, so a
+        # member's separate donation mandate keeps collecting (#584).
+        superseded = cancel_active_mandates(
+            member_name,
+            f"Replaced by a new mandate on {today()}",
+            purposes=["used_for_memberships"],
         )
-        for old in old_mandates:
-            old_doc = frappe.get_doc("SEPA Mandate", old.name)
-            old_doc.status = "Cancelled"
-            old_doc.is_active = 0
-            old_doc.save()
 
         # Generate unique mandate ID
         mandate_id = _generate_sepa_mandate_id(member_name)
@@ -398,6 +415,12 @@ def setup_sepa_direct_debit(iban: str = None, account_holder_name: str = None):
                 "mandate_type": "RCUR",
                 "scheme": "SEPA",
                 "sign_date": today(),
+                # This is the membership self-service flow, so memberships stays on
+                # (set below); donations/other are carried forward from whatever was
+                # superseded, so a replacement cannot silently narrow what the member
+                # is collected for (#584).
+                "used_for_donations": 1 if superseded["purposes"]["used_for_donations"] else 0,
+                "used_for_other": 1 if superseded["purposes"]["used_for_other"] else 0,
                 "first_collection_date": frappe.utils.add_days(today(), 5),
                 "used_for_memberships": 1,
                 "frequency": "Monthly",

@@ -75,7 +75,7 @@ class _FakeMandates:
         self._created = created_mandate
         self._delete_raises = delete_raises
 
-    def create(self, data):
+    def create(self, data=None, idempotency_key="", **params):
         self._recorder["mandates_created"].append(data)
         return self._created
 

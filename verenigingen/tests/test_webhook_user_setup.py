@@ -21,6 +21,7 @@ import string
 import frappe
 
 from verenigingen.setup import webhook_user_setup as w
+from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 SETTINGS_DOCTYPE = "Verenigingen Payments Settings"
@@ -43,11 +44,19 @@ class TestWebhookUserSetup(VereningingenTestCase):
         # contention during a run (the live veg11 site's scheduler/workers can
         # hold row locks). Harmless on an isolated CI DB where nothing leaks.
         cls._sweep_webhook_users()
+        # ...but the sweep deletes the site's CANONICAL webhook user too -- this
+        # suite mints it by design, since generate_webhook_user_email() is
+        # deterministic per site -- while the last tearDown restored the Single to
+        # the captured value that named it. Re-run the guarded restore afterwards
+        # so the sweep cannot leave a dangling Link behind it (#513).
+        cls._restore_settings_webhook_user(
+            frappe.db.get_single_value(SETTINGS_DOCTYPE, "webhook_user")
+        )
         super().tearDownClass()
 
     def tearDown(self):
         # Restore the Single before base cleanup runs.
-        self._set_settings_webhook_user(self._original_webhook_user)
+        self._restore_settings_webhook_user(self._original_webhook_user)
         # Take ownership of webhook-User cleanup: delete them here (best-effort,
         # tolerating lock deadlocks/timeouts) and drop them from the tracked-doc
         # list so the base tearDown does not re-attempt a delete. The base cleanup
@@ -62,10 +71,38 @@ class TestWebhookUserSetup(VereningingenTestCase):
 
     # ---- helpers -----------------------------------------------------------
 
-    def _set_settings_webhook_user(self, value):
-        """Directly persist the Single's webhook_user field (bypasses hooks)."""
+    @classmethod
+    def _set_settings_webhook_user(cls, value):
+        """Directly persist the Single's webhook_user field (bypasses hooks).
+
+        Deliberately unguarded: three tests below plant an address whose User does
+        not exist, because that is the state they are about (a configured user that
+        was deleted). Use ``_restore_settings_webhook_user`` for cleanup.
+        """
         frappe.db.set_single_value(SETTINGS_DOCTYPE, "webhook_user", value)
         frappe.db.commit()
+
+    @classmethod
+    def _restore_settings_webhook_user(cls, value):
+        """Put back a captured webhook_user -- but only if its User still exists.
+
+        #513: this suite deletes every webhook User it creates, including the
+        site's canonical one, and then restored the Single to the value captured
+        in setUp -- which named exactly that user. The result was a dangling Link
+        that survived the run, and every later `Verenigingen Payments Settings`
+        `.save()` on that site then threw "Could not find Webhook User". Measured
+        on test_site_4: 21 green tests here took the Single from
+        referent_exists=True to referent_exists=False, and the next module's
+        setUpClass swallowed the resulting failure 12 times in 14 tests.
+
+        Clearing is the correct fallback, not a workaround: an unset webhook_user
+        is a state production handles (`get_service_user` falls back to
+        Administrator, `verify_webhook_user_setup` reports incomplete). A dangling
+        one is invalid state that breaks an unrelated Single's every save.
+        """
+        if value and not frappe.db.exists("User", value):
+            value = None
+        cls._set_settings_webhook_user(value)
 
     @staticmethod
     def _delete_webhook_user(email, retries=6):
@@ -100,7 +137,12 @@ class TestWebhookUserSetup(VereningingenTestCase):
         # The comment above notes this suite has been pointed at the live site before.
         site = getattr(frappe.local, "site", "") or ""
         if not (site.startswith("test_site") or site.endswith(".localhost") or frappe.conf.get("developer_mode")):
-            frappe.logger().warning(f"Refusing to sweep webhook users on non-test site {site!r}")
+            # get_harness_logger, NOT frappe.logger(): this is the only record that
+            # the sweep was skipped entirely, and a bare logger drops .warning() on
+            # level under bench run-tests.
+            get_harness_logger("webhook-user-setup").warning(
+                "Refusing to sweep webhook users on non-test site %r", site
+            )
             return
         for email in frappe.get_all("User", filters={"email": ["like", "webhook-user%"]}, pluck="name"):
             cls._delete_webhook_user(email)
@@ -108,6 +150,63 @@ class TestWebhookUserSetup(VereningingenTestCase):
     def _track_if_exists(self, email):
         if email and frappe.db.exists("User", email):
             self.track_doc("User", email)
+
+    # ---- the Single this suite must not corrupt ---------------------------
+
+    def test_restore_never_reinstates_a_webhook_user_that_no_longer_exists(self):
+        """#513: this suite left the Single naming a User it had just deleted.
+
+        `Verenigingen Payments Settings.webhook_user` is a Link, so a dangling
+        value makes EVERY later save() of that Single throw "Could not find Webhook
+        User" -- which is what defeated the SEPA setup in four other test classes
+        and was swallowed there. The restore must not put back a value whose
+        referent is gone.
+        """
+        ghost = "webhook-user-513-restore-pin@example.invalid"
+        self.assertFalse(frappe.db.exists("User", ghost), "precondition: no such User")
+
+        self._restore_settings_webhook_user(ghost)
+        self.assertFalse(
+            frappe.db.get_single_value(SETTINGS_DOCTYPE, "webhook_user"),
+            "a captured value whose User is gone must be cleared, not reinstated",
+        )
+
+        # ...and a value that IS still valid is genuinely restored, so the guard
+        # has not been turned into "always clear".
+        live = w.generate_webhook_user_email()
+        self.assertTrue(w.create_webhook_user_account(live, w.generate_secure_password())["success"])
+        self._track_if_exists(live)
+        self._restore_settings_webhook_user(live)
+        self.assertEqual(frappe.db.get_single_value(SETTINGS_DOCTYPE, "webhook_user"), live)
+
+    def test_the_single_is_left_consistent_after_a_users_deletion(self):
+        """The end-to-end shape of the leak, without waiting for tearDownClass.
+
+        Configure the canonical user, delete it the way the class-level sweep
+        does, then run the restore the teardown runs. What must NOT survive is a
+        setting naming a deleted User.
+        """
+        email = w.generate_webhook_user_email()
+        self.assertTrue(w.create_webhook_user_account(email, w.generate_secure_password())["success"])
+        w.configure_webhook_user_in_settings(email)
+        self.assertEqual(frappe.db.get_single_value(SETTINGS_DOCTYPE, "webhook_user"), email)
+
+        self._delete_webhook_user(email)
+        self.assertFalse(frappe.db.exists("User", email), "precondition: the sweep removed it")
+
+        self._restore_settings_webhook_user(email)
+
+        configured = frappe.db.get_single_value(SETTINGS_DOCTYPE, "webhook_user")
+        self.assertFalse(
+            configured and not frappe.db.exists("User", configured),
+            f"the Single still names a deleted User: {configured!r}",
+        )
+        # And the Single can be saved again -- the property the other four test
+        # classes actually depend on. Saved as the acting user, without
+        # ignore_permissions: a bypass here would also bypass _validate_links,
+        # which is the exact check being asserted.
+        settings = frappe.get_single(SETTINGS_DOCTYPE)
+        settings.save()
 
     # ---- generate_webhook_user_email --------------------------------------
 

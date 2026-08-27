@@ -144,13 +144,62 @@ runs:
     - name: Install System Dependencies
       shell: bash
       run: |
-        sudo apt-get update
-        sudo apt-get remove -y mysql-server mysql-client || true
-        sudo apt-get install -y \
+        # The wkhtmltopdf fetch below was hardened in #319 after six shards died
+        # in one day on an unretried 5xx. The apt fetches in this same step never
+        # got the same treatment, and on 2026-08-19 seven of twelve shards hung
+        # here: the Azure apt mirror answered `Ign:` for every line, apt fell back
+        # to archive.ubuntu.com, and stalled on `noble-security InRelease` until
+        # the job's 60-minute cap killed it. `Run Tests` was skipped, so each
+        # shard reported failure having run no tests - the same symptom and the
+        # same log-dive as #319. The green shards fetched the Azure mirror in 1s.
+        #
+        # Retries alone would NOT have caught this. #319 was exit 8, a server
+        # error response, which retrying does fix; this was an indefinite hang,
+        # which only a timeout fixes. Both are set, and they apply to every apt
+        # invocation in this step rather than just the one that was observed
+        # failing - `apt-get install` can stall on exactly the same mirror.
+        sudo tee /etc/apt/apt.conf.d/99-ci-network >/dev/null <<'APTCONF'
+        Acquire::Retries "5";
+        Acquire::http::Timeout "30";
+        Acquire::https::Timeout "30";
+        APTCONF
+
+        # Wall-clock backstop, after erpnext's run_ci_step()
+        # (.github/helper/install.sh). Composite-action steps cannot take
+        # `timeout-minutes`, so the bound has to be applied per-command here.
+        # Without it the only limit is the job's 60 minutes, which is what turned
+        # one unreachable mirror into ~7 runner-hours across the matrix for zero
+        # test signal.
+        #
+        # `sudo timeout`, not `timeout sudo`: the child runs as root, so timeout
+        # must be root too or it cannot signal what it is supposed to kill.
+        # `--foreground` so the signal reaches the command rather than only the
+        # timeout wrapper. `date -u` on both sides makes a stall's duration
+        # readable in the log without arithmetic - the diagnosis cost is what
+        # made this expensive twice.
+        apt_get() {
+          date -u
+          sudo timeout --foreground "${CI_APT_STEP_TIMEOUT:-300}" apt-get "$@"
+          local rc=$?
+          date -u
+          return $rc
+        }
+
+        if ! apt_get update; then
+          echo "::error::apt-get update failed or timed out. The Ubuntu mirror is unreachable from this runner. This is an infrastructure failure, not a code failure - no test has run at this point. Re-run the job."
+          exit 1
+        fi
+
+        apt_get remove -y mysql-server mysql-client || true
+
+        if ! apt_get install -y \
           libcups2-dev \
           redis-server \
           mariadb-client \
-          libmariadb-dev
+          libmariadb-dev; then
+          echo "::error::apt-get install failed or timed out. The Ubuntu mirror is unreachable from this runner. This is an infrastructure failure, not a code failure - no test has run at this point. Re-run the job."
+          exit 1
+        fi
 
         # Install wkhtmltopdf (see the cache step above for why this is guarded).
         WKHTMLTOX_DEB=/tmp/wkhtmltox.deb
@@ -182,7 +231,7 @@ runs:
           exit 1
         fi
 
-        sudo apt-get install -y "$WKHTMLTOX_DEB"
+        apt_get install -y "$WKHTMLTOX_DEB"
 
     - name: Initialize Bench Environment
       shell: bash

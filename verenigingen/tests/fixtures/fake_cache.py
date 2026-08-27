@@ -6,16 +6,30 @@ In-process, dict-backed cache isolation for ``frappe.cache``.
 
 WHY THIS EXISTS
 ---------------
-"Server Tests" CI runs 8 test shards as parallel PROCESSES against ONE shared
-MariaDB and ONE shared redis. When any sibling shard calls
-``frappe.clear_cache()`` it FLUSHES the entire shared redis db -- wiping every
-key regardless of how unique that key's name is. Tests that assert "a value I
-just put in ``frappe.cache()`` is readable a moment later" therefore fail
-non-deterministically: a sibling's flush can evict the value between the
-``set_value`` and the ``get_value``, even with a per-test unique key.
+``frappe.clear_cache()`` FLUSHES the entire redis db -- wiping every key
+regardless of how unique that key's name is. Tests that assert "a value I just
+put in ``frappe.cache()`` is readable a moment later" therefore fail
+non-deterministically: a flush can evict the value between the ``set_value`` and
+the ``get_value``, even with a per-test unique key.
 
-A per-process in-memory dict is immune to a redis FLUSH issued by another OS
-process (they share no memory). Routing a small allow-list of cache keys
+NOT because CI shards share a redis, which this used to claim. Every shard job
+gets its **own** ``redis:alpine`` containers -- the ``services:`` block
+(``redis-cache``, ``redis-queue``) sits inside the matrix job in
+``.github/workflows/_base-server-tests.yml``, so GitHub instantiates them per
+shard, exactly as it does the ``mariadb:10.6``. A sibling shard cannot flush our
+redis at all.
+
+Two real exposures remain, and they are why this still exists:
+
+* **Within one shard.** Any earlier or concurrent test in the same process that
+  calls ``frappe.clear_cache()`` flushes the same redis we are reading. No
+  sibling is required -- and this is the common case.
+* **``bench run-parallel-tests``**, where the worker processes really do share
+  one site and one redis (see ``test_factory_concurrency.py``). That is the mode
+  the shared-DB reasoning belongs to.
+
+A per-process in-memory dict is immune to a redis FLUSH from any of those, since
+it lives in this process's memory rather than in redis. Routing a small allow-list of cache keys
 through such a dict for the duration of one test makes the set->get / lock
 round-trip deterministic while still exercising the REAL caching/locking
 *logic* under test (the code still calls get_value/set_value/delete_value and

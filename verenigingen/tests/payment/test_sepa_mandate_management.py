@@ -235,8 +235,13 @@ class TestDetectSepaMandateInconsistencies(EnhancedTestCase):
 
     def test_detects_multiple_current_mandates(self):
         member = self.create_test_member(first_name="MultiCurrent")
+        # Two Active mandates on one member is still legitimate since #584 -- for
+        # DIFFERENT purposes. That is the state this diagnostic is about: both child
+        # links flagged is_current, which nothing in the app can then tell apart.
         m1 = self.create_test_sepa_mandate(member=member.name)
-        m2 = self.create_test_sepa_mandate(member=member.name)
+        m2 = self.create_test_sepa_mandate(
+            member=member.name, used_for_memberships=0, used_for_donations=1
+        )
         # Add two child links both flagged current -> multiple_current_mandates.
         # The Dynamic Link requires sepa_mandate_doctype to be set explicitly.
         member.reload()

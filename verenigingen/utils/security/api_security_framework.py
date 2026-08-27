@@ -838,6 +838,48 @@ def get_security_framework() -> APISecurityFramework:
     return _security_framework
 
 
+def _apply_operation_result_http_status(result) -> None:
+    """Deliver a failing OperationResult's ``http_status`` as the actual HTTP status (#481).
+
+    ``http_status`` used to be a number in the JSON body and nowhere else, so a result saying
+    500 was delivered with a 200 and any caller checking the transport read it as success.
+    This is the only frame that sees an OperationResult on its way out -- ``handle_api_error``
+    cannot do it, because endpoints also ``return OperationResult.fail(...)`` directly without
+    passing through its ``except`` branches.
+
+    Narrow in one sense and NOT in another, and the second is the one to read before changing
+    a caller. A result that does not name an ``http_status`` keeps its 200, and most
+    ``OperationResult.fail()`` calls in the app name none -- so the 180 endpoints that merely
+    touch OperationResult are untouched. But ``handle_api_error``'s four branches ALWAYS set
+    one (400/403/400/500), so for the 39 endpoints where that decorator can fire, EVERY
+    exception it catches now leaves as a non-200.
+
+    That changes client behaviour, not just a number. Read from frappe/public/js/frappe/
+    request.js (mechanism confirmed at frappe/utils/response.py:150; the JS consequences are
+    read, not observed -- no HTTP request was made against this tree):
+
+      * 500 -> request.js:215 routes to frappe.request.report_error(), i.e. the traceback /
+        report-issue dialog, instead of the endpoint's own friendly message;
+      * 403 -> request.js:150 shows a generic "Not permitted", and for a Guest session calls
+        frappe.app.handle_session_expired() -- a login redirect. One guest-facing endpoint is
+        in scope: membership_application.suggest_chapters_for_postal_code;
+      * 400 -> no statusCode handler, falls through to the generic error path.
+
+    This does NOT affect durability. ``frappe/app.py:428`` commits on POST/PUT/DELETE whatever
+    the status is; only a raised exception reaches the rollback at ``app.py:147``.
+    """
+    if getattr(result, "success", True):
+        # Clear, do not merely skip. These endpoints call each other: an outer one that
+        # recovers from an inner one's failure would otherwise emit a success body under the
+        # inner 4xx, because frappe/utils/response.py:150 consumes whatever is left here and
+        # the outer frame never gets to overrule it.
+        frappe.local.response.pop("http_status_code", None)
+        return
+    status = getattr(result, "http_status", None)
+    if status:
+        frappe.local.response["http_status_code"] = status
+
+
 def api_security_framework(
     security_level: SecurityLevel = None,
     operation_type: OperationType = None,
@@ -1023,6 +1065,7 @@ def api_security_framework(
                 # to_dict() on TypeError — that would mask a genuine signature mismatch.
                 to_dict = getattr(result, "to_dict", None)
                 if callable(to_dict):
+                    _apply_operation_result_http_status(result)
                     return to_dict(scrub_sensitive=True)
                 return result
 

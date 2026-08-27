@@ -114,7 +114,7 @@ class TestAmendmentFeeChangeFix(FrappeTestCase):
         manager = get_fee_change_history_manager(mock_member)
 
         # Verify it's configured for fee change history with proper limits
-        self.assertEqual(manager.member, mock_member)
+        self.assertEqual(manager.doc, mock_member)
         self.assertEqual(manager.history_field, "fee_change_history")
         self.assertEqual(manager.max_entries, 50)  # Fee changes get more entries than payments
 
