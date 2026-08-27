@@ -650,8 +650,17 @@ class TestFindBookedPaymentAmbiguity(_RefundFixtureMixin, EnhancedTestCase):
         self.donor = self._make_donor()
         self.customer = frappe.get_doc("Donor", self.donor).get_or_create_customer()
 
-    def _make_submitted_journal_entry(self, payment_id):
-        """A forward donation booking: Dr Mollie Clearing / Cr Donation Income."""
+    def _make_balanced_forward_je(self, payment_id):
+        """A forward donation booking: Dr Mollie Clearing / Cr Donation Income.
+
+        Named for what it is rather than `_make_submitted_journal_entry`, which
+        already exists in `mollie/tests/test_webhook_wrapper_unified_sweep.py` and
+        builds something quite different -- an unbalanced single-row stub whose
+        docstatus is forced in the DB to skip JE validation. Two builders with one
+        name is what the duplicate-helper ratchet flags, and the honest fix is the
+        name, since neither can be replaced by the other: this one has to post a
+        real balanced entry because the ambiguity lookup reads its GL rows.
+        """
         je = frappe.new_doc("Journal Entry")
         je.voucher_type = "Journal Entry"
         je.company = COMPANY
@@ -704,7 +713,7 @@ class TestFindBookedPaymentAmbiguity(_RefundFixtureMixin, EnhancedTestCase):
             "this test is about the no-Donation path",
         )
 
-        je = self._make_submitted_journal_entry(payment_id)
+        je = self._make_balanced_forward_je(payment_id)
         pe = self._make_submitted_receive_payment_entry(payment_id)
 
         booked = find_booked_payment(payment_id)
