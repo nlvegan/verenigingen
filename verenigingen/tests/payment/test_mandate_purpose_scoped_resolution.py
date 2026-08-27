@@ -668,8 +668,8 @@ class TestTheAmbiguityRefusalIsActionable(PurposeScopedChainFixture):
     ...". A refusal nobody can act on is not much better than a wrong guess.
     """
 
-    def test_both_colliding_mandates_are_named_in_the_error_log(self):
-        chain = self._build_member_with_invoice(first_name="AmbigLog")
+    def _member_with_two_same_purpose_active_mandates(self, first_name):
+        chain = self._build_member_with_invoice(first_name=first_name)
         second = frappe.get_doc(
             {
                 "doctype": "SEPA Mandate",
@@ -687,19 +687,24 @@ class TestTheAmbiguityRefusalIsActionable(PurposeScopedChainFixture):
         )
         second.insert()
         # Bypasses `validate`, which is the point: this is the route by which two
-        # same-purpose Active mandates remain reachable.
+        # same-purpose Active mandates remain reachable in production, and therefore
+        # the reason the batch code refuses instead of trusting the guard.
         frappe.db.set_value(
             "SEPA Mandate", second.name, {"status": "Active", "is_active": 1}, update_modified=False
         )
+        return chain, second
+
+    def _assert_refusal_names_both(self, endpoint, first_name):
+        chain, second = self._member_with_two_same_purpose_active_mandates(first_name)
 
         # `tabError Log` is MyISAM, i.e. NON-transactional, so rows survive the
         # teardown rollback -- and test member names repeat across runs. Reading
         # "the newest log naming this member" therefore found a log from an EARLIER
-        # run and this test passed with the defect re-introduced. Scope it to rows
+        # run, and this test passed with the defect re-introduced. Scope it to rows
         # that did not exist before the call.
         pre_existing = {r.name for r in frappe.get_all("Error Log", fields=["name"])}
 
-        rows = ui.load_unpaid_invoices(
+        rows = endpoint(
             date_range="all", membership_type=self._membership_type(chain), limit=100
         )
         row = self._batch_row_for_invoice(rows, chain)
@@ -719,3 +724,16 @@ class TestTheAmbiguityRefusalIsActionable(PurposeScopedChainFixture):
                 message,
                 f"the refusal does not name {mandate_id}, so nobody can act on it: {message}",
             )
+
+    def test_both_colliding_mandates_are_named_in_the_error_log(self):
+        self._assert_refusal_names_both(ui.load_unpaid_invoices, "AmbigLog")
+
+    def test_the_secure_twin_also_names_both_colliding_mandates(self):
+        """The twin carries its own copy of this loop, and it was equally broken.
+
+        Coverage on the first round of this PR was 58.8% for
+        `sepa_batch_ui_secure.py`, and the uncovered lines were exactly this path --
+        which is how the log-before-blank defect reached both copies while a test
+        existed for only one of them.
+        """
+        self._assert_refusal_names_both(secure.load_unpaid_invoices_secure, "AmbigLogSec")
