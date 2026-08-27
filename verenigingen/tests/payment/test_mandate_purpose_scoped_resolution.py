@@ -607,6 +607,36 @@ class TestTheAutomatedCollectionPathIsPurposeScoped(PurposeScopedChainFixture):
             "the newer donation-only mandate was resolved for a dues collection",
         )
 
+    def test_the_daily_optimizer_query_returns_one_row_per_invoice(self):
+        """`dd_batch_scheduler.daily_batch_optimization` runs this DAILY.
+
+        Registered at `hooks/scheduler.py:58` -> `create_optimal_batches`. Measured
+        before the fix: adding a donation-only Active mandate turned 1 row into 2 for
+        the same invoice, with different mandate references and no dedup downstream.
+        """
+        chain, donation = self._chain_with_newer_donation_mandate("DailyOpt")
+        frappe.db.set_value(
+            "Member",
+            chain["member"].name,
+            {"payment_method": "SEPA Direct Debit", "iban": MEMBERSHIP_IBAN},
+        )
+
+        # Call the production function, not a copy of its SQL: a test that embeds
+        # the query passes even if the real one loses the purpose filter.
+        from verenigingen.verenigingen_payments.api.dd_batch_optimizer import (
+            get_eligible_invoices_for_batching,
+        )
+
+        rows = get_eligible_invoices_for_batching()
+        mine = [r for r in rows if r.get("invoice") == chain["invoice"].name]
+
+        self.assertEqual(len(mine), 1, f"one invoice produced {len(mine)} debit rows: {mine}")
+        self.assertEqual(
+            mine[0]["mandate_reference"],
+            chain["mandate"].mandate_id,
+            "the donation mandate supplied the reference for a dues batch",
+        )
+
     def test_the_performance_optimizer_returns_the_membership_mandate(self):
         from verenigingen.verenigingen_payments.utils.batch_performance_optimizer import (
             BatchPerformanceOptimizer,

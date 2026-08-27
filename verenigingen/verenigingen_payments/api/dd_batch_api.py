@@ -424,7 +424,15 @@ def get_eligible_invoices(filters: dict | None = None):
             sm.status as mandate_status
         FROM `tabSales Invoice` si
         LEFT JOIN `tabMember` mem ON mem.customer = si.customer
-        LEFT JOIN `tabSEPA Mandate` sm ON mem.name = sm.member AND sm.status = 'Active'
+        -- Purpose filter (#597). Without it this join produced one row PER
+        -- Active mandate, so a member with a membership mandate and a donation
+        -- mandate yielded TWO rows for ONE invoice -- and `sm.mandate_id`/`sm.iban`
+        -- become the Direct Debit Batch child row, i.e. two debits. There is no
+        -- per-member dedup after this query.
+        LEFT JOIN `tabSEPA Mandate` sm
+            ON mem.name = sm.member
+            AND sm.status = 'Active'
+            AND sm.used_for_memberships = 1
         WHERE {' AND '.join(conditions)}
         AND sm.mandate_id IS NOT NULL
         ORDER BY si.due_date ASC, si.outstanding_amount DESC
