@@ -129,11 +129,22 @@ class TestXMLSignDateIsNotAGuess(PurposeScopedMandateFixture):
             "an unresolvable mandate reference is not a resolved one; reporting "
             "used_fallback=False tells the caller this date came from the named mandate",
         )
-        self.assertNotEqual(
+        # `getdate()` is the site-tz today the adapter now reports for "unknown", and
+        # the fixture's sign dates are site-tz too, so both sides of these comparisons
+        # are on one clock. Asserting the positive contract as well as the negative one:
+        # "not the donation mandate's date" alone would also hold if the adapter had
+        # borrowed the MEMBERSHIP mandate's date instead.
+        self.assertEqual(
             getdate(sign_date),
-            getdate(self.donation_mandate.sign_date),
-            "the donation mandate's signature date reached the XML for a membership debit",
+            getdate(),
+            "an unresolved reference reports today as the missing-date sentinel",
         )
+        for other in (self.donation_mandate, self.membership_mandate):
+            self.assertNotEqual(
+                getdate(sign_date),
+                getdate(other.sign_date),
+                f"mandate {other.mandate_id}'s signature date reached the XML for this debit",
+            )
 
     def test_the_named_mandate_still_resolves(self):
         """The control: the lookup must still work when the reference IS resolvable."""
@@ -418,7 +429,7 @@ class TestMandateCreationWarningIsAboutTheSamePurpose(DonationOnlyMandateFixture
     mandate is untouched -- as it should be (#605).
     """
 
-    def _validate(self, iban):
+    def _validate_mandate_creation(self, iban):
         from verenigingen.api.member import sepa_api
 
         return sepa_api.validate_mandate_creation(
@@ -426,7 +437,7 @@ class TestMandateCreationWarningIsAboutTheSamePurpose(DonationOnlyMandateFixture
         )
 
     def test_a_donation_mandate_on_the_same_iban_is_not_reported_as_replaceable(self):
-        result = self._validate(DONATION_IBAN)
+        result = self._validate_mandate_creation(DONATION_IBAN)
 
         self.assertTrue(result["valid"], result)
         self.assertNotIn(
@@ -440,7 +451,7 @@ class TestMandateCreationWarningIsAboutTheSamePurpose(DonationOnlyMandateFixture
         membership = self._insert_active_mandate(
             iban=DONATION_IBAN, sign_date=today(), used_for_memberships=1, used_for_donations=0
         )
-        result = self._validate(DONATION_IBAN)
+        result = self._validate_mandate_creation(DONATION_IBAN)
 
         self.assertEqual(result.get("existing_mandate"), membership.mandate_id)
 

@@ -26,6 +26,7 @@ Mandate lookups run against real SEPA Mandate rows created via the test factory.
 from datetime import date
 
 import frappe
+from frappe.utils import getdate
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.services.sepa_xml_adapter import (
@@ -111,7 +112,7 @@ class TestMandateSignDateDBLookup(EnhancedTestCase):
             mandate_reference=bogus_ref, member=member.name
         )
         self.assertTrue(used_fallback)
-        self.assertEqual(result_date, date.today())
+        self.assertEqual(result_date, getdate())
         self.assertNotEqual(result_date, sign)
         # Nothing was resolved, so nothing is cached under either reference -- a
         # cached borrowed date would outlive this call and reach later invoices.
@@ -122,14 +123,14 @@ class TestMandateSignDateDBLookup(EnhancedTestCase):
         result_date, used_fallback = self.adapter._lookup_mandate_sign_date(
             mandate_reference=None, member=None
         )
-        self.assertEqual(result_date, date.today())
+        self.assertEqual(result_date, getdate())
         self.assertTrue(used_fallback)
 
     def test_lookup_not_found_falls_back_to_today(self):
         result_date, used_fallback = self.adapter._lookup_mandate_sign_date(
             mandate_reference="MAND-TOTALLY-MISSING-999", member=None
         )
-        self.assertEqual(result_date, date.today())
+        self.assertEqual(result_date, getdate())
         self.assertTrue(used_fallback)
 
     def test_get_mandate_sign_date_db_integration(self):

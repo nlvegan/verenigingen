@@ -325,6 +325,19 @@ class TestSecurityMonitoring(EnhancedTestCase):
         super().setUp()
         self.monitor = get_security_monitor()
         self.tester = get_security_tester()
+        # `get_security_monitor()` is a process-wide singleton and `active_threats` is
+        # never cleared between tests, so `_calculate_security_score(0, 0, 0, 0)` -- which
+        # deducts 15 per active CRITICAL and 10 per active HIGH -- returns 100 only when
+        # no co-tenant test has recorded an incident. It returned 40.0 in CI shard 3 once
+        # shard re-packing put such a module ahead of this one. Isolate rather than assert
+        # around it: a test named "no security events" needs a monitor with none.
+        self._saved_threats = dict(self.monitor.active_threats)
+        self.monitor.active_threats.clear()
+
+    def tearDown(self):
+        self.monitor.active_threats.clear()
+        self.monitor.active_threats.update(self._saved_threats)
+        super().tearDown()
 
     def test_threat_level_definitions(self):
         """Test threat level definitions"""

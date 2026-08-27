@@ -522,7 +522,11 @@ class SEPAXMLAdapter:
         """
         if not mandate_reference:
             frappe.logger().warning("No mandate reference provided, using today's date as sign date")
-            return date.today(), True
+            # `getdate()` (site tz), not `date.today()` (server/UTC tz). In the late-UTC
+            # window the two name different calendar days, and this date is written into
+            # the XML as `DtOfSgntr`. `dues_payment_processor` already carries this fix
+            # with the same reasoning -- it was a real TZ-boundary bug there, not a flake.
+            return getdate(), True
 
         try:
             # Try to find by mandate_id first
@@ -559,12 +563,12 @@ class SEPAXMLAdapter:
         except Exception as e:
             frappe.logger().warning(f"Error looking up mandate sign date for {mandate_reference}: {str(e)}")
 
-        # Fallback to today if no mandate found
+        # Fallback to today (site tz -- see the `getdate()` note above) if no mandate found
         frappe.logger().warning(
             f"Mandate {mandate_reference} (member {member}) not found as Active or has no "
             f"sign date; reporting a missing sign date rather than borrowing another mandate's"
         )
-        return date.today(), True
+        return getdate(), True
 
     def _prefetch_mandate_data(self, invoices) -> None:
         """
