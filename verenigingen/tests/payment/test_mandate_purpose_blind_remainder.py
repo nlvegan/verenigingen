@@ -253,6 +253,18 @@ class TestDonationMandateDoesNotSuppressMembershipMandateCreation(DonationOnlyMa
             "the repair sweep skips members whose only Active mandate is for donations",
         )
 
+        # The negative half: without it this asserts nothing about the filter --
+        # a sweep that listed every member on the site would pass too.
+        self._insert_active_mandate(
+            iban=DONATION_IBAN, sign_date=today(), used_for_memberships=1, used_for_donations=0
+        )
+        still_found = create_missing_sepa_mandates(dry_run=True)["results"]["mandates"]
+        self.assertNotIn(
+            self.member.name,
+            [row["member"] for row in still_found],
+            "a member WITH a membership mandate must not be listed as needing one",
+        )
+
     def test_fixing_one_member_creates_their_membership_mandate(self):
         from verenigingen.verenigingen_payments.api.sepa_mandate_management import (
             fix_specific_member_sepa_mandate,
@@ -302,7 +314,7 @@ class TestDuesEligibilityIsNotAnsweredByADonationMandate(DonationOnlyMandateFixt
     that this member has one.
     """
 
-    def _invoice_row(self):
+    def _billing_eligibility_row(self):
         return {
             "invoice": "SINV-PURPOSE-TEST",
             "member": self.member.name,
@@ -316,8 +328,14 @@ class TestDuesEligibilityIsNotAnsweredByADonationMandate(DonationOnlyMandateFixt
             validate_member_eligibility_for_billing,
         )
 
+        # The gate records its refusal through `frappe.log_error`, which is the
+        # behaviour under test succeeding -- declare it so the harness's automatic
+        # Error Log check does not read it as an incident (and so this test still
+        # passes under VERENIGINGEN_FAIL_ON_ERROR_LOG=1).
+        self.expectErrorLog("SEPA Mandate Validation")
+
         self.assertFalse(
-            validate_member_eligibility_for_billing(self._invoice_row()),
+            validate_member_eligibility_for_billing(self._billing_eligibility_row()),
             "this member has no membership mandate, so there is nothing to debit dues under",
         )
 
@@ -330,7 +348,7 @@ class TestDuesEligibilityIsNotAnsweredByADonationMandate(DonationOnlyMandateFixt
         self._insert_active_mandate(
             iban=DONATION_IBAN, sign_date=today(), used_for_memberships=1, used_for_donations=0
         )
-        self.assertTrue(validate_member_eligibility_for_billing(self._invoice_row()))
+        self.assertTrue(validate_member_eligibility_for_billing(self._billing_eligibility_row()))
 
     def test_the_missing_payment_info_report_lists_this_member(self):
         from verenigingen.verenigingen.report.members_without_payment_info.members_without_payment_info import (
@@ -386,3 +404,42 @@ class TestPaymentPlanDoesNotAttachToADonationMandate(DonationOnlyMandateFixture)
 
         self.assertEqual(plan.payment_method, "SEPA Direct Debit")
         self.assertEqual(plan.payment_account, membership.name)
+
+
+class TestMandateCreationWarningIsAboutTheSamePurpose(DonationOnlyMandateFixture):
+    """The member form's pre-creation check warned about the wrong mandate.
+
+    `sepa_api.validate_mandate_creation` is what `sepa-utils.js` calls before
+    creating a mandate; on `existing_mandate` it tells the member *"Existing
+    mandate {0} will be replaced"* and afterwards *"Previous mandate has been
+    marked as replaced."* Both were false for a member creating a MEMBERSHIP
+    mandate on the account their DONATION mandate already uses:
+    `cancel_active_mandates` supersedes only overlapping purposes, so the donation
+    mandate is untouched -- as it should be (#605).
+    """
+
+    def _validate(self, iban):
+        from verenigingen.api.member import sepa_api
+
+        return sepa_api.validate_mandate_creation(
+            self.member.name, iban, f"NEW-{frappe.generate_hash(length=8)}"
+        )
+
+    def test_a_donation_mandate_on_the_same_iban_is_not_reported_as_replaceable(self):
+        result = self._validate(DONATION_IBAN)
+
+        self.assertTrue(result["valid"], result)
+        self.assertNotIn(
+            "existing_mandate",
+            result,
+            "the member would be told their donation mandate is about to be replaced",
+        )
+
+    def test_a_membership_mandate_on_the_same_iban_still_warns(self):
+        """The control: the warning must still fire for a real same-purpose clash."""
+        membership = self._insert_active_mandate(
+            iban=DONATION_IBAN, sign_date=today(), used_for_memberships=1, used_for_donations=0
+        )
+        result = self._validate(DONATION_IBAN)
+
+        self.assertEqual(result.get("existing_mandate"), membership.mandate_id)

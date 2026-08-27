@@ -9,6 +9,7 @@ from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.utils.validation.iban_validator import derive_bic_from_iban
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
+from verenigingen.verenigingen_payments.utils.mandate_candidates import unambiguous_active_mandate
 from verenigingen.verenigingen_payments.utils.shared.recipient_resolver import get_recipients_by_roles
 
 
@@ -291,18 +292,34 @@ def execute_payment_retry(retry_record=None):
         membership = frappe.get_doc("Membership", retry_doc.membership)
         member = frappe.get_doc("Member", retry_doc.member)
 
-        # Get active SEPA mandate. get_active_sepa_mandates() (plural) returns a
-        # list of active mandates; mirror other callers (e.g. member_utils) by
-        # selecting the first (most recent active) one. The list entries are
-        # lightweight _dicts, so reload the full mandate doc for iban/bic/sign_date.
-        active_mandates = member.get_active_sepa_mandates()
-        if not active_mandates:
+        # The member's single Active MEMBERSHIP mandate. This retries a membership
+        # invoice -- the Membership document is loaded two lines above -- and the
+        # mandate chosen here supplies the `iban` that is debited by the batch this
+        # function SUBMITS, so it must not be a guess.
+        #
+        # It was `member.get_active_sepa_mandates()[0]`: `order_by="creation desc"`
+        # with no purpose filter, taking the first row. A member may legitimately
+        # hold an Active membership mandate and an Active donation mandate at once
+        # (#584), so for that member this debited whichever account was registered
+        # most recently (#605). `unambiguous_active_mandate` filters by purpose and
+        # REFUSES rather than orders when a choice remains.
+        choice = unambiguous_active_mandate(member.name, "Payment retry mandate resolution")
+        if not choice:
             retry_doc.status = "Failed"
-            retry_doc.add_comment("Comment", "No active SEPA mandate found")
+            # A refusal is not "none found". Collapsing the two is how #581 billed a
+            # member a third period: an operator reading "no mandate" creates one,
+            # which makes the ambiguity worse rather than resolving it.
+            retry_doc.add_comment(
+                "Comment",
+                "Member has more than one Active SEPA mandate for memberships; "
+                "cancel all but one before this retry can be collected."
+                if choice.is_ambiguous
+                else "No active SEPA mandate found",
+            )
             retry_doc.save()
             return
 
-        mandate = frappe.get_doc("SEPA Mandate", active_mandates[0].name)
+        mandate = frappe.get_doc("SEPA Mandate", choice.mandate["name"])
 
         # IDEMPOTENCY GUARD: refuse to create a second Direct Debit Batch for an
         # invoice that is already in a live (non-cancelled) batch. This submitted

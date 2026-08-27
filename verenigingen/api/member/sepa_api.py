@@ -284,7 +284,13 @@ def validate_mandate_creation(member: str, iban: str, mandate_id):
     if result.valid:
         response = {"success": True, "valid": True, **(result.data or {})}
         # Check for existing mandate with same IBAN and add warning (legacy behavior)
-        existing_mandates = manager.get_active_mandates(member, iban=iban)
+        # Membership-scoped (#605). The JS flow behind this endpoint creates a
+        # membership mandate (`create_and_link_mandate_enhanced` defaults to
+        # `used_for_memberships=1`), and on `existing_mandate` it tells the member
+        # the named mandate "will be replaced". Unscoped, that named their DONATION
+        # mandate -- which `cancel_active_mandates` correctly leaves alone, so the
+        # message was false in both directions.
+        existing_mandates = manager.get_active_mandates(member, iban=iban, purpose="used_for_memberships")
         if existing_mandates:
             response["existing_mandate"] = existing_mandates[0].mandate_id
             response["warning"] = _("An active mandate already exists for this IBAN: {0}").format(

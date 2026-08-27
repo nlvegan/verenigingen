@@ -124,7 +124,9 @@ class SEPAMandateManager(StatelessService):
 
     # ========== Mandate Retrieval Methods ==========
 
-    def get_active_mandates(self, member: str, iban: Optional[str] = None) -> List[MandateInfo]:
+    def get_active_mandates(
+        self, member: str, iban: Optional[str] = None, purpose: Optional[str] = None
+    ) -> List[MandateInfo]:
         """
         Get all active SEPA mandates for a member.
 
@@ -149,6 +151,18 @@ class SEPAMandateManager(StatelessService):
         """
         try:
             filters = {"member": member, "status": "Active", "is_active": 1}
+
+            # `purpose` is opt-in: this method's job is "every Active mandate of
+            # this member", which the discrepancy check and the payment dashboard
+            # legitimately want. Callers deciding something about ONE purpose pass
+            # it, rather than taking [0] of an unscoped list (#605).
+            from verenigingen.verenigingen_payments.utils.mandate_candidates import (
+                resolve_purpose_flag,
+            )
+
+            purpose_flag = resolve_purpose_flag(purpose)
+            if purpose_flag is not None:
+                filters[purpose_flag] = 1
 
             if iban:
                 # Format IBAN to match database storage (IBANs are stored formatted with spaces)
@@ -297,7 +311,12 @@ class SEPAMandateManager(StatelessService):
     # ========== Mandate Validation Methods ==========
 
     def validate_mandate_creation(
-        self, member: str, iban: str, mandate_id: str, allow_duplicate_iban: bool = False
+        self,
+        member: str,
+        iban: str,
+        mandate_id: str,
+        allow_duplicate_iban: bool = False,
+        purposes=("used_for_memberships",),
     ) -> ValidationResult:
         """
         Validate mandate creation parameters comprehensively.
@@ -310,6 +329,13 @@ class SEPAMandateManager(StatelessService):
             iban: IBAN for the mandate
             mandate_id: Proposed mandate ID
             allow_duplicate_iban: Whether to allow duplicate IBANs (default: False)
+            purposes: The purposes the NEW mandate will serve. Only an existing
+                Active mandate overlapping them counts as a duplicate: a member
+                may hold one Active mandate PER PURPOSE (#584), and paying dues
+                and donating from the same account is the ordinary case, not a
+                clash. Pass None to treat any Active mandate on the IBAN as a
+                duplicate. The default matches every creation flow in the app --
+                all of them set `used_for_memberships = 1` (#605).
 
         Returns:
             ValidationResult with validation details
@@ -324,6 +350,10 @@ class SEPAMandateManager(StatelessService):
             >>> result.valid
             True
         """
+        from verenigingen.verenigingen_payments.utils.mandate_candidates import (
+            resolve_purpose_flag,
+        )
+
         # Step 1: Validate member exists
         if not frappe.db.exists("Member", member):
             return ValidationResult.failure(_("Member {0} does not exist").format(member))
@@ -340,6 +370,11 @@ class SEPAMandateManager(StatelessService):
         # Step 4: Check for existing active mandates with same IBAN
         if not allow_duplicate_iban:
             existing_mandates = self.get_active_mandates(member, iban=iban)
+            if purposes:
+                wanted = [resolve_purpose_flag(p) for p in purposes]
+                existing_mandates = [
+                    m for m in existing_mandates if any(getattr(m, flag, 0) for flag in wanted)
+                ]
             if existing_mandates:
                 existing_ids = [m.mandate_id for m in existing_mandates]
                 return ValidationResult.failure(
@@ -544,7 +579,21 @@ class SEPAMandateManager(StatelessService):
 
             # Step 3: Validate mandate creation
             validation_result = self.validate_mandate_creation(
-                member, validated_iban, mandate_id, allow_duplicate_iban=allow_duplicate_iban
+                member,
+                validated_iban,
+                mandate_id,
+                allow_duplicate_iban=allow_duplicate_iban,
+                # The purposes THIS mandate will carry (set at Step 5 below), so a
+                # member's donation mandate does not block their membership one.
+                purposes=[
+                    flag
+                    for flag, on in (
+                        ("used_for_memberships", used_for_memberships),
+                        ("used_for_donations", used_for_donations),
+                    )
+                    if on
+                ]
+                or None,
             )
             if not validation_result.valid:
                 return validation_result
@@ -938,18 +987,26 @@ class SEPAMandateManager(StatelessService):
         if not member_iban:
             return
 
-        # Get active SEPA mandates for this member
+        # Every Active mandate: the IBAN/name comparison below is about whichever
+        # accounts the member has registered, whatever each is used for.
         active_mandates = frappe.get_all(
             "SEPA Mandate",
             filters={"member": member_name, "status": "Active", "is_active": 1},
-            fields=["name", "mandate_id", "iban", "account_holder_name"],
+            fields=["name", "mandate_id", "iban", "account_holder_name", "used_for_memberships"],
         )
 
-        if not active_mandates:
-            # No active mandate found
+        # "Missing", though, is a per-purpose question, and this bucket names the
+        # members an operator then goes and creates a mandate for -- the same
+        # population `members_without_payment_info` reports and
+        # `create_missing_sepa_mandates` acts on, both membership-scoped (#605).
+        # Unscoped, a member holding only a donation mandate was reported as an
+        # IBAN mismatch rather than as missing the mandate their dues need.
+        if not any(m.used_for_memberships for m in active_mandates):
             results["missing_mandates"].append(
                 {"member": member_name, "member_name": member_data.full_name, "iban": member_iban}
             )
+
+        if not active_mandates:
             return
 
         # Check for discrepancies with existing mandates

@@ -176,13 +176,13 @@ class ProcuriosMandateImport(BaseCSVImport):
             sepa_rows = frappe.get_all(
                 "SEPA Mandate",
                 filters={"status": "Active"},
-                fields=["name", "mandate_id", "status", "cancelled_date", "member"],
+                fields=["name", "mandate_id", "status", "cancelled_date", "member", "used_for_memberships"],
             )
             seen_names = {r.name for r in sepa_rows}
             csv_matches = frappe.get_all(
                 "SEPA Mandate",
                 filters={"mandate_id": ["in", list(csv_mandate_ids)]},
-                fields=["name", "mandate_id", "status", "cancelled_date", "member"],
+                fields=["name", "mandate_id", "status", "cancelled_date", "member", "used_for_memberships"],
             )
             for r in csv_matches:
                 if r.name not in seen_names:
@@ -191,7 +191,7 @@ class ProcuriosMandateImport(BaseCSVImport):
         else:
             sepa_rows = frappe.get_all(
                 "SEPA Mandate",
-                fields=["name", "mandate_id", "status", "cancelled_date", "member"],
+                fields=["name", "mandate_id", "status", "cancelled_date", "member", "used_for_memberships"],
             )
 
         for sm in sepa_rows:
@@ -202,7 +202,13 @@ class ProcuriosMandateImport(BaseCSVImport):
                     "cancelled_date": sm.cancelled_date,
                     "member": sm.member,
                 }
-                if sm.status == "Active" and sm.member:
+                # Membership mandates only (#605). `_create_mandate` inserts
+                # `used_for_memberships = 1`, so that is the mandate whose presence
+                # is a conflict with what this import creates. Counting a donation
+                # mandate here skipped the member's imported MEMBERSHIP mandate as
+                # a conflict and left them with none -- and every collection path
+                # has resolved mandates by purpose since #597.
+                if sm.status == "Active" and sm.member and sm.used_for_memberships:
                     caches.members_with_active_mandate.add(sm.member)
                     caches.member_to_active_count[sm.member] = (
                         caches.member_to_active_count.get(sm.member, 0) + 1

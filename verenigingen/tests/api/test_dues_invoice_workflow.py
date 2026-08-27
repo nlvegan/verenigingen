@@ -242,6 +242,46 @@ class TestDuesInvoiceWorkflow(VereningingenTestCase):
     # ------------------------------------------------------------------ #
     # validate_sepa_eligibility                                           #
     # ------------------------------------------------------------------ #
+    def test_validate_sepa_eligibility_ignores_a_donation_only_mandate(self):
+        """A donation mandate cannot collect dues, so the invoice is not eligible.
+
+        This resolved the mandate with an unfiltered `get_value` and no
+        `order_by`, so a member holding only a donation mandate was reported as
+        SEPA-eligible with that mandate's IBAN -- the IBAN an operator reads
+        before approving the collection. Every batching path has resolved mandates
+        by purpose since #597, so the batch would then have skipped the invoice
+        this list said was ready (#605).
+        """
+        member, schedule = self._make_member_with_schedule(dues_rate=22.0)
+        self.create_test_sepa_mandate(
+            member=member.name, used_for_memberships=0, used_for_donations=1
+        )
+        invoice = self._make_dues_invoice(member, schedule)
+
+        data = self._ok(validate_sepa_eligibility(invoice_list=[invoice.name]))
+
+        self.assertEqual(data["summary"]["sepa_eligible"], 0)
+        self.assertEqual(len(data["ineligible_invoices"]), 1)
+        self.assertIn("No active SEPA mandate", data["ineligible_invoices"][0]["reason"])
+
+    def test_validate_sepa_eligibility_reports_the_membership_mandate(self):
+        """With both mandates, the membership one is reported -- not the newest."""
+        member, schedule = self._make_member_with_schedule(dues_rate=22.0)
+        membership_mandate = self.create_test_sepa_mandate(
+            member=member.name, used_for_memberships=1, used_for_donations=0
+        )
+        self.create_test_sepa_mandate(
+            member=member.name, used_for_memberships=0, used_for_donations=1
+        )
+        invoice = self._make_dues_invoice(member, schedule)
+
+        data = self._ok(validate_sepa_eligibility(invoice_list=[invoice.name]))
+
+        self.assertEqual(data["summary"]["sepa_eligible"], 1)
+        self.assertEqual(
+            data["eligible_invoices"][0]["mandate"]["mandate_id"], membership_mandate.mandate_id
+        )
+
     def test_validate_sepa_eligibility_marks_invoice_with_active_mandate(self):
         """An unpaid dues invoice whose member has an Active mandate is SEPA-eligible.
 
