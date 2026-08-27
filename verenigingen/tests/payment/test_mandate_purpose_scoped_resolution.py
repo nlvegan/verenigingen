@@ -61,13 +61,13 @@ class PurposeScopedMandateFixture(EnhancedTestCase):
     def setUp(self):
         super().setUp()
         self.member = self.create_test_member(first_name="PurposeScope", last_name="Test")
-        self.membership_mandate = self._active_mandate(
+        self.membership_mandate = self._insert_active_mandate(
             iban=MEMBERSHIP_IBAN,
             sign_date=add_days(today(), -400),
             used_for_memberships=1,
             used_for_donations=0,
         )
-        self.donation_mandate = self._active_mandate(
+        self.donation_mandate = self._insert_active_mandate(
             iban=DONATION_IBAN,
             sign_date=add_days(today(), -1),
             used_for_memberships=0,
@@ -92,7 +92,7 @@ class PurposeScopedMandateFixture(EnhancedTestCase):
         self.membership_mandate.reload()
         self.donation_mandate.reload()
 
-    def _active_mandate(self, iban, sign_date, used_for_memberships, used_for_donations):
+    def _insert_active_mandate(self, iban, sign_date, used_for_memberships, used_for_donations):
         mandate = frappe.get_doc(
             {
                 "doctype": "SEPA Mandate",
@@ -302,11 +302,12 @@ class PurposeScopedChainFixture(SepaBatchUITestBase):
         donation.reload()
         return chain, donation
 
-    def _row_for(self, rows, chain):
+    def _batch_row_for_invoice(self, rows, chain):
         self.assertFalse(self._is_error_result(rows), f"endpoint returned an error: {rows}")
         row = next((r for r in rows if r.get("invoice") == chain["invoice"].name), None)
         self.assertIsNotNone(row, f"this chain's invoice was not in the batch list: {rows}")
         return row
+
 
 class TestLoadUnpaidInvoicesIsPurposeScoped(PurposeScopedChainFixture):
     """Sites 5 and 6: the batch UI's bulk mandate join.
@@ -335,7 +336,7 @@ class TestLoadUnpaidInvoicesIsPurposeScoped(PurposeScopedChainFixture):
             date_range="all", membership_type=self._membership_type(chain), limit=100
         )
 
-        row = self._row_for(rows, chain)
+        row = self._batch_row_for_invoice(rows, chain)
         self.assertEqual(
             norm_iban(row["iban"]),
             norm_iban(chain["mandate"].iban),
@@ -355,7 +356,7 @@ class TestLoadUnpaidInvoicesIsPurposeScoped(PurposeScopedChainFixture):
             date_range="all", membership_type=self._membership_type(chain), limit=100
         )
 
-        row = self._row_for(rows, chain)
+        row = self._batch_row_for_invoice(rows, chain)
         self.assertEqual(
             norm_iban(row["iban"]),
             norm_iban(chain["mandate"].iban),
@@ -380,7 +381,7 @@ class TestLoadUnpaidInvoicesIsPurposeScoped(PurposeScopedChainFixture):
             date_range="all", membership_type=self._membership_type(chain), limit=100
         )
 
-        row = self._row_for(rows, chain)
+        row = self._batch_row_for_invoice(rows, chain)
         self.assertEqual(row["iban"], "", f"the donation mandate was offered for dues: {row}")
         self.assertEqual(row["mandate_reference"], "")
 
@@ -701,7 +702,7 @@ class TestTheAmbiguityRefusalIsActionable(PurposeScopedChainFixture):
         rows = ui.load_unpaid_invoices(
             date_range="all", membership_type=self._membership_type(chain), limit=100
         )
-        row = self._row_for(rows, chain)
+        row = self._batch_row_for_invoice(rows, chain)
 
         self.assertEqual(row["iban"], "", "an ambiguous member was given an IBAN anyway")
 
