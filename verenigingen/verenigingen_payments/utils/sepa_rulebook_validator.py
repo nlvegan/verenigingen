@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional
 
 import frappe
 from frappe import _
+from frappe.utils import getdate
 
 from verenigingen.utils.error_handling import handle_api_error
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
@@ -666,7 +667,10 @@ class SEPARulebookValidator:
             if sign_date_elem is not None:
                 try:
                     sign_date = datetime.fromisoformat(sign_date_elem.text).date()
-                    today_date = date.today()
+                    # Site-tz today, not the server/process date: in the late-UTC window
+                    # the two name different calendar days, and across a month boundary
+                    # that shifts months_diff by a whole month (#628).
+                    today_date = getdate()
 
                     # Calculate months difference
                     months_diff = (today_date.year - sign_date.year) * 12 + (

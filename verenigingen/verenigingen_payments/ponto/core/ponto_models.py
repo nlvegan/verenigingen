@@ -22,6 +22,8 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
+from frappe.utils import getdate
+
 
 @dataclass
 class PontoAccount:
@@ -228,16 +230,21 @@ class PontoTransaction:
 
     @staticmethod
     def _parse_date(date_str: Optional[str]) -> date:
-        """Parse ISO date string to date object."""
+        """Parse ISO date string to date object.
+
+        Both fallbacks use frappe's site-tz getdate(), not Python's date.today()
+        (server/process tz): in the late-UTC window the two name different calendar
+        days, and this fallback becomes the transaction's booking date (#628).
+        """
         if not date_str:
-            return date.today()
+            return getdate()
         try:
             # Handle both date-only and datetime formats
             if "T" in date_str:
                 return datetime.fromisoformat(date_str.replace("Z", "+00:00")).date()
             return date.fromisoformat(date_str)
         except (ValueError, TypeError):
-            return date.today()
+            return getdate()
 
     @property
     def is_credit(self) -> bool:

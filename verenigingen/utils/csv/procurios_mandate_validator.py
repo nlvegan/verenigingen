@@ -17,6 +17,7 @@ from datetime import date, datetime
 from typing import Dict, List, Optional, Tuple
 
 from dateutil.relativedelta import relativedelta
+from frappe.utils import getdate
 
 CANCELLED_CUTOFF_MONTHS = 12
 
@@ -68,7 +69,10 @@ class ProcuriosMandateValidator:
         today: Optional[date] = None,
     ):
         self.cutoff_months = cutoff_months
-        self._today = today or date.today()
+        # Default to frappe's site-tz today, not Python's date.today() (server/process
+        # tz): in the late-UTC window the two name different calendar days, which moves
+        # the cancelled-mandate cutoff by a day (#628). Callers may still inject one.
+        self._today = today or getdate()
 
     # ---- public API ---------------------------------------------------
 

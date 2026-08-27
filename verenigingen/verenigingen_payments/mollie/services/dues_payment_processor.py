@@ -610,7 +610,10 @@ class DuesPaymentProcessor:
             frappe.logger().warning(
                 f"HISTORICAL INVOICE CREATION: User {frappe.session.user} creating backdated invoice "
                 f"for member {member_doc.name} ({member_doc.full_name}) with posting_date={payment_date} "
-                f"(today={date.today()}), coverage={coverage_start} to {coverage_end}, amount=€{amount}"
+                # getdate(), not date.today(): this line audits a backdating decision
+                # the method took against the site-tz today (see the future-date guard
+                # above), so it must name the same day (#628).
+                f"(today={getdate()}), coverage={coverage_start} to {coverage_end}, amount=€{amount}"
             )
 
             # Resolve chapter cost center with company fallback

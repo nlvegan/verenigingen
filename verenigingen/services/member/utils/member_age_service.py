@@ -11,10 +11,11 @@ Functions:
     - update_member_age_field(): Update the age field on a member document
 """
 
-from datetime import date, datetime
+from datetime import datetime
 
 import frappe
 from frappe import _
+from frappe.utils import getdate
 
 from verenigingen.utils.service_error_handler import handle_service_error, safe_import
 
@@ -33,7 +34,10 @@ def calculate_member_age(birth_date):
     """
     try:
         if birth_date:
-            today_date = date.today()
+            # Site-tz today, not the server/process date: in the late-UTC window the
+            # two name different calendar days, so a member whose birthday is today
+            # comes out a year younger (#628).
+            today_date = getdate()
             if isinstance(birth_date, str):
                 born = datetime.strptime(birth_date, "%Y-%m-%d").date()
             else:

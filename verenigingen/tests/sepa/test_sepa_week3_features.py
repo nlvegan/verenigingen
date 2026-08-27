@@ -20,7 +20,7 @@ Implements comprehensive test coverage for Week 3 implementation.
 import json
 import time
 import unittest
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
@@ -368,9 +368,12 @@ class TestSEPAWeek3Features(EnhancedTestCase):
             bic="INGBNL2A"
         )
 
+        # getdate(), not date.today(): the generator validates these two dates against
+        # the site-tz today, so the fixture must be built on the same clock or it draws
+        # spurious "in the past" / "in the future" warnings in the late-UTC window (#628).
         mandate = SEPAMandate(
             mandate_id="TEST-MANDATE-001",
-            date_of_signature=date.today()
+            date_of_signature=getdate()
         )
 
         transaction = SEPATransaction(
@@ -387,7 +390,7 @@ class TestSEPAWeek3Features(EnhancedTestCase):
             payment_info_id="PMT-TEST-001",
             payment_method="DD",
             batch_booking=True,
-            requested_collection_date=date.today(),
+            requested_collection_date=getdate(),
             creditor=creditor,
             local_instrument=SEPALocalInstrument.CORE,
             sequence_type=SEPASequenceType.RCUR,

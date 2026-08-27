@@ -13,6 +13,8 @@ against real Member documents created via the factory.
 import unittest
 from datetime import date, timedelta
 
+from frappe.utils import getdate
+
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.services.member.utils.member_age_service import (
@@ -27,8 +29,14 @@ from verenigingen.services.member.utils.member_age_service import (
 
 
 def _birth_date_for_age(years: int, *, offset_days: int = 0) -> date:
-    """Return a birth date that yields the given age today (+/- offset days)."""
-    today = date.today()
+    """Return a birth date that yields the given age today (+/- offset days).
+
+    Anchored to frappe's site-tz getdate(), the same clock calculate_member_age()
+    uses. Python's date.today() is the server/process tz and names a different
+    calendar day in the late-UTC window, which slid every boundary case by one
+    day (#628).
+    """
+    today = getdate()
     try:
         bd = today.replace(year=today.year - years)
     except ValueError:
@@ -60,14 +68,14 @@ class TestMemberAgeServiceCalculations(EnhancedTestCase):
         """String birth dates in YYYY-MM-DD are parsed correctly."""
         self.assertEqual(
             calculate_member_age("2000-01-01"),
-            date.today().year - 2000 - ((date.today().month, date.today().day) < (1, 1)),
+            getdate().year - 2000 - ((getdate().month, getdate().day) < (1, 1)),
         )
 
     def test_calculate_age_leap_year_birth(self):
         """A Feb-29 birth date computes a sensible age (no exception)."""
         age = calculate_member_age("2000-02-29")
         # 2000 was a leap year; age must be this-year - 2000 (minus 1 before Feb 29)
-        today = date.today()
+        today = getdate()
         expected = today.year - 2000 - ((today.month, today.day) < (2, 29))
         self.assertEqual(age, expected)
 
