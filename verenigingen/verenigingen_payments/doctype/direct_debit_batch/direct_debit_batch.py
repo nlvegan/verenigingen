@@ -74,9 +74,61 @@ class DirectDebitBatch(Document):
     def validate(self):
         """Validation logic - runs on save"""
         # All document-modifying logic runs here during save
+        self.validate_no_duplicate_invoices()
         self.validate_invoices()
         self.validate_sequence_types()
         self.calculate_totals()
+
+    def validate_no_duplicate_invoices(self):
+        """Reject a batch that lists the same Sales Invoice more than once (#606).
+
+        Each child row becomes one transaction in the SEPA XML, so two rows for
+        one invoice are two debits of one member's account for one debt. Nothing
+        upstream deduplicates:
+
+        - `batch_processing_service.validate_batch_invoices_optimized` validates
+          each row's Sales Invoice in isolation and never compares the rows to
+          each other (measured -- it reports a duplicated invoice as two valid
+          rows);
+        - `batch_performance_optimizer.process_batch_invoices_optimized` iterates
+          its `invoice_names` argument as a list;
+        - `dd_batch_optimizer`'s `processed_invoices` set removes invoices already
+          claimed by an EARLIER batching strategy, never duplicates within one
+          group.
+
+        Both batch pipelines end at this document's `save()`/`insert()`, so one
+        check here covers the class rather than one per producer -- and it fails
+        the batch loudly instead of quietly collecting twice.
+
+        This throws even under `_automated_processing`, unlike the sequence-type
+        criticals below. Those are recorded on the document and acted on by
+        `sepa_batch_notifications.handle_automated_batch_validation`, which flips
+        the batch to "Validation Failed". `dd_batch_optimizer.create_dd_batch_document`
+        never calls it: it inserts and never reads `validation_status`, so a
+        recorded-but-not-thrown duplicate would still be collected.
+        """
+        rows_by_invoice = {}
+        for position, row in enumerate(self.invoices or [], start=1):
+            if row.invoice:
+                rows_by_invoice.setdefault(row.invoice, []).append(position)
+
+        duplicates = {inv: rows for inv, rows in rows_by_invoice.items() if len(rows) > 1}
+        if not duplicates:
+            return
+
+        # Name the invoice AND the row numbers: an operator has to find the rows
+        # to delete, and a batch can be hundreds of lines long.
+        listed = "; ".join(
+            "{0} (rows {1})".format(invoice, ", ".join(str(r) for r in rows))
+            for invoice, rows in sorted(duplicates.items())
+        )
+        frappe.throw(
+            _(
+                "This batch lists the same invoice more than once, which would "
+                "debit the member more than once for one debt: {0}. Remove the "
+                "duplicate rows."
+            ).format(listed)
+        )
 
     def validate_invoices(self):
         """Validate that all invoices are valid for direct debit using performance optimization"""
@@ -103,7 +155,22 @@ class DirectDebitBatch(Document):
 
         for invoice in self.invoices:
             if not invoice.mandate_reference:
-                continue  # Will be caught by validate_invoices
+                # NOT caught by validate_invoices, whatever the comment that used
+                # to sit here claimed (#606). That path calls
+                # `InvoiceManagementUtilities.validate_invoice_for_sepa`, which
+                # reads name/customer/outstanding_amount/currency/status off the
+                # Sales Invoice and never looks at the batch row's
+                # mandate_reference at all -- measured: a row with none comes back
+                # is_valid, errors []. A row with no mandate reference has no
+                # MndtId to present in the SEPA XML, so it cannot be collected.
+                critical_errors.append(
+                    {
+                        "invoice": invoice.invoice,
+                        "issue": "No mandate reference on batch row",
+                        "mandate_reference": None,
+                    }
+                )
+                continue
 
             # Get mandate for this member
             mandate_name = frappe.db.get_value(

@@ -372,13 +372,22 @@ class TestDirectDebitBatchController(_BatchPipelineBase):
         with self.assertRaises(frappe.ValidationError):
             batch.validate_sequence_types()
 
-    def test_validate_sequence_types_skips_rows_without_mandate_reference(self):
-        """A row without a mandate_reference is skipped (caught elsewhere by
-        validate_invoices); with no other rows the status stays Passed."""
+    def test_validate_sequence_types_flags_rows_without_mandate_reference(self):
+        """A row without a mandate_reference is a CRITICAL ERROR, not a skip (#606).
+
+        This test previously asserted the opposite, quoting the comment in
+        `validate_sequence_types` that said validate_invoices would catch it. It
+        does not: `validate_invoices` validates the Sales Invoice and never reads
+        `mandate_reference` (measured in
+        `test_dd_batch_duplicate_invoice_guard.TestValidateInvoicesIsBlindToTheDuplicate`).
+        """
         batch = frappe.new_doc("Direct Debit Batch")
+        batch._automated_processing = True  # record, don't throw
         batch.append("invoices", {"invoice": "ACC-SINV-X", "status": "Pending"})
         batch.validate_sequence_types()
-        self.assertEqual(batch.validation_status, "Passed")
+        self.assertEqual(batch.validation_status, "Critical Errors")
+        errors = frappe.parse_json(batch.validation_errors)
+        self.assertEqual([e["invoice"] for e in errors], ["ACC-SINV-X"])
 
     def test_calculate_totals_new_doc_uses_python_memory_sum(self):
         """For a not-yet-persisted batch, calculate_totals must sum the in-memory
