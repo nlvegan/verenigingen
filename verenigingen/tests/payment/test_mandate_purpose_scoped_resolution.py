@@ -211,17 +211,33 @@ class TestGetActiveSepaMandateIsPurposeScoped(PurposeScopedMandateFixture):
         falsy as "nothing here" goes on to create what is missing, and this repo has
         billed a member a third period that way.
 
-        The direct form of this test injects a database failure and asserts that it
-        propagates, but patching the framework query helper counts as a DATABASE MOCK
-        under `scripts/validation/test_quality_enforcer.py` and is rejected --
-        correctly, as a rule. So the property is covered from two sides instead: a
-        real error the function can actually raise (here), and the structural
-        guarantee that no handler remains to swallow anything (next test).
+        This test covers only the new purpose-validation guard -- against the
+        pre-fix code it fails as `TypeError: unexpected keyword 'purpose'`, i.e. on
+        the signature, not on the swallow. The swallow itself is covered by
+        `test_a_query_failure_propagates_instead_of_reading_as_no_mandate` (a real
+        query-layer failure, no patching) and by
+        `test_the_helper_has_no_exception_handler_left` (a ratchet).
         """
         from verenigingen.services.payment.sepa_mandate_manager import get_active_sepa_mandate
 
         with self.assertRaises(ValueError):
             get_active_sepa_mandate(self.member.name, purpose="not_a_purpose_flag")
+
+    def test_a_query_failure_propagates_instead_of_reading_as_no_mandate(self):
+        """A malformed member argument reaches the DB layer and must raise.
+
+        No patching: a list reaches `frappe.get_all` as a filter value and fails in
+        the query layer. On the pre-fix code the bare `except Exception: return None`
+        swallowed it, so a failure was indistinguishable from "this member has no
+        mandate" -- the #581 trap that billed a member a third period.
+        """
+        from verenigingen.services.payment.sepa_mandate_manager import get_active_sepa_mandate
+
+        with self.assertRaises(Exception) as caught:
+            get_active_sepa_mandate(["a", "b"])
+        self.assertNotIsInstance(
+            caught.exception, ValueError, "should fail in the query layer, not on purpose validation"
+        )
 
     def test_the_helper_has_no_exception_handler_left(self):
         """No `except` in the body, so no failure can be converted into None.
@@ -247,25 +263,8 @@ class TestGetActiveSepaMandateIsPurposeScoped(PurposeScopedMandateFixture):
             "reads to callers as 'this member has no mandate'",
         )
 
-class TestLoadUnpaidInvoicesIsPurposeScoped(SepaBatchUITestBase):
-    """Sites 5 and 6: the batch UI's bulk mandate join.
-
-    `load_unpaid_invoices` resolves every member's mandate in ONE query and then
-    deduplicates in Python with an explicit *"Only keep the first (most recent)
-    mandate per membership"*. The join filtered `status = 'Active'` with no purpose
-    filter, so for a member holding both a dues mandate and a donation mandate the
-    result set carried two rows for one membership and the newer one won.
-
-    These values are not cosmetic: `iban`, `bic` and `mandate_reference` are what
-    the operator selects into a Direct Debit Batch, and the batch is what the SEPA
-    XML is generated from. This is the same consequence that justified fixing
-    `get_invoice_mandate_info` in #598 -- the only difference is that this site
-    resolves in bulk.
-
-    A purpose filter is the fix rather than blanking-on-ambiguity, which #597
-    originally proposed: under a per-purpose invariant, blanking any member with two
-    Active mandates would blank every member who merely also donates.
-    """
+class PurposeScopedChainFixture(SepaBatchUITestBase):
+    """A member -> mandate -> unpaid-invoice chain, plus a NEWER donation mandate."""
 
     def _chain_with_newer_donation_mandate(self, first_name):
         chain = self._build_member_with_invoice(first_name=first_name)
@@ -308,6 +307,26 @@ class TestLoadUnpaidInvoicesIsPurposeScoped(SepaBatchUITestBase):
         row = next((r for r in rows if r.get("invoice") == chain["invoice"].name), None)
         self.assertIsNotNone(row, f"this chain's invoice was not in the batch list: {rows}")
         return row
+
+class TestLoadUnpaidInvoicesIsPurposeScoped(PurposeScopedChainFixture):
+    """Sites 5 and 6: the batch UI's bulk mandate join.
+
+    `load_unpaid_invoices` resolves every member's mandate in ONE query and then
+    deduplicates in Python with an explicit *"Only keep the first (most recent)
+    mandate per membership"*. The join filtered `status = 'Active'` with no purpose
+    filter, so for a member holding both a dues mandate and a donation mandate the
+    result set carried two rows for one membership and the newer one won.
+
+    These values are not cosmetic: `iban`, `bic` and `mandate_reference` are what
+    the operator selects into a Direct Debit Batch, and the batch is what the SEPA
+    XML is generated from. This is the same consequence that justified fixing
+    `get_invoice_mandate_info` in #598 -- the only difference is that this site
+    resolves in bulk.
+
+    A purpose filter is the fix rather than blanking-on-ambiguity, which #597
+    originally proposed: under a per-purpose invariant, blanking any member with two
+    Active mandates would blank every member who merely also donates.
+    """
 
     def test_the_batch_list_carries_the_membership_iban(self):
         chain, donation = self._chain_with_newer_donation_mandate("LoadPurpose")
@@ -419,11 +438,49 @@ class TestBatchMandateHelpersArePurposeScoped(PurposeScopedMandateFixture):
             "the newer donation-only mandate won a memberships batch lookup",
         )
 
+    def test_a_falsy_purpose_is_rejected_rather_than_meaning_any_purpose(self):
+        """`""` and `0` must not silently restore purpose-blind resolution.
+
+        The first version of this fix guarded with `if purpose and ...`, so a caller
+        writing `purpose=cfg.get("purpose") or ""` got the pre-fix answer -- the
+        newest Active mandate regardless of purpose -- with no error. Only `None`
+        means "any purpose", and it has to be spelled.
+        """
+        from verenigingen.services.payment.sepa_mandate_manager import SEPAMandateManager
+
+        for falsy in ("", 0):
+            with self.subTest(purpose=falsy):
+                with self.assertRaises(ValueError):
+                    SEPAMandateManager().get_default_mandate(self.member.name, purpose=falsy)
+
+    def test_both_purpose_vocabularies_resolve_to_the_same_mandate(self):
+        """The short spelling and the column name must not disagree.
+
+        `has_active_mandate` took "memberships"; every resolver took
+        "used_for_memberships". Passing either one's vocabulary to the other used to
+        apply NO purpose filter at all, so the answer was "any Active mandate".
+        """
+        from verenigingen.services.payment.sepa_mandate_manager import SEPAMandateManager
+
+        manager = SEPAMandateManager()
+        self.assertEqual(
+            norm_iban(manager.get_default_mandate(self.member.name, purpose="memberships").iban),
+            norm_iban(manager.get_default_mandate(self.member.name, purpose="used_for_memberships").iban),
+        )
+        # And the existence check no longer answers a purpose question with
+        # "any mandate exists" when handed the column-name spelling.
+        self.assertTrue(manager.has_active_mandate(self.member.name, "used_for_memberships"))
+        self.assertFalse(manager.has_active_mandate(self.member.name, "used_for_other"))
+        with self.assertRaises(ValueError):
+            manager.has_active_mandate(self.member.name, "not_a_purpose")
+
     def test_an_unknown_purpose_is_rejected_not_interpolated(self):
         """`purpose` names a COLUMN and cannot be bound, so the allowlist is the guard.
 
-        `get_active_mandates_for_members` is whitelisted, which makes this value
-        caller-supplied.
+        NOT because the value is caller-supplied: the `@frappe.whitelist()` on that
+        staticmethod is inert, because `frappe.get_attr` splits on the last dot only
+        and cannot address a method inside a class. The guard is tested anyway --
+        it is what a later refactor to a module-level function would rely on.
         """
         from verenigingen.utils.optimized_queries import OptimizedSEPAQueries
 
@@ -490,3 +547,144 @@ class TestSecureBatchUiMembershipTypeFilter(SepaBatchUITestBase):
         self.assertEqual(
             rows, [], "an unfiltered invoice list was loaded for a type with no schedules"
         )
+
+
+class TestTheAutomatedCollectionPathIsPurposeScoped(PurposeScopedChainFixture):
+    """The three sites the first round of this fix MISSED (#597, review finding C1).
+
+    The sites fixed above populate the batch UI's invoice *selector* -- an operator
+    sees that list. These three are on the unattended monthly path
+    (`hooks/scheduler.py` -> `sepa_processor.create_monthly_dues_collection_batch`),
+    and one of them multiplies rows rather than picking the wrong one: a member with
+    a membership mandate and a donation mandate produced TWO Direct Debit Batch rows
+    for ONE invoice. Measured before the fix: a EUR 25 invoice collected twice, both
+    legs on the donation IBAN.
+
+    `get_sepa_invoices_with_mandates` sits ~140 lines below `get_active_mandate_batch`
+    in the same file, and the comment on the fixed one -- "these columns become the
+    Direct Debit Batch row that the SEPA XML is generated from" -- was the search
+    query that would have found it. CLAUDE.md's rule, missed on the first pass: if
+    the fix deserved an explanation, that explanation is a search query.
+    """
+
+    def test_the_invoice_mandate_query_returns_one_row_per_invoice(self):
+        from verenigingen.verenigingen_payments.utils.sepa_mandate_service import SEPAMandateService
+
+        chain, donation = self._chain_with_newer_donation_mandate("AutoPathRows")
+        frappe.db.set_value(
+            "Membership Dues Schedule",
+            chain["schedule"].name,
+            "payment_terms_template",
+            "SEPA Direct Debit",
+        )
+
+        rows = SEPAMandateService().get_sepa_invoices_with_mandates(today(), lookback_days=3650)
+        mine = [r for r in rows if r["name"] == chain["invoice"].name]
+
+        self.assertEqual(
+            len(mine),
+            1,
+            f"one invoice produced {len(mine)} batch rows -- each becomes a debit: {mine}",
+        )
+        self.assertEqual(
+            mine[0]["mandate_reference"],
+            chain["mandate"].mandate_id,
+            "the donation mandate supplied the reference for a dues collection",
+        )
+
+    def test_the_batch_processor_resolves_the_membership_mandate(self):
+        from verenigingen.verenigingen_payments.services.sepa_batch_processor import SEPABatchProcessor
+
+        chain, donation = self._chain_with_newer_donation_mandate("AutoPathProc")
+        schedule = frappe.get_doc("Membership Dues Schedule", chain["schedule"].name)
+
+        mandate = SEPABatchProcessor().get_active_mandate(schedule)
+
+        self.assertIsNotNone(mandate)
+        self.assertEqual(
+            mandate.mandate_id,
+            chain["mandate"].mandate_id,
+            "the newer donation-only mandate was resolved for a dues collection",
+        )
+
+    def test_the_performance_optimizer_returns_the_membership_mandate(self):
+        from verenigingen.verenigingen_payments.utils.batch_performance_optimizer import (
+            BatchPerformanceOptimizer,
+        )
+
+        chain, donation = self._chain_with_newer_donation_mandate("AutoPathOpt")
+
+        result = BatchPerformanceOptimizer().get_members_with_mandates_bulk([chain["member"].name])
+
+        self.assertIn(chain["member"].name, result)
+        mandate_data = result[chain["member"].name]["mandate_data"]
+        self.assertEqual(
+            mandate_data["mandate_id"],
+            chain["mandate"].mandate_id,
+            "last-wins with no ORDER BY handed back the donation mandate",
+        )
+
+
+class TestTheAmbiguityRefusalIsActionable(PurposeScopedChainFixture):
+    """The refusal must name BOTH colliding mandates (review finding S2).
+
+    Two Active mandates sharing a purpose are blocked by `save()`, so this needs
+    `frappe.db.set_value` -- which is exactly the route that keeps the state
+    reachable in production and the reason the batch code refuses instead of
+    trusting the guard. Because that route is awkward, the first version of this fix
+    shipped with the log built AFTER the fields were blanked, and since
+    `candidates[0]` IS the blanked dict the Error Log read "Candidates: None (None),
+    ...". A refusal nobody can act on is not much better than a wrong guess.
+    """
+
+    def test_both_colliding_mandates_are_named_in_the_error_log(self):
+        chain = self._build_member_with_invoice(first_name="AmbigLog")
+        second = frappe.get_doc(
+            {
+                "doctype": "SEPA Mandate",
+                "mandate_id": f"PURP-DUP-{frappe.generate_hash(length=8)}",
+                "member": chain["member"].name,
+                "account_holder_name": chain["member"].full_name,
+                "iban": DONATION_IBAN,
+                "sign_date": today(),
+                "status": "Draft",
+                "is_active": 0,
+                "mandate_type": "RCUR",
+                "scheme": "SEPA",
+                "used_for_memberships": 1,
+            }
+        )
+        second.insert()
+        # Bypasses `validate`, which is the point: this is the route by which two
+        # same-purpose Active mandates remain reachable.
+        frappe.db.set_value(
+            "SEPA Mandate", second.name, {"status": "Active", "is_active": 1}, update_modified=False
+        )
+
+        # `tabError Log` is MyISAM, i.e. NON-transactional, so rows survive the
+        # teardown rollback -- and test member names repeat across runs. Reading
+        # "the newest log naming this member" therefore found a log from an EARLIER
+        # run and this test passed with the defect re-introduced. Scope it to rows
+        # that did not exist before the call.
+        pre_existing = {r.name for r in frappe.get_all("Error Log", fields=["name"])}
+
+        rows = ui.load_unpaid_invoices(
+            date_range="all", membership_type=self._membership_type(chain), limit=100
+        )
+        row = self._row_for(rows, chain)
+
+        self.assertEqual(row["iban"], "", "an ambiguous member was given an IBAN anyway")
+
+        new_logs = [
+            r
+            for r in frappe.get_all("Error Log", fields=["name", "error"], order_by="creation desc")
+            if r.name not in pre_existing and chain["member"].name in (r.error or "")
+        ]
+        self.assertTrue(new_logs, "the refusal was not logged for this member")
+        message = new_logs[0]["error"]
+        for mandate_id in (chain["mandate"].mandate_id, second.mandate_id):
+            self.assertIn(
+                mandate_id,
+                message,
+                f"the refusal does not name {mandate_id}, so nobody can act on it: {message}",
+            )

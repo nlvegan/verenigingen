@@ -140,16 +140,22 @@ def load_unpaid_invoices(date_range="overdue", membership_type: str | None = Non
 
             for membership, candidates in ambiguous.items():
                 chosen = member_data_lookup[membership]
-                chosen.iban = None
-                chosen.bic = None
-                chosen.mandate_id = None
-                chosen.sign_date = None
+                # LOG BEFORE BLANKING. `candidates[0]` IS `chosen` -- the same dict
+                # object -- so blanking first destroyed half the evidence the log
+                # exists to carry, and the Error Log read
+                # "Candidates: None (None), MAND-NEW (NL02...)". The whole point of
+                # refusing instead of guessing is that an operator can see WHICH
+                # mandates collided.
                 log_ambiguous_mandate_refusal(
                     chosen.member,
                     candidates,
                     "used_for_memberships",
                     "Ambiguous SEPA mandate in batch invoice list",
                 )
+                chosen.iban = None
+                chosen.bic = None
+                chosen.mandate_id = None
+                chosen.sign_date = None
 
             # Apply data to invoices in single loop
             for invoice in invoices:

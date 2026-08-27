@@ -254,13 +254,24 @@ class OptimizedSEPAQueries:
         validate_member_names(member_names)
 
         # `purpose` names a COLUMN, and a column cannot be bound as a query
-        # parameter, so it is interpolated below. This endpoint is whitelisted, which
-        # makes `purpose` caller-supplied: the allowlist check is the only thing
-        # standing between a request parameter and the SQL text. Do not relax it.
-        from verenigingen.verenigingen_payments.utils.mandate_candidates import PURPOSE_FLAGS
+        # parameter, so it is interpolated below. The allowlist check is therefore
+        # the only thing standing between this value and the SQL text. Do not relax
+        # it.
+        #
+        # NOT because the value is caller-supplied over HTTP: the `@frappe.whitelist()`
+        # on this staticmethod is INERT. `frappe.handler.execute_cmd` resolves via
+        # `frappe.get_attr`, which splits on the last dot only, so a method inside a
+        # class cannot be dispatched -- measured:
+        #   ModuleNotFoundError: No module named
+        #   'verenigingen.utils.optimized_queries.OptimizedSEPAQueries'
+        # The guard stays because it is correct and free, and because the decorator
+        # advertises an entry point that a later refactor to a module-level function
+        # would actually open.
+        from verenigingen.verenigingen_payments.utils.mandate_candidates import (
+            resolve_purpose_flag,
+        )
 
-        if purpose and purpose not in PURPOSE_FLAGS:
-            raise ValueError(f"unknown mandate purpose {purpose!r}")
+        purpose = resolve_purpose_flag(purpose)
 
         # Single query to get active mandates for all members
         query = """
@@ -284,7 +295,7 @@ class OptimizedSEPAQueries:
         ORDER BY sm.member, sm.is_active DESC, sm.sign_date DESC
         """.format(
             placeholders=create_safe_sql_placeholders(len(member_names)),
-            purpose_clause=f"AND sm.{purpose} = 1" if purpose else "",
+            purpose_clause=f"AND sm.{purpose} = 1" if purpose is not None else "",
         )
 
         results = frappe.db.sql(query, member_names, as_dict=True)

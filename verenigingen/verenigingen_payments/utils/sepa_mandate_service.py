@@ -61,10 +61,11 @@ class SEPAMandateService:
         if not member_names:
             return {}
 
-        from verenigingen.verenigingen_payments.utils.mandate_candidates import PURPOSE_FLAGS
+        from verenigingen.verenigingen_payments.utils.mandate_candidates import (
+            resolve_purpose_flag,
+        )
 
-        if purpose and purpose not in PURPOSE_FLAGS:
-            raise ValueError(f"unknown mandate purpose {purpose!r}")
+        purpose = resolve_purpose_flag(purpose)
 
         # Check cache first
         cached_results = {}
@@ -103,7 +104,7 @@ class SEPAMandateService:
                 # caller text. Kept out of the parameter dict because a column name
                 # cannot be bound as a parameter.
                 purpose_clause=f"AND sm.{purpose} = 1"
-                if purpose
+                if purpose is not None
                 else ""
             ),
             {"members": uncached_members, "today": today()},
@@ -222,7 +223,19 @@ class SEPAMandateService:
             JOIN `tabMembership Dues Schedule` mds ON si.membership_dues_schedule_display = mds.name
             JOIN `tabMember` mem ON mds.member = mem.name
             LEFT JOIN `tabMember` paying_member ON si.custom_paying_for_member = paying_member.name
-            JOIN `tabSEPA Mandate` sm ON sm.member = mem.name AND sm.status = 'Active'
+            -- Purpose filter (#597). Without it this join produced one row PER
+            -- Active mandate, so a member holding a membership mandate and a
+            -- donation mandate -- permitted by
+            -- `validate_single_active_mandate_per_purpose` -- yielded TWO rows for
+            -- ONE invoice, and `sm.mandate_id`/`sm.iban` below go straight into the
+            -- Direct Debit Batch child rows. Measured: a EUR 25 invoice collected
+            -- twice, both legs on the donation IBAN. This is the automated monthly
+            -- path (`sepa_processor.create_monthly_dues_collection_batch`), so no
+            -- operator sees the list before it is submitted.
+            JOIN `tabSEPA Mandate` sm
+                ON sm.member = mem.name
+                AND sm.status = 'Active'
+                AND sm.used_for_memberships = 1
             WHERE
                 si.docstatus = 1
                 AND si.status IN ('Unpaid', 'Overdue')

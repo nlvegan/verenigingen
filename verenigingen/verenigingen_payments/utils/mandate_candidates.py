@@ -36,6 +36,37 @@ MANDATE_FIELDS = ["name", "mandate_id", "iban", "bic", "sign_date", "expiry_date
 
 PURPOSE_FLAGS = ("used_for_memberships", "used_for_donations", "used_for_other")
 
+# The short vocabulary that predates PURPOSE_FLAGS. `has_active_mandate` and
+# `Member.has_active_sepa_mandate` take "memberships"/"donations", while the
+# resolvers take the column names -- so the same concept had two spellings, and
+# passing one function's vocabulary to the other silently applied NO purpose filter
+# (`has_active_mandate(m, "used_for_memberships")` answered "any Active mandate
+# exists"). One resolver now accepts both and refuses anything else.
+PURPOSE_ALIASES = {
+    "memberships": "used_for_memberships",
+    "donations": "used_for_donations",
+    "other": "used_for_other",
+}
+
+
+def resolve_purpose_flag(purpose):
+    """Normalise a purpose to a `SEPA Mandate` column name, or raise.
+
+    `None` means "any purpose" and is returned unchanged. Note that this is
+    `is None`, not falsiness: `""` and `0` are rejected rather than treated as
+    "any purpose", because a caller writing `purpose=cfg.get("purpose") or ""`
+    would otherwise get purpose-blind resolution back with no error -- which is
+    exactly the bug #597 fixed. Asking for any purpose has to be deliberate.
+    """
+    if purpose is None:
+        return None
+    if purpose in PURPOSE_FLAGS:
+        return purpose
+    if purpose in PURPOSE_ALIASES:
+        return PURPOSE_ALIASES[purpose]
+    raise ValueError(f"unknown mandate purpose {purpose!r}")
+
+
 PURPOSE_LABELS = {
     "used_for_memberships": "memberships",
     "used_for_donations": "donations",
@@ -87,9 +118,8 @@ def unambiguous_active_mandate(
         return MandateChoice(None, 0)
 
     filters = {"member": member, "status": "Active"}
-    if purpose:
-        if purpose not in PURPOSE_FLAGS:
-            raise ValueError(f"unknown mandate purpose {purpose!r}")
+    purpose = resolve_purpose_flag(purpose)
+    if purpose is not None:
         filters[purpose] = 1
 
     rows = frappe.get_all(

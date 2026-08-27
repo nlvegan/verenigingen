@@ -961,16 +961,27 @@ class SEPABatchProcessor:
         if cached:
             return frappe.get_doc("SEPA Mandate", cached)
 
-        # Resolve the member's most recent active mandate.
-        mandates = frappe.get_all(
-            "SEPA Mandate",
-            filters={"member": schedule.member, "status": "Active"},
-            order_by="creation desc",
-            limit=1,
+        # Resolve the member's single Active MEMBERSHIP mandate, or refuse.
+        #
+        # This was `order_by="creation desc", limit=1` with no purpose filter -- the
+        # literal shape #584 was filed about, on the automated collection path. A
+        # member may hold an Active membership mandate AND an Active donation
+        # mandate (`validate_single_active_mandate_per_purpose`), so the newer
+        # donation-only mandate became the mandate this batch debited (#597).
+        #
+        # `unambiguous_active_mandate` returns one mandate, nothing, or a refusal,
+        # and logs the candidates. Refusing here means the schedule is left out of
+        # the batch rather than debited against a guess -- `member_has_sepa_enabled`
+        # above reads None as "not enabled", which is the safe direction.
+        from verenigingen.verenigingen_payments.utils.mandate_candidates import (
+            unambiguous_active_mandate,
         )
 
-        if mandates:
-            return frappe.get_doc("SEPA Mandate", mandates[0].name)
+        choice = unambiguous_active_mandate(
+            schedule.member, "Ambiguous SEPA mandate for dues collection batch"
+        )
+        if choice:
+            return frappe.get_doc("SEPA Mandate", choice.mandate["name"])
 
         return None
 

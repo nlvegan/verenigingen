@@ -235,15 +235,13 @@ class SEPAMandateManager(StatelessService):
             'M-001-20251014-001'
         """
         from verenigingen.verenigingen_payments.utils.mandate_candidates import (
-            PURPOSE_FLAGS,
             log_ambiguous_mandate_refusal,
+            resolve_purpose_flag,
         )
 
-        if purpose and purpose not in PURPOSE_FLAGS:
-            raise ValueError(f"unknown mandate purpose {purpose!r}")
-
+        purpose = resolve_purpose_flag(purpose)
         mandates = self.get_active_mandates(member)
-        if purpose:
+        if purpose is not None:
             mandates = [m for m in mandates if getattr(m, purpose, 0)]
 
         if not mandates:
@@ -272,13 +270,22 @@ class SEPAMandateManager(StatelessService):
             >>> manager.has_active_mandate("Assoc-Member-001", "memberships")
             True
         """
+        from verenigingen.verenigingen_payments.utils.mandate_candidates import (
+            resolve_purpose_flag,
+        )
+
+        # Raises on an unknown purpose rather than applying NO filter. The old
+        # if/elif fell through silently, so `has_active_mandate(m, "other")` and
+        # `has_active_mandate(m, "used_for_memberships")` -- the OTHER vocabulary
+        # used by every resolver in this class -- both answered "does this member
+        # have ANY Active mandate", which is the question this method exists not to
+        # ask. `resolve_purpose_flag` accepts both spellings (#597).
+        purpose_flag = resolve_purpose_flag(purpose)
+
         try:
             filters = {"member": member, "status": "Active", "is_active": 1}
-
-            if purpose == "memberships":
-                filters["used_for_memberships"] = 1
-            elif purpose == "donations":
-                filters["used_for_donations"] = 1
+            if purpose_flag is not None:
+                filters[purpose_flag] = 1
 
             return bool(frappe.db.exists("SEPA Mandate", filters))
 
@@ -1382,15 +1389,13 @@ def get_active_sepa_mandate(
         one and choosing would be a guess.
     """
     from verenigingen.verenigingen_payments.utils.mandate_candidates import (
-        PURPOSE_FLAGS,
         log_ambiguous_mandate_refusal,
+        resolve_purpose_flag,
     )
 
-    if purpose and purpose not in PURPOSE_FLAGS:
-        raise ValueError(f"unknown mandate purpose {purpose!r}")
-
+    purpose = resolve_purpose_flag(purpose)
     filters = {"member": member_name, "status": "Active", "is_active": 1}
-    if purpose:
+    if purpose is not None:
         filters[purpose] = 1
 
     mandates = frappe.get_all(

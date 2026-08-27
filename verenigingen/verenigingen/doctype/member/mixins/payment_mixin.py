@@ -221,20 +221,8 @@ class PaymentMixin:
 
             for membership in memberships:
                 # Check if member has SEPA mandates (indicates SEPA payment method)
-                # Purpose-scoped to match `get_default_sepa_mandate()` below, which
-                # is memberships-scoped since #597. Purpose-blind, this gate opened
-                # for a member whose only Active mandate is donation-only and then
-                # warned that they have "no active SEPA mandate" -- true for
-                # memberships, confusing to read next to a donation mandate that is
-                # plainly Active.
                 sepa_mandates = frappe.get_all(
-                    "SEPA Mandate",
-                    filters={
-                        "member": self.name,
-                        "status": "Active",
-                        "used_for_memberships": 1,
-                    },
-                    limit=1,
+                    "SEPA Mandate", filters={"member": self.name, "status": "Active"}, limit=1
                 )
                 if sepa_mandates:
                     default_mandate = self.get_default_sepa_mandate()
