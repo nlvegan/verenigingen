@@ -384,7 +384,16 @@ def analyze_invoices_for_optimization(invoices):
 
 
 def create_optimal_batch_groups(analysis, config):
-    """Create optimal groupings of invoices for batching"""
+    """Create optimal groupings of invoices for batching.
+
+    The `processed_invoices` sets below remove invoices already claimed by an
+    EARLIER strategy so the next one does not re-batch them. They do NOT protect
+    against the same invoice appearing twice WITHIN one strategy's output -- that
+    can only happen if `get_eligible_invoices_for_batching` returned it twice, and
+    collapsing it here would hide the producer's bug. It is rejected instead by
+    `DirectDebitBatch.validate_no_duplicate_invoices` when
+    `create_dd_batch_document` inserts the batch (#606).
+    """
 
     all_invoices = []
     for category in analysis["by_amount"].values():
