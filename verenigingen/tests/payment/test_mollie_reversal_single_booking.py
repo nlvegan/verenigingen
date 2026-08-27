@@ -62,6 +62,43 @@ from verenigingen.verenigingen_payments.services.bank_transaction_creator import
 )
 
 
+def _ensure_mollie_named_bank_account():
+    """Get-or-create an Account literally named "Mollie" on COMPANY.
+
+    `create_unified_payment_entry` resolves its bank account in three steps:
+    `Mollie Settings.mollie_bank_account`, then an Account named exactly
+    "Mollie" on the company, then the company's `default_bank_account`. On a
+    clean test site the first is `""` and the third is unset for
+    `_Test Company 2`, so the middle one is the only route -- and if it is
+    missing the creator returns None from its account-validation branch,
+    which reads as "fixture problem" rather than as a missing account.
+
+    Provided as an Account rather than by mutating Mollie Settings: that Single
+    is shared with every co-tenant in the shard, and the sweep route reads a
+    cached copy of it.
+
+    Module-level and shared by both classes that need it, deliberately. It used
+    to be inline in one class's setUp; the other class relied on it having
+    already run, which is a dependency the captured-insert drain breaks -- the
+    Account is created inside a test, so it is claimed and deleted at that
+    test's teardown.
+    """
+    existing = frappe.get_value("Account", {"company": COMPANY, "account_name": "Mollie"}, "name")
+    if existing:
+        return existing
+    parent = frappe.get_value(
+        "Account", {"company": COMPANY, "account_type": "Bank", "is_group": 1}, "name"
+    )
+    acct = frappe.new_doc("Account")
+    acct.account_name = "Mollie"
+    acct.company = COMPANY
+    acct.parent_account = parent
+    acct.account_type = "Bank"
+    acct.account_currency = frappe.get_value("Company", COMPANY, "default_currency")
+    acct.insert(ignore_permissions=True)
+    return acct.name
+
+
 def _clear_mollie_config_cache():
     from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
         MollieConfigurationService,
@@ -86,24 +123,7 @@ class TestMollieReversalBooksOnce(_RefundFixtureMixin, EnhancedTestCase):
         self.income_account = self._ensure_income_account()
         self.bank_account = self._ensure_bank_account(self.clearing_account)
 
-        # create_unified_payment_entry resolves its bank account by looking for an
-        # Account literally named "Mollie" on the company when Mollie Settings has
-        # none. Provide it rather than mutating Mollie Settings.
-        self.mollie_account = frappe.get_value(
-            "Account", {"company": COMPANY, "account_name": "Mollie"}, "name"
-        )
-        if not self.mollie_account:
-            parent = frappe.get_value(
-                "Account", {"company": COMPANY, "account_type": "Bank", "is_group": 1}, "name"
-            )
-            acct = frappe.new_doc("Account")
-            acct.account_name = "Mollie"
-            acct.company = COMPANY
-            acct.parent_account = parent
-            acct.account_type = "Bank"
-            acct.account_currency = frappe.get_value("Company", COMPANY, "default_currency")
-            acct.insert(ignore_permissions=True)
-            self.mollie_account = acct.name
+        self.mollie_account = _ensure_mollie_named_bank_account()
 
         self.receivable = frappe.get_value(
             "Account", {"company": COMPANY, "account_type": "Receivable", "is_group": 0}, "name"
@@ -308,6 +328,10 @@ class TestReversalMirrorsTheForwardArtefact(_RefundFixtureMixin, EnhancedTestCas
         self.clearing_account = self._ensure_clearing_account()
         self.income_account = self._ensure_income_account()
         self.bank_account = self._ensure_bank_account(self.clearing_account)
+        # Without this the forward `create_unified_payment_entry` call in this
+        # class returns None and the tests fail as "fixture problem" -- which is
+        # exactly how they failed in CI on 2026-08-19.
+        self.mollie_account = _ensure_mollie_named_bank_account()
 
         self.receivable = frappe.get_value(
             "Account", {"company": COMPANY, "account_type": "Receivable", "is_group": 0}, "name"

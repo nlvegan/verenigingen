@@ -571,27 +571,56 @@ class TestRefundBankTransactionCreation(unittest.TestCase):
 
         Bug: Old refund code only created Payment Entry, no Bank Transaction
         Fix: Now creates Bank Transaction with negative amount (withdrawal)
+
+        The two assertions used to read `_process_pending_refunds` directly. That
+        method now delegates to `_book_donation_reversal`, which is where the
+        Bank Transaction is written -- so both routes (payment-webhook sweep and
+        refund webhook) book the reversal through one implementation (#370). The
+        assertions follow the logic to its new home, and the delegation itself is
+        pinned below, so removing the negative amount OR bypassing the shared
+        booker still fails this test.
         """
         from verenigingen.verenigingen_payments.mollie.services.webhook_wrapper_service_unified import (
             UnifiedWebhookWrapperService,
         )
         import inspect
 
-        source = inspect.getsource(UnifiedWebhookWrapperService._process_pending_refunds)
-
-        # Should use negative amount for Bank Transaction
+        # The Bank Transaction is written by the leaf of a four-step delegation:
+        #   _process_pending_refunds
+        #     -> _book_donation_reversal                     (dispatch on forward artefact)
+        #       -> _book_donation_reversal_as_journal_entry  (JE branch)
+        #         -> _create_reversal_bank_transaction_and_journal_entry
+        # Assert the amount at the leaf, and pin every link, so that neither
+        # dropping the negative amount nor short-circuiting the chain can pass.
+        leaf = inspect.getsource(
+            UnifiedWebhookWrapperService._create_reversal_bank_transaction_and_journal_entry
+        )
         self.assertIn(
-            "-float(refund_amount)",
-            source,
+            "-float(amount)",
+            leaf,
             "Refund Bank Transaction should use negative amount for withdrawal",
         )
-
-        # Should call bank transaction creator
         self.assertIn(
             "bt_creator.create_from_dict",
-            source,
+            leaf,
             "Should use BankTransactionCreator to create withdrawal",
         )
+
+        for caller, callee in (
+            ("_process_pending_refunds", "_book_donation_reversal"),
+            ("_book_donation_reversal", "_book_donation_reversal_as_journal_entry"),
+            (
+                "_book_donation_reversal_as_journal_entry",
+                "_create_reversal_bank_transaction_and_journal_entry",
+            ),
+        ):
+            body = inspect.getsource(getattr(UnifiedWebhookWrapperService, caller))
+            self.assertIn(
+                f"self.{callee}(",
+                body,
+                f"{caller} must reach the Bank Transaction via {callee}; the "
+                f"withdrawal assertions above are about code it no longer reaches",
+            )
 
 
 if __name__ == "__main__":
