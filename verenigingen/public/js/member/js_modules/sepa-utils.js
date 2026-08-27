@@ -305,7 +305,12 @@ function create_mandate_with_values(frm, values, dialog) {
 		args: {
 			member: frm.doc.name,
 			iban: values.iban,
-			mandate_id: values.mandate_id
+			mandate_id: values.mandate_id,
+			// The purposes this mandate will serve, so "will be replaced" below names
+			// a mandate that actually will be: create_and_link_mandate_enhanced
+			// supersedes only overlapping purposes (#605).
+			used_for_memberships: values.used_for_memberships,
+			used_for_donations: values.used_for_donations
 		},
 		callback(validation_response) {
 			// Handle OperationResult format

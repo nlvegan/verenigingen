@@ -19,6 +19,7 @@ from frappe.utils import add_days, getdate, today
 
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, standard_api
+from verenigingen.verenigingen_payments.utils.mandate_candidates import unambiguous_active_mandate
 
 
 @frappe.whitelist(allow_guest=False, methods=["GET", "POST"])
@@ -64,8 +65,13 @@ def check_member_dues_status(
         for schedule_name in eligibility_result["eligible_schedules"]:
             schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
             if schedule.member:
+                # Membership-scoped (#605): this counts how many of the members who
+                # need an invoice can be collected from by direct debit, and a
+                # donation mandate cannot collect dues -- every batching path has
+                # resolved mandates by purpose since #597.
                 mandate_exists = frappe.db.exists(
-                    "SEPA Mandate", {"member": schedule.member, "status": "Active"}
+                    "SEPA Mandate",
+                    {"member": schedule.member, "status": "Active", "used_for_memberships": 1},
                 )
                 if mandate_exists:
                     sepa_eligible_count += 1
@@ -336,13 +342,13 @@ def validate_sepa_eligibility(invoice_list: List[str] = None) -> OperationResult
                     )
                     continue
 
-                # Check for active SEPA mandate
-                mandate = frappe.db.get_value(
-                    "SEPA Mandate",
-                    {"member": schedule.member, "status": "Active"},
-                    ["name", "iban", "bic", "mandate_id"],
-                    as_dict=True,
-                )
+                # Check for an active MEMBERSHIP mandate. This used to be an
+                # unfiltered `get_value` with no `order_by`, so for a member holding
+                # both a dues and a donation mandate it reported whichever row the
+                # database returned first -- and the IBAN it reports is the one an
+                # operator reads before approving the collection (#605).
+                choice = unambiguous_active_mandate(schedule.member, "SEPA eligibility validation")
+                mandate = choice.mandate
 
                 if mandate:
                     eligible_invoices.append(
@@ -361,7 +367,11 @@ def validate_sepa_eligibility(invoice_list: List[str] = None) -> OperationResult
                         {
                             "invoice": invoice_name,
                             "member": schedule.member,
-                            "reason": _("No active SEPA mandate found"),
+                            # A refusal is not a not-found: say which one it was, so
+                            # nobody "fixes" an ambiguity by creating another mandate.
+                            "reason": _("Multiple active SEPA mandates - cancel all but one")
+                            if choice.is_ambiguous
+                            else _("No active SEPA mandate found"),
                             "customer": invoice.customer,
                         }
                     )

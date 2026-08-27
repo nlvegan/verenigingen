@@ -115,7 +115,7 @@ class TestSEPAXMLAdapter(FrappeTestCase):
         with patch.object(frappe.db, "get_value", return_value=None):
             result_date, used_fallback = self.adapter._get_mandate_sign_date(mock_invoice)
 
-        self.assertEqual(result_date, date.today())
+        self.assertEqual(result_date, getdate())
         self.assertTrue(used_fallback)  # Should indicate fallback was used
 
     def test_clear_cache(self):

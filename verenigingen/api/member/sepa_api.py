@@ -67,9 +67,12 @@ def get_active_sepa_mandate(member: str, iban: str = None):
         stacklevel=2,
     )
 
-    # Delegate to service
+    # Delegate to service. Membership-scoped (#605): `sepa-utils.js:419` hides the
+    # "Create SEPA Mandate" button when this returns something, so answering with a
+    # member's DONATION mandate hid the button that would have created the
+    # membership mandate their dues collection needs.
     manager = get_sepa_mandate_manager()
-    mandates = manager.get_active_mandates(member, iban=iban)
+    mandates = manager.get_active_mandates(member, iban=iban, purpose="used_for_memberships")
 
     # Return first mandate or None (legacy API returned single mandate)
     if mandates:
@@ -257,7 +260,9 @@ def deactivate_old_sepa_mandates(member: str, new_iban):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def validate_mandate_creation(member: str, iban: str, mandate_id):
+def validate_mandate_creation(
+    member: str, iban: str, mandate_id, used_for_memberships=1, used_for_donations=0
+):
     """
     Validate mandate creation parameters and check for existing mandates.
 
@@ -284,7 +289,25 @@ def validate_mandate_creation(member: str, iban: str, mandate_id):
     if result.valid:
         response = {"success": True, "valid": True, **(result.data or {})}
         # Check for existing mandate with same IBAN and add warning (legacy behavior)
+        # Only a mandate OVERLAPPING what the caller is about to create counts as
+        # one that "will be replaced" -- which is what the JS says on this key
+        # (`sepa-utils.js:318`) before calling `create_and_link_mandate_enhanced`,
+        # whose supersession is itself purpose-scoped. Unscoped, this named the
+        # member's donation mandate, which is left alone; hard-coded to memberships
+        # it would name their membership mandate on a donation-only creation. The
+        # purposes come from the same two values the caller passes to the create
+        # call (#605).
+        wanted = [
+            flag
+            for flag, on in (
+                ("used_for_memberships", used_for_memberships),
+                ("used_for_donations", used_for_donations),
+            )
+            if cbool(on)
+        ]
         existing_mandates = manager.get_active_mandates(member, iban=iban)
+        if wanted:
+            existing_mandates = [m for m in existing_mandates if any(getattr(m, flag, 0) for flag in wanted)]
         if existing_mandates:
             response["existing_mandate"] = existing_mandates[0].mandate_id
             response["warning"] = _("An active mandate already exists for this IBAN: {0}").format(
@@ -369,10 +392,20 @@ def setup_sepa_direct_debit(iban: str = None, account_holder_name: str = None):
         # mis-fitting if_owner DocPerm, Member.validate() still runs.
         member.save(ignore_permissions=True)
 
-        # Check for existing active mandate with same IBAN
+        # Check for an existing active MEMBERSHIP mandate with the same IBAN. The
+        # block below creates `used_for_memberships: 1`, and the supersede call
+        # under it is already purpose-scoped -- this guard was not, so a member's
+        # donation mandate on the same account would have suppressed the membership
+        # mandate this endpoint exists to set up (#605).
         existing_mandate = frappe.get_all(
             "SEPA Mandate",
-            filters={"member": member_name, "iban": iban, "status": "Active", "is_active": 1},
+            filters={
+                "member": member_name,
+                "iban": iban,
+                "status": "Active",
+                "is_active": 1,
+                "used_for_memberships": 1,
+            },
             fields=["name", "mandate_id"],
             limit=1,
         )

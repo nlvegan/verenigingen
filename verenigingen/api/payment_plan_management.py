@@ -177,14 +177,25 @@ def get_member_payment_plans(member: str | None = None) -> OperationResult[Dict[
 
 
 def get_member_active_sepa_mandate(member):
-    """Get member's active SEPA mandate"""
-    try:
-        mandate = frappe.db.get_value(
-            "SEPA Mandate", {"member": member, "status": "Active"}, "name", order_by="creation desc"
-        )
-        return mandate
-    except:
-        return None
+    """The member's single Active MEMBERSHIP mandate, or None.
+
+    Written to `Payment Plan.payment_account` alongside
+    `payment_method = "SEPA Direct Debit"`, so this is the mandate the instalments
+    are collected under. It used to be `order_by="creation desc"` with the first row
+    winning and no purpose filter -- the shape #584 was filed about -- so a member
+    who also donates by direct debit had their plan pointed at the donation mandate
+    whenever that one was newer (#605).
+
+    The bare `except: return None` is gone with it: a database error is not "this
+    member has no mandate", and reading it as one silently downgraded the plan to
+    Bank Transfer. `request_payment_plan`'s own handler logs and reports the failure.
+    """
+    from verenigingen.verenigingen_payments.utils.mandate_candidates import (
+        unambiguous_active_mandate,
+    )
+
+    choice = unambiguous_active_mandate(member, "Payment Plan mandate resolution")
+    return choice.mandate["name"] if choice else None
 
 
 def send_payment_plan_request_notification(payment_plan):

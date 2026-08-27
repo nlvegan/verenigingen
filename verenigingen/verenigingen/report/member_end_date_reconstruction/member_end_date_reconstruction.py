@@ -127,9 +127,12 @@ def analyze_member(member):
 def check_active_payment_methods(member, result):
     """Check if member has active SEPA mandate or Mollie subscription"""
 
-    # Check SEPA mandates
+    # Check SEPA mandates. Membership-scoped (#605): this flags a member as "still
+    # active" for MEMBERSHIP end-date reconstruction, and an Active donation mandate
+    # says nothing about whether their membership continued.
     active_sepa = frappe.db.exists(
-        "SEPA Mandate", {"member": member["name"], "status": "Active", "is_active": 1}
+        "SEPA Mandate",
+        {"member": member["name"], "status": "Active", "is_active": 1, "used_for_memberships": 1},
     )
 
     # Check Mollie subscription on customer

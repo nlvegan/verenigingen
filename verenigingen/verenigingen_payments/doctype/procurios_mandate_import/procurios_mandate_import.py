@@ -47,9 +47,11 @@ class _Caches:
     # `ambiguous_member` rather than silently assigned to whichever Member
     # the query returned last.
     ambiguous_procurios_ids: Set[str] = field(default_factory=set)
-    # Per-member count of currently-active mandates. Maintained in-loop so the
-    # cancellation path can decide whether a member still has *any* active
-    # mandate without re-querying the DB.
+    # Per-member count of currently-active MEMBERSHIP mandates -- the ones this
+    # import creates, and so the ones whose presence is a conflict with it (#605).
+    # Maintained in-loop so the cancellation path can decide whether a member
+    # still has one without re-querying the DB; it must therefore be decremented
+    # by the same rule that increments it.
     member_to_active_count: Dict[str, int] = field(default_factory=dict)
 
 
@@ -176,13 +178,13 @@ class ProcuriosMandateImport(BaseCSVImport):
             sepa_rows = frappe.get_all(
                 "SEPA Mandate",
                 filters={"status": "Active"},
-                fields=["name", "mandate_id", "status", "cancelled_date", "member"],
+                fields=["name", "mandate_id", "status", "cancelled_date", "member", "used_for_memberships"],
             )
             seen_names = {r.name for r in sepa_rows}
             csv_matches = frappe.get_all(
                 "SEPA Mandate",
                 filters={"mandate_id": ["in", list(csv_mandate_ids)]},
-                fields=["name", "mandate_id", "status", "cancelled_date", "member"],
+                fields=["name", "mandate_id", "status", "cancelled_date", "member", "used_for_memberships"],
             )
             for r in csv_matches:
                 if r.name not in seen_names:
@@ -191,7 +193,7 @@ class ProcuriosMandateImport(BaseCSVImport):
         else:
             sepa_rows = frappe.get_all(
                 "SEPA Mandate",
-                fields=["name", "mandate_id", "status", "cancelled_date", "member"],
+                fields=["name", "mandate_id", "status", "cancelled_date", "member", "used_for_memberships"],
             )
 
         for sm in sepa_rows:
@@ -201,8 +203,17 @@ class ProcuriosMandateImport(BaseCSVImport):
                     "status": sm.status,
                     "cancelled_date": sm.cancelled_date,
                     "member": sm.member,
+                    # Carried so the cancel path can decrement the SAME population
+                    # the conflict set counts; see `_update_cancellation`.
+                    "used_for_memberships": sm.used_for_memberships,
                 }
-                if sm.status == "Active" and sm.member:
+                # Membership mandates only (#605). `_create_mandate` inserts
+                # `used_for_memberships = 1`, so that is the mandate whose presence
+                # is a conflict with what this import creates. Counting a donation
+                # mandate here skipped the member's imported MEMBERSHIP mandate as
+                # a conflict and left them with none -- and every collection path
+                # has resolved mandates by purpose since #597.
+                if sm.status == "Active" and sm.member and sm.used_for_memberships:
                     caches.members_with_active_mandate.add(sm.member)
                     caches.member_to_active_count[sm.member] = (
                         caches.member_to_active_count.get(sm.member, 0) + 1
@@ -331,7 +342,15 @@ class ProcuriosMandateImport(BaseCSVImport):
         # Only decrement the active-count if the existing mandate was active
         # before this update; cancelling an already-cancelled mandate is a
         # no-op for the conflict-detection invariant.
-        was_active = existing.get("status") == "Active"
+        #
+        # And only if it was a MEMBERSHIP mandate: since #605 the counter and the
+        # conflict set hold membership mandates only, because that is what this
+        # import creates. Decrementing for a cancelled DONATION mandate zeroed the
+        # count for a membership mandate that is still Active and dropped the
+        # member out of the conflict set -- so the next row for them reached
+        # `_create_mandate` and died on the per-purpose guard, recorded as an
+        # error rather than as the conflict it is.
+        was_active = existing.get("status") == "Active" and existing.get("used_for_memberships")
 
         mandate = frappe.get_doc("SEPA Mandate", existing["name"])
         mandate.cancelled_date = row.cancelled_date

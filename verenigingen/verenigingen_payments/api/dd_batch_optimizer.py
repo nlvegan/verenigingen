@@ -223,8 +223,19 @@ def validate_member_eligibility_for_billing(invoice_data):
 
         # Check if member has valid SEPA mandate
         if invoice_data.get("payment_method") == "SEPA Direct Debit":
+            # A membership mandate, not any mandate (#605). This gate decides whether a
+            # DUES invoice may be billed, and `get_eligible_invoices_for_batching` has
+            # resolved mandates with `used_for_memberships = 1` since #597 -- so without
+            # the same filter a member whose only Active mandate is for donations passed
+            # here and then produced a batch row with nothing to debit under.
             mandate_exists = frappe.db.exists(
-                "SEPA Mandate", {"member": member_name, "status": "Active", "is_active": 1}
+                "SEPA Mandate",
+                {
+                    "member": member_name,
+                    "status": "Active",
+                    "is_active": 1,
+                    "used_for_memberships": 1,
+                },
             )
             if not mandate_exists:
                 frappe.log_error(
@@ -315,8 +326,17 @@ def validate_all_pending_invoices():
 
             # Check for missing SEPA mandates
             elif invoice["payment_method"] == "SEPA Direct Debit":
+                # Same purpose filter as validate_member_eligibility_for_billing (#605):
+                # this list is what an operator reads to find members who cannot be
+                # collected from, and a donation mandate hid exactly those members.
                 mandate_exists = frappe.db.exists(
-                    "SEPA Mandate", {"member": invoice["member"], "status": "Active", "is_active": 1}
+                    "SEPA Mandate",
+                    {
+                        "member": invoice["member"],
+                        "status": "Active",
+                        "is_active": 1,
+                        "used_for_memberships": 1,
+                    },
                 )
                 if not mandate_exists:
                     results["missing_mandates"].append(
@@ -589,10 +609,8 @@ def create_dd_batch_document(batch_invoices, target_date, batch_number, config):
 
     # Add invoices to batch and create mandate usage records
     for invoice in batch_invoices:
-        # Get mandate for this member
-        mandate_name = frappe.db.get_value(
-            "SEPA Mandate", {"member": invoice.get("member"), "status": "Active"}, "name"
-        )
+        # The mandate that will be debited, not another of this member's (#605)
+        mandate_name = get_mandate_for_batch_row(invoice)
 
         # Determine individual sequence type for this invoice
         sequence_info = (
@@ -658,6 +676,35 @@ def create_dd_batch_document(batch_invoices, target_date, batch_number, config):
     return batch_doc
 
 
+def get_mandate_for_batch_row(invoice):
+    """The mandate this row will actually be debited under.
+
+    `get_eligible_invoices_for_batching` has already resolved the member's
+    MEMBERSHIP mandate -- purpose-filtered since #597 -- and put its `mandate_id`
+    on the row as `mandate_reference`. That value becomes the Direct Debit Batch
+    child row and is what the SEPA XML debits.
+
+    Both callers used to throw that away and ask a different question instead:
+    "an Active mandate for this member", with no purpose filter and no `order_by`.
+    For a member holding a membership mandate and a donation mandate -- a state the
+    app models deliberately (#584) -- that answered with whichever row the database
+    returned first, so the FRST/RCUR decision and the SEPA Mandate Usage record
+    could belong to a mandate that is not the one being collected. FRST/RCUR is
+    carried in the XML: a first-collection marker on a mandate the bank has already
+    seen, or the reverse, is a rejection (#605).
+
+    Keyed on `mandate_id`, which is unique, so this is one row or none rather than
+    a choice. `status = "Active"` is kept: a mandate cancelled between batching and
+    collection must not gain a usage record, and returning None here makes the
+    caller default to FRST and skip the usage record rather than collect under it.
+    """
+    mandate_reference = invoice.get("mandate_reference")
+    if not mandate_reference:
+        return None
+
+    return frappe.db.get_value("SEPA Mandate", {"mandate_id": mandate_reference, "status": "Active"}, "name")
+
+
 def determine_sequence_type(batch_invoices):
     """Determine the batch-level SEPA SEQUENCE type (SeqTp) from mandate usage.
 
@@ -674,10 +721,8 @@ def determine_sequence_type(batch_invoices):
     sequence_types = set()
 
     for invoice in batch_invoices:
-        # Get the mandate for this member
-        mandate_name = frappe.db.get_value(
-            "SEPA Mandate", {"member": invoice.get("member"), "status": "Active"}, "name"
-        )
+        # The mandate that will be debited, not another of this member's (#605)
+        mandate_name = get_mandate_for_batch_row(invoice)
 
         if mandate_name:
             # Determine sequence type for this specific mandate

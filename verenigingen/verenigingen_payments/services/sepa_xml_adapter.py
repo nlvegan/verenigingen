@@ -522,7 +522,11 @@ class SEPAXMLAdapter:
         """
         if not mandate_reference:
             frappe.logger().warning("No mandate reference provided, using today's date as sign date")
-            return date.today(), True
+            # `getdate()` (site tz), not `date.today()` (server/UTC tz). In the late-UTC
+            # window the two name different calendar days, and this date is written into
+            # the XML as `DtOfSgntr`. `dues_payment_processor` already carries this fix
+            # with the same reasoning -- it was a real TZ-boundary bug there, not a flake.
+            return getdate(), True
 
         try:
             # Try to find by mandate_id first
@@ -539,32 +543,32 @@ class SEPAXMLAdapter:
                 self._mandate_cache[mandate_reference] = {"sign_date": sign_date}
                 return sign_date, False
 
-            # Try to find by member if mandate_id lookup failed
-            if member:
-                mandate_data = frappe.db.get_value(
-                    "SEPA Mandate",
-                    {"member": member, "status": "Active"},
-                    ["sign_date", "name", "mandate_id"],
-                    as_dict=True,
-                    order_by="creation desc",
-                )
-
-                if mandate_data and mandate_data.sign_date:
-                    sign_date = getdate(mandate_data.sign_date)
-                    # Cache using both mandate_id and mandate_reference
-                    if mandate_data.mandate_id:
-                        self._mandate_cache[mandate_data.mandate_id] = {"sign_date": sign_date}
-                    self._mandate_cache[mandate_reference] = {"sign_date": sign_date}
-                    return sign_date, False
+            # There is deliberately NO fallback to "another Active mandate of this
+            # member" (#605). This function is asked for the signature date of ONE
+            # mandate, named by `mandate_reference`, and that date is written into
+            # the XML as `DtOfSgntr` for that mandate. Substituting a different
+            # mandate's date -- previously the member's most recently created Active
+            # one, with no purpose filter, so a donation mandate's date could be sent
+            # for a dues debit -- reports a signature the debtor never gave for this
+            # collection, and returned used_fallback=False, telling the caller the
+            # date came from the named mandate.
+            #
+            # A purpose filter would not have been enough: borrowing the MEMBERSHIP
+            # mandate's date is the same substitution, just harder to notice. Falling
+            # through to the (today, True) return below is the honest answer, and it
+            # is already the designed channel for this: `_build_transaction` counts it
+            # as `missing_mandate_dates`, which strict mode turns into a batch-level
+            # failure naming the problem instead of a silently wrong date.
 
         except Exception as e:
             frappe.logger().warning(f"Error looking up mandate sign date for {mandate_reference}: {str(e)}")
 
-        # Fallback to today if no mandate found
+        # Fallback to today (site tz -- see the `getdate()` note above) if no mandate found
         frappe.logger().warning(
-            f"Mandate {mandate_reference} not found or has no sign date, using today's date"
+            f"Mandate {mandate_reference} (member {member}) not found as Active or has no "
+            f"sign date; reporting a missing sign date rather than borrowing another mandate's"
         )
-        return date.today(), True
+        return getdate(), True
 
     def _prefetch_mandate_data(self, invoices) -> None:
         """
