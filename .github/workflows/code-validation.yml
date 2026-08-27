@@ -115,6 +115,14 @@ jobs:
     - name: Unit-test the failed-write guard
       run: python -m unittest discover -s scripts/validation/tests -p 'test_failed_write_validator.py' -v
 
+    # The class-teardown harness-logger census. verenigingen/tests/harness_logger.py
+    # justifies its `>= ERROR` mirror gate with a count of which teardown routes log
+    # at which level; that figure was wrong twice (#564, #571) because nobody could
+    # re-run it. Stdlib-only like its siblings, so it runs here rather than in the
+    # Frappe shards -- a whole-tree AST walk is ~20s and shards re-pack on runtime.
+    - name: Unit-test the harness-logger teardown census
+      run: python -m unittest discover -s scripts/validation/tests -p 'test_harness_logger_teardown_census.py' -v
+
     # Tests for the scripts/testing tools live outside the verenigingen package, and
     # get_all_tests() only walks apps/verenigingen/verenigingen, so the app suite never
     # sees them -- they were added green and unrun, and a location-dependent test in them

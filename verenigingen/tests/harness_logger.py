@@ -147,8 +147,17 @@ class _StderrHandler(logging.StreamHandler):
 
     The old bound handler bypassed the captures, so those records were always visible.
     That was an accident of the very bug this class fixes, but it was load-bearing.
-    Measured 2026-08-25 by an AST call-graph walk over ``verenigingen/`` (real defs only,
-    so the ``tearDownClass`` in this package's own docstring examples does not count):
+    Measured by an AST call-graph walk over ``verenigingen/`` (real defs only, so the
+    ``tearDownClass`` in this package's own docstring examples does not count). The walk
+    is committed and re-runnable -- every figure below is regenerable, and pinned by
+    ``scripts/validation/tests/test_harness_logger_teardown_census.py``::
+
+        python scripts/validation/harness_logger_teardown_validator.py --report
+        python scripts/validation/harness_logger_teardown_validator.py --mode name --report
+
+    Read that script's module docstring before trusting any number here: the figure in
+    this paragraph was wrong twice (#564, #571), both times because it could not be
+    re-run. What follows is what the walk currently reports:
     **eleven** ``tearDownClass`` bodies reach this logger -- nine through
     ``SingletonBackup.restore()`` -> ``_restore_singleton``, one through
     ``TestWebhookUserSetup._sweep_webhook_users``, and one through
@@ -163,8 +172,9 @@ class _StderrHandler(logging.StreamHandler):
 
     Edges were resolved by callee name, EXCEPT that an attribute call's receiver was
     resolved to its class and bound through the MRO. That exception is not cosmetic:
-    ``tearDown`` has 498 defs in this repo (``cleanup`` 7, ``restore`` 4), so resolving
-    ``cls._test_instance.tearDown()`` by name alone links to all 498 and the walk returns
+    ``tearDown`` has ~500 defs in this repo (``cleanup`` 7, ``restore`` 4 -- exact
+    counts are printed by ``--report``, so this sentence cannot silently rot), so resolving
+    ``cls._test_instance.tearDown()`` by name alone links to every one of them, and the walk returns
     34 calls at 6 ERRORs instead of 19 at 2. Receiver resolution is what excludes those,
     and it is also the only thing that keeps the phantom ``factories.py:260`` out of the
     set -- six teardowns call ``cls.factory.cleanup()``, but that receiver is
