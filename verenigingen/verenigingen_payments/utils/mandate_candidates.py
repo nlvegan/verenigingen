@@ -104,11 +104,27 @@ def unambiguous_active_mandate(
     if len(rows) == 1:
         return MandateChoice(rows[0], 1)
 
+    log_ambiguous_mandate_refusal(member, rows, purpose, refusal_title)
+    return MandateChoice(None, len(rows))
+
+
+def log_ambiguous_mandate_refusal(member: str, rows, purpose, refusal_title: str) -> None:
+    """Record WHY a mandate was not chosen, so a refusal is actionable.
+
+    Shared with `SEPAMandateManager.get_default_mandate`, which reaches the same
+    verdict from an already-fetched list rather than from its own query (#597). One
+    implementation, so the two flows cannot drift into describing the same state
+    differently -- and so `mandate_id (iban)` stays the one format an operator
+    learns to read.
+
+    `rows` may hold plain dicts or `MandateInfo` dataclasses; both expose
+    `mandate_id` and `iban`.
+    """
     # Keyword form: `frappe.log_error`'s signature is `log_error(title, message)`, so
     # the common positional `log_error(f"...long...", "Title")` puts the message in
     # `Error Log.method` (Data, truncated at 140 chars) and no title reaches the title
     # column -- see `invoice_candidates.log_ambiguous_refusal` for the measurement.
-    listed = ", ".join(f"{r.mandate_id} ({r.iban})" for r in rows)
+    listed = ", ".join(f"{getattr(r, 'mandate_id', None)} ({getattr(r, 'iban', None)})" for r in rows)
     scope = PURPOSE_LABELS.get(purpose, "any purpose")
     frappe.log_error(
         title=refusal_title,
@@ -118,10 +134,6 @@ def unambiguous_active_mandate(
             f"one. Candidates: {listed}."
         ),
     )
-    return MandateChoice(None, len(rows))
-
-
-PURPOSE_FLAGS = ("used_for_memberships", "used_for_donations", "used_for_other")
 
 
 def cancel_active_mandates(member: str, reason: str, purposes=None, new_status: str = "Cancelled") -> dict:

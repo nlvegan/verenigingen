@@ -231,12 +231,20 @@ class OptimizedSEPAQueries:
     @staticmethod
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.FINANCIAL)
-    def get_active_mandates_for_members(member_names: List[str]) -> Dict[str, Dict]:
+    def get_active_mandates_for_members(
+        member_names: List[str], purpose: str = "used_for_memberships"
+    ) -> Dict[str, Dict]:
         """
         Optimized bulk loading of active SEPA mandates for members
 
         Replaces N+1 pattern in member_utils.py where individual
         frappe.get_doc() calls were made for each mandate.
+
+        Scoped by PURPOSE (#597). The query used to filter `status = 'Active'` only
+        and keep the first row per member, so a member holding an Active membership
+        mandate plus a newer Active donation mandate -- permitted by
+        `validate_single_active_mandate_per_purpose` -- got the donation one. Pass
+        `purpose=None` to ask for any Active mandate.
         """
 
         if not member_names:
@@ -244,6 +252,15 @@ class OptimizedSEPAQueries:
 
         # Validate input to prevent SQL injection
         validate_member_names(member_names)
+
+        # `purpose` names a COLUMN, and a column cannot be bound as a query
+        # parameter, so it is interpolated below. This endpoint is whitelisted, which
+        # makes `purpose` caller-supplied: the allowlist check is the only thing
+        # standing between a request parameter and the SQL text. Do not relax it.
+        from verenigingen.verenigingen_payments.utils.mandate_candidates import PURPOSE_FLAGS
+
+        if purpose and purpose not in PURPOSE_FLAGS:
+            raise ValueError(f"unknown mandate purpose {purpose!r}")
 
         # Single query to get active mandates for all members
         query = """
@@ -263,14 +280,18 @@ class OptimizedSEPAQueries:
         FROM `tabSEPA Mandate` sm
         WHERE sm.member IN ({placeholders})
         AND sm.status = 'Active'
+        {purpose_clause}
         ORDER BY sm.member, sm.is_active DESC, sm.sign_date DESC
         """.format(
-            placeholders=create_safe_sql_placeholders(len(member_names))
+            placeholders=create_safe_sql_placeholders(len(member_names)),
+            purpose_clause=f"AND sm.{purpose} = 1" if purpose else "",
         )
 
         results = frappe.db.sql(query, member_names, as_dict=True)
 
-        # Group by member, taking the first (default/most recent) mandate
+        # Group by member. With the purpose filter above there is at most one Active
+        # mandate per member per purpose, so this is a no-op rather than the silent
+        # tiebreak it used to be (#597).
         mandates_by_member = {}
         for result in results:
             member = result["member"]

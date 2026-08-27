@@ -29,21 +29,51 @@ class SEPAMandateService:
         self._mandate_cache = {}
         self._sequence_cache = {}
 
-    def get_active_mandate_batch(self, member_names: List[str]) -> Dict[str, Optional[Dict]]:
+    @staticmethod
+    def mandate_cache_key(member: str, purpose="used_for_memberships"):
+        """Key for `_mandate_cache`: member AND purpose.
+
+        The purpose is part of the key, not a detail -- one member can hold an
+        Active membership mandate and an Active donation mandate at once (#597), so
+        a member-only key would answer a donations lookup with the memberships
+        result. Exposed as a method because three places construct it (read, write,
+        invalidate) and a fourth shape would reintroduce that bug silently.
+        """
+        return (member, purpose)
+
+    def get_active_mandate_batch(
+        self, member_names: List[str], purpose: str = "used_for_memberships"
+    ) -> Dict[str, Optional[Dict]]:
         """
         Get active SEPA mandates for multiple members in a single query
         Returns dict with member_name as key and mandate info as value
+
+        Scoped by PURPOSE (#597). This used to order `sm.member, sm.creation DESC`
+        and `break` on the first row per member with no purpose filter, so a member
+        holding an Active membership mandate and a newer Active donation mandate --
+        a combination `validate_single_active_mandate_per_purpose` explicitly
+        permits -- got the donation one. `purpose=None` asks for any Active mandate.
+
+        The cache key includes the purpose. Without that, a lookup for one purpose
+        would answer a later lookup for another from the same entry, which is the
+        same wrong-mandate bug arriving by a different route.
         """
         if not member_names:
             return {}
+
+        from verenigingen.verenigingen_payments.utils.mandate_candidates import PURPOSE_FLAGS
+
+        if purpose and purpose not in PURPOSE_FLAGS:
+            raise ValueError(f"unknown mandate purpose {purpose!r}")
 
         # Check cache first
         cached_results = {}
         uncached_members = []
 
         for member in member_names:
-            if member in self._mandate_cache:
-                cached_results[member] = self._mandate_cache[member]
+            cache_key = self.mandate_cache_key(member, purpose)
+            if cache_key in self._mandate_cache:
+                cached_results[member] = self._mandate_cache[cache_key]
             else:
                 uncached_members.append(member)
 
@@ -66,8 +96,16 @@ class SEPAMandateService:
             JOIN `tabMember` mem ON sm.member = mem.name
             WHERE sm.member IN %(members)s
                 AND sm.status = 'Active'
+                {purpose_clause}
             ORDER BY sm.member, sm.creation DESC
-        """,
+        """.format(
+                # Interpolating a value from PURPOSE_FLAGS, validated above -- never
+                # caller text. Kept out of the parameter dict because a column name
+                # cannot be bound as a parameter.
+                purpose_clause=f"AND sm.{purpose} = 1"
+                if purpose
+                else ""
+            ),
             {"members": uncached_members, "today": today()},
             as_dict=True,
         )
@@ -83,14 +121,14 @@ class SEPAMandateService:
                     break
 
             # Cache the result (even if None)
-            self._mandate_cache[member] = member_mandate
+            self._mandate_cache[self.mandate_cache_key(member, purpose)] = member_mandate
             results[member] = member_mandate
 
         return results
 
-    def get_active_mandate(self, member_name: str) -> Optional[Dict]:
+    def get_active_mandate(self, member_name: str, purpose: str = "used_for_memberships") -> Optional[Dict]:
         """Get active SEPA mandate for a single member (uses batch service)"""
-        result = self.get_active_mandate_batch([member_name])
+        result = self.get_active_mandate_batch([member_name], purpose=purpose)
         return result.get(member_name)
 
     def get_sequence_types_batch(self, mandate_invoice_pairs: List[Tuple[str, str]]) -> Dict[str, str]:
@@ -289,8 +327,11 @@ class SEPAMandateService:
         if not member_name:
             return
 
-        # Clear in-process cache
-        self._mandate_cache.pop(member_name, None)
+        # Clear in-process cache. Keys are (member, purpose) tuples since #597, so
+        # every purpose held for this member has to go -- popping the bare member name
+        # matches no key at all and would silently stop invalidating anything.
+        for key in [k for k in self._mandate_cache if k[0] == member_name]:
+            self._mandate_cache.pop(key, None)
 
         # Clear Redis cache
         cache_key = f"{CACHE_KEY_PREFIX}mandate:{member_name}"
