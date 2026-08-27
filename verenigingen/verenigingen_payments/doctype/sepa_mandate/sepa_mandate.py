@@ -81,15 +81,21 @@ class SEPAMandate(Document):
         Bucketing "no purpose" as a fourth purpose would close that hole and leave
         a larger one open. Since #597 every mandate-resolution query filters by
         purpose, so an all-zero Active mandate is found by NONE of them: it is an
-        authorization that authorizes nothing. And creating one was not inert --
-        the whitelisted `create_and_link_mandate_enhanced(used_for_memberships=0,
-        used_for_donations=0)` computes `wanted = []` and hands it to
-        `cancel_active_mandates(purposes=[])`, whose
-        `tuple(purposes) if purposes else PURPOSE_FLAGS` reads an empty list as
-        "every purpose": it cancelled the member's real membership mandate and
-        then activated one that cannot collect. That activation is what now
-        raises. Requiring a purpose makes the shape unreachable rather than
-        merely unique.
+        authorization that authorizes nothing, silently, on a member who believes
+        they have signed one. Requiring a purpose makes the shape unreachable
+        rather than merely unique.
+
+        The realistic producer is Frappe's Data Import. `Document._set_defaults`
+        returns early under `frappe.flags.in_import`, so the JSON default
+        `used_for_memberships = 1` is NOT applied there. Measured on test_site_1
+        against the pre-guard tree: the same `get_doc({...}).insert()` stored
+        `used_for_memberships = 1` with the flag off and `0` with it on -- the
+        column's `NOT NULL DEFAULT 1` does not rescue it, because Frappe writes an
+        explicit 0. So a mandate CSV carrying `Status = Active` and no purpose
+        column produced an inert Active mandate and said nothing. It now raises.
+        (This is also why issue #606's claim that "Frappe applies the docfield
+        default even for `frappe.get_doc(dict).insert()`" is only true with the
+        flag off.)
 
         Scoped to Active, like its sibling: a purposeless Draft or Suspended
         mandate can still be staged, and Cancelled/Expired rows are untouched, so
@@ -99,6 +105,19 @@ class SEPAMandate(Document):
         (71 rows, all `used_for_memberships = 1`) and zero on test_site_1. That
         bounds those two sites, not every install -- an install that does hold such
         a row will find it unsaveable while Active until a purpose is ticked.
+
+        NOT the motivating case, though an earlier draft of this docstring said it
+        was: `create_and_link_mandate_enhanced(used_for_memberships=0,
+        used_for_donations=0)` computes `wanted = []` and hands it to
+        `cancel_active_mandates(purposes=[])`, whose
+        `tuple(purposes) if purposes else PURPOSE_FLAGS` reads an empty list as
+        "every purpose". But it then calls `carry_forward_purposes` BEFORE
+        activating, so whenever anything WAS superseded the replacement inherits
+        that purpose and this guard does not fire (measured both ways). The real
+        defect there is the widened supersession -- a purposeless request cancels
+        the member's donation mandate too and merges it onto one IBAN -- which is
+        a separate bug, not this one. This guard only catches the case where
+        nothing was cancelled.
         """
         if self.status != "Active":
             return

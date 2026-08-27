@@ -380,6 +380,11 @@ class TestDirectDebitBatchController(_BatchPipelineBase):
         does not: `validate_invoices` validates the Sales Invoice and never reads
         `mandate_reference` (measured in
         `test_dd_batch_duplicate_invoice_guard.TestValidateInvoicesIsBlindToTheDuplicate`).
+
+        `validate_sequence_types` is called directly because the state cannot be
+        reached through `save()`: `mandate_reference` is `reqd: 1` on the child
+        DocType, so the insert dies on MandatoryError before `validation_status`
+        is read. The change this pins is the ERROR MESSAGE in the manual path.
         """
         batch = frappe.new_doc("Direct Debit Batch")
         batch._automated_processing = True  # record, don't throw

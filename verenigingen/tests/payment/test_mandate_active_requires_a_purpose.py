@@ -9,13 +9,16 @@ all-purposes-zero Active mandates for one member were measured coexisting.
 Bucketing "no purpose" as a fourth purpose would close that specific hole and
 leave the larger one open: since #597 every mandate-resolution query filters by
 purpose, so an all-zero Active mandate can be found by NONE of them. It is an
-authorization that authorizes nothing -- and creating one is not inert. The
-whitelisted `create_and_link_mandate_enhanced(used_for_memberships=0,
-used_for_donations=0)` computes `wanted = []` and passes it to
-`cancel_active_mandates(purposes=[])`, where an empty list means "every purpose",
-so it CANCELS the member's real membership mandate and installs one that cannot
-collect. Requiring a purpose makes the shape unreachable rather than merely
-unique.
+authorization that authorizes nothing, silently, on a member who believes they
+have signed one. Requiring a purpose makes the shape unreachable rather than
+merely unique.
+
+The realistic producer is Frappe's Data Import, which sets
+`frappe.flags.in_import` -- and `Document._set_defaults` returns early under that
+flag, so the JSON default `used_for_memberships = 1` is not applied.
+`test_an_imported_active_mandate_with_no_purpose_is_rejected` covers it, with
+`test_the_import_flag_really_does_suppress_the_default` as the control proving
+the flag is what makes the state reachable.
 
 Scope of what the guard touches: it runs only for `status == "Active"`, so a
 purposeless Draft or Suspended mandate can still be staged and saved, and a
@@ -141,3 +144,80 @@ class TestTheGuardDoesNotOverreach(_PurposeFixture):
         with self.assertRaises(frappe.ValidationError) as ctx:
             self._mandate(IBAN_B, used_for_memberships=1)
         self.assertIn("memberships", str(ctx.exception))
+
+
+class TestTheImportRoute(_PurposeFixture):
+    """Frappe's Data Import is the one realistic producer of the all-zero shape.
+
+    `Document._set_defaults` (`apps/frappe/frappe/model/document.py`) opens with
+    `if frappe.flags.in_import: return`, so a document built from a dict does NOT
+    receive the JSON default `used_for_memberships = 1` during an import. The
+    column's `NOT NULL DEFAULT 1` does not rescue it either -- Frappe writes an
+    explicit 0 for the Check field.
+    """
+
+    def _import_mandate(self, status="Active"):
+        """Insert exactly as a Data Import row would: a dict with no purpose keys."""
+        previous = getattr(frappe.flags, "in_import", False)
+        frappe.flags.in_import = True
+        try:
+            mandate = frappe.get_doc(
+                {
+                    "doctype": "SEPA Mandate",
+                    "member": self.member.name,
+                    "mandate_id": f"IMPORT-{frappe.generate_hash(length=8)}",
+                    "account_holder_name": self.member.full_name,
+                    "iban": IBAN_A,
+                    "sign_date": "2024-01-01",
+                    "mandate_type": "RCUR",
+                    "scheme": "SEPA",
+                    "status": status,
+                }
+            )
+            mandate.insert()
+            return mandate
+        finally:
+            frappe.flags.in_import = previous
+
+    def test_an_imported_active_mandate_with_no_purpose_is_rejected(self):
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self._import_mandate()
+        self.assertIn("used_for_memberships", str(ctx.exception))
+
+    def test_the_import_flag_really_does_suppress_the_default(self):
+        """The control for the class above.
+
+        Without this, the rejection test would be equally consistent with "the
+        import flag changes nothing and the mandate was all-zero for some other
+        reason". A Draft import is not blocked by the guard, so its stored purpose
+        flags can be read back: they are all 0, whereas the identical dict outside
+        an import stores `used_for_memberships = 1`.
+        """
+        imported = self._import_mandate(status="Draft")
+        self.assertEqual(
+            frappe.db.get_value(
+                "SEPA Mandate",
+                imported.name,
+                ["used_for_memberships", "used_for_donations", "used_for_other"],
+                as_dict=True,
+            ),
+            {"used_for_memberships": 0, "used_for_donations": 0, "used_for_other": 0},
+        )
+
+        ordinary = frappe.get_doc(
+            {
+                "doctype": "SEPA Mandate",
+                "member": self.member.name,
+                "mandate_id": f"PLAIN-{frappe.generate_hash(length=8)}",
+                "account_holder_name": self.member.full_name,
+                "iban": IBAN_B,
+                "sign_date": "2024-01-01",
+                "mandate_type": "RCUR",
+                "scheme": "SEPA",
+                "status": "Draft",
+            }
+        )
+        ordinary.insert()
+        self.assertEqual(
+            frappe.db.get_value("SEPA Mandate", ordinary.name, "used_for_memberships"), 1
+        )

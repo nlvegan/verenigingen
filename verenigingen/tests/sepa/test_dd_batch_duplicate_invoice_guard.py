@@ -84,10 +84,10 @@ class TestDuplicateInvoiceRejected(_DuplicateInvoiceBase):
         with self.assertRaises(frappe.ValidationError) as ctx:
             batch.validate_no_duplicate_invoices()
 
-        message = str(ctx.exception)
-        self.assertIn("1", message)
-        self.assertIn("2", message)
-        self.assertIn("3", message)
+        # Assert the rendered list, not the digits: an invoice name such as
+        # ACC-SINV-2026-00123 contains "1", "2" and "3" on its own, so digit-wise
+        # assertions would pass with the row numbers removed entirely.
+        self.assertIn("rows 1, 2, 3", str(ctx.exception))
 
     def test_distinct_invoices_still_pass(self):
         """The control. Without it, a guard that rejected EVERY batch would pass
@@ -113,6 +113,14 @@ class TestValidateInvoicesIsBlindToTheDuplicate(_DuplicateInvoiceBase):
     invoice as two perfectly valid rows -- and never reads `mandate_reference` at
     all. These two tests measure that directly; if either ever fails, the guard
     added on the batch has become redundant and this module should say so.
+
+    Narrowly: the duplicate case pins that the SERVICE's per-row loop is blind,
+    not that the whole call chain is. A dedup inserted at the service's
+    `invoice_names = [i.invoice for i in batch_doc.invoices]` line would leave
+    this green, because the bulk lookup still resolves on both iterations of the
+    loop over `batch_doc.invoices`. What it does catch is a dedup of
+    `batch_doc.invoices` itself, which is the shape that would make the batch-level
+    guard unreachable.
     """
 
     def test_validate_invoices_is_blind_to_a_duplicate(self):
@@ -145,6 +153,15 @@ class TestMissingMandateReferenceIsCritical(_DuplicateInvoiceBase):
     this -- never reads the field (measured above). So it is a critical error,
     handled through the same automated/manual split as every other critical error
     in `validate_sequence_types`.
+
+    Both tests call `validate_sequence_types()` DIRECTLY, and that is deliberate,
+    because the state is not reachable through `save()`: `mandate_reference` is
+    `reqd: 1` on Direct Debit Batch Invoice, so the insert dies on MandatoryError
+    (measured) before anything reads `validation_status`. What this change buys is
+    the message in the manual path, where `validate` runs before
+    `_validate_mandatory` and so this error is what the operator sees. The
+    recorded-critical branch is pinned here for completeness; no caller observes
+    it today.
     """
 
     def test_manual_context_throws(self):
@@ -170,25 +187,32 @@ class TestMissingMandateReferenceIsCritical(_DuplicateInvoiceBase):
         self.assertIn("mandate reference", errors[0]["issue"].lower())
 
 
-class TestTheGuardCannotStrandAnExistingBatch(_DuplicateInvoiceBase):
-    """A batch created before the guard must stay serviceable.
+class TestWhichExistingBatchesTheGuardCanStrand(_DuplicateInvoiceBase):
+    """How far a pre-guard batch holding a duplicate stays serviceable. Two cases,
+    and only one of them is safe.
 
-    `sepa_batch_processor.process_sepa_return_file` and
+    `sepa_batch_processor.process_batch_returns` and
     `dd_batch_api.apply_conflict_resolutions` both LOAD an existing batch and call
-    `save()` on it. If the guard fired there, a pre-guard batch holding a duplicate
-    could never have its bank returns recorded -- a worse outcome than the duplicate
-    itself, since the money has already moved.
+    `save()` on it. Bank returns for a batch that already debited twice matter more
+    than the duplicate does -- the money has already moved.
 
-    It does not, because `Direct Debit Batch` is submittable and Frappe runs
-    `validate` only for `_action in ("save", "submit")`; an update to a SUBMITTED
-    document runs `before_update_after_submit` instead. Measured here rather than
-    reasoned from that source: the duplicate row is planted directly in the DB under
-    a submitted batch, and the save is asserted to succeed.
+    SUBMITTED (docstatus 1): safe. Frappe runs `validate` only for
+    `_action in ("save", "submit")`; an update to a submitted document runs
+    `before_update_after_submit` instead. Measured below rather than reasoned from
+    that source, by planting the duplicate row directly in the child table.
 
-    Census taken 2026-08-27 for the remaining Draft case: zero `Direct Debit Batch
-    Invoice` rows duplicate an invoice on veg11 or on test_site_1/2/3/5, and zero
-    rows have an empty `mandate_reference`. That bounds those five sites, not every
-    install.
+    DRAFT (docstatus 0): NOT safe, and this is a known gap rather than an oversight.
+    `validate` does run, so the guard fires and those calls fail. It matters because
+    the automated pipelines never submit: measured on veg11 2026-08-27, 11 of 29
+    batches are docstatus 0 and 6 of those are in status "Generated" -- the SEPA file
+    was produced and the document was never submitted. `dd_batch_workflow_controller.
+    reject_batch` is affected the same way: it saves before its `db_set`, so the
+    operator's remedy path would be blocked too.
+
+    What bounds the gap is that no such batch exists to strand. Census 2026-08-27:
+    zero `Direct Debit Batch Invoice` rows duplicate an invoice on veg11 or on
+    test_site_1/2/3/5, and zero rows have an empty `mandate_reference` -- and after
+    this guard none can be created. That bounds those five sites, not every install.
     """
 
     def test_a_submitted_batch_with_a_planted_duplicate_still_saves(self):
@@ -219,3 +243,29 @@ class TestTheGuardCannotStrandAnExistingBatch(_DuplicateInvoiceBase):
 
         batch.reload()
         self.assertEqual(batch.status, "Partially Failed")
+
+    def test_a_draft_batch_with_a_planted_duplicate_can_no_longer_be_saved(self):
+        """The gap, pinned so it is a decision rather than a surprise.
+
+        A DRAFT batch runs `validate` on save, so a duplicate that predates the
+        guard blocks every later save of that batch -- including
+        `process_batch_returns` and `reject_batch`. If this ever needs to change,
+        this test is the one to change, and the message it asserts is what an
+        operator would see.
+        """
+        row = self._member_mandate_row()
+        batch = self._unsaved_batch([row])
+        batch.insert()
+        self._track("Direct Debit Batch", batch.name)
+        self.assertEqual(batch.docstatus, 0)
+
+        clone = frappe.copy_doc(frappe.get_doc("Direct Debit Batch Invoice", batch.invoices[0].name))
+        clone.name = None
+        clone.idx = 99
+        clone.db_insert()
+        batch.reload()
+
+        batch.status = "Failed"
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            batch.save()
+        self.assertIn(row["invoice"], str(ctx.exception))

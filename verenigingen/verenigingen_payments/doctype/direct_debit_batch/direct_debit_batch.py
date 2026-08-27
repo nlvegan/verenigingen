@@ -96,16 +96,39 @@ class DirectDebitBatch(Document):
           claimed by an EARLIER batching strategy, never duplicates within one
           group.
 
-        Both batch pipelines end at this document's `save()`/`insert()`, so one
-        check here covers the class rather than one per producer -- and it fails
-        the batch loudly instead of quietly collecting twice.
+        Every batch pipeline ends at this document's `save()`/`insert()` -- 14
+        persistence statements across 8 production files, and no production code
+        writes a `Direct Debit Batch Invoice` row without going through its parent.
+        So one check here covers the class rather than one dedup per producer, and
+        it fails the batch loudly instead of quietly collecting twice.
 
-        This throws even under `_automated_processing`, unlike the sequence-type
-        criticals below. Those are recorded on the document and acted on by
+        WHY IT THROWS EVEN UNDER `_automated_processing`, and the cost. The
+        sequence-type criticals below are recorded on the document and acted on by
         `sepa_batch_notifications.handle_automated_batch_validation`, which flips
-        the batch to "Validation Failed". `dd_batch_optimizer.create_dd_batch_document`
-        never calls it: it inserts and never reads `validation_status`, so a
-        recorded-but-not-thrown duplicate would still be collected.
+        the batch to "Validation Failed" and notifies. `dd_batch_optimizer.
+        create_dd_batch_document` never calls it -- it inserts and never reads
+        `validation_status` -- but its scheduler caller `dd_batch_scheduler` DOES,
+        for every batch name `create_optimal_batches` returns. So the recorded
+        route is not unreachable, and throwing has a real price on that pipeline:
+        `create_optimal_batches` wraps the whole group loop in `except Exception`,
+        so a duplicate in group 3 leaves groups 1-2 inserted, discards
+        `batch_names` (nobody handles their validation status) and reports
+        `batches_created: 0`. The tradeoff is taken deliberately: a lost
+        optimization run is recoverable and the scheduler retries daily, whereas a
+        batch that persists with a duplicate can be submitted by a path that never
+        reads `validation_status` -- and that money does not come back.
+
+        SCOPE. This is a WITHIN-batch check. Two batches each listing the invoice
+        once are still two debits, and the guard cannot see that;
+        `sepa_batch_ui`/`_secure` check it per invoice ("already in batch X") and
+        `dd_batch_optimizer` excludes already-batched invoices in SQL evaluated
+        once per run, before any batch in that run exists.
+
+        It also does not see a duplicate that has been merged rather than removed:
+        `dd_batch_api.apply_conflict_resolutions`' `consolidate_entries` groups
+        rows by `mandate_reference` and collapses them into one row carrying the
+        SUM, so two rows for one invoice become one row at twice the amount and
+        pass this check. That is a separate defect in the consolidation key.
         """
         rows_by_invoice = {}
         for position, row in enumerate(self.invoices or [], start=1):
@@ -163,6 +186,16 @@ class DirectDebitBatch(Document):
                 # mandate_reference at all -- measured: a row with none comes back
                 # is_valid, errors []. A row with no mandate reference has no
                 # MndtId to present in the SEPA XML, so it cannot be collected.
+                #
+                # What DOES catch it on the way to the database is
+                # `mandate_reference` being `reqd: 1` on Direct Debit Batch
+                # Invoice: `validate` runs before `_validate_mandatory`, so in the
+                # manual path this critical error fires first and says something
+                # an operator can act on, but in the automated path the recorded
+                # `validation_status` is never observed -- the insert dies on
+                # MandatoryError before anything can read it. This branch is
+                # therefore about the ERROR MESSAGE, not about a state that would
+                # otherwise reach the bank.
                 critical_errors.append(
                     {
                         "invoice": invoice.invoice,
