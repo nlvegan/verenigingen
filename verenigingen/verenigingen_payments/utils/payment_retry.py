@@ -278,8 +278,13 @@ def execute_payment_retry(retry_record=None):
 
     retry_doc = frappe.get_doc("SEPA Payment Retry", retry_record)
 
-    # Check if retry should be executed today
-    if getdate(retry_doc.next_retry_date) != getdate(today()):
+    # Not yet due. The guard is one-sided on purpose: a retry must never run
+    # BEFORE its scheduled date, but an OVERDUE one must still run. The daily
+    # sweep selects next_retry_date <= today so that a date the scheduler missed
+    # (an outage, a timezone day-roll) is picked up on the next run; an equality
+    # test here would silently drop exactly the records the sweep exists to
+    # rescue, which is #622 narrowed rather than fixed.
+    if getdate(retry_doc.next_retry_date) > getdate(today()):
         return
 
     # Check if already processed today
@@ -396,6 +401,55 @@ def execute_payment_retry(retry_record=None):
         retry_doc.status = "Error"
         retry_doc.last_error = str(e)
         retry_doc.save()
+
+
+def execute_scheduled_payment_retries():
+    """Daily scheduler entry: execute every payment retry that is due.
+
+    Frappe runs a ``scheduler_events`` entry with NO arguments --
+    ``ScheduledJobType.execute`` does ``frappe.get_attr(self.method)()`` -- so
+    ``execute_payment_retry`` cannot be registered directly: its ``retry_record``
+    would be None and it would return on its first line. That is why no scheduled
+    retry ever ran (#622). This sweep is the entry point; it supplies the record.
+
+    ``create_retry_job`` cannot stand in for it. It enqueues the retry
+    immediately, but ``calculate_next_retry_date`` puts ``next_retry_date`` at
+    least ``retry_intervals[0]`` = 3 days out, so that job always lands before
+    the record is due and is filtered out by the guard in
+    ``execute_payment_retry``. Without this sweep the only path that reaches the
+    body is a human pressing "Retry Payment Now" on each record.
+    """
+    due = frappe.get_all(
+        "SEPA Payment Retry",
+        filters={
+            "status": "Scheduled",
+            # getdate()/today() are site-timezone; the machine clock can name a
+            # different calendar day (#628).
+            "next_retry_date": ["<=", getdate(today())],
+        },
+        pluck="name",
+        order_by="next_retry_date asc, creation asc",
+    )
+
+    errors = 0
+    for name in due:
+        try:
+            execute_payment_retry(retry_record=name)
+        except Exception:
+            # Isolate the record. This path moves money one record at a time, and
+            # a single bad row -- deleted between the query and the call, or a
+            # save conflict -- must not strand the rest of the day's retries.
+            # The traceback goes in `message`: log_error treats a non-traceback
+            # message AS the traceback, so passing anything else discards the
+            # real one.
+            errors += 1
+            frappe.log_error(
+                title=f"Scheduled payment retry failed: {name}",
+                message=frappe.get_traceback(with_context=True),
+            )
+            continue
+
+    return {"due": len(due), "errors": errors}
 
 
 @frappe.whitelist()

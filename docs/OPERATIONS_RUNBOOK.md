@@ -162,7 +162,10 @@ Account migration and data synchronization services are in `e_boekhouden/service
 
 ### Payment Retry
 
-Failed Mollie payments are retried daily via `payment_retry.execute_payment_retry`.
+Failed Mollie payments are retried daily via
+`payment_retry.execute_scheduled_payment_retries`, which sweeps every `SEPA Payment
+Retry` in status `Scheduled` whose `next_retry_date` has arrived and runs
+`execute_payment_retry` per record.
 
 ### Bank Transaction Reconciliation
 

@@ -713,6 +713,153 @@ class TestRetryDebitsTheMembershipMandate(RetryBase):
 
 
 # =============================================================================
+# The DAILY SCHEDULER ENTRY (#622)
+# =============================================================================
+class TestScheduledRetrySweep(RetryBase):
+    """The registered daily scheduler entry must actually execute due retries.
+
+    Frappe runs a ``scheduler_events`` entry with NO arguments -- see
+    ``ScheduledJobType.execute``, which does ``frappe.get_attr(self.method)()``
+    (frappe/core/doctype/scheduled_job_type/scheduled_job_type.py:156). Nothing
+    on the way supplies parameters: the ``@critical_api`` wrapper forwards
+    ``func(*args, **validated_kwargs)`` and injects nothing.
+
+    #622: the entry registered was ``execute_payment_retry(retry_record=None)``,
+    whose first two lines are ``if not retry_record: return`` -- so the daily run
+    was a silent no-op and no scheduled retry ever executed. The other automatic
+    path cannot compensate: ``PaymentRetryManager.create_retry_job`` enqueues the
+    retry immediately, but ``calculate_next_retry_date`` puts ``next_retry_date``
+    at least 3 days out (``retry_intervals = [3, 7, 14]``), so that job is
+    guaranteed to be filtered out by the due-date guard as well.
+
+    These tests bind to the CONTRACT rather than to a function name: they resolve
+    whichever ``payment_retry`` method the daily hook registers and call it the
+    way the scheduler does. The observable is a due record for a member with NO
+    active SEPA mandate, which the body parks in status 'Failed' -- reached only
+    if the sweep passed the record through.
+    """
+
+    #: Read from the hooks module directly, not via ``frappe.get_hooks``, which
+    #: is Redis-cached per site and can serve the installed checkout's copy
+    #: rather than the tree under test.
+    _PREFIX = "verenigingen.verenigingen_payments.utils.payment_retry."
+
+    def _daily_entry(self):
+        """The single daily scheduler entry belonging to payment_retry."""
+        from verenigingen.hooks.scheduler import scheduler_events
+
+        entries = [m for m in scheduler_events["daily"] if m.startswith(self._PREFIX)]
+        self.assertEqual(
+            len(entries),
+            1,
+            f"expected exactly one payment_retry daily scheduler entry, got {entries}",
+        )
+        return entries[0]
+
+    def _scheduled_record(self, label, day_offset):
+        """A 'Scheduled' retry due ``day_offset`` days from today, for a member
+        with no active SEPA mandate."""
+        member = self._make_member_with_customer(label)
+        membership = self.sepa.create_test_membership(member=member.name, status="Active")
+        invoice = self._make_unpaid_invoice(member)
+        return self._make_retry_record(
+            member,
+            invoice,
+            status="Scheduled",
+            retry_count=1,
+            # getdate()/today() are site-tz; never Python's date.today() (#628).
+            next_retry_date=add_days(getdate(today()), day_offset),
+            membership=membership.name,
+        )
+
+    def _run_daily_entry(self):
+        """Invoke the registered entry exactly as the scheduler does.
+
+        The sweep is global, so it may also pick up 'Scheduled' rows left by
+        other modules sharing this database. Stub only the external SEPA XML
+        file generation so such a collateral record cannot demand live org SEPA
+        credentials or write a file; every other guard runs for real.
+        """
+        with patch(
+            "verenigingen.verenigingen_payments.services.sepa_xml_generation_service."
+            "sepa_xml_service.generate_sepa_xml_for_batch",
+            return_value="/files/dummy-sepa.xml",
+        ):
+            frappe.get_attr(self._daily_entry())()
+
+    def _no_mandate_comment(self, rec):
+        return frappe.get_all(
+            "Comment",
+            filters={
+                "reference_doctype": "SEPA Payment Retry",
+                "reference_name": rec.name,
+            },
+            pluck="content",
+        )
+
+    def test_daily_entry_executes_a_retry_due_today(self):
+        """A retry due today is executed by the scheduled entry, with no argument
+        supplied -- the whole point of #622."""
+        rec = self._scheduled_record("SweepDueToday", 0)
+
+        self._run_daily_entry()
+
+        rec.reload()
+        self.assertEqual(
+            rec.status,
+            "Failed",
+            "due retry was not executed by the daily scheduler entry",
+        )
+        self.assertTrue(any("No active SEPA mandate" in c for c in self._no_mandate_comment(rec)))
+
+    def test_daily_entry_executes_a_retry_whose_date_was_missed(self):
+        """A retry whose date has already passed (scheduler outage, a tz-boundary
+        day roll) must still be picked up -- otherwise it is stranded in
+        'Scheduled' forever, which is #622 narrowed rather than fixed."""
+        rec = self._scheduled_record("SweepOverdue", -4)
+
+        self._run_daily_entry()
+
+        rec.reload()
+        self.assertEqual(
+            rec.status,
+            "Failed",
+            "overdue retry was left behind by the daily scheduler entry",
+        )
+
+    def test_daily_entry_leaves_a_retry_that_is_not_yet_due(self):
+        """The sweep is bounded: a retry scheduled for a future date is untouched,
+        so 'it executed the due one' is not just 'it executes everything'."""
+        rec = self._scheduled_record("SweepNotYetDue", 5)
+
+        self._run_daily_entry()
+
+        rec.reload()
+        self.assertEqual(rec.status, "Scheduled")
+        self.assertIsNone(rec.last_retry_date)
+
+    def test_daily_entry_ignores_records_not_in_scheduled_status(self):
+        """Only 'Scheduled' rows are swept. A record already 'Retried' today is
+        not re-run, and an 'Escalated' one is not resurrected."""
+        member = self._make_member_with_customer("SweepWrongStatus")
+        membership = self.sepa.create_test_membership(member=member.name, status="Active")
+        invoice = self._make_unpaid_invoice(member)
+        escalated = self._make_retry_record(
+            member,
+            invoice,
+            status="Escalated",
+            retry_count=3,
+            next_retry_date=getdate(today()),
+            membership=membership.name,
+        )
+
+        self._run_daily_entry()
+
+        escalated.reload()
+        self.assertEqual(escalated.status, "Escalated")
+
+
+# =============================================================================
 # check_payment_retry_status
 # =============================================================================
 class TestCheckRetryStatus(RetryBase):

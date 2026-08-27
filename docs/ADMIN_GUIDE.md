@@ -212,7 +212,8 @@ Use the `/dues-invoice-manager` dashboard for manual invoice generation and the 
 
 ### Mollie Payment Processing
 
-- Payment retries execute daily via `payment_retry.execute_payment_retry`.
+- Payment retries execute daily via `payment_retry.execute_scheduled_payment_retries`
+  (a sweep over due `SEPA Payment Retry` records).
 - Bank transaction reconciliation runs daily.
 - Subscription auditing and member reconciliation are available via the admin dashboards listed above.
 - Webhooks are processed by the background service user (Vereinigingen Webhook User role profile).
