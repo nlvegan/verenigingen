@@ -302,6 +302,12 @@
             {{ error_message }}
         </div>
     {% else %}
+        {% if data_warning %}
+        <div class="alert alert-warning">
+            <i class="fa fa-exclamation-triangle"></i>
+            {{ data_warning }}
+        </div>
+        {% endif %}
         <!-- Dashboard Header -->
         <div class="dashboard-header">
             <div class="header-content">

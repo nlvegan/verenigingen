@@ -60,7 +60,18 @@ def process_retry_queues():
                 total_failed += result.get("failed", 0)
 
             except Exception as e:
-                frappe.logger().error(f"Error processing retry queue for {tracker_info['name']}: {str(e)}")
+                # log_error, not frappe.logger().error: this handler is now the only
+                # record that this tracker failed at all, and a bare logger writes to
+                # logs/frappe.log, which nothing reads (see CLAUDE.md).
+                # Keyword args, against this file's own habit and the app's 1111 other
+                # positional calls: log_error is (title, message), and passing the
+                # message first makes frappe use it as the TRACEBACK, discarding the
+                # real one (frappe/utils/error.py:24). That is affordable where a
+                # traceback is noise and not where this handler is the only record.
+                frappe.log_error(
+                    title="Retry Queue Processing Error",
+                    message=f"Error processing retry queue for {tracker_info['name']}: {str(e)}",
+                )
                 continue
 
         if total_processed > 0:
@@ -83,63 +94,70 @@ def process_single_retry_queue(tracker_name: str) -> Dict:
     Returns:
         dict: Processing results with counts
     """
-    try:
-        tracker = frappe.get_doc("Bulk Operation Tracker", tracker_name)
-        retry_requests = tracker.get_retry_requests()
+    # No `except` here on purpose. Returning zeros made a crash
+    # indistinguishable from "nothing to retry" -- and the caller below said
+    # exactly that to the user, with `"failed": 0` precisely when everything
+    # failed (#593). Both callers already handle the exception: the scheduled
+    # loop logs it and moves to the next tracker, and
+    # manual_retry_failed_requests() turns it into a message the user sees.
+    tracker = frappe.get_doc("Bulk Operation Tracker", tracker_name)
+    retry_requests = tracker.get_retry_requests()
 
-        if not retry_requests:
-            return {"processed": 0, "succeeded": 0, "failed": 0}
-
-        # Check if enough time has passed for retry (exponential backoff)
-        if not should_retry_now(tracker):
-            frappe.logger().info(f"Skipping retry for {tracker_name} - backoff period not elapsed")
-            return {"processed": 0, "succeeded": 0, "failed": 0}
-
-        frappe.logger().info(f"Processing {len(retry_requests)} retry requests for {tracker_name}")
-
-        # Process retry requests in smaller batches to avoid overwhelming system
-        batch_size = 10  # Smaller batches for retry processing
-        succeeded_requests = []
-        failed_requests = []
-
-        for i in range(0, len(retry_requests), batch_size):
-            batch = retry_requests[i : i + batch_size]
-
-            try:
-                # Use existing batch processor for consistency
-                batch_results = process_bulk_account_creation_batch(
-                    request_names=batch,
-                    batch_id=f"retry_batch_{i // batch_size + 1}",
-                    batch_number=i // batch_size + 1,
-                    tracker_name=tracker_name,
-                )
-
-                succeeded_requests.extend(batch_results.get("completed_requests", []))
-                failed_requests.extend(batch_results.get("failed_requests", []))
-
-            except Exception as e:
-                frappe.logger().error(f"Error processing retry batch {i // batch_size + 1}: {str(e)}")
-                failed_requests.extend(batch)
-                continue
-
-        # No stored retry queue to update (#172): successfully retried ACRs flip
-        # out of status='Failed' during processing, so they drop out of the
-        # derived retry list automatically. Nothing to write on the tracker row.
-        remaining_failed = [req for req in retry_requests if req in failed_requests]
-        frappe.logger().info(
-            f"Retry pass for {tracker_name}: {len(succeeded_requests)} succeeded, "
-            f"{len(remaining_failed)} remaining failed"
-        )
-
-        return {
-            "processed": len(retry_requests),
-            "succeeded": len(succeeded_requests),
-            "failed": len(remaining_failed),
-        }
-
-    except Exception as e:
-        frappe.logger().error(f"Error processing retry queue for {tracker_name}: {str(e)}")
+    if not retry_requests:
         return {"processed": 0, "succeeded": 0, "failed": 0}
+
+    # Check if enough time has passed for retry (exponential backoff)
+    if not should_retry_now(tracker):
+        frappe.logger().info(f"Skipping retry for {tracker_name} - backoff period not elapsed")
+        return {"processed": 0, "succeeded": 0, "failed": 0}
+
+    frappe.logger().info(f"Processing {len(retry_requests)} retry requests for {tracker_name}")
+
+    # Process retry requests in smaller batches to avoid overwhelming system
+    batch_size = 10  # Smaller batches for retry processing
+    succeeded_requests = []
+    failed_requests = []
+
+    for i in range(0, len(retry_requests), batch_size):
+        batch = retry_requests[i : i + batch_size]
+
+        try:
+            # Use existing batch processor for consistency
+            batch_results = process_bulk_account_creation_batch(
+                request_names=batch,
+                batch_id=f"retry_batch_{i // batch_size + 1}",
+                batch_number=i // batch_size + 1,
+                tracker_name=tracker_name,
+            )
+
+            succeeded_requests.extend(batch_results.get("completed_requests", []))
+            failed_requests.extend(batch_results.get("failed_requests", []))
+
+        except Exception as e:
+            # Counting the batch as failed is the right answer here -- unlike the
+            # removed handler above, this one does not hide the failure. The cause,
+            # though, is only recorded here, so it goes to the Error Log.
+            frappe.log_error(
+                title="Retry Batch Processing Error",
+                message=f"Error processing retry batch {i // batch_size + 1} for {tracker_name}: {str(e)}",
+            )
+            failed_requests.extend(batch)
+            continue
+
+    # No stored retry queue to update (#172): successfully retried ACRs flip
+    # out of status='Failed' during processing, so they drop out of the
+    # derived retry list automatically. Nothing to write on the tracker row.
+    remaining_failed = [req for req in retry_requests if req in failed_requests]
+    frappe.logger().info(
+        f"Retry pass for {tracker_name}: {len(succeeded_requests)} succeeded, "
+        f"{len(remaining_failed)} remaining failed"
+    )
+
+    return {
+        "processed": len(retry_requests),
+        "succeeded": len(succeeded_requests),
+        "failed": len(remaining_failed),
+    }
 
 
 def should_retry_now(tracker) -> bool:
