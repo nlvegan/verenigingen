@@ -149,18 +149,23 @@ class SEPAMandateManager(StatelessService):
             >>> mandates[0].mandate_id
             'M-001-20251014-001'
         """
+        # Resolved OUTSIDE the try below, which returns [] on any exception.
+        # `resolve_purpose_flag` raises on an unknown purpose precisely so a typo
+        # cannot silently degrade to purpose-blind resolution; swallowed into an
+        # empty list it would do worse than that, since callers read [] as "no
+        # mandate" and go on to create or allow one.
+        #
+        # `purpose` is opt-in: this method's job is "every Active mandate of this
+        # member", which the discrepancy check and the payment dashboard
+        # legitimately want. Callers deciding something about ONE purpose pass it,
+        # rather than taking [0] of an unscoped list (#605).
+        from verenigingen.verenigingen_payments.utils.mandate_candidates import resolve_purpose_flag
+
+        purpose_flag = resolve_purpose_flag(purpose)
+
         try:
             filters = {"member": member, "status": "Active", "is_active": 1}
 
-            # `purpose` is opt-in: this method's job is "every Active mandate of
-            # this member", which the discrepancy check and the payment dashboard
-            # legitimately want. Callers deciding something about ONE purpose pass
-            # it, rather than taking [0] of an unscoped list (#605).
-            from verenigingen.verenigingen_payments.utils.mandate_candidates import (
-                resolve_purpose_flag,
-            )
-
-            purpose_flag = resolve_purpose_flag(purpose)
             if purpose_flag is not None:
                 filters[purpose_flag] = 1
 
@@ -334,8 +339,15 @@ class SEPAMandateManager(StatelessService):
                 may hold one Active mandate PER PURPOSE (#584), and paying dues
                 and donating from the same account is the ordinary case, not a
                 clash. Pass None to treat any Active mandate on the IBAN as a
-                duplicate. The default matches every creation flow in the app --
-                all of them set `used_for_memberships = 1` (#605).
+                duplicate.
+
+                The default is memberships because that is what every caller of
+                THIS method is creating -- `create_mandate` passes the flags it is
+                about to set, and the two API wrappers create membership mandates.
+                It is not a claim about the app as a whole: `create_mandate` and
+                `create_and_link_mandate_enhanced` both accept donation-only
+                arguments, and `payment_gateways._create_sepa_mandate` builds a
+                donation mandate without coming through here at all (#605).
 
         Returns:
             ValidationResult with validation details

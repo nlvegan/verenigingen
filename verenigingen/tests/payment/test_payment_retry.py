@@ -672,9 +672,13 @@ class TestRetryDebitsTheMembershipMandate(RetryBase):
         `unambiguous_active_mandate` exists even though the guard should make the
         state unreachable.
         """
-        member, invoice, membership_mandate, _donation, rec = (
+        member, invoice, _membership_mandate, _donation, rec = (
             self._due_retry_for_member_with_both_mandates()
         )
+        # The refusal records itself through `frappe.log_error` -- that IS the
+        # behaviour under test succeeding, so declare it rather than letting the
+        # harness's automatic Error Log check read it as an incident.
+        self.expectErrorLog("Payment retry mandate resolution")
         second = self.sepa.create_test_sepa_mandate(
             member=member.name,
             status="Draft",
@@ -706,7 +710,6 @@ class TestRetryDebitsTheMembershipMandate(RetryBase):
             any("No active SEPA mandate" in c for c in comments),
             "reporting a refusal as 'none found' is what sends the operator to create another",
         )
-        self.assertTrue(membership_mandate.name)
 
 
 # =============================================================================

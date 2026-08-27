@@ -81,8 +81,13 @@ def is_chapter_management_enabled():
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 def check_sepa_mandate_status(member: str):
     """Check SEPA mandate status for dashboard indicators"""
-    member_doc = frappe.get_doc("Member", member)
-    active_mandates = member_doc.get_active_sepa_mandates()
+    from verenigingen.services.payment.sepa_mandate_manager import get_sepa_mandate_manager
+
+    # Membership-scoped (#605): this drives the member form's mandate indicator,
+    # and that form is about dues. A member may legitimately also hold an Active
+    # donation mandate (#584), which is not an answer to "is this member's dues
+    # collection set up".
+    active_mandates = get_sepa_mandate_manager().get_active_mandates(member, purpose="used_for_memberships")
 
     result = {"has_active_mandate": bool(active_mandates), "expiring_soon": False}
 

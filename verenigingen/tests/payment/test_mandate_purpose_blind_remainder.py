@@ -443,3 +443,52 @@ class TestMandateCreationWarningIsAboutTheSamePurpose(DonationOnlyMandateFixture
         result = self._validate(DONATION_IBAN)
 
         self.assertEqual(result.get("existing_mandate"), membership.mandate_id)
+
+
+class TestTheMemberFacingAnswersAreAboutDues(DonationOnlyMandateFixture):
+    """"Does this member have a mandate?" is asked by four member-facing readers.
+
+    Each of them then decides something about DUES: the member form suppresses its
+    "Create SEPA Mandate" button on a truthy `get_active_sepa_mandate`
+    (`sepa-utils.js:419`), the dashboard indicator reports a mandate exists, and
+    the payment dashboard shows the member the IBAN it says they are debited from.
+    All four read an unfiltered Active list, so for a member who donates by direct
+    debit and has no membership mandate they answered yes -- and the button that
+    would have created the missing mandate never appeared (#605).
+    """
+
+    def test_the_member_form_reports_no_membership_mandate(self):
+        from verenigingen.api.member import sepa_api
+
+        self.assertIsNone(
+            sepa_api.get_active_sepa_mandate(self.member.name),
+            "a truthy answer here hides the button that creates the membership mandate",
+        )
+
+    def test_the_member_form_still_reports_a_membership_mandate(self):
+        """The control: the endpoint must still find the mandate it is asked about."""
+        from verenigingen.api.member import sepa_api
+
+        membership = self._insert_active_mandate(
+            iban=MEMBERSHIP_IBAN, sign_date=today(), used_for_memberships=1, used_for_donations=0
+        )
+        self.assertEqual(
+            sepa_api.get_active_sepa_mandate(self.member.name)["mandate_id"], membership.mandate_id
+        )
+
+    def test_the_dashboard_indicator_reports_no_active_mandate(self):
+        from verenigingen.verenigingen.doctype.member.member_utils import check_sepa_mandate_status
+
+        self.assertFalse(check_sepa_mandate_status(self.member.name)["has_active_mandate"])
+
+    def test_the_payment_dashboard_does_not_show_the_donation_iban(self):
+        from verenigingen.api.payment_dashboard import get_payment_method
+
+        result = get_payment_method(self.member.name)
+        data = result if isinstance(result, dict) else result.to_dict()
+        payload = data.get("data", data)
+
+        self.assertFalse(
+            payload.get("has_active_mandate"),
+            "the member was shown their donation account as the one dues are collected from",
+        )
