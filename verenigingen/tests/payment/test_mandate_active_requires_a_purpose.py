@@ -41,7 +41,7 @@ class _PurposeFixture(EnhancedTestCase):
         super().setUp()
         self.member = self.create_test_member(first_name="PurposeReq", last_name="Test")
 
-    def _mandate(self, iban, status="Active", **purposes):
+    def _purpose_mandate(self, iban, status="Active", **purposes):
         """A mandate built with `new_doc` + `insert()`, i.e. no bypass.
 
         `new_doc` applies the JSON default `used_for_memberships = 1`, which is
@@ -66,7 +66,7 @@ class _PurposeFixture(EnhancedTestCase):
 class TestActiveMandateRequiresAPurpose(_PurposeFixture):
     def test_an_active_mandate_with_no_purpose_is_rejected(self):
         with self.assertRaises(frappe.ValidationError) as ctx:
-            self._mandate(IBAN_A)
+            self._purpose_mandate(IBAN_A)
 
         message = str(ctx.exception)
         self.assertIn("used_for_memberships", message)
@@ -80,9 +80,9 @@ class TestActiveMandateRequiresAPurpose(_PurposeFixture):
         created at all, so the pair is unreachable rather than merely unique.
         """
         with self.assertRaises(frappe.ValidationError):
-            self._mandate(IBAN_A)
+            self._purpose_mandate(IBAN_A)
         with self.assertRaises(frappe.ValidationError):
-            self._mandate(IBAN_B)
+            self._purpose_mandate(IBAN_B)
 
         self.assertEqual(
             frappe.db.count(
@@ -100,7 +100,7 @@ class TestActiveMandateRequiresAPurpose(_PurposeFixture):
 
     def test_activating_an_existing_purposeless_mandate_is_rejected(self):
         """The other route in: a Draft mandate that is later activated."""
-        mandate = self._mandate(IBAN_A, status="Draft")
+        mandate = self._purpose_mandate(IBAN_A, status="Draft")
         mandate.status = "Active"
         mandate.is_active = 1
 
@@ -113,36 +113,36 @@ class TestTheGuardDoesNotOverreach(_PurposeFixture):
     class above."""
 
     def test_a_memberships_mandate_is_accepted(self):
-        mandate = self._mandate(IBAN_A, used_for_memberships=1)
+        mandate = self._purpose_mandate(IBAN_A, used_for_memberships=1)
         self.assertEqual(mandate.status, "Active")
 
     def test_a_donations_only_mandate_is_accepted(self):
-        mandate = self._mandate(IBAN_A, used_for_donations=1)
+        mandate = self._purpose_mandate(IBAN_A, used_for_donations=1)
         self.assertEqual(mandate.status, "Active")
 
     def test_an_other_only_mandate_is_accepted(self):
-        mandate = self._mandate(IBAN_A, used_for_other=1)
+        mandate = self._purpose_mandate(IBAN_A, used_for_other=1)
         self.assertEqual(mandate.status, "Active")
 
     def test_a_purposeless_draft_mandate_is_accepted(self):
         """A replacement can still be staged before its purposes are decided;
         the guard only fires when the mandate becomes able to collect."""
-        mandate = self._mandate(IBAN_A, status="Draft")
+        mandate = self._purpose_mandate(IBAN_A, status="Draft")
         self.assertEqual(mandate.status, "Draft")
 
     def test_the_per_purpose_guard_still_permits_memberships_plus_donations(self):
         """The capability the app models, unchanged by this guard."""
-        self._mandate(IBAN_A, used_for_memberships=1)
-        self._mandate(IBAN_B, used_for_donations=1)
+        self._purpose_mandate(IBAN_A, used_for_memberships=1)
+        self._purpose_mandate(IBAN_B, used_for_donations=1)
 
         self.assertEqual(
             frappe.db.count("SEPA Mandate", {"member": self.member.name, "status": "Active"}), 2
         )
 
     def test_the_per_purpose_guard_still_rejects_a_same_purpose_second(self):
-        self._mandate(IBAN_A, used_for_memberships=1)
+        self._purpose_mandate(IBAN_A, used_for_memberships=1)
         with self.assertRaises(frappe.ValidationError) as ctx:
-            self._mandate(IBAN_B, used_for_memberships=1)
+            self._purpose_mandate(IBAN_B, used_for_memberships=1)
         self.assertIn("memberships", str(ctx.exception))
 
 
