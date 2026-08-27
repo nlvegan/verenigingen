@@ -342,7 +342,7 @@
                     <h5><i class="fa fa-line-chart"></i> {{ _("Business") }}</h5>
                     <p><strong>{{ _("Daily Transactions:") }}</strong> {{ performance_metrics.business.daily_transactions }}</p>
                     <p><strong>{{ _("Payment Success Rate:") }}</strong> {{ performance_metrics.business.payment_success_rate }}%</p>
-                    <p><strong>{{ _("Member Growth Today:") }}</strong> {{ performance_metrics.business.member_growth.today }}</p>
+                    <p><strong>{{ _("Member Growth Today:") }}</strong> {{ "--" if performance_metrics.business.member_growth.error else performance_metrics.business.member_growth.today }}</p>
                 </div>
             </div>
         </div>
