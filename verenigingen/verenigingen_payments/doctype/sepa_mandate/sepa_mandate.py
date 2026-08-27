@@ -21,6 +21,10 @@ from verenigingen.verenigingen_payments.services.sepa_mandate_member_integration
 from verenigingen.verenigingen_payments.services.sepa_mandate_validation_service import (
     sepa_mandate_validation_service,
 )
+from verenigingen.verenigingen_payments.utils.mandate_candidates import (
+    PURPOSE_FLAGS,
+    PURPOSE_LABELS,
+)
 from verenigingen.verenigingen_payments.utils.sepa_mandate_service import (
     invalidate_mandate_cache_for_member,
 )
@@ -40,7 +44,7 @@ class SEPAMandate(Document):
 
         # Run last: relies on the normalized IBAN (set by validate_iban) and the
         # final status (set by set_status_based_on_dates / sync_status_is_active).
-        self.validate_no_duplicate_active_mandate()
+        self.validate_single_active_mandate_per_purpose()
 
     def enforce_terminal_status(self):
         """Prevent reactivating a mandate that is in a terminal state.
@@ -65,30 +69,81 @@ class SEPAMandate(Document):
             self.status = previous_status
             self.is_active = 0
 
-    def validate_no_duplicate_active_mandate(self):
-        """Reject a second Active mandate that duplicates an existing one (same IBAN).
+    def validate_single_active_mandate_per_purpose(self):
+        """At most ONE Active mandate per member PER PURPOSE.
 
-        A member legitimately switches banks by creating a new mandate with a
-        different IBAN, which supersedes the old one via the Member SEPA Mandate
-        Link `is_current` flag. But two Active mandates sharing the same IBAN are a
-        genuine duplicate and must be rejected as a data-integrity error.
+        `SEPA Mandate` carries `used_for_memberships` / `used_for_donations` /
+        `used_for_other` as independent checkboxes, and the app genuinely models a
+        member holding an Active membership mandate alongside an Active donation
+        mandate -- `test_payment_history_writer_parity` has a regression test for
+        exactly that shape, and the fix it guards was to make BOTH payment-history
+        writers filter on `used_for_memberships = 1`.
+
+        What was never true is that two Active mandates sharing a purpose could be
+        told apart. The old guard keyed on member + IBAN, on the stated grounds that
+        the older one "supersedes via the Member SEPA Mandate Link `is_current`
+        flag". That is not a discriminator:
+
+        - no mandate-resolution query reads `is_current` AT ALL -- they all filter on
+          `status` (and, where it matters, on purpose), so even a perfectly
+          maintained flag could not have disambiguated a direct debit;
+        - it is also unmaintained: both writers compute
+          ``is_current = 1 if status == "Active" and is_active else 0``
+          (`sepa_mandate_manager.py:678`,
+          `sepa_mandate_member_integration_service.py:186`), so two Active mandates
+          are BOTH flagged current;
+        - the flag-clearing code that runs automatically,
+          ``MemberSEPAMandateLink.check_current_mandate``, is never called -- Frappe
+          does not run child-DocType ``validate()`` (#596).
+
+        With no discriminator WITHIN a purpose, `get_invoice_mandate_info` fell back
+        to `ORDER BY sm.creation DESC LIMIT 1` and debited an arbitrary IBAN (#584).
+        Scoping the rule by purpose keeps the capability the app models and removes
+        the ambiguity that has money behind it.
+
+        A bank switch is still supported, and is what the sanctioned flow already
+        does: cancel the old mandate for that purpose, then activate the new one.
+        Draft and Suspended siblings are untouched, so a replacement can be staged.
+
+        This is defence in depth, not the only gate: `frappe.db.set_value` on
+        ``status`` bypasses ``validate`` entirely, which is why the read side filters
+        by purpose AND refuses a pick that is still ambiguous.
         """
-        if self.status != "Active" or not self.member or not self.iban:
+        if self.status != "Active" or not self.member:
             return
 
-        duplicate = frappe.db.exists(
-            "SEPA Mandate",
-            {
-                "member": self.member,
-                "iban": self.iban,
-                "status": "Active",
-                "name": ["!=", self.name or ""],
-            },
-        )
-        if duplicate:
+        overlapping = [flag for flag in PURPOSE_FLAGS if self.get(flag)]
+        if not overlapping:
+            return
+
+        for flag in overlapping:
+            existing = frappe.db.get_value(
+                "SEPA Mandate",
+                {
+                    "member": self.member,
+                    "status": "Active",
+                    flag: 1,
+                    "name": ["!=", self.name or ""],
+                },
+                ["name", "mandate_id", "iban"],
+                as_dict=True,
+            )
+            if not existing:
+                continue
+
+            # Name the blocking mandate AND the purpose: without both, an operator
+            # cannot tell which of a member's mandates to cancel, or why.
             frappe.throw(
-                _("Member {0} already has an active SEPA mandate with this IBAN ({1}).").format(
-                    self.member, self.iban
+                _(
+                    "Member {0} already has an active SEPA mandate for {1}: {2} "
+                    "(IBAN {3}). Cancel it before activating another one for the same "
+                    "purpose -- two active mandates sharing a purpose mean an "
+                    "arbitrarily chosen IBAN gets debited."
+                ).format(
+                    self.member,
+                    PURPOSE_LABELS[flag],
+                    existing.mandate_id,
+                    existing.iban or _("not set"),
                 )
             )
 

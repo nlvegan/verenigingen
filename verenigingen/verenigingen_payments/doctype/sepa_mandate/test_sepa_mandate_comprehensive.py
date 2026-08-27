@@ -241,9 +241,11 @@ class ComprehensiveSEPAMandateTests(EnhancedTestCase):
             SEPA Mandate document
         """
         # Use test IBAN if none provided. Generate a UNIQUE valid IBAN per call so
-        # that tests which create several mandates for the same member do not trip
-        # validate_no_duplicate_active_mandate (which keys on member + IBAN). A real
-        # Dutch bank code (INGB) is used so BIC derivation still resolves.
+        # that tests creating several mandates for one member get distinct rows. NOTE:
+        # a unique IBAN no longer sidesteps the duplicate guard -- since #584
+        # `validate_single_active_mandate` rejects any second ACTIVE mandate whatever
+        # the IBAN, so such tests must keep the extras Draft/Cancelled. A real Dutch
+        # bank code (INGB) is used so BIC derivation still resolves.
         if not iban:
             try:
                 from verenigingen.utils.validation.iban_validator import generate_test_iban
@@ -637,8 +639,11 @@ class ComprehensiveSEPAMandateTests(EnhancedTestCase):
         """
         frequencies = ["Monthly", "Quarterly", "Biannual", "Annual", "Variable"]
 
+        # Draft, not Active: a member may hold only one ACTIVE mandate (#584), and
+        # `frequency` is validated independently of status, so stacking five Active
+        # mandates on one member was incidental to what this test is about.
         for frequency in frequencies:
-            mandate = self._create_test_mandate(status="Active", frequency=frequency)
+            mandate = self._create_test_mandate(status="Draft", frequency=frequency)
             mandate.insert()
 
             self.assertEqual(mandate.frequency, frequency)
@@ -680,10 +685,13 @@ class ComprehensiveSEPAMandateTests(EnhancedTestCase):
         - Index usage optimization
         - Bulk operation performance
         """
-        # Create multiple mandates for performance testing
+        # Create multiple mandates for performance testing. One Active and nine
+        # Cancelled, because that is now the only shape a member can be in: #584
+        # allows at most one Active mandate. Ten rows still exercises the lookup;
+        # five Active never could have existed outside a test.
         mandates = []
         for i in range(10):
-            mandate = self._create_test_mandate(status="Active" if i % 2 == 0 else "Cancelled")
+            mandate = self._create_test_mandate(status="Active" if i == 0 else "Cancelled")
             mandate.insert()
             mandates.append(mandate)
 
@@ -698,7 +706,7 @@ class ComprehensiveSEPAMandateTests(EnhancedTestCase):
                 )
 
                 # Verify results
-                self.assertEqual(len(active_mandates), 5)  # Half should be active
+                self.assertEqual(len(active_mandates), 1)  # At most one may be active (#584)
 
     def tearDown(self):
         """

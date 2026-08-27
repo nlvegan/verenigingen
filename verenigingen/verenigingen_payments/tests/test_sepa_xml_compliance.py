@@ -190,10 +190,22 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
         When ``recurring`` is True, a prior "Collected" usage row is recorded so
         get_mandate_sequence_type() returns RCUR (otherwise first use → FRST,
         which makes a RCUR batch row a critical SEPA compliance violation).
+
+        Each mandate gets its OWN member. A batch has one row per debtor in
+        reality, and since #584 a member may hold at most one Active mandate per
+        purpose -- so hanging every mandate off ``_invoice_member`` (as this used to)
+        is both unrealistic and now rejected. ``validate_sequence_types`` resolves
+        the mandate by ``mandate_id`` + ``status`` alone
+        (``direct_debit_batch.py:109-111``), with no member cross-check, so the batch
+        rows can keep naming ``_invoice_member`` as the debtor.
         """
         from verenigingen.utils.validation.iban_validator import generate_test_iban
 
         if not frappe.db.exists("SEPA Mandate", {"mandate_id": mandate_reference}):
+            # One member per mandate -- see the docstring.
+            mandate_member = self.create_test_member(
+                first_name="XMLMandate", last_name=frappe.generate_hash(length=6)
+            )
             # Date the mandate in the past so a prior usage can legitimately
             # post after sign_date (renewal logic would otherwise force FRST).
             sign_date = frappe.utils.add_days(frappe.utils.today(), -60)
@@ -201,11 +213,11 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
                 {
                     "doctype": "SEPA Mandate",
                     "mandate_id": mandate_reference,
-                    "member": self._invoice_member.name,
-                    "account_holder_name": f"{self._invoice_member.first_name} {self._invoice_member.last_name}",
+                    "member": mandate_member.name,
+                    "account_holder_name": f"{mandate_member.first_name} {mandate_member.last_name}",
                     # Unique account number per mandate: a fixed test IBAN would
                     # collide on the second mandate for the same member ("already
-                    # has an active SEPA mandate with this IBAN").
+                    # has an active SEPA mandate ... for memberships").
                     "iban": generate_test_iban(
                         "TEST", account_number=str(abs(hash(mandate_reference)) % (10**10)).zfill(10)
                     ),

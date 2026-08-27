@@ -122,9 +122,13 @@ class TestSEPAMandateServiceIntegration(VereningingenTestCase):
             account_holder_name="Jan de Vries"
         )
 
-        # Create second mandate for same member
+        # Create second mandate for the same member, for a DIFFERENT purpose: since
+        # #584 a member holds at most one Active mandate per purpose, and what this
+        # test is about is that generated IDs stay unique across mandates.
         mandate_doc2 = frappe.new_doc("SEPA Mandate")
         mandate_doc2.member = self.test_member.name
+        mandate_doc2.used_for_memberships = 0
+        mandate_doc2.used_for_donations = 1
         mandate_doc2.account_holder_name = "Jan de Vries"
         mandate_doc2.iban = "NL02ABNA0123456789"  # Different IBAN
         mandate_doc2.sign_date = "2024-09-16"

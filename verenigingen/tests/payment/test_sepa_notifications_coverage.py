@@ -88,8 +88,11 @@ class TestSEPANotificationsCoverage(EnhancedTestCase):
             mock_send.assert_not_called()
 
     def test_created_notification_returns_for_unknown_member(self):
-        # Mandate referencing a member row that the SQL lookup won't find.
-        mandate = self._make_mandate(self.member.name)
+        # Mandate referencing a member row that the SQL lookup won't find. Reuse the
+        # mandate setUp already created: since #584 this member may not hold a second
+        # Active memberships mandate, and the point here is the in-memory `member`
+        # value the notification path reads, not a distinct row.
+        mandate = self.mandate
         mandate.member = "MEMBER-DOES-NOT-EXIST-XYZ"
         with patch(SEND_PATH) as mock_send:
             self.manager.send_mandate_created_notification(mandate)
@@ -280,7 +283,9 @@ class TestSEPANotificationsCoverage(EnhancedTestCase):
     # ------------------------------------------------------------------
 
     def test_expiry_scheduler_sends_for_expiring_mandate(self):
-        expiring = self._make_mandate(self.member.name, status="Active")
+        # setUp already gave this member their one Active mandate (#584); make that
+        # one expire rather than adding a second.
+        expiring = self.mandate
         frappe.db.set_value("SEPA Mandate", expiring.name, "expiry_date", add_days(today(), 20))
 
         with patch(SEND_PATH) as mock_send:
@@ -290,7 +295,8 @@ class TestSEPANotificationsCoverage(EnhancedTestCase):
             self.assertIn(self.member.email, sent_recipients)
 
     def test_expiry_scheduler_respects_recent_notification_guard(self):
-        expiring = self._make_mandate(self.member.name, status="Active")
+        # As above: reuse this member's single Active mandate (#584).
+        expiring = self.mandate
         frappe.db.set_value("SEPA Mandate", expiring.name, "expiry_date", add_days(today(), 18))
         self._persist_recent_expiry_communication(expiring.name)
 

@@ -170,36 +170,24 @@ class TestSEPAMandateCreation(VereningingenTestCase):
         # Cleanup handled automatically by VereningingenTestCase
 
     def test_get_active_sepa_mandate_with_iban_filter(self):
-        """Test get_active_sepa_mandate with IBAN filter"""
+        """Filtering by IBAN returns the member's Active mandate, or nothing.
+
+        Rewritten twice over. It used to create two Active mandates for one member --
+        no longer possible since #584 -- and then assert nothing at all: every
+        assertion in it was commented out, so it passed whatever the filter did.
+        """
         from verenigingen.verenigingen.doctype.member.member import get_active_sepa_mandate
 
-        # Create two mandates with different IBANs
-        mandate1 = self.create_test_sepa_mandate(
+        owned_iban = "NL13TEST0123456789"
+        self.create_test_sepa_mandate(member=self.member.name, iban=owned_iban, status="Active")
 
-            member=self.member.name,
+        match = get_active_sepa_mandate(member=self.member.name, iban=owned_iban)
+        self.assertIsNotNone(match, "the member's own Active mandate was not returned")
 
-            iban="NL13TEST0123456789",  # Using test IBAN
-
-            status="Active"
-
-        )
-
-        mandate2 = self.create_test_sepa_mandate(
-            member=self.member.name,
-            iban="DE89370400440532013000",  # Distinct IBAN: a second Active mandate
-            # may not share the first's IBAN (SEPAMandate duplicate guard).
-            status="Active",
-        )
-
-        # Test filtering by specific IBAN
-        result = get_active_sepa_mandate(member=self.member.name, iban="NL82MOCK0123456789")
-
-        # Note: The specific test logic may need adjustment based on actual mandate data
-        # self.assertIsNotNone(result)
-        # self.assertEqual(result["mandate_id"], "IBAN-MANDATE-002")
-        # self.assertEqual(result["iban"], "NL82MOCK0123456789")
-        
-        # Cleanup handled automatically by VereningingenTestCase
+        # A different IBAN must NOT resolve to it -- without this the test would pass
+        # for a filter that ignores its iban argument entirely.
+        miss = get_active_sepa_mandate(member=self.member.name, iban="DE89370400440532013000")
+        self.assertIsNone(miss, "the IBAN filter matched a mandate with a different IBAN")
 
     # ===== TEST create_and_link_mandate_enhanced =====
 
