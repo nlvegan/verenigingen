@@ -12,14 +12,19 @@ which must still answer zeros. Without that pair "it raises now" would be
 consistent with "it raises on everything", which is not the fix.
 
 Triggers are real, not mocked -- a missing document, a filter value the query
-layer cannot build SQL from. Five sites raise now; a sixth
-(`get_basic_expense_stats`) keeps its zeros and adds "error", for the reason
-given at its tests below. The remaining two (`get_alert_summary`,
-`MonitoringMetricsService._get_member_growth_rate`) and
+layer cannot build SQL from.
+
+Four of the eight sites RAISE now, and so does one sibling the validator could
+not see (`get_chapter_key_metrics`'s member half). Two carry the cause instead
+because their caller would otherwise error-page a whole dashboard over one tile
+(`get_basic_expense_stats`, and its money-block neighbour
+`get_financial_summary`), and both are covered here.
+
+Not covered: `get_alert_summary`,
+`MonitoringMetricsService._get_member_growth_rate` and
 `ChapterQueryService.get_user_permissions_optimized` take no argument that
-reaches their query, so they have NO mock-free failure trigger and are not
-covered here; they carry the cause in the returned dict, and the error_swallow
-ratchet is what holds them.
+reaches their query, so they have NO mock-free failure trigger. They carry the
+cause in the returned dict, and the error_swallow ratchet is what holds them.
 """
 
 import frappe
@@ -130,22 +135,43 @@ class TestQueryFailureIsNotAZero(EnhancedTestCase):
 
         # A 3-element list reaches frappe.get_all as a filter and cannot be
         # unpacked into (operator, value) -- a real ValueError from the query
-        # layer, no mock.
+        # layer, before any SQL is built, so it is not passing by accident on a
+        # site whose custom fields are missing.
         self.expectErrorLog("Error calculating expense statistics")
         stats = get_basic_expense_stats(["a", "b", "c"])
         self.assertIn("error", stats)
-        self.assertEqual(stats["pending_count"], 0)
+        # All four counts must survive beside it: chapter_dashboard.html indexes
+        # pending_amount, pending_count and ytd_total, and prints "--" off "error".
+        for key in ("pending_amount", "pending_count", "ytd_total", "this_month"):
+            self.assertEqual(stats[key], 0, key)
+
+    def test_a_crashed_financial_summary_carries_the_cause(self):
+        """The money block beside those tiles, on the same column, same failure.
+
+        Invisible to the swallow validator because its zeros are NESTED dicts
+        (#601), so nothing would have caught this one going the other way.
+        """
+        from verenigingen.templates.pages.chapter_dashboard import get_financial_summary
+
+        self.expectErrorLog("Error calculating financial summary")
+        summary = get_financial_summary(["a", "b", "c"])
+        self.assertIn("error", summary)
+        self.assertEqual(summary["this_month"]["expenses_submitted"], 0)
+        self.assertEqual(summary["ytd"]["total_expenses"], 0)
 
     def test_a_chapter_without_expenses_reports_zeros_and_no_error(self):
         """CONTROL: a chapter with no expense claims is a real zero.
 
-        Skipped where the Custom Field is missing -- which is every test site and
-        CI, and is itself the finding: this query has never once run there.
+        Skips only where the seven Expense Claim `custom_*` fields are absent --
+        which is NOT "every test site": they ship in
+        fixtures/expense_claim_custom_fields.json, and `bench migrate` imports
+        them. A site that installed verenigingen before hrms lacks them until its
+        next migrate, and that is the case this skip covers (see #600).
         """
         from verenigingen.templates.pages.chapter_dashboard import get_basic_expense_stats
 
         if not frappe.db.exists("Custom Field", "Expense Claim-custom_chapter"):
-            self.skipTest("Expense Claim-custom_chapter exists on the live site only")
+            self.skipTest("Expense Claim-custom_chapter absent; run `bench migrate` on this site")
 
         chapter = self.ensure_test_chapter("Test Zero Stats Chapter")
         stats = get_basic_expense_stats(chapter.name)
@@ -153,12 +179,22 @@ class TestQueryFailureIsNotAZero(EnhancedTestCase):
         self.assertEqual(stats["pending_count"], 0)
         self.assertEqual(stats["ytd_total"], 0)
 
-    def test_member_metrics_for_a_fresh_chapter_are_zero(self):
-        """CONTROL for the sibling swallow removed in the same function.
+    def test_a_crashed_member_metric_query_raises(self):
+        """The sibling swallow removed in the same function, in its own right.
 
         The member half of get_chapter_key_metrics zeroed into a VARIABLE rather
-        than returning, so the validator never saw it; it now propagates. This
-        control needs no custom field, so unlike the one above it runs everywhere.
+        than returning, so the validator never saw it (#601). Measured against the
+        base tree, this same call returned members={...all zeros...}.
+        """
+        from verenigingen.templates.pages.chapter_dashboard import get_chapter_key_metrics
+
+        with self.assertRaises(ValueError):
+            get_chapter_key_metrics(["a", "b", "c"])
+
+    def test_member_metrics_for_a_fresh_chapter_are_zero(self):
+        """CONTROL for the test above: an empty chapter is a real zero.
+
+        Needs no custom field, so unlike the expense control it runs everywhere.
         """
         from verenigingen.templates.pages.chapter_dashboard import get_chapter_key_metrics
 

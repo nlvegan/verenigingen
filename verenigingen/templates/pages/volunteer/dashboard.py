@@ -45,6 +45,14 @@ def get_context(context):
             )
             context.organizations = {"chapters": [], "teams": []}
 
+        # `data_warning`, not `error_message`, and no `hasattr` guard. Two bugs were
+        # here: the page context is a `frappe._dict`, whose __getattr__ IS dict.get, so
+        # `hasattr(context, "error_message")` is ALWAYS True and these three handlers
+        # set nothing at all (the same trap api_security_framework.py:1052 documents);
+        # and `error_message` is what dashboard.html renders INSTEAD OF the whole
+        # dashboard, which is right for "no volunteer record" above and far too much
+        # for one failed tile. The template now shows `data_warning` above a dashboard
+        # that still renders (#593).
         # Get recent activities with user-friendly error handling
         try:
             context.recent_activities = get_recent_activities(volunteer["name"])
@@ -53,10 +61,9 @@ def get_context(context):
                 f"Error getting recent activities: {str(e)}", "Volunteer Dashboard Activities Error"
             )
             context.recent_activities = []
-            if not hasattr(context, "error_message"):
-                context.error_message = _(
-                    "Some dashboard data could not be loaded. Please refresh the page or contact support if the issue persists."
-                )
+            context.data_warning = _(
+                "Some dashboard data could not be loaded. Please refresh the page or contact support if the issue persists."
+            )
 
         # Get expense summary with user-friendly error handling
         try:
@@ -70,10 +77,9 @@ def get_context(context):
                 "recent_count": 0,
                 "pending_amount": 0,
             }
-            if not hasattr(context, "error_message"):
-                context.error_message = _(
-                    "Some dashboard data could not be loaded. Please refresh the page or contact support if the issue persists."
-                )
+            context.data_warning = _(
+                "Some dashboard data could not be loaded. Please refresh the page or contact support if the issue persists."
+            )
 
         # Get upcoming assignments/activities with user-friendly error handling
         try:
@@ -83,10 +89,9 @@ def get_context(context):
                 f"Error getting upcoming activities: {str(e)}", "Volunteer Dashboard Upcoming Error"
             )
             context.upcoming_activities = []
-            if not hasattr(context, "error_message"):
-                context.error_message = _(
-                    "Some dashboard data could not be loaded. Please refresh the page or contact support if the issue persists."
-                )
+            context.data_warning = _(
+                "Some dashboard data could not be loaded. Please refresh the page or contact support if the issue persists."
+            )
 
     except Exception as e:
         frappe.log_error(f"Error loading volunteer dashboard: {str(e)}", "Volunteer Dashboard Error")

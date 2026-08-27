@@ -63,9 +63,14 @@ def process_retry_queues():
                 # log_error, not frappe.logger().error: this handler is now the only
                 # record that this tracker failed at all, and a bare logger writes to
                 # logs/frappe.log, which nothing reads (see CLAUDE.md).
+                # Keyword args, against this file's own habit and the app's 1111 other
+                # positional calls: log_error is (title, message), and passing the
+                # message first makes frappe use it as the TRACEBACK, discarding the
+                # real one (frappe/utils/error.py:24). That is affordable where a
+                # traceback is noise and not where this handler is the only record.
                 frappe.log_error(
-                    f"Error processing retry queue for {tracker_info['name']}: {str(e)}",
-                    "Retry Queue Processing Error",
+                    title="Retry Queue Processing Error",
+                    message=f"Error processing retry queue for {tracker_info['name']}: {str(e)}",
                 )
                 continue
 
@@ -133,8 +138,8 @@ def process_single_retry_queue(tracker_name: str) -> Dict:
             # removed handler above, this one does not hide the failure. The cause,
             # though, is only recorded here, so it goes to the Error Log.
             frappe.log_error(
-                f"Error processing retry batch {i // batch_size + 1} for {tracker_name}: {str(e)}",
-                "Retry Batch Processing Error",
+                title="Retry Batch Processing Error",
+                message=f"Error processing retry batch {i // batch_size + 1} for {tracker_name}: {str(e)}",
             )
             failed_requests.extend(batch)
             continue

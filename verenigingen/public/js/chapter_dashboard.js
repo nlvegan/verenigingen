@@ -282,7 +282,20 @@ function refreshDashboardData(silent = false) {
 				hideLoading();
 			}
 
-			if (r.message) {
+			// The endpoint is wrapped in @api_response_handler, which catches every
+			// exception and RETURNS an error payload with HTTP 200 -- so the error()
+			// branch below never fires on a server-side failure, and this callback
+			// used to announce 'Dashboard refreshed' over a failed query. 113 other
+			// frappe.call sites in this app check r.message.success; this one did not.
+			if (r.message && r.message.success === false) {
+				if (!silent) {
+					frappe.msgprint({
+						title: __('Error'),
+						message: (r.message.error && r.message.error.message) || __('Failed to refresh dashboard data'),
+						indicator: 'red'
+					});
+				}
+			} else if (r.message) {
 				dashboardData = r.message;
 				updateDashboardDisplay();
 

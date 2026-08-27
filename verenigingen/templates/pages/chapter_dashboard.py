@@ -315,14 +315,18 @@ def get_chapter_key_metrics(chapter_name: str) -> Dict[str, Any]:
 
 def get_basic_expense_stats(chapter_name: str) -> Dict[str, Any]:
     """Get basic expense statistics for the chapter"""
-    # This one CARRIES the cause instead of raising, unlike its siblings.
-    # `custom_chapter` is one of seven Expense Claim `custom_*` fields that exist on
-    # the live site and are shipped by nothing -- setup/__init__.py defines no
-    # Expense Claim fields at all -- so
-    # on a fresh install (CI included) the query fails EVERY time, and raising
-    # would replace the whole dashboard with an error page there. Zeros plus
-    # "error" let the template show "--" for the expense tiles and leave the rest
-    # of the dashboard standing (#593).
+    # This one CARRIES the cause instead of raising, unlike its siblings, because
+    # get_context() turns any exception here into an error page INSTEAD OF the whole
+    # dashboard -- too much for one tile, when the money block below and the rest of
+    # the page can still answer. Zeros plus "error" let the template show "--".
+    #
+    # (An earlier version of this comment claimed `custom_chapter` was shipped by
+    # nothing and so this query failed on every fresh install. Wrong:
+    # fixtures/expense_claim_custom_fields.json ships all seven, and import_fixtures
+    # walks every .json in fixtures/ regardless of the hook list -- see the
+    # correction on #600. The residual truth is narrower: that import SKIPS on
+    # DoesNotExistError, so a site that installed verenigingen before hrms has no
+    # such fields until its next migrate. Measured on test_site_1 today.)
     try:
         # Get pending expense amount and count for this chapter
         pending_expenses = frappe.get_all(
@@ -686,6 +690,12 @@ def get_financial_summary(chapter_name: str) -> Dict[str, Any]:
         }
     except Exception as e:
         frappe.log_error(f"Error calculating financial summary for {chapter_name}: {str(e)}")
+        # "error" beside the zeros, same as get_basic_expense_stats above and for the
+        # same reason: both filter on `custom_chapter`, so they fail together, and a
+        # board member reading "--" on two tiles while €0.00 stood in this block was
+        # the inconsistency the skeptical review caught. NESTING is why the swallow
+        # validator never saw this one: its falsy test reads `ast.Constant` values,
+        # and every value here is a Dict (#601).
         return {
             "this_month": {
                 "expenses_submitted": 0,
@@ -695,6 +705,7 @@ def get_financial_summary(chapter_name: str) -> Dict[str, Any]:
             },
             "ytd": {"total_expenses": 0, "average_claim": 0, "total_claims": 0, "purchase_invoices": 0},
             "dues_income": {"ytd_gross": 0, "ytd_chapter": 0},
+            "error": str(e),
         }
 
 

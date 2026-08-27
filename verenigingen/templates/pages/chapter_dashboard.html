@@ -301,7 +301,13 @@
                     </div>
                 </div>
                 <div class="p-6">
-                    {% if dashboard_data and dashboard_data.financial_summary %}
+                    {% if dashboard_data and dashboard_data.financial_summary and dashboard_data.financial_summary.error %}
+                    <div class="bg-warning-100 border border-warning-300 text-warning-800 p-4 rounded-lg">
+                        <i class="fa fa-exclamation-triangle mr-2"></i>
+                        {{ _("The financial summary could not be loaded.") }}
+                    </div>
+                    {% endif %}
+                    {% if dashboard_data and dashboard_data.financial_summary and not dashboard_data.financial_summary.error %}
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                         <div class="bg-gray-50 rounded-lg p-4">
                             <h4 class="m-0 mb-4 text-base font-semibold text-gray-800">{{ _("This Month") }}</h4>
