@@ -719,10 +719,15 @@ def get_members_without_payment_info_count(chapter_name: str) -> int:
                 OR
                 -- Has active SEPA mandate
                 EXISTS (
+                    -- Membership mandates only (#605): this counts members whose DUES
+                    -- cannot be collected, and a donation mandate is not a dues
+                    -- payment method. Matches members_without_payment_info, which
+                    -- reports the same population.
                     SELECT 1 FROM `tabSEPA Mandate` sm
                     WHERE sm.member = m.name
                     AND sm.status = 'Active'
                     AND sm.is_active = 1
+                    AND sm.used_for_memberships = 1
                 )
                 OR
                 -- Has complete bank transfer setup

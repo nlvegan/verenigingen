@@ -528,9 +528,15 @@ def check_mandate_iban_mismatch(member: str, current_iban: str):
 
     current_iban_normalized = current_iban.replace(" ", "").upper()
 
+    # Scoped to membership mandates (#605). This popup decides whether the member
+    # needs a mandate for their DUES, and offers to replace the one it names. A
+    # member may legitimately also hold a donation mandate (#584), and unscoped
+    # this reported that mandate's IBAN as "your existing mandate" -- so a member
+    # with a donation mandate on an old account and no membership mandate at all
+    # was shown a bank-account-change prompt pointed at their donations.
     existing_mandates = frappe.get_all(
         "SEPA Mandate",
-        filters={"member": member, "status": "Active", "is_active": 1},
+        filters={"member": member, "status": "Active", "is_active": 1, "used_for_memberships": 1},
         fields=["name", "mandate_id", "iban", "creation"],
         order_by="creation desc",
     )
@@ -754,9 +760,15 @@ def check_and_handle_sepa_mandate(member: str, iban: str):
     # compare normalized values rather than filtering on an exact IBAN string —
     # mirrors check_mandate_iban_mismatch() and avoids creating duplicate mandates.
     iban_normalized = (iban or "").replace(" ", "").upper()
+    # Membership mandates only (#605). "Does a mandate exist for this IBAN?" was
+    # answered by the member's DONATION mandate too, and the answer decides whether
+    # to create the membership mandate. A member who donates from the same account
+    # was told "use_existing", got no membership mandate, and -- since every
+    # collection path resolves by purpose (#597) -- had their dues silently never
+    # collected by direct debit.
     active_mandates = frappe.get_all(
         "SEPA Mandate",
-        filters={"member": member, "status": "Active", "is_active": 1},
+        filters={"member": member, "status": "Active", "is_active": 1, "used_for_memberships": 1},
         fields=["name", "iban"],
     )
     matching_mandates = [
@@ -805,9 +817,10 @@ def need_new_mandate(member: str, iban: str):
     # Stored mandate IBANs are space-formatted; normalize both sides so a caller
     # passing an unspaced IBAN still matches an existing mandate.
     iban_normalized = (iban or "").replace(" ", "").upper()
+    # Membership mandates only -- same reason as check_and_handle_sepa_mandate (#605).
     active_mandates = frappe.get_all(
         "SEPA Mandate",
-        filters={"member": member, "status": "Active", "is_active": 1},
+        filters={"member": member, "status": "Active", "is_active": 1, "used_for_memberships": 1},
         fields=["iban"],
     )
     has_match = any((m.iban or "").replace(" ", "").upper() == iban_normalized for m in active_mandates)

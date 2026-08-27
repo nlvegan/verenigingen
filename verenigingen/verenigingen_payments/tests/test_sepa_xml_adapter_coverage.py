@@ -8,9 +8,10 @@ summary dataclass and the invoice-item / cache sign-date paths (with MagicMock
 invoice items). This file fills the remaining gaps with REAL DB state and the
 pure mapping helpers (no frappe.db mocks):
 
-- _lookup_mandate_sign_date: REAL SEPA Mandate lookups by mandate_id and by
-  member fallback (asserting the real sign_date is returned and cached), plus
-  the no-reference and not-found fallbacks (today + used_fallback True).
+- _lookup_mandate_sign_date: REAL SEPA Mandate lookups by mandate_id (asserting
+  the real sign_date is returned and cached), plus the no-reference, not-found
+  and unresolvable-reference cases (today + used_fallback True -- the last of
+  these used to borrow another of the member's mandates, see #605).
 - _prefetch_mandate_data: bulk-prefetch a REAL active mandate into the cache.
 - _get_mandate_sign_date: cache-miss -> DB lookup integration end to end.
 - _get_batch_sequence_type: dedicated field, legacy batch_type fallback, default.
@@ -86,10 +87,22 @@ class TestMandateSignDateDBLookup(EnhancedTestCase):
         self.assertIn(mandate.mandate_id, self.adapter._mandate_cache)
         self.assertEqual(self.adapter._mandate_cache[mandate.mandate_id]["sign_date"], sign)
 
-    def test_lookup_by_member_fallback_when_mandate_id_unknown(self):
-        """An unknown mandate_id but a known member resolves via the member-based
-        fallback query and caches under BOTH the real mandate_id and the supplied
-        (wrong) reference."""
+    def test_an_unknown_mandate_id_does_not_borrow_another_mandates_sign_date(self):
+        """An unresolvable reference reports a MISSING sign date, not another one.
+
+        This pinned the opposite until #605: an unknown `mandate_reference` fell
+        back to the member's most recently created Active mandate -- any purpose --
+        and returned its `sign_date` with `used_fallback=False`, i.e. presented as
+        the named mandate's own. That date is written into the XML as `DtOfSgntr`
+        for the mandate being debited, so a donation mandate's signature date could
+        be sent for a dues collection.
+
+        The test that pinned it came from a coverage sweep over this module
+        (`f55e393dc`), which characterised the branch as it stood rather than
+        deciding it was wanted. `used_fallback=True` is the designed channel for
+        "we do not know": `_build_transaction` counts it as `missing_mandate_dates`,
+        which strict mode turns into a batch-level failure naming the problem.
+        """
         sign = date(2024, 7, 9)
         member, mandate = self._make_active_mandate(sign)
 
@@ -97,11 +110,13 @@ class TestMandateSignDateDBLookup(EnhancedTestCase):
         result_date, used_fallback = self.adapter._lookup_mandate_sign_date(
             mandate_reference=bogus_ref, member=member.name
         )
-        self.assertEqual(result_date, sign)
-        self.assertFalse(used_fallback)
-        # Cached under the real mandate_id and under the bogus ref.
-        self.assertEqual(self.adapter._mandate_cache[mandate.mandate_id]["sign_date"], sign)
-        self.assertEqual(self.adapter._mandate_cache[bogus_ref]["sign_date"], sign)
+        self.assertTrue(used_fallback)
+        self.assertEqual(result_date, date.today())
+        self.assertNotEqual(result_date, sign)
+        # Nothing was resolved, so nothing is cached under either reference -- a
+        # cached borrowed date would outlive this call and reach later invoices.
+        self.assertNotIn(bogus_ref, self.adapter._mandate_cache)
+        self.assertNotIn(mandate.mandate_id, self.adapter._mandate_cache)
 
     def test_lookup_no_reference_falls_back_to_today(self):
         result_date, used_fallback = self.adapter._lookup_mandate_sign_date(
