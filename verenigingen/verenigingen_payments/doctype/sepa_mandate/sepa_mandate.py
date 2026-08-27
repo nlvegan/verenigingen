@@ -107,7 +107,11 @@ class SEPAMandate(Document):
         a row will find it unsaveable while Active until a purpose is ticked.
 
         NOT the motivating case, though an earlier draft of this docstring said it
-        was: `create_and_link_mandate_enhanced(used_for_memberships=0,
+        was -- and it is a class of TWO, both deprecated: `api/member/sepa_api.py`'s
+        `create_and_link_mandate_enhanced` and `doctype/member/member_utils.py`'s
+        `create_and_link_mandate` have the identical shape, and no caller in the
+        tree passes 0/0 to either. Taking the first:
+        `create_and_link_mandate_enhanced(used_for_memberships=0,
         used_for_donations=0)` computes `wanted = []` and hands it to
         `cancel_active_mandates(purposes=[])`, whose
         `tuple(purposes) if purposes else PURPOSE_FLAGS` reads an empty list as

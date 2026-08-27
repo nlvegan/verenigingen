@@ -73,8 +73,13 @@ class TestDuplicateInvoiceRejected(_DuplicateInvoiceBase):
         row = self._member_mandate_row()
         batch = self._unsaved_batch([row, row], automated=True)
 
-        with self.assertRaises(frappe.ValidationError):
+        with self.assertRaises(frappe.ValidationError) as ctx:
             batch.insert()
+
+        # Assert the reason, not just the exception type: ValidationError is what
+        # every other guard on this document throws too, so a bare assertRaises
+        # would be satisfied by an unrelated refusal.
+        self.assertIn("more than once", str(ctx.exception).lower())
 
     def test_three_rows_for_one_invoice_name_the_row_numbers(self):
         """The operator has to find the rows to delete, so the refusal names them."""

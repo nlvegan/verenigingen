@@ -24,8 +24,16 @@ Scope of what the guard touches: it runs only for `status == "Active"`, so a
 purposeless Draft or Suspended mandate can still be staged and saved, and a
 Cancelled one is untouched. Measured 2026-08-27: `tabSEPA Mandate` holds zero
 all-zero rows on veg11 (71 rows, all `used_for_memberships = 1`) and zero on
-test_site_1, and no test fixture in this app creates one -- every site that sets
-`used_for_memberships = 0` also sets `used_for_donations = 1`.
+test_site_1. Fixture sweep (AST over every `SEPA Mandate` dict literal plus every
+`used_for_*` assigned a falsy literal): 20 sites, 19 of which either pair
+`used_for_memberships = 0` with another purpose or omit the flag and take the
+docfield default of 1. The twentieth,
+`doctype/membership/test_membership_coverage.py`'s
+`test_get_member_sepa_mandates_excludes_non_membership_mandate`, did create an
+all-zero Active mandate and is fixed in this branch -- an earlier draft of this
+docstring asserted the class was already clean, which was one instance too
+generous. The sweep is static, so a fixture building purposes from a runtime
+value would escape it.
 """
 
 import frappe

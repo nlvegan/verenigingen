@@ -98,7 +98,11 @@ class DirectDebitBatch(Document):
 
         Every batch pipeline ends at this document's `save()`/`insert()` -- 14
         persistence statements across 8 production files, and no production code
-        writes a `Direct Debit Batch Invoice` row without going through its parent.
+        INSERTS a `Direct Debit Batch Invoice` row without going through its
+        parent. It says inserts, not writes, deliberately: `dd_batch_api.
+        apply_conflict_resolutions` loads existing child rows standalone and
+        `save()`s and `delete_doc()`s them (see the consolidation note below), so
+        those mutations never re-enter this check.
         So one check here covers the class rather than one dedup per producer, and
         it fails the batch loudly instead of quietly collecting twice.
 
@@ -113,10 +117,19 @@ class DirectDebitBatch(Document):
         `create_optimal_batches` wraps the whole group loop in `except Exception`,
         so a duplicate in group 3 leaves groups 1-2 inserted, discards
         `batch_names` (nobody handles their validation status) and reports
-        `batches_created: 0`. The tradeoff is taken deliberately: a lost
-        optimization run is recoverable and the scheduler retries daily, whereas a
-        batch that persists with a duplicate can be submitted by a path that never
-        reads `validation_status` -- and that money does not come back.
+        `batches_created: 0`. Worse, `dd_batch_scheduler` then reports that as
+        "No batches created - no eligible invoices" through `frappe.logger().info`,
+        which reaches nothing anyone reads, so the run looks like a quiet no-op.
+        And the retry is NOT the next day: the scheduled task is daily but
+        `_daily_batch_optimization_impl` returns unless `is_batch_creation_day()`,
+        which reads `Verenigingen Payments Settings.batch_creation_days` --
+        default `"1"` -- so by default the next attempt is the 1st of next month.
+        The tradeoff is still taken deliberately: a lost optimization run is
+        recoverable and re-runnable by hand, whereas a batch that persists with a
+        duplicate can be submitted by a path that never reads `validation_status`
+        -- and that money does not come back. The silent-loss half of this is
+        tracked separately; it is a pre-existing property of that pipeline's
+        `except Exception`, not something this guard introduces.
 
         SCOPE. This is a WITHIN-batch check. Two batches each listing the invoice
         once are still two debits, and the guard cannot see that;
