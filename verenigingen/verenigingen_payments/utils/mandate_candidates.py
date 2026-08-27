@@ -36,6 +36,37 @@ MANDATE_FIELDS = ["name", "mandate_id", "iban", "bic", "sign_date", "expiry_date
 
 PURPOSE_FLAGS = ("used_for_memberships", "used_for_donations", "used_for_other")
 
+# The short vocabulary that predates PURPOSE_FLAGS. `has_active_mandate` and
+# `Member.has_active_sepa_mandate` take "memberships"/"donations", while the
+# resolvers take the column names -- so the same concept had two spellings, and
+# passing one function's vocabulary to the other silently applied NO purpose filter
+# (`has_active_mandate(m, "used_for_memberships")` answered "any Active mandate
+# exists"). One resolver now accepts both and refuses anything else.
+PURPOSE_ALIASES = {
+    "memberships": "used_for_memberships",
+    "donations": "used_for_donations",
+    "other": "used_for_other",
+}
+
+
+def resolve_purpose_flag(purpose):
+    """Normalise a purpose to a `SEPA Mandate` column name, or raise.
+
+    `None` means "any purpose" and is returned unchanged. Note that this is
+    `is None`, not falsiness: `""` and `0` are rejected rather than treated as
+    "any purpose", because a caller writing `purpose=cfg.get("purpose") or ""`
+    would otherwise get purpose-blind resolution back with no error -- which is
+    exactly the bug #597 fixed. Asking for any purpose has to be deliberate.
+    """
+    if purpose is None:
+        return None
+    if purpose in PURPOSE_FLAGS:
+        return purpose
+    if purpose in PURPOSE_ALIASES:
+        return PURPOSE_ALIASES[purpose]
+    raise ValueError(f"unknown mandate purpose {purpose!r}")
+
+
 PURPOSE_LABELS = {
     "used_for_memberships": "memberships",
     "used_for_donations": "donations",
@@ -87,9 +118,8 @@ def unambiguous_active_mandate(
         return MandateChoice(None, 0)
 
     filters = {"member": member, "status": "Active"}
-    if purpose:
-        if purpose not in PURPOSE_FLAGS:
-            raise ValueError(f"unknown mandate purpose {purpose!r}")
+    purpose = resolve_purpose_flag(purpose)
+    if purpose is not None:
         filters[purpose] = 1
 
     rows = frappe.get_all(
@@ -104,11 +134,27 @@ def unambiguous_active_mandate(
     if len(rows) == 1:
         return MandateChoice(rows[0], 1)
 
+    log_ambiguous_mandate_refusal(member, rows, purpose, refusal_title)
+    return MandateChoice(None, len(rows))
+
+
+def log_ambiguous_mandate_refusal(member: str, rows, purpose, refusal_title: str) -> None:
+    """Record WHY a mandate was not chosen, so a refusal is actionable.
+
+    Shared with `SEPAMandateManager.get_default_mandate`, which reaches the same
+    verdict from an already-fetched list rather than from its own query (#597). One
+    implementation, so the two flows cannot drift into describing the same state
+    differently -- and so `mandate_id (iban)` stays the one format an operator
+    learns to read.
+
+    `rows` may hold plain dicts or `MandateInfo` dataclasses; both expose
+    `mandate_id` and `iban`.
+    """
     # Keyword form: `frappe.log_error`'s signature is `log_error(title, message)`, so
     # the common positional `log_error(f"...long...", "Title")` puts the message in
     # `Error Log.method` (Data, truncated at 140 chars) and no title reaches the title
     # column -- see `invoice_candidates.log_ambiguous_refusal` for the measurement.
-    listed = ", ".join(f"{r.mandate_id} ({r.iban})" for r in rows)
+    listed = ", ".join(f"{getattr(r, 'mandate_id', None)} ({getattr(r, 'iban', None)})" for r in rows)
     scope = PURPOSE_LABELS.get(purpose, "any purpose")
     frappe.log_error(
         title=refusal_title,
@@ -118,10 +164,6 @@ def unambiguous_active_mandate(
             f"one. Candidates: {listed}."
         ),
     )
-    return MandateChoice(None, len(rows))
-
-
-PURPOSE_FLAGS = ("used_for_memberships", "used_for_donations", "used_for_other")
 
 
 def cancel_active_mandates(member: str, reason: str, purposes=None, new_status: str = "Cancelled") -> dict:

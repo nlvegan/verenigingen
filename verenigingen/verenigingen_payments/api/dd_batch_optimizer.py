@@ -136,7 +136,15 @@ def get_eligible_invoices_for_batching():
             `tabMember` mem
         JOIN `tabMembership` m ON m.member = mem.name
         JOIN `tabSales Invoice` si ON si.customer = mem.customer
-        LEFT JOIN `tabSEPA Mandate` sm ON sm.member = mem.name AND sm.status = 'Active'
+        -- Purpose filter (#597). Without it this join produced one row PER
+        -- Active mandate, so a member with a membership mandate and a donation
+        -- mandate yielded TWO rows for ONE invoice -- and `sm.mandate_id`/`sm.iban`
+        -- become the Direct Debit Batch child row, i.e. two debits. There is no
+        -- per-member dedup after this query.
+        LEFT JOIN `tabSEPA Mandate` sm
+            ON sm.member = mem.name
+            AND sm.status = 'Active'
+            AND sm.used_for_memberships = 1
         WHERE
             si.docstatus = 1
             AND si.status IN ('Unpaid', 'Overdue')

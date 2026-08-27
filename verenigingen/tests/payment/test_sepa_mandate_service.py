@@ -55,17 +55,21 @@ class TestSEPAMandateService(VereningingenTestCase):
         )
         result = self.service.get_active_mandate_batch([other.name])
         self.assertIsNone(result[other.name])
-        # Cached even though None
-        self.assertIn(other.name, self.service._mandate_cache)
-        self.assertIsNone(self.service._mandate_cache[other.name])
+        # Cached even though None. Keyed on (member, purpose) since #597 -- one
+        # member can hold an Active mandate per purpose, so a member-only key would
+        # answer a donations lookup with the memberships result.
+        key = self.service.mandate_cache_key(other.name)
+        self.assertIn(key, self.service._mandate_cache)
+        self.assertIsNone(self.service._mandate_cache[key])
 
     def test_batch_uses_cache_on_second_call(self):
         # Prime cache
         self.service.get_active_mandate_batch([self.member_name])
-        self.assertIn(self.member_name, self.service._mandate_cache)
+        key = self.service.mandate_cache_key(self.member_name)
+        self.assertIn(key, self.service._mandate_cache)
         # Poison the DB-bypassing cache to a sentinel and confirm cache is used
         sentinel = {"name": "CACHED-SENTINEL", "member": self.member_name, "status": "Active"}
-        self.service._mandate_cache[self.member_name] = sentinel
+        self.service._mandate_cache[key] = sentinel
         result = self.service.get_active_mandate_batch([self.member_name])
         self.assertEqual(result[self.member_name]["name"], "CACHED-SENTINEL")
 
@@ -134,9 +138,10 @@ class TestSEPAMandateService(VereningingenTestCase):
     # ------------------------------------------------------------------
     def test_invalidate_member_cache_clears_entry(self):
         self.service.get_active_mandate_batch([self.member_name])
-        self.assertIn(self.member_name, self.service._mandate_cache)
+        key = self.service.mandate_cache_key(self.member_name)
+        self.assertIn(key, self.service._mandate_cache)
         self.service.invalidate_member_cache(self.member_name)
-        self.assertNotIn(self.member_name, self.service._mandate_cache)
+        self.assertNotIn(key, self.service._mandate_cache)
 
     def test_invalidate_member_cache_empty_noop(self):
         # Should not raise

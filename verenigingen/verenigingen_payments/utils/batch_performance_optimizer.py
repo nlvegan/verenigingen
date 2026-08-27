@@ -65,6 +65,10 @@ class BatchPerformanceOptimizer:
             LEFT JOIN `tabSEPA Mandate` sm ON (
                 sm.member = m.name
                 AND sm.status = 'Active'
+                -- Purpose filter (#597). `result[member_name] = {...}` below is
+                -- last-wins with no ORDER BY, so without this a member's donation
+                -- mandate could become their dues mandate_data arbitrarily.
+                AND sm.used_for_memberships = 1
             )
             WHERE m.name IN %(member_names)s
             AND m.status = 'Active'

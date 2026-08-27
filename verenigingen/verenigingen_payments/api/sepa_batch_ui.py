@@ -13,7 +13,10 @@ from verenigingen.utils.security.api_security_framework import (
     critical_api,
     high_security_api,
 )
-from verenigingen.verenigingen_payments.utils.mandate_candidates import unambiguous_active_mandate
+from verenigingen.verenigingen_payments.utils.mandate_candidates import (
+    log_ambiguous_mandate_refusal,
+    unambiguous_active_mandate,
+)
 from verenigingen.verenigingen_payments.utils.sepa_input_validation import SEPAInputValidator
 
 
@@ -95,7 +98,15 @@ def load_unpaid_invoices(date_range="overdue", membership_type: str | None = Non
                     sm.sign_date
                 FROM `tabMembership Dues Schedule` mds
                 JOIN `tabMember` mem ON mds.member = mem.name
-                LEFT JOIN `tabSEPA Mandate` sm ON sm.member = mem.name AND sm.status = 'Active'
+                -- Purpose filter, not a refinement: a member may legitimately hold an
+                -- Active membership mandate AND an Active donation mandate, so
+                -- `status = 'Active'` alone is ambiguous by construction and this join
+                -- returned two rows for one membership (#597). These columns become the
+                -- Direct Debit Batch row that the SEPA XML is generated from.
+                LEFT JOIN `tabSEPA Mandate` sm
+                    ON sm.member = mem.name
+                    AND sm.status = 'Active'
+                    AND sm.used_for_memberships = 1
                 WHERE mds.name IN %(memberships)s
                 ORDER BY mds.name, sm.creation DESC
             """,
@@ -103,12 +114,48 @@ def load_unpaid_invoices(date_range="overdue", membership_type: str | None = Non
                 as_dict=True,
             )
 
-            # Build lookup dictionary for O(1) access
+            # Build lookup dictionary for O(1) access.
+            #
+            # The join is purpose-filtered (above), so under
+            # `validate_single_active_mandate_per_purpose` there is at most ONE row
+            # per membership and this loop is a no-op. It used to be a silent
+            # tiebreak -- "keep the first (most recent)" across ALL Active mandates,
+            # which handed a dues batch the IBAN of a newer donation-only mandate
+            # (#597).
+            #
+            # A SECOND row for one membership now means two Active mandates sharing a
+            # purpose, which `save()` refuses but `frappe.db.set_value` on `status`
+            # still reaches. That is genuinely ambiguous, so the mandate fields are
+            # blanked and the candidates logged rather than one being picked: an
+            # operator sees an invoice with no IBAN and a reason, instead of a debit
+            # against a guess. Mirrors `unambiguous_active_mandate` (#584).
             member_data_lookup = {}
+            ambiguous = {}
             for row in member_mandate_data:
-                # Only keep the first (most recent) mandate per membership
-                if row.membership not in member_data_lookup:
+                existing = member_data_lookup.get(row.membership)
+                if existing is None:
                     member_data_lookup[row.membership] = row
+                    continue
+                ambiguous.setdefault(row.membership, [existing]).append(row)
+
+            for membership, candidates in ambiguous.items():
+                chosen = member_data_lookup[membership]
+                # LOG BEFORE BLANKING. `candidates[0]` IS `chosen` -- the same dict
+                # object -- so blanking first destroyed half the evidence the log
+                # exists to carry, and the Error Log read
+                # "Candidates: None (None), MAND-NEW (NL02...)". The whole point of
+                # refusing instead of guessing is that an operator can see WHICH
+                # mandates collided.
+                log_ambiguous_mandate_refusal(
+                    chosen.member,
+                    candidates,
+                    "used_for_memberships",
+                    "Ambiguous SEPA mandate in batch invoice list",
+                )
+                chosen.iban = None
+                chosen.bic = None
+                chosen.mandate_id = None
+                chosen.sign_date = None
 
             # Apply data to invoices in single loop
             for invoice in invoices:
