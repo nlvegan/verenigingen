@@ -196,9 +196,12 @@ class TestSEPAInvoiceValidation(VereningingenTestCase):
 
     def test_sepa_invoice_mandate_type_validation(self):
         """Test SEPA invoice validation against mandate types"""
-        # Test CORE mandate (recurring)
+        # Test CORE mandate (recurring). Its own member: setUp already gives
+        # self.test_member an Active mandate, and since #584 a member may hold only
+        # one. What this test is about is the mandate_type field, per mandate.
+        core_member = self.create_test_member(first_name="SEPACore", last_name="Type")
         core_mandate = self.create_test_sepa_mandate(
-            member=self.test_member.name,
+            member=core_member.name,
             scenario="normal",
             mandate_type="CORE"
         )
@@ -207,9 +210,12 @@ class TestSEPAInvoiceValidation(VereningingenTestCase):
         self.assertEqual(core_mandate.mandate_type, "CORE")
         self.assertTrue(core_mandate.used_for_memberships)
         
-        # Test OOFF mandate (one-off)
+        # Test OOFF mandate (one-off). Its OWN member: since #584 a member may hold
+        # only one Active mandate, and what this test is about is the mandate_type
+        # field, not two mandates coexisting.
+        ooff_member = self.create_test_member(first_name="SEPAOoff", last_name="Type")
         ooff_mandate = self.create_test_sepa_mandate(
-            member=self.test_member.name,
+            member=ooff_member.name,
             scenario="one_time",
             mandate_type="OOFF"
         )
@@ -243,13 +249,11 @@ class TestSEPAInvoiceValidation(VereningingenTestCase):
 
     def test_sepa_invoice_mandate_expiry_validation(self):
         """Test SEPA invoice validation against mandate expiry"""
-        # Create mandate with expiry date
-        expiring_mandate = self.create_test_sepa_mandate(
-            member=self.test_member.name,
-            scenario="normal",
-            bank_code="TEST"
-        )
-        
+        # Reuse the mandate setUp already created for this member rather than adding
+        # a second Active one, which #584 now rejects. Nothing here needed it to be a
+        # different mandate.
+        expiring_mandate = self.test_mandate
+
         # Set expiry date in future
         expiring_mandate.expiry_date = add_days(today(), 30)
         expiring_mandate.save()
@@ -265,8 +269,12 @@ class TestSEPAInvoiceValidation(VereningingenTestCase):
         # Test expired mandate scenario. The "expired" scenario sets expiry_date
         # 30 days ago; sign_date must precede expiry, so set it explicitly
         # (the factory's default sign_date is today, which would post-date expiry).
+        # Own member, for the same reason as above: the expiring mandate created at
+        # the top of this test is Active, and since #584 the member cannot hold a
+        # second Active one. The expiry behaviour under test is per-mandate.
+        expired_member = self.create_test_member(first_name="SEPAExpired", last_name="Mandate")
         expired_mandate = self.create_test_sepa_mandate(
-            member=self.test_member.name,
+            member=expired_member.name,
             scenario="expired",
             bank_code="TEST",
             sign_date=add_days(today(), -60),

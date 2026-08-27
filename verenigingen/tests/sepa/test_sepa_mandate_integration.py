@@ -274,9 +274,15 @@ class TestSEPAMandateIntegration(EnhancedTestCase):
             self.test_member.first_name + " " + self.test_member.last_name,  # No middle name
         ]
 
+        # One member per variation: since #584 a member holds at most one Active
+        # mandate per purpose, and every mandate here is an Active memberships one.
+        # What this loop is about is the account-holder name, per mandate.
         for holder_name, iban in zip(valid_names, valid_ibans):
+            holder_member = self.create_test_member(
+                first_name="Holder", last_name=frappe.generate_hash(length=6)
+            )
             mandate = frappe.new_doc("SEPA Mandate")
-            mandate.member = self.test_member.name
+            mandate.member = holder_member.name
             mandate.account_holder_name = holder_name
             mandate.iban = iban
             mandate.status = "Active"
@@ -293,8 +299,11 @@ class TestSEPAMandateIntegration(EnhancedTestCase):
 
         for holder_name, iban in zip(invalid_names, valid_ibans[len(valid_names):]):
             try:
+                invalid_member = self.create_test_member(
+                    first_name="BadHolder", last_name=frappe.generate_hash(length=6)
+                )
                 mandate = frappe.new_doc("SEPA Mandate")
-                mandate.member = self.test_member.name
+                mandate.member = invalid_member.name
                 mandate.account_holder_name = holder_name
                 mandate.iban = iban
                 mandate.status = "Active"
@@ -351,9 +360,12 @@ class TestSEPAMandateIntegration(EnhancedTestCase):
         # Test mandate type validation and business logic
         self.assertEqual(mandate.mandate_type, "CORE")
         
-        # Create second mandate to test RCUR (recurring) logic
+        # Create second mandate to test RCUR (recurring) logic. Its own member: the
+        # CORE mandate above is already this member's one Active memberships mandate
+        # (#584), and mandate_type is a per-mandate property.
+        type_member = self.create_test_member(first_name="TypeTest", last_name="Mandate")
         mandate2 = frappe.new_doc("SEPA Mandate")
-        mandate2.member = self.test_member.name
+        mandate2.member = type_member.name
         mandate2.account_holder_name = self.test_member.full_name
         # Distinct IBAN: a second Active mandate may not share the first's IBAN.
         mandate2.iban = "DE89370400440532013000"
@@ -370,7 +382,7 @@ class TestSEPAMandateIntegration(EnhancedTestCase):
         # Test database consistency for mandate types
         mandates_by_type = frappe.get_all(
             "SEPA Mandate",
-            filters={"member": self.test_member.name, "status": "Active"},
+            filters={"member": ["in", [self.test_member.name, type_member.name]], "status": "Active"},
             fields=["name", "mandate_type", "iban"],
             order_by="sign_date"
         )

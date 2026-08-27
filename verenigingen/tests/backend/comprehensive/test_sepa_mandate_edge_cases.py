@@ -212,10 +212,22 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
             self._cleanup_mandate(mandate)
 
     def test_duplicate_mandate_prevention(self):
-        """A second active mandate with the SAME IBAN is rejected; a different
-        IBAN is allowed (the member-integration service supersedes via is_current).
+        """A member may hold at most ONE Active mandate -- same IBAN or different.
 
-        See SEPAMandate.validate_no_duplicate_active_mandate().
+        This test used to assert the opposite for a different IBAN, on the grounds
+        that "it supersedes mandate1 via the Member SEPA Mandate Link is_current
+        flag". Measured on test_site_1, no such supersession happens -- and it could
+        not have helped even if it did, because no mandate-resolution query reads
+        ``is_current`` at all; they all filter on ``status``. It is also unmaintained:
+        both writers compute ``is_current = 1 if status == "Active" and is_active``,
+        so BOTH mandates are flagged current, and the flag-clearing code that runs
+        automatically (``MemberSEPAMandateLink.check_current_mandate``) is never
+        called, because Frappe does not run child-DocType ``validate()`` (#596).
+        With no discriminator,
+        ``get_invoice_mandate_info`` fell back to ``ORDER BY sm.creation DESC
+        LIMIT 1`` and debited an arbitrary IBAN (#584).
+
+        See SEPAMandate.validate_single_active_mandate().
         """
         # _get_test_iban() mints a UNIQUE IBAN per call, so capture it once and
         # reuse it to actually construct a same-IBAN duplicate.
@@ -248,23 +260,46 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
             )
             duplicate.insert()
 
-        # A second active mandate with a DIFFERENT IBAN (e.g. bank change) is allowed;
-        # it supersedes mandate1 via the Member SEPA Mandate Link is_current flag.
-        mandate2 = frappe.get_doc(
+        # A second active mandate with a DIFFERENT IBAN is ALSO rejected: a bank
+        # change must cancel the old mandate first, which is what the sanctioned
+        # flow (`api/member/sepa_api.setup_sepa_direct_debit`) already does.
+        with self.assertRaises(frappe.ValidationError) as caught:
+            mandate2 = frappe.get_doc(
+                {
+                    "doctype": "SEPA Mandate",
+                    "member": self.member.name,
+                    "account_holder_name": "SEPA EdgeCase",
+                    "sign_date": today(),
+                    "iban": "DE89370400440532013000",  # different IBAN
+                    "status": "Active",
+                    "mandate_date": today()}
+            )
+            mandate2.insert()
+        # Name the blocking mandate, or an operator cannot act on the error -- and
+        # asserting only "something raised" would also pass for an unrelated
+        # failure, e.g. the IBAN validator rejecting the German IBAN.
+        self.assertIn(mandate1.mandate_id, str(caught.exception))
+
+        # Cancelling the first one makes room for the replacement.
+        mandate1.status = "Cancelled"
+        mandate1.is_active = 0
+        mandate1.save()
+
+        mandate3 = frappe.get_doc(
             {
                 "doctype": "SEPA Mandate",
                 "member": self.member.name,
                 "account_holder_name": "SEPA EdgeCase",
                 "sign_date": today(),
-                "iban": "DE89370400440532013000",  # different IBAN
+                "iban": "DE89370400440532013000",
                 "status": "Active",
                 "mandate_date": today()}
         )
-        mandate2.insert()
-        self.assertEqual(mandate2.status, "Active")
+        mandate3.insert()
+        self.assertEqual(mandate3.status, "Active")
 
         # Clean up
-        self._cleanup_mandate(mandate2)
+        self._cleanup_mandate(mandate3)
         self._cleanup_mandate(mandate1)
 
     # ===== MANDATE USAGE TRACKING EDGE CASES =====

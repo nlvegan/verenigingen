@@ -248,16 +248,21 @@ class TestMemberRenewalEdgeCases(RenewalTestMixin, VereningingenTestCase):
             start_date=self.current_membership.renewal_date,
         )
 
+        # Mark original as inactive FIRST. A bank change cancels the old mandate and
+        # then activates the replacement -- since #584 a member holds at most one
+        # Active mandate per purpose, so the reverse order (which this test used to
+        # do) is rejected. That order is also what the sanctioned flow,
+        # `api/member/sepa_api.setup_sepa_direct_debit`, has always done.
+        original_mandate.status = "Cancelled"
+        original_mandate.is_active = 0
+        original_mandate.save()
+
         # Create updated SEPA mandate
         updated_mandate = self.create_test_sepa_mandate(
             member=self.test_member.name,
             bank_code="MOCK",  # Different bank
             scenario="normal",
         )
-
-        # Mark original as inactive
-        original_mandate.status = "Cancelled"
-        original_mandate.save()
 
         # Verify renewal and mandate relationship
         self.assertEqual(renewal_with_sepa.member, self.test_member.name)

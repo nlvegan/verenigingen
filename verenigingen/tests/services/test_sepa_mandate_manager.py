@@ -93,11 +93,10 @@ class TestSEPAMandateManager(EnhancedTestCase):
 
     def test_get_active_mandates_with_iban_filter(self):
         """Test filtering mandates by IBAN"""
-        # Create mandates with different IBANs
+        # Create mandates with different IBANs. Second forced Active -- see
+        # _force_second_active_mandate; #584 blocks the ordinary route.
         mandate1 = self._create_test_mandate(self.test_member.name, self.valid_iban, status="Active", is_active=1)
-        mandate2 = self._create_test_mandate(
-            self.test_member.name, self.alternative_iban, status="Active", is_active=1
-        )
+        mandate2 = self._force_second_active_mandate(self.test_member.name, self.alternative_iban)
 
         # Filter by first IBAN
         mandates = self.manager.get_active_mandates(self.test_member.name, iban=self.valid_iban)
@@ -107,21 +106,30 @@ class TestSEPAMandateManager(EnhancedTestCase):
         self.assertEqual(mandates[0].iban, self.valid_iban_formatted)
 
     def test_get_default_mandate(self):
-        """Test getting default (most recent) mandate"""
-        # Create multiple mandates
-        mandate1 = self._create_test_mandate(self.test_member.name, self.valid_iban, status="Active", is_active=1)
-        frappe.db.commit()  # Ensure different creation times
+        """The member's one Active mandate is the default.
 
-        mandate2 = self._create_test_mandate(
-            self.test_member.name, self.alternative_iban, status="Active", is_active=1
+        This used to create two Active mandates and assert the most recent won.
+        Since #584 a member may hold only one, so "most recent" no longer selects
+        anything -- the assertion that matters is that the Active mandate is
+        returned and the Cancelled one is not.
+        """
+        # ACTIVE FIRST, deliberately. `get_active_mandates` orders `creation desc`,
+        # so creating the Cancelled one first would let creation order alone satisfy
+        # the assertion below: measured, the test then passed with the status filter
+        # deleted entirely. This ordering makes the status filter load-bearing.
+        active = self._create_test_mandate(
+            self.test_member.name, self.valid_iban, status="Active", is_active=1
+        )
+        cancelled = self._create_test_mandate(
+            self.test_member.name, self.alternative_iban, status="Cancelled", is_active=0
         )
 
         default_mandate = self.manager.get_default_mandate(self.test_member.name)
 
         self.assertIsNotNone(default_mandate)
         self.assertIsInstance(default_mandate, MandateInfo)
-        # Most recent should be returned
-        self.assertEqual(default_mandate.name, mandate2.name)
+        self.assertEqual(default_mandate.name, active.name)
+        self.assertNotEqual(default_mandate.name, cancelled.name)
 
     def test_get_default_mandate_none_when_no_active(self):
         """Test default mandate returns None when no active mandates"""
@@ -385,11 +393,11 @@ class TestSEPAMandateManager(EnhancedTestCase):
 
     def test_deactivate_mandates_handles_multiple(self):
         """Test deactivating multiple mandates with different IBANs"""
-        # Create multiple mandates with old IBANs
+        # Create multiple mandates with old IBANs. The second must be forced Active:
+        # #584 makes two Active mandates unreachable through save(), but NOT through
+        # `frappe.db.set_value`, so the branch this test covers is still live.
         mandate1 = self._create_test_mandate(self.test_member.name, self.valid_iban, status="Active", is_active=1)
-        mandate2 = self._create_test_mandate(
-            self.test_member.name, self.alternative_iban, status="Active", is_active=1
-        )
+        mandate2 = self._force_second_active_mandate(self.test_member.name, self.alternative_iban)
 
         # Change to new IBAN with valid checksum
         from verenigingen.utils.validation.iban_validator import generate_test_iban
@@ -419,6 +427,23 @@ class TestSEPAMandateManager(EnhancedTestCase):
         self.assertEqual(result.data["deactivated_count"], 0)
 
     # ========== Helper Methods ==========
+
+    def _force_second_active_mandate(self, member, iban):
+        """Create a second ACTIVE mandate by the one route the guard cannot see.
+
+        `SEPAMandate.validate_single_active_mandate` (#584) rejects a second Active
+        mandate, so this state is no longer reachable through insert()/save(). It IS
+        still reachable through `frappe.db.set_value`, which writes the column without
+        running `validate` -- which is precisely why the read side refuses rather than
+        trusting the guard. Building the fixture this way keeps the multi-mandate
+        branch under test AND documents the one route that still produces it.
+        """
+        mandate = self._create_test_mandate(member, iban, status="Draft", is_active=0)
+        frappe.db.set_value(
+            "SEPA Mandate", mandate.name, {"status": "Active", "is_active": 1}, update_modified=False
+        )
+        mandate.reload()
+        return mandate
 
     def _create_test_mandate(
         self,
