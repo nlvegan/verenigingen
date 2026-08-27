@@ -66,6 +66,11 @@
                 </div>
             </div>
         </div>
+        {% elif skills_stats_error %}
+        <div class="bg-warning-100 border border-warning-300 text-warning-800 p-4 rounded-lg mb-8">
+            <i class="fa fa-exclamation-triangle mr-2"></i>
+            {{ _("The skills overview could not be loaded, and the directory below may be incomplete.") }}
+        </div>
         {% endif %}
 
         <!-- Search Form -->
