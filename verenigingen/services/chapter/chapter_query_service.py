@@ -126,13 +126,23 @@ class ChapterQueryService(StatelessService):
 
         except Exception as e:
             self.logger.error(f"Error getting user permissions for chapter {chapter_doc.name}: {str(e)}")
-            # Return safe defaults on error
+            # Fail CLOSED -- every permission False -- but carry the cause. The
+            # direction is deliberate and stays; what was wrong is that a caller
+            # could not tell "this user holds no roles here" from "the roles query
+            # failed", and a page acting on the first would silently hide a board
+            # member's own controls. No caller exists to branch on "error" today --
+            # the only route in, Chapter.get_user_permissions_optimized
+            # (chapter.py:577), is itself uncalled and not whitelisted, so this is a
+            # guard on dead code and deleting the pair is the honest end state (#593).
+            # Not the PR #191 incident: that returned "", which ERPNext reads as
+            # UNRESTRICTED.
             return {
                 "is_board_member": False,
                 "board_role": None,
                 "is_system_manager": False,
                 "can_write_chapter": False,
                 "can_view_members": False,
+                "error": str(e),
             }
 
 

@@ -266,7 +266,11 @@ class ClassTeardownRecordsMustSurviveTest(unittest.TestCase):
     The middle row is why the mirror is level-gated. Duplicating every in-test record
     would undo the attribution this handler gained, and attribution is the reason it
     resolves lazily at all. ERROR is where the gate sits because that is the level of
-    the two class-teardown records that must not be lost: `SingletonBackup.restore()`'s
+    the two class-teardown records that must not be lost. That census is measured, not
+    asserted -- regenerate it with
+    ``python scripts/validation/harness_logger_teardown_validator.py --report`` and see
+    ``scripts/validation/tests/test_harness_logger_teardown_census.py``, which pins it.
+    The two records are: `SingletonBackup.restore()`'s
     "Failed to restore %s: %s" (`singleton_backup.py:292`), the message that is in
     `HARNESS_FILES` precisely because a Single restored wrongly once said so nowhere
     (#433), and `ErrorLogGuardMixin._capture_test_error_logs`' "Error Log guard capture

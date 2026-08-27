@@ -129,7 +129,6 @@ verenigingen/services/chapter/chapter_board_permissions.py::update_membership_te
 verenigingen/services/chapter/chapter_board_permissions.py::update_volunteer_expense_permissions::1
 verenigingen/services/chapter/chapter_board_service.py::ChapterBoardService.update_chapter_head::1
 verenigingen/services/chapter/chapter_provisioning_service.py::ensure_chapter::1
-verenigingen/services/chapter/chapter_query_service.py::ChapterQueryService.get_user_permissions_optimized::1
 verenigingen/services/chapter/chapter_reference_manager.py::ChapterReferenceManager.cleanup_invalid_chapter_references::2
 verenigingen/services/chapter/chapter_reference_manager.py::cleanup_member_chapter_references::1
 verenigingen/services/communication/compatibility.py::get_segment_recipients::1
@@ -167,7 +166,6 @@ verenigingen/services/monitoring/compliance_metrics_service.py::ComplianceMetric
 verenigingen/services/monitoring/compliance_metrics_service.py::ComplianceMetricsService.get_sepa_compliance_rate::1
 verenigingen/services/monitoring/monitoring_metrics_service.py::MonitoringMetricsService._get_background_job_count::1
 verenigingen/services/monitoring/monitoring_metrics_service.py::MonitoringMetricsService._get_daily_transaction_count::1
-verenigingen/services/monitoring/monitoring_metrics_service.py::MonitoringMetricsService._get_member_growth_rate::1
 verenigingen/services/monitoring/monitoring_metrics_service.py::MonitoringMetricsService._get_slow_query_count::1
 verenigingen/services/monitoring/monitoring_metrics_service.py::MonitoringMetricsService.get_active_alerts::1
 verenigingen/services/monitoring/monitoring_metrics_service.py::MonitoringMetricsService.get_audit_summary::1
@@ -201,10 +199,8 @@ verenigingen/setup/simple_dd_workflow_setup.py::setup_simple_dd_workflow::1
 verenigingen/setup/workflow_setup.py::create_appeals_workflow_corrected::1
 verenigingen/setup/workflow_setup.py::create_termination_workflow_corrected::1
 verenigingen/setup/workflow_setup.py::setup_workflows_corrected::1
-verenigingen/templates/pages/chapter_dashboard.py::get_basic_expense_stats::1
 verenigingen/templates/pages/chapter_dashboard.py::get_members_without_payment_info_count::1
 verenigingen/templates/pages/chapter_dashboard.py::get_pending_expense_approvals::1
-verenigingen/templates/pages/manage_donations.py::get_donation_summary::1
 verenigingen/templates/pages/manage_donations.py::get_recent_donations::1
 verenigingen/templates/pages/manage_donations.py::get_recurring_donations::1
 verenigingen/templates/pages/member_portal.py::_build_chapter_info::1
@@ -212,9 +208,7 @@ verenigingen/templates/pages/member_portal.py::get_all_member_chapters::1
 verenigingen/templates/pages/member_portal.py::get_member_chapter_info::1
 verenigingen/templates/pages/member_portal.py::get_payment_status::1
 verenigingen/templates/pages/membership_adjustment.py::get_member_fee_history::1
-verenigingen/templates/pages/volunteer/dashboard.py::get_expense_summary::1
 verenigingen/templates/pages/volunteer/skills.py::get_skills_grouped_by_category::1
-verenigingen/templates/pages/volunteer/skills.py::get_skills_statistics::1
 verenigingen/utils/address_matching/dutch_address_normalizer.py::AddressFingerprintCollisionHandler.detect_collision::1
 verenigingen/utils/address_matching/optimized_matcher.py::OptimizedAddressMatcher._fingerprint_lookup::1
 verenigingen/utils/address_matching/optimized_matcher.py::OptimizedAddressMatcher._join_lookup::1
@@ -232,7 +226,6 @@ verenigingen/utils/background_jobs.py::BackgroundJobManager.retry_failed_job::1
 verenigingen/utils/background_jobs.py::execute_member_payment_history_update_sync::1
 verenigingen/utils/brand_css_generator.py::generate_brand_css_file::1
 verenigingen/utils/brand_css_generator.py::generate_email_css_file::1
-verenigingen/utils/bulk_retry_processor.py::process_single_retry_queue::1
 verenigingen/utils/config_manager.py::import_config::1
 verenigingen/utils/db_advisory_lock.py::_release_redis_lock::1
 verenigingen/utils/db_advisory_lock.py::release_lock::1
@@ -354,7 +347,6 @@ verenigingen/verenigingen/doctype/mt940_import/mt940_import.py::MT940Import.get_
 verenigingen/verenigingen/doctype/region/region.py::Region.get_region_chapters::1
 verenigingen/verenigingen/doctype/region/region.py::Region.get_region_statistics::1
 verenigingen/verenigingen/doctype/system_alert/system_alert.py::SystemAlert.create_alert::1
-verenigingen/verenigingen/doctype/system_alert/system_alert.py::get_alert_summary::1
 verenigingen/verenigingen/doctype/volunteer/volunteer.py::_queue_volunteer_account_creation::1
 verenigingen/verenigingen/page/membership_analytics/membership_analytics.py::calculate_projected_revenue::1
 verenigingen/verenigingen/report/members_without_active_memberships/members_without_active_memberships.py::get_data::1

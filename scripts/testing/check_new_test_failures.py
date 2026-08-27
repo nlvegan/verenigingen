@@ -1,11 +1,22 @@
 #!/usr/bin/env python3
 """No-new-test-failures gate.
 
-The `Server Tests` suite has a large, long-standing red baseline (~2,336
-failing tests across ~170 root-cause signatures — see
-docs/plans/2026-05-29-server-tests-red-baseline-triage.md). Making it fully
-green is a multi-PR program; in the meantime we must not let normal PRs be
-blocked by pre-existing failures, while still catching *new* regressions.
+This gates against `verenigingen/tests/known_test_failures.txt`; read that file's
+header for what it currently contains, and `test_committed_baseline_is_empty` in
+verenigingen/tests/test_check_new_test_failures.py for what is enforced. As of
+2026-07-26 it is empty, so a red result here is a NEW failure -- do not reach for
+"probably pre-existing".
+
+Note the gate is only as good as the parser below: a failure the result regex
+does not match is invisible to it, and the sentinel shortfall warning cannot fire
+for small counts (`reported_total * 0.9 - 5` is negative for totals <= 5).
+
+This docstring used to cite "~2,336 failing tests across ~170 root-cause
+signatures" from docs/plans/2026-05-29-server-tests-red-baseline-triage.md. That
+was a 2026-05-29 snapshot and it answered the "is this red pre-existing?" question
+wrongly for months; the triage doc remains accurate about that date and useless as
+a statement about today. Removed with #573, which deleted the other copy of the
+same stale answer (`known_test_failures_v16.txt`).
 
 This script compares the failing tests in a `bench run-parallel-tests` output
 against a committed baseline (`verenigingen/tests/known_test_failures.txt`) and
@@ -21,9 +32,10 @@ Exit codes:
 
 Baseline maintenance:
     Regenerate from a develop run's logs with --emit-baseline (reads results,
-    prints the normalized failing-test ids to stdout). Tests that the baseline
-    lists but that now PASS are reported as "newly passing" (informational) so
-    the baseline can be pruned over time.
+    prints the normalized failing-test ids to stdout). Baseline entries that
+    recurred in this run are reported as a count (`matched baseline (allowed)`).
+    This script does NOT report "newly passing" -- it cannot tell which baseline
+    tests ran in a given shard; see the comment above `recurred` in main().
 """
 
 import argparse
@@ -156,9 +168,11 @@ def main(argv=None) -> int:
         for tid in new_failures:
             print(f"  - {tid}")
         print(
-            "\nIf a NEW failure looks flaky, re-run the job. If it is a genuine, "
-            "accepted pre-existing failure, regenerate the baseline (see "
-            "scripts/testing/check_new_test_failures.py docstring). Otherwise, fix it."
+            "\nIf a NEW failure looks flaky, re-run the job. Otherwise fix it: "
+            "the baseline has been EMPTY since 2026-07-26, so 'it was already "
+            "failing' is almost certainly wrong. Baselining a red test is a "
+            "deliberate act that needs a recorded reason (see "
+            "verenigingen/tests/known_test_failures.txt)."
         )
         return 1
 

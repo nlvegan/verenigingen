@@ -45,8 +45,19 @@ def get_context(context):
     # Get member record using standardized utility
     context.member = get_current_user_member_doc()
 
-    # Get donation summary statistics
-    context.donation_summary = get_donation_summary(context.member.name)
+    # Get donation summary statistics. The helper no longer swallows (#593), so the
+    # failure is handled here instead: a donor looking at "€0.00 donated" cannot
+    # tell that from a query that blew up, and this page is where they would act
+    # on it. The zeros are gone entirely -- the template hides the block and shows
+    # the notice below.
+    try:
+        context.donation_summary = get_donation_summary(context.member.name)
+    except Exception as e:
+        frappe.log_error(f"Error getting donation summary: {str(e)}", "Manage Donations")
+        context.donation_summary = None
+        context.error_message = _(
+            "Your donation overview could not be loaded. Please refresh the page, or contact support if the problem persists."
+        )
 
     # Get active recurring donations
     context.recurring_donations = get_recurring_donations(context.member.name)
@@ -59,47 +70,42 @@ def get_context(context):
 
 def get_donation_summary(member_name):
     """Get donation summary statistics for a member"""
-    try:
-        # Get all donations for this member (by email matching)
-        member = frappe.get_doc("Member", member_name)
+    # No `except` here on purpose. get_donation_stats() below already returns
+    # {"error": ...} on failure -- the inner swallow made it answer
+    # {"status": "success", "data": {zeros}} instead -- and get_context() now
+    # degrades the page rather than showing the donor €0.00 donated (#593).
+    # Get all donations for this member (by email matching)
+    member = frappe.get_doc("Member", member_name)
 
-        donations = frappe.get_all(
-            "Donation",
-            filters={"donor_email": member.email},
-            fields=["name", "amount", "status", "paid", "donation_date", "recurring_origin_donation"],
-        )
+    donations = frappe.get_all(
+        "Donation",
+        filters={"donor_email": member.email},
+        fields=["name", "amount", "status", "paid", "donation_date", "recurring_origin_donation"],
+    )
 
-        total_donated = 0
-        total_donations = len(donations)
-        active_recurring = 0
+    total_donated = 0
+    total_donations = len(donations)
+    active_recurring = 0
 
-        for donation in donations:
-            if donation.paid:
-                total_donated += flt(donation.amount)
+    for donation in donations:
+        if donation.paid:
+            total_donated += flt(donation.amount)
 
-            # A charge donation (recurring_origin_donation set) is a past
-            # payment under the origin's subscription, not a subscription of
-            # its own -- same distinction get_recurring_donations makes, so
-            # this count matches the list rendered below it on the page.
-            if donation.status == "Recurring" and not donation.recurring_origin_donation:
-                # Count everything not CONFIRMED inactive, so this counter agrees
-                # with the list get_recurring_donations() renders next to it.
-                if get_recurring_donation_state(donation.name) != RECURRING_STATE_INACTIVE:
-                    active_recurring += 1
+        # A charge donation (recurring_origin_donation set) is a past
+        # payment under the origin's subscription, not a subscription of
+        # its own -- same distinction get_recurring_donations makes, so
+        # this count matches the list rendered below it on the page.
+        if donation.status == "Recurring" and not donation.recurring_origin_donation:
+            # Count everything not CONFIRMED inactive, so this counter agrees
+            # with the list get_recurring_donations() renders next to it.
+            if get_recurring_donation_state(donation.name) != RECURRING_STATE_INACTIVE:
+                active_recurring += 1
 
-        return {
-            "total_donated": total_donated,
-            "total_donations": total_donations,
-            "active_recurring": active_recurring,
-        }
-
-    except Exception as e:
-        frappe.log_error(f"Error getting donation summary: {str(e)}", "Manage Donations")
-        return {
-            "total_donated": 0,
-            "total_donations": 0,
-            "active_recurring": 0,
-        }
+    return {
+        "total_donated": total_donated,
+        "total_donations": total_donations,
+        "active_recurring": active_recurring,
+    }
 
 
 def get_recurring_donations(member_name):
