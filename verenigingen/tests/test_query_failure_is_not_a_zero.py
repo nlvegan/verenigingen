@@ -40,7 +40,7 @@ class TestQueryFailureIsNotAZero(EnhancedTestCase):
     # The headline site: on failure the caller told the user "No retry requests
     # to process", and reported `"failed": 0` precisely when everything failed.
 
-    def _make_tracker(self):
+    def _make_bulk_operation_tracker(self):
         tracker = frappe.get_doc(
             {
                 "doctype": "Bulk Operation Tracker",
@@ -63,7 +63,7 @@ class TestQueryFailureIsNotAZero(EnhancedTestCase):
         """CONTROL: the honest no-data answer is unchanged."""
         from verenigingen.utils.bulk_retry_processor import process_single_retry_queue
 
-        result = process_single_retry_queue(self._make_tracker().name)
+        result = process_single_retry_queue(self._make_bulk_operation_tracker().name)
         self.assertEqual(result, {"processed": 0, "succeeded": 0, "failed": 0})
 
     def test_the_user_is_not_told_there_was_nothing_to_do(self):
