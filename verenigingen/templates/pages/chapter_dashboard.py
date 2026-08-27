@@ -261,48 +261,41 @@ def get_chapter_key_metrics(chapter_name: str) -> Dict[str, Any]:
     """Get key metrics for dashboard cards"""
 
     # Member statistics - modernized with Query Builder and proper aggregation
-    try:
-        # Get all chapter members first to handle complex conditional aggregation
-        members = frappe.get_all(
-            "Chapter Member",
-            filters={"parent": chapter_name},
-            fields=["status", "enabled", "chapter_join_date"],
-        )
+    # Neither half of this function swallows any more. The member half zeroed
+    # into a VARIABLE rather than returning, which is why the error_swallow
+    # validator never saw it while its expense sibling below was baselined --
+    # same defect, same fix (#593).
+    # Get all chapter members first to handle complex conditional aggregation
+    members = frappe.get_all(
+        "Chapter Member",
+        filters={"parent": chapter_name},
+        fields=["status", "enabled", "chapter_join_date"],
+    )
 
-        # Calculate statistics in Python for better maintainability
-        total_members = len(members)
-        active_members = sum(1 for m in members if m.status == "Active" and m.enabled == 1)
-        pending_members = sum(1 for m in members if m.status == "Pending")
-        inactive_members = sum(1 for m in members if m.enabled == 0)
-        # Terminated members are those who left (enabled=0)
-        terminated_members = inactive_members
+    # Calculate statistics in Python for better maintainability
+    total_members = len(members)
+    active_members = sum(1 for m in members if m.status == "Active" and m.enabled == 1)
+    pending_members = sum(1 for m in members if m.status == "Pending")
+    inactive_members = sum(1 for m in members if m.enabled == 0)
+    # Terminated members are those who left (enabled=0)
+    terminated_members = inactive_members
 
-        # Calculate new members (last 30 days)
-        from frappe.utils import add_days, getdate
+    # Calculate new members (last 30 days)
+    from frappe.utils import add_days, getdate
 
-        thirty_days_ago = add_days(getdate(), -30)
-        new_this_month = sum(
-            1 for m in members if m.chapter_join_date and getdate(m.chapter_join_date) >= thirty_days_ago
-        )
+    thirty_days_ago = add_days(getdate(), -30)
+    new_this_month = sum(
+        1 for m in members if m.chapter_join_date and getdate(m.chapter_join_date) >= thirty_days_ago
+    )
 
-        member_stats = {
-            "total_members": total_members,
-            "active_members": active_members,
-            "pending_members": pending_members,
-            "new_this_month": new_this_month,
-            "inactive_members": inactive_members,
-            "terminated_members": terminated_members,
-        }
-    except Exception as e:
-        frappe.log_error(f"Error calculating member statistics for {chapter_name}: {str(e)}")
-        member_stats = {
-            "total_members": 0,
-            "active_members": 0,
-            "pending_members": 0,
-            "new_this_month": 0,
-            "inactive_members": 0,
-            "terminated_members": 0,
-        }
+    member_stats = {
+        "total_members": total_members,
+        "active_members": active_members,
+        "pending_members": pending_members,
+        "new_this_month": new_this_month,
+        "inactive_members": inactive_members,
+        "terminated_members": terminated_members,
+    }
 
     # Expense statistics (basic for now)
     expense_stats = get_basic_expense_stats(chapter_name)
@@ -322,6 +315,14 @@ def get_chapter_key_metrics(chapter_name: str) -> Dict[str, Any]:
 
 def get_basic_expense_stats(chapter_name: str) -> Dict[str, Any]:
     """Get basic expense statistics for the chapter"""
+    # This one CARRIES the cause instead of raising, unlike its siblings.
+    # `custom_chapter` is one of seven Expense Claim `custom_*` fields that exist on
+    # the live site and are shipped by nothing -- setup/__init__.py defines no
+    # Expense Claim fields at all -- so
+    # on a fresh install (CI included) the query fails EVERY time, and raising
+    # would replace the whole dashboard with an error page there. Zeros plus
+    # "error" let the template show "--" for the expense tiles and leave the rest
+    # of the dashboard standing (#593).
     try:
         # Get pending expense amount and count for this chapter
         pending_expenses = frappe.get_all(
@@ -374,7 +375,13 @@ def get_basic_expense_stats(chapter_name: str) -> Dict[str, Any]:
         }
     except Exception as e:
         frappe.log_error(f"Error calculating expense statistics for {chapter_name}: {str(e)}")
-        return {"pending_amount": 0, "pending_count": 0, "ytd_total": 0, "this_month": 0}
+        return {
+            "pending_amount": 0,
+            "pending_count": 0,
+            "ytd_total": 0,
+            "this_month": 0,
+            "error": str(e),
+        }
 
 
 def get_member_overview(chapter_name: str) -> Dict[str, Any]:

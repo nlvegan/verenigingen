@@ -282,57 +282,14 @@ def get_recent_activities(volunteer_name):
 
 def get_expense_summary(volunteer_name):
     """Get expense summary for the volunteer using the same query as expenses page"""
-    try:
-        # Get volunteer document and employee_id (same as expenses page)
-        volunteer_doc = frappe.get_doc("Volunteer", volunteer_name)
-        if not volunteer_doc.employee_id:
-            return {
-                "total_submitted": 0,
-                "total_approved": 0,
-                "pending_count": 0,
-                "recent_count": 0,
-                "pending_amount": 0,
-            }
-
-        from_date = add_months(today(), -12)
-        recent_date = add_months(today(), -1)
-
-        # Use the exact same SQL query as expenses page
-        stats_result = frappe.db.sql(
-            """
-            SELECT
-                COUNT(*) as total_count,
-                COALESCE(SUM(total_claimed_amount), 0) as total_submitted,
-                COALESCE(SUM(CASE
-                    WHEN status IN ('Paid', 'Reimbursed') OR approval_status = 'Approved'
-                    THEN COALESCE(total_sanctioned_amount, total_claimed_amount)
-                    ELSE 0
-                END), 0) as total_approved,
-                COUNT(CASE
-                    WHEN status IN ('Paid', 'Reimbursed') OR approval_status = 'Approved'
-                    THEN 1
-                END) as approved_count,
-                COUNT(CASE WHEN posting_date >= %s THEN 1 END) as recent_count,
-                COUNT(CASE WHEN status = 'Draft' OR (status = 'Submitted' AND approval_status != 'Approved') THEN 1 END) as pending_count
-            FROM `tabExpense Claim`
-            WHERE employee = %s AND docstatus != 2 AND posting_date >= %s
-        """,
-            [recent_date, volunteer_doc.employee_id, from_date],
-            as_dict=True,
-        )[0]
-
-        return {
-            "total_submitted": flt(stats_result.total_submitted),
-            "total_approved": flt(stats_result.total_approved),
-            "pending_count": stats_result.pending_count or 0,
-            "recent_count": stats_result.recent_count or 0,
-            "pending_amount": flt(stats_result.total_submitted) - flt(stats_result.total_approved),
-        }
-
-    except Exception as e:
-        frappe.log_error(
-            f"Error getting expense summary for {volunteer_name}: {str(e)}", "Dashboard Expense Summary Error"
-        )
+    # No `except` here on purpose: get_context() already wraps this call, logs
+    # the cause, and sets context.error_message ("Some dashboard data could not
+    # be loaded"), which dashboard.html renders. Returning zeros from here made
+    # that handler unreachable, so a failed query rendered as €0.00 submitted
+    # and 0 pending -- indistinguishable from a volunteer with no claims (#593).
+    # Get volunteer document and employee_id (same as expenses page)
+    volunteer_doc = frappe.get_doc("Volunteer", volunteer_name)
+    if not volunteer_doc.employee_id:
         return {
             "total_submitted": 0,
             "total_approved": 0,
@@ -340,6 +297,41 @@ def get_expense_summary(volunteer_name):
             "recent_count": 0,
             "pending_amount": 0,
         }
+
+    from_date = add_months(today(), -12)
+    recent_date = add_months(today(), -1)
+
+    # Use the exact same SQL query as expenses page
+    stats_result = frappe.db.sql(
+        """
+        SELECT
+            COUNT(*) as total_count,
+            COALESCE(SUM(total_claimed_amount), 0) as total_submitted,
+            COALESCE(SUM(CASE
+                WHEN status IN ('Paid', 'Reimbursed') OR approval_status = 'Approved'
+                THEN COALESCE(total_sanctioned_amount, total_claimed_amount)
+                ELSE 0
+            END), 0) as total_approved,
+            COUNT(CASE
+                WHEN status IN ('Paid', 'Reimbursed') OR approval_status = 'Approved'
+                THEN 1
+            END) as approved_count,
+            COUNT(CASE WHEN posting_date >= %s THEN 1 END) as recent_count,
+            COUNT(CASE WHEN status = 'Draft' OR (status = 'Submitted' AND approval_status != 'Approved') THEN 1 END) as pending_count
+        FROM `tabExpense Claim`
+        WHERE employee = %s AND docstatus != 2 AND posting_date >= %s
+    """,
+        [recent_date, volunteer_doc.employee_id, from_date],
+        as_dict=True,
+    )[0]
+
+    return {
+        "total_submitted": flt(stats_result.total_submitted),
+        "total_approved": flt(stats_result.total_approved),
+        "pending_count": stats_result.pending_count or 0,
+        "recent_count": stats_result.recent_count or 0,
+        "pending_amount": flt(stats_result.total_submitted) - flt(stats_result.total_approved),
+    }
 
 
 def get_upcoming_activities(volunteer_name):

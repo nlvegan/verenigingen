@@ -315,4 +315,9 @@ class MonitoringMetricsService:
                 message=f"Error calculating member growth rate: {str(e)}",
                 title="Monitoring - Member Growth Rate Error",
             )
-            return {"today": 0, "week": 0, "daily_average": 0}
+            # The cause, not zeros: this dict is one entry of the metrics payload
+            # get_performance_metrics() builds, and three zeros there read as "no
+            # members joined" (#593). No in-repo consumer indexes these keys, so
+            # dropping them is safe; raising instead would blank every sibling
+            # metric on the dashboard.
+            return {"error": str(e)}
