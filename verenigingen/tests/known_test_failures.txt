@@ -60,3 +60,28 @@
 # rather than your regression, re-run the job first. To re-baseline legitimately:
 #   for each shard log: check_new_test_failures.py --results <log> --emit-baseline >> b.txt
 #   then `sort -u`, re-add this header, and record WHY each entry is here.
+#
+# There is NO v16 variant of this file. `known_test_failures_v16.txt` (2349 lines,
+# generated 2026-05-30 from a local run against frappe 16.19.0) was deleted
+# 2026-08-27, see #573. It was read by nothing -- the gate has only ever consumed
+# THIS file -- but the harm was not that it was dead. Its 2335-entry body read as
+# authority on the one question a reader arrives with, "is this red pre-existing?",
+# and answered it with a May snapshot. Two investigations were misled; one filed a
+# wrong issue (#357). Its own header did not save them, and had itself gone stale:
+#   * "Use THIS file as --baseline only when running the suite on a v16 stack" --
+#     on push and pull_request CI installs frappe and erpnext from branch
+#     `version-16` (server-tests.yml:97,98 `${{ inputs.X || 'version-16' }}` ->
+#     _base-server-tests.yml:118,120 -> .github/actions/setup/action.yml:71,319).
+#     (server-tests.yml:35,39 are workflow_dispatch defaults and apply ONLY to a
+#     manual dispatch, which is also the one way to run against another branch.)
+#     So on push/PR it is always a v16 stack, and the header pointed away from
+#     this file in the situation that actually occurs. (Stated as a branch pin, not a version number, on
+#     purpose: a version number here would be the same stale-claim trap one file over.)
+#   * "NO hrms; mirrors CI app set" -- the app list was true of that 2026-05-30 run;
+#     the "mirrors CI" clause has been false since da7462eec (2026-06-14) added
+#     `bench --site test_site install-app hrms` (.github/actions/setup/action.yml:426).
+#   * "The default known_test_failures.txt is v15-generated" -- false since
+#     2026-07-26; see the top of this file.
+# To recover the deleted content (the id list; there is no triage mapping in it):
+#   git show "$(git log --diff-filter=D --format=%H -1 \
+#     -- verenigingen/tests/known_test_failures_v16.txt)^:verenigingen/tests/known_test_failures_v16.txt"
