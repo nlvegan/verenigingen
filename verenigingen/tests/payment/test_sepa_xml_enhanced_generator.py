@@ -33,6 +33,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 import frappe
+from frappe.utils import getdate
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
@@ -249,7 +250,9 @@ class TestEnhancedSEPAXMLWarnings(unittest.TestCase):
         self.assertTrue(any("Collection date is in the past" in w for w in warnings))
 
     def test_future_mandate_signature_warns(self):
-        future = date.today() + timedelta(days=365)
+        # getdate(), not date.today(): _validate_mandate judges "future" against the
+        # site-tz today, so the fixture must be built on the same clock (#628).
+        future = getdate() + timedelta(days=365)
         m = _mandate(date_of_signature=future)
         pi = _payment_info(transactions=[_transaction(mandate=m)])
         self._generate([pi])

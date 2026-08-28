@@ -575,6 +575,143 @@ class TestExecutePaymentRetry(RetryBase):
         self.assertEqual(set(all_batches), {first_batch})
 
 
+class TestRetryDebitsTheMembershipMandate(RetryBase):
+    """The retry debits the mandate it picks, and it used to pick by recency.
+
+    `execute_payment_retry` resolved the mandate with
+    `member.get_active_sepa_mandates()[0]` -- `order_by="creation desc"` with no
+    purpose filter, the shape #584 was filed about -- and wrote that mandate's
+    `iban`, `bic`, `mandate_id` and `sign_date` into a Direct Debit Batch row it
+    then SUBMITS. `hooks/scheduler.py` runs it daily.
+
+    A member may legitimately hold an Active membership mandate and an Active
+    donation mandate at once (#584), and this retries a MEMBERSHIP invoice: it
+    loads the Membership document two lines above. So for that member the retry
+    debited whichever account was registered most recently (#605).
+    """
+
+    XML_STUB = (
+        "verenigingen.verenigingen_payments.services.sepa_xml_generation_service."
+        "sepa_xml_service.generate_sepa_xml_for_batch"
+    )
+
+    def _due_retry_for_member_with_both_mandates(self):
+        member = self._make_member_with_customer("PurposeRetry")
+        membership = self.sepa.create_test_membership(member=member.name, status="Active")
+        invoice = self._make_unpaid_invoice(member)
+
+        membership_mandate = self.sepa.create_test_sepa_mandate(
+            member=member.name,
+            status="Active",
+            iban="NL91ABNA0417164300",
+            used_for_memberships=1,
+            used_for_donations=0,
+        )
+        donation_mandate = self.sepa.create_test_sepa_mandate(
+            member=member.name,
+            status="Active",
+            iban="NL02ABNA0123456789",
+            used_for_memberships=0,
+            used_for_donations=1,
+        )
+        # Pin `creation` rather than trusting insert order: "newest wins" and
+        # "membership wins" have to give different answers for the assertion below
+        # to discriminate, and a same-second collision would make that arbitrary.
+        frappe.db.set_value(
+            "SEPA Mandate", membership_mandate.name, "creation", "2020-01-01 00:00:00",
+            update_modified=False,
+        )
+        frappe.db.set_value(
+            "SEPA Mandate", donation_mandate.name, "creation", "2021-01-01 00:00:00",
+            update_modified=False,
+        )
+
+        rec = self._make_retry_record(
+            member,
+            invoice,
+            status="Scheduled",
+            retry_count=1,
+            next_retry_date=today(),
+            membership=membership.name,
+        )
+        return member, invoice, membership_mandate, donation_mandate, rec
+
+    def test_the_batch_row_carries_the_membership_mandate(self):
+        (
+            _member,
+            invoice,
+            membership_mandate,
+            donation_mandate,
+            rec,
+        ) = self._due_retry_for_member_with_both_mandates()
+
+        with patch(self.XML_STUB, return_value="/files/dummy-sepa.xml"):
+            retry.execute_payment_retry(retry_record=rec.name)
+
+        rows = frappe.get_all(
+            "Direct Debit Batch Invoice",
+            filters={"invoice": invoice.name},
+            fields=["mandate_reference", "iban"],
+        )
+        self.assertEqual(len(rows), 1, f"expected one batch row, got {rows}")
+        self.assertEqual(
+            rows[0].mandate_reference,
+            membership_mandate.mandate_id,
+            "the retry debited the member's donation mandate for a membership invoice",
+        )
+        self.assertNotEqual(rows[0].mandate_reference, donation_mandate.mandate_id)
+
+    def test_two_membership_mandates_are_refused_as_such_not_as_none(self):
+        """A refusal is not "no mandate found" -- #581 billed a member a third
+        period by collapsing those two.
+
+        The second Active membership mandate is forced past
+        `validate_single_active_mandate_per_purpose` with `frappe.db.set_value`,
+        which bypasses `validate` entirely -- the same bypass
+        `test_mandate_candidates` needs, and the reason
+        `unambiguous_active_mandate` exists even though the guard should make the
+        state unreachable.
+        """
+        member, invoice, _membership_mandate, _donation, rec = (
+            self._due_retry_for_member_with_both_mandates()
+        )
+        # The refusal records itself through `frappe.log_error` -- that IS the
+        # behaviour under test succeeding, so declare it rather than letting the
+        # harness's automatic Error Log check read it as an incident.
+        self.expectErrorLog("Payment retry mandate resolution")
+        second = self.sepa.create_test_sepa_mandate(
+            member=member.name,
+            status="Draft",
+            iban="NL39RABO0300065264",
+            used_for_memberships=1,
+            used_for_donations=0,
+        )
+        frappe.db.set_value("SEPA Mandate", second.name, "status", "Active", update_modified=False)
+
+        with patch(self.XML_STUB, return_value="/files/dummy-sepa.xml"):
+            retry.execute_payment_retry(retry_record=rec.name)
+
+        rec.reload()
+        self.assertEqual(rec.status, "Failed")
+        self.assertFalse(
+            frappe.get_all("Direct Debit Batch Invoice", filters={"invoice": invoice.name}),
+            "nothing may be debited while it is a guess which account to debit",
+        )
+        comments = frappe.get_all(
+            "Comment",
+            filters={"reference_doctype": "SEPA Payment Retry", "reference_name": rec.name},
+            pluck="content",
+        )
+        self.assertTrue(
+            any("more than one" in c.lower() for c in comments),
+            f"the refusal must say what it was; got {comments}",
+        )
+        self.assertFalse(
+            any("No active SEPA mandate" in c for c in comments),
+            "reporting a refusal as 'none found' is what sends the operator to create another",
+        )
+
+
 # =============================================================================
 # check_payment_retry_status
 # =============================================================================

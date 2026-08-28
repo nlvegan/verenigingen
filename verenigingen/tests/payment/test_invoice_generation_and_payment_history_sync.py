@@ -331,6 +331,11 @@ class TestInvoiceGenerationAndPaymentHistorySync(VereningingenTestCase):
         # This test would require mocking the auto-submit failure, but demonstrates
         # the type of test needed to catch silent auto-submit failures
 
+        # Marked BEFORE generating, to scope the Error Log query below to rows this
+        # test itself caused. The runner is single-threaded, so "created at or after
+        # this instant" is exactly this test's own output.
+        before_generation = frappe.utils.now()
+
         # Generate invoice
         invoice_doc = self.dues_schedule.generate_invoice()
         invoice_name = invoice_doc.name if hasattr(invoice_doc, "name") else invoice_doc
@@ -341,9 +346,22 @@ class TestInvoiceGenerationAndPaymentHistorySync(VereningingenTestCase):
         # Verify invoice was created successfully regardless of auto-submit outcome
         self.assertIsNotNone(invoice.name, "Invoice should be created even if auto-submit fails")
 
-        # Check for any error logs related to this invoice
+        # Check for any error logs related to this invoice.
+        #
+        # Scoped by TIMESTAMP, not by `today()`. `tabError Log` is MyISAM and
+        # therefore non-transactional, so rows written by other tests in the same
+        # shard survive their rollback and are visible here -- and the invoice-name
+        # filter does not save us: Sales Invoice numbering restarts at 00001 on a
+        # fresh CI database, so a co-tenant that merely MENTIONS this invoice
+        # matches the LIKE.
+        #
+        # Measured on shard 5 of PR #641: test_bank_integration (a co-tenant) logged
+        # "...match 2 outstanding invoices ... Candidates: ACC-SINV-2026-00002,
+        # ACC-SINV-2026-00001" and failed THIS test, whose own invoice was
+        # ACC-SINV-2026-00001. Nothing was wrong with the invoice generation.
         error_logs = frappe.get_all(
-            "Error Log", filters={"error": ["like", f"%{invoice_name}%"], "creation": [">=", today()]}
+            "Error Log",
+            filters={"error": ["like", f"%{invoice_name}%"], "creation": [">=", before_generation]},
         )
 
         # If there are error logs, they should be related to auto-submit, not creation

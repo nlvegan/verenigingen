@@ -298,7 +298,10 @@ class EnhancedSEPAXMLGenerator:
         # Collection date validation
         if not payment_info.requested_collection_date:
             self.validation_errors.append(f"{prefix}: Requested collection date is required")
-        elif payment_info.requested_collection_date < date.today():
+        # Site-tz today, not the server/process date: in the late-UTC window the two
+        # name different calendar days, so a same-day collection is wrongly warned
+        # about as being in the past (#628).
+        elif getdate(payment_info.requested_collection_date) < getdate():
             self.validation_warnings.append(f"{prefix}: Collection date is in the past")
 
         # Creditor validation
@@ -416,7 +419,8 @@ class EnhancedSEPAXMLGenerator:
         # Date of signature validation
         if not mandate.date_of_signature:
             self.validation_errors.append(f"{prefix}: Mandate date of signature is required")
-        elif mandate.date_of_signature > date.today():
+        # Site-tz today, not the server/process date (#628): see _validate_payment_info.
+        elif getdate(mandate.date_of_signature) > getdate():
             self.validation_warnings.append(f"{prefix}: Mandate signature date is in the future")
 
         # Amendment validation

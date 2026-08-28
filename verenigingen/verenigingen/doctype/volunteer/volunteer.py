@@ -57,7 +57,6 @@ Author: Verenigingen Development Team
 License: MIT
 """
 
-from datetime import date
 from typing import Any, Dict, List, Optional
 
 import frappe
@@ -176,7 +175,10 @@ class Volunteer(Document):
             else:
                 from datetime import datetime
 
-                today_date = date.today()  # date imported at module level
+                # Site-tz today, not the server/process date: in the late-UTC window
+                # the two name different calendar days, so a volunteer whose birthday
+                # is today reads a year younger and can be rejected (#628).
+                today_date = getdate()
                 if isinstance(member.birth_date, str):
                     born = datetime.strptime(member.birth_date, "%Y-%m-%d").date()
                 else:

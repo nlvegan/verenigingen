@@ -30,6 +30,7 @@ from verenigingen.services.billing.invoice_generator import (
     MembershipDuesItemManager,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.test_site_timezone_today import site_a_day_ahead_of_process
 
 
 class TestInvoiceGeneratorBranches(EnhancedTestCase):
@@ -91,7 +92,7 @@ class TestInvoiceGeneratorBranches(EnhancedTestCase):
     def test_coverage_start_too_far_in_past_rejected(self):
         """A coverage_start more than MAX_PAST_DATE_YEARS in the past is rejected."""
         # Short 1-day window (so the duration check passes) but anchored far in the past.
-        start = date.today() - timedelta(days=365 * (InvoiceGenerator.MAX_PAST_DATE_YEARS + 1))
+        start = getdate() - timedelta(days=365 * (InvoiceGenerator.MAX_PAST_DATE_YEARS + 1))
         end = start + timedelta(days=1)
         result = self.generator.generate_invoice(
             coverage_start=start, coverage_end=end, member_doc=self.member
@@ -101,7 +102,7 @@ class TestInvoiceGeneratorBranches(EnhancedTestCase):
 
     def test_coverage_start_too_far_in_future_rejected(self):
         """A coverage_start more than MAX_FUTURE_DATE_YEARS in the future is rejected."""
-        start = date.today() + timedelta(days=365 * (InvoiceGenerator.MAX_FUTURE_DATE_YEARS + 1))
+        start = getdate() + timedelta(days=365 * (InvoiceGenerator.MAX_FUTURE_DATE_YEARS + 1))
         end = start + timedelta(days=1)
         result = self.generator.generate_invoice(
             coverage_start=start, coverage_end=end, member_doc=self.member
@@ -302,17 +303,40 @@ class TestInvoiceGeneratorBranches(EnhancedTestCase):
     def test_validate_sepa_mandate_future_sign_date(self):
         """A sign_date in the future is rejected."""
         mandate = self._make_valid_mandate()
-        future = date.today() + timedelta(days=30)
+        # getdate(), not date.today(): _validate_sepa_mandate judges "future" against
+        # the site-tz today, so the fixture must be built on the same clock (#628).
+        future = getdate() + timedelta(days=30)
         frappe.db.set_value("SEPA Mandate", mandate.name, "sign_date", future)
         frappe.db.commit()
         error = self.generator._validate_sepa_mandate(mandate.name, self.member)
         self.assertIsNotNone(error)
         self.assertIn("in the future", error)
 
+    def test_validate_sepa_mandate_signed_today_is_accepted(self):
+        """A mandate signed TODAY (site tz) is valid, not future-dated.
+
+        Regression guard for #628. _validate_sepa_mandate used Python's
+        date.today() (the server/process calendar day) while the mandate carries a
+        site-tz date. Whenever the site is a day ahead of the process -- which is
+        every UTC CI run between 18:30 and 24:00 UTC against this Asia/Kolkata site
+        -- a mandate signed today was rejected as "in the future" and the member's
+        invoice was never collected.
+
+        The divergence is FORCED rather than waited for. Without the lever this test
+        only discriminates while the site and the process happen to disagree, so it
+        passed with the fix reverted for roughly 77% of the day -- including in CI,
+        which runs outside the window -- while claiming to be a guard.
+        """
+        with site_a_day_ahead_of_process() as site_today:
+            mandate = self._make_valid_mandate(sign_date=site_today)
+            self.assertIsNone(self.generator._validate_sepa_mandate(mandate.name, self.member))
+
     def test_validate_sepa_mandate_expired(self):
         """An expiry_date in the past is rejected."""
         mandate = self._make_valid_mandate()
-        past = date.today() - timedelta(days=1)
+        # getdate(), not date.today(): yesterday must be yesterday on the SITE's
+        # calendar, or the "expired" branch is one day out of step with it (#628).
+        past = getdate() - timedelta(days=1)
         frappe.db.set_value("SEPA Mandate", mandate.name, "expiry_date", past)
         frappe.db.commit()
         error = self.generator._validate_sepa_mandate(mandate.name, self.member)

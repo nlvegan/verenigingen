@@ -216,6 +216,91 @@ class TestSEPAMandateManager(EnhancedTestCase):
         self.assertFalse(result.valid)
         self.assertIn("already exists for this IBAN", result.message)
 
+    def test_discrepancy_check_reports_a_donation_only_member_as_missing(self):
+        """The scheduled discrepancy check must agree with the sweep that fixes it.
+
+        `missing_mandates` is the bucket an operator acts on by creating a
+        mandate, and both flows that create one -- `create_missing_sepa_mandates`
+        and the `members_without_payment_info` report -- are membership-scoped.
+        This bucket fired only when the member had NO Active mandate of any
+        purpose, so a member holding a donation mandate and no membership mandate
+        was reported as an IBAN mismatch instead (#605).
+        """
+        self._create_test_mandate(
+            self.test_member.name,
+            self.valid_iban,
+            status="Active",
+            is_active=1,
+            used_for_memberships=0,
+            used_for_donations=1,
+        )
+        member_data = frappe._dict(
+            name=self.test_member.name,
+            full_name=self.test_member.full_name,
+            iban=self.valid_iban,
+            bank_account_name=self.test_member.full_name,
+        )
+        results = {
+            k: [] for k in ("missing_mandates", "iban_mismatches", "name_mismatches", "auto_fixed", "errors")
+        }
+
+        self.manager._check_member_mandate_discrepancies(member_data, results)
+
+        self.assertEqual(
+            [r["member"] for r in results["missing_mandates"]], [self.test_member.name]
+        )
+
+    def test_discrepancy_check_does_not_report_a_member_with_a_membership_mandate(self):
+        """The control: a member who HAS the mandate must not be listed as missing it."""
+        self._create_test_mandate(
+            self.test_member.name,
+            self.valid_iban,
+            status="Active",
+            is_active=1,
+            used_for_memberships=1,
+            used_for_donations=0,
+        )
+        member_data = frappe._dict(
+            name=self.test_member.name,
+            full_name=self.test_member.full_name,
+            iban=self.valid_iban,
+            bank_account_name=self.test_member.full_name,
+        )
+        results = {
+            k: [] for k in ("missing_mandates", "iban_mismatches", "name_mismatches", "auto_fixed", "errors")
+        }
+
+        self.manager._check_member_mandate_discrepancies(member_data, results)
+
+        self.assertEqual(results["missing_mandates"], [])
+
+    def test_validate_mandate_creation_donation_mandate_on_same_iban_does_not_block(self):
+        """A member's DONATION mandate must not block their membership mandate.
+
+        The duplicate-IBAN check asked "is there an Active mandate on this IBAN",
+        with no purpose filter, and refused. But a member paying dues and donating
+        from the same account is exactly the shape #584 modelled as legitimate --
+        one Active mandate per purpose -- and this is the check standing between
+        them and a membership mandate. `test_validate_mandate_creation_duplicate_
+        iban_blocked` is the control: a MEMBERSHIP mandate on the same IBAN still
+        blocks (#605).
+        """
+        self._create_test_mandate(
+            self.test_member.name,
+            self.valid_iban,
+            status="Active",
+            is_active=1,
+            used_for_memberships=0,
+            used_for_donations=1,
+        )
+
+        new_mandate_id = self.manager.generate_mandate_reference(self.test_member.name)
+        result = self.manager.validate_mandate_creation(
+            self.test_member.name, self.valid_iban, new_mandate_id
+        )
+
+        self.assertTrue(result.valid, result.message)
+
     def test_validate_mandate_creation_duplicate_iban_allowed(self):
         """Test validation succeeds when duplicate IBAN is explicitly allowed"""
         # Create existing mandate

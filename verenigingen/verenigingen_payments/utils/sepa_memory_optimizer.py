@@ -386,7 +386,14 @@ class SEPABatchPaginator:
                             sm.status as mandate_status,
                             sm.sign_date
                         FROM `tabMember` m
-                        LEFT JOIN `tabSEPA Mandate` sm ON sm.member = m.name AND sm.status = 'Active'
+                        -- Purpose filter (#605). Without it this LEFT JOIN produced
+                        -- one row per Active mandate, so a member holding a membership
+                        -- and a donation mandate appeared twice -- and since the page
+                        -- size is counted in rows, that also shifts every later page.
+                        LEFT JOIN `tabSEPA Mandate` sm
+                            ON sm.member = m.name
+                            AND sm.status = 'Active'
+                            AND sm.used_for_memberships = 1
                         WHERE m.docstatus = 1
                         {filters}
                         ORDER BY m.creation DESC

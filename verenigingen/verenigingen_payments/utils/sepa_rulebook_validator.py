@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional
 
 import frappe
 from frappe import _
+from frappe.utils import getdate, now_datetime
 
 from verenigingen.utils.error_handling import handle_api_error
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
@@ -444,7 +445,14 @@ class SEPARulebookValidator:
         if datetime_elem is not None:
             try:
                 creation_dt = datetime.fromisoformat(datetime_elem.text.replace("Z", "+00:00"))
-                if creation_dt > datetime.now():
+                # Site-tz now, not the process clock. CreDtTm is stamped on the SITE
+                # clock -- sepa_xml_generation_service stores sepa_generation_date as
+                # f"{nowdate()} {nowtime()}" -- so comparing it against datetime.now()
+                # reports every freshly generated file as future-dated at severity
+                # CRITICAL on any host whose process clock is behind the site's. Unlike
+                # the rest of #628 this is not the late-UTC window: it compares two
+                # instants, so it fires on every validation, all day.
+                if creation_dt > now_datetime():
                     issues.append(
                         ValidationIssue(
                             rule_id=rule.rule_id,
@@ -666,7 +674,10 @@ class SEPARulebookValidator:
             if sign_date_elem is not None:
                 try:
                     sign_date = datetime.fromisoformat(sign_date_elem.text).date()
-                    today_date = date.today()
+                    # Site-tz today, not the server/process date: in the late-UTC window
+                    # the two name different calendar days, and across a month boundary
+                    # that shifts months_diff by a whole month (#628).
+                    today_date = getdate()
 
                     # Calculate months difference
                     months_diff = (today_date.year - sign_date.year) * 12 + (

@@ -6,6 +6,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_months, flt, getdate, today
 
+from verenigingen.services.payment.sepa_mandate_manager import get_sepa_mandate_manager
 from verenigingen.utils.constants import Limits, Membership, PaymentStatus
 from verenigingen.utils.error_handling import cache_with_ttl
 from verenigingen.utils.member_utils import get_member_name_for_user
@@ -118,7 +119,11 @@ def get_dashboard_data(member: str = None) -> OperationResult[Dict[str, Any]]:
 
         # Check if mandate is expiring soon
         mandate_expiring_soon = False
-        active_mandates = member_doc.get_active_sepa_mandates()
+        # Membership-scoped (#605): this dashboard is about the member's DUES, so a
+        # donation mandate's expiry is not the warning to show here.
+        active_mandates = get_sepa_mandate_manager().get_active_mandates(
+            member, purpose="used_for_memberships"
+        )
         if active_mandates:
             # Get the first active mandate
             active_mandate = frappe.get_doc("SEPA Mandate", active_mandates[0].name)
@@ -154,7 +159,13 @@ def get_payment_method(member: str = None) -> OperationResult[Dict[str, Any]]:
         member = validate_member_exists(member)
 
         member_doc = frappe.get_doc("Member", member)
-        active_mandates = member_doc.get_active_sepa_mandates()
+        # Membership-scoped (#605): the block below shows the member the IBAN they
+        # are told their dues are collected from. Unscoped, a member who also
+        # donates by direct debit was shown whichever account was registered most
+        # recently -- and since #597 the collection would not have used it.
+        active_mandates = get_sepa_mandate_manager().get_active_mandates(
+            member, purpose="used_for_memberships"
+        )
 
         if active_mandates:
             # Get the first active mandate details

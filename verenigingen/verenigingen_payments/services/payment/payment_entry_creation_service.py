@@ -204,14 +204,19 @@ class PaymentEntryCreationService:
 
         Examples:
             # Standard batch processing (strict mode - must submit)
+            # getdate() (site tz), never date.today() (server/process tz): a posting
+            # date off by a day lands the GL entry in the wrong accounting period at a
+            # month or year boundary (#628).
+            from frappe.utils import getdate
+
             from verenigingen.verenigingen_payments.services.payment import payment_entry_service
 
             payment_entry = payment_entry_service.create_payment_entry_from_invoice(
                 invoice_name="SI-2024-001",
                 amount=Decimal("50.00"),
-                posting_date=date.today(),
+                posting_date=getdate(),
                 reference_no="BATCH-001",
-                reference_date=date.today(),
+                reference_date=getdate(),
                 mode_of_payment="SEPA Direct Debit"
             )
             # Returns: submitted Payment Entry or raises exception

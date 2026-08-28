@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Dict, List, Optional, Tuple
 
+from frappe.utils import getdate
+
 REQUIRED_COLUMNS = ["Debiteur Id", "Type", "Ingangsdatum", "Id"]
 
 
@@ -32,7 +34,11 @@ class ProcuriosMembershipRow:
 
 class ProcuriosMembershipValidator:
     def __init__(self, today: Optional[date] = None):
-        self._today = today or date.today()
+        # Default to frappe's site-tz today, not Python's date.today() (server/process
+        # tz): in the late-UTC window the two name different calendar days, which flips
+        # a membership ending today between Expired and Active, and stamps a
+        # cancellation date a day off (#628). Callers may still inject one.
+        self._today = today or getdate()
 
     def check_required_columns(self, headers: List[str]) -> List[str]:
         present = set(headers)

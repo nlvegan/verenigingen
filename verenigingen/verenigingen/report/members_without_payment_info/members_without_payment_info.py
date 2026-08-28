@@ -135,6 +135,11 @@ def get_data(filters):
             WHERE sm.member IN %(member_names)s
             AND sm.status = 'Active'
             AND sm.is_active = 1
+            -- This report answers "can this member's DUES be collected", so a
+            -- donation mandate is not a payment method for it (#605). Unscoped, a
+            -- member with a donation mandate and no membership mandate was skipped
+            -- as covered -- which is precisely the member the report exists to find.
+            AND sm.used_for_memberships = 1
             """,
             {"member_names": member_names},
             as_dict=True,

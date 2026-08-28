@@ -121,8 +121,13 @@ def _create_member_with_procurios_id(test_case, procurios_id: str, **kwargs):
     return member
 
 
-def _create_active_sepa_mandate(member_name: str, mandate_id: str, iban: str):
-    """Test fixture: insert an Active SEPA Mandate for `member_name`."""
+def _create_active_sepa_mandate(member_name: str, mandate_id: str, iban: str, **purposes):
+    """Test fixture: insert an Active SEPA Mandate for `member_name`.
+
+    `purposes` overrides the `used_for_*` flags; with none passed the doctype
+    default applies (`used_for_memberships = 1`), which is what every existing
+    caller here relies on.
+    """
     mandate = frappe.get_doc({
         "doctype": "SEPA Mandate",
         "mandate_id": mandate_id,
@@ -132,6 +137,7 @@ def _create_active_sepa_mandate(member_name: str, mandate_id: str, iban: str):
         "sign_date": "2023-01-01",
         "mandate_type": "RCUR",
         "scheme": "SEPA",
+        **purposes,
     })
     mandate.flags.ignore_permissions = True
     mandate.insert()
@@ -282,6 +288,88 @@ class TestProcuriosMandateImportProcessRow(EnhancedTestCase):
         self.assertEqual(status, "skipped")
         self.assertEqual(counters["conflict"], 1)
         self.assertFalse(frappe.db.exists("SEPA Mandate", {"mandate_id": "M-NEW"}))
+
+    def test_a_donation_only_mandate_is_not_a_membership_conflict(self):
+        """The import creates `used_for_memberships = 1`, so that is the mandate
+        whose presence can conflict with it.
+
+        The conflict check asked whether the member had ANY Active mandate. A
+        member who pays dues by direct debit and also donates by direct debit had
+        their imported MEMBERSHIP mandate skipped as a duplicate of their donation
+        mandate -- leaving them with no membership mandate, which since #597 means
+        their dues are never collected by direct debit (#605). Same defect, and
+        same fix, as `create_missing_sepa_mandates`; `test_skips_conflict_when_
+        member_has_other_active` is the control that a real membership mandate
+        still conflicts.
+        """
+        member = _create_member_with_procurios_id(self, "PROC-DONATION-ONLY")
+        _create_active_sepa_mandate(
+            member.name,
+            "M-DONATION",
+            "NL02ABNA0123456789",
+            used_for_memberships=0,
+            used_for_donations=1,
+        )
+        doc = _create_stub_import_doc()
+        caches = doc._build_caches()
+        counters = _empty_skip_counters()
+        errors = []
+        row = _make_mandate_row(mandate_id="M-IMPORTED", debiteur_id="PROC-DONATION-ONLY")
+
+        status, _name = doc._process_single_row(row, errors, caches, counters)
+
+        self.assertEqual(status, "created", f"skipped instead: {errors}")
+        self.assertEqual(counters["conflict"], 0)
+        self.assertTrue(
+            frappe.db.get_value("SEPA Mandate", {"mandate_id": "M-IMPORTED"}, "used_for_memberships")
+        )
+
+    def test_cancelling_a_donation_mandate_leaves_the_membership_conflict_standing(self):
+        """The two caches must be maintained by the SAME rule.
+
+        `members_with_active_mandate` counts only membership mandates (they are
+        what this import creates), but the cancel path decremented
+        `member_to_active_count` for ANY Active mandate it cancelled. Cancelling a
+        member's donation mandate therefore zeroed the count for their MEMBERSHIP
+        mandate and dropped them out of the conflict set while that mandate was
+        still Active -- so a later row would sail past the conflict check and die
+        in `_create_mandate` on the per-purpose guard, landing in `error` instead
+        of `conflict`.
+        """
+        member = _create_member_with_procurios_id(self, "PROC-CANCEL-DON")
+        _create_active_sepa_mandate(member.name, "M-MEMBERSHIP-KEEP", "NL91ABNA0417164300")
+        _create_active_sepa_mandate(
+            member.name,
+            "M-DONATION-CANCEL",
+            "NL02ABNA0123456789",
+            used_for_memberships=0,
+            used_for_donations=1,
+        )
+        doc = _create_stub_import_doc()
+        caches = doc._build_caches()
+        counters = _empty_skip_counters()
+        errors = []
+
+        cancel_row = _make_mandate_row(
+            mandate_id="M-DONATION-CANCEL",
+            debiteur_id="PROC-CANCEL-DON",
+            cancelled_date=_recent_cancellation_date(),
+        )
+        status, _name = doc._process_single_row(cancel_row, errors, caches, counters)
+        self.assertEqual(status, "updated", f"{errors}")
+
+        self.assertIn(
+            member.name,
+            caches.members_with_active_mandate,
+            "the member still holds an Active MEMBERSHIP mandate",
+        )
+
+        # And the conflict check must still fire for a new row.
+        new_row = _make_mandate_row(mandate_id="M-SHOULD-CONFLICT", debiteur_id="PROC-CANCEL-DON")
+        status, _name = doc._process_single_row(new_row, errors, caches, counters)
+        self.assertEqual(status, "skipped")
+        self.assertEqual(counters["conflict"], 1)
+        self.assertEqual(counters["error"], 0, f"a clean conflict skip, not an exception: {errors}")
 
     def test_cancelled_row_for_member_with_active_mandate_still_imports(self):
         # A historical cancelled mandate doesn't conflict with an active one.

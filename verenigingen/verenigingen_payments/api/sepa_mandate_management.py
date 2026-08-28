@@ -17,12 +17,16 @@ from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def create_missing_sepa_mandates(dry_run=True):
+def create_missing_sepa_mandates(dry_run=True, member_name: str | None = None):
     """
     Create SEPA mandates for members with SEPA Direct Debit payment method but no active mandate.
 
     Args:
         dry_run: If True, only show what would be created without actually creating
+        member_name: Restrict the sweep to one member. `fix_specific_member_sepa_mandate`
+            passes it: without it, "fix this member" ran the whole-site sweep and
+            created mandates for every other eligible member as a side effect, then
+            filtered the report down to the one that was asked about (#605).
     """
     # Check permissions
     if not frappe.has_permission("SEPA Mandate", "create"):
@@ -44,14 +48,22 @@ def create_missing_sepa_mandates(dry_run=True):
             AND m.iban IS NOT NULL
             AND m.iban != ''
             AND m.docstatus != 2
+            AND (%(member)s IS NULL OR m.name = %(member)s)
+            -- The mandate this sweep creates is `used_for_memberships = 1`, so that
+            -- is the mandate whose absence it must look for (#605). Unscoped, a
+            -- member whose only Active mandate is a DONATION mandate counted as
+            -- covered and was skipped -- leaving them with no membership mandate,
+            -- which every collection path has resolved by purpose since #597.
             AND NOT EXISTS (
                 SELECT 1
                 FROM `tabSEPA Mandate` sm
                 WHERE sm.member = m.name
                 AND sm.status = 'Active'
                 AND sm.is_active = 1
+                AND sm.used_for_memberships = 1
             )
     """,
+        {"member": member_name},
         as_dict=True,
     )
 
@@ -206,16 +218,19 @@ def fix_specific_member_sepa_mandate(member_name: str):
         if member.payment_method != "SEPA Direct Debit":
             frappe.throw(_("Member's payment method is not SEPA Direct Debit"))
 
-        # Check if active mandate already exists
+        # Check if an active MEMBERSHIP mandate already exists (#605). A donation
+        # mandate is not one, and refusing on it left the member without the mandate
+        # this endpoint exists to create.
         existing_active = frappe.db.exists(
-            "SEPA Mandate", {"member": member_name, "status": "Active", "is_active": 1}
+            "SEPA Mandate",
+            {"member": member_name, "status": "Active", "is_active": 1, "used_for_memberships": 1},
         )
 
         if existing_active:
             return {"success": False, "message": _("Member already has an active SEPA mandate")}
 
-        # Create the mandate
-        result = create_missing_sepa_mandates(dry_run=False)
+        # Create the mandate -- for THIS member only; see create_missing_sepa_mandates
+        result = create_missing_sepa_mandates(dry_run=False, member_name=member_name)
 
         # Check if this specific member was processed
         # Safe extraction of results data
