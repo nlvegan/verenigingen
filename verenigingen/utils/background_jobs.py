@@ -579,17 +579,15 @@ def execute_member_payment_history_update_sync(member_name: str, payment_entry: 
 # Event Handler Functions (called from hooks.py)
 
 
-def queue_member_payment_history_update_handler(doc, method=None):
-    """Payment Entry hook: enqueue a per-member payment-history drain job.
+def enqueue_payment_history_drain_for_customers(customers):
+    """Enqueue one drain job per Member linked to any of `customers`.
 
     Deferred via enqueue_after_commit so the batch processor's commit/rollback
-    never runs inside the Payment Entry submit transaction.
+    never runs inside the submitting document's transaction. Deduplicated per
+    member, so several rows naming the same member cost one job.
     """
-    try:
-        if doc.party_type != "Customer":
-            return
-        members = frappe.get_all("Member", filters={"customer": doc.party}, fields=["name"])
-        for member_doc in members:
+    for customer in customers:
+        for member_doc in frappe.get_all("Member", filters={"customer": customer}, fields=["name"]):
             frappe.enqueue(
                 "verenigingen.utils.background_jobs.drain_member_payment_history",
                 queue="short",
@@ -598,11 +596,45 @@ def queue_member_payment_history_update_handler(doc, method=None):
                 enqueue_after_commit=True,
                 timeout=300,
                 member=member_doc.name,
-                customer=doc.party,
+                customer=customer,
             )
+
+
+def queue_member_payment_history_update_handler(doc, method=None):
+    """Payment Entry hook: enqueue a per-member payment-history drain job."""
+    try:
+        if doc.party_type != "Customer":
+            return
+        enqueue_payment_history_drain_for_customers([doc.party])
     except Exception as e:
         frappe.log_error(f"Failed to enqueue payment history update for payment {doc.name}: {e}")
         # Don't raise - we don't want to block the payment entry submission
+
+
+def queue_journal_entry_payment_history_update_handler(doc, method=None):
+    """Journal Entry hook: refresh payment history for every member it touches.
+
+    A Journal Entry carries its party per ACCOUNT ROW, not on the document as a
+    Payment Entry does, and one entry can name several members' receivables -- so
+    every distinct Customer row is refreshed, not just the first (#645).
+
+    Why this hook has to exist at all: a Journal Entry referencing a Sales Invoice
+    restores that invoice's `outstanding_amount`, but ERPNext writes it with
+    `frappe.db.set_value` + `set_status(update=True)` (gl_entry.py), neither of
+    which dispatches `on_update_after_submit` -- so the Sales Invoice route that
+    covers every other post-submit change to an invoice never fires here, and the
+    member's payment history keeps saying Paid.
+    """
+    try:
+        customers = {
+            row.party
+            for row in (doc.get("accounts") or [])
+            if row.get("party_type") == "Customer" and row.get("party")
+        }
+        enqueue_payment_history_drain_for_customers(customers)
+    except Exception as e:
+        frappe.log_error(f"Failed to enqueue payment history update for journal entry {doc.name}: {e}")
+        # Don't raise - we don't want to block the journal entry submission
 
 
 def drain_member_payment_history(member, customer):

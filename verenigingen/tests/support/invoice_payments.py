@@ -14,7 +14,7 @@ one place rather than being re-derived per suite.
 """
 
 import frappe
-from frappe.utils import today
+from frappe.utils import add_days, today
 
 
 def receive_against_invoice(test_case, invoice_name, paid, mode_of_payment=None):
@@ -122,3 +122,70 @@ def member_with_customer(test_case, first_name):
         member.create_customer()
         member.reload()
     return member
+
+
+def build_eur_membership_invoice(test_case, customer, rate=42.0, posting_date=None):
+    """A submitted, v16-valid EUR membership Sales Invoice for `customer`.
+
+    Every field below is mandatory on a v16 Sales Invoice or is there to keep the
+    document currency aligned with the receivable account's -- a fresh site's
+    selling price list otherwise defaults the invoice to USD and the payment that
+    follows cannot allocate against it.
+
+    One helper, three former copies: `_build_test_invoice` on
+    `test_payment_entry_hook_defers` and `_build_secured_invoice` on
+    `test_integrated_security_payment_system` and
+    `test_payment_history_reconciliation`, the last two of which the
+    duplicate-helper census already recorded as a 100%-near-identical clone
+    family. Their bodies had not yet drifted; what they shared was the
+    income-account bug fixed below, in three places at once.
+    """
+    from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+
+    company = get_eur_test_company()
+    test_case._ensure_test_item("TEST-MEMBERSHIP")
+
+    debit_to = frappe.db.get_value("Company", company, "default_receivable_account") or frappe.db.get_value(
+        "Account", {"account_type": "Receivable", "company": company, "is_group": 0}, "name"
+    )
+    # ERPNext's standard chart leaves account_type EMPTY on income leaves; they
+    # carry root_type = "Income". So the account_type filter resolves only when
+    # some other fixture in the same shard has planted such a row -- hence the
+    # fallback, which removes the None case. It does NOT make the choice
+    # order-independent: among several income leaves get_value still returns the
+    # most recently created one.
+    income_account = frappe.db.get_value(
+        "Account", {"account_type": "Income Account", "company": company, "is_group": 0}, "name"
+    ) or frappe.db.get_value("Account", {"company": company, "root_type": "Income", "is_group": 0}, "name")
+    cost_center = frappe.db.get_value("Company", company, "cost_center") or frappe.db.get_value(
+        "Cost Center", {"company": company, "is_group": 0}, "name"
+    )
+    price_list = frappe.db.get_value("Price List", {"selling": 1}, "name") or "Standard Selling"
+
+    invoice = frappe.new_doc("Sales Invoice")
+    invoice.customer = customer
+    invoice.company = company
+    invoice.currency = "EUR"
+    invoice.conversion_rate = 1.0
+    invoice.debit_to = debit_to
+    invoice.selling_price_list = price_list
+    invoice.price_list_currency = "EUR"
+    invoice.plc_conversion_rate = 1.0
+    invoice.ignore_pricing_rule = 1
+    invoice.posting_date = posting_date or today()
+    invoice.set_posting_time = 1
+    invoice.due_date = add_days(invoice.posting_date, 30)
+    invoice.is_membership_invoice = 1
+    invoice.append(
+        "items",
+        {
+            "item_code": "TEST-MEMBERSHIP",
+            "qty": 1,
+            "rate": rate,
+            "income_account": income_account,
+            "cost_center": cost_center,
+        },
+    )
+    invoice.save()
+    invoice.submit()
+    return invoice

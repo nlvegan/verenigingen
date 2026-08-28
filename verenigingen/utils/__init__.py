@@ -35,6 +35,14 @@ def determine_payment_status(invoice, paid_amount: float = 0.0) -> str:
         return "Overdue"
     if invoice.status == "Cancelled":
         return "Cancelled"
+    # ERPNext's own status for an invoice carrying a part payment. Needed because
+    # `paid_amount` is the sum of Payment Entry ALLOCATIONS, which a reversing
+    # Journal Entry does not touch: after a partial reversal of a fully-paid
+    # invoice, paid_amount still equals grand_total, so the comparison below is
+    # False and a partly-paid invoice drops through to "Unpaid" -- alongside a
+    # paid_amount and an outstanding_amount that both say otherwise (#645).
+    if invoice.status in ("Partly Paid", "Partly Paid and Discounted"):
+        return "Partially Paid"
     if paid_amount > 0 and paid_amount < invoice.grand_total:
         return "Partially Paid"
     return "Unpaid"
