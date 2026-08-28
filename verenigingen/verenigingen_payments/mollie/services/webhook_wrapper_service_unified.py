@@ -1482,7 +1482,7 @@ class UnifiedWebhookWrapperService:
         reversal_date: Optional[str],
         reversal_id: str,
         reversal_type: str,
-    ) -> Optional[str]:
+    ) -> Tuple[bool, Optional[str]]:
         """Write the payment-history row for an ALREADY-booked reversal, if missing.
 
         The sibling route says it best, and has said it for longer: "Skipping the
@@ -1492,8 +1492,12 @@ class UnifiedWebhookWrapperService:
         ``_update_missing_payment_history`` cannot substitute: it is built from a
         Payment-Entry-only query, so a JE-booked reversal is never in it.
 
-        Returns None when there is nothing to do or the repair succeeded, and the
-        error string when it failed -- so the caller can refuse to report success.
+        Returns ``(ok, error)``: ``(True, None)`` when the repair succeeded or there
+        was nothing to do, ``(False, reason)`` when it failed -- so the caller can
+        refuse to report success. An earlier version returned the error string alone
+        and None for success, which reads backwards (truthy meaning failure) and is
+        the shape ``failed_write_validator`` flags, correctly: it cannot tell that
+        convention from a write whose failure is discarded.
         """
         from ..utils.webhook_utilities import get_donation_by_payment_id
 
@@ -1501,11 +1505,11 @@ class UnifiedWebhookWrapperService:
         try:
             donation_doc = get_donation_by_payment_id(payment_id)
             if not donation_doc:
-                return None
+                return True, None
 
             link_field = "journal_entry" if doctype == "Journal Entry" else "payment_entry"
             if any(getattr(p, link_field, None) == name for p in (donation_doc.payments or [])):
-                return None
+                return True, None
 
             donation_doc.flags.ignore_validate_update_after_submit = True
             donation_doc.append(
@@ -1521,14 +1525,14 @@ class UnifiedWebhookWrapperService:
             )
             donation_doc.save()
             self.logger.info(f"✅ Repaired missing {reversal_type} history row for {doctype} {name}")
-            return None
+            return True, None
         except Exception as err:
             self.logger.error(f"❌ Could not repair {reversal_type} history row: {err}")
             frappe.log_error(
                 f"Reversal history repair failed for {payment_id} {reversal_id}: {err}",
                 "Reversal History Repair Failed",
             )
-            return str(err)
+            return False, str(err)
 
     def process_reversal_webhook(
         self,
@@ -1640,7 +1644,7 @@ class UnifiedWebhookWrapperService:
                 # Skipping the booking must not skip the repair. A history write that
                 # failed on an earlier delivery is only fixable HERE -- every later
                 # delivery lands on this branch.
-                repair_failure = (
+                repaired, repair_failure = (
                     self._repair_reversal_history(
                         payment_id=payment_id,
                         reversal_ref=existing,
@@ -1650,23 +1654,25 @@ class UnifiedWebhookWrapperService:
                         reversal_type=reversal_type,
                     )
                     if booked_type == "donation"
-                    else None
+                    else (True, None)
                 )
                 result = {
-                    "status": "error" if repair_failure else "success",
+                    "status": "success" if repaired else "error",
                     "message": (
-                        f"{reversal_type.capitalize()} {reversal_id} already booked as "
-                        f"{existing[0]} {existing[1]}, but its payment history row could not "
-                        f"be written ({repair_failure})"
-                        if repair_failure
-                        else f"{reversal_type.capitalize()} {reversal_id} already processed"
+                        f"{reversal_type.capitalize()} {reversal_id} already processed"
+                        if repaired
+                        else (
+                            f"{reversal_type.capitalize()} {reversal_id} already booked as "
+                            f"{existing[0]} {existing[1]}, but its payment history row could not "
+                            f"be written ({repair_failure})"
+                        )
                     ),
                     "payment_id": payment_id,
                     f"{reversal_type}_id": reversal_id,
                     "existing_reference": existing_reversal,
                     "idempotent": True,
                 }
-                if repair_failure:
+                if not repaired:
                     result["history_failure"] = repair_failure
                 return result
 
