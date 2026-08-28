@@ -34,14 +34,17 @@ from contextlib import contextmanager
 import frappe
 from dateutil.relativedelta import relativedelta
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import get_system_timezone, getdate
+from frappe.utils import get_system_timezone, getdate, now_datetime
 
 from verenigingen.services.member.utils.member_age_service import calculate_member_age
 from verenigingen.utils.csv.procurios_mandate_validator import ProcuriosMandateValidator
 from verenigingen.utils.csv.procurios_membership_validator import ProcuriosMembershipValidator
 from verenigingen.verenigingen_payments.mollie.utils.validators import BusinessRuleValidator
 from verenigingen.verenigingen_payments.ponto.core.ponto_models import PontoTransaction
-from verenigingen.verenigingen_payments.utils.sepa_rulebook_validator import SEPARulebookValidator
+from verenigingen.verenigingen_payments.utils.sepa_rulebook_validator import (
+    SEPARulebookValidator,
+    ValidationSeverity,
+)
 from verenigingen.verenigingen_payments.utils.sepa_xml_enhanced_generator import (
     EnhancedSEPAXMLGenerator,
     SEPACreditor,
@@ -100,6 +103,49 @@ def site_timezone_diverging_from_process():
                 "the tests below would prove nothing"
             )
         yield getdate()
+    finally:
+        frappe.local.system_settings = original
+
+
+@contextmanager
+def site_timezone_ahead_of_process():
+    """Run the block with the site's wall clock strictly AHEAD of the process's.
+
+    ``site_timezone_diverging_from_process`` is the wrong lever for an *instant*
+    comparison. It guarantees a different calendar DAY, and satisfies that just as
+    happily with the candidate that is BEHIND the process -- under which a
+    site-stamped timestamp is in the past and a "cannot be in the future" rule
+    passes whether or not it is fixed. This lever forces the direction the bug
+    actually needs.
+
+    ``Pacific/Kiritimati`` is UTC+14, the largest offset in the tz database, so it
+    is ahead of every process timezone except itself. Raises rather than skipping
+    if that is not true, for the same reason the sibling lever does: a lever that
+    cannot report its own failure makes the tests below silently vacuous.
+    """
+    original = getattr(frappe.local, "system_settings", None)
+    ahead = "Pacific/Kiritimati"
+    now_utc = datetime.datetime.now(datetime.timezone.utc)
+    if now_utc.astimezone(_zoneinfo(ahead)).utcoffset() <= now_utc.astimezone().utcoffset():
+        raise AssertionError(
+            f"the process timezone is at or east of {ahead} (UTC+14), so no site "
+            "timezone can be installed ahead of it; this test cannot run here"
+        )
+    settings = frappe.get_doc("System Settings")
+    settings.time_zone = ahead
+    frappe.local.system_settings = settings
+    try:
+        if get_system_timezone() != ahead:
+            raise RuntimeError(
+                f"site timezone override did not take: asked for {ahead}, "
+                f"get_system_timezone() still returns {get_system_timezone()}"
+            )
+        if now_datetime() <= datetime.datetime.now():
+            raise RuntimeError(
+                "no divergence installed: the site clock is not ahead of the process "
+                "clock, so the test below would prove nothing"
+            )
+        yield now_datetime()
     finally:
         frappe.local.system_settings = original
 
@@ -278,3 +324,39 @@ class TestSepaRulebookMandateAgeUsesSiteToday(FrappeTestCase):
         """Control for the test above."""
         with site_timezone_diverging_from_process() as site_today:
             self.assertTrue(self._issues_for_sign_date(site_today - relativedelta(months=40)))
+
+
+class TestSepaRulebookCreationDatetimeUsesSiteToday(FrappeTestCase):
+    """sepa_rulebook_validator:447 -- CreDtTm is stamped on the SITE clock.
+
+    ``sepa_xml_generation_service`` stores ``sepa_generation_date`` as
+    ``f"{nowdate()} {nowtime()}"`` -- site timezone -- and the generator emits that
+    as ``GrpHdr/CreDtTm``. Comparing it against ``datetime.now()`` (the process
+    clock) reports a freshly generated file as "Creation datetime cannot be in the
+    future" at severity CRITICAL.
+
+    Unlike every other case in this module this is NOT the 18:30-24:00 window: the
+    rule compares two instants rather than two calendar days, so it fires on every
+    validation, all day, on any host whose process clock is behind the site's.
+    Hence the offset lever rather than the calendar-day one.
+    """
+
+    def _issues_for_creation_datetime(self, moment):
+        validator = SEPARulebookValidator()
+        rule = next(r for r in validator.rules if r.rule_id == "MSG002")
+        xml = (
+            f'<Document xmlns="{SEPARulebookValidator.DEFAULT_NAMESPACE}"><GrpHdr>'
+            f'<CreDtTm>{moment.strftime("%Y-%m-%dT%H:%M:%S")}</CreDtTm></GrpHdr></Document>'
+        )
+        return validator.validate_creation_datetime(rule, ET.fromstring(xml), xml)
+
+    def test_a_file_stamped_on_the_site_clock_is_not_flagged_as_future(self):
+        with site_timezone_ahead_of_process() as site_now:
+            self.assertEqual(self._issues_for_creation_datetime(site_now), [])
+
+    def test_a_genuinely_future_creation_datetime_is_still_flagged(self):
+        """Control: the rule must still fire on a real future stamp."""
+        with site_timezone_ahead_of_process() as site_now:
+            issues = self._issues_for_creation_datetime(site_now + datetime.timedelta(days=1))
+            self.assertTrue(issues)
+            self.assertEqual(issues[0].severity, ValidationSeverity.CRITICAL)
