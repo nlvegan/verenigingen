@@ -282,8 +282,10 @@ class InvoiceGenerator(StatelessService):
                 f"Coverage period exceeds maximum allowed duration of {self.MAX_COVERAGE_PERIOD_YEARS} years"
             )
 
-        # Validate coverage dates are not too far in the past
-        today_date = date.today()
+        # Validate coverage dates are not too far in the past.
+        # getdate() is the site-tz today; date.today() is the server/process tz and
+        # names a different calendar day in the late-UTC window (#628).
+        today_date = getdate()
         max_past = timedelta(days=365 * self.MAX_PAST_DATE_YEARS)
         if (today_date - coverage_start) > max_past:
             return f"Coverage start date {coverage_start} is more than {self.MAX_PAST_DATE_YEARS} years in the past"
@@ -592,15 +594,16 @@ class InvoiceGenerator(StatelessService):
             if not mandate.sign_date:
                 return "Mandate has no sign date"
 
-            # Validate sign date is not in the future
-            from datetime import date
-
-            if mandate.sign_date > date.today():
+            # Validate sign date is not in the future. Compare against the site-tz
+            # today (getdate()), NOT Python's date.today() (server/process tz): in the
+            # late-UTC window the two name different calendar days, which rejects a
+            # mandate signed today as future-dated (#628).
+            if getdate(mandate.sign_date) > getdate():
                 return f"Mandate sign date {mandate.sign_date} is in the future"
 
             # Validate mandate has expiry_date if applicable
             if mandate.expiry_date:
-                if mandate.expiry_date < date.today():
+                if getdate(mandate.expiry_date) < getdate():
                     return f"Mandate expired on {mandate.expiry_date}"
 
             # Validate mandate has IBAN

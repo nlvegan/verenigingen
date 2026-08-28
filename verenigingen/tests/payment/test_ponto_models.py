@@ -14,6 +14,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from frappe.tests.utils import FrappeTestCase
+from frappe.utils import getdate
 
 from verenigingen.verenigingen_payments.ponto.core.ponto_models import (
     PontoAccount,
@@ -178,16 +179,19 @@ class TestPontoTransactionModel(FrappeTestCase):
         self.assertEqual(txn.value_date, date(2026, 3, 15))
 
     def test_missing_dates_default_to_today(self):
+        # "Today" here is the SITE's calendar day (getdate()), not the server/process
+        # one: this fallback becomes the transaction's booking date, and in the
+        # late-UTC window the two name different days (#628).
         payload = self._txn_payload()
         del payload["attributes"]["valueDate"]
         del payload["attributes"]["executionDate"]
         txn = PontoTransaction.from_api_response(payload)
-        self.assertEqual(txn.value_date, date.today())
-        self.assertEqual(txn.execution_date, date.today())
+        self.assertEqual(txn.value_date, getdate())
+        self.assertEqual(txn.execution_date, getdate())
 
     def test_invalid_date_defaults_to_today(self):
         txn = PontoTransaction.from_api_response(self._txn_payload(valueDate="garbage"))
-        self.assertEqual(txn.value_date, date.today())
+        self.assertEqual(txn.value_date, getdate())
 
     def test_to_dict(self):
         txn = PontoTransaction.from_api_response(self._txn_payload(), account_id="acct-1")

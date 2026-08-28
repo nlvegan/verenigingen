@@ -376,13 +376,14 @@ class BusinessRuleValidator:
         # Age validation (must be 16+ for membership)
         birth_date = member_data.get("birth_date")
         if birth_date:
-            from datetime import date
-
             from frappe.utils import get_datetime, getdate
 
             try:
                 birth_date_obj = getdate(birth_date)
-                today = date.today()
+                # Site-tz today, not the server/process date: in the late-UTC window
+                # the two name different calendar days, so an applicant turning 16
+                # today is wrongly rejected as under-age (#628).
+                today = getdate()
                 age = (
                     today.year
                     - birth_date_obj.year
