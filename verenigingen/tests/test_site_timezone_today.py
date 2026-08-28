@@ -18,16 +18,34 @@ it as the site timezone for the duration of the assertion. ``Pacific/Kiritimati`
 one of them is on a different date from the process -- the condition is forced
 deterministically at any hour of any day, on any runner.
 
-Measured, not assumed: with every production fix reverted, 7 of these 15 fail with
-the process on UTC (site a day AHEAD) and 5 fail with the process on
-``Pacific/Kiritimati`` (site a day BEHIND) -- 8 distinct tests across the two
-directions. Of the rest, two are harness self-checks, four are deliberate controls
-asserting the guards still fire, and one pins the injectable-``today`` contract.
-The remaining pair (``TestSepaRulebookMandateAgeUsesSiteToday``) does not move on an
-ordinary day; see that class's docstring for why.
+Mutation control, measured 2026-08-28 with all 11 production fixes reverted, run at
+three process timezones:
+
+    process TZ            failing
+    UTC                   6 of 17
+    Pacific/Midway        8 of 17
+    Pacific/Kiritimati    6 of 17
+
+9 distinct tests move across the three. The total varies with the ambient process
+timezone because ``site_timezone_diverging_from_process`` installs whichever
+candidate differs by calendar day, and both the DIRECTION of that difference and its
+SIZE depend on the hour -- the size matters because the
+``TestSepaRulebookMandateAgeUsesSiteToday`` pair only moves across a month boundary.
+
+Do NOT use "the process on UTC" as a recipe for a direction. Measured at ~06:00 UTC
+it selects ``Pacific/Midway`` and puts the site a day BEHIND -- the opposite of what
+an earlier version of this docstring asserted. Assertions that only break in one
+direction use ``site_a_day_ahead_of_process`` instead, which pins both clocks and is
+therefore independent of the hour and of the runner's timezone.
+
+Of the tests that never move: two are harness self-checks, four are deliberate
+controls asserting the guards still fire, and one pins the injectable-``today``
+contract.
 """
 
 import datetime
+import os
+import time
 import xml.etree.ElementTree as ET
 from contextlib import contextmanager
 
@@ -83,6 +101,12 @@ def site_timezone_diverging_from_process():
     Yields the site's date. ``frappe.local.system_settings`` is the first thing
     ``frappe.get_system_settings`` consults, so overriding it there really does
     change what ``getdate()`` returns -- nothing is stubbed out. Restored on exit.
+
+    Hazard for future reuse: ``frappe.clear_cache()`` does ``del
+    frappe.local.system_settings``, so calling it inside the block -- directly, or via
+    a production path that does -- silently drops the override and reverts to the real
+    site timezone. The entry guards cannot catch that; they run on entry. None of the
+    current bodies call it.
     """
     original = getattr(frappe.local, "system_settings", None)
     settings = frappe.get_doc("System Settings")
@@ -108,46 +132,50 @@ def site_timezone_diverging_from_process():
 
 
 @contextmanager
-def site_timezone_ahead_of_process():
-    """Run the block with the site's wall clock strictly AHEAD of the process's.
+def site_a_day_ahead_of_process():
+    """Run the block with the site exactly one calendar day ahead of the process.
 
-    ``site_timezone_diverging_from_process`` is the wrong lever for an *instant*
-    comparison. It guarantees a different calendar DAY, and satisfies that just as
-    happily with the candidate that is BEHIND the process -- under which a
-    site-stamped timestamp is in the past and a "cannot be in the future" rule
-    passes whether or not it is fixed. This lever forces the direction the bug
-    actually needs.
+    ``site_timezone_diverging_from_process`` is not enough for the assertions that
+    only break in ONE direction -- "a date stamped today must not read as future".
+    It guarantees a different calendar day and is satisfied just as happily by the
+    candidate BEHIND the process, under which such a date is in the past and the
+    guard passes whether or not it is fixed. Measured: wrapping the invoice-generator
+    sign-date test in that lever left it green with the fix reverted.
 
-    ``Pacific/Kiritimati`` is UTC+14, the largest offset in the tz database, so it
-    is ahead of every process timezone except itself. Raises rather than skipping
-    if that is not true, for the same reason the sibling lever does: a lever that
-    cannot report its own failure makes the tests below silently vacuous.
+    Forcing the direction cannot be done by choosing a site timezone alone. A site
+    can only be a day ahead of a process at offset X when the process's local hour
+    is at least ``10 + X``, because UTC+14 is the largest offset there is -- so for
+    part of every day no site timezone is a day ahead, whatever we pick. This lever
+    therefore pins BOTH clocks: the process to ``Pacific/Midway`` (UTC-11) via
+    ``TZ`` + ``time.tzset()``, and the site to ``Pacific/Kiritimati`` (UTC+14). Those
+    are 25 hours apart -- strictly more than 24 -- so the site is exactly one day
+    ahead at every instant, on any runner, at any hour.
+
+    Both clocks are restored in ``finally``. ``time.tzset()`` is process-global and
+    POSIX-only; that is acceptable here because Frappe's test runner is
+    single-threaded and CI is Linux.
     """
-    original = getattr(frappe.local, "system_settings", None)
-    ahead = "Pacific/Kiritimati"
-    now_utc = datetime.datetime.now(datetime.timezone.utc)
-    if now_utc.astimezone(_zoneinfo(ahead)).utcoffset() <= now_utc.astimezone().utcoffset():
-        raise AssertionError(
-            f"the process timezone is at or east of {ahead} (UTC+14), so no site "
-            "timezone can be installed ahead of it; this test cannot run here"
-        )
+    original_settings = getattr(frappe.local, "system_settings", None)
+    original_tz = os.environ.get("TZ")
+    os.environ["TZ"] = "Pacific/Midway"
+    time.tzset()
     settings = frappe.get_doc("System Settings")
-    settings.time_zone = ahead
+    settings.time_zone = "Pacific/Kiritimati"
     frappe.local.system_settings = settings
     try:
-        if get_system_timezone() != ahead:
+        if getdate() != datetime.date.today() + datetime.timedelta(days=1):
             raise RuntimeError(
-                f"site timezone override did not take: asked for {ahead}, "
-                f"get_system_timezone() still returns {get_system_timezone()}"
+                "lever did not install a one-day-ahead site: process is on "
+                f"{datetime.date.today()}, site on {getdate()}"
             )
-        if now_datetime() <= datetime.datetime.now():
-            raise RuntimeError(
-                "no divergence installed: the site clock is not ahead of the process "
-                "clock, so the test below would prove nothing"
-            )
-        yield now_datetime()
+        yield getdate()
     finally:
-        frappe.local.system_settings = original
+        frappe.local.system_settings = original_settings
+        if original_tz is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = original_tz
+        time.tzset()
 
 
 class TestSiteTimezoneTodayHarness(FrappeTestCase):
@@ -351,12 +379,14 @@ class TestSepaRulebookCreationDatetimeUsesSiteToday(FrappeTestCase):
         return validator.validate_creation_datetime(rule, ET.fromstring(xml), xml)
 
     def test_a_file_stamped_on_the_site_clock_is_not_flagged_as_future(self):
-        with site_timezone_ahead_of_process() as site_now:
+        with site_a_day_ahead_of_process():
+            site_now = now_datetime()
             self.assertEqual(self._issues_for_creation_datetime(site_now), [])
 
     def test_a_genuinely_future_creation_datetime_is_still_flagged(self):
         """Control: the rule must still fire on a real future stamp."""
-        with site_timezone_ahead_of_process() as site_now:
+        with site_a_day_ahead_of_process():
+            site_now = now_datetime()
             issues = self._issues_for_creation_datetime(site_now + datetime.timedelta(days=1))
             self.assertTrue(issues)
             self.assertEqual(issues[0].severity, ValidationSeverity.CRITICAL)

@@ -30,6 +30,7 @@ from verenigingen.services.billing.invoice_generator import (
     MembershipDuesItemManager,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.test_site_timezone_today import site_a_day_ahead_of_process
 
 
 class TestInvoiceGeneratorBranches(EnhancedTestCase):
@@ -319,11 +320,16 @@ class TestInvoiceGeneratorBranches(EnhancedTestCase):
         site-tz date. Whenever the site is a day ahead of the process -- which is
         every UTC CI run between 18:30 and 24:00 UTC against this Asia/Kolkata site
         -- a mandate signed today was rejected as "in the future" and the member's
-        invoice was never collected. Revert the sign-date comparison in
-        InvoiceGenerator._validate_sepa_mandate to date.today() and this fails.
+        invoice was never collected.
+
+        The divergence is FORCED rather than waited for. Without the lever this test
+        only discriminates while the site and the process happen to disagree, so it
+        passed with the fix reverted for roughly 77% of the day -- including in CI,
+        which runs outside the window -- while claiming to be a guard.
         """
-        mandate = self._make_valid_mandate(sign_date=getdate())
-        self.assertIsNone(self.generator._validate_sepa_mandate(mandate.name, self.member))
+        with site_a_day_ahead_of_process() as site_today:
+            mandate = self._make_valid_mandate(sign_date=site_today)
+            self.assertIsNone(self.generator._validate_sepa_mandate(mandate.name, self.member))
 
     def test_validate_sepa_mandate_expired(self):
         """An expiry_date in the past is rejected."""
