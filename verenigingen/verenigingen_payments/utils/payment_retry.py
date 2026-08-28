@@ -277,15 +277,24 @@ DAILY_RETRY_SWEEP_LIMIT = 200
 def _discard_unsent_retry_batch(batch_name):
     """Remove a retry batch whose submit failed before any SEPA file was produced.
 
-    Only safe when nothing left the building. `sepa_message_id` and
-    `sepa_file_generated` are written by the generation service when the file is
-    built, so a batch carrying neither never reached generation and no collection
-    is in flight -- deleting it releases the invoice for a later retry.
+    What makes this safe is the caller's rollback, not this check. `batch_name` is
+    always a batch this same call created moments earlier; the fence committed it as
+    an EMPTY DRAFT, and everything submit() did afterwards -- the docstatus flip,
+    sepa_message_id, sepa_file, sepa_file_generated, the attached File -- is written
+    with db_set(commit=False) and is undone by that rollback. What remains is exactly
+    the empty draft the fence committed, so deleting it is correct.
 
-    A batch that DID reach generation is deliberately left in place: money may be
-    moving, and releasing the invoice then would risk the double charge the
-    open-batch guard exists to prevent. That case needs a human, and the Error
-    status plus the logged traceback are how they find it.
+    This is NOT about money already moving: Direct Debit Batch has no transmission
+    path. on_submit only generates and attaches an XML file, which a human later
+    downloads and takes to the bank -- and nobody can have done so in the
+    milliseconds between generation and the exception.
+
+    The field check is defence in depth for a future change: if some path inside
+    generation ever commits its own writes, they would survive the rollback and a
+    file could outlive the transaction. Then leave the batch alone and let a human
+    reconcile it -- the Error status and the logged traceback are how they find it.
+    `sepa_message_id` is written BEFORE the XML is built and `sepa_file_generated`
+    after it, so the pair errs toward keeping.
     """
     if not batch_name:
         return
