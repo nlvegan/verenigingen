@@ -179,6 +179,115 @@ class TestHandleRefundWebhook(EnhancedTestCase):
         self.assertEqual(out["status"], "rate_limited")
         self.assertEqual(frappe.local.response.http_status_code, 429)
 
+    def test_delegates_to_the_unified_reversal_processor(self):
+        """A normal refund payload delegates to the unified service.
+
+        REGRESSION GUARD (#370): this endpoint used to book the refund itself, by
+        calling `create_refund_payment_entry` directly. That made the **artefact
+        depend on the route**: a donation booked forward as a Journal Entry was
+        reversed here as a Payment Entry, while the payment-webhook sweep reversed
+        the same donation as a Journal Entry. The two routes could not see each
+        other's work, which is the double-booking this issue is about.
+
+        The reversal must mirror the artefact the forward payment created, and only
+        `process_reversal_webhook` knows what that was. So the endpoint parses and
+        delegates -- exactly as `handle_chargeback_webhook` already did.
+
+        The ids are passed from `extract_webhook_ids`, NOT from the service's own
+        `refund_data.get("id")`: Mollie's top-level `id` on this payload is the
+        **payment** id, and `extract_webhook_ids` is the one that only treats it as
+        a refund id when `resource` says so or it starts with `re_`.
+        """
+        payload = (
+            '{"resource":"refund","id":"re_deleg_1",'
+            '"payment_id":"tr_deleg_1",'
+            '"amount":{"value":"12.50","currency":"EUR"}}'
+        )
+        service_result = {"status": "success", "message": "refund recorded"}
+        SVC = (
+            "verenigingen.verenigingen_payments.mollie.services."
+            "webhook_wrapper_service_unified.UnifiedWebhookWrapperService"
+        )
+        captured = {}
+
+        def process_reversal_webhook(payment_id, reversal_id, amount, reversal_type, reversal_date=None):
+            captured.update(
+                payment_id=payment_id,
+                reversal_id=reversal_id,
+                amount=amount,
+                reversal_type=reversal_type,
+            )
+            return service_result
+
+        fake = types.SimpleNamespace(process_reversal_webhook=process_reversal_webhook)
+        with install_fake_request(payload):
+            with patch(AUTH_PATH):
+                with patch(SVC, return_value=fake):
+                    out = unified_payment_api.handle_refund_webhook()
+
+        self.assertEqual(out, service_result, "the service result must be returned verbatim")
+        self.assertEqual(captured.get("payment_id"), "tr_deleg_1")
+        self.assertEqual(
+            captured.get("reversal_id"),
+            "re_deleg_1",
+            "the refund id must come from extract_webhook_ids, not from a bare top-level 'id'",
+        )
+        self.assertEqual(captured.get("reversal_type"), "refund")
+        self.assertEqual(captured.get("amount"), 12.50)
+
+    def test_a_booking_failure_returns_500_so_mollie_retries(self):
+        """The freed reversal key is worth nothing if nothing comes back to use it.
+
+        On a booking failure the reversal key is deliberately released, so the
+        refund can be retried. Mollie only retries on 5xx. Returning the service's
+        error dict with a 200 told Mollie the refund was handled, and the sweep is
+        then the only remaining route.
+        """
+        payload = (
+            '{"resource":"refund","id":"re_fail_1","payment_id":"tr_fail_1",'
+            '"amount":{"value":"5.00","currency":"EUR"}}'
+        )
+        SVC = (
+            "verenigingen.verenigingen_payments.mollie.services."
+            "webhook_wrapper_service_unified.UnifiedWebhookWrapperService"
+        )
+        fake = types.SimpleNamespace(
+            process_reversal_webhook=lambda **kw: {"status": "error", "message": "Failed to book refund"}
+        )
+        with install_fake_request(payload):
+            with patch(AUTH_PATH):
+                with patch(SVC, return_value=fake):
+                    out = unified_payment_api.handle_refund_webhook()
+
+        self.assertEqual(out["status"], "error")
+        self.assertEqual(frappe.local.response.http_status_code, 500)
+
+    def test_an_ignored_result_stays_2xx(self):
+        """Control: redelivering something we deliberately ignored changes nothing.
+
+        Without this, setting 500 unconditionally on any non-success would satisfy
+        the test above while making Mollie retry ~10 times for a refund that will be
+        ignored identically every time.
+        """
+        payload = (
+            '{"resource":"refund","id":"re_ign_1","payment_id":"tr_ign_1",'
+            '"amount":{"value":"5.00","currency":"EUR"}}'
+        )
+        SVC = (
+            "verenigingen.verenigingen_payments.mollie.services."
+            "webhook_wrapper_service_unified.UnifiedWebhookWrapperService"
+        )
+        fake = types.SimpleNamespace(
+            process_reversal_webhook=lambda **kw: {"status": "ignored", "message": "nothing to do"}
+        )
+        with install_fake_request(payload):
+            with patch(AUTH_PATH):
+                with patch(SVC, return_value=fake):
+                    out = unified_payment_api.handle_refund_webhook()
+
+        self.assertEqual(out["status"], "ignored")
+        self.assertNotEqual(frappe.local.response.get("http_status_code"), 500)
+
 
 class TestHandleChargebackWebhook(EnhancedTestCase):
     def setUp(self):
@@ -236,3 +345,62 @@ class TestHandleChargebackWebhook(EnhancedTestCase):
         # alongside the full parsed chargeback dict.
         self.assertEqual(captured["payment_id"], "tr_cb_2")
         self.assertEqual(captured["chargeback_data"]["reason"], "fraud")
+
+    def test_a_booking_failure_returns_500_so_mollie_retries(self):
+        """A chargeback that could not be booked must not go out as 200.
+
+        This is the refund endpoint's guard, which this endpoint did not have --
+        2 of 3 webhook endpoints had it. Mollie retries on 5xx (~10 times over
+        26h), and the reversal key is deliberately freed when a booking fails, so
+        a 200 spends the redelivery that failure was meant to buy.
+
+        Scope, honestly: that sequence cannot run today. This endpoint is not
+        registered with Mollie (payments carry the payment webhook URL only), and
+        Mollie posts form-encoded while the handler json.loads() the body, so a
+        real chargeback body dies in the outer `except` before reaching here. An
+        earlier version of this docstring claimed the guard was "load-bearing
+        because of this PR" -- that was reasoning about a path that is dark. The
+        guard is correct and is what makes the route safe to wire up; it is not
+        today rescuing live money.
+        """
+        payload = '{"id":"tr_cb_fail","status":"charged_back"}'
+        SVC = (
+            "verenigingen.verenigingen_payments.mollie.services."
+            "webhook_wrapper_service_unified.UnifiedWebhookWrapperService"
+        )
+        fake = types.SimpleNamespace(
+            process_chargeback_webhook=lambda *a, **kw: {
+                "status": "error",
+                "message": "Failed to book chargeback",
+            }
+        )
+        with install_fake_request(payload):
+            with patch(AUTH_PATH):
+                with patch(SVC, return_value=fake):
+                    out = unified_payment_api.handle_chargeback_webhook()
+
+        self.assertEqual(out["status"], "error")
+        self.assertEqual(frappe.local.response.http_status_code, 500)
+
+    def test_an_ignored_result_stays_2xx(self):
+        """Control: redelivering something deliberately ignored changes nothing.
+
+        Without this, setting 500 on any non-success would satisfy the test above
+        while making Mollie retry ~10 times for a chargeback that will be ignored
+        identically every time.
+        """
+        payload = '{"id":"tr_cb_ign","status":"charged_back"}'
+        SVC = (
+            "verenigingen.verenigingen_payments.mollie.services."
+            "webhook_wrapper_service_unified.UnifiedWebhookWrapperService"
+        )
+        fake = types.SimpleNamespace(
+            process_chargeback_webhook=lambda *a, **kw: {"status": "ignored", "message": "nothing to do"}
+        )
+        with install_fake_request(payload):
+            with patch(AUTH_PATH):
+                with patch(SVC, return_value=fake):
+                    out = unified_payment_api.handle_chargeback_webhook()
+
+        self.assertEqual(out["status"], "ignored")
+        self.assertNotEqual(frappe.local.response.get("http_status_code"), 500)

@@ -46,12 +46,6 @@ from verenigingen.verenigingen_payments.mollie.services.webhook_wrapper_service_
 )
 
 
-class _OrigStateExists:
-    """Minimal idempotency-state stand-in reporting the original payment exists."""
-
-    payment_entry_exists = True
-
-
 class _FakeBTCreator:
     """Stand-in for the Bank Transaction creator boundary.
 
@@ -145,7 +139,7 @@ class WrapperSweepBase(EnhancedTestCase):
             "name",
         )
 
-    def _make_submitted_journal_entry(self):
+    def _make_submitted_journal_entry(self, payment_id=None):
         """Create a link-valid submitted Journal Entry.
 
         The donation payment-history row stores ``journal_entry`` as a Link to
@@ -156,13 +150,61 @@ class WrapperSweepBase(EnhancedTestCase):
         je.voucher_type = "Journal Entry"
         je.company = self.company
         je.posting_date = today()
+        if payment_id:
+            je.cheque_no = payment_id
+            je.cheque_date = today()
+            # A cheque_no gives global search something to index, which calls
+            # JournalEntry.get_title() -> self.accounts[0]. Without a row that is an
+            # IndexError at insert, not a validation message.
+            je.append(
+                "accounts",
+                {
+                    "account": self._bank_account(),
+                    "debit_in_account_currency": 25.0,
+                    "credit_in_account_currency": 0,
+                },
+            )
         je.flags.ignore_validate = True
         je.flags.ignore_mandatory = True
         je.insert(ignore_permissions=True, ignore_mandatory=True)
         frappe.db.set_value("Journal Entry", je.name, "docstatus", 1, update_modified=False)
         return je.name
 
-    def _make_submitted_payment_entry(self):
+    def _make_forward_payment_entry(self, payment_id=None):
+        """The artefact the FORWARD payment left behind: a submitted "Receive" PE.
+
+        `process_reversal_webhook` no longer asks the idempotency manager whether a
+        payment entry exists; it reads what was actually booked, because that is a
+        recorded fact and the classifier's inputs are not stable over a months-long
+        chargeback window (#370). So these tests need a real forward booking rather
+        than a stub reporting one.
+
+        A "Receive" Payment Entry is used because it is what the older donation flow
+        booked, and because the reversal then mirrors it as a Payment Entry -- which
+        is the contract the assertions below were already written against.
+        """
+        receivable = frappe.db.get_value(
+            "Account",
+            {"company": self.company, "account_type": "Receivable", "is_group": 0},
+            "name",
+        )
+        pe = frappe.new_doc("Payment Entry")
+        pe.payment_type = "Receive"
+        pe.company = self.company
+        pe.posting_date = today()
+        pe.paid_amount = 25.0
+        pe.received_amount = 25.0
+        pe.reference_no = payment_id or self.pid
+        pe.reference_date = today()
+        pe.paid_from = receivable
+        pe.paid_to = self._bank_account()
+        pe.flags.ignore_validate = True
+        pe.flags.ignore_mandatory = True
+        pe.insert(ignore_permissions=True, ignore_mandatory=True)
+        frappe.db.set_value("Payment Entry", pe.name, "docstatus", 1, update_modified=False)
+        return pe.name
+
+    def _make_submitted_payment_entry(self, reference_no=None):
         receivable = frappe.db.get_value(
             "Account",
             {"company": self.company, "account_type": "Receivable", "is_group": 0},
@@ -174,7 +216,9 @@ class WrapperSweepBase(EnhancedTestCase):
         pe.posting_date = today()
         pe.paid_amount = 10.0
         pe.received_amount = 10.0
-        pe.reference_no = f"{self.pid}_reversal_{frappe.generate_hash(length=6)}"
+        # A caller that needs find_booked_reversal to SEE this artefact must pass the
+        # reversal key; the random default keeps it invisible to that lookup.
+        pe.reference_no = reference_no or f"{self.pid}_reversal_{frappe.generate_hash(length=6)}"
         pe.reference_date = today()
         pe.paid_from = self._bank_account()
         pe.paid_to = receivable
@@ -229,7 +273,10 @@ class TestProcessPendingRefundsSuccess(WrapperSweepBase):
         r = results[0]
         self.assertEqual(r["status"], "success")
         self.assertEqual(r["refund_id"], "re_success")
-        self.assertEqual(r["bank_transaction"], "BT-REFUND-STUB")
+        # The sweep now delegates to the same booker `process_reversal_webhook` uses,
+        # so the result names the artefact that was booked rather than the two steps
+        # one particular artefact happens to take (#370).
+        self.assertEqual(r["reversal_doctype"], "Journal Entry")
         self.assertEqual(r["journal_entry"], je_name)
         self.assertEqual(r["amount"], 5.0)
 
@@ -267,14 +314,17 @@ class TestProcessPendingRefundsSuccess(WrapperSweepBase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["status"], "error")
         self.assertEqual(results[0]["refund_id"], "re_btfail")
-        self.assertIn("Bank Transaction", results[0]["message"])
+        # The message no longer names the failing STEP -- the booker owns those, and
+        # which steps a reversal takes now depends on the forward artefact.
+        self.assertIn("Failed to book refund", results[0]["message"])
+        self.assertIn("re_btfail", results[0]["message"])
         # JE creator never reached, nothing marked, no history row
         self.assertEqual(je.create_calls, [])
         self.assertEqual(marks, [])
         donation.reload()
         self.assertEqual(len(donation.payments or []), 0)
 
-    def test_journal_entry_failure_yields_error_with_bank_transaction(self):
+    def test_journal_entry_failure_yields_an_error_and_no_history(self):
         donation = self._make_submitted_donation()
         bt = _FakeBTCreator({"bank_account": self._bank_account(), "company": self.company})
         je = _FakeRefundJECreator(None)  # JE creation fails
@@ -287,8 +337,8 @@ class TestProcessPendingRefundsSuccess(WrapperSweepBase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["status"], "error")
         self.assertEqual(results[0]["refund_id"], "re_jefail")
-        self.assertEqual(results[0]["bank_transaction"], "BT-REFUND-STUB")
-        self.assertIn("Journal Entry", results[0]["message"])
+        self.assertIn("Failed to book refund", results[0]["message"])
+        self.assertIn("re_jefail", results[0]["message"])
         self.assertEqual(marks, [])
         donation.reload()
         self.assertEqual(len(donation.payments or []), 0)
@@ -316,16 +366,52 @@ class TestProcessPendingRefundsSuccess(WrapperSweepBase):
         rows = [p for p in donation.payments if getattr(p, "journal_entry", None) == je_name]
         self.assertEqual(len(rows), 1, "no duplicate refund history row should be added")
 
+    def test_a_failed_batch_history_save_is_reported_not_swallowed(self):
+        """The sweep's batch history save must not fail silently into "success".
+
+        The per-refund results already say ``success`` by the time the batch save
+        runs, and both callers of this method decide the webhook's HTTP status by
+        filtering those results for ``status == "error"``. So an exception here
+        used to leave every refund marked success, the caller saw no failure, and
+        Mollie got a 200 for a reversal whose history row does not exist.
+
+        This is the same defect develop fixed on the forward path (#449); this is
+        its sibling on the sweep path. The money side is already booked and
+        idempotent, so a non-2xx buys a re-delivery that cannot double-book.
+        """
+        from unittest.mock import patch
+
+        donation = self._make_submitted_donation()
+        je_name = self._make_submitted_journal_entry()
+        bt = _FakeBTCreator({"bank_account": self._bank_account(), "company": self.company})
+        je = _FakeRefundJECreator(je_name)
+        self._wire_refund_creators(bt, je)
+        self._spy_mark_refund()
+
+        pending = [{"refund_id": "re_histfail", "amount": 3.0, "refund_date": today()}]
+        with patch.object(type(donation), "save", side_effect=Exception("history write exploded")):
+            results = self.service._process_pending_refunds(donation, self.pid, pending)
+
+        errors = [r for r in results if r.get("status") == "error"]
+        self.assertTrue(
+            errors,
+            "a failed batch history save must surface as an error result, "
+            "or the caller reports 200 for a reversal with no history row",
+        )
+        self.assertIn("history", errors[0]["message"].lower())
+
+        # Control: the booking itself still succeeded, so the failure reported is
+        # the history write and not the reversal.
+        self.assertTrue(
+            any(r.get("status") == "success" for r in results),
+            "the refund booking itself succeeded; only the history write failed",
+        )
+
 
 # =============================================================================
 # process_reversal_webhook — SUCCESS paths (refund + chargeback)
 # =============================================================================
 class TestProcessReversalWebhookSuccess(WrapperSweepBase):
-    def _stub_existing_payment(self):
-        self.service.idempotency_manager.check_payment_processing_state = (
-            lambda payment_id, **k: _OrigStateExists()
-        )
-
     def _stub_pe_creator(self, return_value):
         import verenigingen.verenigingen_payments.mollie.utils.unified_payment_entry_creator as upe_mod
 
@@ -342,8 +428,8 @@ class TestProcessReversalWebhookSuccess(WrapperSweepBase):
 
     def test_refund_creates_history_row_and_marks_processed(self):
         donation = self._make_submitted_donation()
+        self._make_forward_payment_entry()
         pe = self._make_submitted_payment_entry()
-        self._stub_existing_payment()
         captured = self._stub_pe_creator(pe)
         marks = self._spy_mark_refund()
 
@@ -377,8 +463,8 @@ class TestProcessReversalWebhookSuccess(WrapperSweepBase):
 
     def test_chargeback_with_reason_builds_description_and_status(self):
         donation = self._make_submitted_donation()
+        self._make_forward_payment_entry()
         pe = self._make_submitted_payment_entry()
-        self._stub_existing_payment()
         captured = self._stub_pe_creator(pe)
         marks = self._spy_mark_chargeback()
 
@@ -405,28 +491,51 @@ class TestProcessReversalWebhookSuccess(WrapperSweepBase):
 
         self.assertEqual(marks, [(self.pid, "cb_rev", pe.name)])
 
-    def test_donation_not_found_returns_ignored(self):
-        # Original payment exists per idempotency, but no Donation carries this id.
-        self._stub_existing_payment()
+    def test_a_booking_whose_donation_is_missing_is_refused_as_inconsistent(self):
+        """A forward Journal Entry exists but no Donation claims the payment.
+
+        This used to be reached by stubbing `payment_entry_exists = True` while no
+        Donation carried the id, and was reported as a routine "not found". It is
+        now reached by booking a real forward Journal Entry, and it is no longer
+        routine: something posted money against this payment and the record that
+        should explain it is gone. That is inconsistent state, so it is refused
+        loudly and named as such rather than filed under the same "not found" the
+        endpoint returns for a payment it has simply never seen.
+
+        Still `ignored` rather than `error`: the reversal cannot proceed, but
+        redelivering it ~10 times over 26 hours will not make the Donation reappear.
+        """
+        orphan_pid = f"tr_orphan_{frappe.generate_hash(length=12)}"
+        je_name = self._make_submitted_journal_entry(payment_id=orphan_pid)
+        self.assertFalse(
+            frappe.db.exists("Donation", {"payment_id": orphan_pid}),
+            "this test is about a booking with no Donation behind it",
+        )
         captured = self._stub_pe_creator("PE-NOT-CREATED")
         marks = self._spy_mark_refund()
 
         result = self.service.process_reversal_webhook(
-            payment_id="tr_no_donation_xyz",
+            payment_id=orphan_pid,
             reversal_id="re_none",
             amount=3.0,
             reversal_type="refund",
         )
 
         self.assertEqual(result["status"], "ignored")
-        self.assertIn("not found", result["message"])
+        self.assertIn(je_name, result["message"], "the refusal must name the booking it found")
+        self.assertIn("Donation", result["message"])
+        self.assertNotIn(
+            "not booked",
+            result["message"],
+            "something IS booked here -- reporting it as unbooked is the mislabelling #370 is about",
+        )
         # Creator never called, nothing marked.
         self.assertEqual(captured, {})
         self.assertEqual(marks, [])
 
     def test_pe_creation_failure_yields_error_and_no_history(self):
         donation = self._make_submitted_donation()
-        self._stub_existing_payment()
+        self._make_forward_payment_entry()
         self._stub_pe_creator(None)  # unified creator returns no PE
         marks = self._spy_mark_refund()
 
@@ -439,7 +548,135 @@ class TestProcessReversalWebhookSuccess(WrapperSweepBase):
 
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["refund_id"], "re_fail")
-        self.assertIn("Failed to create", result["message"])
+        # The message no longer names a Payment Entry: the artefact a reversal books
+        # follows the forward booking, so the failure is reported as "failed to book".
+        self.assertIn("Failed to book refund", result["message"])
+        self.assertIn(self.pid, result["message"])
         self.assertEqual(marks, [])
         donation.reload()
         self.assertEqual(len(donation.payments or []), 0)
+
+    def test_a_failed_history_save_is_not_reported_as_success(self):
+        """A reversal whose payment-history row could not be written is NOT success.
+
+        The except around the history append logged and fell through to
+        ``if reversal_ref_name:`` -> success, so a booked reversal with no history
+        row answered 200 and Mollie never re-delivered. develop fixed exactly this
+        class on the forward path (#449, ``history_failures``); this is the same
+        defect ~750 lines away in the same file.
+
+        There is no self-heal to fall back on: ``_update_missing_payment_history``
+        is built from a Payment-Entry-only query, so a JE-booked reversal never
+        appears in it.
+        """
+        from unittest.mock import patch
+
+        donation = self._make_submitted_donation()
+        self._make_forward_payment_entry()
+        pe = self._make_submitted_payment_entry()
+        self._stub_pe_creator(pe)
+        marks = self._spy_mark_refund()
+
+        with patch.object(type(donation), "save", side_effect=Exception("history write exploded")):
+            result = self.service.process_reversal_webhook(
+                payment_id=self.pid,
+                reversal_id="re_histfail",
+                amount=9.0,
+                reversal_type="refund",
+                reversal_date=today(),
+            )
+
+        self.assertEqual(
+            result["status"],
+            "error",
+            "a booked reversal whose history row was not written must not report success",
+        )
+        # The booking is named so an operator can see the money side DID post.
+        self.assertEqual(result.get("payment_entry_id"), pe.name)
+        self.assertIn("history", result["message"].lower())
+
+        # Not marked processed: the reversal is not fully handled, and marking it
+        # would make the re-delivery this error buys a no-op.
+        self.assertEqual(marks, [])
+
+    def test_a_redelivery_repairs_the_history_row_the_first_delivery_could_not_write(self):
+        """Delivery 1 books but cannot write history; delivery 2 must REPAIR it.
+
+        Without this, reporting the history failure buys nothing on this path:
+        delivery 2 hits `find_booked_reversal`, returns
+        {"status": "success", "idempotent": True} and the row stays missing
+        forever. `_update_missing_payment_history` cannot substitute -- it is
+        built from a Payment-Entry-only query.
+
+        The sibling route already does exactly this, with the comment
+        "Skipping the booking must not skip the repair"
+        (_process_pending_refunds). This is that repair, on the other route.
+        """
+        from unittest.mock import patch
+
+        donation = self._make_submitted_donation()
+        self._make_forward_payment_entry()
+        pe = self._make_submitted_payment_entry()
+        self._stub_pe_creator(pe)
+        self._spy_mark_refund()
+
+        # Delivery 1: booking succeeds, history save fails.
+        with patch.object(type(donation), "save", side_effect=Exception("history write exploded")):
+            first = self.service.process_reversal_webhook(
+                payment_id=self.pid,
+                reversal_id="re_repair",
+                amount=11.0,
+                reversal_type="refund",
+                reversal_date=today(),
+            )
+        self.assertEqual(first["status"], "error")
+        donation.reload()
+        self.assertEqual(
+            [p for p in donation.payments if p.mollie_payment_id == "re_repair"],
+            [],
+            "precondition: delivery 1 must have left the history row missing",
+        )
+
+        # The REAL creator stamps the reversal key onto the artefact it books, which
+        # is how find_booked_reversal recognises it. The stub returns a pre-made
+        # Payment Entry, so stamp it here -- otherwise delivery 2 re-books instead of
+        # taking the already-booked path, and this test would silently prove nothing.
+        frappe.db.set_value(
+            "Payment Entry",
+            pe.name,
+            "reference_no",
+            f"{self.pid}_refund_re_repair",
+            update_modified=False,
+        )
+
+        # Delivery 2: the booking is already there, so the ONLY thing left to do
+        # is the repair.
+        second = self.service.process_reversal_webhook(
+            payment_id=self.pid,
+            reversal_id="re_repair",
+            amount=11.0,
+            reversal_type="refund",
+            reversal_date=today(),
+        )
+        self.assertEqual(second["status"], "success")
+
+        donation.reload()
+        rows = [p for p in donation.payments if p.mollie_payment_id == "re_repair"]
+        self.assertEqual(len(rows), 1, "the redelivery must write the missing history row")
+        self.assertEqual(float(rows[0].amount), -11.0)
+        self.assertEqual(rows[0].payment_status, "Refunded")
+
+        # Control: a THIRD delivery must not duplicate it.
+        self.service.process_reversal_webhook(
+            payment_id=self.pid,
+            reversal_id="re_repair",
+            amount=11.0,
+            reversal_type="refund",
+            reversal_date=today(),
+        )
+        donation.reload()
+        self.assertEqual(
+            len([p for p in donation.payments if p.mollie_payment_id == "re_repair"]),
+            1,
+            "the repair must be idempotent",
+        )

@@ -52,9 +52,11 @@ def handle_payment_webhook(payment_id: Optional[str] = None):
         log_webhook_received(
             webhook_id=payment_id or "unknown",
             webhook_type="mollie",
-            payload_size=len(frappe.request.data)
-            if getattr(frappe, "request", None) and getattr(frappe.request, "data", None)
-            else 0,
+            payload_size=(
+                len(frappe.request.data)
+                if getattr(frappe, "request", None) and getattr(frappe.request, "data", None)
+                else 0
+            ),
         )
 
         if not payment_id:
@@ -341,8 +343,15 @@ def handle_refund_webhook():
     """
     Handle Mollie refund webhooks.
 
-    This endpoint processes refund notifications from Mollie and creates
-    appropriate reverse Payment Entries with donation history updates.
+    Parses the payload and delegates to the unified reversal processor, exactly as
+    handle_chargeback_webhook does.
+
+    This endpoint used to book the refund itself, via create_refund_payment_entry.
+    That made the **artefact depend on the route**: a donation booked forward as a
+    Journal Entry was reversed here as a Payment Entry while the payment-webhook
+    sweep reversed the same donation as a Journal Entry, and neither route could
+    see the other's work (#370). A reversal has to mirror the artefact the forward
+    payment created, and only process_reversal_webhook knows what that was.
 
     Returns:
         Dict with refund processing results
@@ -365,10 +374,9 @@ def handle_refund_webhook():
         # Parse webhook payload and extract data using utilities
         import json
 
-        from ..utils.unified_payment_entry_creator import create_refund_payment_entry
+        from ..services.webhook_wrapper_service_unified import UnifiedWebhookWrapperService
         from ..utils.webhook_utilities import (
             extract_webhook_ids,
-            get_donation_by_payment_id,
             safe_extract_amount,
             safe_extract_date,
             standardized_webhook_response,
@@ -382,42 +390,36 @@ def handle_refund_webhook():
                 "error", "Missing payment_id or refund_id in webhook payload", webhook_data=webhook_data
             )
 
-        # Find donation using utility
-        donation_doc = get_donation_by_payment_id(ids["payment_id"])
-        if not donation_doc:
-            return standardized_webhook_response(
-                "ignored",
-                f"Original donation not found for payment {ids['payment_id']}",
-                payment_id=ids["payment_id"],
-            )
-
         # Extract refund details using utilities
         refund_amount = safe_extract_amount(webhook_data)
         refund_date = safe_extract_date(webhook_data)
 
-        # Create refund Payment Entry
-        refund_pe = create_refund_payment_entry(
-            donation_doc=donation_doc,
-            mollie_payment_id=ids["payment_id"],
-            refund_id=ids["refund_id"],
-            refund_amount=refund_amount,
-            refund_date=refund_date,
-        )
-
-        # Return standardized response
-        result = standardized_webhook_response(
-            "success" if refund_pe else "error",
-            (
-                f"Refund Payment Entry created: {refund_pe.name}"
-                if refund_pe
-                else "Failed to create refund Payment Entry"
-            ),
-            payment_entry_id=refund_pe.name if refund_pe else None,
-            refund_id=ids["refund_id"],
+        # Delegate. The ids come from extract_webhook_ids rather than the service's
+        # own refund_data.get("id"): Mollie's top-level `id` on this payload is the
+        # PAYMENT id, and extract_webhook_ids only reads it as a refund id when
+        # `resource` says refund or it starts with "re_".
+        #
+        # The service owns the rest -- what the forward payment booked, whether this
+        # reversal is already booked as ANY artefact, and refusing rather than
+        # guessing when the answer is ambiguous.
+        result = UnifiedWebhookWrapperService().process_reversal_webhook(
             payment_id=ids["payment_id"],
+            reversal_id=ids["refund_id"],
+            amount=refund_amount,
+            reversal_type="refund",
+            reversal_date=refund_date,
         )
 
-        frappe.logger().info("✅ Refund webhook processed successfully")
+        # A booking failure must not go out as 200. Mollie retries on 5xx (~10 times
+        # over 26h), and that redelivery is the only second chance this refund gets:
+        # the reversal key is deliberately freed when a booking fails, which is worth
+        # nothing if nothing ever comes back to use it. `ignored` and
+        # `not_implemented` stay 2xx on purpose -- redelivering those changes nothing.
+        if result.get("status") == "error":
+            frappe.response.http_status_code = 500
+            frappe.logger().error(f"❌ Refund webhook could not book: {result.get('message')}")
+        else:
+            frappe.logger().info("✅ Refund webhook processed successfully")
         return result
 
     except WebhookRateLimitExceeded as e:
@@ -482,7 +484,23 @@ def handle_chargeback_webhook():
         service = UnifiedWebhookWrapperService()
         result = service.process_chargeback_webhook(payment_id, chargeback_data)
 
-        frappe.logger().info("✅ Chargeback webhook processed successfully")
+        # A booking failure must not go out as 200 -- the same guard the refund
+        # endpoint carries. `ignored` and `not_implemented` stay 2xx on purpose:
+        # redelivering those changes nothing.
+        #
+        # Scope, honestly: this endpoint is NOT currently reachable from Mollie.
+        # Payments are created with the payment webhook URL only
+        # (mollie/services/payment_service.py), nothing registers this route, and
+        # Mollie posts form-encoded while this handler json.loads() the body -- so a
+        # genuine Mollie chargeback body would die in the outer `except` before it
+        # got here. The guard is correct and cheap, and it is what makes the route
+        # safe to wire up; it is not today rescuing live money. Wiring it up, and
+        # the chargeback booking behind it, is tracked separately.
+        if result.get("status") == "error":
+            frappe.response.http_status_code = 500
+            frappe.logger().error(f"❌ Chargeback webhook could not book: {result.get('message')}")
+        else:
+            frappe.logger().info("✅ Chargeback webhook processed successfully")
         return result
 
     except WebhookRateLimitExceeded as e:

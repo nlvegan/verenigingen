@@ -253,6 +253,48 @@ class TestExtractWebhookIds(unittest.TestCase):
         ids = extract_webhook_ids({"resource": "chargeback", "id": "chb_1"})
         self.assertEqual(ids["chargeback_id"], "chb_1")
 
+    def test_malformed_payloads_return_nones_instead_of_raising(self):
+        """A webhook payload is attacker-shaped input, not a trusted dict.
+
+        Every case below raised AttributeError before: the nested lookups assumed
+        `payment`/`refund`/`chargeback` are dicts, and the `re_` prefix test
+        assumed `id` is a str. Callers wrap this in a broad `except`, so a raise
+        here becomes an HTTP 500 -- and Mollie then redelivers ~10 times over 26h
+        for a payload that will fail identically every time. Returning None lets
+        the caller refuse it once, deliberately.
+        """
+        for payload in (
+            {"payment_id": "tr_x", "id": None},
+            {"id": 12345, "payment_id": "tr_x"},
+            {"id": "tr_x", "chargeback": ["a"]},
+            {"id": "tr_x", "payment": "tr_x"},
+            {"id": "tr_x", "refund": "not-a-dict"},
+            {"resource": None, "id": "tr_x"},
+        ):
+            with self.subTest(payload=payload):
+                ids = extract_webhook_ids(payload)
+                self.assertEqual(set(ids), {"payment_id", "refund_id", "chargeback_id"})
+
+    def test_a_non_dict_payload_is_all_nones(self):
+        """json.loads can yield a list, a string or a number, not only an object."""
+        for payload in ([], "tr_x", 7, None):
+            with self.subTest(payload=payload):
+                self.assertEqual(
+                    extract_webhook_ids(payload),
+                    {"payment_id": None, "refund_id": None, "chargeback_id": None},
+                )
+
+    def test_well_formed_extraction_is_unchanged(self):
+        """Control: the hardening must not quietly stop extracting real ids."""
+        self.assertEqual(
+            extract_webhook_ids({"resource": "refund", "id": "re_9", "payment_id": "tr_9"}),
+            {"payment_id": "tr_9", "refund_id": "re_9", "chargeback_id": None},
+        )
+        self.assertEqual(extract_webhook_ids({"id": "re_prefix"})["refund_id"], "re_prefix")
+        self.assertEqual(
+            extract_webhook_ids({"chargeback": {"id": "chb_n"}})["chargeback_id"], "chb_n"
+        )
+
 
 class TestStandardizedWebhookResponse(unittest.TestCase):
     def test_basic_shape(self):

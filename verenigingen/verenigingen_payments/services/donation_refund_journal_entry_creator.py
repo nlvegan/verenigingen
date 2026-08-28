@@ -63,23 +63,39 @@ class DonationRefundJournalEntryCreator:
         donation_doc: Any,
         original_payment_id: str,
         bank_transaction_name: Optional[str] = None,
+        reversal_type: str = "refund",
+        description: Optional[str] = None,
     ) -> Optional[str]:
         """
-        Create Journal Entry for a Mollie refund.
+        Create Journal Entry for a Mollie reversal (refund or chargeback).
 
         Args:
-            refund_id: Mollie refund ID (e.g., re_xxxxx)
-            refund_amount: Refund amount (positive number)
-            refund_date: Date of the refund (ISO format string or None)
+            refund_id: Mollie reversal ID (e.g., re_xxxxx / chb_xxxxx)
+            refund_amount: Reversal amount (positive number)
+            refund_date: Date of the reversal (ISO format string or None)
             donation_doc: The Donation document
             original_payment_id: Original Mollie payment ID (e.g., tr_xxxxx)
             bank_transaction_name: Optional Bank Transaction to link
+            reversal_type: "refund" (default) or "chargeback". This lands in the
+                reference key, so a chargeback is not filed under a refund key --
+                which would make the two collide on one payment and hide one of
+                them from the idempotency lookup. It also lands in the narration:
+                a chargeback filed under a reference key of its own but described
+                as a "REFUND" is still unreadable to whoever reconciles it.
+            description: Caller-built detail, for a chargeback the Mollie reason
+                code and text. Recorded in the remark; a chargeback's reason is
+                the single most useful thing on the entry and was being dropped.
 
         Returns:
             Journal Entry name if created, None on failure
         """
-        # Build reference number that includes both original payment and refund ID
-        reference_number = f"{original_payment_id}_refund_{refund_id}"
+        # Build reference number that includes both original payment and reversal ID.
+        # Shared with every other reversal route so they agree on one key (#370).
+        from verenigingen.verenigingen_payments.mollie.utils.reversal_idempotency import (
+            build_reversal_key,
+        )
+
+        reference_number = build_reversal_key(original_payment_id, reversal_type, refund_id)
 
         # Idempotency check - avoid duplicate Journal Entries
         existing_je = self._check_existing_by_reference(reference_number)
@@ -133,6 +149,8 @@ class DonationRefundJournalEntryCreator:
             income_account=config["income_account"],
             cost_center=config.get("cost_center"),
             bank_transaction_name=bank_transaction_name,
+            reversal_type=reversal_type,
+            description=description,
         )
 
     def _check_existing_by_reference(self, reference_number: str) -> Optional[str]:
@@ -218,6 +236,8 @@ class DonationRefundJournalEntryCreator:
         income_account: str,
         cost_center: Optional[str] = None,
         bank_transaction_name: Optional[str] = None,
+        reversal_type: str = "refund",
+        description: Optional[str] = None,
     ) -> Optional[str]:
         """
         Create and submit refund Journal Entry using secure operations framework.
@@ -227,12 +247,17 @@ class DonationRefundJournalEntryCreator:
             Credit: Mollie Clearing Account (money leaves the clearing account)
         """
         try:
-            # Build remark
-            remark_parts = [f"Donation REFUND: {donation_name}"]
+            # Build remark. Say which kind of reversal this is: a chargeback and a
+            # refund are different events to whoever reconciles the account, and
+            # both were being narrated as "REFUND".
+            label = reversal_type.upper()
+            remark_parts = [f"Donation {label}: {donation_name}"]
             if donor_name:
                 remark_parts.append(f"Donor: {donor_name}")
-            remark_parts.append(f"Refund ID: {refund_id}")
+            remark_parts.append(f"{reversal_type.capitalize()} ID: {refund_id}")
             remark_parts.append(f"Original Payment: {original_payment_id}")
+            if description:
+                remark_parts.append(description)
             user_remark = " | ".join(remark_parts)
 
             # Create Journal Entry
@@ -249,7 +274,7 @@ class DonationRefundJournalEntryCreator:
                 "account": income_account,
                 "debit_in_account_currency": flt(amount),
                 "credit_in_account_currency": 0,
-                "user_remark": f"Donation refund: {donation_name} | Refund: {refund_id}",
+                "user_remark": f"Donation {reversal_type}: {donation_name} | {reversal_type.capitalize()}: {refund_id}",
             }
             if cost_center:
                 debit_entry["cost_center"] = cost_center
@@ -260,7 +285,7 @@ class DonationRefundJournalEntryCreator:
                 "account": clearing_account,
                 "debit_in_account_currency": 0,
                 "credit_in_account_currency": flt(amount),
-                "user_remark": f"Refund paid out: {donation_name}"
+                "user_remark": f"{reversal_type.capitalize()} paid out: {donation_name}"
                 + (f" | Donor: {donor_name}" if donor_name else ""),
             }
             if cost_center:
@@ -292,18 +317,16 @@ class DonationRefundJournalEntryCreator:
                 allow_system_user=True,
             )
 
-            if submit_result.success:
-                frappe.logger().info(
-                    f"Created and submitted Refund Journal Entry {je.name} for donation {donation_name}"
-                )
+            if not submit_result.success:
+                return self._discard_unposted_journal_entry(je.name, submit_result, donation_name)
 
-                # Reconcile Bank Transaction with this Journal Entry
-                if bank_transaction_name:
-                    self._reconcile_bank_transaction(bank_transaction_name, je.name, flt(amount))
-            else:
-                frappe.logger().info(
-                    f"Created Refund Journal Entry {je.name} (draft) for donation {donation_name}"
-                )
+            frappe.logger().info(
+                f"Created and submitted Refund Journal Entry {je.name} for donation {donation_name}"
+            )
+
+            # Reconcile Bank Transaction with this Journal Entry
+            if bank_transaction_name:
+                self._reconcile_bank_transaction(bank_transaction_name, je.name, flt(amount))
 
             return je.name
 
@@ -314,6 +337,65 @@ class DonationRefundJournalEntryCreator:
                 "Donation Refund Journal Entry Error",
             )
             return None
+
+    def _discard_unposted_journal_entry(self, je_name: str, submit_result, donation_name: str) -> None:
+        """A Journal Entry whose submit failed is not a booking. Always returns None.
+
+        This used to log "(draft)" and ``return je.name`` anyway, so the caller's
+        "did I get a name back?" success test read a failed posting as success.
+
+        The entry is **not** a draft. Frappe's ``Document.save()`` runs
+        ``db_update()`` before ``run_post_save_methods()``, and ``on_submit`` is what
+        posts to the ledger -- so a submit that throws leaves ``docstatus=1`` already
+        written, and ``secure_document_operation`` catches the error without rolling
+        back. ERPNext validates each GL row in ``GLEntry.on_update``, i.e. *after*
+        inserting it, so the ledger can be left one-sided.
+
+        That matters beyond a wrong status code: :func:`find_booked_reversal` counts
+        anything with ``docstatus != 2``, so left in place the unposted entry claims
+        the reversal key and every one of Mollie's redeliveries answers "already
+        processed" -- the refund reported done, permanently, having never reached the
+        ledger.
+
+        **Cancelled, not deleted.** Cancelling is what frees the key (only
+        ``docstatus=2`` is ignored) and it leaves an auditable record of a posting
+        that was attempted and failed. Deleting was tried and is worse in both
+        directions: when ``cancel()`` itself raises -- which it does in the case this
+        is most likely to see, a bad account, because ``on_cancel`` re-posts the
+        reversal GL row into the same validation -- the delete never runs anyway; and
+        when it does run, ``Accounts Settings.delete_linked_ledger_entries`` defaults
+        to 0, so the GL rows survive their voucher as orphans. Measured, not assumed.
+        """
+        error_msg = ", ".join(submit_result.errors) if submit_result.errors else "Unknown error"
+        message = (
+            f"Refund Journal Entry {je_name} for donation {donation_name} could not be "
+            f"submitted and did not post to the ledger: {error_msg}"
+        )
+        frappe.logger().error(message)
+        frappe.log_error(message, "Donation Refund Journal Entry Not Posted")
+
+        try:
+            je = frappe.get_doc("Journal Entry", je_name)
+            if je.docstatus == 1:
+                je.cancel()
+        except Exception as cleanup_error:  # failed-write-ok: reported-elsewhere
+            frappe.logger().error(
+                f"Could not cancel unposted Refund Journal Entry {je_name}: {cleanup_error}"
+            )
+
+        # Report what is actually true, which is not always what was attempted:
+        # ``cancel()`` can raise and STILL leave docstatus=2 behind, by the same
+        # write-before-hooks ordering described above. Only a re-read can tell the
+        # operator whether the key is free.
+        docstatus = frappe.db.get_value("Journal Entry", je_name, "docstatus")
+        if docstatus != 2:
+            frappe.log_error(
+                f"Unposted Refund Journal Entry {je_name} is at docstatus={docstatus} and still "
+                f"claims reversal key {frappe.db.get_value('Journal Entry', je_name, 'cheque_no')!r}. "
+                f"Redeliveries of this refund will report it as already processed. Cancel it by hand.",
+                "Donation Refund Journal Entry Still Claims Its Key",
+            )
+        return None
 
     def _reconcile_bank_transaction(
         self,

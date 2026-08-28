@@ -118,34 +118,62 @@ class TestReversalValidation(WebhookTestBase):
         self.assertEqual(result["refund_id"], "re_1")
 
     def test_already_processed_reversal_is_idempotent(self):
-        # Original payment exists...
-        self.service.idempotency_manager.check_payment_processing_state = lambda payment_id, **k: _FakeState(
-            payment_entry_exists=True
+        """A reversal already booked as ANY artefact is reported idempotent.
+
+        Rewritten for the contract introduced by #370. It used to stub
+        ``payment_entry_exists = True`` and patch ``frappe.db.get_value``
+        *globally*, intercepting on ``reference_no == "<pid>_refund_<rid>"``. Both
+        halves are now wrong:
+
+        * The gate no longer asks the idempotency manager whether a payment entry
+          exists. It reads what was actually booked, because a donation books a
+          Journal Entry and the old question answered "no" for every one of them.
+        * The global ``get_value`` patch now serves **two** different lookups --
+          the forward-booking lookup keyed on the payment id, and the reversal
+          lookup keyed on the compound reference. Answering only the second left
+          the first falling through to the real database, so the service correctly
+          reported the payment as unbooked and the test failed for a reason that
+          had nothing to do with idempotency.
+
+        Patched at the seam the service actually consults, rather than at the
+        database. Real-document coverage of the same path lives in
+        ``test_webhook_wrapper_unified_sweep`` and
+        ``test_mollie_reversal_single_booking``; this suite is deliberately
+        fixture-free.
+        """
+        import verenigingen.verenigingen_payments.mollie.utils.reversal_idempotency as ri
+
+        reference = "tr_done_refund_re_done"
+        seen = {}
+
+        def fake_find_booked_payment(payment_id):
+            seen["payment_id"] = payment_id
+            return ("donation", "Journal Entry", "ACC-JV-FORWARD")
+
+        def fake_find_booked_reversal(key):
+            seen["reversal_key"] = key
+            return ("Journal Entry", "ACC-JV-REVERSAL-EXISTING") if key == reference else None
+
+        orig_payment, orig_reversal = ri.find_booked_payment, ri.find_booked_reversal
+        ri.find_booked_payment = fake_find_booked_payment
+        ri.find_booked_reversal = fake_find_booked_reversal
+        self.addCleanup(lambda: setattr(ri, "find_booked_payment", orig_payment))
+        self.addCleanup(lambda: setattr(ri, "find_booked_reversal", orig_reversal))
+
+        result = self.service.process_reversal_webhook(
+            payment_id="tr_done",
+            reversal_id="re_done",
+            amount=5.0,
+            reversal_type="refund",
         )
-        # ...and a reversal Payment Entry with the compound reference already exists.
-        ref = "tr_done_refund_re_done"
-        original = frappe.db.get_value
-
-        def fake_get_value(doctype, filters, *args, **kwargs):
-            if doctype == "Payment Entry" and isinstance(filters, dict):
-                if filters.get("reference_no") == ref:
-                    return "PE-REVERSAL-EXISTING"
-            return original(doctype, filters, *args, **kwargs)
-
-        frappe.db.get_value = fake_get_value
-        try:
-            result = self.service.process_reversal_webhook(
-                payment_id="tr_done",
-                reversal_id="re_done",
-                amount=5.0,
-                reversal_type="refund",
-            )
-        finally:
-            frappe.db.get_value = original
 
         self.assertEqual(result["status"], "success")
         self.assertTrue(result["idempotent"])
-        self.assertEqual(result["existing_reference"], "PE-REVERSAL-EXISTING")
+        self.assertEqual(result["existing_reference"], "ACC-JV-REVERSAL-EXISTING")
+        # The two lookups are distinct, and each got the key it is keyed on. The
+        # old test could not have caught them being confused.
+        self.assertEqual(seen.get("payment_id"), "tr_done")
+        self.assertEqual(seen.get("reversal_key"), reference)
 
 
 class TestRefundChargebackDelegation(WebhookTestBase):
@@ -192,6 +220,54 @@ class TestRefundChargebackDelegation(WebhookTestBase):
         self.assertEqual(captured["reversal_id"], "cb_xyz")
         self.assertEqual(captured["amount"], 30.00)
         self.assertEqual(captured["reason"]["code"], "AC01")
+
+    def test_a_bare_payment_id_is_never_read_as_the_chargeback_id(self):
+        """Mollie's top-level `id` on this payload is the PAYMENT id.
+
+        Reading it as the chargeback id is the exact defect this PR routed
+        `handle_refund_webhook` around in its twin, still live here. Two
+        chargebacks on one payment collapse onto a single reversal key
+        `{payment_id}_chargeback_{payment_id}`, so the second is refused as
+        already-processed; and `safe_extract_amount` finds no `amount` on that
+        payload, resolving to 0.00, which ERPNext rejects.
+
+        Reported as `not_implemented` (2xx, no redelivery), following this file's
+        own precedent for the dues branch: name the missing capability, because
+        "payment not found" is what sent this whole bug class unnoticed. NOT
+        `ignored`, and not "nothing to book from" -- the id IS recoverable via
+        `payment.chargebacks.list()`, which the codebase already calls in
+        unified_idempotency_manager.py. It is simply not wired up on this route,
+        and no amount of redelivery will wire it up.
+        """
+        delegated = []
+        self.service.process_reversal_webhook = lambda **kw: delegated.append(kw) or {"status": "success"}
+
+        result = self.service.process_chargeback_webhook("tr_bare", {"id": "tr_bare"})
+
+        self.assertEqual(
+            delegated,
+            [],
+            "a payload whose only id IS the payment id must not be delegated as a chargeback",
+        )
+        self.assertEqual(result["status"], "not_implemented")
+        self.assertIn("chargeback id", result["message"].lower())
+        self.assertIn("not implemented", result["message"].lower())
+
+    def test_a_distinct_top_level_chargeback_id_still_delegates(self):
+        """Control: the guard must reject only the payment id, not every bare id.
+
+        Without this, refusing every top-level `id` would satisfy the test above
+        while silently dropping the payload shape the other delegation tests here
+        depend on.
+        """
+        captured = {}
+        self.service.process_reversal_webhook = lambda **kw: captured.update(kw) or {"status": "success"}
+
+        self.service.process_chargeback_webhook(
+            "tr_distinct", {"id": "chb_distinct", "amount": {"value": "9.00", "currency": "EUR"}}
+        )
+        self.assertEqual(captured["reversal_id"], "chb_distinct")
+        self.assertEqual(captured["amount"], 9.00)
 
 
 class TestFetchPaymentFromMollie(WebhookTestBase):

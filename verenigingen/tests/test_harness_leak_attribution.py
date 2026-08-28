@@ -187,8 +187,7 @@ class DrainSkipsUndeletableByDesignTest(unittest.TestCase):
         self.assertEqual(
             ["Customer"],
             removed,
-            "a doctype whose controller refuses deletion must not be retried by the "
-            "tracked drain either",
+            "a doctype whose controller refuses deletion must not be retried by the " "tracked drain either",
         )
 
     def test_ledger_derivatives_are_NOT_exempt(self):
@@ -214,8 +213,7 @@ class DrainSkipsUndeletableByDesignTest(unittest.TestCase):
             self.assertIn(
                 doctype,
                 EnhancedTestCase.DRAIN_EXEMPT_DOCTYPES,
-                f"{doctype} refuses deletion in its own controller; draining it can "
-                f"never succeed",
+                f"{doctype} refuses deletion in its own controller; draining it can " f"never succeed",
             )
 
 
@@ -348,6 +346,27 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
                 hasattr(method, "__wrapped__"),
                 f"{name} creates shared master data and must be @shared_fixture, or "
                 f"the captured-insert drain will claim its rows for one test",
+            )
+
+    def test_the_shared_module_level_fixture_builders_are_declared_shared(self):
+        """Shared master data is not always built from an EnhancedTestCase method.
+
+        ``ensure_mollie_reversal_accounts`` get-or-creates a bank Account, a Bank, a
+        Bank Account and a Mode of Payment, and then **commits** a
+        ``Mollie Settings.mollie_clearing_account`` write pointing at them. The
+        commit survives teardown; without ``@shared_fixture`` the rows do not. That
+        combination is worse than no fixture at all -- the next co-tenant in the
+        shard inherits settings pointing at a Bank Account that has been deleted.
+        """
+        from verenigingen.verenigingen_payments.mollie.tests import mollie_test_helper
+
+        for name in ("ensure_mollie_reversal_accounts",):
+            func = getattr(mollie_test_helper, name)
+            self.assertTrue(
+                hasattr(func, "__wrapped__"),
+                f"{name} creates shared master data and must be @shared_fixture, or "
+                f"the captured-insert drain will claim its rows for one test while the "
+                f"settings pointing at them survive",
             )
 
     def test_the_shared_mollie_account_helper_is_declared_shared(self):
@@ -579,9 +598,7 @@ class DrainCancelsSubmittedDocumentsTest(unittest.TestCase):
         probe._captured_inserts = [("Performance Optimization Setup", name)]
         probe._drain_captured_inserts()
 
-        self.assertEqual(
-            [], list(probe.leaked_records), "a submitted record must be cancelled, then deleted"
-        )
+        self.assertEqual([], list(probe.leaked_records), "a submitted record must be cancelled, then deleted")
         self.assertFalse(frappe.db.exists("Performance Optimization Setup", name))
 
 

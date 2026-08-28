@@ -562,37 +562,5 @@ class TestRefundAccountingEntries(unittest.TestCase):
             )
 
 
-class TestRefundBankTransactionCreation(unittest.TestCase):
-    """Tests for refund Bank Transaction - should be withdrawal type."""
-
-    def test_refund_bank_transaction_is_withdrawal(self):
-        """
-        Refund Bank Transaction should have withdrawal amount (not deposit).
-
-        Bug: Old refund code only created Payment Entry, no Bank Transaction
-        Fix: Now creates Bank Transaction with negative amount (withdrawal)
-        """
-        from verenigingen.verenigingen_payments.mollie.services.webhook_wrapper_service_unified import (
-            UnifiedWebhookWrapperService,
-        )
-        import inspect
-
-        source = inspect.getsource(UnifiedWebhookWrapperService._process_pending_refunds)
-
-        # Should use negative amount for Bank Transaction
-        self.assertIn(
-            "-float(refund_amount)",
-            source,
-            "Refund Bank Transaction should use negative amount for withdrawal",
-        )
-
-        # Should call bank transaction creator
-        self.assertIn(
-            "bt_creator.create_from_dict",
-            source,
-            "Should use BankTransactionCreator to create withdrawal",
-        )
-
-
 if __name__ == "__main__":
     unittest.main()

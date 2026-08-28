@@ -268,15 +268,30 @@ class BankTransactionCreator:
 
     def _check_existing_by_reference(self, reference_number: str) -> Optional[str]:
         """
-        Check if Bank Transaction already exists with this reference number.
+        Check if a live Bank Transaction already exists with this reference number.
+
+        Cancelled rows are excluded. A cancelled Bank Transaction is not a booking --
+        it is one that was explicitly undone, and the reference is free again. This
+        matches ``find_booked_reversal``, which has always treated ``docstatus=2`` as
+        releasing the key.
+
+        Without the filter, a reversal whose Journal Entry failed left a cancelled
+        Bank Transaction that this lookup happily returned on the next delivery; the
+        Journal Entry was then reconciled against a cancelled document, and that
+        failure is swallowed one level down -- a booked reversal with no bank line and
+        nothing said (#370).
 
         Args:
             reference_number: Reference number to check (payment ID, settlement ID, etc.)
 
         Returns:
-            Bank Transaction name if exists, None otherwise
+            Bank Transaction name if a non-cancelled one exists, None otherwise
         """
-        return frappe.db.get_value("Bank Transaction", {"reference_number": reference_number}, "name")
+        return frappe.db.get_value(
+            "Bank Transaction",
+            {"reference_number": reference_number, "docstatus": ["!=", 2]},
+            "name",
+        )
 
     def check_already_processed(
         self, reference_number: str, check_payment_entry: bool = False

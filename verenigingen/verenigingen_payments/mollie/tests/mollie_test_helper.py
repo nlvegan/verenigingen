@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional
 
 import frappe
 
+from verenigingen.tests.fixtures.enhanced_test_factory import shared_fixture
 from verenigingen.verenigingen_payments.mollie.utils.amount_helpers import extract_amount_float
 
 
@@ -292,6 +293,7 @@ def ensure_mollie_test_credentials() -> bool:
     return True
 
 
+@shared_fixture
 def ensure_mollie_reversal_accounts() -> None:
     """
     Ensure the master data the unified payment-entry creator needs to build refund/
@@ -305,6 +307,26 @@ def ensure_mollie_reversal_accounts() -> None:
     Creates (idempotently):
     - a leaf bank Account named "Mollie" under the company's bank-account group
     - the "Mollie Refund" Mode of Payment
+    - a Bank Account linked to that GL account, and Mollie Settings'
+      ``mollie_clearing_account`` pointing at it
+
+    The last two are what the Bank-Transaction path needs. A donation reversal
+    books Bank Transaction + Journal Entry (mirroring the forward donation path),
+    and ``get_mollie_bank_account_config()`` validates the *configured* clearing
+    account -- it does not use the payment-entry creator's named-account fallback.
+    Without them a reversal fails outright, which is correct behaviour on a
+    misconfigured site but makes these tests exercise the error path instead of
+    the money path (#370).
+
+    ``@shared_fixture`` because this is SHARED master data built LAZILY, from
+    inside whichever test runs first. Without it the captured-insert drain claims
+    the Bank and Bank Account and deletes them at that one test's teardown -- while
+    the ``Mollie Settings.mollie_clearing_account`` write below is committed and
+    **survives**. The next co-tenant in the shard then inherits Mollie Settings
+    pointing at a clearing account whose Bank Account no longer exists, which is
+    strictly worse than the misconfiguration this function exists to repair.
+    Marking it at the build site is the rule (CLAUDE.md): the set of doctypes a
+    fixture touches is not stable, the place it is built is.
     """
     company = frappe.db.get_single_value(
         "Verenigingen Settings", "company"
@@ -330,6 +352,8 @@ def ensure_mollie_reversal_accounts() -> None:
                 }
             ).insert(ignore_permissions=True)
 
+    _ensure_mollie_clearing_configuration(company)
+
     # Mode of Payment used for reversal (Pay) entries
     if not frappe.db.exists("Mode of Payment", "Mollie Refund"):
         frappe.get_doc(
@@ -337,3 +361,65 @@ def ensure_mollie_reversal_accounts() -> None:
         ).insert(ignore_permissions=True)
 
     frappe.db.commit()
+
+
+def _ensure_mollie_clearing_configuration(company: str) -> None:
+    """Point Mollie Settings at a clearing account that has a Bank Account.
+
+    Only fills in what is missing. Mollie Settings is a Single shared with every
+    co-tenant test in the shard, so this never overwrites an existing value.
+    """
+    gl_account = frappe.db.get_value("Account", {"company": company, "account_name": "Mollie"}, "name")
+    if not gl_account:
+        return
+
+    # Bank Account linked to the clearing GL account -- get_mollie_bank_account_config
+    # resolves the Bank Account *from* the clearing account, and errors without it.
+    if not frappe.db.get_value("Bank Account", {"account": gl_account}, "name"):
+        bank = frappe.db.get_value("Bank", {}, "name")
+        if not bank:
+            bank = (
+                frappe.get_doc({"doctype": "Bank", "bank_name": "Mollie Test Bank"})
+                .insert(ignore_permissions=True)
+                .name
+            )
+        frappe.get_doc(
+            {
+                "doctype": "Bank Account",
+                "account_name": "Mollie Clearing",
+                "bank": bank,
+                "account": gl_account,
+                "company": company,
+                "is_company_account": 1,
+            }
+        ).insert(ignore_permissions=True)
+
+    # Point the clearing account at THIS company's Mollie account.
+    #
+    # Presence is not enough: a co-tenant test can leave mollie_clearing_account
+    # pointing at another company's account, and ERPNext will not let a Bank
+    # Transaction reference a GL account belonging to a different company. Seen on
+    # test_site_1, where the clearing account resolved to a different company's
+    # "Mollie" account than the one the config service reports. Only correct it
+    # when it is actually inconsistent, so an already-valid setup is left alone.
+    configured = frappe.db.get_single_value("Mollie Settings", "mollie_clearing_account")
+    configured_company = frappe.db.get_value("Account", configured, "company") if configured else None
+    if configured_company != company:
+        frappe.db.set_single_value("Mollie Settings", "mollie_clearing_account", gl_account)
+        _invalidate_mollie_settings_cache()
+
+
+def _invalidate_mollie_settings_cache() -> None:
+    """Writing the Single is not enough -- the config service caches it.
+
+    MollieConfigurationService keeps Mollie Settings in frappe.cache() under
+    ``mollie_settings_cache`` with a TTL, so a value written here stays invisible
+    to get_clearing_account() for the rest of the process and the caller keeps
+    resolving the OLD account. That is silent: nothing errors, the reversal just
+    fails to book against an account belonging to another company.
+    """
+    from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
+        MollieConfigurationService,
+    )
+
+    MollieConfigurationService.clear_cache()
