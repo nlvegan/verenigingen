@@ -575,26 +575,15 @@ class TestExecutePaymentRetry(RetryBase):
         self.assertEqual(set(all_batches), {first_batch})
 
 
-    def test_a_failed_submit_does_not_strand_the_batch(self):
-        """A submit that fails must leave the invoice retryable.
+    def _batch_holding(self, invoice_name):
+        rows = frappe.get_all(
+            "Direct Debit Batch Invoice", filters={"invoice": invoice_name}, pluck="parent"
+        )
+        return rows[0] if rows else None
 
-        The open-batch guard matches any Direct Debit Batch with docstatus != 2, and
-        the fence COMMITS the freshly inserted (still draft) batch before calling
-        submit -- deliberately, so a redelivered job cannot double-charge. The
-        consequence is that a submit which then raises leaves a committed draft batch
-        holding the invoice, and every later attempt -- the daily sweep, the enqueued
-        job, the desk button -- refuses it with "already present in an open Direct
-        Debit Batch". Permanently.
-
-        Before the daily sweep existed this needed a human pressing the button on one
-        record; the sweep makes it unattended and daily, over the whole backlog on its
-        first run, which is why it is fixed here rather than left as pre-existing.
-
-        The batch is only discarded when nothing left the building: no sepa_message_id
-        and no sepa_file_generated. The stubbed boundary is the same one this file
-        already stubs everywhere else; here it raises instead of returning a path.
-        """
-        member = self._make_member_with_customer("SubmitFails")
+    def _failed_submit_leaves_a_batch(self, label):
+        """Drive execute_payment_retry to a submit failure; return (invoice, batch)."""
+        member = self._make_member_with_customer(label)
         membership = self.sepa.create_test_membership(member=member.name, status="Active")
         invoice = self._make_unpaid_invoice(member)
         self.sepa.create_test_sepa_mandate(member=member.name, status="Active", used_for_memberships=1)
@@ -606,20 +595,65 @@ class TestExecutePaymentRetry(RetryBase):
             next_retry_date=today(),
             membership=membership.name,
         )
-
         with patch(
             "verenigingen.verenigingen_payments.services.sepa_xml_generation_service."
             "sepa_xml_service.generate_sepa_xml_for_batch",
             side_effect=RuntimeError("SEPA generation blew up after the fence"),
         ):
             retry.execute_payment_retry(retry_record=rec.name)
-
-        self.assertFalse(
-            retry._invoice_in_open_batch(invoice.name),
-            "a failed submit left a batch holding the invoice; it can never be retried again",
-        )
         rec.reload()
         self.assertEqual(rec.status, "Error")
+        batch = self._batch_holding(invoice.name)
+        self.assertIsNotNone(batch, "expected the failed attempt to leave a batch behind")
+        return invoice, batch
+
+    def test_a_stranded_batch_stops_blocking_once_its_collection_date_has_passed(self):
+        """The fix for the permanent lock, stated as the property that matters.
+
+        The fence COMMITS the freshly inserted draft batch before submit -- on purpose,
+        so a redelivered job cannot double-charge. If submit then fails, that draft
+        stays behind, and a plain `docstatus != 2` guard treats it as live forever:
+        the daily sweep, the enqueued job and the desk button all refuse the invoice
+        from then on. Measured on veg11: 8 such drafts, no SEPA file, two months old.
+
+        `DirectDebitBatch.before_submit` refuses a batch dated before today, so once
+        the collection date passes that draft can never be submitted and can never
+        charge anyone. From that point it must stop withholding the invoice.
+        """
+        invoice, batch = self._failed_submit_leaves_a_batch("StrandedPast")
+
+        # Same day: it could still be submitted, so it must still block.
+        self.assertTrue(
+            retry._invoice_in_open_batch(invoice.name),
+            "a draft dated today may still be submitted; releasing the invoice now "
+            "would open the double-charge window the guard exists to close",
+        )
+
+        # Tomorrow, from the batch's point of view.
+        frappe.db.set_value("Direct Debit Batch", batch, "batch_date", add_days(getdate(today()), -1))
+        self.assertFalse(
+            retry._invoice_in_open_batch(invoice.name),
+            "a fileless draft whose collection date has passed can never be submitted, "
+            "yet it is still withholding the invoice -- this is the permanent lock",
+        )
+
+    def test_a_stranded_batch_that_generated_a_file_keeps_blocking(self):
+        """Control: a generated file may have been taken to the bank by hand.
+
+        Nothing in this system records that, so a batch that reached generation must
+        keep withholding its invoice even once its date has passed -- otherwise the
+        narrowing above would trade a permanent lock for a double charge.
+        """
+        invoice, batch = self._failed_submit_leaves_a_batch("StrandedWithFile")
+        frappe.db.set_value(
+            "Direct Debit Batch",
+            batch,
+            {"batch_date": add_days(getdate(today()), -1), "sepa_file_generated": 1},
+        )
+        self.assertTrue(
+            retry._invoice_in_open_batch(invoice.name),
+            "a batch that generated a SEPA file must keep blocking, whatever its date",
+        )
 
 
 class TestRetryDebitsTheMembershipMandate(RetryBase):

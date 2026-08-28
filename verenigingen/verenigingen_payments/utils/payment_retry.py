@@ -10,6 +10,7 @@ from verenigingen.utils.security.api_security_framework import OperationType, cr
 from verenigingen.utils.validation.iban_validator import derive_bic_from_iban
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 from verenigingen.verenigingen_payments.utils.mandate_candidates import unambiguous_active_mandate
+from verenigingen.verenigingen_payments.utils.sepa_constants import stranded_batch_exclusion
 from verenigingen.verenigingen_payments.utils.shared.recipient_resolver import get_recipients_by_roles
 
 
@@ -247,13 +248,37 @@ class PaymentRetryManager:
 
 
 def _invoice_in_open_batch(invoice_name):
-    """Return True if the invoice is already in a live (non-cancelled) Direct
-    Debit Batch.
+    """Return True if the invoice sits in a batch that could still collect it.
 
-    Mirrors the exclusion used by the monthly batch flow in
-    ``sepa_mandate_service.get_unpaid_sepa_invoices`` (Direct Debit Batch Invoice
-    joined to its parent Direct Debit Batch, parent ``docstatus != 2``). Used as
-    the double-charge guard in ``execute_payment_retry``.
+    Mirrors the exclusion the monthly flow applies in
+    ``SEPAMandateService.get_sepa_invoices_with_mandates``. Used as the
+    double-charge guard in ``execute_payment_retry``.
+
+    "Could still collect" is narrower than "not cancelled", and the difference is
+    the whole point. A batch whose submit failed stays behind as a committed draft,
+    and under a plain ``docstatus != 2`` test it holds its invoices hostage from
+    every future attempt -- the daily sweep, the enqueued job and the desk button
+    alike -- permanently. Measured on veg11: 8 such drafts, no SEPA file, over two
+    months old.
+
+    ``before_submit`` refuses a batch whose ``batch_date`` is before today, so a
+    DRAFT dated in the past can never be submitted through the real path and can
+    never charge anyone. Those, and only those, stop blocking.
+
+    Deliberately still blocking:
+
+    * anything submitted (``docstatus = 1``) -- it is collecting;
+    * a draft dated today or later -- the monthly flow leaves exactly these while
+      ``auto_submit_sepa_batches`` is 0, which is the default, and a human submits
+      them later. Letting a retry through here would open the double-charge window
+      this guard exists to close;
+    * a draft that already generated a SEPA file, whatever its date -- the file may
+      have been downloaded and taken to the bank by hand, and nothing in this system
+      would know.
+
+    ``today`` is the SITE's calendar day, passed as a parameter rather than left to
+    the database's ``CURDATE()``: the two name different days for hours of every day
+    and ``before_submit`` judges on the site's (#628).
     """
     return bool(
         frappe.db.sql(
@@ -261,10 +286,14 @@ def _invoice_in_open_batch(invoice_name):
             SELECT 1
             FROM `tabDirect Debit Batch Invoice` ddi
             JOIN `tabDirect Debit Batch` ddb ON ddi.parent = ddb.name
-            WHERE ddi.invoice = %s AND ddb.docstatus != 2
+            WHERE ddi.invoice = %(invoice)s
+              AND ddb.docstatus != 2
+              AND {stranded}
             LIMIT 1
-            """,
-            invoice_name,
+            """.format(
+                stranded=stranded_batch_exclusion("ddb")
+            ),
+            {"invoice": invoice_name, "today": getdate(today())},
         )
     )
 
@@ -272,53 +301,6 @@ def _invoice_in_open_batch(invoice_name):
 # Cap for one daily sweep. See the comment at the query for why an unbounded
 # get_all on a 300s queue is the wrong shape for a path that moves money.
 DAILY_RETRY_SWEEP_LIMIT = 200
-
-
-def _discard_unsent_retry_batch(batch_name):
-    """Remove a retry batch whose submit failed before any SEPA file was produced.
-
-    What makes this safe is the caller's rollback, not this check. `batch_name` is
-    always a batch this same call created moments earlier; the fence committed it as
-    an EMPTY DRAFT, and everything submit() did afterwards -- the docstatus flip,
-    sepa_message_id, sepa_file, sepa_file_generated, the attached File -- is written
-    with db_set(commit=False) and is undone by that rollback. What remains is exactly
-    the empty draft the fence committed, so deleting it is correct.
-
-    This is NOT about money already moving: Direct Debit Batch has no transmission
-    path. on_submit only generates and attaches an XML file, which a human later
-    downloads and takes to the bank -- and nobody can have done so in the
-    milliseconds between generation and the exception.
-
-    The field check is defence in depth for a future change: if some path inside
-    generation ever commits its own writes, they would survive the rollback and a
-    file could outlive the transaction. Then leave the batch alone and let a human
-    reconcile it -- the Error status and the logged traceback are how they find it.
-    `sepa_message_id` is written BEFORE the XML is built and `sepa_file_generated`
-    after it, so the pair errs toward keeping.
-    """
-    if not batch_name:
-        return
-    row = frappe.db.get_value(
-        "Direct Debit Batch",
-        batch_name,
-        ["docstatus", "sepa_message_id", "sepa_file_generated"],
-        as_dict=True,
-    )
-    if not row or row.docstatus != 0 or row.sepa_message_id or row.sepa_file_generated:
-        return
-    # Security: ignore_permissions is required because this runs from the daily
-    # scheduler, where frappe.session.user is Administrator-less background context and
-    # no interactive user holds delete rights on Direct Debit Batch. The bypass is
-    # tightly bounded -- the target is a batch this same function created moments
-    # earlier, still draft, carrying no generated SEPA file, identified by a name the
-    # caller never supplies. It cannot reach any batch that exists independently.
-    frappe.delete_doc(
-        "Direct Debit Batch", batch_name, force=True, ignore_permissions=True, delete_permanently=True
-    )
-    # Commit the release so it survives a later failure in this same handler: the
-    # sweep's per-record rollback would otherwise undo the delete and strand the batch
-    # again, which is the exact thing this function exists to prevent.
-    frappe.db.commit()
 
 
 @frappe.whitelist()
@@ -329,7 +311,6 @@ def execute_payment_retry(retry_record=None):
         return
 
     retry_doc = frappe.get_doc("SEPA Payment Retry", retry_record)
-    batch_name = None
 
     # Not yet due. The guard is one-sided on purpose: a retry must never run
     # BEFORE its scheduled date, but an OVERDUE one must still run. The daily
@@ -434,7 +415,6 @@ def execute_payment_retry(retry_record=None):
         )
 
         batch.insert()
-        batch_name = batch.name
 
         # Fence concurrent runs BEFORE submit: record the terminal retry state and
         # commit so that a redelivered/duplicate job sees last_retry_date == today
@@ -445,28 +425,24 @@ def execute_payment_retry(retry_record=None):
         retry_doc.save()
         frappe.db.commit()
 
+        # Scope the undo to the submit. Rolling the whole transaction back here
+        # would discard the PREVIOUS record's submit too: the fence commits this
+        # record's retry doc, but nothing commits after submit, so when the daily
+        # sweep runs record B after record A, A's batch, XML, File row and audit
+        # entry are all still open when B's handler runs.
+        frappe.db.savepoint("retry_submit")
         batch.submit()
 
         # Log the retry
         frappe.logger().info(f"Payment retry executed for invoice {invoice.name}")
 
     except Exception as e:
-        # Discard the failed submit's own writes first. The fence commit above is the
-        # transaction boundary, so this cannot lose the retry record -- it undoes only
-        # what batch.submit() got through before raising.
-        frappe.db.rollback()
-
-        # A stranded batch locks the invoice out of EVERY future retry: the guard above
-        # matches any Direct Debit Batch with docstatus != 2, so a batch left behind by
-        # a failed attempt is indistinguishable from one that is genuinely collecting,
-        # and the daily sweep, the enqueued job and the desk button will all refuse the
-        # invoice from then on. Before the daily sweep existed this needed a human to
-        # press the button, one record at a time; now it happens unattended.
-        _discard_unsent_retry_batch(batch_name)
-
-        # Re-read: the rollback discarded the in-memory doc's uncommitted state, so
-        # saving the stale object would raise TimestampMismatchError over the real one.
-        retry_doc = frappe.get_doc("SEPA Payment Retry", retry_doc.name)
+        # Undo only what submit() got through. The batch it created stays behind as
+        # a draft dated today; it stops blocking the invoice once that date passes,
+        # because _invoice_in_open_batch ignores a fileless draft whose batch_date is
+        # in the past. That is why this handler no longer deletes anything, and why
+        # it needs no ignore_permissions bypass.
+        frappe.db.rollback(save_point="retry_submit")
         frappe.log_error(f"Payment retry failed: {str(e)}", "Payment Retry Error")
         retry_doc.status = "Error"
         retry_doc.last_error = str(e)
@@ -521,6 +497,10 @@ def execute_scheduled_payment_retries():
     for name in due:
         try:
             execute_payment_retry(retry_record=name)
+            # Make each record atomic. Without this the record's submit is still open
+            # when the next one starts, and the next one's rollback would undo it --
+            # leaving a Retried record whose collection never happened.
+            frappe.db.commit()
         except Exception:
             # Isolate the record. This path moves money one record at a time, and
             # a single bad row -- deleted between the query and the call, or a

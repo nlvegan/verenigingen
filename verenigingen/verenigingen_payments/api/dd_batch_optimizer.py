@@ -7,7 +7,7 @@ from collections import defaultdict
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, flt, getdate, now_datetime
+from frappe.utils import add_days, flt, getdate, now_datetime, today
 
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
@@ -20,6 +20,7 @@ from verenigingen.utils.security.authorization import (
     SEPAPermissionLevel,
     require_sepa_permission,
 )
+from verenigingen.verenigingen_payments.utils.sepa_constants import stranded_batch_exclusion
 
 # Configuration constants
 DEFAULT_CONFIG = {
@@ -163,11 +164,15 @@ def get_eligible_invoices_for_batching():
                 FROM `tabDirect Debit Batch Invoice` ddi
                 JOIN `tabDirect Debit Batch` ddb ON ddi.parent = ddb.name
                 WHERE ddb.docstatus != 2
+                  AND {stranded}
             )
         ORDER BY
             si.posting_date ASC,
             si.grand_total DESC
-    """,
+    """.format(
+            stranded=stranded_batch_exclusion("ddb")
+        ),
+        {"today": getdate(today())},
         as_dict=True,
     )
 

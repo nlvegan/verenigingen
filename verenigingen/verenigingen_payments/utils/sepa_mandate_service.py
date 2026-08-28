@@ -9,6 +9,7 @@ import frappe
 from frappe.utils import getdate, today
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+from verenigingen.verenigingen_payments.utils.sepa_constants import stranded_batch_exclusion
 
 # Cache TTL in seconds (5 minutes)
 CACHE_TTL_SECONDS = 300
@@ -250,14 +251,18 @@ class SEPAMandateService:
                     SELECT 1
                     FROM `tabDirect Debit Batch Invoice` ddi
                     JOIN `tabDirect Debit Batch` ddb ON ddi.parent = ddb.name
-                    WHERE ddi.invoice = si.name AND ddb.docstatus != 2
+                    WHERE ddi.invoice = si.name
+                      AND ddb.docstatus != 2
+                      AND {stranded}
                 )
             ORDER BY
                 si.posting_date ASC,
                 si.grand_total DESC
             LIMIT 1000  -- Pagination limit
-        """,
-            {"lookback_date": lookback_date},
+        """.format(
+                stranded=stranded_batch_exclusion("ddb")
+            ),
+            {"lookback_date": lookback_date, "today": getdate(today())},
             as_dict=True,
         )
 
