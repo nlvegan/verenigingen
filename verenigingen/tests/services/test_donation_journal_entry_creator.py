@@ -30,6 +30,9 @@ from verenigingen.verenigingen_payments.services.donation_journal_entry_creator 
     DonationJournalEntryCreator,
     get_donation_journal_entry_creator,
 )
+from verenigingen.verenigingen_payments.services.journal_entry_booking_support import (
+    find_journal_entry_by_reference,
+)
 
 
 class TestDonationJournalEntryCreatorUnit(unittest.TestCase):
@@ -95,14 +98,14 @@ class TestDonationJournalEntryCreatorUnit(unittest.TestCase):
         # Assert
         self.assertIsNone(result)
 
-    @patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.frappe")
+    @patch("verenigingen.verenigingen_payments.services.journal_entry_booking_support.frappe")
     def test_check_existing_by_reference_returns_existing_je(self, mock_frappe):
         """Test idempotency check finds existing Journal Entry"""
         # Arrange
         mock_frappe.db.get_value.return_value = "ACC-JV-2025-00001"
 
         # Act
-        result = self.creator._check_existing_by_reference("mollie-payment-123")
+        result = find_journal_entry_by_reference("mollie-payment-123")
 
         # Assert
         self.assertEqual(result, "ACC-JV-2025-00001")
@@ -110,21 +113,23 @@ class TestDonationJournalEntryCreatorUnit(unittest.TestCase):
             "Journal Entry", {"cheque_no": "mollie-payment-123", "docstatus": ["!=", 2]}, "name"
         )
 
-    @patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.frappe")
+    @patch("verenigingen.verenigingen_payments.services.journal_entry_booking_support.frappe")
     def test_check_existing_by_reference_returns_none_for_empty_ref(self, mock_frappe):
         """Test idempotency check returns None for empty reference"""
         # Act
-        result = self.creator._check_existing_by_reference("")
+        result = find_journal_entry_by_reference("")
 
         # Assert
         self.assertIsNone(result)
         mock_frappe.db.get_value.assert_not_called()
 
+    @patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.find_journal_entry_by_reference", return_value="ACC-JV-2025-00001")
     @patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.frappe")
-    def test_create_from_mollie_payment_idempotency(self, mock_frappe):
+    def test_create_from_mollie_payment_idempotency(self, mock_frappe, _mock_existing):
         """Test that duplicate Mollie payments are rejected"""
-        # Arrange
-        mock_frappe.db.get_value.return_value = "ACC-JV-2025-00001"  # Existing JE
+        # Arrange. The idempotency lookup is a module-level function shared with
+        # the other Journal Entry bookers, so it is not reached by this test's
+        # patched `frappe`; patch it where the creator looks it up.
         mock_frappe.logger.return_value = MagicMock()
 
         payment_data = {"id": "tr_existingPayment", "amount": {"value": "25.00"}}
@@ -136,11 +141,11 @@ class TestDonationJournalEntryCreatorUnit(unittest.TestCase):
         # Assert - should return existing JE name
         self.assertEqual(result, "ACC-JV-2025-00001")
 
+    @patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.find_journal_entry_by_reference", return_value=None)
     @patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.frappe")
-    def test_create_from_mollie_payment_no_company_fails(self, mock_frappe):
+    def test_create_from_mollie_payment_no_company_fails(self, mock_frappe, _mock_existing):
         """Test that missing company configuration fails gracefully"""
         # Arrange
-        mock_frappe.db.get_value.return_value = None  # No existing JE
 
         mock_settings = MagicMock()
         mock_settings.company = None
@@ -157,11 +162,11 @@ class TestDonationJournalEntryCreatorUnit(unittest.TestCase):
         # Assert
         self.assertIsNone(result)
 
+    @patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.find_journal_entry_by_reference", return_value="ACC-JV-2025-00002")
     @patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.frappe")
-    def test_create_from_dict_idempotency(self, mock_frappe):
+    def test_create_from_dict_idempotency(self, mock_frappe, _mock_existing):
         """Test that duplicate dict transactions are rejected"""
-        # Arrange
-        mock_frappe.db.get_value.return_value = "ACC-JV-2025-00002"  # Existing JE
+        # Arrange (see the note on the Mollie-payment idempotency test above)
         mock_frappe.logger.return_value = MagicMock()
 
         transaction_data = {"reference_number": "existing-ref-123", "amount": 50.00, "date": today()}
@@ -302,7 +307,7 @@ class TestDonationJournalEntryCreatorIntegration(EnhancedTestCase):
         unique_ref = f"test-ref-{frappe.generate_hash()[:10]}"
 
         # Should return None for non-existent reference
-        result = self.creator._check_existing_by_reference(unique_ref)
+        result = find_journal_entry_by_reference(unique_ref)
         self.assertIsNone(result)
 
 

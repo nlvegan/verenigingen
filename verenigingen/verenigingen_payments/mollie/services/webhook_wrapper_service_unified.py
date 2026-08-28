@@ -1283,8 +1283,9 @@ class UnifiedWebhookWrapperService:
         then has to be found and removed by hand.
 
         Compensated explicitly rather than with a savepoint. A savepoint cannot
-        cover this: ``_reconcile_bank_transaction`` calls ``frappe.db.commit()``,
-        and a commit destroys every open savepoint, so releasing it afterwards
+        cover this: ``reconcile_bank_transaction_with_journal_entry`` calls
+        ``frappe.db.commit()``, and a commit destroys every open savepoint, so
+        releasing it afterwards
         raises ``(1305, 'SAVEPOINT ... does not exist')`` -- which then *replaces*
         the real error. Measured here, not assumed; it is the same trap CLAUDE.md
         records for deadlocks. Code that commits internally cannot be wrapped in a
@@ -1320,16 +1321,31 @@ class UnifiedWebhookWrapperService:
 
         currency = self._resolve_bank_currency(config)
 
+        from verenigingen.verenigingen_payments.services.donation_refund_journal_entry_creator import (
+            get_donation_refund_journal_entry_creator,
+        )
+
+        def book_journal_entry(bank_transaction_name: str) -> Optional[str]:
+            return get_donation_refund_journal_entry_creator().create_refund_journal_entry(
+                refund_id=reversal_id,
+                refund_amount=amount,
+                refund_date=reversal_date,
+                donation_doc=donation_doc,
+                original_payment_id=payment_id,
+                bank_transaction_name=bank_transaction_name,
+                reversal_type=reversal_type,
+                description=description,
+            )
+
         return self._create_reversal_bank_transaction_and_journal_entry(
             bt_creator=bt_creator,
             config=config,
-            donation_doc=donation_doc,
+            subject_name=donation_doc.name,
+            book_journal_entry=book_journal_entry,
             payment_id=payment_id,
             reversal_type=reversal_type,
             reversal_id=reversal_id,
             amount=amount,
-            reversal_date=reversal_date,
-            description=description,
             reference=reference,
             parsed_date=parsed_date,
             currency=currency,
@@ -1338,17 +1354,121 @@ class UnifiedWebhookWrapperService:
             bank_party_name=bank_party_name,
         )
 
-    def _create_reversal_bank_transaction_and_journal_entry(
+    def _book_dues_reversal(
         self,
-        bt_creator,
-        config,
-        donation_doc,
+        forward_payment_entry: str,
         payment_id: str,
         reversal_type: str,
         reversal_id: str,
         amount: float,
         reversal_date: Optional[str],
         description: str,
+    ) -> Optional[Tuple[str, str]]:
+        """Reverse a dues payment against the Sales Invoice it settled: BT + JE.
+
+        Not a reversing Payment Entry, and not a cancel of the forward one --
+        ``DuesReversalJournalEntryCreator``'s module docstring carries the
+        measurements for both. Booked as Bank Transaction + Journal Entry because
+        that is what the forward dues booking was too (Bank Transaction + Payment
+        Entry, reconciled), so the clearing account keeps a bank line for every
+        movement on it.
+
+        Returns ``(doctype, name)`` of the reversal booking, or None on failure.
+        """
+        from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+            get_bank_transaction_creator,
+        )
+        from verenigingen.verenigingen_payments.services.dues_reversal_journal_entry_creator import (
+            get_dues_reversal_journal_entry_creator,
+        )
+
+        from ..utils.reversal_idempotency import build_reversal_key
+
+        creator = get_dues_reversal_journal_entry_creator()
+
+        # Validated BEFORE the Bank Transaction is written: a refusal after it
+        # would leave a phantom withdrawal to compensate away.
+        legs = creator.build_legs(forward_payment_entry, amount)
+        if legs.get("error"):
+            message = f"Cannot book {reversal_type} {reversal_id} for payment {payment_id}: {legs['error']}"
+            self.logger.error(f"❌ {message}")
+            frappe.log_error(message, "Mollie Dues Reversal Not Bookable")
+            return None
+
+        bt_creator = get_bank_transaction_creator()
+        config = bt_creator.get_mollie_bank_account_config()
+        if config.get("error"):
+            message = (
+                f"Cannot book {reversal_type} {reversal_id} for payment {payment_id}: "
+                f"Mollie configuration error: {config['error']}"
+            )
+            self.logger.error(f"❌ {message}")
+            frappe.log_error(message, "Mollie Reversal Booking Failed")
+            return None
+
+        # The bank line and the Journal Entry must be about the SAME account, or
+        # reconciling them posts a withdrawal on one account against a credit on
+        # another. The credit account is the forward entry's own ``paid_to`` --
+        # where the money actually landed -- and the dues route has fallbacks that
+        # can put that somewhere other than the configured Mollie clearing account
+        # (a company-specific "Mollie" account, or the company default bank). Refuse
+        # rather than credit an account this payment never entered.
+        bank_gl_account = frappe.db.get_value("Bank Account", config["bank_account"], "account")
+        if bank_gl_account != legs["credit_account"]:
+            message = (
+                f"Cannot book {reversal_type} {reversal_id} for payment {payment_id}: the forward "
+                f"Payment Entry {forward_payment_entry} received into {legs['credit_account']}, but "
+                f"the Mollie Bank Account {config['bank_account']} posts to {bank_gl_account}. "
+                f"Reversing would credit an account the payment never entered."
+            )
+            self.logger.error(f"❌ {message}")
+            frappe.log_error(message, "Mollie Dues Reversal Account Mismatch")
+            return None
+
+        bank_party_name = None
+        if legs["party_type"] == "Customer" and legs["party"]:
+            bank_party_name = frappe.db.get_value("Customer", legs["party"], "customer_name")
+
+        def book_journal_entry(bank_transaction_name: str) -> Optional[str]:
+            return creator.create_reversal_journal_entry(
+                legs=legs,
+                reversal_id=reversal_id,
+                amount=amount,
+                reversal_date=reversal_date,
+                forward_payment_entry=forward_payment_entry,
+                original_payment_id=payment_id,
+                bank_transaction_name=bank_transaction_name,
+                reversal_type=reversal_type,
+                description=description,
+            )
+
+        return self._create_reversal_bank_transaction_and_journal_entry(
+            bt_creator=bt_creator,
+            config=config,
+            subject_name=forward_payment_entry,
+            book_journal_entry=book_journal_entry,
+            payment_id=payment_id,
+            reversal_type=reversal_type,
+            reversal_id=reversal_id,
+            amount=amount,
+            reference=build_reversal_key(payment_id, reversal_type, reversal_id),
+            parsed_date=self._parse_reversal_date(reversal_date),
+            currency=self._resolve_bank_currency(config),
+            party_type=legs["party_type"],
+            party=legs["party"],
+            bank_party_name=bank_party_name,
+        )
+
+    def _create_reversal_bank_transaction_and_journal_entry(
+        self,
+        bt_creator,
+        config,
+        subject_name: str,
+        book_journal_entry,
+        payment_id: str,
+        reversal_type: str,
+        reversal_id: str,
+        amount: float,
         reference: str,
         parsed_date,
         currency: Optional[str],
@@ -1356,18 +1476,23 @@ class UnifiedWebhookWrapperService:
         party: Optional[str],
         bank_party_name: Optional[str],
     ) -> Optional[Tuple[str, str]]:
-        """The two writes that must land together, or not at all."""
-        from verenigingen.verenigingen_payments.services.donation_refund_journal_entry_creator import (
-            get_donation_refund_journal_entry_creator,
-        )
+        """The two writes that must land together, or not at all.
 
+        ``book_journal_entry`` takes the Bank Transaction's name and returns the
+        Journal Entry's, or None. Donations and dues post different entries -- one
+        debits income, the other a receivable against its invoice -- but the
+        compensating write is the same operation either way, and it is the part
+        that is easy to get wrong, so there is one copy of it rather than two.
+        ``subject_name`` is what the bank line is about (the Donation, or the
+        Payment Entry being reversed).
+        """
         bank_transaction_name = bt_creator.create_from_dict(
             transaction_data={
                 "date": parsed_date,
                 "amount": -float(amount),  # withdrawal: money leaves the clearing account
                 "currency": currency,
                 "reference_number": reference,
-                "description": f"Mollie {reversal_type.capitalize()}: {donation_doc.name} | {reversal_id}",
+                "description": f"Mollie {reversal_type.capitalize()}: {subject_name} | {reversal_id}",
                 "party_type": party_type,
                 "party": party,
                 "bank_party_name": bank_party_name,
@@ -1385,16 +1510,7 @@ class UnifiedWebhookWrapperService:
             frappe.log_error(message, "Mollie Reversal Booking Failed")
             return None
 
-        journal_entry_name = get_donation_refund_journal_entry_creator().create_refund_journal_entry(
-            refund_id=reversal_id,
-            refund_amount=amount,
-            refund_date=reversal_date,
-            donation_doc=donation_doc,
-            original_payment_id=payment_id,
-            bank_transaction_name=bank_transaction_name,
-            reversal_type=reversal_type,
-            description=description,
-        )
+        journal_entry_name = book_journal_entry(bank_transaction_name)
         if not journal_entry_name:
             message = (
                 f"Cannot book {reversal_type} {reversal_id} for payment {payment_id}: "
@@ -1412,7 +1528,7 @@ class UnifiedWebhookWrapperService:
         """Undo a Bank Transaction whose Journal Entry never arrived.
 
         Cancelled, not deleted, for the same reasons as
-        :meth:`DonationRefundJournalEntryCreator._discard_unposted_journal_entry`:
+        :func:`journal_entry_booking_support.discard_unposted_journal_entry`:
         ``frappe.model.delete_doc`` runs ``check_permission_and_not_submitted``
         *before* its ``if not force:`` guard, so ``force=True`` cannot remove a
         submitted document anyway, and a cancelled row is auditable.
@@ -1714,12 +1830,25 @@ class UnifiedWebhookWrapperService:
                 )
                 if booking:
                     reversal_ref_doctype, reversal_ref_name = booking
-            else:
+            elif booked_type == "dues":
                 # Dues reverse against a Sales Invoice, which needs a Journal Entry
                 # referencing that invoice so its outstanding amount is restored -- a
-                # reversing Payment Entry cannot be allocated to a settled invoice.
-                # Not yet implemented; report it as such rather than as "payment not
-                # found", which is what sent this whole class of bug unnoticed.
+                # reversing Payment Entry cannot be allocated to a settled invoice
+                # (#635).
+                booking = self._book_dues_reversal(
+                    forward_payment_entry=booked_name,
+                    payment_id=payment_id,
+                    reversal_type=reversal_type,
+                    reversal_id=reversal_id,
+                    amount=amount,
+                    reversal_date=reversal_date,
+                    description=description,
+                )
+                if booking:
+                    reversal_ref_doctype, reversal_ref_name = booking
+            else:
+                # No third type exists today; say so rather than book something
+                # against a payment nobody has decided the shape of.
                 message = (
                     f"Reversal of a {booked_type} payment is not implemented "
                     f"(payment {payment_id} booked as {booked_doctype} {booked_name})"
@@ -1737,8 +1866,13 @@ class UnifiedWebhookWrapperService:
             # booker returned -- re-fetching the whole document to ask whether it
             # exists is a wasted read, and it turned "the booker succeeded" into
             # "frappe.get_doc raised" for anything the DB cannot hand back.
+            #
+            # `donation_doc` is part of the condition, not an assumption: a dues
+            # reversal books with no Donation behind it, and this block would then
+            # dereference None, catch its own AttributeError, and report a reversal
+            # that DID post to the ledger as a failure.
             history_failure = None
-            if reversal_ref_name:
+            if reversal_ref_name and donation_doc:
                 try:
                     # Parse reversal date to proper format
                     parsed_date = reversal_date
