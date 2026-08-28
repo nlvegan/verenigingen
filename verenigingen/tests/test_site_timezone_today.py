@@ -131,6 +131,20 @@ def site_timezone_diverging_from_process():
         frappe.local.system_settings = original
 
 
+# The lever below pins BOTH clocks to these. They are EXACTLY 24 hours apart
+# (UTC-11 and UTC+13), which is what makes the site exactly one day ahead at every
+# instant. Both are DST-stable year-round, so the gap cannot drift.
+#
+# It used to be UTC-11 / UTC+14 -- 25 hours -- on the reasoning that "more than 24"
+# was sufficient. It is not: a gap above 24h crosses a second midnight once the
+# process's local time reaches 23:00, putting the site TWO days ahead for one hour
+# in every 24. That reddened develop on two shards at 10:08 UTC (2026-08-28). The
+# lever's own entry guard caught it and refused to run, rather than letting the
+# dependent tests pass vacuously.
+_LEVER_PROCESS_TZ = "Pacific/Midway"  # UTC-11, no DST
+_LEVER_SITE_TZ_AHEAD = "Pacific/Apia"  # UTC+13, no DST (Samoa dropped DST in 2021)
+
+
 @contextmanager
 def site_a_day_ahead_of_process():
     """Run the block with the site exactly one calendar day ahead of the process.
@@ -147,9 +161,15 @@ def site_a_day_ahead_of_process():
     is at least ``10 + X``, because UTC+14 is the largest offset there is -- so for
     part of every day no site timezone is a day ahead, whatever we pick. This lever
     therefore pins BOTH clocks: the process to ``Pacific/Midway`` (UTC-11) via
-    ``TZ`` + ``time.tzset()``, and the site to ``Pacific/Kiritimati`` (UTC+14). Those
-    are 25 hours apart -- strictly more than 24 -- so the site is exactly one day
-    ahead at every instant, on any runner, at any hour.
+    ``TZ`` + ``time.tzset()``, and the site to ``Pacific/Apia`` (UTC+13). Those are
+    EXACTLY 24 hours apart, so the site reads the same wall-clock time exactly one
+    calendar day later -- at every instant, on any runner, at any hour.
+
+    "Strictly more than 24" is NOT sufficient, and an earlier version used UTC+14 on
+    that reasoning. A gap above 24 hours crosses a SECOND midnight once the process's
+    local time reaches 23:00, putting the site two days ahead for one hour in every
+    24 -- the guard below then refuses and every dependent test errors. Only an exact
+    24-hour gap is invariant.
 
     Both clocks are restored in ``finally``. ``time.tzset()`` is process-global and
     POSIX-only; that is acceptable here because Frappe's test runner is
@@ -157,10 +177,10 @@ def site_a_day_ahead_of_process():
     """
     original_settings = getattr(frappe.local, "system_settings", None)
     original_tz = os.environ.get("TZ")
-    os.environ["TZ"] = "Pacific/Midway"
+    os.environ["TZ"] = _LEVER_PROCESS_TZ
     time.tzset()
     settings = frappe.get_doc("System Settings")
-    settings.time_zone = "Pacific/Kiritimati"
+    settings.time_zone = _LEVER_SITE_TZ_AHEAD
     frappe.local.system_settings = settings
     try:
         if getdate() != datetime.date.today() + datetime.timedelta(days=1):
@@ -180,6 +200,47 @@ def site_a_day_ahead_of_process():
 
 class TestSiteTimezoneTodayHarness(FrappeTestCase):
     """The forcing lever itself must work, or every test below is vacuous."""
+
+    def test_the_lever_pair_is_one_day_apart_at_EVERY_hour(self):
+        """The two timezones must be exactly 24h apart, checked across a whole day.
+
+        This is the test that was missing. The lever was previously UTC-11/UTC+14 --
+        25 hours -- and every existing test of it ran at whatever hour CI happened to
+        start, so it passed for 23 hours out of 24 and reddened develop on two shards
+        during the 24th (10:08 UTC, 2026-08-28: process on 08-27, site on 08-29).
+
+        Asserting the property at one instant cannot distinguish a 24-hour gap from a
+        25-hour one. Only sweeping the clock can, so this sweeps every hour and
+        several minutes within each, on a DST changeover date for good measure.
+        """
+        from zoneinfo import ZoneInfo
+
+        process_tz = ZoneInfo(_LEVER_PROCESS_TZ)
+        site_tz = ZoneInfo(_LEVER_SITE_TZ_AHEAD)
+        one_day = datetime.timedelta(days=1)
+
+        # Late March and late October are when European/most DST transitions land; if
+        # either zone ever gains DST, the gap drifts and this catches it there first.
+        for day in (
+            datetime.date(2026, 1, 15),
+            datetime.date(2026, 3, 29),
+            datetime.date(2026, 7, 15),
+            datetime.date(2026, 10, 25),
+        ):
+            for hour in range(24):
+                for minute in (0, 30, 59):
+                    moment = datetime.datetime(
+                        day.year, day.month, day.day, hour, minute, tzinfo=datetime.timezone.utc
+                    )
+                    delta = moment.astimezone(site_tz).date() - moment.astimezone(process_tz).date()
+                    self.assertEqual(
+                        delta,
+                        one_day,
+                        f"at {moment.isoformat()} the site is {delta} ahead, not exactly one day: "
+                        f"{_LEVER_PROCESS_TZ} -> {moment.astimezone(process_tz)}, "
+                        f"{_LEVER_SITE_TZ_AHEAD} -> {moment.astimezone(site_tz)}. "
+                        "A gap of more than 24h crosses a second midnight for part of every day.",
+                    )
 
     def test_the_lever_actually_diverges_and_restores(self):
         tz_before, date_before = get_system_timezone(), getdate()
