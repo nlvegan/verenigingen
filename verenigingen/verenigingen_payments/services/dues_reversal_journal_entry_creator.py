@@ -36,7 +36,7 @@ difference as a flag on every line.
 from typing import Any, Dict, List, Optional
 
 import frappe
-from frappe.utils import flt, getdate, nowdate
+from frappe.utils import flt
 
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.verenigingen_payments.services.journal_entry_booking_support import (
@@ -54,7 +54,7 @@ class DuesReversalJournalEntryCreator:
         legs: Dict[str, Any],
         reversal_id: str,
         amount: float,
-        reversal_date: Optional[str],
+        posting_date,
         forward_payment_entry: str,
         original_payment_id: str,
         bank_transaction_name: Optional[str] = None,
@@ -70,7 +70,9 @@ class DuesReversalJournalEntryCreator:
                 refused at this point would have to be compensated away instead.
             reversal_id: Mollie reversal id (``re_...`` / ``chb_...``).
             amount: Reversal amount, positive. May be less than the payment.
-            reversal_date: Date of the reversal (ISO string, date, or None).
+            posting_date: date to post on, already parsed by the caller. Shared
+                with the Bank Transaction this entry is reconciled against, so the
+                two cannot land on different days when a bad date falls back.
             forward_payment_entry: The submitted Payment Entry the dues payment
                 booked, for the narration. Every account, party and allocation was
                 read off it by :meth:`build_legs`: what the forward payment posted
@@ -101,7 +103,7 @@ class DuesReversalJournalEntryCreator:
 
         return self._create_journal_entry(
             legs=legs,
-            posting_date=self._posting_date(reversal_date),
+            posting_date=posting_date,
             reference_number=reference_number,
             reversal_id=reversal_id,
             reversal_type=reversal_type,
@@ -116,22 +118,36 @@ class DuesReversalJournalEntryCreator:
     # ------------------------------------------------------------------
 
     def build_legs(self, forward_payment_entry: str, amount: float) -> Dict[str, Any]:
-        """Split the reversal across the invoices the forward payment settled.
+        """Split the reversal across what the forward payment actually settled.
 
         Returns ``{"company", "party_type", "party", "credit_account", "debits"}``
         or ``{"error": ...}``. Public so a caller can validate before writing a
         Bank Transaction it would otherwise have to compensate away.
 
-        **Invoice first, remainder on account.** The dues route records the whole
-        payment and allocates only the invoice's outstanding, so any excess sits
-        in ``unallocated_amount`` as a credit on the customer
-        (``create_payment_entry_from_invoice(cash_received=...)``). A reversal has
-        to be able to undo both halves. It reduces the invoice allocations first,
-        up to what each actually took, and puts what is left on the party account
-        with no reference -- which is what removes the credit. Restoring what is
-        owed is the useful half, so it goes first; eating the on-account credit
-        first would leave a partial refund invisible on the invoice.
+        **The on-account excess unwinds first, then the invoice allocations.**
+        The dues route records the whole payment and allocates only the invoice's
+        outstanding, so any excess sits in ``unallocated_amount`` as a credit on
+        the customer (``create_payment_entry_from_invoice(cash_received=...)``).
+        That credit exists *only* because the gateway moved more than the invoice
+        could absorb, which is also the most likely reason to refund part of such
+        a payment -- so it is the last thing applied and the first thing undone.
+
+        The other order was tried and is wrong for exactly that case: refunding
+        the €10 excess of a €60 payment against a €50 invoice took a fully-paid
+        invoice to Partly Paid with €10 outstanding *and* left the member holding
+        a €10 unapplied credit. Debtors nets to zero either way, but invoice
+        outstanding is what drives dunning and dues status. The cost of this
+        order is the mirror image and smaller: a partial refund that *should*
+        show on the invoice is absorbed by the credit first, which is visible on
+        the customer rather than the invoice. A full reversal is identical under
+        both orders.
+
+        Amounts are in the entry's own currency and posted only as
+        ``*_in_account_currency``; a cross-currency reversal would fail ERPNext's
+        multi-currency validation rather than post something wrong.
         """
+        from verenigingen.verenigingen_payments.mollie.utils.reversal_idempotency import total_reversed
+
         amount = flt(amount, 2)
         if amount <= 0:
             return {"error": f"reversal amount {amount} is not positive"}
@@ -140,17 +156,39 @@ class DuesReversalJournalEntryCreator:
         if pe.docstatus != 1:
             return {"error": f"forward Payment Entry {pe.name} is at docstatus={pe.docstatus}, not submitted"}
 
-        paid = flt(pe.paid_amount, 2)
-        if amount > paid:
-            # Mollie cannot give back more than it took. Booking it would invent
-            # money on the receivable and on the clearing account.
-            return {"error": f"reversal amount {amount} exceeds the payment's {paid}"}
-
         if not pe.paid_to or not pe.paid_from:
             return {"error": f"forward Payment Entry {pe.name} has no paid_from/paid_to to reverse"}
 
+        # Mollie cannot give back more than it took -- but the check has to be
+        # against everything already given back, not just this delivery. A refund
+        # and a chargeback get different reversal keys and both book, so two
+        # deliveries that each pass a per-delivery check can still sum above the
+        # payment. Measured before this guard existed: two €30 reversals of a €50
+        # payment left a €50 invoice at €60 outstanding and Overdue, because
+        # ERPNext's own over-allocation guard is unreachable for debit-side
+        # invoice references (see `total_reversed`).
+        paid = flt(pe.paid_amount, 2)
+        already = total_reversed(pe.reference_no) if pe.reference_no else 0.0
+        if flt(already + amount, 2) > paid:
+            return {
+                "error": (
+                    f"reversal amount {amount} plus {already} already reversed exceeds "
+                    f"the payment's {paid}"
+                )
+            }
+
         debits: List[Dict[str, Any]] = []
         remaining = amount
+
+        # 1. the unapplied credit the gateway's excess created
+        on_account = flt(min(remaining, flt(pe.unallocated_amount, 2)), 2)
+        remaining = flt(remaining - on_account, 2)
+
+        # 2. then the invoice allocations, each capped at what it actually took.
+        #    Row order is the document's own; only one producer of a Mollie dues
+        #    Payment Entry exists today (`create_payment_entry_from_invoice`,
+        #    always one invoice), so a multi-invoice entry is unexercised and the
+        #    order between several invoices is not a decided policy.
         for ref in pe.get("references") or []:
             if remaining <= 0:
                 break
@@ -175,8 +213,13 @@ class DuesReversalJournalEntryCreator:
             )
             remaining = flt(remaining - take, 2)
 
-        if remaining > 0:
-            debits.append({"account": pe.paid_from, "amount": remaining})
+        # 3. whatever the two above could not place. `paid_amount` is normally
+        #    allocations + unallocated, so this is residue from deductions or
+        #    rounding rather than a routine case -- but it has to land somewhere,
+        #    or debits and credits do not balance.
+        on_account = flt(on_account + remaining, 2)
+        if on_account > 0:
+            debits.append({"account": pe.paid_from, "amount": on_account})
 
         return {
             "company": pe.company,
@@ -189,17 +232,6 @@ class DuesReversalJournalEntryCreator:
     # ------------------------------------------------------------------
     # Writing it
     # ------------------------------------------------------------------
-
-    @staticmethod
-    def _posting_date(reversal_date):
-        if isinstance(reversal_date, str):
-            try:
-                from dateutil import parser
-
-                return parser.parse(reversal_date).date()
-            except (ValueError, TypeError, ImportError):
-                return nowdate()
-        return getdate(reversal_date) if reversal_date else nowdate()
 
     def _create_journal_entry(
         self,
@@ -277,8 +309,8 @@ class DuesReversalJournalEntryCreator:
                 error_msg = ", ".join(create_result.errors) if create_result.errors else "Unknown error"
                 frappe.logger().error(f"Failed to create dues reversal Journal Entry: {error_msg}")
                 frappe.log_error(
-                    f"Dues reversal Journal Entry creation failed for {original_payment_id}: {error_msg}",
                     "Mollie Dues Reversal Journal Entry Error",
+                    f"Dues reversal Journal Entry creation failed for {original_payment_id}: {error_msg}",
                 )
                 return None
 
@@ -316,9 +348,13 @@ class DuesReversalJournalEntryCreator:
             # for money that was never booked out. The cause is not lost -- it goes
             # to the Error Log below, and the webhook answers non-2xx.
             frappe.logger().error(f"Failed to create dues reversal Journal Entry: {e}")
+            # (title, message), not the other way round: log_error only swaps
+            # them when the first argument contains a newline, so a single-line
+            # message passed first is TRUNCATED into the 140-char title and the
+            # real cause is what gets discarded (#602).
             frappe.log_error(
-                f"Dues reversal Journal Entry creation failed for payment {original_payment_id}: {e}",
                 "Mollie Dues Reversal Journal Entry Error",
+                f"Dues reversal Journal Entry creation failed for payment {original_payment_id}: {e}",
             )
             return None
 

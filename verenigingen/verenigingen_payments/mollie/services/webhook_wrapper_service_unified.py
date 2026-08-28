@@ -20,6 +20,9 @@ from verenigingen.verenigingen_payments.services.bank_transaction_creator import
 from verenigingen.verenigingen_payments.services.donation_journal_entry_creator import (
     get_donation_journal_entry_creator,
 )
+from verenigingen.verenigingen_payments.services.journal_entry_booking_support import (
+    find_journal_entry_by_reference,
+)
 
 # Import payment data extraction utilities
 from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
@@ -1105,11 +1108,7 @@ class UnifiedWebhookWrapperService:
                 # "Unknown column 'reference_no'" and aborted the whole partial-processing
                 # backfill whenever the JE had to be looked up from the DB.
                 if not journal_entry_name:
-                    journal_entry_name = frappe.db.get_value(
-                        "Journal Entry",
-                        {"cheque_no": payment_id, "docstatus": ["!=", 2]},
-                        "name",
-                    )
+                    journal_entry_name = find_journal_entry_by_reference(payment_id)
                 if self._update_donation_payment_history_atomic(donation, payment_data, journal_entry_name):
                     results.append("Donation payment history updated")
                 else:
@@ -1363,7 +1362,7 @@ class UnifiedWebhookWrapperService:
         amount: float,
         reversal_date: Optional[str],
         description: str,
-    ) -> Optional[Tuple[str, str]]:
+    ) -> Tuple[Optional[Tuple[str, str]], Optional[str]]:
         """Reverse a dues payment against the Sales Invoice it settled: BT + JE.
 
         Not a reversing Payment Entry, and not a cancel of the forward one --
@@ -1373,7 +1372,12 @@ class UnifiedWebhookWrapperService:
         Entry, reconciled), so the clearing account keeps a bank line for every
         movement on it.
 
-        Returns ``(doctype, name)`` of the reversal booking, or None on failure.
+        Returns ``((doctype, name), None)`` on success and ``(None, reason)`` on
+        failure. The reason travels back to the webhook response rather than only
+        to the Error Log: every refusal here is permanent for that reversal -- a
+        redelivery takes the same branch -- so an operator who sees only a generic
+        "failed to book" has a silently unrecoverable refund, which is the class
+        #635 exists to close.
         """
         from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
             get_bank_transaction_creator,
@@ -1392,8 +1396,8 @@ class UnifiedWebhookWrapperService:
         if legs.get("error"):
             message = f"Cannot book {reversal_type} {reversal_id} for payment {payment_id}: {legs['error']}"
             self.logger.error(f"❌ {message}")
-            frappe.log_error(message, "Mollie Dues Reversal Not Bookable")
-            return None
+            frappe.log_error("Mollie Dues Reversal Not Bookable", message)
+            return None, message
 
         bt_creator = get_bank_transaction_creator()
         config = bt_creator.get_mollie_bank_account_config()
@@ -1403,8 +1407,8 @@ class UnifiedWebhookWrapperService:
                 f"Mollie configuration error: {config['error']}"
             )
             self.logger.error(f"❌ {message}")
-            frappe.log_error(message, "Mollie Reversal Booking Failed")
-            return None
+            frappe.log_error("Mollie Reversal Booking Failed", message)
+            return None, message
 
         # The bank line and the Journal Entry must be about the SAME account, or
         # reconciling them posts a withdrawal on one account against a credit on
@@ -1413,7 +1417,7 @@ class UnifiedWebhookWrapperService:
         # can put that somewhere other than the configured Mollie clearing account
         # (a company-specific "Mollie" account, or the company default bank). Refuse
         # rather than credit an account this payment never entered.
-        bank_gl_account = frappe.db.get_value("Bank Account", config["bank_account"], "account")
+        bank_gl_account = config["clearing_account"]
         if bank_gl_account != legs["credit_account"]:
             message = (
                 f"Cannot book {reversal_type} {reversal_id} for payment {payment_id}: the forward "
@@ -1422,19 +1426,21 @@ class UnifiedWebhookWrapperService:
                 f"Reversing would credit an account the payment never entered."
             )
             self.logger.error(f"❌ {message}")
-            frappe.log_error(message, "Mollie Dues Reversal Account Mismatch")
-            return None
+            frappe.log_error("Mollie Dues Reversal Account Mismatch", message)
+            return None, message
 
         bank_party_name = None
         if legs["party_type"] == "Customer" and legs["party"]:
             bank_party_name = frappe.db.get_value("Customer", legs["party"], "customer_name")
+
+        parsed_date = self._parse_reversal_date(reversal_date)
 
         def book_journal_entry(bank_transaction_name: str) -> Optional[str]:
             return creator.create_reversal_journal_entry(
                 legs=legs,
                 reversal_id=reversal_id,
                 amount=amount,
-                reversal_date=reversal_date,
+                posting_date=parsed_date,
                 forward_payment_entry=forward_payment_entry,
                 original_payment_id=payment_id,
                 bank_transaction_name=bank_transaction_name,
@@ -1442,7 +1448,7 @@ class UnifiedWebhookWrapperService:
                 description=description,
             )
 
-        return self._create_reversal_bank_transaction_and_journal_entry(
+        booking = self._create_reversal_bank_transaction_and_journal_entry(
             bt_creator=bt_creator,
             config=config,
             subject_name=forward_payment_entry,
@@ -1452,12 +1458,13 @@ class UnifiedWebhookWrapperService:
             reversal_id=reversal_id,
             amount=amount,
             reference=build_reversal_key(payment_id, reversal_type, reversal_id),
-            parsed_date=self._parse_reversal_date(reversal_date),
+            parsed_date=parsed_date,
             currency=self._resolve_bank_currency(config),
             party_type=legs["party_type"],
             party=legs["party"],
             bank_party_name=bank_party_name,
         )
+        return booking, None if booking else "the Bank Transaction or Journal Entry could not be written"
 
     def _create_reversal_bank_transaction_and_journal_entry(
         self,
@@ -1804,6 +1811,7 @@ class UnifiedWebhookWrapperService:
             donation_doc = None
             reversal_ref_doctype = None
             reversal_ref_name = None
+            booking_failure = None
 
             if booked_type == "donation":
                 donation_doc = get_donation_by_payment_id(payment_id)
@@ -1835,7 +1843,7 @@ class UnifiedWebhookWrapperService:
                 # referencing that invoice so its outstanding amount is restored -- a
                 # reversing Payment Entry cannot be allocated to a settled invoice
                 # (#635).
-                booking = self._book_dues_reversal(
+                booking, booking_failure = self._book_dues_reversal(
                     forward_payment_entry=booked_name,
                     payment_id=payment_id,
                     reversal_type=reversal_type,
@@ -1954,7 +1962,7 @@ class UnifiedWebhookWrapperService:
             else:
                 result = standardized_webhook_response(
                     "error",
-                    f"Failed to book {reversal_type} for payment {payment_id}",
+                    booking_failure or f"Failed to book {reversal_type} for payment {payment_id}",
                     payment_id=payment_id,
                 )
                 result[f"{reversal_type}_id"] = reversal_id

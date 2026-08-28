@@ -290,6 +290,56 @@ class TestDuesReversalBooksAgainstTheInvoice(_DuesReversalFixture):
             linked,
             f"the withdrawal must be reconciled against the entry that booked it, got {linked}",
         )
+        self.assertEqual(bt.status, "Reconciled", "a fully allocated withdrawal must not stay open")
+
+
+class TestTwoReversalsCannotExceedThePayment(_DuesReversalFixture):
+    """A per-delivery ceiling is not the property anyone means.
+
+    A refund and a chargeback are different ``reversal_type``s, so they get
+    different reversal keys and both book. Before the cumulative check, two €30
+    reversals of a €50 payment left the €50 invoice at €60 outstanding and
+    Overdue -- ERPNext does not arbitrate this, because
+    ``journal_entry.validate_reference_doc`` totals a Sales Invoice reference by
+    its **credit** column and every row here is a debit, so its over-allocation
+    guard is skipped on ``if total and ...``.
+    """
+
+    def test_the_second_reversal_is_refused_once_the_two_exceed_the_payment(self):
+        self.expectErrorLog("Mollie Dues Reversal Not Bookable")
+
+        first_id, first = self._reverse(30.0)
+        self.assertEqual(first.get("status"), "success", f"first reversal did not book: {first}")
+        self.assertEqual(self._outstanding(), 30.0)
+
+        second_id, second = self._reverse(
+            30.0, reversal_type="chargeback", reversal_id=f"chb_{frappe.generate_hash(length=8)}"
+        )
+        self.assertNotEqual(
+            second.get("status"),
+            "success",
+            f"two 30 reversals of a 50 payment must not both book: {second}",
+        )
+        self.assertEqual(self._journal_entries_for(second_id, "chargeback"), [])
+        self.assertEqual(self._bank_transactions_for(second_id, "chargeback"), [])
+        self.assertEqual(
+            self._outstanding(),
+            30.0,
+            "the refused reversal must not have moved the invoice past what was paid",
+        )
+        grand_total = flt(frappe.db.get_value("Sales Invoice", self.invoice, "grand_total"))
+        self.assertLessEqual(self._outstanding(), grand_total)
+
+    def test_the_refusal_says_why(self):
+        """A refusal here is permanent -- a redelivery takes the same branch."""
+        self.expectErrorLog("Mollie Dues Reversal Not Bookable")
+        self._reverse(30.0)
+        _, second = self._reverse(30.0, reversal_type="chargeback", reversal_id="chb_reasoned")
+        self.assertIn(
+            "already reversed",
+            second.get("message", ""),
+            f"the reason must reach the webhook response, not only the Error Log: {second}",
+        )
 
 
 class TestDuesReversalWithUnallocatedCash(_DuesReversalFixture):
@@ -326,3 +376,31 @@ class TestDuesReversalWithUnallocatedCash(_DuesReversalFixture):
             "only what the invoice actually took may be restored to it",
         )
         self.assertEqual(self._outstanding(), 50.0)
+
+    def test_refunding_only_the_excess_leaves_the_invoice_paid(self):
+        """The unapplied credit unwinds first, so a paid invoice stays paid.
+
+        Under the other order this refund of the €10 the invoice never absorbed
+        took a fully-paid €50 invoice to Partly Paid with €10 outstanding, while
+        the member still held a €10 unapplied credit. Debtors netted to zero
+        either way; invoice outstanding is what drives dunning and dues status.
+        """
+        self.assertEqual(self._outstanding(), 0.0, "fixture: the invoice starts fully paid")
+
+        reversal_id, result = self._reverse(10.0)
+        self.assertEqual(result.get("status"), "success", f"dues reversal did not book: {result}")
+
+        self.assertEqual(
+            self._outstanding(),
+            0.0,
+            "refunding money the invoice never absorbed must not make it unpaid again",
+        )
+
+        rows = self._gl_rows(self._journal_entries_for(reversal_id)[0])
+        receivable = [r for r in rows if r["account"] == self.receivable]
+        self.assertEqual(flt(sum(flt(r["debit"]) for r in receivable)), 10.0)
+        self.assertEqual(
+            [r["against_voucher"] for r in receivable],
+            [None],
+            "the excess leg carries no invoice reference -- that is what removes the credit",
+        )
