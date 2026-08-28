@@ -30,7 +30,8 @@ OOS (out of scope, with reason):
 Tests run as Administrator (EnhancedTestCase), which holds delete perms.
 
 Run with (a test site -- this module deletes Payment Entries and invoices, and
-veg11.veganisme.org is the LIVE site served out of the working tree):
+veg11.veganisme.org carries a COPY of production data, served out of the working
+tree; it is not production, but the data is worth keeping):
     bench --site test_site_1 run-tests --app verenigingen \
         --module verenigingen.tests.e_boekhouden.test_cleanup_utils_coverage
 """
