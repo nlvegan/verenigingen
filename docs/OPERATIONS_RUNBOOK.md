@@ -56,7 +56,7 @@ All scheduled tasks are defined in `verenigingen/hooks/scheduler.py`. Key daily 
 - **Membership processing**: `process_expired_memberships`, `send_renewal_reminders`
 - **Invoice generation**: `generate_dues_invoices`, `auto_create_missing_dues_schedules_scheduled`
 - **SEPA processing**: `daily_batch_optimization`, `create_monthly_dues_collection_batch`
-- **Payment retries**: `execute_payment_retry`
+- **Payment retries**: `execute_scheduled_payment_retries`
 - **E-Boekhouden sync**: `update_dashboard_data_periodically`
 
 For the full task reference, see the Scheduled Tasks section in `ADMIN_GUIDE.md`.

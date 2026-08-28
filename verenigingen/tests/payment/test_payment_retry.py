@@ -575,6 +575,53 @@ class TestExecutePaymentRetry(RetryBase):
         self.assertEqual(set(all_batches), {first_batch})
 
 
+    def test_a_failed_submit_does_not_strand_the_batch(self):
+        """A submit that fails must leave the invoice retryable.
+
+        The open-batch guard matches any Direct Debit Batch with docstatus != 2, and
+        the fence COMMITS the freshly inserted (still draft) batch before calling
+        submit -- deliberately, so a redelivered job cannot double-charge. The
+        consequence is that a submit which then raises leaves a committed draft batch
+        holding the invoice, and every later attempt -- the daily sweep, the enqueued
+        job, the desk button -- refuses it with "already present in an open Direct
+        Debit Batch". Permanently.
+
+        Before the daily sweep existed this needed a human pressing the button on one
+        record; the sweep makes it unattended and daily, over the whole backlog on its
+        first run, which is why it is fixed here rather than left as pre-existing.
+
+        The batch is only discarded when nothing left the building: no sepa_message_id
+        and no sepa_file_generated. The stubbed boundary is the same one this file
+        already stubs everywhere else; here it raises instead of returning a path.
+        """
+        member = self._make_member_with_customer("SubmitFails")
+        membership = self.sepa.create_test_membership(member=member.name, status="Active")
+        invoice = self._make_unpaid_invoice(member)
+        self.sepa.create_test_sepa_mandate(member=member.name, status="Active", used_for_memberships=1)
+        rec = self._make_retry_record(
+            member,
+            invoice,
+            status="Scheduled",
+            retry_count=1,
+            next_retry_date=today(),
+            membership=membership.name,
+        )
+
+        with patch(
+            "verenigingen.verenigingen_payments.services.sepa_xml_generation_service."
+            "sepa_xml_service.generate_sepa_xml_for_batch",
+            side_effect=RuntimeError("SEPA generation blew up after the fence"),
+        ):
+            retry.execute_payment_retry(retry_record=rec.name)
+
+        self.assertFalse(
+            retry._invoice_in_open_batch(invoice.name),
+            "a failed submit left a batch holding the invoice; it can never be retried again",
+        )
+        rec.reload()
+        self.assertEqual(rec.status, "Error")
+
+
 class TestRetryDebitsTheMembershipMandate(RetryBase):
     """The retry debits the mandate it picks, and it used to pick by recency.
 

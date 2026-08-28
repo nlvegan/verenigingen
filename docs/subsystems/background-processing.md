@@ -43,7 +43,7 @@ The hooks package at `hooks/__init__.py` imports from focused submodules:
 - `process_contact_request_automation`
 
 **Payment:**
-- `execute_payment_retry`, `reconcile_bank_transactions`, `process_overdue_installments`
+- `execute_scheduled_payment_retries`, `reconcile_bank_transactions`, `process_overdue_installments`
 
 **Volunteer/Expense:**
 - `refresh_all_expense_approvers`, `sync_all_department_approvers`

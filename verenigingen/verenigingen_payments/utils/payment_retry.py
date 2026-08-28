@@ -269,6 +269,43 @@ def _invoice_in_open_batch(invoice_name):
     )
 
 
+# Cap for one daily sweep. See the comment at the query for why an unbounded
+# get_all on a 300s queue is the wrong shape for a path that moves money.
+DAILY_RETRY_SWEEP_LIMIT = 200
+
+
+def _discard_unsent_retry_batch(batch_name):
+    """Remove a retry batch whose submit failed before any SEPA file was produced.
+
+    Only safe when nothing left the building. `sepa_message_id` and
+    `sepa_file_generated` are written by the generation service when the file is
+    built, so a batch carrying neither never reached generation and no collection
+    is in flight -- deleting it releases the invoice for a later retry.
+
+    A batch that DID reach generation is deliberately left in place: money may be
+    moving, and releasing the invoice then would risk the double charge the
+    open-batch guard exists to prevent. That case needs a human, and the Error
+    status plus the logged traceback are how they find it.
+    """
+    if not batch_name:
+        return
+    row = frappe.db.get_value(
+        "Direct Debit Batch",
+        batch_name,
+        ["docstatus", "sepa_message_id", "sepa_file_generated"],
+        as_dict=True,
+    )
+    if not row or row.docstatus != 0 or row.sepa_message_id or row.sepa_file_generated:
+        return
+    frappe.delete_doc(
+        "Direct Debit Batch", batch_name, force=True, ignore_permissions=True, delete_permanently=True
+    )
+    # Commit the release so it survives a later failure in this same handler: the
+    # sweep's per-record rollback would otherwise undo the delete and strand the batch
+    # again, which is the exact thing this function exists to prevent.
+    frappe.db.commit()
+
+
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def execute_payment_retry(retry_record=None):
@@ -277,6 +314,7 @@ def execute_payment_retry(retry_record=None):
         return
 
     retry_doc = frappe.get_doc("SEPA Payment Retry", retry_record)
+    batch_name = None
 
     # Not yet due. The guard is one-sided on purpose: a retry must never run
     # BEFORE its scheduled date, but an OVERDUE one must still run. The daily
@@ -381,6 +419,7 @@ def execute_payment_retry(retry_record=None):
         )
 
         batch.insert()
+        batch_name = batch.name
 
         # Fence concurrent runs BEFORE submit: record the terminal retry state and
         # commit so that a redelivered/duplicate job sees last_retry_date == today
@@ -397,6 +436,22 @@ def execute_payment_retry(retry_record=None):
         frappe.logger().info(f"Payment retry executed for invoice {invoice.name}")
 
     except Exception as e:
+        # Discard the failed submit's own writes first. The fence commit above is the
+        # transaction boundary, so this cannot lose the retry record -- it undoes only
+        # what batch.submit() got through before raising.
+        frappe.db.rollback()
+
+        # A stranded batch locks the invoice out of EVERY future retry: the guard above
+        # matches any Direct Debit Batch with docstatus != 2, so a batch left behind by
+        # a failed attempt is indistinguishable from one that is genuinely collecting,
+        # and the daily sweep, the enqueued job and the desk button will all refuse the
+        # invoice from then on. Before the daily sweep existed this needed a human to
+        # press the button, one record at a time; now it happens unattended.
+        _discard_unsent_retry_batch(batch_name)
+
+        # Re-read: the rollback discarded the in-memory doc's uncommitted state, so
+        # saving the stale object would raise TimestampMismatchError over the real one.
+        retry_doc = frappe.get_doc("SEPA Payment Retry", retry_doc.name)
         frappe.log_error(f"Payment retry failed: {str(e)}", "Payment Retry Error")
         retry_doc.status = "Error"
         retry_doc.last_error = str(e)
@@ -429,7 +484,23 @@ def execute_scheduled_payment_retries():
         },
         pluck="name",
         order_by="next_retry_date asc, creation asc",
+        # frappe.get_all forces limit_page_length=0 (unlimited) when it is not given,
+        # despite its own docstring. A Daily scheduler entry runs on the `default`
+        # queue, whose timeout is 300s (`long` gets 1500s) -- and each record here
+        # inserts, saves, commits, submits and generates a SEPA XML file. An
+        # unbounded first run over an accumulated backlog would be killed mid-loop by
+        # RQ, stranding the in-flight record's batch. The sweep is idempotent day to
+        # day, so a cap costs only latency: what it does not reach today it reaches
+        # tomorrow, oldest first.
+        limit_page_length=DAILY_RETRY_SWEEP_LIMIT,
     )
+    if len(due) == DAILY_RETRY_SWEEP_LIMIT:
+        # Say so rather than silently truncating -- a capped run must not read as
+        # "everything was collected".
+        print(
+            f"execute_scheduled_payment_retries: hit the {DAILY_RETRY_SWEEP_LIMIT}-record "
+            "cap; the remainder is picked up by the next daily run."
+        )
 
     errors = 0
     for name in due:
@@ -443,11 +514,16 @@ def execute_scheduled_payment_retries():
             # message AS the traceback, so passing anything else discards the
             # real one.
             errors += 1
+            # Isolation needs the rollback, not just the `except`: execute_payment_retry
+            # commits its own fence, so anything it wrote after that point is still
+            # open when it raises, and the NEXT record's commit would otherwise adopt
+            # it. Safe here -- the sweep itself only read before the loop, and every
+            # record that succeeded has already committed.
+            frappe.db.rollback()
             frappe.log_error(
                 title=f"Scheduled payment retry failed: {name}",
                 message=frappe.get_traceback(with_context=True),
             )
-            continue
 
     return {"due": len(due), "errors": errors}
 
