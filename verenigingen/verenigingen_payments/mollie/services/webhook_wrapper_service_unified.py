@@ -36,7 +36,9 @@ from ..utils.monitoring import record_operation_performance
 # TODO: Reimplement needed functionality using UnifiedIdempotencyManager
 
 
-def _reversal_history_row(doctype: str, name: str, amount: float, payment_date, reversal_id: str) -> dict:
+def _reversal_history_row(
+    doctype: str, name: str, amount: float, payment_date, reversal_id: str, reversal_type: str = "refund"
+) -> dict:
     """One Donation Payment row for a booked reversal.
 
     `Donation Payment` carries BOTH a `payment_entry` and a `journal_entry` Link, so
@@ -47,7 +49,7 @@ def _reversal_history_row(doctype: str, name: str, amount: float, payment_date, 
         "amount": -float(amount),  # negative: this is a reversal
         "payment_date": payment_date,
         "mollie_payment_id": reversal_id,
-        "payment_status": "Refunded",
+        "payment_status": "Refunded" if reversal_type == "refund" else "Chargeback",
         "payment_method": "Mollie",
     }
     row["journal_entry" if doctype == "Journal Entry" else "payment_entry"] = name
@@ -314,13 +316,21 @@ class UnifiedWebhookWrapperService:
                 # sent Mollie a 200 for reversals whose history rows do not exist.
                 # Reported as one entry because the save is one transaction: either
                 # all of entries_to_add landed or none did.
+                # `refund_id` is None on purpose: this entry is about the batch save,
+                # not about one refund, and `payment_history_entries` includes rows for
+                # refunds that were already processed and rows the idempotency filter
+                # skipped -- naming those as failed would be wrong. The ids go in the
+                # message, where they are diagnostic rather than identifying.
                 refund_results.append(
                     {
                         "status": "error",
-                        "refund_id": ", ".join(
-                            str(e.get("mollie_payment_id")) for e in payment_history_entries
+                        "refund_id": None,
+                        "failure_kind": "payment_history",
+                        "message": (
+                            f"Refund payment history batch update failed for "
+                            f"[{', '.join(str(e.get('mollie_payment_id')) for e in payment_history_entries)}]: "
+                            f"{hist_err}"
                         ),
-                        "message": f"Refund payment history batch update failed: {hist_err}",
                     }
                 )
 
@@ -718,7 +728,13 @@ class UnifiedWebhookWrapperService:
             # All refunds succeeded or no refunds to process
             return {
                 "status": "success",
-                "message": f"Payment already processed, handled {len(refund_results)} pending operations",
+                # Count the refunds, not the batch-save failure entry appended alongside
+                # them -- that entry is a report about the save, not an operation handled.
+                "message": (
+                    f"Payment already processed, handled "
+                    f"{len([r for r in refund_results if r.get('failure_kind') != 'payment_history'])} "
+                    f"pending operations"
+                ),
                 "payment_id": payment_id,
                 "idempotent": True,
                 "unified_state": {
@@ -884,8 +900,20 @@ class UnifiedWebhookWrapperService:
             # donation refund arrives.
             failed_refunds = [r for r in (refund_results or []) if r.get("status") == "error"]
             if failed_refunds:
-                self.logger.error(f"{len(failed_refunds)} refund booking(s) failed for {payment_id}")
-                history_failures.append(f"{len(failed_refunds)} refund booking(s)")
+                # A failed BOOKING and a failed history SAVE are different facts and
+                # must not be narrated as each other: the batch-save entry appended by
+                # _process_pending_refunds carries failure_kind="payment_history", and
+                # rendering it as "1 refund booking(s)" claimed the booking failed when
+                # it had in fact succeeded.
+                booking_failures = [r for r in failed_refunds if r.get("failure_kind") != "payment_history"]
+                self.logger.error(
+                    f"{len(failed_refunds)} refund operation(s) failed for {payment_id} "
+                    f"({len(booking_failures)} booking, {len(failed_refunds) - len(booking_failures)} history)"
+                )
+                if booking_failures:
+                    history_failures.append(f"{len(booking_failures)} refund booking(s)")
+                if len(booking_failures) != len(failed_refunds):
+                    history_failures.append("refund payment history")
 
             # A history write that failed must not be reported as success: the
             # financial entries are already booked and idempotent, so a non-2xx buys
@@ -1088,11 +1116,21 @@ class UnifiedWebhookWrapperService:
                     results.append("Donation payment history update failed")
                     component_failures.append("donation payment history")
 
-                # Also update Donor and Member records
+                # Also update Donor and Member records. Both return False (they do not
+                # raise) for a real failure, and both were recorded on success only --
+                # so a failure here left `component_failures` empty and the handler
+                # reported success. Same class as the sibling writes above and as the
+                # forward path's #449; recorded the same way they are at :862/:865.
                 if self._update_donor_record(donation, payment_data):
                     results.append("Donor record updated")
+                else:
+                    results.append("Donor record update failed")
+                    component_failures.append("donor_history")
                 if self._update_member_payment_history(donation, payment_data, journal_entry_name):
                     results.append("Member payment history updated")
+                else:
+                    results.append("Member payment history update failed")
+                    component_failures.append("member payment history")
 
             # CRITICAL FIX: Also handle refund payment history backfill during partial processing
             # This ensures that when main payment history is missing, we also check for missing refund history
@@ -1436,6 +1474,62 @@ class UnifiedWebhookWrapperService:
                 return frappe.utils.getdate()
         return reversal_date or frappe.utils.getdate()
 
+    def _repair_reversal_history(
+        self,
+        payment_id: str,
+        reversal_ref: Tuple[str, str],
+        amount: float,
+        reversal_date: Optional[str],
+        reversal_id: str,
+        reversal_type: str,
+    ) -> Optional[str]:
+        """Write the payment-history row for an ALREADY-booked reversal, if missing.
+
+        The sibling route says it best, and has said it for longer: "Skipping the
+        booking must not skip the repair" (``_process_pending_refunds``). Without
+        this, a history write that failed on delivery 1 is permanent -- delivery 2
+        matches ``find_booked_reversal``, returns early, and the row never appears.
+        ``_update_missing_payment_history`` cannot substitute: it is built from a
+        Payment-Entry-only query, so a JE-booked reversal is never in it.
+
+        Returns None when there is nothing to do or the repair succeeded, and the
+        error string when it failed -- so the caller can refuse to report success.
+        """
+        from ..utils.webhook_utilities import get_donation_by_payment_id
+
+        doctype, name = reversal_ref
+        try:
+            donation_doc = get_donation_by_payment_id(payment_id)
+            if not donation_doc:
+                return None
+
+            link_field = "journal_entry" if doctype == "Journal Entry" else "payment_entry"
+            if any(getattr(p, link_field, None) == name for p in (donation_doc.payments or [])):
+                return None
+
+            donation_doc.flags.ignore_validate_update_after_submit = True
+            donation_doc.append(
+                "payments",
+                _reversal_history_row(
+                    doctype,
+                    name,
+                    amount,
+                    self._parse_reversal_date(reversal_date),
+                    reversal_id,
+                    reversal_type,
+                ),
+            )
+            donation_doc.save()
+            self.logger.info(f"✅ Repaired missing {reversal_type} history row for {doctype} {name}")
+            return None
+        except Exception as err:
+            self.logger.error(f"❌ Could not repair {reversal_type} history row: {err}")
+            frappe.log_error(
+                f"Reversal history repair failed for {payment_id} {reversal_id}: {err}",
+                "Reversal History Repair Failed",
+            )
+            return str(err)
+
     def process_reversal_webhook(
         self,
         payment_id: str,
@@ -1543,14 +1637,38 @@ class UnifiedWebhookWrapperService:
                 self.logger.info(
                     f"✅ {reversal_type.capitalize()} {reversal_id} already processed: {existing_reversal}"
                 )
-                return {
-                    "status": "success",
-                    "message": f"{reversal_type.capitalize()} {reversal_id} already processed",
+                # Skipping the booking must not skip the repair. A history write that
+                # failed on an earlier delivery is only fixable HERE -- every later
+                # delivery lands on this branch.
+                repair_failure = (
+                    self._repair_reversal_history(
+                        payment_id=payment_id,
+                        reversal_ref=existing,
+                        amount=amount,
+                        reversal_date=reversal_date,
+                        reversal_id=reversal_id,
+                        reversal_type=reversal_type,
+                    )
+                    if booked_type == "donation"
+                    else None
+                )
+                result = {
+                    "status": "error" if repair_failure else "success",
+                    "message": (
+                        f"{reversal_type.capitalize()} {reversal_id} already booked as "
+                        f"{existing[0]} {existing[1]}, but its payment history row could not "
+                        f"be written ({repair_failure})"
+                        if repair_failure
+                        else f"{reversal_type.capitalize()} {reversal_id} already processed"
+                    ),
                     "payment_id": payment_id,
                     f"{reversal_type}_id": reversal_id,
                     "existing_reference": existing_reversal,
                     "idempotent": True,
                 }
+                if repair_failure:
+                    result["history_failure"] = repair_failure
+                return result
 
             from ..utils.webhook_utilities import get_donation_by_payment_id, standardized_webhook_response
 
@@ -1739,9 +1857,24 @@ class UnifiedWebhookWrapperService:
         Returns:
             Dict with processing results
         """
-        from ..utils.webhook_utilities import safe_extract_amount, safe_extract_date
+        from ..utils.webhook_utilities import (
+            extract_webhook_ids,
+            safe_extract_amount,
+            safe_extract_date,
+        )
 
-        refund_id = refund_data.get("id") or refund_data.get("refund", {}).get("id")
+        # Same extraction rule as process_chargeback_webhook, for the same reason:
+        # Mollie's top-level `id` is the PAYMENT id, and reading it as the refund id
+        # collapses every refund on a payment onto one reversal key. This method has
+        # no production caller today -- `handle_refund_webhook` calls
+        # `process_reversal_webhook` directly -- but routing the endpoint AROUND a
+        # defect leaves the defect here for the next caller, so it is fixed rather
+        # than left as the twin of a bug this branch removed 40 lines below.
+        refund_id = extract_webhook_ids(refund_data)["refund_id"]
+        if not refund_id:
+            candidate = refund_data.get("id") if isinstance(refund_data, dict) else None
+            refund_id = candidate if candidate and candidate != payment_id else None
+
         refund_amount = safe_extract_amount(refund_data)
         refund_date = safe_extract_date(refund_data)
 
@@ -1788,15 +1921,23 @@ class UnifiedWebhookWrapperService:
             chargeback_id = candidate if candidate and candidate != payment_id else None
 
         if not chargeback_id:
-            # `ignored`, not `error`: there is nothing in this payload to book from,
-            # so the ~10 redeliveries a 5xx buys over 26h would all fail identically.
+            # `not_implemented`, following this file's own precedent for the dues
+            # branch: name the missing capability rather than a symptom, because
+            # "payment not found" is what sent this whole bug class unnoticed.
+            #
+            # NOT "there is nothing to book from" -- that would be false. The id is
+            # recoverable with one call the codebase already makes
+            # (`payment.chargebacks.list()`, unified_idempotency_manager.py:381).
+            # It is simply not wired up here, and a 2xx is still right: redelivering
+            # ~10 times over 26h cannot wire it up.
             message = (
                 f"Cannot process chargeback for payment {payment_id}: the payload carries no "
-                f"chargeback id distinct from the payment id"
+                f"chargeback id distinct from the payment id, and resolving one from the "
+                f"Mollie chargebacks list is not implemented on this route"
             )
             self.logger.error(message)
             frappe.log_error(message, "Mollie Chargeback Id Missing")
-            return standardized_webhook_response("ignored", message, payment_id=payment_id)
+            return standardized_webhook_response("not_implemented", message, payment_id=payment_id)
 
         chargeback_amount = safe_extract_amount(chargeback_data)
         chargeback_date = safe_extract_date(chargeback_data)

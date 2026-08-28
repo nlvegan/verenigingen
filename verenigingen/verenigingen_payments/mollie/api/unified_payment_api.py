@@ -485,13 +485,17 @@ def handle_chargeback_webhook():
         result = service.process_chargeback_webhook(payment_id, chargeback_data)
 
         # A booking failure must not go out as 200 -- the same guard the refund
-        # endpoint carries, and the stakes are higher here: the bank has ALREADY
-        # taken the money back. Mollie retries on 5xx (~10 times over 26h), and
-        # that redelivery is the only second chance this chargeback gets, because
-        # the reversal key is deliberately freed when a booking fails. Answering
-        # 200 spends it and leaves an Error Log row as the only trace.
-        # `ignored` and `not_implemented` stay 2xx on purpose -- redelivering
-        # those changes nothing.
+        # endpoint carries. `ignored` and `not_implemented` stay 2xx on purpose:
+        # redelivering those changes nothing.
+        #
+        # Scope, honestly: this endpoint is NOT currently reachable from Mollie.
+        # Payments are created with the payment webhook URL only
+        # (mollie/services/payment_service.py), nothing registers this route, and
+        # Mollie posts form-encoded while this handler json.loads() the body -- so a
+        # genuine Mollie chargeback body would die in the outer `except` before it
+        # got here. The guard is correct and cheap, and it is what makes the route
+        # safe to wire up; it is not today rescuing live money. Wiring it up, and
+        # the chargeback booking behind it, is tracked separately.
         if result.get("status") == "error":
             frappe.response.http_status_code = 500
             frappe.logger().error(f"❌ Chargeback webhook could not book: {result.get('message')}")

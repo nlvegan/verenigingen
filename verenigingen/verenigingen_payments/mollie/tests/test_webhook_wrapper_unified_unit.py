@@ -231,9 +231,13 @@ class TestRefundChargebackDelegation(WebhookTestBase):
         already-processed; and `safe_extract_amount` finds no `amount` on that
         payload, resolving to 0.00, which ERPNext rejects.
 
-        There is nothing in such a payload to book from, so it is `ignored`
-        (2xx, no redelivery) rather than `error`: retrying an unprocessable
-        payload ~10 times over 26h changes nothing.
+        Reported as `not_implemented` (2xx, no redelivery), following this file's
+        own precedent for the dues branch: name the missing capability, because
+        "payment not found" is what sent this whole bug class unnoticed. NOT
+        `ignored`, and not "nothing to book from" -- the id IS recoverable via
+        `payment.chargebacks.list()`, which the codebase already calls in
+        unified_idempotency_manager.py. It is simply not wired up on this route,
+        and no amount of redelivery will wire it up.
         """
         delegated = []
         self.service.process_reversal_webhook = lambda **kw: delegated.append(kw) or {"status": "success"}
@@ -245,8 +249,9 @@ class TestRefundChargebackDelegation(WebhookTestBase):
             [],
             "a payload whose only id IS the payment id must not be delegated as a chargeback",
         )
-        self.assertEqual(result["status"], "ignored")
+        self.assertEqual(result["status"], "not_implemented")
         self.assertIn("chargeback id", result["message"].lower())
+        self.assertIn("not implemented", result["message"].lower())
 
     def test_a_distinct_top_level_chargeback_id_still_delegates(self):
         """Control: the guard must reject only the payment id, not every bare id.

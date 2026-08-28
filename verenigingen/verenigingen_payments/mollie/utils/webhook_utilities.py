@@ -56,9 +56,29 @@ def standardized_webhook_response(status: str, message: str, **additional_data) 
     return response
 
 
+def _nested_id(webhook_data: dict, key: str) -> Optional[str]:
+    """``webhook_data[key]["id"]``, but only when that path really is a dict."""
+    nested = webhook_data.get(key)
+    return nested.get("id") if isinstance(nested, dict) else None
+
+
+def _top_level_id(webhook_data: dict) -> Optional[str]:
+    """The top-level ``id``, but only when it is a string."""
+    value = webhook_data.get("id")
+    return value if isinstance(value, str) else None
+
+
 def extract_webhook_ids(webhook_data: Dict[str, Any]) -> Dict[str, Optional[str]]:
     """
     Extract common IDs from webhook payload in a consistent way.
+
+    A webhook payload is untrusted input, so every lookup here is defensive.
+    This used to assume `payment`/`refund`/`chargeback` are dicts and that `id`
+    is a str, and raised AttributeError otherwise -- on `{"id": None}`,
+    `{"id": 12345}`, `{"chargeback": ["a"]}` and `{"payment": "tr_x"}` among
+    others. Every caller wraps this in a broad `except`, so a raise became an
+    HTTP 500, and Mollie then redelivered ~10 times over 26h for a payload that
+    fails identically every time. Returning None lets the caller refuse it once.
 
     Args:
         webhook_data: Parsed webhook JSON payload
@@ -66,19 +86,22 @@ def extract_webhook_ids(webhook_data: Dict[str, Any]) -> Dict[str, Optional[str]
     Returns:
         Dict with extracted IDs: payment_id, refund_id, chargeback_id
     """
+    if not isinstance(webhook_data, dict):
+        # json.loads can hand back a list, a string or a number, not only an object.
+        return {"payment_id": None, "refund_id": None, "chargeback_id": None}
+
+    resource = str(webhook_data.get("resource", "")).lower()
+    top_id = _top_level_id(webhook_data)
+
     return {
-        "payment_id": (webhook_data.get("payment", {}).get("id") or webhook_data.get("payment_id")),
+        "payment_id": _nested_id(webhook_data, "payment") or webhook_data.get("payment_id"),
         "refund_id": (
-            webhook_data.get("id")
-            if "refund" in str(webhook_data.get("resource", "")).lower()
-            else webhook_data.get("refund", {}).get("id")
-            or (webhook_data.get("id") if webhook_data.get("id", "").startswith("re_") else None)
+            top_id
+            if "refund" in resource
+            else _nested_id(webhook_data, "refund")
+            or (top_id if top_id and top_id.startswith("re_") else None)
         ),
-        "chargeback_id": (
-            webhook_data.get("id")
-            if "chargeback" in str(webhook_data.get("resource", "")).lower()
-            else webhook_data.get("chargeback", {}).get("id")
-        ),
+        "chargeback_id": (top_id if "chargeback" in resource else _nested_id(webhook_data, "chargeback")),
     }
 
 

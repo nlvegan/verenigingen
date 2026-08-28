@@ -349,15 +349,19 @@ class TestHandleChargebackWebhook(EnhancedTestCase):
     def test_a_booking_failure_returns_500_so_mollie_retries(self):
         """A chargeback that could not be booked must not go out as 200.
 
-        This is the refund endpoint's guard, which this endpoint did not have.
-        The stakes are higher here than for a refund: the bank has ALREADY taken
-        the money back. Mollie retries on 5xx (~10 times over 26h) and the
-        reversal key is deliberately freed when a booking fails, so redelivery is
-        the only second chance the chargeback gets. Answering 200 spends it, and
-        the only remaining trace is an Error Log row.
+        This is the refund endpoint's guard, which this endpoint did not have --
+        2 of 3 webhook endpoints had it. Mollie retries on 5xx (~10 times over
+        26h), and the reversal key is deliberately freed when a booking fails, so
+        a 200 spends the redelivery that failure was meant to buy.
 
-        Load-bearing because of this PR: before it, chargebacks never booked at
-        all, so there was nothing for a 200 to lose.
+        Scope, honestly: that sequence cannot run today. This endpoint is not
+        registered with Mollie (payments carry the payment webhook URL only), and
+        Mollie posts form-encoded while the handler json.loads() the body, so a
+        real chargeback body dies in the outer `except` before reaching here. An
+        earlier version of this docstring claimed the guard was "load-bearing
+        because of this PR" -- that was reasoning about a path that is dark. The
+        guard is correct and is what makes the route safe to wire up; it is not
+        today rescuing live money.
         """
         payload = '{"id":"tr_cb_fail","status":"charged_back"}'
         SVC = (

@@ -447,19 +447,20 @@ class TestReversalMirrorsTheForwardArtefact(_RefundFixtureMixin, EnhancedTestCas
                 f"(forward Dr {fwd_dr} / Cr {fwd_cr}, reversal Dr {rev_dr} / Cr {rev_cr})",
             )
 
-        # And name the direction absolutely, so a failure reads as the defect rather
-        # than as an arithmetic mismatch. The forward "Receive" pays FROM the
-        # donation receivable INTO the bank; the reversal is the other way round.
-        bank_account, receivable = forward.paid_to, forward.paid_from
+        # And name the direction absolutely. These read the accounts from the FIXTURE,
+        # not from `forward.paid_to`/`paid_from`: ERPNext always debits `paid_to` and
+        # credits `paid_from`, so an assertion derived from the voucher's own fields
+        # cannot fail independently of the mirror check above -- it would look
+        # absolute and be tautological.
         self.assertGreater(
-            reversal_gl[bank_account][1],
+            reversal_gl[self.mollie_account][1],
             0,
-            f"the reversal must CREDIT the bank {bank_account} -- the money leaves",
+            f"the reversal must CREDIT the bank {self.mollie_account} -- the money leaves",
         )
         self.assertGreater(
-            reversal_gl[receivable][0],
+            reversal_gl[self.receivable][0],
             0,
-            f"the reversal must DEBIT the receivable {receivable} -- the claim is restored",
+            f"the reversal must DEBIT the receivable {self.receivable} -- the claim is restored",
         )
 
     def _make_forward_journal_entry(self):
