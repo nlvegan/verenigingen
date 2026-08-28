@@ -109,10 +109,10 @@ def site_timezone_diverging_from_process():
     current bodies call it.
     """
     original = getattr(frappe.local, "system_settings", None)
-    settings = frappe.get_doc("System Settings")
-    settings.time_zone = _site_tz_that_differs()
-    frappe.local.system_settings = settings
     try:
+        settings = frappe.get_doc("System Settings")
+        settings.time_zone = _site_tz_that_differs()
+        frappe.local.system_settings = settings
         # Real raises, not asserts: `assert` is stripped under `python -O`, and a lever
         # that cannot report its own failure would make every test below silently
         # vacuous rather than red.
@@ -148,25 +148,34 @@ def site_a_day_ahead_of_process():
     part of every day no site timezone is a day ahead, whatever we pick. This lever
     therefore pins BOTH clocks: the process to ``Pacific/Midway`` (UTC-11) via
     ``TZ`` + ``time.tzset()``, and the site to ``Pacific/Kiritimati`` (UTC+14). Those
-    are 25 hours apart -- strictly more than 24 -- so the site is exactly one day
-    ahead at every instant, on any runner, at any hour.
+    are 25 hours apart, so the site clock is always strictly AHEAD of the process
+    clock -- which is the property the assertions actually rest on, since they
+    compare instants.
 
-    Both clocks are restored in ``finally``. ``time.tzset()`` is process-global and
-    POSIX-only; that is acceptable here because Frappe's test runner is
-    single-threaded and CI is Linux.
+    The guard checks exactly that, and deliberately NOT "exactly one calendar day
+    ahead". 25 > 24 makes the site *at least* a day ahead, not exactly one: while
+    Midway is at 23:00-23:59 (10:00-10:59 UTC) Kiritimati is already two calendar
+    days later. A one-day guard therefore raised for one hour of every day, on every
+    runner -- 6 of 144 ten-minute samples -- which made these two tests a scheduled
+    red hour in CI rather than a flake. Reproduced live at 10:26 UTC.
+
+    Both clocks are restored in ``finally``, and every mutation is made INSIDE the
+    try so a failure between them cannot leave the process on UTC-11 for the rest of
+    the shard. ``time.tzset()`` is process-global and POSIX-only; that is acceptable
+    here because Frappe's test runner is single-threaded and CI is Linux.
     """
     original_settings = getattr(frappe.local, "system_settings", None)
     original_tz = os.environ.get("TZ")
-    os.environ["TZ"] = "Pacific/Midway"
-    time.tzset()
-    settings = frappe.get_doc("System Settings")
-    settings.time_zone = "Pacific/Kiritimati"
-    frappe.local.system_settings = settings
     try:
-        if getdate() != datetime.date.today() + datetime.timedelta(days=1):
+        os.environ["TZ"] = "Pacific/Midway"
+        time.tzset()
+        settings = frappe.get_doc("System Settings")
+        settings.time_zone = "Pacific/Kiritimati"
+        frappe.local.system_settings = settings
+        if now_datetime() <= datetime.datetime.now():
             raise RuntimeError(
-                "lever did not install a one-day-ahead site: process is on "
-                f"{datetime.date.today()}, site on {getdate()}"
+                "lever did not install a site clock ahead of the process: site is on "
+                f"{now_datetime()}, process on {datetime.datetime.now()}"
             )
         yield getdate()
     finally:
