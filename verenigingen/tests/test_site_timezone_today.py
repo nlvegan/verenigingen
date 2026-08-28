@@ -192,7 +192,7 @@ class TestSepaXmlValidationUsesSiteToday(FrappeTestCase):
         gen.validation_warnings = []
         return gen
 
-    def _payment_info(self, collection_date):
+    def _payment_info_due_on(self, collection_date):
         return SEPAPaymentInfo(
             payment_info_id="PI-628",
             payment_method="DD",
@@ -212,7 +212,7 @@ class TestSepaXmlValidationUsesSiteToday(FrappeTestCase):
     def test_same_day_collection_is_not_flagged_as_past(self):
         with site_timezone_diverging_from_process() as site_today:
             gen = self._generator()
-            gen._validate_payment_info(self._payment_info(site_today), 0)
+            gen._validate_payment_info(self._payment_info_due_on(site_today), 0)
             self.assertEqual(
                 [w for w in gen.validation_warnings if "Collection date is in the past" in w],
                 [],
@@ -223,7 +223,7 @@ class TestSepaXmlValidationUsesSiteToday(FrappeTestCase):
         """Control: the warning must still fire, or the test above proves nothing."""
         with site_timezone_diverging_from_process() as site_today:
             gen = self._generator()
-            gen._validate_payment_info(self._payment_info(site_today - datetime.timedelta(days=2)), 0)
+            gen._validate_payment_info(self._payment_info_due_on(site_today - datetime.timedelta(days=2)), 0)
             self.assertTrue(
                 [w for w in gen.validation_warnings if "Collection date is in the past" in w]
             )
