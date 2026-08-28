@@ -297,6 +297,12 @@ def _discard_unsent_retry_batch(batch_name):
     )
     if not row or row.docstatus != 0 or row.sepa_message_id or row.sepa_file_generated:
         return
+    # Security: ignore_permissions is required because this runs from the daily
+    # scheduler, where frappe.session.user is Administrator-less background context and
+    # no interactive user holds delete rights on Direct Debit Batch. The bypass is
+    # tightly bounded -- the target is a batch this same function created moments
+    # earlier, still draft, carrying no generated SEPA file, identified by a name the
+    # caller never supplies. It cannot reach any batch that exists independently.
     frappe.delete_doc(
         "Direct Debit Batch", batch_name, force=True, ignore_permissions=True, delete_permanently=True
     )
