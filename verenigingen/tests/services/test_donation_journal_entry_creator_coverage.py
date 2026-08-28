@@ -30,6 +30,9 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.services.donation_journal_entry_creator import (
     DonationJournalEntryCreator,
 )
+from verenigingen.verenigingen_payments.services.journal_entry_booking_support import (
+    reconcile_bank_transaction_with_journal_entry,
+)
 
 # EUR company so the single-currency donation Journal Entry (Debit clearing /
 # Credit income) does not trip ERPNext's multi-currency validation.
@@ -285,8 +288,8 @@ class TestDonationJournalEntryCreatorMoneyPath(_DonationJEFixtureMixin, Enhanced
         self.assertTrue(je_name)
 
         # Reconcile twice; second call must not add a duplicate row.
-        self.creator._reconcile_bank_transaction(bt_name, je_name, amount)
-        self.creator._reconcile_bank_transaction(bt_name, je_name, amount)
+        reconcile_bank_transaction_with_journal_entry(bt_name, je_name, amount)
+        reconcile_bank_transaction_with_journal_entry(bt_name, je_name, amount)
         bt = frappe.get_doc("Bank Transaction", bt_name)
         links = [pe for pe in bt.payment_entries if pe.payment_entry == je_name]
         self.assertEqual(len(links), 1, "Reconciliation must be idempotent")

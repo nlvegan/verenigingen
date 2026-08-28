@@ -18,6 +18,10 @@ import frappe
 from frappe.utils import flt, getdate, nowdate
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.verenigingen_payments.services.journal_entry_booking_support import (
+    find_journal_entry_by_reference,
+    reconcile_bank_transaction_with_journal_entry,
+)
 
 
 class DonationJournalEntryCreator:
@@ -75,7 +79,7 @@ class DonationJournalEntryCreator:
         payment_id = payment_data.get("id")
 
         # Idempotency check - avoid duplicate Journal Entries
-        existing_je = self._check_existing_by_reference(payment_id)
+        existing_je = find_journal_entry_by_reference(payment_id)
         if existing_je:
             frappe.logger().info(f"Journal Entry already exists for {payment_id}: {existing_je}")
             # Still attempt reconciliation in case it wasn't done previously
@@ -86,7 +90,7 @@ class DonationJournalEntryCreator:
 
                 extractor = get_payment_data_extractor()
                 amount = extractor.extract_amount(payment_data, allow_zero=False) or 0
-                self._reconcile_bank_transaction(bank_transaction_name, existing_je, flt(amount))
+                reconcile_bank_transaction_with_journal_entry(bank_transaction_name, existing_je, flt(amount))
             return existing_je
 
         # Resolve company
@@ -163,7 +167,7 @@ class DonationJournalEntryCreator:
 
         # Idempotency check
         if reference_number:
-            existing_je = self._check_existing_by_reference(reference_number)
+            existing_je = find_journal_entry_by_reference(reference_number)
             if existing_je:
                 frappe.logger().info(f"Journal Entry already exists: {existing_je}")
                 return existing_je
@@ -231,16 +235,6 @@ class DonationJournalEntryCreator:
                 f"Failed to update Donation {donation_name} with Journal Entry {journal_entry_name}: {e}"
             )
             # Don't raise - JE was created successfully, just couldn't link back
-
-    def _check_existing_by_reference(self, reference_number: str) -> Optional[str]:
-        """Check if Journal Entry already exists with this reference."""
-        if not reference_number:
-            return None
-        return frappe.db.get_value(
-            "Journal Entry",
-            {"cheque_no": reference_number, "docstatus": ["!=", 2]},
-            "name",
-        )
 
     def _get_config(self, company: str) -> Dict[str, Any]:
         """
@@ -402,7 +396,7 @@ class DonationJournalEntryCreator:
 
                 # Reconcile Bank Transaction with this Journal Entry
                 if bank_transaction_name:
-                    self._reconcile_bank_transaction(bank_transaction_name, je.name, flt(amount))
+                    reconcile_bank_transaction_with_journal_entry(bank_transaction_name, je.name, flt(amount))
             else:
                 frappe.logger().info(f"Created Journal Entry {je.name} (draft) for donation {donation_name}")
 
@@ -415,63 +409,6 @@ class DonationJournalEntryCreator:
                 "Donation Journal Entry Error",
             )
             return None
-
-    def _reconcile_bank_transaction(
-        self,
-        bank_transaction_name: str,
-        journal_entry_name: str,
-        amount: float,
-    ):
-        """
-        Reconcile Bank Transaction with the created Journal Entry.
-
-        Links the Bank Transaction to the Journal Entry via payment_entries child table
-        and updates the Bank Transaction status to 'Reconciled'.
-
-        Args:
-            bank_transaction_name: Name of the Bank Transaction
-            journal_entry_name: Name of the Journal Entry to link
-            amount: Amount to allocate
-        """
-        try:
-            bt = frappe.get_doc("Bank Transaction", bank_transaction_name)
-
-            # Check if already reconciled with this JE
-            existing_link = next(
-                (pe for pe in bt.payment_entries if pe.payment_entry == journal_entry_name),
-                None,
-            )
-            if existing_link:
-                frappe.logger().info(
-                    f"Bank Transaction {bank_transaction_name} already linked to {journal_entry_name}"
-                )
-                return
-
-            # Add Journal Entry to payment_entries
-            bt.append(
-                "payment_entries",
-                {
-                    "payment_document": "Journal Entry",
-                    "payment_entry": journal_entry_name,
-                    "allocated_amount": flt(amount),
-                },
-            )
-
-            # Update status to Reconciled if fully allocated
-            total_allocated = sum(flt(pe.allocated_amount) for pe in bt.payment_entries)
-            if total_allocated >= flt(bt.deposit or 0):
-                bt.status = "Reconciled"
-
-            bt.save()
-            frappe.db.commit()
-
-            frappe.logger().info(
-                f"Reconciled Bank Transaction {bank_transaction_name} with Journal Entry {journal_entry_name}"
-            )
-
-        except Exception as e:
-            frappe.logger().error(f"Failed to reconcile Bank Transaction {bank_transaction_name}: {e}")
-            # Don't raise - reconciliation failure shouldn't fail the whole operation
 
 
 def get_donation_journal_entry_creator() -> DonationJournalEntryCreator:

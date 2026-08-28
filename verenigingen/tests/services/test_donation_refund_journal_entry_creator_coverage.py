@@ -29,6 +29,9 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.services.donation_refund_journal_entry_creator import (
     DonationRefundJournalEntryCreator,
 )
+from verenigingen.verenigingen_payments.services.journal_entry_booking_support import (
+    reconcile_bank_transaction_with_journal_entry,
+)
 
 COMPANY = "_Test Company 2"
 
@@ -374,8 +377,8 @@ class TestDonationRefundJournalEntryCreator(_RefundFixtureMixin, EnhancedTestCas
         )
         self.assertTrue(je_name)
 
-        self.creator._reconcile_bank_transaction(bt_name, je_name, amount)
-        self.creator._reconcile_bank_transaction(bt_name, je_name, amount)
+        reconcile_bank_transaction_with_journal_entry(bt_name, je_name, amount)
+        reconcile_bank_transaction_with_journal_entry(bt_name, je_name, amount)
         bt = frappe.get_doc("Bank Transaction", bt_name)
         links = [pe for pe in bt.payment_entries if pe.payment_entry == je_name]
         self.assertEqual(len(links), 1, "Reconciliation must be idempotent")

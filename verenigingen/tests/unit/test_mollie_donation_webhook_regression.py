@@ -126,8 +126,10 @@ class TestJournalEntryNoPartyOnIncomeAccount(unittest.TestCase):
             extractor.extract_amount.return_value = 100.0
             mock_extractor.return_value = extractor
 
-            # Also need to mock _check_existing_by_reference to skip idempotency check
-            with patch.object(creator, "_check_existing_by_reference", return_value=None):
+            # Also need to skip the idempotency check. It is a module-level
+            # function now (shared with the other Journal Entry bookers), so it
+            # is patched where the creator looks it up.
+            with patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.find_journal_entry_by_reference", return_value=None):
                 creator.create_from_mollie_payment(
                     payment_data={"id": "tr_test123", "paid_at": "2025-01-01T12:00:00Z"},
                     donation_doc=mock_donation,
@@ -191,13 +193,9 @@ class TestBankTransactionReconciliationOnExistingJE(unittest.TestCase):
         creator = DonationJournalEntryCreator()
 
         # Mock existing JE found
-        with patch.object(
-            creator, "_check_existing_by_reference", return_value="JE-EXISTING-001"
-        ):
-            # Mock reconciliation method to track if it's called
-            with patch.object(
-                creator, "_reconcile_bank_transaction"
-            ) as mock_reconcile:
+        with patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.find_journal_entry_by_reference", return_value="JE-EXISTING-001"):
+            # Track whether reconciliation is attempted
+            with patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.reconcile_bank_transaction_with_journal_entry") as mock_reconcile:
                 mock_donation = MagicMock()
                 mock_donation.name = "TEST-DONATION"
                 mock_donation.donor = None
@@ -403,10 +401,11 @@ class TestRefundJournalEntryCreator(unittest.TestCase):
 
     def test_refund_creator_has_create_method(self):
         """Should have create_refund_journal_entry method with correct signature."""
+        import inspect
+
         from verenigingen.verenigingen_payments.services.donation_refund_journal_entry_creator import (
             get_donation_refund_journal_entry_creator,
         )
-        import inspect
 
         creator = get_donation_refund_journal_entry_creator()
         sig = inspect.signature(creator.create_refund_journal_entry)
@@ -433,7 +432,7 @@ class TestRefundJournalEntryCreator(unittest.TestCase):
         creator = get_donation_refund_journal_entry_creator()
 
         # Mock existing check to return None (no existing JE)
-        with patch.object(creator, "_check_existing_by_reference", return_value=None):
+        with patch("verenigingen.verenigingen_payments.services.donation_refund_journal_entry_creator.find_journal_entry_by_reference", return_value=None):
             # Mock config
             creator._config = {
                 "company": "Test Company",
@@ -482,10 +481,11 @@ class TestRefundIdempotencyCheck(unittest.TestCase):
         Bug: Old check only looked at payment_entry, missed Journal Entry refunds
         Fix: Check both payment_entry and journal_entry fields
         """
+        import inspect
+
         from verenigingen.verenigingen_payments.mollie.services.webhook_wrapper_service_unified import (
             UnifiedWebhookWrapperService,
         )
-        import inspect
 
         # Read the source code of _process_pending_refunds to verify it checks both
         source = inspect.getsource(UnifiedWebhookWrapperService._process_pending_refunds)
@@ -517,10 +517,11 @@ class TestRefundAccountingEntries(unittest.TestCase):
         Donation: DR Clearing / CR Income
         Refund:   DR Income / CR Clearing
         """
+        import inspect
+
         from verenigingen.verenigingen_payments.services.donation_refund_journal_entry_creator import (
             get_donation_refund_journal_entry_creator,
         )
-        import inspect
 
         creator = get_donation_refund_journal_entry_creator()
         source = inspect.getsource(creator._create_refund_journal_entry)

@@ -46,6 +46,10 @@ from verenigingen.tests.services.test_donation_refund_journal_entry_creator_cove
     COMPANY,
     _RefundFixtureMixin,
 )
+from verenigingen.tests.support.mollie_settings import (
+    pin_mollie_clearing_account,
+    pin_verenigingen_settings,
+)
 from verenigingen.verenigingen_payments.mollie.services.webhook_wrapper_service_unified import (
     UnifiedWebhookWrapperService,
 )
@@ -99,14 +103,6 @@ def _ensure_mollie_named_bank_account():
     return acct.name
 
 
-def _clear_mollie_config_cache():
-    from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
-        MollieConfigurationService,
-    )
-
-    MollieConfigurationService.clear_cache()
-
-
 class TestMollieReversalBooksOnce(_RefundFixtureMixin, EnhancedTestCase):
     def setUp(self):
         super().setUp()
@@ -129,25 +125,12 @@ class TestMollieReversalBooksOnce(_RefundFixtureMixin, EnhancedTestCase):
             "Account", {"company": COMPANY, "account_type": "Receivable", "is_group": 0}, "name"
         )
 
-        # Verenigingen Settings is a Single shared with every co-tenant test in the
-        # shard, so save and restore it via addCleanup (a tearDown restore is
-        # discarded by the base cleanup).
-        self._restore_settings = {}
-        for field, value in (("company", COMPANY), ("donation_receivable_account", self.receivable)):
-            self._restore_settings[field] = frappe.db.get_single_value("Verenigingen Settings", field)
-            frappe.db.set_single_value("Verenigingen Settings", field, value)
-        self.addCleanup(self._restore_vs)
-
+        pin_verenigingen_settings(
+            self, company=COMPANY, donation_receivable_account=self.receivable
+        )
         # The sweep route books through get_mollie_bank_account_config(), which
-        # reads Mollie Settings -- a Single shared with every co-tenant in the
-        # shard. Point it at this test's clearing account and put it back
-        # afterwards. MollieConfigurationService caches the Single in
-        # frappe.cache() with a TTL, so the write is invisible to the caller for
-        # the rest of the process unless the cache is dropped as well.
-        self._prev_clearing = frappe.db.get_single_value("Mollie Settings", "mollie_clearing_account")
-        frappe.db.set_single_value("Mollie Settings", "mollie_clearing_account", self.clearing_account)
-        _clear_mollie_config_cache()
-        self.addCleanup(self._restore_mollie_settings)
+        # reads Mollie Settings.
+        pin_mollie_clearing_account(self, self.clearing_account)
 
         self.donor = self._make_donor()
         donor_doc = frappe.get_doc("Donor", self.donor)
@@ -158,16 +141,6 @@ class TestMollieReversalBooksOnce(_RefundFixtureMixin, EnhancedTestCase):
         self.donation = self._make_donation(self.donor, 100.0)
         frappe.db.set_value("Donation", self.donation.name, "payment_id", self.payment_id)
         self.donation.payment_id = self.payment_id
-
-    def _restore_mollie_settings(self):
-        frappe.db.set_single_value("Mollie Settings", "mollie_clearing_account", self._prev_clearing)
-        frappe.db.commit()
-        _clear_mollie_config_cache()
-
-    def _restore_vs(self):
-        for field, value in self._restore_settings.items():
-            frappe.db.set_single_value("Verenigingen Settings", field, value)
-        frappe.db.commit()
 
     def _artefacts_for(self, key):
         """Every submitted-or-draft ledger artefact booked under this reversal key."""
@@ -336,19 +309,10 @@ class TestReversalMirrorsTheForwardArtefact(_RefundFixtureMixin, EnhancedTestCas
         self.receivable = frappe.get_value(
             "Account", {"company": COMPANY, "account_type": "Receivable", "is_group": 0}, "name"
         )
-        self._restore_settings = {}
-        for field, value in (
-            ("company", COMPANY),
-            ("donation_receivable_account", self.receivable),
-        ):
-            self._restore_settings[field] = frappe.db.get_single_value("Verenigingen Settings", field)
-            frappe.db.set_single_value("Verenigingen Settings", field, value)
-        self.addCleanup(self._restore_vs)
-
-        self._prev_clearing = frappe.db.get_single_value("Mollie Settings", "mollie_clearing_account")
-        frappe.db.set_single_value("Mollie Settings", "mollie_clearing_account", self.clearing_account)
-        _clear_mollie_config_cache()
-        self.addCleanup(self._restore_mollie_settings)
+        pin_verenigingen_settings(
+            self, company=COMPANY, donation_receivable_account=self.receivable
+        )
+        pin_mollie_clearing_account(self, self.clearing_account)
 
         self.donor = self._make_donor()
         frappe.get_doc("Donor", self.donor).get_or_create_customer()
@@ -356,16 +320,6 @@ class TestReversalMirrorsTheForwardArtefact(_RefundFixtureMixin, EnhancedTestCas
         self.donation = self._make_donation(self.donor, 100.0)
         frappe.db.set_value("Donation", self.donation.name, "payment_id", self.payment_id)
         self.donation.payment_id = self.payment_id
-
-    def _restore_vs(self):
-        for field, value in self._restore_settings.items():
-            frappe.db.set_single_value("Verenigingen Settings", field, value)
-        frappe.db.commit()
-
-    def _restore_mollie_settings(self):
-        frappe.db.set_single_value("Mollie Settings", "mollie_clearing_account", self._prev_clearing)
-        frappe.db.commit()
-        _clear_mollie_config_cache()
 
     def _gl_by_account(self, payment_entry_name):
         """{account: (debit, credit)} for a submitted Payment Entry's GL rows."""

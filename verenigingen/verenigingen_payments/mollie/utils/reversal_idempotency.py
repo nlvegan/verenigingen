@@ -22,6 +22,7 @@ forward booking is not a payment.)
 from typing import Optional, Tuple
 
 import frappe
+from frappe.utils import flt
 
 #: (doctype, field carrying the reversal key)
 _REVERSAL_ARTEFACTS = (
@@ -33,6 +34,51 @@ _REVERSAL_ARTEFACTS = (
 def build_reversal_key(payment_id: str, reversal_type: str, reversal_id: str) -> str:
     """The one reference string every reversal route must agree on."""
     return f"{payment_id}_{reversal_type}_{reversal_id}"
+
+
+def total_reversed(payment_id: str) -> float:
+    r"""How much of this payment has ALREADY been reversed, as any artefact.
+
+    Every reversal key is ``{payment_id}_{reversal_type}_{reversal_id}``, so this
+    is a prefix scan over the same two fields :func:`find_booked_reversal` reads.
+
+    The prefix is escaped because ``_`` and ``%`` are LIKE wildcards and a Mollie
+    payment id *contains* an underscore: unescaped, ``tr_abc\_%`` would also
+    match reversals of ``trXabc``. MariaDB's default LIKE escape is ``\``.
+
+    Drafts count, cancelled do not -- the same predicate as
+    :func:`find_booked_reversal`, and for the same reason: a draft is a booking
+    already in flight.
+
+    Why this exists: the per-delivery "not more than the payment" check is not
+    the property anyone means. A refund and a chargeback are different
+    ``reversal_type``s, so they get different keys and both book; two reversals
+    that each pass a per-delivery check can still sum above the payment. And
+    ERPNext will not catch it -- ``journal_entry.validate_reference_doc`` totals
+    a Sales Invoice reference by its **credit** column, so a reversal's
+    debit-side reference rows total 0.0 and ``validate_invoices``' over-allocation
+    guard is skipped entirely (``if total and ...``). Nothing downstream stands
+    between a second reversal and a receivable restored above the invoice.
+    """
+    if not payment_id:
+        return 0.0
+
+    escaped = payment_id.replace("\\", "\\\\").replace("_", "\\_").replace("%", "\\%")
+    prefix = f"{escaped}\\_%"
+
+    total = 0.0
+    for doctype, key_field, amount_field in (
+        ("Journal Entry", "cheque_no", "total_debit"),
+        ("Payment Entry", "reference_no", "paid_amount"),
+    ):
+        for row in frappe.get_all(
+            doctype,
+            filters={key_field: ["like", prefix], "docstatus": ["!=", 2]},
+            fields=[amount_field],
+        ):
+            total += flt(row.get(amount_field))
+
+    return flt(total, 2)
 
 
 def find_booked_reversal(reversal_key: str) -> Optional[Tuple[str, str]]:

@@ -18,6 +18,11 @@ import frappe
 from frappe.utils import flt, getdate, nowdate
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.verenigingen_payments.services.journal_entry_booking_support import (
+    discard_unposted_journal_entry,
+    find_journal_entry_by_reference,
+    reconcile_bank_transaction_with_journal_entry,
+)
 
 
 class DonationRefundJournalEntryCreator:
@@ -98,12 +103,14 @@ class DonationRefundJournalEntryCreator:
         reference_number = build_reversal_key(original_payment_id, reversal_type, refund_id)
 
         # Idempotency check - avoid duplicate Journal Entries
-        existing_je = self._check_existing_by_reference(reference_number)
+        existing_je = find_journal_entry_by_reference(reference_number)
         if existing_je:
             frappe.logger().info(f"Refund Journal Entry already exists for {refund_id}: {existing_je}")
             # Still attempt reconciliation in case it wasn't done previously
             if bank_transaction_name:
-                self._reconcile_bank_transaction(bank_transaction_name, existing_je, flt(refund_amount))
+                reconcile_bank_transaction_with_journal_entry(
+                    bank_transaction_name, existing_je, flt(refund_amount)
+                )
             return existing_je
 
         # Resolve company
@@ -151,16 +158,6 @@ class DonationRefundJournalEntryCreator:
             bank_transaction_name=bank_transaction_name,
             reversal_type=reversal_type,
             description=description,
-        )
-
-    def _check_existing_by_reference(self, reference_number: str) -> Optional[str]:
-        """Check if Journal Entry already exists with this reference."""
-        if not reference_number:
-            return None
-        return frappe.db.get_value(
-            "Journal Entry",
-            {"cheque_no": reference_number, "docstatus": ["!=", 2]},
-            "name",
         )
 
     def _get_config(self, company: str) -> Dict[str, Any]:
@@ -318,7 +315,13 @@ class DonationRefundJournalEntryCreator:
             )
 
             if not submit_result.success:
-                return self._discard_unposted_journal_entry(je.name, submit_result, donation_name)
+                return discard_unposted_journal_entry(
+                    je.name,
+                    subject=f"donation {donation_name} ({reversal_type}: {refund_id})",
+                    error_message=(
+                        ", ".join(submit_result.errors) if submit_result.errors else "Unknown error"
+                    ),
+                )
 
             frappe.logger().info(
                 f"Created and submitted Refund Journal Entry {je.name} for donation {donation_name}"
@@ -326,7 +329,7 @@ class DonationRefundJournalEntryCreator:
 
             # Reconcile Bank Transaction with this Journal Entry
             if bank_transaction_name:
-                self._reconcile_bank_transaction(bank_transaction_name, je.name, flt(amount))
+                reconcile_bank_transaction_with_journal_entry(bank_transaction_name, je.name, flt(amount))
 
             return je.name
 
@@ -337,124 +340,6 @@ class DonationRefundJournalEntryCreator:
                 "Donation Refund Journal Entry Error",
             )
             return None
-
-    def _discard_unposted_journal_entry(self, je_name: str, submit_result, donation_name: str) -> None:
-        """A Journal Entry whose submit failed is not a booking. Always returns None.
-
-        This used to log "(draft)" and ``return je.name`` anyway, so the caller's
-        "did I get a name back?" success test read a failed posting as success.
-
-        The entry is **not** a draft. Frappe's ``Document.save()`` runs
-        ``db_update()`` before ``run_post_save_methods()``, and ``on_submit`` is what
-        posts to the ledger -- so a submit that throws leaves ``docstatus=1`` already
-        written, and ``secure_document_operation`` catches the error without rolling
-        back. ERPNext validates each GL row in ``GLEntry.on_update``, i.e. *after*
-        inserting it, so the ledger can be left one-sided.
-
-        That matters beyond a wrong status code: :func:`find_booked_reversal` counts
-        anything with ``docstatus != 2``, so left in place the unposted entry claims
-        the reversal key and every one of Mollie's redeliveries answers "already
-        processed" -- the refund reported done, permanently, having never reached the
-        ledger.
-
-        **Cancelled, not deleted.** Cancelling is what frees the key (only
-        ``docstatus=2`` is ignored) and it leaves an auditable record of a posting
-        that was attempted and failed. Deleting was tried and is worse in both
-        directions: when ``cancel()`` itself raises -- which it does in the case this
-        is most likely to see, a bad account, because ``on_cancel`` re-posts the
-        reversal GL row into the same validation -- the delete never runs anyway; and
-        when it does run, ``Accounts Settings.delete_linked_ledger_entries`` defaults
-        to 0, so the GL rows survive their voucher as orphans. Measured, not assumed.
-        """
-        error_msg = ", ".join(submit_result.errors) if submit_result.errors else "Unknown error"
-        message = (
-            f"Refund Journal Entry {je_name} for donation {donation_name} could not be "
-            f"submitted and did not post to the ledger: {error_msg}"
-        )
-        frappe.logger().error(message)
-        frappe.log_error(message, "Donation Refund Journal Entry Not Posted")
-
-        try:
-            je = frappe.get_doc("Journal Entry", je_name)
-            if je.docstatus == 1:
-                je.cancel()
-        except Exception as cleanup_error:  # failed-write-ok: reported-elsewhere
-            frappe.logger().error(
-                f"Could not cancel unposted Refund Journal Entry {je_name}: {cleanup_error}"
-            )
-
-        # Report what is actually true, which is not always what was attempted:
-        # ``cancel()`` can raise and STILL leave docstatus=2 behind, by the same
-        # write-before-hooks ordering described above. Only a re-read can tell the
-        # operator whether the key is free.
-        docstatus = frappe.db.get_value("Journal Entry", je_name, "docstatus")
-        if docstatus != 2:
-            frappe.log_error(
-                f"Unposted Refund Journal Entry {je_name} is at docstatus={docstatus} and still "
-                f"claims reversal key {frappe.db.get_value('Journal Entry', je_name, 'cheque_no')!r}. "
-                f"Redeliveries of this refund will report it as already processed. Cancel it by hand.",
-                "Donation Refund Journal Entry Still Claims Its Key",
-            )
-        return None
-
-    def _reconcile_bank_transaction(
-        self,
-        bank_transaction_name: str,
-        journal_entry_name: str,
-        amount: float,
-    ):
-        """
-        Reconcile Bank Transaction with the created Journal Entry.
-
-        Links the Bank Transaction to the Journal Entry via payment_entries child table
-        and updates the Bank Transaction status to 'Reconciled'.
-
-        Args:
-            bank_transaction_name: Name of the Bank Transaction
-            journal_entry_name: Name of the Journal Entry to link
-            amount: Amount to allocate
-        """
-        try:
-            bt = frappe.get_doc("Bank Transaction", bank_transaction_name)
-
-            # Check if already reconciled with this JE
-            existing_link = next(
-                (pe for pe in bt.payment_entries if pe.payment_entry == journal_entry_name),
-                None,
-            )
-            if existing_link:
-                frappe.logger().info(
-                    f"Bank Transaction {bank_transaction_name} already linked to {journal_entry_name}"
-                )
-                return
-
-            # Add Journal Entry to payment_entries
-            bt.append(
-                "payment_entries",
-                {
-                    "payment_document": "Journal Entry",
-                    "payment_entry": journal_entry_name,
-                    "allocated_amount": flt(amount),
-                },
-            )
-
-            # Update status to Reconciled if fully allocated
-            # For refunds, we check against withdrawal amount
-            total_allocated = sum(flt(pe.allocated_amount) for pe in bt.payment_entries)
-            withdrawal_amount = flt(bt.withdrawal or 0)
-            if withdrawal_amount and total_allocated >= withdrawal_amount:
-                bt.status = "Reconciled"
-
-            bt.save()
-            frappe.db.commit()
-
-            frappe.logger().info(
-                f"Reconciled Bank Transaction {bank_transaction_name} with Refund Journal Entry {journal_entry_name}"
-            )
-
-        except Exception as e:
-            frappe.logger().error(f"Failed to reconcile Bank Transaction {bank_transaction_name}: {e}")
-            # Don't raise - reconciliation failure shouldn't fail the whole operation
 
 
 def get_donation_refund_journal_entry_creator() -> DonationRefundJournalEntryCreator:
