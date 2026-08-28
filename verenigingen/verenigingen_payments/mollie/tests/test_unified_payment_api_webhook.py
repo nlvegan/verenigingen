@@ -345,3 +345,58 @@ class TestHandleChargebackWebhook(EnhancedTestCase):
         # alongside the full parsed chargeback dict.
         self.assertEqual(captured["payment_id"], "tr_cb_2")
         self.assertEqual(captured["chargeback_data"]["reason"], "fraud")
+
+    def test_a_booking_failure_returns_500_so_mollie_retries(self):
+        """A chargeback that could not be booked must not go out as 200.
+
+        This is the refund endpoint's guard, which this endpoint did not have.
+        The stakes are higher here than for a refund: the bank has ALREADY taken
+        the money back. Mollie retries on 5xx (~10 times over 26h) and the
+        reversal key is deliberately freed when a booking fails, so redelivery is
+        the only second chance the chargeback gets. Answering 200 spends it, and
+        the only remaining trace is an Error Log row.
+
+        Load-bearing because of this PR: before it, chargebacks never booked at
+        all, so there was nothing for a 200 to lose.
+        """
+        payload = '{"id":"tr_cb_fail","status":"charged_back"}'
+        SVC = (
+            "verenigingen.verenigingen_payments.mollie.services."
+            "webhook_wrapper_service_unified.UnifiedWebhookWrapperService"
+        )
+        fake = types.SimpleNamespace(
+            process_chargeback_webhook=lambda *a, **kw: {
+                "status": "error",
+                "message": "Failed to book chargeback",
+            }
+        )
+        with install_fake_request(payload):
+            with patch(AUTH_PATH):
+                with patch(SVC, return_value=fake):
+                    out = unified_payment_api.handle_chargeback_webhook()
+
+        self.assertEqual(out["status"], "error")
+        self.assertEqual(frappe.local.response.http_status_code, 500)
+
+    def test_an_ignored_result_stays_2xx(self):
+        """Control: redelivering something deliberately ignored changes nothing.
+
+        Without this, setting 500 on any non-success would satisfy the test above
+        while making Mollie retry ~10 times for a chargeback that will be ignored
+        identically every time.
+        """
+        payload = '{"id":"tr_cb_ign","status":"charged_back"}'
+        SVC = (
+            "verenigingen.verenigingen_payments.mollie.services."
+            "webhook_wrapper_service_unified.UnifiedWebhookWrapperService"
+        )
+        fake = types.SimpleNamespace(
+            process_chargeback_webhook=lambda *a, **kw: {"status": "ignored", "message": "nothing to do"}
+        )
+        with install_fake_request(payload):
+            with patch(AUTH_PATH):
+                with patch(SVC, return_value=fake):
+                    out = unified_payment_api.handle_chargeback_webhook()
+
+        self.assertEqual(out["status"], "ignored")
+        self.assertNotEqual(frappe.local.response.get("http_status_code"), 500)

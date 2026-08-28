@@ -484,7 +484,19 @@ def handle_chargeback_webhook():
         service = UnifiedWebhookWrapperService()
         result = service.process_chargeback_webhook(payment_id, chargeback_data)
 
-        frappe.logger().info("✅ Chargeback webhook processed successfully")
+        # A booking failure must not go out as 200 -- the same guard the refund
+        # endpoint carries, and the stakes are higher here: the bank has ALREADY
+        # taken the money back. Mollie retries on 5xx (~10 times over 26h), and
+        # that redelivery is the only second chance this chargeback gets, because
+        # the reversal key is deliberately freed when a booking fails. Answering
+        # 200 spends it and leaves an Error Log row as the only trace.
+        # `ignored` and `not_implemented` stay 2xx on purpose -- redelivering
+        # those changes nothing.
+        if result.get("status") == "error":
+            frappe.response.http_status_code = 500
+            frappe.logger().error(f"❌ Chargeback webhook could not book: {result.get('message')}")
+        else:
+            frappe.logger().info("✅ Chargeback webhook processed successfully")
         return result
 
     except WebhookRateLimitExceeded as e:

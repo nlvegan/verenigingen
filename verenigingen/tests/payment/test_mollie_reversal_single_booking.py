@@ -39,7 +39,7 @@ Run:
 """
 
 import frappe
-from frappe.utils import today
+from frappe.utils import flt, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.services.test_donation_refund_journal_entry_creator_coverage import (
@@ -367,6 +367,19 @@ class TestReversalMirrorsTheForwardArtefact(_RefundFixtureMixin, EnhancedTestCas
         frappe.db.commit()
         _clear_mollie_config_cache()
 
+    def _gl_by_account(self, payment_entry_name):
+        """{account: (debit, credit)} for a submitted Payment Entry's GL rows."""
+        rows = frappe.get_all(
+            "GL Entry",
+            filters={
+                "voucher_type": "Payment Entry",
+                "voucher_no": payment_entry_name,
+                "is_cancelled": 0,
+            },
+            fields=["account", "debit", "credit"],
+        )
+        return {r["account"]: (flt(r["debit"]), flt(r["credit"])) for r in rows}
+
     def test_a_donation_booked_as_a_payment_entry_is_reversed_by_a_payment_entry(self):
         """The older donation flow booked a Receive PE. Reverse it in kind."""
         forward = create_unified_payment_entry(
@@ -407,6 +420,46 @@ class TestReversalMirrorsTheForwardArtefact(_RefundFixtureMixin, EnhancedTestCas
             "a donation booked as a Payment Entry must be reversed by a Payment Entry, not a "
             f"Journal Entry that debits income the forward payment never recognised. "
             f"Payment Entries={pes}, Journal Entries={jes}",
+        )
+
+        # ---- the reversal must post BACKWARDS, and nothing else asserted that ----
+        #
+        # Booking the right doctype is not booking the right direction. Every other
+        # test in this suite passes if `paid_from`/`paid_to` are swapped in the
+        # creator's "Pay" branch, which would make every donation refund post
+        # identically to the payment it reverses -- money never leaving, the
+        # receivable never restored, and the GL quietly wrong.
+        forward_gl = self._gl_by_account(forward.name)
+        reversal_gl = self._gl_by_account(pes[0])
+
+        self.assertTrue(forward_gl, "the forward Payment Entry posted no GL entries")
+        self.assertEqual(
+            set(forward_gl),
+            set(reversal_gl),
+            "the reversal must touch the same accounts as the payment it reverses",
+        )
+        for account, (fwd_dr, fwd_cr) in forward_gl.items():
+            rev_dr, rev_cr = reversal_gl[account]
+            self.assertEqual(
+                (rev_dr, rev_cr),
+                (fwd_cr, fwd_dr),
+                f"on {account} the reversal must mirror the forward posting "
+                f"(forward Dr {fwd_dr} / Cr {fwd_cr}, reversal Dr {rev_dr} / Cr {rev_cr})",
+            )
+
+        # And name the direction absolutely, so a failure reads as the defect rather
+        # than as an arithmetic mismatch. The forward "Receive" pays FROM the
+        # donation receivable INTO the bank; the reversal is the other way round.
+        bank_account, receivable = forward.paid_to, forward.paid_from
+        self.assertGreater(
+            reversal_gl[bank_account][1],
+            0,
+            f"the reversal must CREDIT the bank {bank_account} -- the money leaves",
+        )
+        self.assertGreater(
+            reversal_gl[receivable][0],
+            0,
+            f"the reversal must DEBIT the receivable {receivable} -- the claim is restored",
         )
 
     def _make_forward_journal_entry(self):

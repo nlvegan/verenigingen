@@ -364,6 +364,47 @@ class TestProcessPendingRefundsSuccess(WrapperSweepBase):
         rows = [p for p in donation.payments if getattr(p, "journal_entry", None) == je_name]
         self.assertEqual(len(rows), 1, "no duplicate refund history row should be added")
 
+    def test_a_failed_batch_history_save_is_reported_not_swallowed(self):
+        """The sweep's batch history save must not fail silently into "success".
+
+        The per-refund results already say ``success`` by the time the batch save
+        runs, and both callers of this method decide the webhook's HTTP status by
+        filtering those results for ``status == "error"``. So an exception here
+        used to leave every refund marked success, the caller saw no failure, and
+        Mollie got a 200 for a reversal whose history row does not exist.
+
+        This is the same defect develop fixed on the forward path (#449); this is
+        its sibling on the sweep path. The money side is already booked and
+        idempotent, so a non-2xx buys a re-delivery that cannot double-book.
+        """
+        from unittest.mock import patch
+
+        donation = self._make_submitted_donation()
+        je_name = self._make_submitted_journal_entry()
+        bt = _FakeBTCreator({"bank_account": self._bank_account(), "company": self.company})
+        je = _FakeRefundJECreator(je_name)
+        self._wire_refund_creators(bt, je)
+        self._spy_mark_refund()
+
+        pending = [{"refund_id": "re_histfail", "amount": 3.0, "refund_date": today()}]
+        with patch.object(type(donation), "save", side_effect=Exception("history write exploded")):
+            results = self.service._process_pending_refunds(donation, self.pid, pending)
+
+        errors = [r for r in results if r.get("status") == "error"]
+        self.assertTrue(
+            errors,
+            "a failed batch history save must surface as an error result, "
+            "or the caller reports 200 for a reversal with no history row",
+        )
+        self.assertIn("history", errors[0]["message"].lower())
+
+        # Control: the booking itself still succeeded, so the failure reported is
+        # the history write and not the reversal.
+        self.assertTrue(
+            any(r.get("status") == "success" for r in results),
+            "the refund booking itself succeeded; only the history write failed",
+        )
+
 
 # =============================================================================
 # process_reversal_webhook — SUCCESS paths (refund + chargeback)
@@ -512,3 +553,46 @@ class TestProcessReversalWebhookSuccess(WrapperSweepBase):
         self.assertEqual(marks, [])
         donation.reload()
         self.assertEqual(len(donation.payments or []), 0)
+
+    def test_a_failed_history_save_is_not_reported_as_success(self):
+        """A reversal whose payment-history row could not be written is NOT success.
+
+        The except around the history append logged and fell through to
+        ``if reversal_ref_name:`` -> success, so a booked reversal with no history
+        row answered 200 and Mollie never re-delivered. develop fixed exactly this
+        class on the forward path (#449, ``history_failures``); this is the same
+        defect ~750 lines away in the same file.
+
+        There is no self-heal to fall back on: ``_update_missing_payment_history``
+        is built from a Payment-Entry-only query, so a JE-booked reversal never
+        appears in it.
+        """
+        from unittest.mock import patch
+
+        donation = self._make_submitted_donation()
+        self._make_forward_payment_entry()
+        pe = self._make_submitted_payment_entry()
+        self._stub_pe_creator(pe)
+        marks = self._spy_mark_refund()
+
+        with patch.object(type(donation), "save", side_effect=Exception("history write exploded")):
+            result = self.service.process_reversal_webhook(
+                payment_id=self.pid,
+                reversal_id="re_histfail",
+                amount=9.0,
+                reversal_type="refund",
+                reversal_date=today(),
+            )
+
+        self.assertEqual(
+            result["status"],
+            "error",
+            "a booked reversal whose history row was not written must not report success",
+        )
+        # The booking is named so an operator can see the money side DID post.
+        self.assertEqual(result.get("payment_entry_id"), pe.name)
+        self.assertIn("history", result["message"].lower())
+
+        # Not marked processed: the reversal is not fully handled, and marking it
+        # would make the re-delivery this error buys a no-op.
+        self.assertEqual(marks, [])

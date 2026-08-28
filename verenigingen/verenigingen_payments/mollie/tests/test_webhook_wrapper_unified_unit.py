@@ -221,6 +221,49 @@ class TestRefundChargebackDelegation(WebhookTestBase):
         self.assertEqual(captured["amount"], 30.00)
         self.assertEqual(captured["reason"]["code"], "AC01")
 
+    def test_a_bare_payment_id_is_never_read_as_the_chargeback_id(self):
+        """Mollie's top-level `id` on this payload is the PAYMENT id.
+
+        Reading it as the chargeback id is the exact defect this PR routed
+        `handle_refund_webhook` around in its twin, still live here. Two
+        chargebacks on one payment collapse onto a single reversal key
+        `{payment_id}_chargeback_{payment_id}`, so the second is refused as
+        already-processed; and `safe_extract_amount` finds no `amount` on that
+        payload, resolving to 0.00, which ERPNext rejects.
+
+        There is nothing in such a payload to book from, so it is `ignored`
+        (2xx, no redelivery) rather than `error`: retrying an unprocessable
+        payload ~10 times over 26h changes nothing.
+        """
+        delegated = []
+        self.service.process_reversal_webhook = lambda **kw: delegated.append(kw) or {"status": "success"}
+
+        result = self.service.process_chargeback_webhook("tr_bare", {"id": "tr_bare"})
+
+        self.assertEqual(
+            delegated,
+            [],
+            "a payload whose only id IS the payment id must not be delegated as a chargeback",
+        )
+        self.assertEqual(result["status"], "ignored")
+        self.assertIn("chargeback id", result["message"].lower())
+
+    def test_a_distinct_top_level_chargeback_id_still_delegates(self):
+        """Control: the guard must reject only the payment id, not every bare id.
+
+        Without this, refusing every top-level `id` would satisfy the test above
+        while silently dropping the payload shape the other delegation tests here
+        depend on.
+        """
+        captured = {}
+        self.service.process_reversal_webhook = lambda **kw: captured.update(kw) or {"status": "success"}
+
+        self.service.process_chargeback_webhook(
+            "tr_distinct", {"id": "chb_distinct", "amount": {"value": "9.00", "currency": "EUR"}}
+        )
+        self.assertEqual(captured["reversal_id"], "chb_distinct")
+        self.assertEqual(captured["amount"], 9.00)
+
 
 class TestFetchPaymentFromMollie(WebhookTestBase):
     """_fetch_payment_from_mollie normalizes both dict and object SDK responses."""

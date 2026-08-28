@@ -156,6 +156,7 @@ class TestProcessReversalWebhookSuccess(FrappeTestCase):
         donation_doc = frappe.get_doc("Donation", self.donation_name)
 
         fake_pe = SimpleNamespace(name="PE-REV-001")
+        history_saves = self._stub_history_save(donation_doc)
 
         # Forward-booked as a Payment Entry, so the reversal mirrors it as one.
         with (
@@ -186,11 +187,13 @@ class TestProcessReversalWebhookSuccess(FrappeTestCase):
         self.assertEqual(len(rev_rows), 1)
         self.assertEqual(float(rev_rows[0].amount), -10.0)
         self.assertEqual(rev_rows[0].payment_status, "Refunded")
+        self.assertEqual(len(history_saves), 1, "the appended history row must be saved")
 
     def test_chargeback_marks_chargeback_processed(self):
         donation_doc = frappe.get_doc("Donation", self.donation_name)
 
         fake_pe = SimpleNamespace(name="PE-CHB-001")
+        history_saves = self._stub_history_save(donation_doc)
 
         with (
             _booked(),
@@ -216,6 +219,29 @@ class TestProcessReversalWebhookSuccess(FrappeTestCase):
         chb_rows = [p for p in donation_doc.payments if p.mollie_payment_id == "chb_succ"]
         self.assertEqual(len(chb_rows), 1)
         self.assertEqual(chb_rows[0].payment_status, "Chargeback")
+        self.assertEqual(len(history_saves), 1, "the appended history row must be saved")
+
+    def _stub_history_save(self, donation_doc):
+        """Make the payment-history save succeed without touching the database.
+
+        These two tests drive the reversal booker with a FAKE Payment Entry name,
+        because building a real submitted PE here would drag in the whole company /
+        chart-of-accounts fixture chain this fast unit module deliberately avoids.
+        A fake name cannot satisfy the `Donation Payment.payment_entry` Link, so
+        `donation_doc.save()` raises "Could not find Row #1".
+
+        That was ALWAYS true. Until the history-write failure stopped being
+        swallowed, it simply did not show: the exception was logged and the method
+        fell through to `success`, so these tests asserted the success contract
+        while the row they check was never persisted. Stubbing the save states that
+        isolation out loud instead of inheriting it from a bug.
+
+        The real save-failure contract is covered behaviourally in
+        test_webhook_wrapper_unified_sweep.py, against real documents.
+        """
+        calls = []
+        donation_doc.save = lambda *a, **kw: calls.append(True)
+        return calls
 
     def _make_submitted_donation(self, payment_id):
         donor = frappe.new_doc("Donor")

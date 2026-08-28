@@ -307,6 +307,22 @@ class UnifiedWebhookWrapperService:
                     f"Payment history batch update failed for {donation.name}: {hist_err}",
                     "Payment History Update Error",
                 )
+                # Sibling of the swallow above, and of the forward path's #449. By
+                # the time this batch save runs every refund is already marked
+                # "success", and BOTH callers decide the webhook's HTTP status by
+                # filtering these results for status == "error" -- so logging alone
+                # sent Mollie a 200 for reversals whose history rows do not exist.
+                # Reported as one entry because the save is one transaction: either
+                # all of entries_to_add landed or none did.
+                refund_results.append(
+                    {
+                        "status": "error",
+                        "refund_id": ", ".join(
+                            str(e.get("mollie_payment_id")) for e in payment_history_entries
+                        ),
+                        "message": f"Refund payment history batch update failed: {hist_err}",
+                    }
+                )
 
         return refund_results
 
@@ -1189,7 +1205,15 @@ class UnifiedWebhookWrapperService:
         reversal_date: Optional[str],
         description: str,
     ) -> Optional[Tuple[str, str]]:
-        """Reverse a Payment-Entry-booked donation in kind: Dr Bank / Cr Receivable."""
+        """Reverse a Payment-Entry-booked donation in kind: Dr Receivable / Cr Bank.
+
+        That is the mirror of the forward "Receive" posting (Dr Bank / Cr
+        Receivable), which is what this docstring used to state -- it named the
+        posting being reversed rather than the one this method makes. The code was
+        right: ``payment_type="Pay"`` puts the bank in ``paid_from`` (credited) and
+        the donation receivable in ``paid_to`` (debited), so the money leaves and
+        the receivable is restored.
+        """
         from ..utils.unified_payment_entry_creator import create_unified_payment_entry
 
         pe = create_unified_payment_entry(
@@ -1589,6 +1613,7 @@ class UnifiedWebhookWrapperService:
             # booker returned -- re-fetching the whole document to ask whether it
             # exists is a wasted read, and it turned "the booker succeeded" into
             # "frappe.get_doc raised" for anything the DB cannot hand back.
+            history_failure = None
             if reversal_ref_name:
                 try:
                     # Parse reversal date to proper format
@@ -1627,6 +1652,15 @@ class UnifiedWebhookWrapperService:
                     donation_doc.save()
                     self.logger.info(f"✅ Updated payment history with {reversal_type} entry")
                 except Exception as hist_err:
+                    # Recorded, NOT swallowed. This used to log and fall through to
+                    # `if reversal_ref_name:` -> success, so a booked reversal whose
+                    # history row does not exist answered 200 and Mollie never
+                    # re-delivered. develop fixed exactly this class on the forward
+                    # path (#449, `history_failures`); this is the same defect in the
+                    # same file. Nothing self-heals it either --
+                    # _update_missing_payment_history is built from a
+                    # Payment-Entry-only query, so a JE-booked reversal is never in it.
+                    history_failure = str(hist_err)
                     self.logger.error(f"❌ Failed to update payment history for {reversal_type}: {hist_err}")
                     frappe.log_error(
                         f"Payment history update failed for {donation_doc.name} {reversal_type}: {hist_err}",
@@ -1634,13 +1668,29 @@ class UnifiedWebhookWrapperService:
                     )
 
             # Create standardized result
-            if reversal_ref_name:
+            if reversal_ref_name and not history_failure:
                 result = standardized_webhook_response(
                     "success",
                     f"{reversal_type.capitalize()} {reversal_ref_doctype} created: {reversal_ref_name}",
                     payment_entry_id=reversal_ref_name,
                     reversal_doctype=reversal_ref_doctype,
                     payment_id=payment_id,
+                )
+                result[f"{reversal_type}_id"] = reversal_id
+            elif reversal_ref_name:
+                # Booked, but incompletely. The money side IS posted, so the artefact
+                # is named: this is a repair instruction, not a "nothing happened".
+                # Deliberately NOT claiming the re-delivery completes what is missing
+                # -- it re-enters through find_booked_reversal, which returns early.
+                # What a non-2xx buys is that the failure is visible at all.
+                result = standardized_webhook_response(
+                    "error",
+                    f"{reversal_type.capitalize()} {reversal_ref_doctype} {reversal_ref_name} booked, "
+                    f"but its payment history row could not be written ({history_failure})",
+                    payment_entry_id=reversal_ref_name,
+                    reversal_doctype=reversal_ref_doctype,
+                    payment_id=payment_id,
+                    history_failure=history_failure,
                 )
                 result[f"{reversal_type}_id"] = reversal_id
             else:
@@ -1714,9 +1764,40 @@ class UnifiedWebhookWrapperService:
         Returns:
             Dict with processing results
         """
-        from ..utils.webhook_utilities import safe_extract_amount, safe_extract_date
+        from ..utils.webhook_utilities import (
+            extract_webhook_ids,
+            safe_extract_amount,
+            safe_extract_date,
+            standardized_webhook_response,
+        )
 
-        chargeback_id = chargeback_data.get("id") or chargeback_data.get("chargeback", {}).get("id")
+        # Do NOT re-derive the chargeback id from the payment id. Mollie's top-level
+        # `id` on this payload is the PAYMENT id, so reading it here collapsed two
+        # chargebacks on one payment onto a single reversal key
+        # ({payment_id}_chargeback_{payment_id}) -- the second is then refused as
+        # already-processed -- and `safe_extract_amount` finds no `amount` on such a
+        # payload, resolving to 0.00, which ERPNext rejects. This is the same defect
+        # `handle_refund_webhook` was routed around in its twin (#370);
+        # `extract_webhook_ids` is the shared extractor that only reads a top-level
+        # `id` as a reversal id when the payload types it that way.
+        chargeback_id = extract_webhook_ids(chargeback_data)["chargeback_id"]
+        if not chargeback_id:
+            # Backstop for payloads `extract_webhook_ids` cannot type (no `resource`,
+            # no nesting): a bare id is usable only if it is not the payment id.
+            candidate = chargeback_data.get("id")
+            chargeback_id = candidate if candidate and candidate != payment_id else None
+
+        if not chargeback_id:
+            # `ignored`, not `error`: there is nothing in this payload to book from,
+            # so the ~10 redeliveries a 5xx buys over 26h would all fail identically.
+            message = (
+                f"Cannot process chargeback for payment {payment_id}: the payload carries no "
+                f"chargeback id distinct from the payment id"
+            )
+            self.logger.error(message)
+            frappe.log_error(message, "Mollie Chargeback Id Missing")
+            return standardized_webhook_response("ignored", message, payment_id=payment_id)
+
         chargeback_amount = safe_extract_amount(chargeback_data)
         chargeback_date = safe_extract_date(chargeback_data)
         reason = chargeback_data.get("reason") or chargeback_data.get("chargeback", {}).get("reason")
