@@ -800,6 +800,8 @@
                         <select id="history-filter-status" aria-label="{{ _('Filter by Status') }}" class="form-select rounded-md border-gray-300" onchange="filterPaymentHistory()">
                             <option value="">{{ _("All Statuses") }}</option>
                             <option value="Paid">{{ _("Paid") }}</option>
+                            <option value="Credited">{{ _("Credited") }}</option>
+                            <option value="Partially Credited">{{ _("Partially Credited") }}</option>
                             <option value="Failed">{{ _("Failed") }}</option>
                             <option value="Pending">{{ _("Pending") }}</option>
                         </select>
@@ -1372,6 +1374,11 @@ function formatInterval(interval) {
 function getStatusBadge(status) {
     const badges = {
         'Paid': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">{{ _("Paid") }}</span>',
+        // Nothing is owed, but the member did not pay it -- it was credited or waived.
+        // Deliberately not green: green here means "you paid this" (#653).
+        'Credited': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">{{ _("Credited") }}</span>',
+        // Partly credited, partly PAID -- the member did pay some of this one.
+        'Partially Credited': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-teal-100 text-teal-800">{{ _("Partially Credited") }}</span>',
         'Failed': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">{{ _("Failed") }}</span>',
         'Pending': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">{{ _("Pending") }}</span>',
         'Scheduled': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">{{ _("Scheduled") }}</span>'

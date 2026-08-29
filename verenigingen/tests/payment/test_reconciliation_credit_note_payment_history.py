@@ -186,7 +186,11 @@ class TestCreditNoteRefreshesTheOriginalInvoicesHistory(_UnpaidInvoiceFixture):
             0.0,
             "the member's payment history still carries the pre-credit-note figure",
         )
-        self.assertEqual(row.payment_status, "Paid")
+        # "Credited", not "Paid": ERPNext marks the fully-credited original
+        # "Credit Note Issued", and reporting that as Paid made a WAIVED membership
+        # invoice read exactly like one the member had paid (#653). This assertion said
+        # "Paid" when the row was merely fresh rather than right.
+        self.assertEqual(row.payment_status, "Credited")
 
     def test_an_ordinary_invoice_does_not_ask_for_a_credit_note_refresh(self):
         """The guard against over-firing.

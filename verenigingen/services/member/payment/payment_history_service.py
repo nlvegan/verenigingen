@@ -43,6 +43,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 
 import frappe
 from frappe import _
+from frappe.utils import flt
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.services.member.payment.payment_coverage_service import get_payment_coverage_service
@@ -243,6 +244,12 @@ class PaymentHistoryService(StatelessService):
             "status",
             "docstatus",
             "is_membership_invoice",
+            # Standard Sales Invoice field, no has_column guard needed. Required so this
+            # batch path classifies credit notes exactly as the incremental path does
+            # (#653). The writer-parity suite holds the two together on 18 NAMED fields
+            # -- not byte-identically: `due_date`, `posting_date`, `invoice_doctype`,
+            # `payment_date` and the `*_doctype` links are not among them.
+            "is_return",
         ]
 
         # Check for coverage custom fields (and the membership reference link,
@@ -412,6 +419,7 @@ class PaymentHistoryService(StatelessService):
         has_mandate = 1 if default_mandate else 0
         row = {
             "invoice_name": invoice.name,
+            "is_return": invoice.get("is_return"),
             "is_membership_invoice": invoice.get("is_membership_invoice"),
             "membership": invoice.get("membership"),
             "posting_date": invoice.posting_date,
@@ -611,14 +619,14 @@ class PaymentHistoryService(StatelessService):
             entry = build_payment_history_entry(invoice, member_doc=member_doc, validate=True)
 
             if entry is None:
-                # Validation failed, return minimal entry
-                return {
-                    "invoice": invoice.name,
-                    "posting_date": invoice.posting_date,
-                    "amount": invoice.grand_total,
-                    "outstanding_amount": invoice.outstanding_amount,
-                    "payment_status": "Draft",
-                }
+                # Validation failed. Return a minimal entry -- but READ the status off
+                # the document instead of stamping the literal "Draft" on it. That
+                # literal is a claim about docstatus made without looking, and it is how
+                # a submitted credit note came to sit in a member's history labelled
+                # Draft (#653). It is the wrong shape for every other rejection too: a
+                # transient build failure silently rewrote a submitted invoice's row as
+                # a draft, indistinguishable from one that really is a draft.
+                return self._minimal_entry(invoice)
 
             # Override with schedule-specific coverage dates if member provided
             if member_doc:
@@ -634,13 +642,47 @@ class PaymentHistoryService(StatelessService):
 
         except Exception as e:
             self.logger.error(f"Error building payment history entry for invoice {invoice.name}: {str(e)}")
-            return {
-                "invoice": invoice.name,
-                "posting_date": invoice.posting_date,
-                "amount": invoice.grand_total,
-                "outstanding_amount": invoice.outstanding_amount,
-                "payment_status": "Draft",
-            }
+            return self._minimal_entry(invoice)
+
+    @staticmethod
+    def _minimal_entry(invoice: "Document") -> Dict[str, Any]:
+        """The last-resort row, used when the real builder could not produce one.
+
+        One copy, two call sites: both fallbacks above stamped `payment_status: "Draft"`
+        independently, so fixing one would have left the other lying (#653).
+
+        `determine_payment_status` is used rather than a literal so the row still says
+        what the DOCUMENT says.
+
+        The amounts are coerced with `flt` before it is called. This runs when something
+        has ALREADY gone wrong -- the second call site is inside an `except Exception`
+        -- so a fallback that can raise is worse than the lie it replaces, and
+        `determine_payment_status` compares `outstanding_amount <= 0` without guarding
+        None. That is not hypothetical: `frappe.new_doc("Sales Invoice")` really does
+        carry `outstanding_amount = None`, and only the `docstatus == 0` early return
+        keeps that case alive today. Every current caller passes a saved Document, so
+        this is defence for the next one.
+
+        `invoice_doctype` is set because `invoice` is a Dynamic Link; without it the row
+        is unresolvable, which is the shape
+        `patches/v2_2/clear_stale_membership_payment_history_links.py` exists to clean up.
+        """
+        from verenigingen.utils import determine_payment_status
+
+        shim = frappe._dict(
+            docstatus=invoice.get("docstatus"),
+            status=invoice.get("status"),
+            outstanding_amount=flt(invoice.get("outstanding_amount")),
+            grand_total=flt(invoice.get("grand_total")),
+        )
+        return {
+            "invoice": invoice.name,
+            "invoice_doctype": "Sales Invoice",
+            "posting_date": invoice.posting_date,
+            "amount": flt(invoice.get("grand_total")),
+            "outstanding_amount": flt(invoice.get("outstanding_amount")),
+            "payment_status": determine_payment_status(shim, 0.0),
+        }
 
 
 # Singleton instance

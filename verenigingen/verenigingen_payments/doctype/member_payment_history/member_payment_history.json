@@ -155,7 +155,7 @@
       "fieldtype": "Select",
       "in_list_view": 0,
       "label": "Payment Status",
-      "options": "Pending\nDraft\nUnpaid\nPartially Paid\nPaid\nFailed\nOverdue\nCancelled\nRefunded\nChargeback",
+      "options": "Pending\nDraft\nUnpaid\nPartially Paid\nPaid\nCredited\nPartially Credited\nFailed\nOverdue\nCancelled\nRefunded\nChargeback",
       "read_only": 1
     },
     {
