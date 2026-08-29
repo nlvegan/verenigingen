@@ -244,7 +244,21 @@ def get_payment_history(
                 si.custom_coverage_start_date,
                 si.custom_coverage_end_date,
                 si.member,
-                si.membership_dues_schedule_display as dues_schedule
+                si.membership_dues_schedule_display as dues_schedule,
+                -- Needed to tell a WAIVED invoice from one the member paid most of
+                -- after a partial credit: ERPNext gives both status "Credit Note
+                -- Issued" (#653). Same definition the payment-history builder uses --
+                -- the sum of Payment Entry allocations -- restricted to submitted
+                -- entries, correlated rather than joined so the LIMIT still applies to
+                -- invoices.
+                COALESCE((
+                    SELECT SUM(per.allocated_amount)
+                    FROM `tabPayment Entry Reference` per
+                    INNER JOIN `tabPayment Entry` pe ON pe.name = per.parent
+                    WHERE per.reference_doctype = 'Sales Invoice'
+                      AND per.reference_name = si.name
+                      AND pe.docstatus = 1
+                ), 0) as paid_amount
             FROM `tabSales Invoice` si
             WHERE {conditions}
             ORDER BY si.posting_date DESC
@@ -316,8 +330,20 @@ def get_payment_history(
             )
 
         for invoice in invoices:
-            # Modernized with centralized status constants
-            if invoice.status in PaymentStatus.PAID_STATUSES:
+            # Modernized with centralized status constants.
+            # Credited FIRST: PAID_STATUSES contains "Credit Note Issued" because it
+            # means SETTLED, and reaching it first would tell the member their waived
+            # invoice was Paid -- the same conflation the desk grid was fixed for
+            # (#653). getStatusBadge() in payment_dashboard.html falls through to a
+            # neutral badge for any status it has no colour for, so this renders safely.
+            if invoice.status in PaymentStatus.CREDITED_STATUSES:
+                inv_status = (
+                    PaymentStatus.STATUS_PARTIALLY_CREDITED
+                    if invoice.status == PaymentStatus.INVOICE_CREDIT_NOTE_ISSUED
+                    and flt(invoice.paid_amount) > 0
+                    else PaymentStatus.STATUS_CREDITED
+                )
+            elif invoice.status in PaymentStatus.PAID_STATUSES:
                 inv_status = PaymentStatus.STATUS_PAID
             elif invoice.status == PaymentStatus.INVOICE_OVERDUE:
                 inv_status = PaymentStatus.STATUS_FAILED

@@ -685,13 +685,11 @@ def queue_credit_note_payment_history_update_handler(doc, method=None):
     The customer-wide drain is used rather than a refresh of `return_against` alone
     because it is the same job the Payment Entry and Journal Entry hooks already queue,
     deduplicated per member, and it re-reads every submitted invoice for the customer.
-    The credit note's OWN row lands wrong, and that is a separate defect filed on its
-    own rather than widened into this fix. Measured: `validate_entry` rejects the
-    negative `amount` (`payment_history_builder.py:253`), and the caller answers a
-    rejection with a hard-coded minimal entry stamped `payment_status = "Draft"`
-    (`payment_history_service.py:620`) -- so a SUBMITTED credit note sits in the
-    member's history labelled Draft. What this handler fixes is the ORIGINAL invoice's
-    row.
+    The drain also refreshes the credit note's OWN row. That row used to land wrong --
+    `validate_entry` rejected its negative `amount` and the caller replaced it with a
+    minimal entry stamped `payment_status = "Draft"` on a submitted document -- which
+    was #653, fixed separately. Both rows are correct now; what THIS handler is
+    responsible for is that the ORIGINAL invoice's row gets refreshed at all.
 
     Guarded on the return fields rather than registered unconditionally: every ordinary
     membership invoice submit would otherwise pay for a customer-wide drain on top of

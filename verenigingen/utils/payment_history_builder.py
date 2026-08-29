@@ -42,7 +42,22 @@ class PaymentHistoryEntryBuilder:
         "notes",
     }
 
-    VALID_PAYMENT_STATUSES = {"Draft", "Unpaid", "Partially Paid", "Paid", "Overdue", "Cancelled"}
+    VALID_PAYMENT_STATUSES = {
+        "Draft",
+        "Unpaid",
+        "Partially Paid",
+        "Paid",
+        "Credited",
+        "Partially Credited",
+        "Overdue",
+        "Cancelled",
+    }
+
+    # transaction_type values that mark a row as a credit note. A set of exact values
+    # rather than a substring test: `transaction_type` is one of four literals derived
+    # from two booleans, so an exact match is simply the honest spelling of the check
+    # and it stays correct if a fifth literal is ever added.
+    CREDIT_NOTE_TRANSACTION_TYPES = {"Credit Note", "Membership Credit Note"}
 
     @staticmethod
     def build_from_invoice_doc(invoice_doc, member_doc=None, mandate_cache=None) -> Dict[str, Any]:
@@ -143,6 +158,7 @@ class PaymentHistoryEntryBuilder:
 
         row = {
             "invoice_name": invoice_doc.name,
+            "is_return": getattr(invoice_doc, "is_return", 0),
             "is_membership_invoice": getattr(invoice_doc, "is_membership_invoice", 0),
             "membership": getattr(invoice_doc, "membership", None),  # ast-skip: custom field
             "posting_date": invoice_doc.posting_date,
@@ -179,7 +195,12 @@ class PaymentHistoryEntryBuilder:
         # Classifier: the unconditionally-set boolean (NOT the conditional link).
         is_membership = bool(row.get("is_membership_invoice"))
         membership = row.get("membership")
-        transaction_type = "Membership Invoice" if is_membership else "Regular Invoice"
+        # A credit note is labelled as one so a reader can tell which rows REDUCED what
+        # the member owed. Present-but-indistinguishable is not trackable (#653).
+        if row.get("is_return"):
+            transaction_type = "Membership Credit Note" if is_membership else "Credit Note"
+        else:
+            transaction_type = "Membership Invoice" if is_membership else "Regular Invoice"
         if is_membership and membership:
             reference_doctype = "Membership"
             reference_name = membership
@@ -248,11 +269,38 @@ class PaymentHistoryEntryBuilder:
         if entry.get("payment_status") not in PaymentHistoryEntryBuilder.VALID_PAYMENT_STATUSES:
             errors.append(f"Invalid payment_status: {entry.get('payment_status')}")
 
-        # Validate amounts
-        if entry.get("amount") is not None and entry["amount"] < 0:
-            errors.append("amount cannot be negative")
+        # Validate amounts. A credit note's `amount` is negative by construction -- a
+        # return Sales Invoice has grand_total < 0 -- and its `outstanding_amount` is
+        # negative too when `update_outstanding_for_self` is set. Refusing those made
+        # `build_payment_history_entry` return None for EVERY credit note, and the
+        # caller answered the rejection with a minimal entry stamped "Draft" (#653).
+        #
+        # For `amount` the relaxation is a sign RULE, not an exemption: an ordinary
+        # invoice still may not be negative, and a credit note may not be positive.
+        #
+        # For `outstanding_amount` it IS an exemption, deliberately: a credit note
+        # booked against the original carries 0, one booked against itself carries a
+        # negative, and one partly consumed carries something in between -- there is no
+        # single sign to enforce, so enforcing one would reject valid rows. Stated
+        # rather than left to look symmetric.
+        #
+        # `paid_amount` stays unconditional -- money received is never negative on
+        # either kind.
+        is_credit_note = (
+            entry.get("transaction_type") in PaymentHistoryEntryBuilder.CREDIT_NOTE_TRANSACTION_TYPES
+        )
 
-        if entry.get("outstanding_amount") is not None and entry["outstanding_amount"] < 0:
+        if entry.get("amount") is not None:
+            if is_credit_note and entry["amount"] > 0:
+                errors.append("a credit note's amount must not be positive")
+            elif not is_credit_note and entry["amount"] < 0:
+                errors.append("amount cannot be negative")
+
+        if (
+            entry.get("outstanding_amount") is not None
+            and not is_credit_note
+            and entry["outstanding_amount"] < 0
+        ):
             errors.append("outstanding_amount cannot be negative")
 
         if entry.get("paid_amount") is not None and entry["paid_amount"] < 0:

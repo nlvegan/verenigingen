@@ -272,11 +272,26 @@ class PaymentStatus:
 
     # Payment statuses for display
     STATUS_PAID = "Paid"
+    STATUS_CREDITED = "Credited"
+    STATUS_PARTIALLY_CREDITED = "Partially Credited"
     STATUS_FAILED = "Failed"
     STATUS_PENDING = "Pending"
 
-    # Status groups for filtering
+    # Status groups for filtering.
+    #
+    # PAID_STATUSES means SETTLED -- nothing is owed -- not "the member paid". Its two
+    # consumers deliberately want different things from that, which is why the set is
+    # left alone rather than split (#653):
+    #   * dues_schedule_manager asks "should we still chase this?" and must answer NO
+    #     for a credited invoice -- a waived member must not become collectable again.
+    #   * payment_dashboard asks "what does the member see?" and must NOT say Paid for
+    #     an invoice that was waived. It branches on the credit-note statuses BEFORE
+    #     consulting this set.
     PAID_STATUSES: Set[str] = {INVOICE_PAID, INVOICE_CREDIT_NOTE_ISSUED}
+
+    # The two ERPNext statuses that mean "credited, not paid": the credit note itself
+    # ("Return") and an invoice a credit note has settled ("Credit Note Issued").
+    CREDITED_STATUSES: Set[str] = {INVOICE_CREDIT_NOTE_ISSUED, "Return"}
     UNPAID_STATUSES: Set[str] = {INVOICE_UNPAID, INVOICE_OVERDUE, INVOICE_PARTIALLY_PAID}
     RECONCILED_STATUSES: Set[str] = {INVOICE_PAID, INVOICE_PARTLY_PAID}
 

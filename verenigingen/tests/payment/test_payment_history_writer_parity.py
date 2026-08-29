@@ -171,6 +171,50 @@ class TestPaymentHistoryWriterParity(EnhancedTestCase):
         self.assertEqual(incremental_entry["sepa_mandate"], membership_mandate.name)
         self.assertEqual(rebuild_row.get("sepa_mandate"), membership_mandate.name)
 
+    def test_credit_note_row_matches_across_both_writers(self):
+        """A credit note must classify identically on both paths (#653).
+
+        Added because a mutation proved this gap: removing `is_return` from the REBUILD
+        path's field list and canonical row changed nothing observable -- neither this
+        suite nor the credit-note suite noticed, because every other test here uses an
+        ordinary invoice and the credit-note suite only ever drives the incremental
+        writer. `transaction_type` and `payment_status` are the two that diverge.
+        """
+        from erpnext.controllers.sales_and_purchase_return import make_return_doc
+
+        inv = self._make_submitted_invoice(is_membership_invoice=1)
+
+        note = make_return_doc("Sales Invoice", inv.name)
+        note.posting_date = frappe.utils.today()
+        note.set_posting_time = 1
+        # The DocType default is 1; 0 is what makes ERPNext book against the original.
+        note.update_outstanding_for_self = 0
+        note.insert()
+        note.submit()
+        self.track_doc("Sales Invoice", note.name)
+
+        self.member.reload()
+        self.service.load_payment_history_batched(self.member)
+        rebuild_row = next(r for r in self.member.payment_history if r.invoice == note.name)
+        incremental_entry = self.member._build_payment_history_entry(
+            frappe.get_doc("Sales Invoice", note.name)
+        )
+
+        for field in PARITY_FIELDS:
+            self.assertEqual(
+                incremental_entry.get(field),
+                rebuild_row.get(field),
+                f"Divergence on '{field}': incremental={incremental_entry.get(field)!r} "
+                f"rebuild={rebuild_row.get(field)!r}",
+            )
+
+        # Sanity: both really did classify it as a credit note, so the loop above is not
+        # comparing two copies of the wrong answer.
+        self.assertEqual(incremental_entry["transaction_type"], "Membership Credit Note")
+        self.assertEqual(rebuild_row.get("transaction_type"), "Membership Credit Note")
+        self.assertEqual(incremental_entry["payment_status"], "Credited")
+        self.assertLess(incremental_entry["amount"], 0)
+
     def test_reconciling_pe_flips_invoice_row_to_paid(self):
         from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 

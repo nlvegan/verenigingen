@@ -29,6 +29,37 @@ def determine_payment_status(invoice, paid_amount: float = 0.0) -> str:
     """
     if invoice.docstatus == 0:
         return "Draft"
+    # BEFORE the `outstanding_amount <= 0` short-circuit below, which would otherwise
+    # swallow both of ERPNext's credit-note statuses into "Paid" (#653):
+    #   * "Return"             -- the credit note itself; its own outstanding is 0 when
+    #                             it is booked against the original, and NEGATIVE when
+    #                             `update_outstanding_for_self` is set, i.e. money owed
+    #                             TO the member. `<= 0` called both Paid.
+    #   * "Credit Note Issued" -- an invoice a credit note has settled. NOT "fully
+    #                             credited": ERPNext sets it for ANY submitted credit
+    #                             note against the invoice once outstanding <= 0
+    #                             (sales_invoice.py:2293), so a EUR 42 invoice with a
+    #                             EUR 10 goodwill credit whose EUR 32 remainder the
+    #                             member then PAYS also lands here. Reporting it as
+    #                             "Paid" made a WAIVED membership invoice read exactly
+    #                             like one the member had paid, which is the
+    #                             distinction the payment history exists to record --
+    #                             but note the converse: a mostly-paid, partly-credited
+    #                             invoice now reads "Credited" and its paid_amount is
+    #                             in no "paid" bucket. Tracked in #653's thread.
+    # "Credited", not "Refunded": a credit note is often a waiver or a correction, and
+    # "Refunded" asserts money went back to the member when none may have moved.
+    if invoice.status in ("Return", "Credit Note Issued"):
+        # "Credit Note Issued" covers two different things, and collapsing them hides a
+        # real payment exactly as "Paid" hid a real waiver: an invoice waived outright,
+        # and one the member PAID most of after a partial credit. `paid_amount` is the
+        # sum of Payment Entry allocations, so it is > 0 only in the second case.
+        #
+        # A "Return" is never "Partially Credited" -- the credit note IS the credit, not
+        # a thing that was partly credited -- so only the invoice side splits.
+        if invoice.status == "Credit Note Issued" and paid_amount > 0:
+            return "Partially Credited"
+        return "Credited"
     if invoice.status == "Paid" or invoice.outstanding_amount <= 0:
         return "Paid"
     if invoice.status == "Overdue":
