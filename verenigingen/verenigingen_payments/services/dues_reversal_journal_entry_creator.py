@@ -14,8 +14,17 @@ throws when a positive allocation exceeds ``outstanding_amount`` *and* when a
 negative one falls below it, so on a fully-paid invoice (``outstanding == 0``)
 both directions throw. A Journal Entry debiting the invoice's ``debit_to`` with
 ``reference_type="Sales Invoice"`` restores ``outstanding_amount`` through
-ERPNext's own ``update_outstanding_amt``, and expresses a **partial** refund,
-which a cancel of the forward entry cannot (#370, #635).
+ERPNext's own recompute, and expresses a **partial** refund, which a cancel of the
+forward entry cannot (#370, #635).
+
+That recompute is ``update_voucher_outstanding``
+(``erpnext/accounts/utils.py:2141``), reached from ``PaymentLedgerEntry.on_update``
+-- **not** ``gl_entry.update_outstanding_amt``, which this docstring named until
+#649. That function cannot run for a Sales Invoice at all: ``GLEntry.on_update``
+gates it on the account NOT being Receivable, and the ``against_voucher`` row
+always sits on ``debit_to``. The distinction is not academic -- a sweep for "what
+moves a member invoice's outstanding" that starts from GL Entry producers misses
+``Unreconcile Payment``, which posts no GL row and calls the recompute directly.
 
 **Why not cancel the forward Payment Entry**, despite the SEPA-return precedent:
 a cancel re-posts GL at the original date (which fails once the period is closed,

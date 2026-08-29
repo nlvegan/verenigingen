@@ -611,6 +611,15 @@ def queue_member_payment_history_update_handler(doc, method=None):
         # Don't raise - we don't want to block the payment entry submission
 
 
+def customers_named_on_rows(rows):
+    """The distinct Customer parties on a child table that carries party per ROW.
+
+    Journal Entry (`accounts`) and Unreconcile Payment (`allocations`) both do that,
+    unlike Payment Entry, which carries one party on the document.
+    """
+    return {row.party for row in (rows or []) if row.get("party_type") == "Customer" and row.get("party")}
+
+
 def queue_journal_entry_payment_history_update_handler(doc, method=None):
     """Journal Entry hook: refresh payment history for every member it touches.
 
@@ -619,22 +628,86 @@ def queue_journal_entry_payment_history_update_handler(doc, method=None):
     every distinct Customer row is refreshed, not just the first (#645).
 
     Why this hook has to exist at all: a Journal Entry referencing a Sales Invoice
-    restores that invoice's `outstanding_amount`, but ERPNext writes it with
-    `frappe.db.set_value` + `set_status(update=True)` (gl_entry.py), neither of
-    which dispatches `on_update_after_submit` -- so the Sales Invoice route that
-    covers every other post-submit change to an invoice never fires here, and the
-    member's payment history keeps saying Paid.
+    restores that invoice's `outstanding_amount`, but ERPNext writes that figure
+    without dispatching `on_update_after_submit` on the invoice -- so the Sales
+    Invoice route that covers every other post-submit change to an invoice never
+    fires here, and the member's payment history keeps saying Paid.
+
+    (#645 cited `gl_entry.py` for that write. In v16.30 the writer is
+    `update_voucher_outstanding` (`erpnext/accounts/utils.py:2141`), reached from
+    `PaymentLedgerEntry.on_update`; `gl_entry.update_outstanding_amt` cannot run for a
+    Sales Invoice at all, because `GLEntry.on_update` gates it on the account NOT being
+    Receivable and the against_voucher row always sits on `debit_to`. The conclusion is
+    unchanged -- neither writer dispatches a document event -- but the old citation sent
+    a later sweep looking for GL rows, which is how a producer that posts none was
+    missed. See `queue_unreconcile_payment_history_update_handler`.)
     """
     try:
-        customers = {
-            row.party
-            for row in (doc.get("accounts") or [])
-            if row.get("party_type") == "Customer" and row.get("party")
-        }
-        enqueue_payment_history_drain_for_customers(customers)
+        enqueue_payment_history_drain_for_customers(customers_named_on_rows(doc.get("accounts")))
     except Exception as e:
         frappe.log_error(f"Failed to enqueue payment history update for journal entry {doc.name}: {e}")
         # Don't raise - we don't want to block the journal entry submission
+
+
+def queue_unreconcile_payment_history_update_handler(doc, method=None):
+    """Unreconcile Payment hook: undoing an allocation puts the outstanding back.
+
+    The producer a GL-shaped grep can never find. `UnreconcilePayment.on_submit`
+    (`erpnext/accounts/doctype/unreconcile_payment/unreconcile_payment.py:67`) calls
+    `update_voucher_outstanding` DIRECTLY, once per allocation row, and unlinks the
+    reference with raw query-builder updates -- so it posts no GL row, saves no Payment
+    Entry and saves no Journal Entry. None of the other registrations here can see it,
+    and the member's history keeps saying Paid on an invoice that is owed again.
+
+    Desk-reachable from the Sales Invoice, Payment Entry, Journal Entry and Purchase
+    Invoice forms (`erpnext/public/js/utils/unreconcile.js`).
+
+    `on_cancel` is not registered: the doctype defines no `on_cancel`, so cancelling one
+    reverts nothing to react to.
+    """
+    try:
+        enqueue_payment_history_drain_for_customers(customers_named_on_rows(doc.get("allocations")))
+    except Exception as e:
+        frappe.log_error(f"Failed to enqueue payment history update for unreconcile {doc.name}: {e}")
+        # Don't raise - we don't want to block the unreconciliation
+
+
+def queue_credit_note_payment_history_update_handler(doc, method=None):
+    """Sales Invoice hook: a credit note moves the ORIGINAL invoice's outstanding.
+
+    When a return invoice names `return_against` and `update_outstanding_for_self` is
+    off, ERPNext posts the customer GL row with `against_voucher = return_against`
+    (`sales_invoice.py:1675-1676`) -- so the figure that moves belongs to the invoice being
+    credited, not to this document. The app's Sales Invoice route queues a refresh for
+    the submitted document itself, which is the credit note, and the original's history
+    row keeps the pre-credit figure (#649).
+
+    The customer-wide drain is used rather than a refresh of `return_against` alone
+    because it is the same job the Payment Entry and Journal Entry hooks already queue,
+    deduplicated per member, and it re-reads every submitted invoice for the customer.
+    The credit note's OWN row lands wrong, and that is a separate defect filed on its
+    own rather than widened into this fix. Measured: `validate_entry` rejects the
+    negative `amount` (`payment_history_builder.py:253`), and the caller answers a
+    rejection with a hard-coded minimal entry stamped `payment_status = "Draft"`
+    (`payment_history_service.py:620`) -- so a SUBMITTED credit note sits in the
+    member's history labelled Draft. What this handler fixes is the ORIGINAL invoice's
+    row.
+
+    Guarded on the return fields rather than registered unconditionally: every ordinary
+    membership invoice submit would otherwise pay for a customer-wide drain on top of
+    the per-invoice refresh the event route already queues.
+    """
+    try:
+        if not (doc.get("is_return") and doc.get("return_against")):
+            return
+        if doc.get("update_outstanding_for_self"):
+            # ERPNext books this one against itself, so no other invoice moved. Note the
+            # DocType default for this field is 1 -- the desk has to uncheck it.
+            return
+        enqueue_payment_history_drain_for_customers([doc.customer])
+    except Exception as e:
+        frappe.log_error(f"Failed to enqueue payment history update for credit note {doc.name}: {e}")
+        # Don't raise - we don't want to block the credit note submission
 
 
 def drain_member_payment_history(member, customer):
