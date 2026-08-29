@@ -19,9 +19,9 @@ The fixed `validate_and_repair_payment_history` must instead:
 from unittest.mock import patch
 
 import frappe
-from frappe.utils import add_days, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.invoice_payments import build_eur_membership_invoice
 
 
 class TestPaymentHistoryReconciliation(EnhancedTestCase):
@@ -55,61 +55,11 @@ class TestPaymentHistoryReconciliation(EnhancedTestCase):
             self.track_doc("Customer", customer.name)
         return member
 
-    def _build_secured_invoice(self, customer, rate, posting_date=None):
-        """Build + save a complete (v16-valid) EUR Sales Invoice for `customer`.
-
-        Mirrors verenigingen/tests/security/test_integrated_security_payment_system.py
-        ::_build_secured_invoice so this suite exercises the same field set as the
-        established secured-invoice tests (company / debit_to / income account /
-        cost_center / selling price list are all mandatory on a v16 Sales Invoice).
-        """
-        company = self.test_company
-        debit_to = frappe.db.get_value(
-            "Company", company, "default_receivable_account"
-        ) or frappe.db.get_value(
-            "Account", {"account_type": "Receivable", "company": company, "is_group": 0}, "name"
-        )
-        income_account = frappe.db.get_value(
-            "Account", {"account_type": "Income Account", "company": company, "is_group": 0}, "name"
-        )
-        cost_center = frappe.db.get_value("Company", company, "cost_center") or frappe.db.get_value(
-            "Cost Center", {"company": company, "is_group": 0}, "name"
-        )
-        price_list = frappe.db.get_value("Price List", {"selling": 1}, "name") or "Standard Selling"
-
-        invoice = frappe.new_doc("Sales Invoice")
-        invoice.customer = customer
-        invoice.company = company
-        invoice.currency = "EUR"
-        invoice.conversion_rate = 1.0
-        invoice.debit_to = debit_to
-        invoice.selling_price_list = price_list
-        invoice.price_list_currency = "EUR"
-        invoice.plc_conversion_rate = 1.0
-        invoice.ignore_pricing_rule = 1
-        invoice.posting_date = posting_date or today()
-        invoice.set_posting_time = 1
-        invoice.due_date = add_days(invoice.posting_date, 30)
-        invoice.is_membership_invoice = 1
-        invoice.append(
-            "items",
-            {
-                "item_code": "TEST-MEMBERSHIP",
-                "qty": 1,
-                "rate": rate,
-                "income_account": income_account,
-                "cost_center": cost_center,
-            },
-        )
-        invoice.save()
-        invoice.submit()
-        return invoice
-
     def test_missing_invoice_is_detected_and_enqueued_once(self):
         """An in-window submitted invoice with no payment_history row must
         trigger exactly one deduplicated drain-job enqueue for its member."""
         member = self._make_member_with_customer("missing")
-        invoice = self._build_secured_invoice(member.customer, 42.0)
+        invoice = build_eur_membership_invoice(self, member.customer, 42.0)
 
         # Defensively clear any payment_history row for this invoice so it is a
         # genuine gap for the reconciliation to find. Payment-history population on
@@ -145,7 +95,7 @@ class TestPaymentHistoryReconciliation(EnhancedTestCase):
     def test_already_reflected_invoice_is_not_reprocessed(self):
         """An invoice already reflected in payment_history must not be re-enqueued."""
         member = self._make_member_with_customer("reflected")
-        invoice = self._build_secured_invoice(member.customer, 42.0)
+        invoice = build_eur_membership_invoice(self, member.customer, 42.0)
 
         from verenigingen.utils.background_jobs import drain_member_payment_history
 

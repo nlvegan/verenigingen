@@ -218,7 +218,17 @@ doc_events = {
     },
     "Journal Entry": {
         "validate": "verenigingen.utils.account_group_validation_hooks.validate_journal_entry",
-        "on_submit": "verenigingen.services.member.donor.donor_auto_creation.process_payment_for_donor_creation",
+        "on_submit": [
+            "verenigingen.services.member.donor.donor_auto_creation.process_payment_for_donor_creation",
+            "verenigingen.utils.background_jobs.queue_journal_entry_payment_history_update_handler",
+        ],
+        # A Journal Entry against a member's receivable moves the invoice's
+        # outstanding_amount in both directions -- submit restores it, cancel
+        # takes it away again -- and neither reaches the Sales Invoice
+        # on_update_after_submit route (#645).
+        "on_cancel": [
+            "verenigingen.utils.background_jobs.queue_journal_entry_payment_history_update_handler",
+        ],
     },
     "Bank Transaction": {
         "on_submit": "verenigingen.services.member.donor.donor_auto_creation.process_payment_for_donor_creation",

@@ -20,6 +20,7 @@ import frappe
 from frappe.utils import add_days, now_datetime, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.invoice_payments import build_eur_membership_invoice
 from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
 from verenigingen.utils.payment_history_validator import validate_and_repair_payment_history
 from verenigingen.utils.security.api_security_framework import (
@@ -85,61 +86,13 @@ class TestIntegratedSecurityPaymentSystem(EnhancedTestCase):
         # later inside an as_user() block could hit permission limits.
         self._ensure_test_item("TEST-MEMBERSHIP")
 
-    def _build_secured_invoice(self, customer, rate, posting_date=None):
-        """Build + save a complete (v16-valid) EUR Sales Invoice for `customer`.
-
-        The ad-hoc closures in these tests previously built bare invoices missing
-        company / debit_to / selling price-list fields, which fail validation on
-        v16. Centralise a correct builder here.
-        """
-        company = self.test_company
-        debit_to = frappe.db.get_value("Company", company, "default_receivable_account") or frappe.db.get_value(
-            "Account", {"account_type": "Receivable", "company": company, "is_group": 0}, "name"
-        )
-        income_account = frappe.db.get_value(
-            "Account", {"account_type": "Income Account", "company": company, "is_group": 0}, "name"
-        )
-        cost_center = frappe.db.get_value("Company", company, "cost_center") or frappe.db.get_value(
-            "Cost Center", {"company": company, "is_group": 0}, "name"
-        )
-        price_list = frappe.db.get_value("Price List", {"selling": 1}, "name") or "Standard Selling"
-
-        invoice = frappe.new_doc("Sales Invoice")
-        invoice.customer = customer
-        invoice.company = company
-        invoice.currency = "EUR"
-        invoice.conversion_rate = 1.0
-        invoice.debit_to = debit_to
-        invoice.selling_price_list = price_list
-        invoice.price_list_currency = "EUR"
-        invoice.plc_conversion_rate = 1.0
-        invoice.ignore_pricing_rule = 1
-        invoice.posting_date = posting_date or today()
-        invoice.set_posting_time = 1
-        invoice.due_date = add_days(invoice.posting_date, 30)
-        invoice.is_membership_invoice = 1
-        invoice.append(
-            "items",
-            {
-                "item_code": "TEST-MEMBERSHIP",
-                "qty": 1,
-                "rate": rate,
-                "income_account": income_account,
-                "cost_center": cost_center,
-            },
-        )
-        invoice.save()
-        # Payment history only tracks submitted invoices.
-        invoice.submit()
-        return invoice
-
     def test_end_to_end_invoice_processing_workflow(self):
         """Test complete end-to-end invoice processing with security and validation"""
 
         # Step 1: Create invoices through secure API
         @high_security_api(operation_type=OperationType.FINANCIAL)
         def create_secured_invoice(customer_name, amount):
-            return self._build_secured_invoice(customer_name, amount)
+            return build_eur_membership_invoice(self, customer_name, amount)
 
         # Step 2: Process invoices with race condition handling
         @standard_api(operation_type=OperationType.MEMBER_DATA)
@@ -198,7 +151,7 @@ class TestIntegratedSecurityPaymentSystem(EnhancedTestCase):
         def concurrent_invoice_operation(member_name, operation_id):
             # Create invoice
             member = frappe.get_doc("Member", member_name)
-            invoice = self._build_secured_invoice(
+            invoice = build_eur_membership_invoice(self, 
                 member.customer, 25.0 + operation_id, posting_date=add_days(today(), -operation_id)
             )
 
@@ -257,7 +210,7 @@ class TestIntegratedSecurityPaymentSystem(EnhancedTestCase):
 
                     for i in range(invoice_count_per_member):
                         # Create invoice
-                        invoice = self._build_secured_invoice(
+                        invoice = build_eur_membership_invoice(self, 
                             member.customer, 30.0 + i, posting_date=add_days(today(), -(i + 1))
                         )
                         created_invoices.append(invoice)
@@ -316,7 +269,7 @@ class TestIntegratedSecurityPaymentSystem(EnhancedTestCase):
             member = frappe.get_doc("Member", member_name)
 
             if operation_type == "create_invoice":
-                invoice = self._build_secured_invoice(member.customer, 20.0)
+                invoice = build_eur_membership_invoice(self, member.customer, 20.0)
                 return {"operation": "invoice_created", "invoice": invoice.name}
 
             elif operation_type == "update_payment_history":
@@ -372,7 +325,7 @@ class TestIntegratedSecurityPaymentSystem(EnhancedTestCase):
                     raise frappe.PermissionError("Simulated permission error")
 
             # Normal processing
-            invoice = self._build_secured_invoice(member.customer, 35.0)
+            invoice = build_eur_membership_invoice(self, member.customer, 35.0)
             member.add_invoice_to_payment_history(invoice.name)
 
             return {"status": "processed", "member": member_name, "invoice": invoice.name}
@@ -416,7 +369,7 @@ class TestIntegratedSecurityPaymentSystem(EnhancedTestCase):
 
             for i in range(operation_count):
                 # Create invoice
-                invoice = self._build_secured_invoice(
+                invoice = build_eur_membership_invoice(self, 
                     member.customer, 40.0 + i, posting_date=add_days(today(), -i)
                 )
                 processed_invoices.append(invoice.name)

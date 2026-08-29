@@ -58,7 +58,6 @@ _build_chapter_info::2  # clone family, 100% of pairs near-identical
 _build_creator::2  # clone family, 100% of pairs near-identical
 _build_invoice::2
 _build_member_with_invoice::2  # clone family, 100% of pairs near-identical
-_build_secured_invoice::2  # clone family, 100% of pairs near-identical
 _build_transaction_description::2
 _calculate_checksum::2
 _calculate_delay::2

@@ -94,6 +94,24 @@ class TestDeterminePaymentStatus(EnhancedTestCase):
             "Partially Paid",
         )
 
+    def test_partially_paid_from_erpnext_status_when_paid_amount_says_otherwise(self):
+        """ERPNext's own "Partly Paid", with paid_amount NOT below grand_total.
+
+        This is the shape a partial reversal leaves behind: the reversing Journal
+        Entry restores `outstanding_amount` but does not touch the forward Payment
+        Entry, so `paid_amount` still equals `grand_total` and the paid_amount
+        comparison below it reads False. Without the status branch this returned
+        "Unpaid" for an invoice carrying a recorded payment and a non-zero
+        outstanding -- three fields on one row disagreeing (#645).
+        """
+        self.assertEqual(
+            determine_payment_status(
+                _invoice(status="Partly Paid", outstanding_amount=20, grand_total=42),
+                paid_amount=42,
+            ),
+            "Partially Paid",
+        )
+
     def test_unpaid_when_no_payment(self):
         self.assertEqual(
             determine_payment_status(
