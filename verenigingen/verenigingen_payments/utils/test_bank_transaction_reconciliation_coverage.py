@@ -66,6 +66,7 @@ from unittest import mock
 import frappe
 from frappe.utils import add_days, flt, getdate, today
 
+from verenigingen.tests.fixtures.mollie_account_fixtures import provisioned_mollie_settings
 from verenigingen.tests.payment.test_bank_transaction_reconciliation import BTRBase
 from verenigingen.verenigingen_payments.utils import bank_transaction_reconciliation as btr
 
@@ -94,7 +95,92 @@ class _StubSettlementsClient:
 
 
 class MollieBase(BTRBase):
-    """Adds Mollie-settlement fixtures (clearing/fees accounts, client stub)."""
+    """Adds Mollie-settlement fixtures (clearing/fees accounts, client stub).
+
+    Every test in this class books through a Mollie clearing account THIS MODULE
+    OWNS on the EUR test company, pinned in `setUp`. That is not tidiness -- it is
+    #640.
+
+    Six settlement tests do not open their own `_mollie_settings(...)` context,
+    so they used to book against whatever ambient `Mollie Settings` happened to
+    hold. Measured on two sites the same day:
+
+    | site | ambient `mollie_clearing_account` | outcome |
+    |---|---|---|
+    | `test_site_1` | `Mollie - _TC` (the INR `_Test Company`) | **6 failures** |
+    | `test_site_2` | `Mollie - TPIC` (the EUR test company) | green |
+
+    On the first, every settlement booking died with "Accounting Entry for
+    Mollie - _TC can only be made in currency: INR" -- reported to the test only
+    as `ok = False`, with the reason in the Error Log. So this module's result was
+    decided by whichever co-tenant last wrote that Single, and CI shard packing
+    (which re-packs whenever any test file is edited) chose the co-tenants. That
+    is why it looked environment-specific for weeks.
+
+    A test that opens its own `_mollie_settings(...)` still overrides the pin and
+    restores back to it, so the nesting is safe.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # Point Mollie Settings at a COHERENT provisioned account set for the whole
+        # test, restored (and committed -- see `singleton_backup`) by addCleanup.
+        # ExitStack rather than TestCase.enterContext, which is 3.11+; CI runs 3.10.
+        stack = contextlib.ExitStack()
+        self.addCleanup(stack.close)
+        self._mollie_accounts = stack.enter_context(provisioned_mollie_settings(company=self.company))
+        self._assert_mollie_config_is_bookable()
+
+    def _assert_mollie_config_is_bookable(self):
+        """Fail HERE, naming the field, if the config the MANAGER will use cannot book.
+
+        Read back through `self.mgr.config`, not from `self._mollie_accounts`:
+        asserting the value the fixture just returned would restate the line above
+        it. What can actually go wrong is the pin not reaching the manager --
+        `Mollie Settings` is a Single, and the configuration service memoises it in
+        `frappe.cache()` under `mollie_settings_cache` with a 300s TTL. That cache is
+        site-wide Redis, shared across processes, and it SURVIVES the harness
+        rollback, so a stale entry is a live hazard rather than a theoretical one.
+
+        And it asserts in setUp because the failure it replaces surfaced several
+        tests later as a bare `assertTrue(ok)` on a reconciliation result, with the
+        cause ("can only be made in currency: INR") reachable only through the Error
+        Log -- which is how #640 stayed open while the answer sat in one field.
+        """
+        company_currency = frappe.db.get_value("Company", self.company, "default_currency")
+        for label, read_effective, expected in (
+            ("clearing", self.mgr.config.get_clearing_account, self._mollie_accounts["clearing_account"]),
+            ("bank", self.mgr.config.get_bank_account_gl, self._mollie_accounts["bank_account"]),
+            ("fees", self.mgr.config.get_fees_account, self._mollie_accounts["fees_account"]),
+        ):
+            effective = read_effective()
+            self.assertEqual(
+                effective,
+                expected,
+                f"the provisioned {label} account did not reach the manager -- Mollie Settings "
+                f"is a Single behind a Redis-cached config, so a write or a cache clear that "
+                f"did not take leaves this suite booking against ambient configuration (#640)",
+            )
+            # Checked before the unpack below, which would otherwise raise
+            # `cannot unpack non-iterable NoneType` -- and a vanished account is
+            # exactly the drain scenario this pinning exists to survive.
+            self.assertTrue(
+                frappe.db.exists("Account", effective),
+                f"the {label} account {effective} no longer exists",
+            )
+            owner, currency = frappe.db.get_value("Account", effective, ["company", "account_currency"])
+            self.assertEqual(
+                owner,
+                self.company,
+                f"the {label} account {effective} belongs to {owner}, but settlements book "
+                f"into {self.company} -- this is #640",
+            )
+            self.assertIn(
+                currency,
+                (None, "", company_currency),
+                f"the {label} account {effective} is in {currency}, but {self.company} books "
+                f"in {company_currency} -- this is #640",
+            )
 
     @contextlib.contextmanager
     def _stub_client(self, settlements=None, payments=None):
@@ -251,15 +337,43 @@ class MollieBase(BTRBase):
             "settlement_data": settlement_data,
         }
 
-    def _fee_journal_entries(self, settlement_id):
-        """Fee Journal Entries for a settlement.
+    def _payout_entries(self, settlement_id):
+        """The payout legs for a settlement, matched on the tracking field.
 
-        Matched on ``user_remark`` rather than the tracking field so the query is
-        identical before and after the tracking field exists.
+        Keyed on ``voucher_type`` as well, because the fee entry carries the SAME
+        ``custom_mollie_settlement_id``: the two are told apart by voucher type and
+        nothing else.
         """
         return frappe.get_all(
             "Journal Entry",
-            filters={"user_remark": ["like", f"%{settlement_id}%"], "docstatus": 1},
+            filters={
+                "custom_mollie_settlement_id": settlement_id,
+                "voucher_type": "Bank Entry",
+                "docstatus": 1,
+            },
+            fields=["name", "total_debit"],
+        )
+
+    def _fee_entries(self, settlement_id):
+        """The fee entry for a settlement. See `_payout_entries` for the discriminator.
+
+        This replaced a `_fee_journal_entries` that matched ANY submitted Journal
+        Entry whose free-text `user_remark` contained the settlement id. That was
+        wrong twice: it counted the payout leg as a fee entry (so callers asserting
+        "exactly one fee entry" broke the moment a complete Mollie configuration let
+        the payout leg book at all), and a settlement id like `stl_MIX` carries `_`,
+        a single-character LIKE wildcard, unescaped -- the bug class already fixed in
+        `reversal_idempotency`, `sepa_mandate_manager` and
+        `periodic_donation_operations`. Equality on the tracking field has neither
+        problem.
+        """
+        return frappe.get_all(
+            "Journal Entry",
+            filters={
+                "custom_mollie_settlement_id": settlement_id,
+                "voucher_type": "Journal Entry",
+                "docstatus": 1,
+            },
             fields=["name", "total_debit"],
         )
 
@@ -966,12 +1080,12 @@ class TestSettlementIdempotency(MollieBase):
         with self._mollie_settings(clearing_account=clearing, fees_account=fees):
             with self._stub_client(payments=[payment]):
                 self.mgr.create_reconciliation(self._txn_dict(bt), self._match(settlement_id, "30.00"))
-                after_first = self._fee_journal_entries(settlement_id)
+                after_first = self._fee_entries(settlement_id)
                 # A second scheduled run re-matches the same settlement.
                 btr.PaymentReconciliationManager().create_reconciliation(
                     self._txn_dict(bt), self._match(settlement_id, "30.00")
                 )
-                after_second = self._fee_journal_entries(settlement_id)
+                after_second = self._fee_entries(settlement_id)
 
         self.assertEqual(
             after_first,
@@ -1006,13 +1120,13 @@ class TestSettlementIdempotency(MollieBase):
                     self._txn_dict(bt), self._match(settlement_id, "28.50", stated_costs="1.50")
                 )
                 self.assertTrue(ok)
-                after_first = self._fee_journal_entries(settlement_id)
+                after_first = self._fee_entries(settlement_id)
                 # A fresh manager, as the next scheduled run would use (the in-memory
                 # dedup set is empty; the DB-backed guard still sees the submitted PE).
                 btr.PaymentReconciliationManager().create_reconciliation(
                     self._txn_dict(bt), self._match(settlement_id, "28.50", stated_costs="1.50")
                 )
-                after_second = self._fee_journal_entries(settlement_id)
+                after_second = self._fee_entries(settlement_id)
 
         self.assertEqual(len(after_first), 1, f"the first run must book the 1.50 fee once: {after_first}")
         self.assertEqual(
@@ -1135,7 +1249,7 @@ class TestPartiallyAllocatedSettlement(MollieBase):
                 )
 
         self.assertEqual(result["processed_count"], 1)
-        booked = self._fee_journal_entries(settlement_id)
+        booked = self._fee_entries(settlement_id)
         self.assertEqual(
             booked,
             [],
@@ -1208,13 +1322,13 @@ class TestPartiallyAllocatedSettlement(MollieBase):
                 self.mgr.create_reconciliation(
                     self._txn_dict(bt), self._match(settlement_id, "48.50", stated_costs="1.50")
                 )
-            after_first = self._fee_journal_entries(settlement_id)
+            after_first = self._fee_entries(settlement_id)
             with self._stub_client(payments=[first, resolved]):
                 # A fresh manager, as the next scheduled run would use.
                 btr.PaymentReconciliationManager().create_reconciliation(
                     self._txn_dict(bt), self._match(settlement_id, "48.50", stated_costs="1.50")
                 )
-            after_second = self._fee_journal_entries(settlement_id)
+            after_second = self._fee_entries(settlement_id)
 
         self.assertEqual(after_first, [], f"nothing to book while the settlement is partial: {after_first}")
         self.assertEqual(
@@ -1284,7 +1398,7 @@ class TestSettlementFeeSource(MollieBase):
                 )
 
         self.assertTrue(result, f"the settlement is complete; comments={self._bt_comments(bt.name)}")
-        booked = self._fee_journal_entries(settlement_id)
+        booked = self._fee_entries(settlement_id)
         self.assertEqual(len(booked), 1, f"one fee entry for a completed settlement: {booked}")
         self.assertEqual(
             flt(booked[0].total_debit, 2),
@@ -1922,34 +2036,6 @@ class TestSettlementBankLeg(MollieBase):
             "clearing must net to ZERO once a settlement is fully booked: gross in "
             f"(30.00), fees out (2.50), payout out (27.50). Residual debit means the "
             f"payout was never booked. debit={clearing_debit} credit={clearing_credit}",
-        )
-
-    def _payout_entries(self, settlement_id):
-        """The payout legs for a settlement, matched on the tracking field.
-
-        Keyed on ``voucher_type`` as well, because the fee entry carries the SAME
-        ``custom_mollie_settlement_id``: the two are told apart by voucher type and
-        nothing else.
-        """
-        return frappe.get_all(
-            "Journal Entry",
-            filters={
-                "custom_mollie_settlement_id": settlement_id,
-                "voucher_type": "Bank Entry",
-                "docstatus": 1,
-            },
-            fields=["name", "total_debit"],
-        )
-
-    def _fee_entries(self, settlement_id):
-        return frappe.get_all(
-            "Journal Entry",
-            filters={
-                "custom_mollie_settlement_id": settlement_id,
-                "voucher_type": "Journal Entry",
-                "docstatus": 1,
-            },
-            fields=["name", "total_debit"],
         )
 
     def _run_settlement(self, bt, settlement_id, payment, amount, stated_costs=None):
