@@ -185,6 +185,14 @@ doc_events = {
             "verenigingen.utils.background_jobs.queue_member_payment_history_update_handler",
             "verenigingen.utils.cache_invalidation.on_document_update",
         ],
+        # Payment Reconciliation allocates a previously unallocated payment by setting
+        # ignore_validate_update_after_submit and calling .save() on the submitted entry
+        # (reconcile_against_document, erpnext/accounts/utils.py:554), so the only event
+        # it dispatches is this one -- and at on_submit time the payment named no
+        # invoice, so the drain queued there had nothing to correct (#649).
+        "on_update_after_submit": [
+            "verenigingen.utils.background_jobs.queue_member_payment_history_update_handler",
+        ],
     },
     "Sales Invoice": {
         "before_validate": [
@@ -200,16 +208,26 @@ doc_events = {
         # such event, so it never fired. Its target
         # (overrides.sales_invoice.after_validate) is a documented no-op placeholder,
         # so nothing behavioural changes; the dead registration is simply gone.
+        #
+        # The credit note handler is registered alongside the event route rather than
+        # inside it: the route refreshes `event_data["invoice"]`, which for a credit
+        # note is the credit note, while the outstanding that moved belongs to
+        # `return_against` (#649). It returns immediately for anything that is not a
+        # return booked against another invoice.
         "on_submit": [
             "verenigingen.events.invoice_events.emit_invoice_submitted",
+            "verenigingen.utils.background_jobs.queue_credit_note_payment_history_update_handler",
             "verenigingen.utils.cache_invalidation.on_document_submit",
         ],
         "on_update_after_submit": [
             "verenigingen.events.invoice_events.emit_invoice_updated_after_submit",
             "verenigingen.utils.cache_invalidation.on_document_update",
         ],
+        # Cancelling the credit note gives the original invoice its outstanding back,
+        # which is the same defect in the other direction.
         "on_cancel": [
             "verenigingen.events.invoice_events.emit_invoice_cancelled",
+            "verenigingen.utils.background_jobs.queue_credit_note_payment_history_update_handler",
             "verenigingen.utils.cache_invalidation.on_document_cancel",
         ],
         "on_trash": [
@@ -229,9 +247,29 @@ doc_events = {
         "on_cancel": [
             "verenigingen.utils.background_jobs.queue_journal_entry_payment_history_update_handler",
         ],
+        # The same reconciliation path for a Journal Entry payment. NOT an exact twin of
+        # the Payment Entry case: reconcile_against_document passes do_not_save=True for
+        # a Payment Entry and saves once itself (utils.py:554), but lets
+        # update_reference_in_journal_entry save (utils.py:728) and then saves AGAIN --
+        # so a JE reconciliation dispatches this event N+1 times for N rows. Redundant,
+        # not wrong: the drain is idempotent. It is not deduplicated away because
+        # deduplicate=True is inert under enqueue_after_commit=True (#648).
+        "on_update_after_submit": [
+            "verenigingen.utils.background_jobs.queue_journal_entry_payment_history_update_handler",
+        ],
     },
     "Bank Transaction": {
         "on_submit": "verenigingen.services.member.donor.donor_auto_creation.process_payment_for_donor_creation",
+    },
+    # The producer none of the registrations above can see: UnreconcilePayment.on_submit
+    # calls update_voucher_outstanding directly, once per allocation row, and unlinks the
+    # reference with raw query-builder updates -- so it posts no GL row and saves neither
+    # the Payment Entry nor the Journal Entry it is undoing. Undoing an allocation puts a
+    # member invoice's outstanding back, and nothing refreshed the history row (#649).
+    "Unreconcile Payment": {
+        "on_submit": [
+            "verenigingen.utils.background_jobs.queue_unreconcile_payment_history_update_handler",
+        ],
     },
     # =========================================================================
     # FINANCIAL SYSTEM - EXPENSES
