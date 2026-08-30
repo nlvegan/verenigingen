@@ -20,31 +20,13 @@ from unittest.mock import MagicMock, patch
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
-
-def _ensure_test_region():
-    """Idempotently ensure a "Test Region" exists and return its docname.
-
-    Region autoname is field:region_name, which slugifies "Test Region" to the
-    docname "test-region". The Enhanced create_chapter factory only rewrites the
-    region kwarg to the slug when it creates the region; if the slug already
-    exists it leaves the literal "Test Region" in place, which then fails link
-    validation. Creating it here and passing back the slug avoids that.
-    """
-    slug = "test-region"
-    if not frappe.db.exists("Region", slug):
-        region = frappe.get_doc(
-            {
-                "doctype": "Region",
-                "region_name": "Test Region",
-                "region_code": "TR",
-                "country": "Netherlands",
-                "is_active": 1,
-            }
-        )
-        region.insert(ignore_permissions=True)
-    return slug
+# `ensure_test_region` returns the SLUG docname. The Enhanced create_chapter
+# factory only rewrites the region kwarg to the slug when it creates the region;
+# if the slug already exists it leaves the literal "Test Region" in place, which
+# then fails link validation. Passing the returned docname avoids that.
 
 
 class TestChapterBoardPermissions(EnhancedTestCase):
@@ -65,11 +47,11 @@ class TestChapterBoardPermissions(EnhancedTestCase):
 
         # Create test chapters
         self.chapter_1 = self.create_chapter(
-            chapter_name=f"Test Chapter 1 {token}", region=_ensure_test_region()
+            chapter_name=f"Test Chapter 1 {token}", region=ensure_test_region()
         )
 
         self.chapter_2 = self.create_chapter(
-            chapter_name=f"Test Chapter 2 {token}", region=_ensure_test_region()
+            chapter_name=f"Test Chapter 2 {token}", region=ensure_test_region()
         )
 
         # Create test members and volunteers. The permission functions resolve
@@ -380,7 +362,7 @@ class TestChapterBoardRoleManagement(EnhancedTestCase):
         )
 
         self.test_chapter = self.create_chapter(
-            chapter_name=f"Test Chapter {token}", region=_ensure_test_region()
+            chapter_name=f"Test Chapter {token}", region=ensure_test_region()
         )
 
         self.test_volunteer = self.create_test_volunteer(self.test_member.name)

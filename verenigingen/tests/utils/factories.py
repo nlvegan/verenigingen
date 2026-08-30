@@ -13,6 +13,7 @@ from datetime import datetime
 import frappe
 from frappe.utils import random_string, today
 
+from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
 from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.tests.utils.cleanup_savepoint import (
     release_cleanup_savepoint,
@@ -373,20 +374,12 @@ class TestDataBuilder:
             name = f"Test Chapter {random_string(8)}"
 
         if not region:
-            # Get the actual test region name (it might be slugified)
-            region = frappe.db.get_value("Region", {"region_code": "TR"}, "name")
-            if not region:
-                # Create test region if it doesn't exist
-                test_region = frappe.get_doc(
-                    {
-                        "doctype": "Region",
-                        "region_name": "Test Region",
-                        "region_code": "TR",
-                        "country": "Netherlands",
-                        "is_active": 1}
-                )
-                test_region.insert()
-                region = test_region.name
+            # The shared test region, through its ONE owner (#406). Keyed on the
+            # docname, because the docname is the primary key the insert collides
+            # on; the old region_code == "TR" predicate reads False whenever the
+            # row present was written by a "TST"/"TSTRG" file, and the re-insert
+            # then died with DuplicateEntryError on 'test-region'.
+            region = ensure_test_region()
 
         if not postal_codes:
             postal_codes = f"{random.randint(1000, 9999)}"

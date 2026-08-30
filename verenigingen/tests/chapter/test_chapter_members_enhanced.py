@@ -10,6 +10,7 @@ import frappe
 from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
 
 
 class TestChapterMemberEnhanced(EnhancedTestCase):
@@ -44,24 +45,11 @@ class TestChapterMemberEnhanced(EnhancedTestCase):
         # Create test chapter - always create fresh to avoid stale member references
         chapter_name = f"Chapter Member Test Chapter {self.factory.get_next_sequence('chapter')}"
 
-        # Get or create a region (idempotent on fresh CI sites where no
-        # Region exists; Region requires a non-empty, unique region_code)
-        existing_regions = frappe.get_all("Region", limit=1)
-        if existing_regions:
-            region = existing_regions[0].name
-        elif frappe.db.exists("Region", {"region_code": "TST"}):
-            region = frappe.db.get_value("Region", {"region_code": "TST"}, "name")
-        else:
-            # Create a test region if none exist
-            test_region = frappe.get_doc(
-                {
-                    "doctype": "Region",
-                    "region_name": "Test Region",
-                    "region_code": "TST",
-                }
-            )
-            test_region.insert()
-            region = test_region.name
+        # Own the region rather than scanning for one (#406). `get_all("Region",
+        # limit=1)` took whichever row the database returned first, and the
+        # fallback wrote region_code "TST" into the same "test-region" docname
+        # twelve other files expect to carry "TR".
+        region = ensure_test_region()
 
         self.chapter = frappe.get_doc(
             {

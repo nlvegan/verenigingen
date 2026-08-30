@@ -8,6 +8,7 @@ import unittest
 import frappe
 from frappe.utils import today
 
+from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
 from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.verenigingen.doctype.chapter.chapter import assign_member_to_chapter_with_cleanup
 
@@ -21,22 +22,8 @@ class TestChapterAssignmentComprehensive(unittest.TestCase):
         # Self-seed the Region master — in isolation "Test Region" is absent,
         # which previously made every chapter insert fail in setUpClass. The
         # Region autoname scrubs region_name ("Test Region" -> "test-region"),
-        # so capture the actual .name to use as the Chapter's region link.
-        existing_region = frappe.db.get_value(
-            "Region", {"region_name": "Test Region"}, "name"
-        ) or (frappe.db.exists("Region", "test-region") and "test-region")
-        if existing_region:
-            cls.test_region = existing_region
-        else:
-            region_doc = frappe.get_doc(
-                {
-                    "doctype": "Region",
-                    "region_name": "Test Region",
-                    "region_code": "TR",
-                }
-            )
-            region_doc.insert(ignore_permissions=True, ignore_if_duplicate=True)
-            cls.test_region = region_doc.name
+        # so use the docname the one shared owner returns (#406).
+        cls.test_region = ensure_test_region()
 
         # Create test chapters
         cls.test_chapters = []

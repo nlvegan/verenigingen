@@ -7,6 +7,7 @@ import frappe
 from frappe.utils import getdate, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
 
 
 class TestChapter(EnhancedTestCase):
@@ -50,21 +51,8 @@ class TestChapter(EnhancedTestCase):
 
     def create_test_prerequisites(self):
         """Create test prerequisites"""
-        # Get or create test region
-        self.test_region = frappe.db.get_value("Region", {"region_code": "TR"}, "name")
-        if not self.test_region:
-            # Create test region if it doesn't exist
-            region = frappe.get_doc(
-                {
-                    "doctype": "Region",
-                    "region_name": "Test Region",
-                    "region_code": "TR",
-                    "country": "Netherlands",
-                    "is_active": 1,
-                }
-            )
-            region.insert()  # EnhancedTestCase handles permissions
-            self.test_region = region.name
+        # Get or create the shared test region, through its ONE owner (#406).
+        self.test_region = ensure_test_region()
 
         # Create test member for chapter head
         self.test_member = frappe.get_doc(

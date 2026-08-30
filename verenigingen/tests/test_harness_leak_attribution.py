@@ -24,6 +24,7 @@ import frappe
 from frappe.utils import now
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
 from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.tests.setup import ensure_root_territory
 
@@ -384,6 +385,23 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
         self.assertTrue(
             hasattr(ensure_mollie_gl_accounts, "__wrapped__"),
             "ensure_mollie_gl_accounts creates shared master data and must be @shared_fixture",
+        )
+
+    def test_the_shared_region_helper_is_declared_shared(self):
+        """`ensure_test_region` owns the single "test-region" docname (#406).
+
+        Seventeen call sites resolve it, and on `test_site_5` 225 Chapters link to
+        it. Built lazily from inside whichever test calls first, so without
+        `@shared_fixture` the captured-insert drain claims it for that one test and
+        deletes it at that test's teardown -- and every later class whose chapter
+        names it then fails link validation, not merely the region lookup. Module
+        level, so the six-method check above does not cover it.
+        """
+        from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
+
+        self.assertTrue(
+            hasattr(ensure_test_region, "__wrapped__"),
+            "ensure_test_region creates shared master data and must be @shared_fixture",
         )
 
     def test_no_shared_fixture_helper_is_decorated_in_one_copy_and_not_its_clone(self):
@@ -1718,25 +1736,17 @@ class _BorrowedChapterFixture:
     def _region(self):
         """Resolve the region `with_chapter` would resolve, creating it if absent.
 
-        Done here rather than left to the builder so this test never depends on
-        which other suite ran first, and so the Region it may create is tracked --
-        `with_chapter` inserts one without registering it.
+        Through the shared owner (#406): this used to be its own `region_code ==
+        "TR"` get-or-create, which is the predicate that collides on the shared
+        `test-region` docname whenever a "TST"/"TSTRG" writer got there first.
+
+        Deliberately NOT tracked for deletion any more. It used to be, on the
+        grounds that "the Region it may create is tracked" -- but this fixture's
+        tearDown COMMITS its deletes, so on a cold site the first class to call
+        this would create the shared region and then permanently remove it from
+        every later class in the shard. That is #330 with a different doctype.
         """
-        existing = frappe.db.get_value("Region", {"region_code": "TR"}, "name")
-        if existing:
-            return existing
-        region = frappe.get_doc(
-            {
-                "doctype": "Region",
-                "region_name": "Test Region",
-                "region_code": "TR",
-                "country": "Netherlands",
-                "is_active": 1,
-            }
-        )
-        region.insert()
-        self.created.append(("Region", region.name))
-        return region.name
+        return ensure_test_region()
 
     def _seed_chapter(self, label="Borrowed"):
         """Create a chapter THROUGH the builder, then commit it.

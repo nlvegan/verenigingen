@@ -31,6 +31,7 @@ import frappe
 from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
 from verenigingen.verenigingen.doctype.chapter import chapter as chapter_module
 
 
@@ -38,19 +39,8 @@ class TestChapterCoverage(EnhancedTestCase):
     def setUp(self):
         super().setUp()
         self.base_id = f"{int(time.time() * 1000000) % 100000000}"
-        self.test_region = frappe.db.get_value("Region", {"region_code": "TR"}, "name")
-        if not self.test_region:
-            region = frappe.get_doc(
-                {
-                    "doctype": "Region",
-                    "region_name": "Test Region",
-                    "region_code": "TR",
-                    "country": "Netherlands",
-                    "is_active": 1,
-                }
-            )
-            region.insert()
-            self.test_region = region.name
+        # One owner for the shared "Test Region" docname (#406).
+        self.test_region = ensure_test_region()
 
     def _uid(self):
         return f"{self.base_id}-{int(time.time() * 1000000) % 1000000}"

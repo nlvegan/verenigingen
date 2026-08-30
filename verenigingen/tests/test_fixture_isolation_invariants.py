@@ -450,3 +450,127 @@ class TestAFixedChapterNameHasOneOwningFile(VereningingenTestCase):
             "these names are no longer claimed by two files; drop them from "
             "KNOWN_SHARED:\n  " + "\n  ".join(stale),
         )
+
+
+class TestTheSharedTestRegionHasOneOwner(VereningingenTestCase):
+    """``Region.autoname`` is ``field:region_name``, so ``"Test Region"`` is a
+    PRIMARY KEY, not a label (#406).
+
+    Sixteen files inserted it, and they disagreed about the ``region_code`` they
+    keyed their get-or-create on -- twelve ``TR``, two ``TST``, two ``TSTRG``. A
+    code-keyed lookup reads False whenever the row present was written by one of
+    the others, so it inserts and dies on the docname. Reproduced on test_site_5
+    with a control, before the fix::
+
+        seed test-region with "TSTRG", run the "TR"-keyed get-or-create
+          -> DuplicateEntryError ... Duplicate entry 'test-region' for key 'PRIMARY'
+        seed test-region with "TR", same get-or-create
+          -> OK
+
+    Which runs first is decided by shard packing, and bins re-pack on measured
+    runtime, so this moves whenever any test file is edited.
+
+    Both halves are needed. The source gate keeps the sixteen from growing back;
+    only the behavioural test can say the surviving owner keys on the right thing,
+    and only the source gate can see a file that has not run yet.
+    """
+
+    #: The one module allowed to insert the shared name.
+    OWNER = os.path.join("tests", "fixtures", "region_fixtures.py")
+
+    @staticmethod
+    def _region_name_literals(tree):
+        """Linenos where ``region_name`` is set to the literal "Test Region"."""
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Dict):
+                for key, value in zip(node.keys, node.values):
+                    if (
+                        isinstance(key, ast.Constant)
+                        and key.value == "region_name"
+                        and isinstance(value, ast.Constant)
+                        and value.value == "Test Region"
+                    ):
+                        yield value.lineno
+            elif (
+                isinstance(node, ast.keyword)
+                and node.arg == "region_name"
+                and isinstance(node.value, ast.Constant)
+                and node.value.value == "Test Region"
+            ):
+                yield node.value.lineno
+
+    def test_only_the_region_fixture_module_inserts_the_shared_region_name(self):
+        """Walks EVERY module under the app, not just ``test_*.py``.
+
+        Three of the sixteen were ``tests/utils/base.py``,
+        ``tests/utils/factories.py`` and ``tests/utils/setup_helpers.py``, which
+        ``_iter_test_sources`` does not yield -- the same blind spot
+        ``TestAFixedChapterNameHasOneOwningFile`` documents and works around by
+        hand.
+        """
+        offenders = []
+        for dirpath, _dirnames, filenames in os.walk(APP_ROOT):
+            for fn in sorted(filenames):
+                if not fn.endswith(".py"):
+                    continue
+                path = os.path.join(dirpath, fn)
+                if _rel(path).endswith(self.OWNER):
+                    continue
+                try:
+                    with open(path, encoding="utf-8") as handle:
+                        tree = ast.parse(handle.read(), filename=path)
+                except (OSError, SyntaxError, UnicodeDecodeError):  # pragma: no cover
+                    continue
+                for lineno in self._region_name_literals(tree):
+                    offenders.append(f"{_rel(path)}:{lineno}")
+                del tree
+
+        self.assertEqual(
+            sorted(set(offenders)),
+            [],
+            'these insert the shared Region name "Test Region" -- which autonames to '
+            "the single docname 'test-region' -- instead of going through "
+            "verenigingen.tests.fixtures.region_fixtures.ensure_test_region, its one "
+            "owner. Call that, or pick a name of your own:\n  "
+            + "\n  ".join(sorted(set(offenders))),
+        )
+
+    def test_the_owner_reuses_the_row_whatever_region_code_it_carries(self):
+        """The guard key must be the DOCNAME, because the docname is what the
+        insert collides on.
+
+        Mutate ``ensure_test_region`` to key on ``region_code`` instead and this
+        fails with DuplicateEntryError, which is the CI failure #406 describes.
+        Asserting only "it returns test-region" would pass either way on a site
+        whose row already carries "TR", so the row's code is moved out from under
+        it first -- that is the whole experiment.
+        """
+        from verenigingen.tests.fixtures.region_fixtures import (
+            TEST_REGION_DOCNAME,
+            ensure_test_region,
+        )
+        from verenigingen.tests.fixtures.enhanced_test_factory import allocate_free_region_code
+
+        self.assertEqual(TEST_REGION_DOCNAME, ensure_test_region())
+
+        original = frappe.db.get_value("Region", TEST_REGION_DOCNAME, "region_code")
+        foreign = allocate_free_region_code()
+        # NOT committed, and restored explicitly as well: this is shared master data
+        # that 225 Chapters on test_site_5 link to, so it must not be left mutated
+        # even if a co-tenant in the shard commits before the class rollback runs.
+        self.addCleanup(
+            frappe.db.set_value, "Region", TEST_REGION_DOCNAME, "region_code", original, update_modified=False
+        )
+        frappe.db.set_value(
+            "Region", TEST_REGION_DOCNAME, "region_code", foreign, update_modified=False
+        )
+
+        self.assertNotEqual(
+            original, foreign, "the experiment needs the code to actually change"
+        )
+        self.assertEqual(
+            TEST_REGION_DOCNAME,
+            ensure_test_region(),
+            "the shared Region must be recognised by its docname whatever region_code "
+            "it happens to carry; a code-keyed guard inserts and dies on the PRIMARY key",
+        )

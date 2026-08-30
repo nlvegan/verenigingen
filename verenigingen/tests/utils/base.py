@@ -40,6 +40,7 @@ from frappe.tests.utils import FrappeTestCase
 from werkzeug.test import EnvironBuilder
 from werkzeug.wrappers import Request
 
+from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
 from verenigingen.tests.utils import ledger_rows
 from verenigingen.tests.utils.error_log_guard import ErrorLogGuardMixin
 
@@ -613,30 +614,11 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
             )
             item_group.insert(ignore_permissions=True)
 
-        # Ensure test Region exists.
-        # The Region docname is the slugified region_name ("Test Region" -> "test-region").
-        # A prior run may have left a "test-region" doc with a uniquified region_code
-        # (e.g. "TR17"), so a region_code=="TR" check alone misses it and the re-insert
-        # below then collides on the primary key. Fall back to the docname to reuse it.
-        existing_region = frappe.db.get_value("Region", {"region_code": "TR"}, "name") or (
-            "test-region" if frappe.db.exists("Region", "test-region") else None
-        )
-        if not existing_region:
-            region = frappe.get_doc(
-                {
-                    "doctype": "Region",
-                    "region_name": "Test Region",
-                    "region_code": "TR",
-                    "country": "Netherlands",
-                    "is_active": 1,
-                }
-            )
-            region.insert(ignore_permissions=True)
-            # Store the actual name that was generated
-            existing_region = region.name
-
-        # Store the region name for use in tests
-        cls._test_region_name = existing_region
+        # Ensure the shared test Region exists, through its ONE owner (#406).
+        # The docname is the slugified region_name ("Test Region" -> "test-region")
+        # and that docname -- not region_code -- is the primary key the insert
+        # collides on, so it is the only predicate the get-or-create can key on.
+        cls._test_region_name = ensure_test_region()
 
         # Ensure test Membership Type exists
         if not frappe.db.exists("Membership Type", "Test Membership"):

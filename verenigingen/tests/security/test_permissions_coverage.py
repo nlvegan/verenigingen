@@ -33,23 +33,8 @@ import frappe
 from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
 from verenigingen.utils.constants import Roles
-
-
-def _ensure_test_region():
-    """Idempotently ensure a "Test Region" exists; return its slug docname."""
-    slug = "test-region"
-    if not frappe.db.exists("Region", slug):
-        frappe.get_doc(
-            {
-                "doctype": "Region",
-                "region_name": "Test Region",
-                "region_code": "TR",
-                "country": "Netherlands",
-                "is_active": 1,
-            }
-        ).insert(ignore_permissions=True)
-    return slug
 
 
 class PermissionsCoverageBase(EnhancedTestCase):
@@ -66,7 +51,7 @@ class PermissionsCoverageBase(EnhancedTestCase):
     def setUp(self):
         super().setUp()
         self.token = f"{int(time.time() * 1000)}{frappe.generate_hash(length=4)}"
-        region = _ensure_test_region()
+        region = ensure_test_region()
 
         self.chapter_a = self.create_chapter(chapter_name=f"Perm Chapter A {self.token}", region=region)
         self.chapter_b = self.create_chapter(chapter_name=f"Perm Chapter B {self.token}", region=region)

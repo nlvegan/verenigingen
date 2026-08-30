@@ -4,6 +4,7 @@ import frappe
 from frappe.utils import add_days, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
 from verenigingen.utils.validation_utilities import QueryBuilder
 
 
@@ -413,22 +414,10 @@ class TestMember(EnhancedTestCase):
         """
         from verenigingen.verenigingen.doctype.chapter.chapter import get_chapters_by_postal_code
 
-        # Ensure a Region exists to attach the chapter to
-        region = frappe.db.get_value("Region", {"region_code": "TR"}, "name")
-        if not region:
-            region = (
-                frappe.get_doc(
-                    {
-                        "doctype": "Region",
-                        "region_name": "Test Region",
-                        "region_code": "TR",
-                        "country": "Netherlands",
-                        "is_active": 1,
-                    }
-                )
-                .insert()
-                .name
-            )
+        # Ensure a Region exists to attach the chapter to, through its ONE
+        # owner (#406) -- keyed on the docname, which is what the insert
+        # collides on.
+        region = ensure_test_region()
 
         chapter = frappe.get_doc(
             {
