@@ -24,6 +24,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from verenigingen.verenigingen_payments.ing_checkout.services import MandateService
+from verenigingen.verenigingen_payments.ing_checkout.tests.mandate_test_helpers import resolves_to
 
 
 def _sepa(**overrides):
@@ -115,10 +116,9 @@ class TestCreateMandateReadsCode(FrappeTestCase):
 
     def test_reads_code_from_response(self):
         mock_member = _member()
-        mock_member.sepa_mandate = "SEPA-00001"
         mock_sepa = _sepa()
 
-        with patch("frappe.get_doc") as mock_get_doc:
+        with patch("frappe.get_doc") as mock_get_doc, resolves_to("SEPA-00001"):
             mock_get_doc.side_effect = lambda dt, name=None: (
                 mock_member if dt == "Member" else mock_sepa if dt == "SEPA Mandate" else MagicMock()
             )
@@ -146,10 +146,9 @@ class TestCreateMandateReadsCode(FrappeTestCase):
     def test_missing_amount_returns_error(self):
         """Pay.nl requires amount (minimum 1 cent); creation without it must fail fast."""
         mock_member = _member()
-        mock_member.sepa_mandate = "SEPA-00001"
         mock_sepa = _sepa()
 
-        with patch("frappe.get_doc") as mock_get_doc:
+        with patch("frappe.get_doc") as mock_get_doc, resolves_to("SEPA-00001"):
             mock_get_doc.side_effect = lambda dt, name=None: (
                 mock_member if dt == "Member" else mock_sepa if dt == "SEPA Mandate" else MagicMock()
             )

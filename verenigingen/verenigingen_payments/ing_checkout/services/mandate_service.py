@@ -11,14 +11,14 @@ Provides high-level operations for mandate lifecycle management:
 - Mandate status synchronization
 """
 
-from typing import TYPE_CHECKING, Optional
-
 import frappe
 from frappe import _
 from frappe.utils import get_url, today
 
-if TYPE_CHECKING:
-    from verenigingen.verenigingen_payments.doctype.sepa_mandate.sepa_mandate import SEPAMandate
+from verenigingen.verenigingen_payments.utils.mandate_candidates import (
+    MandateChoice,
+    unambiguous_active_mandate,
+)
 
 
 class MandateService:
@@ -78,9 +78,21 @@ class MandateService:
         """
         member = frappe.get_doc("Member", member_name)
 
-        # Get member's SEPA details
-        sepa_mandate = self._get_member_sepa_mandate(member)
-        if not sepa_mandate:
+        # Get member's SEPA details. Three outcomes, kept distinct: a REFUSAL is not
+        # "no mandate found". Reporting the ambiguous case as missing is what sends a
+        # caller on to create the thing it was told is absent (#584/#585).
+        choice = self._resolve_membership_mandate(member)
+        if choice.is_ambiguous:
+            return {
+                "success": False,
+                "error": _(
+                    "Member has more than one Active SEPA mandate for memberships, so no "
+                    "IBAN can be chosen without guessing. Cancel all but one."
+                ),
+            }
+
+        sepa_mandate = frappe.get_doc("SEPA Mandate", choice.mandate.name) if choice else None
+        if not sepa_mandate or not sepa_mandate.iban:
             return {
                 "success": False,
                 "error": _("Member has no active SEPA mandate with IBAN"),
@@ -352,16 +364,31 @@ class MandateService:
             fields=["name", "mandate_id", "mandate_type", "debtor_iban", "created_date"],
         )
 
-    def _get_member_sepa_mandate(self, member) -> Optional["SEPAMandate"]:
-        """Get the member's active SEPA mandate with IBAN."""
-        if not member.sepa_mandate:
-            return None
+    def _resolve_membership_mandate(self, member) -> MandateChoice:
+        """The member's single Active membership SEPA Mandate, nothing, or a refusal.
 
-        sepa = frappe.get_doc("SEPA Mandate", member.sepa_mandate)
-        if sepa.status != "Active" or not sepa.iban:
-            return None
+        Renamed from `_get_member_sepa_mandate` because the return type changed from a
+        document-or-None to a three-state `MandateChoice`: a caller left on the old name
+        would silently read a refusal as a usable mandate, which is the failure this is
+        meant to make impossible.
 
-        return sepa
+        The old body read `member.sepa_mandate`. `Member` has no such field -- it has the
+        `sepa_mandates` child table of `Member SEPA Mandate Link` -- so on a real Member
+        this raised `AttributeError` before any branch could be taken, on line 82's path
+        and therefore OUTSIDE the try/except that produces this service's
+        `{"success": False}` contract (#623). Every existing test passed a `MagicMock`,
+        on which the attribute is a truthy auto-attribute.
+
+        `purpose` is pinned to memberships rather than left at the library default: this
+        flow collects membership dues, and a member may legitimately also hold an Active
+        donations mandate, which a purpose-blind query would pick whenever it is newer
+        (#597).
+        """
+        return unambiguous_active_mandate(
+            member.name,
+            "ING Checkout: ambiguous SEPA mandate for member",
+            purpose="used_for_memberships",
+        )
 
     def _get_webhook_url(self, webhook_type: str) -> str:
         """Get the webhook URL for a specific type."""

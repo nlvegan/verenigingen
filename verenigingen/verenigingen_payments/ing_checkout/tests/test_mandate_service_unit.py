@@ -5,6 +5,14 @@
 Unit tests for MandateService.
 
 Tests the business logic for ING Checkout SEPA Direct Debit mandate management.
+
+MANDATE RESOLUTION IS NOT TESTED HERE. These are mock-only tests, and the mocked
+`Member` is what hid #623 for as long as it lasted: on a `MagicMock`,
+`member.sepa_mandate` is a truthy auto-attribute, so the suite was green while the
+same line raised `AttributeError` on every real Member. Resolution now lives behind
+`MandateService._resolve_membership_mandate` and is covered against real documents in
+`test_ing_checkout_mandate_resolution.py`; here it is stubbed so these tests keep
+their actual subject -- the Pay.nl payload and response handling.
 """
 
 import unittest
@@ -13,6 +21,8 @@ from unittest.mock import MagicMock, patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+
+from verenigingen.verenigingen_payments.ing_checkout.tests.mandate_test_helpers import resolves_to
 
 
 class TestMandateService(FrappeTestCase):
@@ -48,7 +58,6 @@ class TestMandateService(FrappeTestCase):
         mock_member.name = "MEM-00001"
         mock_member.full_name = "Test Member"
         mock_member.email = "test@example.com"
-        mock_member.sepa_mandate = "SEPA-00001"
 
         mock_sepa = MagicMock()
         mock_sepa.name = "SEPA-00001"
@@ -56,7 +65,7 @@ class TestMandateService(FrappeTestCase):
         mock_sepa.account_holder_name = "Test Member"
         mock_sepa.status = "Active"
 
-        with patch("frappe.get_doc") as mock_get_doc:
+        with patch("frappe.get_doc") as mock_get_doc, resolves_to("SEPA-00001"):
 
             def get_doc_side_effect(doctype, name=None):
                 if doctype == "Member":
@@ -93,57 +102,16 @@ class TestMandateService(FrappeTestCase):
                 self.assertEqual(result["mandate_id"], "IO-1234-5678-9012")
                 mock_client.create_mandate.assert_called_once()
 
-    @patch("verenigingen.verenigingen_payments.ing_checkout.services.mandate_service.MandateService.client")
-    def test_create_mandate_for_member_no_sepa_mandate(self, mock_client):
-        """Test mandate creation fails when member has no SEPA mandate."""
-        from verenigingen.verenigingen_payments.ing_checkout.services import MandateService
-
-        # Mock member without SEPA mandate
-        mock_member = MagicMock()
-        mock_member.name = "MEM-00001"
-        mock_member.sepa_mandate = None
-
-        with patch("frappe.get_doc", return_value=mock_member):
-            service = MandateService()
-            service._settings = self.mock_settings
-
-            result = service.create_mandate_for_member("MEM-00001")
-
-            self.assertFalse(result["success"])
-            self.assertIn("no active sepa mandate", result["error"].lower())
-
-    @patch("verenigingen.verenigingen_payments.ing_checkout.services.mandate_service.MandateService.client")
-    def test_create_mandate_for_member_inactive_sepa_mandate(self, mock_client):
-        """Test mandate creation fails when SEPA mandate is inactive."""
-        from verenigingen.verenigingen_payments.ing_checkout.services import MandateService
-
-        # Mock member with inactive SEPA mandate
-        mock_member = MagicMock()
-        mock_member.name = "MEM-00001"
-        mock_member.sepa_mandate = "SEPA-00001"
-
-        mock_sepa = MagicMock()
-        mock_sepa.status = "Cancelled"
-        mock_sepa.iban = "NL91ABNA0417164300"
-
-        with patch("frappe.get_doc") as mock_get_doc:
-
-            def get_doc_side_effect(doctype, name=None):
-                if doctype == "Member":
-                    return mock_member
-                if doctype == "SEPA Mandate":
-                    return mock_sepa
-                return MagicMock()
-
-            mock_get_doc.side_effect = get_doc_side_effect
-
-            service = MandateService()
-            service._settings = self.mock_settings
-
-            result = service.create_mandate_for_member("MEM-00001")
-
-            self.assertFalse(result["success"])
-            self.assertIn("no active sepa mandate", result["error"].lower())
+    # `test_create_mandate_for_member_no_sepa_mandate` and
+    # `..._inactive_sepa_mandate` were removed here rather than repaired. Both drove
+    # the outcome off a mocked `member.sepa_mandate`, an attribute the code no longer
+    # reads and `Member` never had; after #623 they still went green, but for a reason
+    # unrelated to their subject -- the resolver simply found nothing for the
+    # nonexistent "MEM-00001". Their cases are covered against real documents by
+    # `test_ing_checkout_mandate_resolution`: a Cancelled mandate by
+    # `test_no_active_mandate_reports_no_mandate_and_calls_no_gateway` and no mandate row
+    # at all by `test_a_member_with_no_mandate_row_at_all_is_the_same_answer`. Both also
+    # assert the gateway was never called, which neither original did.
 
     @patch("frappe.log_error")
     def test_create_mandate_for_member_api_error(self, mock_log_error):
@@ -155,7 +123,6 @@ class TestMandateService(FrappeTestCase):
         mock_member.name = "MEM-00001"
         mock_member.full_name = "Test Member"
         mock_member.email = "test@example.com"
-        mock_member.sepa_mandate = "SEPA-00001"
 
         mock_sepa = MagicMock()
         mock_sepa.name = "SEPA-00001"
@@ -163,7 +130,7 @@ class TestMandateService(FrappeTestCase):
         mock_sepa.account_holder_name = "Test Member"
         mock_sepa.status = "Active"
 
-        with patch("frappe.get_doc") as mock_get_doc:
+        with patch("frappe.get_doc") as mock_get_doc, resolves_to("SEPA-00001"):
 
             def get_doc_side_effect(doctype, name=None):
                 if doctype == "Member":
