@@ -56,7 +56,8 @@ def get_dashboard_data(member: str = None) -> OperationResult[Dict[str, Any]]:
         member_doc = frappe.get_doc("Member", member)
 
         # Get payment summary
-        current_year = datetime.now().year
+        # Site-tz year: bounds a query over site-clock posting dates (#637).
+        current_year = getdate().year
 
         # Get total paid this year
         total_paid_year = (
