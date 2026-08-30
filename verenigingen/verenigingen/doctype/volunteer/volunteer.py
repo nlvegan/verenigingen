@@ -65,6 +65,7 @@ from frappe.contacts.address_and_contact import load_address_and_contact
 from frappe.model.document import Document
 from frappe.utils import getdate, today
 
+from verenigingen.services.member.utils.member_age_service import calculate_member_age
 from verenigingen.utils.dutch_name_utils import format_dutch_full_name, is_dutch_installation
 from verenigingen.utils.member_utils import get_volunteer_for_member
 from verenigingen.utils.secure_operations import secure_document_operation
@@ -169,25 +170,18 @@ class Volunteer(Document):
             if not member.birth_date:
                 return  # Skip if no birth date
 
-            # Calculate age or use existing age field
-            if hasattr(member, "age") and member.age is not None:
-                age = member.age
-            else:
-                from datetime import datetime
-
-                # Site-tz today, not the server/process date: in the late-UTC window
-                # the two name different calendar days, so a volunteer whose birthday
-                # is today reads a year younger and can be rejected (#628).
-                today_date = getdate()
-                if isinstance(member.birth_date, str):
-                    born = datetime.strptime(member.birth_date, "%Y-%m-%d").date()
-                else:
-                    born = member.birth_date
-                age = (
-                    today_date.year
-                    - born.year
-                    - ((today_date.month, today_date.day) < (born.month, born.day))
-                )
+            # Prefer the stored field; fall back to the service that owns this
+            # arithmetic rather than a fourth copy of it. Member.age is written by
+            # member_age_service on every save where birth_date is set, so the
+            # fallback is close to unreachable -- measured 0 of 711 Members on veg11
+            # and 0 of 174 on test_site_1 have birth_date set with age NULL -- which
+            # is exactly why the copy that lived here was never covered by a test and
+            # could drift unnoticed.
+            age = member.age if member.age is not None else calculate_member_age(member.birth_date)
+            if age is None:
+                # Unparseable birth date. calculate_member_age already logged it, and
+                # comparing None against the minimum below would raise TypeError.
+                return
 
             # Get minimum volunteer age from Verenigingen Settings
             settings = frappe.get_single("Verenigingen Settings")

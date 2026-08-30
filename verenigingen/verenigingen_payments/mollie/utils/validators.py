@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Union
 import frappe
 from frappe import _
 
+from verenigingen.services.member.utils.member_age_service import calculate_member_age
 from verenigingen.utils.validation.iban_validator import validate_iban as _canonical_validate_iban
 
 
@@ -379,16 +380,13 @@ class BusinessRuleValidator:
             from frappe.utils import get_datetime, getdate
 
             try:
+                # getdate() first: it raises for an unparseable string, which the
+                # except below turns into a reportable error. By the time
+                # calculate_member_age sees the value it is a real date, so this
+                # delegates the arithmetic without inheriting the service's
+                # swallow-and-return-None behaviour for bad input.
                 birth_date_obj = getdate(birth_date)
-                # Site-tz today, not the server/process date: in the late-UTC window
-                # the two name different calendar days, so an applicant turning 16
-                # today is wrongly rejected as under-age (#628).
-                today = getdate()
-                age = (
-                    today.year
-                    - birth_date_obj.year
-                    - ((today.month, today.day) < (birth_date_obj.month, birth_date_obj.day))
-                )
+                age = calculate_member_age(birth_date_obj)
 
                 if age < 16:
                     errors.append("Member must be at least 16 years old")
