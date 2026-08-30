@@ -16,6 +16,11 @@ then satisfied `validate_no_duplicate_invoices` (#606), because there really was
 row per invoice afterwards. The remedy offered for a duplicate produced the defect the
 guard exists to catch, in a shape the guard cannot see.
 
+**#614** -- the child rows are deleted one at a time and the parent is saved
+afterwards. `@handle_api_error` turns a throw from that save into a returned failure,
+the request ends normally, and Frappe commits the deletions: the caller is told it
+failed and the rows are gone.
+
 **#615** -- `get_batch_conflicts` offered `exclude_duplicates` as a remedy and
 `apply_conflict_resolutions` had no branch for it, nor any `else`. Selecting it left
 `success` False with an EMPTY message inside an overall `{"success": True}` response,
@@ -350,6 +355,107 @@ class TestEveryOfferedRemedyIsImplemented(_ConflictResolutionBase):
 
         self.assertFalse(outcome["success"])
         self.assertIn("by hand", outcome["message"])
+
+
+class TestAFailedResolutionLeavesNothingBehind(_ConflictResolutionBase):
+    """#614: a result that says "failed" must not have committed half its work."""
+
+    def setUp(self):
+        super().setUp()
+        # `@handle_api_error` writes an Error Log for every failure it converts into
+        # an OperationResult, and these tests deliberately provoke that conversion.
+        self.expectErrorLog("dd_batch_api: ValidationError")
+
+    def _batch_that_cannot_be_saved(self):
+        """Two collectable invoices plus a planted duplicate of the second.
+
+        The duplicate makes every `batch.save()` throw
+        (`validate_no_duplicate_invoices`), which is the condition #614 names: the
+        endpoint's final save fails AFTER the child rows have already been touched.
+        """
+        batch, _member, _mandate = self._batch_for_one_member([25.0, 30.0])
+        self._plant_duplicate_row(batch.invoices[1].name)
+        return batch
+
+    def test_an_excluded_row_is_still_there_when_the_batch_save_fails(self):
+        batch = self._batch_that_cannot_be_saved()
+        excluded = batch.invoices[0].name
+        excluded_invoice = batch.invoices[0].invoice
+        entry_count_before = batch.entry_count
+
+        result = apply_conflict_resolutions(batch.name, [{"action": "exclude_entry", "entry_id": excluded}])
+
+        # The caller is told it failed...
+        self.assertFalse(result["success"], result)
+
+        # ...and the row it was told was not excluded is still in the batch. Before
+        # the savepoint the deletion was committed anyway, so this invoice silently
+        # dropped out of the batch and was never collected, while entry_count and
+        # total_amount still counted it.
+        self.assertTrue(
+            frappe.db.exists("Direct Debit Batch Invoice", excluded),
+            "a failed apply_conflict_resolutions must not have deleted the row",
+        )
+        listed = [row.invoice for row in self._batch_rows(batch.name)]
+        self.assertIn(excluded_invoice, listed)
+
+        batch.reload()
+        self.assertEqual(batch.entry_count, entry_count_before)
+
+    def test_a_consolidation_is_undone_when_the_batch_save_fails(self):
+        """The same boundary reached through the other mutating branch."""
+        batch, _member, _mandate = self._batch_for_one_member([25.0, 30.0])
+        duplicated_invoice = batch.invoices[0].invoice
+        self._plant_duplicate_row(batch.invoices[0].name)
+        # A SECOND, untouched duplicate keeps the parent save failing after the
+        # first invoice's duplicate has been removed.
+        self._plant_duplicate_row(batch.invoices[1].name)
+
+        result = apply_conflict_resolutions(
+            batch.name, [{"action": "consolidate_entries", "invoice": duplicated_invoice}]
+        )
+
+        self.assertFalse(result["success"], result)
+        rows_for_invoice = [row for row in self._batch_rows(batch.name) if row.invoice == duplicated_invoice]
+        self.assertEqual(len(rows_for_invoice), 2, "the removed duplicate must be back")
+
+    def test_the_control_a_save_that_succeeds_does_apply_the_exclusion(self):
+        """Without this, a change that made the endpoint apply NOTHING would pass
+        every other test in this class."""
+        batch, _member, _mandate = self._batch_for_one_member([25.0, 30.0])
+        excluded = batch.invoices[0].name
+
+        result = apply_conflict_resolutions(batch.name, [{"action": "exclude_entry", "entry_id": excluded}])
+
+        self.assertTrue(result["success"], result)
+        self.assertFalse(frappe.db.exists("Direct Debit Batch Invoice", excluded))
+        batch.reload()
+        self.assertEqual(batch.entry_count, 1)
+        self.assertEqual(flt(batch.total_amount), 30.0)
+
+    def test_one_failing_resolution_does_not_undo_its_siblings(self):
+        """Each resolution gets its own savepoint nested inside the call's.
+
+        A single shared savepoint would roll the successful exclusion back too when
+        the second resolution throws, discarding work the caller was told succeeded.
+        """
+        batch, _member, _mandate = self._batch_for_one_member([25.0, 30.0])
+        excluded = batch.invoices[0].name
+
+        result = apply_conflict_resolutions(
+            batch.name,
+            [
+                {"action": "exclude_entry", "entry_id": excluded},
+                {"action": "exclude_entry", "entry_id": "NO-SUCH-BATCH-ROW-XYZ"},
+            ],
+        )
+
+        self.assertTrue(result["success"], result)
+        first, second = result["resolution_results"]
+        self.assertTrue(first["success"], first["message"])
+        self.assertFalse(second["success"])
+        self.assertTrue(second["message"], "a failed resolution must say why")
+        self.assertFalse(frappe.db.exists("Direct Debit Batch Invoice", excluded))
 
 
 class TestARemedyDoesNotClaimWorkItDidNotDo(_ConflictResolutionBase):

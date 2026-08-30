@@ -73,6 +73,11 @@ from verenigingen.utils.security.api_security_framework import (
     high_security_api,
     standard_api,
 )
+from verenigingen.utils.transaction_errors import (
+    NON_RESUMABLE_DB_ERRORS,
+    release_savepoint_if_present,
+    rollback_to_savepoint,
+)
 
 
 @frappe.whitelist()
@@ -514,35 +519,53 @@ def apply_conflict_resolutions(batch_id, resolutions):
     # Get batch document
     batch = frappe.get_doc("Direct Debit Batch", batch_id)
 
-    results = []
+    # One savepoint around the WHOLE call (#614). The child rows are edited and
+    # deleted one at a time through independent get_doc().save()/delete_doc()
+    # calls, and only afterwards is the parent saved -- and that parent save can
+    # throw, because `DirectDebitBatch.validate` throws (validate_invoices always
+    # could; validate_no_duplicate_invoices from #606 throws for every save while
+    # any duplicate remains). `@handle_api_error` turns that ValidationError into
+    # an OperationResult.fail and the request then ends on its SUCCESS path, so
+    # Frappe commits the deletions that already happened: the caller is told the
+    # operation failed while the rows are gone and entry_count/total_amount still
+    # describe the batch as it was. An excluded row committed under a "failed"
+    # result is an invoice that is silently never collected.
+    #
+    # A savepoint rather than frappe.db.begin(): begin() issues START TRANSACTION,
+    # which raises ImplicitCommitError inside an open transaction (always, under a
+    # request and under the test runner).
+    savepoint = f"dd_conflict_resolutions_{frappe.generate_hash(length=8)}"
+    frappe.db.savepoint(savepoint)
+    try:
+        results = [_apply_one_resolution(batch_id, resolution) for resolution in resolutions]
+        applied = any(result["success"] for result in results)
 
-    # Process each resolution
-    for resolution in resolutions:
-        result = {"resolution": resolution, "success": False, "message": ""}
-        try:
-            result.update(_resolution_outcome(batch_id, resolution))
-        except Exception as e:
-            result["message"] = str(e)
-        results.append(result)
+        # Only save the parent when something actually changed. A batch holding a
+        # duplicate cannot be saved AT ALL until the duplicate is gone (#606), so
+        # saving after a resolution that refused would replace every per-resolution
+        # message with that ValidationError -- the operator would never learn WHY
+        # the remedy declined, which is the one thing they need in order to act.
+        # There is also nothing to recalculate when no row moved.
+        if applied:
+            # Reload to pick up the child-row edits/deletions made above via
+            # independent get_doc().save()/delete_doc() calls. Without this, save()
+            # below would re-sync the child table from the stale in-memory snapshot
+            # loaded before the resolutions ran, silently reverting them.
+            batch.reload()
 
-    applied = any(result["success"] for result in results)
-
-    # Only save the parent when something actually changed. A batch holding a
-    # duplicate cannot be saved AT ALL until the duplicate is gone (#606), so
-    # saving after a resolution that refused would replace every per-resolution
-    # message with that ValidationError -- the operator would never learn WHY
-    # the remedy declined, which is the one thing they need in order to act.
-    # There is also nothing to recalculate when no row moved.
-    if applied:
-        # Reload to pick up the child-row edits/deletions made above via
-        # independent get_doc().save()/delete_doc() calls. Without this, save()
-        # below would re-sync the child table from the stale in-memory snapshot
-        # loaded before the resolutions ran, silently reverting them.
-        batch.reload()
-
-        # Recalculate batch totals
-        batch.calculate_totals()
-        batch.save()
+            # Recalculate batch totals
+            batch.calculate_totals()
+            batch.save()
+    except NON_RESUMABLE_DB_ERRORS:
+        # A 1213 has already rolled the whole transaction back, savepoints
+        # included, so rolling back to this one would raise 1305 on top of the
+        # real error and hide it. There is nothing left to undo.
+        raise
+    except Exception:
+        rollback_to_savepoint(savepoint)
+        raise
+    else:
+        release_savepoint_if_present(savepoint)
 
     # `success` reports whether anything was applied, not merely that the request
     # was processed (#615). It used to be a hard-coded True, so a resolution that
@@ -556,6 +579,34 @@ def apply_conflict_resolutions(batch_id, resolutions):
         "resolution_results": results,
         "batch_updated": applied,
     }
+
+
+def _apply_one_resolution(batch_id, resolution):
+    """Apply a single conflict resolution, atomically.
+
+    Its own savepoint (nested inside the caller's) so a resolution that fails
+    part-way -- one of several duplicate rows deleted and the next delete refused,
+    say -- leaves nothing behind while the other resolutions in the same request
+    still apply. Reporting a failure whose partial effects persist is the defect
+    this whole function was changed for (#614); it exists at two levels and is
+    fixed at both.
+    """
+    result = {"resolution": resolution, "success": False, "message": ""}
+
+    savepoint = f"dd_conflict_entry_{frappe.generate_hash(length=8)}"
+    frappe.db.savepoint(savepoint)
+    try:
+        result.update(_resolution_outcome(batch_id, resolution))
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
+    except Exception as e:
+        rollback_to_savepoint(savepoint)
+        result["success"] = False
+        result["message"] = str(e)
+    else:
+        release_savepoint_if_present(savepoint)
+
+    return result
 
 
 def _resolution_outcome(batch_id, resolution):
