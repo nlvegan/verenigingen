@@ -5,9 +5,10 @@ This module provides monitoring and alerting for authentication issues,
 particularly the "User None is disabled" error that was affecting the system.
 """
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import frappe
+from frappe.utils import now_datetime
 
 from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.constants import Roles
@@ -29,7 +30,7 @@ def log_auth_error(error_type, details, user=None):
         # Create a system-level log entry for tracking
         error_log = frappe.new_doc("Error Log")
         error_log.error = (
-            f"Authentication Monitor: {error_type}\n{details}\nUser: {repr(user)}\nTime: {datetime.now()}"
+            f"Authentication Monitor: {error_type}\n{details}\nUser: {repr(user)}\nTime: {now_datetime()}"
         )
         error_log.method = "auth_monitoring"
         # Security: System monitoring - must log auth errors regardless of user permissions
@@ -49,7 +50,11 @@ def check_recent_auth_errors():
     """
     try:
         # Look for the specific error pattern in recent error logs
-        recent_time = datetime.now() - timedelta(hours=24)
+        # Site-tz clock: `Error Log.creation` is written by Frappe on the SITE
+        # clock, so a process-clock cutoff makes this "last 24 hours" window the
+        # full clock offset too long or too short -- at EVERY instant, not only
+        # across a day boundary (#637).
+        recent_time = now_datetime() - timedelta(hours=24)
 
         error_logs = frappe.get_all(
             "Error Log",
@@ -134,7 +139,7 @@ def get_auth_health_status():
             "invalid_sessions": invalid_sessions,
             "recent_errors": error_summary,
             "warnings": warnings,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": now_datetime().isoformat(),
         }
 
     except Exception as e:

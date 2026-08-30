@@ -8,10 +8,11 @@ These utilities are designed to be safe to run in production and include
 comprehensive logging for monitoring and debugging.
 """
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import frappe
 from frappe import _
+from frappe.utils import now_datetime
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
@@ -73,7 +74,10 @@ def cleanup_corrupted_sessions():
             frappe.logger().info("No corrupted sessions found")
 
         # Clean up old sessions (older than 7 days) to prevent accumulation
-        cutoff_date = datetime.now() - timedelta(days=7)
+        # Site-tz clock: `tabSessions.creation` is written by Frappe on the SITE
+        # clock, so a process-clock cutoff makes this DELETE's retention window the
+        # full clock offset too long or too short -- at every instant (#637).
+        cutoff_date = now_datetime() - timedelta(days=7)
         old_sessions_count = frappe.db.sql(
             """
             SELECT COUNT(*) as count FROM tabSessions
