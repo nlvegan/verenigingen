@@ -90,6 +90,7 @@ from verenigingen.utils.security.authorization import (
     SEPAPermissionLevel,
     require_sepa_permission,
 )
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen_payments.utils.invoice_candidates import (
     log_ambiguous_refusal,
     unambiguous_invoice,
@@ -758,12 +759,30 @@ def process_sepa_return_file(file_content, file_type="csv"):
             result = process_individual_return(return_item)
             processed_returns.append(result)
 
+        status_counts = {}
+        for result in processed_returns:
+            status = result.get("status")
+            status_counts[status] = status_counts.get(status, 0) + 1
+
         return {
-            "success": True,
+            # An "error" row means a returned direct debit was NOT reversed, so the
+            # money is gone from the bank account while the Sales Invoice still reads
+            # Paid. Reporting that file as a success is how it stayed invisible (#576).
+            # "not_found" and "ambiguous" are decided outcomes -- refusals, already
+            # logged, and deliberately not folded in here -- but the operator still has
+            # to place those returns by hand, which is why every status is counted.
+            "success": not status_counts.get("error"),
             "processed_returns": processed_returns,
             "total_processed": len(processed_returns),
+            "status_counts": status_counts,
         }
 
+    except NON_RESUMABLE_DB_ERRORS:
+        # process_individual_return's own guard only helps if this frame does not catch
+        # the class again one frame above it -- the #481/#505 shape, where a correctly
+        # placed guard could never fire. Let it reach the request boundary, which rolls
+        # back (frappe/app.py) and answers non-200 instead of a lying success body.
+        raise
     except Exception as e:
         frappe.log_error(f"Error processing SEPA return file: {str(e)}")
         return {"success": False, "error": str(e)}
@@ -925,7 +944,41 @@ def process_individual_return(return_item):
                 "action": "Could not identify member/invoice",
             }
 
+    except NON_RESUMABLE_DB_ERRORS:
+        # A 1213 has already discarded the whole transaction and a 1205 has left this
+        # unit of work half-applied, so there is nothing here to record against and
+        # nothing to carry on with -- the remaining rows of the file would be processed
+        # against state the server has thrown away.
+        #
+        # NOT retried, although 1213 is transient by definition: a retry is only safe on
+        # an idempotent unit of work and this one is not. create_failed_payment_record
+        # and notify_member_of_failed_payment each insert unconditionally, so a second
+        # pass duplicates the Comment and the follow-up ToDo; and once
+        # reverse_failed_sepa_payment has cancelled the Receive entry the invoice is no
+        # longer Paid, so the retry would not recognise it as this return's candidate at
+        # all and would report "not_found" over a reversal that did happen. Re-running
+        # the whole file after the transaction is gone IS safe, so that is what the
+        # operator is left to do.
+        #
+        # No frappe.db.rollback() here, deliberately (#504): the request boundary
+        # already rolls back, and process_sepa_return_file -- the only caller -- has no
+        # transaction of its own left to protect.
+        raise
     except Exception as e:
+        # Without this the failure was returned as DATA and written nowhere: the returned
+        # direct debit stayed un-reversed, the member was never notified, and
+        # process_sepa_return_file reported {"success": True} (#576). Keyword args, not
+        # positional: log_error's signature is (title, message), and the positional form
+        # puts the message in the 140-char `method` column and loses the title.
+        frappe.log_error(
+            title="SEPA Return Processing Failed",
+            message=(
+                f"SEPA return for member reference {return_item.get('member_reference')} "
+                f"(amount {return_item.get('amount')}, return code "
+                f"{return_item.get('return_code')}) was NOT reversed: {e}\n\n"
+                f"{frappe.get_traceback()}"
+            ),
+        )
         return {"member_reference": return_item.get("member_reference"), "status": "error", "error": str(e)}
 
 
