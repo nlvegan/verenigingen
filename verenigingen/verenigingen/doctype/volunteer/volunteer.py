@@ -170,14 +170,32 @@ class Volunteer(Document):
             if not member.birth_date:
                 return  # Skip if no birth date
 
-            # Prefer the stored field; fall back to the service that owns this
-            # arithmetic rather than a fourth copy of it. Member.age is written by
-            # member_age_service on every save where birth_date is set, so the
-            # fallback is close to unreachable -- measured 0 of 711 Members on veg11
-            # and 0 of 174 on test_site_1 have birth_date set with age NULL -- which
-            # is exactly why the copy that lived here was never covered by a test and
-            # could drift unnoticed.
-            age = member.age if member.age is not None else calculate_member_age(member.birth_date)
+            # Compute from the birth date; do NOT read the stored `Member.age`.
+            #
+            # 65139d02b made this method delegate to the service that owns the
+            # arithmetic, but kept the pre-existing preference for the stored field.
+            # That preference was harmless while the rejection below was being
+            # swallowed. Now that it blocks the save it is not:
+            #
+            #   - `Member.age` is `int(11) NOT NULL DEFAULT 0`, so a row whose age was
+            #     never computed reads back as 0, never as None -- below every
+            #     configured minimum. The documented `is not None` fallback could
+            #     therefore never run.
+            #   - `age` is written only by `update_member_age_field` on save, with no
+            #     scheduled refresh, so it lags by up to a year: 371 of 711 Members on
+            #     veg11 and 31 of 268 on test_site_2 disagree with the calendar (#657).
+            #     The drift is strictly downward (0 rows read high on either site), so
+            #     a stored age can only ever refuse someone the calendar admits.
+            #
+            # Costs nothing today -- `minimum_membership_age` is also 16, so no stored
+            # age below the volunteer minimum exists -- but the two settings are
+            # independent, and the repo treats "join at 16, volunteer at 21" as a
+            # legitimate configuration (vip_import tests). At 21 the stale field would
+            # falsely refuse 17 members on veg11. The other four volunteer-age checks
+            # in this app (bulk creation service, vip_import, volunteer_application,
+            # validation_utilities) all compute from the birth date; this was the only
+            # one that did not.
+            age = calculate_member_age(member.birth_date)
             if age is None:
                 # Unparseable birth date. calculate_member_age already logged it, and
                 # comparing None against the minimum below would raise TypeError.
@@ -195,6 +213,18 @@ class Volunteer(Document):
                     frappe.ValidationError,
                 )
 
+        except frappe.ValidationError:
+            # The minimum-age rejection above IS a frappe.ValidationError, and the
+            # broad handler below used to catch it: the member saw the message and an
+            # Error Log row was written, but the Volunteer was created anyway, so the
+            # rule was dead on the only path that matters (#658). Same defect and same
+            # fix as 36bb501b9 in member_age_service, one file away.
+            #
+            # This also propagates the DoesNotExistError that get_doc() would raise for
+            # a dangling member link, which is the correct outcome and not a new one on
+            # the save path: validate_member_link() runs first and already throws for
+            # exactly that case.
+            raise
         except Exception as e:
             frappe.log_error(
                 f"Error validating volunteer age for {self.name}: {str(e)}", "Volunteer Age Validation Error"
