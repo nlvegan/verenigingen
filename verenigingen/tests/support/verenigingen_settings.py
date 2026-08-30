@@ -64,6 +64,8 @@ then run e.g. `verenigingen.tests.backend.components.test_enhanced_sepa_processi
 red on develop, green here.
 """
 
+from contextlib import contextmanager
+
 import frappe
 
 SETTINGS = "Verenigingen Settings"
@@ -143,3 +145,38 @@ def _harness_company() -> str | None:
         if frappe.db.exists("Company", candidate):
             return candidate
     return None
+
+
+@contextmanager
+def pinned_setting(field: str, value):
+    """Pin one `Verenigingen Settings` field for the duration of a block.
+
+    Both writes commit, for the same reason `_write` above does. Measured: an
+    uncommitted restore LEAKS. `submit_volunteer_application` calls
+    `frappe.db.commit()` when it succeeds, so a pin taken around it is committed
+    by the code under test; the restore then lands in a fresh transaction that
+    the harness rollback (per test under `EnhancedTestCase`, per class under
+    `VereningingenTestCase`) throws away, and the site is left holding the pinned
+    value. That is not hypothetical -- it left `minimum_volunteer_age = 21` on
+    test_site_1 and reddened an unrelated test in the next run.
+
+    `clear_document_cache` matters too: the readers are split between
+    `frappe.db.get_single_value` (AgeValidator._get_configurable_min_age) and
+    `frappe.get_cached_doc` (vip_import._validate_volunteer_age).
+
+    Lives here rather than in each test class because two modules now pin an age
+    threshold, and near-identical private copies are exactly what the
+    duplicate-helper census flags as a clone family.
+    """
+    original = frappe.db.get_single_value(SETTINGS, field)
+    _write_setting(field, value)
+    try:
+        yield
+    finally:
+        _write_setting(field, original)
+
+
+def _write_setting(field: str, value) -> None:
+    frappe.db.set_single_value(SETTINGS, field, value)
+    frappe.clear_document_cache(SETTINGS, SETTINGS)
+    frappe.db.commit()

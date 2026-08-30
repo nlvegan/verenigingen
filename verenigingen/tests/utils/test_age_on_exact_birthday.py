@@ -25,6 +25,7 @@ from frappe.utils import add_days, add_years, getdate, today
 
 from verenigingen.services.member.utils.member_age_service import calculate_member_age, get_age_group
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.verenigingen_settings import pinned_setting
 from verenigingen.utils.validation_utilities import AgeValidator, ValidationError
 
 DIVISIBLE_BY_FOUR = (12, 16, 20)
@@ -121,26 +122,12 @@ class TestAgeArithmeticConvergence(EnhancedTestCase):
 class TestVipImportVolunteerAgeGate(EnhancedTestCase):
     """`vip_import._validate_volunteer_age` gates the same rule with its own formula."""
 
-    def setUp(self):
-        super().setUp()
-        self._original_min = frappe.db.get_single_value("Verenigingen Settings", "minimum_volunteer_age")
-
-    def tearDown(self):
-        self._set_min_volunteer_age(self._original_min)
-        super().tearDown()
-
-    @staticmethod
-    def _set_min_volunteer_age(value):
-        frappe.db.set_single_value("Verenigingen Settings", "minimum_volunteer_age", value)
-        frappe.clear_document_cache("Verenigingen Settings", "Verenigingen Settings")
-
     def test_vip_import_accepts_a_member_on_their_exact_nth_birthday(self):
         from verenigingen.verenigingen.doctype.vip_import.vip_import import _validate_volunteer_age
 
         ref = getdate(today())
         for n in ALL_THRESHOLDS:
-            with self.subTest(threshold=n):
-                self._set_min_volunteer_age(n)
+            with self.subTest(threshold=n), pinned_setting("minimum_volunteer_age", n):
                 member = frappe.new_doc("Member")
                 member.birth_date = add_years(ref, -n)
                 self.assertIsNone(
@@ -153,8 +140,7 @@ class TestVipImportVolunteerAgeGate(EnhancedTestCase):
 
         ref = getdate(today())
         for n in ALL_THRESHOLDS:
-            with self.subTest(threshold=n):
-                self._set_min_volunteer_age(n)
+            with self.subTest(threshold=n), pinned_setting("minimum_volunteer_age", n):
                 member = frappe.new_doc("Member")
                 member.birth_date = add_days(add_years(ref, -n), 1)
                 self.assertIsNotNone(_validate_volunteer_age(member))
