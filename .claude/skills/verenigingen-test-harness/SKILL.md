@@ -98,9 +98,14 @@ touched. Worse, a company another suite partially drained can **never** be repai
 - **Assert on `GL Entry` rows, not `docstatus`.** `db_update()` runs before `on_submit`,
   so a submit that throws leaves `docstatus = 1` behind a half-posted ledger — and that is
   true of the **persisted** row too, not just the in-memory doc.
-- **Run on `test_site_1`..`test_site_5`, never `veg11.veganisme.org`** (it is the live
-  site, served out of the working tree). Check `pgrep -fa "bench --site"` first — another
-  session sharing your site produces failures that will never reproduce.
+- **Run on `test_site_1`..`test_site_5`, never `veg11.veganisme.org`** — not because it is
+  production (it is **not**; it is a test site with no real users), but because it carries
+  a **copy** of production data and is served out of the git working tree, so the suite
+  would trash data worth keeping. Both `CLAUDE.md` files were corrected on 2026-08-28
+  after this file's earlier "it is the live site" framing made at least one session treat
+  routine changes there as risky production work; the reason to stay off it is data, not
+  danger. Check `pgrep -fa "bench --site"` first — another session sharing your site
+  produces failures that will never reproduce.
 - To run a branch's own tests without checking it out:
   `PYTHONPATH=<worktree> bench --site test_site_N run-tests --app verenigingen --module <m>`.
   Always diff a red run against the same command with **no** `PYTHONPATH`.
@@ -167,3 +172,14 @@ So: **when a fix closes a blind spot, retire the sentence describing it.** A ski
 read as current fact by everyone who loads it, and a stale line here is copied outward
 rather than merely believed. Nothing about this was findable by grep -- both copies said
 it confidently.
+
+**2026-08-29, one correction, by the same rule.** This file called
+`veg11.veganisme.org` "the live site". Both `CLAUDE.md` files were corrected on 2026-08-28
+-- it is a test site carrying a copy of production data, with no real users -- and this
+file was not, so a skill that is loaded *instead of* reading CLAUDE.md kept serving the
+retired framing. The cost of the wrong version is not caution, it is misplaced caution: it
+made a session treat `console`, `migrate` and backups on veg11 as risky production work
+while leaving the actual hazard (running the suite there, which deletes) stated no more
+firmly. The rule this file already carries -- retire the sentence when the fact changes --
+applies to corrections made **elsewhere**, not only to fixes that close the blind spot the
+sentence describes. When CLAUDE.md is corrected, grep the skills.
