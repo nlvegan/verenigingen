@@ -180,3 +180,15 @@ def _write_setting(field: str, value) -> None:
     frappe.db.set_single_value(SETTINGS, field, value)
     frappe.clear_document_cache(SETTINGS, SETTINGS)
     frappe.db.commit()
+
+
+def pin_setting(test_case, field: str, value) -> None:
+    """`pinned_setting` for a pin taken in `setUp` rather than around a block.
+
+    The restore goes through `addCleanup`, not `tearDown`: it must run AFTER the
+    base tearDown (which rolls back before each tracked-doc delete and would
+    otherwise discard it) and it must survive a `setUp` that raises later on.
+    """
+    original = frappe.db.get_single_value(SETTINGS, field)
+    test_case.addCleanup(_write_setting, field, original)
+    _write_setting(field, value)
