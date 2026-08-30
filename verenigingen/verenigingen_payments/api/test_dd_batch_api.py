@@ -241,8 +241,16 @@ class TestDDBatchAPI(EnhancedTestCase):
         self.assertIn("update_iban", actions)
         self.assertNotIn("manual_review", actions)
 
-    def test_get_batch_conflicts_duplicate_mandate(self):
-        """Two entries sharing a mandate_reference produce a duplicate_mandate conflict."""
+    def test_get_batch_conflicts_two_invoices_on_one_mandate_is_not_a_conflict(self):
+        """Two entries sharing a mandate but naming DIFFERENT invoices are ordinary.
+
+        This asserted a `duplicate_mandate` conflict offering "consolidate". A member
+        with two unpaid invoices is the normal case, and consolidating those two rows
+        merged two distinct debts into one debit that reconciles only the first
+        invoice (#626). The conflict now keys on the invoice, which is the row set
+        that really is a double debit; duplicate invoices are covered in
+        tests/sepa/test_dd_batch_conflict_resolution.py.
+        """
         member, customer, membership, mandate = self._make_member_with_mandate()
         inv1 = self.sepa_factory.create_test_sales_invoice(
             customer=customer.name, member=member.name, status="Unpaid", submit=True
@@ -279,14 +287,12 @@ class TestDDBatchAPI(EnhancedTestCase):
         self._track_test_document("Direct Debit Batch", batch.name)
 
         result = get_batch_conflicts(batch.name)
-        dup = [c for c in result["conflicts"] if c["type"] == "duplicate_mandate"]
-        self.assertEqual(len(dup), 1)
-        self.assertEqual(dup[0]["mandate_reference"], mandate.mandate_id)
-        self.assertEqual(dup[0]["count"], 2)
-        actions = [o["action"] for o in dup[0]["resolution_options"]]
-        # exclude_duplicates is no longer offered: apply_conflict_resolutions has
-        # no branch for it, so selecting it was a silent no-op (#615).
-        self.assertEqual(actions, ["consolidate_entries"])
+        self.assertTrue(result["success"])
+        self.assertEqual(
+            [c for c in result["conflicts"] if c["type"] in ("duplicate_mandate", "duplicate_invoice")],
+            [],
+            "one mandate with two distinct invoices is two legitimate collections",
+        )
 
     # ------------------------------------------------------ get_eligible_invoices
 

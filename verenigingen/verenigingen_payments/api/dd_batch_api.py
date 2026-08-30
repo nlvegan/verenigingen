@@ -332,32 +332,50 @@ def get_batch_conflicts(batch_id):
 
         conflicts.append(conflict)
 
-    # Check for duplicate mandates in batch
-    duplicate_mandates = frappe.db.sql(
+    # Duplicate INVOICE rows, not duplicate mandate references (#626).
+    #
+    # This grouped on `mandate_reference` and reported "Mandate X appears N times
+    # in batch" as a conflict. That is the ORDINARY case: a member with two unpaid
+    # invoices has two rows on one mandate, which is one debtor and two legitimate
+    # collections. Offering "consolidate" for it is what made an operator merge two
+    # distinct invoices into a single debit that reconciles only the first --
+    # `batch_processing_service.mark_batch_invoices_as_paid` iterates the surviving
+    # child rows, so the deleted row's invoice is never in the loop, gets no Payment
+    # Entry, and stays Unpaid while its amount has been collected.
+    #
+    # The row set that really is a defect is two rows naming ONE invoice: each child
+    # row becomes one transaction in the SEPA XML, so that is two debits for one
+    # debt. `DirectDebitBatch.validate_no_duplicate_invoices` (#606) rejects such a
+    # batch on save, so what reaches this endpoint is a batch that predates that
+    # guard or whose rows were written standalone -- exactly the population that
+    # needs a repair path, since it can no longer be saved at all.
+    duplicate_invoices = frappe.db.sql(
         """
-        SELECT mandate_reference, COUNT(*) as count
+        SELECT invoice, COUNT(*) as count
         FROM `tabDirect Debit Batch Invoice`
-        WHERE parent = %s AND mandate_reference IS NOT NULL
-        GROUP BY mandate_reference
+        WHERE parent = %s AND invoice IS NOT NULL
+        GROUP BY invoice
         HAVING count > 1
     """,
         (batch_id,),
         as_dict=True,
     )
 
-    for dup in duplicate_mandates:
+    for dup in duplicate_invoices:
         conflicts.append(
             {
-                "type": "duplicate_mandate",
-                "mandate_reference": dup.mandate_reference,
+                "type": "duplicate_invoice",
+                "invoice": dup.invoice,
                 "count": dup.count,
-                "error": f"Mandate {dup.mandate_reference} appears {dup.count} times in batch",
+                "error": f"Invoice {dup.invoice} appears {dup.count} times in batch, "
+                f"which would debit the member {dup.count} times for one debt",
                 # Only remedies apply_conflict_resolutions actually implements are
                 # offered (#615). "exclude_duplicates" used to sit here with no
                 # branch and no `else`, so selecting it was a silent no-op reported
-                # inside a successful response.
+                # inside a successful response; what it named ("delete every row but
+                # one for the duplicated invoice") is what consolidate_entries does.
                 "resolution_options": [
-                    {"action": "consolidate_entries", "label": "Consolidate duplicate entries"},
+                    {"action": "consolidate_entries", "label": "Remove duplicate rows for this invoice"},
                 ],
             }
         )

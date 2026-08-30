@@ -1,5 +1,14 @@
 """`dd_batch_api` conflict resolution: what the remedy actually does to the money.
 
+**#626** -- `consolidate_entries` merged DISTINCT invoices. A member with two unpaid
+invoices on one mandate is the ordinary case, and merging those two rows leaves one
+child row naming only the first invoice. The SEPA XML then debits the sum, while
+`batch_processing_service.mark_batch_invoices_as_paid` iterates the surviving child
+rows and creates a Payment Entry per row -- so the deleted row's invoice gets none,
+keeps its outstanding amount, and stays Unpaid with its money already taken.
+`get_batch_conflicts` is what put that remedy in front of the operator, by reporting
+"Mandate X appears 2 times in batch" as a conflict.
+
 **#613** -- `consolidate_entries` grouped a batch's child rows by `mandate_reference`
 and summed the group into its first row. Two rows naming ONE invoice therefore became
 one row at 2x, so the double debit became a single double-sized debit -- and the batch
@@ -91,6 +100,73 @@ class _ConflictResolutionBase(_BatchPipelineBase):
             fields=["name", "invoice", "amount"],
             order_by="idx asc",
         )
+
+
+class TestDistinctInvoicesAreNeverMerged(_ConflictResolutionBase):
+    """#626: two invoices for one member are two debts and stay two debits."""
+
+    def test_two_invoices_on_one_mandate_survive_consolidation_separately(self):
+        batch, _member, mandate = self._batch_for_one_member([25.0, 30.0])
+        debited_before, reconcilable_before = self._debited_vs_reconcilable(batch.name)
+        self.assertEqual(debited_before, 55.0)
+        self.assertEqual(reconcilable_before, 55.0)
+
+        result = apply_conflict_resolutions(
+            batch.name, [{"action": "consolidate_entries", "mandate_reference": mandate.mandate_id}]
+        )
+
+        # The money first, because it is the claim. Before the fix this read
+        # (55.0, 25.0): the batch debited 55 while only the surviving row's
+        # invoice -- 25 of it -- could ever be reconciled, leaving 30 euro
+        # collected against an invoice that stays Unpaid.
+        debited, reconcilable = self._debited_vs_reconcilable(batch.name)
+        self.assertEqual((debited, reconcilable), (55.0, 55.0))
+
+        rows = self._batch_rows(batch.name)
+        self.assertEqual(sorted(flt(row.amount) for row in rows), [25.0, 30.0])
+        self.assertEqual(len({row.invoice for row in rows}), 2)
+
+        # And the remedy refuses, and says why. Before the fix it reported
+        # "Consolidated 2 entries into one" and returned success.
+        outcome = result["resolution_results"][0]
+        self.assertFalse(outcome["success"], outcome["message"])
+        self.assertIn("Nothing to consolidate", outcome["message"])
+
+    def test_a_refusal_leaves_the_batch_untouched_and_says_so(self):
+        """`batch_updated` must not claim a change the refusal did not make."""
+        batch, _member, mandate = self._batch_for_one_member([25.0, 30.0])
+
+        result = apply_conflict_resolutions(
+            batch.name, [{"action": "consolidate_entries", "mandate_reference": mandate.mandate_id}]
+        )
+
+        self.assertFalse(result["batch_updated"])
+        batch.reload()
+        self.assertEqual(batch.entry_count, 2)
+        self.assertEqual(flt(batch.total_amount), 55.0)
+
+    def test_two_invoices_on_one_mandate_are_not_reported_as_a_conflict(self):
+        """The trap at its source: reporting the ordinary case as a conflict is
+        what put "consolidate" in front of an operator in the first place."""
+        batch, _member, _mandate = self._batch_for_one_member([25.0, 30.0])
+
+        conflicts = get_batch_conflicts(batch.name)["conflicts"]
+
+        self.assertEqual(conflicts, [])
+
+    def test_the_control_a_genuinely_duplicated_invoice_still_is_one(self):
+        """Without this, deleting the duplicate detection entirely would pass the
+        test above."""
+        batch, _member, _mandate = self._batch_for_one_member([25.0, 30.0])
+        duplicated_invoice = batch.invoices[0].invoice
+        self._plant_duplicate_row(batch.invoices[0].name)
+
+        conflicts = get_batch_conflicts(batch.name)["conflicts"]
+
+        duplicate_conflicts = [c for c in conflicts if c["type"] == "duplicate_invoice"]
+        self.assertEqual(len(duplicate_conflicts), 1)
+        self.assertEqual(duplicate_conflicts[0]["invoice"], duplicated_invoice)
+        self.assertEqual(duplicate_conflicts[0]["count"], 2)
 
 
 class TestDuplicateRowsForOneInvoiceAreDeduplicated(_ConflictResolutionBase):
