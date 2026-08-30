@@ -26,6 +26,19 @@ Reproduced on ``test_site_5`` before this module existed, with a control::
 Which of the two runs first is decided by the shard packing, and shard bins
 re-pack on measured runtime, so editing any test file moves it.
 
+**A ``region_name``-keyed guard is not merely weaker -- it is always false.**
+Frappe syncs a ``field:`` autoname back onto its field, so ``insert()`` overwrites
+``region_name`` with the scrubbed docname. Measured on test_site_5::
+
+    insert(region_name="Probe Region Name Rewrite")
+      -> .name         'probe-region-name-rewrite'
+      -> .region_name  'probe-region-name-rewrite'   (persisted)
+      -> get_value("Region", {"region_name": "Probe Region Name Rewrite"})  ->  None
+
+So the row on a warm site reads ``region_name = 'test-region'``, and
+``get_value("Region", {"region_name": "Test Region"})`` can never find it. Two of the
+sixteen were written that way.
+
 **The guard key is the docname, and only the docname.**  The primary key is what
 decides whether the insert succeeds, so it is the only predicate that cannot
 disagree with reality -- ``region_code`` is UNIQUE too, but a row can satisfy the
@@ -34,6 +47,16 @@ rule in ``.claude/skills/verenigingen-test-harness/SKILL.md``.
 
 ``allocate_free_region_code`` (#405) allocates a code that is free; it
 deliberately says nothing about the shared docname, which is what this closes.
+
+**Import this LAZILY from the three shared harness modules** (``tests/utils/base.py``,
+``factories.py``, ``setup_helpers.py``). This module needs ``shared_fixture`` and
+``allocate_free_region_code`` from ``enhanced_test_factory``, whose module body runs
+``import erpnext.tests.utils`` -- which calls ``BootStrapTestData()`` (Company,
+Territory tree, chart of accounts, Fiscal Year, price lists) inside a bare
+``except Exception: pass``. Hanging that off *importing* the harness base would fire
+it for every ``--module`` run whose modules do not otherwise touch the factory,
+changing WHEN those masters appear. Leaf test modules import it at module scope; they
+already import the factory anyway.
 
 ``@shared_fixture`` because the row is SHARED master data built LAZILY, from
 inside whichever test happens to call first.  Without it the captured-insert

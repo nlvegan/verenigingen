@@ -20,6 +20,9 @@ import frappe
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 APP_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+#: The repo, not the package: three of #406's sites live outside
+#: `verenigingen/` (`scripts/debug/quick_region_test.py`).
+REPO_ROOT = os.path.dirname(APP_ROOT)
 TESTS_ROOT = os.path.join(APP_ROOT, "tests")
 
 
@@ -475,64 +478,166 @@ class TestTheSharedTestRegionHasOneOwner(VereningingenTestCase):
     and only the source gate can see a file that has not run yet.
     """
 
-    #: The one module allowed to insert the shared name.
+    #: The one module allowed to write a value that slugs to the shared docname.
+    #: Compared with ``==`` on the app-relative path, not ``endswith`` -- which
+    #: would exempt any ``*/tests/fixtures/region_fixtures.py`` anywhere in the
+    #: tree.
     OWNER = os.path.join("tests", "fixtures", "region_fixtures.py")
 
-    @staticmethod
-    def _region_name_literals(tree):
-        """Linenos where ``region_name`` is set to the literal "Test Region"."""
+    #: The docname every offender lands on. Region.autoname is field:region_name,
+    #: and WebsiteGenerator scrubs the title, so this -- not the label -- is what
+    #: the insert collides on.
+    DOCNAME = "test-region"
+
+    #: Directories with no bearing on which fixture owns the row.
+    SKIP_DIRS = {".git", "node_modules", "__pycache__", ".claude", "env", "sites"}
+
+    @classmethod
+    def _slugs_to_shared_docname(cls, value):
+        """Frappe's Region docname for this literal, if it is the shared one.
+
+        Deliberately compares the SLUG, not the label. Keying on ``"Test Region"``
+        missed ``region_name="test-region"`` -- already scrubbed, same primary key
+        -- which is exactly how a second owner survived the first pass at this fix
+        (``VereningingenTestCase.get_test_region_name``). It also catches casing
+        variants, which autoname folds onto the same row.
+        """
+        if not isinstance(value, str):
+            return False
+        return value.strip().lower().replace(" ", "-") == cls.DOCNAME
+
+    @classmethod
+    def _region_name_writes(cls, tree):
+        """Linenos where a literal that slugs to ``test-region`` is written.
+
+        Five shapes, every one of which had a real instance on develop:
+
+          A  {"region_name": "<literal>"}          the twelve
+          B  region_name="<literal>"               keyword form
+          C  doc.region_name = "<literal>"         attribute assignment
+          D  x = "<literal>"; {"region_name": x}   constant indirection -- the
+             shape the OWNER itself uses, so a literal-only gate exempts any file
+             that adopts a module constant
+          E  helper("<literal>")                   a bare positional argument to a
+             region get-or-create; ``test_chapter_head.py`` was written this way
+             and the first version of this gate could not see it
+
+        E is matched on the VALUE alone, anywhere in a call, because the helper
+        names differ per file. That risks a false positive on an unrelated call
+        carrying the same string; no such call exists in the tree, and the message
+        tells you what to do if one ever appears.
+        """
+        binds = {}
         for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                if isinstance(node.value, ast.Constant) and cls._slugs_to_shared_docname(
+                    node.value.value
+                ):
+                    for target in node.targets:
+                        if isinstance(target, ast.Name):
+                            binds[target.id] = node.value.lineno
+
+        def literal(node):
+            return isinstance(node, ast.Constant) and cls._slugs_to_shared_docname(node.value)
+
+        for node in ast.walk(tree):
+            # A / D: a Region-shaped dict
             if isinstance(node, ast.Dict):
                 for key, value in zip(node.keys, node.values):
-                    if (
-                        isinstance(key, ast.Constant)
-                        and key.value == "region_name"
-                        and isinstance(value, ast.Constant)
-                        and value.value == "Test Region"
-                    ):
+                    if not (isinstance(key, ast.Constant) and key.value == "region_name"):
+                        continue
+                    if literal(value):
                         yield value.lineno
-            elif (
-                isinstance(node, ast.keyword)
-                and node.arg == "region_name"
-                and isinstance(node.value, ast.Constant)
-                and node.value.value == "Test Region"
-            ):
-                yield node.value.lineno
+                    elif isinstance(value, ast.Name) and value.id in binds:
+                        yield value.lineno
+            # B: region_name="..."
+            elif isinstance(node, ast.keyword) and node.arg == "region_name":
+                if literal(node.value):
+                    yield node.value.lineno
+                elif isinstance(node.value, ast.Name) and node.value.id in binds:
+                    yield node.value.lineno
+            # C: doc.region_name = "..."
+            elif isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if getattr(target, "attr", None) == "region_name" and literal(node.value):
+                        yield node.value.lineno
+            # E: a bare positional literal
+            elif isinstance(node, ast.Call):
+                for arg in node.args:
+                    if literal(arg):
+                        yield arg.lineno
 
-    def test_only_the_region_fixture_module_inserts_the_shared_region_name(self):
-        """Walks EVERY module under the app, not just ``test_*.py``.
-
-        Three of the sixteen were ``tests/utils/base.py``,
-        ``tests/utils/factories.py`` and ``tests/utils/setup_helpers.py``, which
-        ``_iter_test_sources`` does not yield -- the same blind spot
-        ``TestAFixedChapterNameHasOneOwningFile`` documents and works around by
-        hand.
-        """
+    def _shared_region_offenders(self, root):
         offenders = []
-        for dirpath, _dirnames, filenames in os.walk(APP_ROOT):
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if d not in self.SKIP_DIRS]
             for fn in sorted(filenames):
                 if not fn.endswith(".py"):
                     continue
                 path = os.path.join(dirpath, fn)
-                if _rel(path).endswith(self.OWNER):
+                if os.path.relpath(path, APP_ROOT) == self.OWNER:
                     continue
                 try:
                     with open(path, encoding="utf-8") as handle:
                         tree = ast.parse(handle.read(), filename=path)
                 except (OSError, SyntaxError, UnicodeDecodeError):  # pragma: no cover
                     continue
-                for lineno in self._region_name_literals(tree):
-                    offenders.append(f"{_rel(path)}:{lineno}")
+                for lineno in self._region_name_writes(tree):
+                    offenders.append(f"{os.path.relpath(path, REPO_ROOT)}:{lineno}")
                 del tree
+        return sorted(set(offenders))
 
+    def test_only_the_region_fixture_module_writes_the_shared_region_docname(self):
+        """Walks the whole REPO, not just ``test_*.py`` and not just the package.
+
+        Three of the sixteen were ``tests/utils/base.py``,
+        ``tests/utils/factories.py`` and ``tests/utils/setup_helpers.py``, which
+        ``_iter_test_sources`` does not yield -- the same blind spot
+        ``TestAFixedChapterNameHasOneOwningFile`` documents and works around by
+        hand. And ``scripts/debug/quick_region_test.py`` writes the same docname
+        from outside the package entirely.
+        """
+        offenders = self._shared_region_offenders(REPO_ROOT)
         self.assertEqual(
-            sorted(set(offenders)),
             [],
-            'these insert the shared Region name "Test Region" -- which autonames to '
-            "the single docname 'test-region' -- instead of going through "
+            offenders,
+            "these write a value that autonames to the single shared Region docname "
+            f"{self.DOCNAME!r}, instead of going through "
             "verenigingen.tests.fixtures.region_fixtures.ensure_test_region, its one "
-            "owner. Call that, or pick a name of your own:\n  "
-            + "\n  ".join(sorted(set(offenders))),
+            "owner. Call that, or pick a region name of your own:\n  "
+            + "\n  ".join(offenders),
+        )
+
+    def test_the_gate_sees_every_shape_the_fix_had_to_repair(self):
+        """The gate's own control: it must FIND the defect on the base tree.
+
+        A gate that reports zero is worthless unless zero is discriminating, and
+        the first version of this one reported 17 of the 18 pre-fix sites -- it
+        could not see ``_ensure_region("Test Region")``. Rather than trust a
+        remembered number, re-derive it here from the five shapes directly.
+        """
+        source = """
+region = frappe.get_doc({"doctype": "Region", "region_name": "Test Region"})
+frappe.get_doc(doctype="Region", region_name="test-region")
+doc.region_name = "TEST REGION"
+NAME = "Test Region"
+frappe.get_doc({"doctype": "Region", "region_name": NAME})
+_ensure_region("Test Region")
+"""
+        found = sorted(self._region_name_writes(ast.parse(source)))
+        self.assertEqual(
+            [2, 3, 4, 6, 7],
+            found,
+            "the gate must see the dict, keyword, attribute-assign, constant-"
+            "indirection and bare-positional shapes; it saw lines "
+            f"{found}",
+        )
+
+        clean = 'frappe.get_doc({"doctype": "Region", "region_name": "Other Region"})\n'
+        self.assertEqual(
+            [],
+            sorted(self._region_name_writes(ast.parse(clean))),
+            "and it must not fire on an unrelated region name",
         )
 
     def test_the_owner_reuses_the_row_whatever_region_code_it_carries(self):
@@ -545,11 +650,11 @@ class TestTheSharedTestRegionHasOneOwner(VereningingenTestCase):
         whose row already carries "TR", so the row's code is moved out from under
         it first -- that is the whole experiment.
         """
+        from verenigingen.tests.fixtures.enhanced_test_factory import allocate_free_region_code
         from verenigingen.tests.fixtures.region_fixtures import (
             TEST_REGION_DOCNAME,
             ensure_test_region,
         )
-        from verenigingen.tests.fixtures.enhanced_test_factory import allocate_free_region_code
 
         self.assertEqual(TEST_REGION_DOCNAME, ensure_test_region())
 
@@ -573,4 +678,16 @@ class TestTheSharedTestRegionHasOneOwner(VereningingenTestCase):
             ensure_test_region(),
             "the shared Region must be recognised by its docname whatever region_code "
             "it happens to carry; a code-keyed guard inserts and dies on the PRIMARY key",
+        )
+
+        # The OTHER wrong key, pinned separately because the mutation above does not
+        # reach it: frappe syncs a `field:` autoname back onto its field, so the
+        # persisted region_name is the SCRUBBED docname and a guard reading
+        # {"region_name": "Test Region"} is false for a row that plainly exists.
+        # Two of the sixteen were written that way.
+        self.assertEqual(
+            TEST_REGION_DOCNAME,
+            frappe.db.get_value("Region", TEST_REGION_DOCNAME, "region_name"),
+            "Region.insert() overwrites region_name with the scrubbed docname, so any "
+            "get-or-create keyed on the title can never match",
         )

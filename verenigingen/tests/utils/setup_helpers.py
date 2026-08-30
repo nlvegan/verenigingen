@@ -312,7 +312,6 @@ to focus on business logic testing rather than test infrastructure concerns.
 
 import frappe
 
-from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 from frappe.utils import today
 
@@ -324,6 +323,9 @@ class TestEnvironmentSetup:
     def create_test_chapters():
         """Create standard test chapters for testing"""
         chapters = []
+
+        # Local import on purpose -- see region_fixtures' module docstring.
+        from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
 
         # Get the shared test region through its ONE owner (#406). This used to be
         # keyed on region_code == "TR" -- a predicate the "TST"/"TSTRG" writers

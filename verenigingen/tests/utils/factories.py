@@ -13,7 +13,6 @@ from datetime import datetime
 import frappe
 from frappe.utils import random_string, today
 
-from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
 from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.tests.utils.cleanup_savepoint import (
     release_cleanup_savepoint,
@@ -203,7 +202,9 @@ class TestCleanupManager:
         here happens mid-test, where the framework already handles it, and names the
         line that got the doctype wrong.
         """
-        if not frappe.db.exists("DocType", doctype):
+        # cache=True: this runs once per registered document, and the set of
+        # DocTypes does not change inside a test run.
+        if not frappe.db.exists("DocType", doctype, cache=True):
             raise ValueError(
                 f"TestCleanupManager.register({doctype!r}, {name!r}): {doctype!r} is not a "
                 f"DocType, so the cleanup would silently skip it and the row would leak. "
@@ -402,6 +403,9 @@ class TestDataBuilder:
             name = f"Test Chapter {random_string(8)}"
 
         if not region:
+            # Local import on purpose -- see region_fixtures' module docstring.
+            from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
+
             # The shared test region, through its ONE owner (#406). Keyed on the
             # docname, because the docname is the primary key the insert collides
             # on; the old region_code == "TR" predicate reads False whenever the

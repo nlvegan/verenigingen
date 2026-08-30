@@ -47,7 +47,14 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
     def tearDown(self):
         """Clean up test records"""
         try:
-            for record_type, record_name in self.test_cleanup_records:
+            # REVERSED: these deletes used to be no-ops -- every volunteer was
+            # registered under "Verenigingen Volunteer", which is not a DocType, so
+            # the `frappe.db.exists` guard below read False and skipped them (#491).
+            # Now that they run, insertion order would delete the Member BEFORE the
+            # Volunteer that links to it. `force=True` skips the link check, so it
+            # would pass while orphaning the volunteer -- and any raise here rolls
+            # back the whole teardown, commit included.
+            for record_type, record_name in reversed(self.test_cleanup_records):
                 if frappe.db.exists(record_type, record_name):
                     frappe.delete_doc(record_type, record_name, force=True)
             frappe.db.commit()
