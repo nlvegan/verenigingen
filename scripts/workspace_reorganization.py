@@ -127,8 +127,15 @@ def reorganize_workspace(force_enable=False):
         """, (name, idx, type_, label, link_type, link_to, 
               1 if link_type == "Report" else 0, onboard, link_count))
     
-    # Update workspace modified timestamp
-    frappe.db.sql("UPDATE tabWorkspace SET modified = NOW() WHERE name = 'Verenigingen'")
+    # Update workspace modified timestamp. set_value writes the SITE clock with
+    # microseconds and clears the document cache; MariaDB's NOW() is the DATABASE
+    # SERVER's clock truncated to the second (#453).
+    frappe.db.set_value(
+        "Workspace",
+        "Verenigingen",
+        {"modified": frappe.utils.now(), "modified_by": frappe.session.user},
+        update_modified=False,
+    )
     
     frappe.db.commit()
     

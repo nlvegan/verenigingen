@@ -449,7 +449,18 @@ class TestSEPAPerformanceIntegration(EnhancedTestCase):
         # Single plus its four child tables. Switching those ~15 call sites to
         # frappe.get_cached_doc is a real win but a much wider change than this
         # test justifies -- tracked separately, not done here.
-        max_queries_per_save = 48
+        #
+        # Raised 48 -> 60 by #453. Measured on test_site_4, four consecutive saves
+        # (first discarded as cold): develop 45, branch 56. The +11 is on the
+        # link-CREATE branch of SEPAMandateMemberIntegrationService only, which now
+        # loads the Member and persists through safe_child_table_update() so the row
+        # gets a framework-assigned name, idx and parentfield and a site-clock
+        # `creation`/`modified` -- the raw INSERT it replaced hand-wrote NOW(), NOW()
+        # and left idx at 0. The link-UPDATE branch, which fires on every subsequent
+        # mandate save, was measured unchanged at 3 queries; routing THAT through
+        # safe_child_table_update() as well was tried and measured at 75/save (+67%),
+        # and rejected for that reason.
+        max_queries_per_save = 60
         with self.assertQueryCount(max_queries_per_save * len(members)):
             for i, member in enumerate(members):
                 mandate = frappe.new_doc("SEPA Mandate")
