@@ -111,7 +111,9 @@ class AgeValidator:
             ValidationError: if the birth date is after the reference date, or the
                 age could not be computed. calculate_member_age swallows its own
                 errors and returns None; this entry point deliberately does not
-                (the #597 swallow trap) -- callers here rely on the refusal.
+                (the #597 swallow trap). Direct callers see the refusal;
+                validate_age catches it below and converts it to a soft
+                AgeValidationResult when throw_on_error is False.
         """
         from verenigingen.services.member.utils.member_age_service import calculate_member_age
 

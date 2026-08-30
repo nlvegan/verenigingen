@@ -60,7 +60,11 @@ class TestAgeOnExactBirthday(EnhancedTestCase):
         self.assertEqual(AgeValidator.calculate_age("2000-03-01", "2018-03-02"), 18)
 
     def test_calculate_age_still_raises_on_a_future_birth_date(self):
-        """`calculate_member_age` swallows and returns None; this must not (#597)."""
+        """`calculate_member_age` swallows and returns None; this must not (#597).
+
+        Direct callers get the refusal. `validate_age` catches it and converts it
+        to a soft result, so this is the layer where the raise has to be pinned.
+        """
         with self.assertRaises(ValidationError):
             AgeValidator.calculate_age(add_years(getdate(today()), 1))
 

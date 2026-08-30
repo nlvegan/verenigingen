@@ -115,11 +115,14 @@ class TestWeeklyBillingFrequency(VereningingenTestCase):
     # ------------------------------------------------------------------ helpers
 
     def _pin_setting(self, fieldname, value):
-        # Delegates to tests/support/verenigingen_settings, which owns this
-        # (including the commit on the restore -- without it the rollback leaks
-        # the pinned value into the shard). This used to be three private
-        # helpers here; #659 needed the same thing and the duplicate-helper
-        # census flagged the collision.
+        # Delegates to tests/support/verenigingen_settings, which owns this. This
+        # used to be three private helpers here; #659 needed the same thing and the
+        # duplicate-helper census flagged the collision.
+        #
+        # Behaviour change worth knowing: the shared helper commits the PIN as well
+        # as the restore (the local copy committed only the restore). Safe here
+        # because these pins run before any fixture is created in setUp -- keep them
+        # first if this setUp grows.
         pin_setting(self, fieldname, value)
 
     def _make_weekly_schedule(self):

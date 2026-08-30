@@ -151,14 +151,23 @@ def _harness_company() -> str | None:
 def pinned_setting(field: str, value):
     """Pin one `Verenigingen Settings` field for the duration of a block.
 
-    Both writes commit, for the same reason `_write` above does. Measured: an
-    uncommitted restore LEAKS. `submit_volunteer_application` calls
-    `frappe.db.commit()` when it succeeds, so a pin taken around it is committed
-    by the code under test; the restore then lands in a fresh transaction that
-    the harness rollback (per test under `EnhancedTestCase`, per class under
-    `VereningingenTestCase`) throws away, and the site is left holding the pinned
-    value. That is not hypothetical -- it left `minimum_volunteer_age = 21` on
-    test_site_1 and reddened an unrelated test in the next run.
+    Both writes commit, but for two DIFFERENT reasons -- do not collapse them:
+
+    * the RESTORE, for the reason `_write` above does. Measured: an uncommitted
+      restore LEAKS. `submit_volunteer_application` calls `frappe.db.commit()`
+      when it succeeds, so a pin taken around it is committed by the code under
+      test; the restore then lands in a fresh transaction that the harness
+      rollback (per test under `EnhancedTestCase`, per class under
+      `VereningingenTestCase`) throws away, and the site is left holding the
+      pinned value. Not hypothetical -- it left `minimum_volunteer_age = 21` on
+      test_site_1 and reddened an unrelated test in the next run.
+    * the PIN, because code under test may roll back. That same endpoint's outer
+      handler calls `frappe.db.rollback()`, which would silently discard an
+      uncommitted pin and leave the test exercising the site's ambient value --
+      green, and about nothing.
+
+    Cost to weigh before reaching for this: the pin's commit defeats the per-test
+    rollback for anything inserted BEFORE the `with` block, so take the pin first.
 
     `clear_document_cache` matters too: the readers are split between
     `frappe.db.get_single_value` (AgeValidator._get_configurable_min_age) and

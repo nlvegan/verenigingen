@@ -328,6 +328,8 @@ def _validate_volunteer_age(member: Document) -> Optional[str]:
     # Completed calendar years, not date_diff/365.25: that float dips ~0.002 below
     # the integer on the member's own birthday, so at any threshold not divisible
     # by 4 this path rejected people the desk path accepted the same day (#657).
+    # The arithmetic now agrees; the `or 16` fallback above can still make the two
+    # disagree, because _get_configurable_min_age refuses where this substitutes 16.
     age_in_years = calculate_member_age(member.birth_date)
     if age_in_years is None:
         return None  # Unparseable birth date - nothing to validate against

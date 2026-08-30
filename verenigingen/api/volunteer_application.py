@@ -55,6 +55,11 @@ def submit_volunteer_application(**data) -> OperationResult[Dict[str, Any]]:
         try:
             birth_date = getdate(data.get("birth_date"))
         except frappe.ValidationError:
+            # frappe.throw appends to frappe.local.message_log BEFORE raising, and
+            # response.py serialises that into _server_messages on every response --
+            # so catching the exception is not enough to stop the guest seeing a red
+            # popup echoing their raw input. Measured, not assumed.
+            frappe.clear_messages()
             birth_date = None
         if not birth_date:
             return OperationResult.fail(
@@ -68,11 +73,16 @@ def submit_volunteer_application(**data) -> OperationResult[Dict[str, Any]]:
             # missing or <= 0; there is deliberately no hardcoded fallback. On a
             # guest endpoint an age gate must fail CLOSED -- one that silently
             # opens on a config error is worse than one that is temporarily shut.
-            # The settings field name stays out of the response.
+            #
+            # clear_messages() is what actually keeps the settings field name out of
+            # the response: without it the caught throw still reaches the guest as
+            # "minimum_volunteer_age is not configured in Verenigingen Settings" via
+            # _server_messages, and only the OperationResult body is generic.
+            frappe.clear_messages()
             frappe.log_error(
+                "Volunteer Application Age Config Error",
                 "Verenigingen Settings.minimum_volunteer_age is not configured; the public "
                 "volunteer application is refusing all submissions until it is set.",
-                "Volunteer Application Age Config Error",
             )
             return OperationResult.fail(
                 _("Volunteer applications are temporarily unavailable. Please contact us."),
