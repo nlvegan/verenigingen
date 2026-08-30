@@ -31,4 +31,16 @@ def get_context(context):
     context.organization_logo = get_organization_logo()
     context.already_member = False
 
+    # The form's own age hint and its client-side birth-date check must not carry
+    # their own literal: raising minimum_volunteer_age in Settings has to move the
+    # form and the endpoint together, or the page contradicts the API that rejects
+    # the submission (#659). Read directly rather than through
+    # AgeValidator._get_configurable_min_age, which THROWS on a missing/zero
+    # setting -- a page must not 500 over that. A falsy value renders no hint and
+    # skips the browser-side check; the server refuses either way, and the browser
+    # is never the authority here.
+    context.minimum_volunteer_age = frappe.db.get_single_value(
+        "Verenigingen Settings", "minimum_volunteer_age"
+    )
+
     return context

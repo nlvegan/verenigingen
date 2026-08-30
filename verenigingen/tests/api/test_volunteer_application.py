@@ -565,6 +565,34 @@ class TestVolunteerApplication(VereningingenTestCase):
     # ------------------------------------------------------------------
     # notes-building / mapping unit behavior (pure functions)
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # #659 — the FORM in front of the endpoint carried the same literal
+    # ------------------------------------------------------------------
+    def test_the_public_form_renders_the_configured_minimum_not_a_literal(self):
+        """apply.html hardcoded 16 in its help text AND in its own birth-date check.
+
+        The client check does not merely warn — it CLEARS the field, so with the
+        literal in place, lowering minimum_volunteer_age left the browser blocking
+        an applicant the fixed endpoint would have accepted. Rendered rather than
+        grepped, so the Jinja plumbing is exercised end to end.
+        """
+        from frappe.website.serve import get_response_content
+
+        with pinned_setting("minimum_volunteer_age", 21), self.as_user("Guest"):
+            html = get_response_content("volunteer/apply")
+
+        # Narrowed to the age lines: asserting against the whole rendered page
+        # dumps ~40KB of HTML into the CI log on every failure.
+        age_lines = [
+            line.strip()
+            for line in html.splitlines()
+            if "years old to volunteer" in line or "minimumAge" in line
+        ]
+        rendered = "\n".join(age_lines)
+        self.assertIn("You must be at least 21 years old to volunteer", rendered)
+        self.assertIn("const minimumAge = 21;", rendered)
+        self.assertNotIn("at least 16 years old to volunteer", rendered)
+
     def test_time_commitment_mapping(self):
         self.assertEqual(_map_time_commitment("1-5"), "Occasional")
         self.assertEqual(_map_time_commitment("6-10"), "Regular (Monthly)")
