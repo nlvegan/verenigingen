@@ -38,12 +38,12 @@ Author: Verenigingen Development Team
 """
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 from typing import Any, Dict, List, Optional
 
 import frappe
 from frappe import _
-from frappe.utils import today
+from frappe.utils import now_datetime, today
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.services.payment.validation_service import ValidationResult, get_payment_validation_service
@@ -446,8 +446,14 @@ class SEPAMandateManager(StatelessService):
         # Replace SQL wildcards that could be used maliciously
         member_id_safe = str(member_id).replace("%", "\\%").replace("_", "\\_").replace("\\", "\\\\")
 
-        # Format date as YYYYMMDD
-        now = datetime.now()
+        # Format date as YYYYMMDD, on the SITE clock. This is the allocating twin of
+        # `member_utils.generate_mandate_reference` (which only SUGGESTS a reference);
+        # both write the same `unique: 1` `mandate_id`, so if the two read different
+        # clocks they stamp different days for the same moment, each one's
+        # same-day sequence lookup misses the other's rows, and the collision they
+        # exist to prevent becomes MORE likely. Site tz is the correct side: the
+        # mandate's own creation/sign_date are site-tz (#637).
+        now = now_datetime()
         date_str = now.strftime("%Y%m%d")
         base_pattern = f"M-{member_id_safe}-{date_str}"
 
