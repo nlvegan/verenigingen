@@ -1933,3 +1933,85 @@ class BuilderMustNotSilentlyDropTheChapterLinkageTest(
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BuilderRegistersTheDoctypeItActuallyInsertedTest(
+    _BorrowedChapterFixture, unittest.TestCase
+):
+    """A cleanup registered under a name that is not a DocType deletes nothing (#491).
+
+    `with_volunteer_profile` inserted a `Volunteer` and registered the cleanup under
+    `"Verenigingen Volunteer"` -- a ROLE name. `cleanup()` gates each delete on
+    `frappe.db.exists`, which for a doctype with no table returns `None`, so the
+    guard read "already gone" and the loop walked past it. Measured on test_site_5,
+    one run of `backend.unit.controllers.test_volunteer_controller` with the guard
+    instrumented: **10 of 10** Volunteer registrations skipped as gone, **0**
+    deletes attempted, and `tabVolunteer` grew by exactly one row per run (the
+    others were undone by the per-class rollback, not by the cleanup).
+
+    The volunteer is COMMITTED here for the reason the borrowed-chapter test gives:
+    an uncommitted row is erased by cleanup's own rollback path as well, so "it is
+    gone" would read the same whether the loop deleted it or a rollback swallowed
+    it -- a test that passes on the defect.
+    """
+
+    def test_a_volunteer_the_builder_created_is_deleted_by_its_cleanup(self):
+        from verenigingen.tests.utils.factories import TestDataBuilder
+
+        builder = TestDataBuilder()
+        data = builder.with_member().with_volunteer_profile().build()
+        volunteer, member = data["volunteer"].name, data["member"].name
+        frappe.db.commit()
+        self.created.append(("Volunteer", volunteer))
+        self.created.append(("Member", member))
+
+        self.assertTrue(frappe.db.exists("Volunteer", volunteer), "precondition")
+        failures = builder.cleanup()
+
+        self.assertEqual([], failures, "precondition: the cleanup itself must not fail")
+        self.assertFalse(
+            frappe.db.exists("Volunteer", volunteer),
+            "the builder registered the volunteer under a name that is not a DocType, "
+            "so the cleanup skipped it as 'already gone' and the row leaked (#491)",
+        )
+
+    def test_registering_a_doctype_that_does_not_exist_is_refused(self):
+        """The INSTRUMENT, not just the two names it got wrong.
+
+        `check_document_exists` answers False for "the row is gone" and for "the
+        DocType is gone" alike -- measured on test_site_5, all three of
+        ("Volunteer Expense", "Verenigingen Volunteer", "Volunteer") returned False
+        for a name that does not exist, and only the third of those is a DocType.
+        A cleanup handed an unknown doctype has to say so at the registration, which
+        is the line that is wrong; raising from `cleanup()` instead would skip the
+        caller's `super().tearDown()` (#483).
+        """
+        from verenigingen.tests.utils.factories import TestCleanupManager
+
+        manager = TestCleanupManager()
+        with self.assertRaises(ValueError) as ctx:
+            manager.register("Verenigingen Volunteer", "whatever")
+        self.assertIn("not a DocType", str(ctx.exception))
+        self.assertEqual([], manager._cleanup_stack, "a refused registration must not be recorded")
+
+        # The control: a real doctype still registers.
+        manager.register("Volunteer", "whatever")
+        self.assertEqual(1, len(manager._cleanup_stack))
+
+    def test_the_archived_expense_builder_says_why_instead_of_failing_obscurely(self):
+        """`with_expense` targeted `Volunteer Expense`, archived in 1a8e5fa2 and
+        dropped by `patches/v2_2/drop_volunteer_expense_archived_doctype.py`.
+
+        It cannot work, and both call sites already sit behind
+        `@unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)`. It now raises the same
+        NotImplementedError, with the same migration pointer, as
+        `VereningingenTestCase.create_test_volunteer_expense`.
+        """
+        from verenigingen.tests.utils.factories import TestDataBuilder
+
+        builder = TestDataBuilder()
+        builder.with_member().with_volunteer_profile()
+        self.addCleanup(builder.cleanup)
+        with self.assertRaises(NotImplementedError) as ctx:
+            builder.with_expense(10, "anything")
+        self.assertIn("Expense Claim", str(ctx.exception))

@@ -181,7 +181,35 @@ class TestCleanupManager:
         self._dependencies = {}
 
     def register(self, doctype, name, dependencies=None):
-        """Register a document for cleanup with optional dependencies"""
+        """Register a document for cleanup with optional dependencies.
+
+        REJECTS A DOCTYPE THAT DOES NOT EXIST, here, at the mistake rather than at
+        the teardown. `cleanup()` gates every delete on `frappe.db.exists`, which
+        for a doctype with no table returns `None` -- indistinguishable from "the
+        row is already gone". Measured on test_site_5:
+
+            check_document_exists("Volunteer Expense", <any name>)     -> False
+            check_document_exists("Verenigingen Volunteer", <any name>) -> False
+            check_document_exists("Volunteer", "whatever-name")         -> False
+
+        The first two doctypes are absent from `tabDocType`; the third is present
+        and the row is not. All three read the same, so the loop walked past a
+        typo'd registration in silence and every row behind it leaked (#491).
+        `Verenigingen Volunteer` is a ROLE name, and `Volunteer Expense` was
+        archived in 1a8e5fa2 -- neither has ever been a cleanup target that worked.
+
+        Raising at REGISTRATION and not at cleanup is deliberate: a raise out of
+        `cleanup()` skips the caller's `super().tearDown()` (#483), whereas a raise
+        here happens mid-test, where the framework already handles it, and names the
+        line that got the doctype wrong.
+        """
+        if not frappe.db.exists("DocType", doctype):
+            raise ValueError(
+                f"TestCleanupManager.register({doctype!r}, {name!r}): {doctype!r} is not a "
+                f"DocType, so the cleanup would silently skip it and the row would leak. "
+                f"Register the doctype that was actually inserted."
+            )
+
         self._cleanup_stack.append({"doctype": doctype, "name": name, "timestamp": datetime.now()})
 
         if dependencies:
@@ -225,12 +253,12 @@ class TestCleanupManager:
 
         - **The ledger carve-out** that `VereningingenTestCase._cancel_if_submitted`
           documents at length. What this class is actually handed is Chapter, Member,
-          Membership, Membership Type, Team, Team Role, plus two names that are not
-          DocTypes on any test site (`Verenigingen Volunteer` and `Volunteer Expense`
-          -- registered by `with_volunteer_profile` and `with_expense`, see #491).
-          `SEPA Mandate` is in none of them: `with_sepa_mandate` is a no-op stub that
-          registers nothing.
-          Checked against `tabDocType`: of the six real ones only Membership is
+          Membership, Membership Type, Team, Team Role and Volunteer. Two further
+          names used to be registered and are not DocTypes on any test site
+          (`Verenigingen Volunteer` and `Volunteer Expense`); `register` now rejects
+          those outright (#491). `SEPA Mandate` is in none of them:
+          `with_sepa_mandate` is a no-op stub that registers nothing.
+          Checked against `tabDocType`: of the seven real ones only Membership is
           submittable, and none post GL or Payment Ledger rows, so there is nothing
           for the carve-out to protect yet. Register a voucher and there will be --
           that is #482, which has to fix the drains together.
@@ -591,8 +619,14 @@ class TestDataBuilder:
         volunteer.insert()
 
         self._data["volunteer"] = volunteer
+        # "Volunteer", the doctype actually inserted above. This registered
+        # "Verenigingen Volunteer" -- which is a ROLE name, not a DocType -- so the
+        # delete was skipped as "already gone" and every Volunteer built here
+        # leaked (#491). Measured on test_site_5, one run of
+        # backend.unit.controllers.test_volunteer_controller: 10 of 10 registrations
+        # printed SKIPPED-AS-GONE and 0 deletes ran.
         self._cleanup_manager.register(
-            "Verenigingen Volunteer", volunteer.name, dependencies=[f"Member:{self._data['member'].name}"]
+            "Volunteer", volunteer.name, dependencies=[f"Member:{self._data['member'].name}"]
         )
 
         return self
@@ -659,68 +693,34 @@ class TestDataBuilder:
         return self
 
     def with_expense(self, amount, description, **kwargs):
-        """Add an expense to the volunteer"""
-        if "volunteer" not in self._data:
-            raise ValueError("Must create volunteer before expense")
+        """Removed: the Volunteer Expense DocType was archived in commit 1a8e5fa2.
 
-        expense_data = {
-            "doctype": "Volunteer Expense",
-            "volunteer": self._data["volunteer"].name,
-            "amount": amount,
-            "description": description,
-            "expense_date": today(),
-            "status": "Draft",
-            "organization_type": "Chapter",  # Default to Chapter
-        }
+        This inserted ``{"doctype": "Volunteer Expense", ...}`` and then registered
+        its cleanup under the same name.  Neither is a DocType on any site --
+        ``patches/v2_2/drop_volunteer_expense_archived_doctype.py`` drops the table
+        -- so the insert raised and the cleanup guard, which is
+        ``frappe.db.exists`` on a table that is gone, read "already gone" (#491).
 
-        # Try to get or create a default expense category
-        expense_categories = frappe.get_all("Expense Category", limit=1)
-        if expense_categories:
-            expense_data["category"] = expense_categories[0].name
-        else:
-            # Create a default test expense category if none exist
-            expense_account = frappe.get_all(
-                "Account", filters={"account_type": "Expense Account", "is_group": 0}, limit=1
-            )
-            if expense_account:
-                test_category = frappe.get_doc(
-                    {
-                        "doctype": "Expense Category",
-                        "category_name": "Test Expenses",
-                        "expense_account": expense_account[0].name}
-                )
-                test_category.insert()
-                expense_data["category"] = test_category.name
+        Deleted rather than repointed because there is nothing left to point it at,
+        and raising rather than removed outright because both call sites still name
+        it: ``test_volunteer_controller.test_volunteer_expense_workflow`` and
+        ``TestPersonas.create_volunteer_victor`` (reached only from
+        ``test_comprehensive_suite_demo.test_all_personas_creation``).  All of them
+        sit behind ``@unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)`` -- measured: the
+        expense test is the one skip in a 12-test run of that module -- so nothing
+        loses coverage, and whoever un-skips them gets the migration pointer instead
+        of an AttributeError.
 
-        # If chapter exists in test data, use it
-        if "chapter" in self._data:
-            expense_data["chapter"] = self._data["chapter"].name
-        else:
-            # Try to get chapter from volunteer's member record
-            volunteer = self._data["volunteer"]
-            if hasattr(volunteer, "member") and volunteer.member:
-                # Chapter linkage is via Chapter Member child rows, not a Member field
-                member_chapter = frappe.db.get_value(
-                    "Chapter Member", {"member": volunteer.member, "enabled": 1}, "parent"
-                )
-                if member_chapter:
-                    expense_data["chapter"] = member_chapter
-
-        # Allow override from kwargs
-        expense_data.update(kwargs)
-
-        expense = frappe.get_doc(expense_data)
-        expense.insert()
-
-        if "expenses" not in self._data:
-            self._data["expenses"] = []
-        self._data["expenses"].append(expense)
-
-        self._cleanup_manager.register(
-            "Volunteer Expense", expense.name, dependencies=[f"Volunteer:{self._data['volunteer'].name}"]
+        Same treatment, and the same message, as
+        ``VereningingenTestCase.create_test_volunteer_expense`` in
+        ``tests/utils/base.py``, which was retired for this DocType already.
+        """
+        raise NotImplementedError(
+            "Volunteer Expense DocType archived in commit 1a8e5fa2; create "
+            "Expense Claim records via the HRMS flow instead "
+            "(verenigingen.services.volunteer.volunteer_expense_setup, or "
+            "verenigingen.templates.pages.volunteer.expenses.submit_expense)."
         )
-
-        return self
 
     def with_sepa_mandate(self, iban=None, **kwargs):
         """Add a SEPA mandate to the member"""

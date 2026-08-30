@@ -57,7 +57,10 @@ class TestVolunteerAggregatedAssignments(EnhancedTestCase):
             }
         )
         self.test_volunteer.insert()
-        self._docs_to_delete.append(("Verenigingen Volunteer", self.test_volunteer.name))
+        # "Volunteer", the doctype actually inserted. "Verenigingen Volunteer" is a
+        # ROLE name; tearDown's delete_doc on it can only ever raise and be
+        # swallowed, so the volunteer leaked (#491, same class as factories.py).
+        self._docs_to_delete.append(("Volunteer", self.test_volunteer.name))
 
         # Create Chapter Role if it doesn't exist
         role_name = "Secretary"

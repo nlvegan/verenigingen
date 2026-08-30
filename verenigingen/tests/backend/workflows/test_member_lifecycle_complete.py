@@ -381,7 +381,11 @@ class TestMemberLifecycleComplete(EnhancedTestCase):
             "skills": "Event Organization, Community Building, Fundraising"
         })
         volunteer.insert()
-        self.created_docs.append(("Verenigingen Volunteer", volunteer.name))
+        # "Volunteer", the doctype actually inserted above. "Verenigingen Volunteer"
+        # is a ROLE name, and the class teardown gates its delete on
+        # frappe.db.exists, which returns None for a doctype with no table -- so the
+        # volunteer was silently left behind (#491).
+        self.created_docs.append(("Volunteer", volunteer.name))
         
         # Verify volunteer
         self.assertEqual(volunteer.status, "Active")
