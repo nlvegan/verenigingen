@@ -1,5 +1,12 @@
 """`dd_batch_api` conflict resolution: what the remedy actually does to the money.
 
+**#613** -- `consolidate_entries` grouped a batch's child rows by `mandate_reference`
+and summed the group into its first row. Two rows naming ONE invoice therefore became
+one row at 2x, so the double debit became a single double-sized debit -- and the batch
+then satisfied `validate_no_duplicate_invoices` (#606), because there really was one
+row per invoice afterwards. The remedy offered for a duplicate produced the defect the
+guard exists to catch, in a shape the guard cannot see.
+
 **#615** -- `get_batch_conflicts` offered `exclude_duplicates` as a remedy and
 `apply_conflict_resolutions` had no branch for it, nor any `else`. Selecting it left
 `success` False with an EMPTY message inside an overall `{"success": True}` response,
@@ -11,6 +18,23 @@ the batch went on debiting the old one.
 The same false report is reachable through remedies that DO have a branch, so those
 are covered too: `frappe.delete_doc` defaults to `ignore_missing=True`, and nothing
 tied a resolution's `entry_id` to the endpoint's `batch_id`.
+
+## How the money consequence is measured here
+
+Not by row counts. The tests assert the invariant that makes a batch collectable:
+
+    sum(child row amounts)  ==  sum(outstanding of the invoices those rows name)
+
+The left side is what the SEPA XML debits (one transaction per child row); the right
+side is what `mark_batch_invoices_as_paid` can reconcile (one Payment Entry per row,
+built from the row's Sales Invoice, for that invoice's own outstanding amount).
+
+`mark_batch_invoices_as_paid` itself is NOT driven here, for the reason
+`test_dd_batch_pipeline_coverage` already documents: it needs a submitted batch and
+creates and submits real Payment Entries, whose commits leak across the shared shard.
+So reconcilability is measured as "every euro debited is named by a row the
+reconciliation loop will visit", which is the property that loop depends on -- not as
+an observed Payment Entry.
 
 ## Building the duplicate
 
@@ -67,6 +91,85 @@ class _ConflictResolutionBase(_BatchPipelineBase):
             fields=["name", "invoice", "amount"],
             order_by="idx asc",
         )
+
+
+class TestDuplicateRowsForOneInvoiceAreDeduplicated(_ConflictResolutionBase):
+    """#613: the remedy for a duplicate must not double the debit instead."""
+
+    def test_a_duplicated_invoice_becomes_one_debit_at_the_invoice_amount(self):
+        batch, _member, mandate = self._batch_for_one_member([25.0])
+        self._plant_duplicate_row(batch.invoices[0].name)
+        batch.reload()
+        self.assertEqual(len(batch.invoices), 2)
+        # Both rows name one invoice, so 50 would be debited for a 25 debt.
+        debited_before, reconcilable_before = self._debited_vs_reconcilable(batch.name)
+        self.assertEqual(debited_before, 50.0)
+        self.assertEqual(reconcilable_before, 25.0)
+
+        result = apply_conflict_resolutions(
+            batch.name, [{"action": "consolidate_entries", "mandate_reference": mandate.mandate_id}]
+        )
+
+        # The money first. Summing was the defect: each duplicate row already
+        # carries the whole invoice amount, so the sum is a single double-sized
+        # debit -- which also passes validate_no_duplicate_invoices, because there
+        # really is one row per invoice afterwards.
+        debited, reconcilable = self._debited_vs_reconcilable(batch.name)
+        self.assertEqual((debited, reconcilable), (25.0, 25.0))
+
+        rows = self._batch_rows(batch.name)
+        self.assertEqual([flt(row.amount) for row in rows], [25.0])
+
+        outcome = result["resolution_results"][0]
+        self.assertTrue(outcome["success"], outcome["message"])
+        self.assertIn("Removed 1 duplicate row", outcome["message"])
+
+        # And it persists past the parent save (the #621 regression: a stale
+        # in-memory batch.save() used to revert the child-row edits).
+        batch.reload()
+        self.assertEqual(batch.entry_count, 1)
+        self.assertEqual(flt(batch.total_amount), 25.0)
+
+    def test_duplicates_that_disagree_about_the_amount_are_refused_not_guessed(self):
+        """The control for the refusal: rows that agree ARE removed (test above),
+        rows that disagree are left alone rather than resolved arbitrarily.
+
+        The refusal message has to reach the operator, which is why the endpoint
+        skips the parent save when nothing was applied: this batch still holds the
+        duplicate, so saving it would raise #606's guard and that ValidationError
+        would be the only thing the caller ever saw.
+        """
+        batch, _member, mandate = self._batch_for_one_member([25.0])
+        self._plant_duplicate_row(batch.invoices[0].name, amount=40.0)
+
+        result = apply_conflict_resolutions(
+            batch.name, [{"action": "consolidate_entries", "mandate_reference": mandate.mandate_id}]
+        )
+
+        outcome = result["resolution_results"][0]
+        self.assertFalse(outcome["success"])
+        self.assertIn("disagree about the amount", outcome["message"])
+        self.assertIn("25.0", outcome["message"])
+        self.assertIn("40.0", outcome["message"])
+        self.assertEqual(len(self._batch_rows(batch.name)), 2)
+        self.assertFalse(result["batch_updated"])
+
+    def test_consolidation_scoped_to_an_invoice_leaves_the_other_invoice_alone(self):
+        """`consolidate_entries` also accepts an `invoice` scope, and it must not
+        touch the rows of any other invoice on the same mandate."""
+        batch, _member, _mandate = self._batch_for_one_member([25.0, 30.0])
+        duplicated_invoice = batch.invoices[0].invoice
+        self._plant_duplicate_row(batch.invoices[0].name)
+
+        result = apply_conflict_resolutions(
+            batch.name, [{"action": "consolidate_entries", "invoice": duplicated_invoice}]
+        )
+
+        self.assertTrue(result["resolution_results"][0]["success"])
+        rows = self._batch_rows(batch.name)
+        self.assertEqual(sorted(flt(row.amount) for row in rows), [25.0, 30.0])
+        debited, reconcilable = self._debited_vs_reconcilable(batch.name)
+        self.assertEqual(debited, reconcilable)
 
 
 class TestEveryOfferedRemedyIsImplemented(_ConflictResolutionBase):

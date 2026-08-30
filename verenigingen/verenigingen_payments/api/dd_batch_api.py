@@ -509,6 +509,12 @@ def apply_conflict_resolutions(batch_id, resolutions):
 
     applied = any(result["success"] for result in results)
 
+    # Only save the parent when something actually changed. A batch holding a
+    # duplicate cannot be saved AT ALL until the duplicate is gone (#606), so
+    # saving after a resolution that refused would replace every per-resolution
+    # message with that ValidationError -- the operator would never learn WHY
+    # the remedy declined, which is the one thing they need in order to act.
+    # There is also nothing to recalculate when no row moved.
     if applied:
         # Reload to pick up the child-row edits/deletions made above via
         # independent get_doc().save()/delete_doc() calls. Without this, save()
@@ -571,28 +577,7 @@ def _resolution_outcome(batch_id, resolution):
         return {"success": True, "message": _("Entry excluded from batch")}
 
     if action == "consolidate_entries":
-        # Consolidate duplicate entries
-        mandate_ref = resolution["mandate_reference"]
-        entries = frappe.get_all(
-            "Direct Debit Batch Invoice",
-            filters={"parent": batch_id, "mandate_reference": mandate_ref},
-            fields=["name", "amount"],
-        )
-
-        if len(entries) > 1:
-            # Keep first entry, sum amounts, remove others
-            total_amount = sum(flt(e.amount) for e in entries)
-            first_entry = frappe.get_doc("Direct Debit Batch Invoice", entries[0].name)
-            first_entry.amount = total_amount
-            first_entry.save()
-
-            # Remove other entries
-            for i in range(1, len(entries)):
-                frappe.delete_doc("Direct Debit Batch Invoice", entries[i].name)
-
-            return {"success": True, "message": f"Consolidated {len(entries)} entries into one"}
-
-        return {"success": False, "message": _("Nothing to consolidate")}
+        return _remove_duplicate_invoice_rows(batch_id, resolution)
 
     if action == "manual_review":
         # Offered by get_batch_conflicts for an error it cannot classify. There
@@ -622,6 +607,103 @@ def _batch_child_row(batch_id, entry_id):
     if row.parent != batch_id:
         raise ValidationError(f"Entry {entry_id} does not belong to batch {batch_id}")
     return row
+
+
+def _remove_duplicate_invoice_rows(batch_id, resolution):
+    """Collapse rows that name the SAME invoice; never merge different invoices.
+
+    Consolidation used to group by `mandate_reference` alone and sum the group
+    into its first row, which is wrong in both directions:
+
+    * two rows for ONE invoice became one row at 2x the amount, so the member was
+      still debited twice for one debt -- once, at double value -- and the batch
+      then passed `validate_no_duplicate_invoices` because there was genuinely one
+      row per invoice afterwards. The remedy offered for a duplicate produced the
+      defect the guard exists to catch, in a shape the guard cannot see (#613);
+    * two rows for DIFFERENT invoices on one mandate -- a member with two unpaid
+      invoices, the ordinary case -- were merged into a single row naming only the
+      first invoice. The SEPA XML then debits the sum while
+      `batch_processing_service.mark_batch_invoices_as_paid` iterates the surviving
+      rows, so the second invoice gets no Payment Entry, no
+      `_mark_mandate_usage_collected`, and stays Unpaid with its amount already
+      collected (#626).
+
+    So the key is the invoice. Rows naming different invoices are different debts
+    and are left as separate debits. `mandate_reference` is still accepted as a
+    scope so an existing caller's payload keeps working: it narrows WHICH rows are
+    considered, it no longer decides what gets merged.
+
+    Amounts are not summed. Two rows for one invoice each already carry that
+    invoice's amount, so the correct total after de-duplication is one of them,
+    not their sum. Where the duplicates disagree about the amount the rows are
+    left alone and the disagreement is reported -- picking one would debit a
+    number nobody chose, and this repo's own precedent for an ambiguous financial
+    pick (#567/#578/#584) is to refuse it rather than order it.
+    """
+    filters = {"parent": batch_id}
+    if resolution.get("invoice"):
+        filters["invoice"] = resolution["invoice"]
+    if resolution.get("mandate_reference"):
+        filters["mandate_reference"] = resolution["mandate_reference"]
+
+    if len(filters) == 1:
+        return {
+            "success": False,
+            "message": _("consolidate_entries needs an invoice or a mandate_reference to scope it"),
+        }
+
+    rows = frappe.get_all(
+        "Direct Debit Batch Invoice",
+        filters=filters,
+        fields=["name", "invoice", "amount"],
+        # Explicit "asc": Frappe appends the direction to a bare field name, so
+        # order_by="idx" would sort DESC and keep the LAST row instead of the first.
+        order_by="idx asc",
+    )
+
+    rows_by_invoice = {}
+    for row in rows:
+        rows_by_invoice.setdefault(row.invoice, []).append(row)
+
+    duplicates = {invoice: group for invoice, group in rows_by_invoice.items() if len(group) > 1}
+    if not duplicates:
+        return {
+            "success": False,
+            "message": _(
+                "Nothing to consolidate: {0} row(s) name {1} distinct invoice(s), each once. "
+                "Rows for different invoices are separate debts and are never merged -- "
+                "merging them would collect one invoice's amount while leaving that invoice "
+                "unpaid."
+            ).format(len(rows), len(rows_by_invoice)),
+        }
+
+    disagreeing = {
+        invoice: group for invoice, group in duplicates.items() if len({flt(r.amount) for r in group}) > 1
+    }
+    if disagreeing:
+        listed = "; ".join(
+            "{0} ({1})".format(invoice, ", ".join(str(flt(r.amount)) for r in group))
+            for invoice, group in sorted(disagreeing.items())
+        )
+        return {
+            "success": False,
+            "message": _(
+                "Duplicate rows disagree about the amount owed, so none were removed: {0}. "
+                "Correct the amounts by hand -- keeping one arbitrarily would debit a value "
+                "nobody chose."
+            ).format(listed),
+        }
+
+    removed = 0
+    for group in duplicates.values():
+        for row in group[1:]:
+            frappe.delete_doc("Direct Debit Batch Invoice", row.name)
+            removed += 1
+
+    return {
+        "success": True,
+        "message": _("Removed {0} duplicate row(s) covering {1} invoice(s)").format(removed, len(duplicates)),
+    }
 
 
 @frappe.whitelist()
