@@ -284,8 +284,9 @@ class TestDDBatchAPI(EnhancedTestCase):
         self.assertEqual(dup[0]["mandate_reference"], mandate.mandate_id)
         self.assertEqual(dup[0]["count"], 2)
         actions = [o["action"] for o in dup[0]["resolution_options"]]
-        self.assertIn("consolidate_entries", actions)
-        self.assertIn("exclude_duplicates", actions)
+        # exclude_duplicates is no longer offered: apply_conflict_resolutions has
+        # no branch for it, so selecting it was a silent no-op (#615).
+        self.assertEqual(actions, ["consolidate_entries"])
 
     # ------------------------------------------------------ get_eligible_invoices
 

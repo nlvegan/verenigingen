@@ -137,6 +137,25 @@ class _BatchPipelineBase(EnhancedTestCase):
         self._track("Direct Debit Batch", batch.name)
         return batch
 
+    def _plant_duplicate_row(self, row_name, amount=None):
+        """Copy an existing batch child row straight into the child table.
+
+        `DirectDebitBatch.validate_no_duplicate_invoices` (#606) rejects a batch
+        listing one invoice twice, so a duplicate can no longer be created through
+        `save()` -- and the batches that need a repair path are precisely the ones
+        that already hold one. `db_insert()` writes the row the way a pre-guard
+        batch already holds it, bypassing the parent document entirely.
+
+        Returns the planted row's name.
+        """
+        clone = frappe.copy_doc(frappe.get_doc("Direct Debit Batch Invoice", row_name))
+        clone.name = None
+        clone.idx = 99
+        if amount is not None:
+            clone.amount = amount
+        clone.db_insert()
+        return clone.name
+
     def _one_invoice_batch(self):
         member = self._member_with_membership()
         mandate = self._sepa.create_test_sepa_mandate(member=member.name, status="Active")

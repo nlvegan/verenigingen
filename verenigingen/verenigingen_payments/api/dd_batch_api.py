@@ -352,9 +352,12 @@ def get_batch_conflicts(batch_id):
                 "mandate_reference": dup.mandate_reference,
                 "count": dup.count,
                 "error": f"Mandate {dup.mandate_reference} appears {dup.count} times in batch",
+                # Only remedies apply_conflict_resolutions actually implements are
+                # offered (#615). "exclude_duplicates" used to sit here with no
+                # branch and no `else`, so selecting it was a silent no-op reported
+                # inside a successful response.
                 "resolution_options": [
                     {"action": "consolidate_entries", "label": "Consolidate duplicate entries"},
-                    {"action": "exclude_duplicates", "label": "Exclude duplicate entries"},
                 ],
             }
         )
@@ -498,69 +501,127 @@ def apply_conflict_resolutions(batch_id, resolutions):
     # Process each resolution
     for resolution in resolutions:
         result = {"resolution": resolution, "success": False, "message": ""}
-
         try:
-            if resolution["action"] == "update_mandate":
-                # Update mandate information
-                entry = frappe.get_doc("Direct Debit Batch Invoice", resolution["entry_id"])
-                if resolution.get("new_mandate_reference"):
-                    entry.mandate_reference = resolution["new_mandate_reference"]
-                if resolution.get("new_iban"):
-                    entry.iban = resolution["new_iban"]
-                entry.status = "Pending"
-                entry.result_message = ""
-                entry.save()
-                result["success"] = True
-                result["message"] = "Mandate updated successfully"
-
-            elif resolution["action"] == "exclude_entry":
-                # Remove the entry from the batch entirely. SEPA generation
-                # iterates every child row regardless of status, so merely
-                # flagging an entry would NOT stop it being debited; the row
-                # must be deleted (mirrors the consolidate path below).
-                frappe.delete_doc("Direct Debit Batch Invoice", resolution["entry_id"])
-                result["success"] = True
-                result["message"] = "Entry excluded from batch"
-
-            elif resolution["action"] == "consolidate_entries":
-                # Consolidate duplicate entries
-                mandate_ref = resolution["mandate_reference"]
-                entries = frappe.get_all(
-                    "Direct Debit Batch Invoice",
-                    filters={"parent": batch_id, "mandate_reference": mandate_ref},
-                    fields=["name", "amount"],
-                )
-
-                if len(entries) > 1:
-                    # Keep first entry, sum amounts, remove others
-                    total_amount = sum(flt(e.amount) for e in entries)
-                    first_entry = frappe.get_doc("Direct Debit Batch Invoice", entries[0].name)
-                    first_entry.amount = total_amount
-                    first_entry.save()
-
-                    # Remove other entries
-                    for i in range(1, len(entries)):
-                        frappe.delete_doc("Direct Debit Batch Invoice", entries[i].name)
-
-                    result["success"] = True
-                    result["message"] = f"Consolidated {len(entries)} entries into one"
-
+            result.update(_resolution_outcome(batch_id, resolution))
         except Exception as e:
             result["message"] = str(e)
-
         results.append(result)
 
-    # Reload to pick up the child-row edits/deletions made above via
-    # independent get_doc().save()/delete_doc() calls. Without this, save()
-    # below would re-sync the child table from the stale in-memory snapshot
-    # loaded before the resolutions ran, silently reverting them.
-    batch.reload()
+    applied = any(result["success"] for result in results)
 
-    # Recalculate batch totals
-    batch.calculate_totals()
-    batch.save()
+    if applied:
+        # Reload to pick up the child-row edits/deletions made above via
+        # independent get_doc().save()/delete_doc() calls. Without this, save()
+        # below would re-sync the child table from the stale in-memory snapshot
+        # loaded before the resolutions ran, silently reverting them.
+        batch.reload()
 
-    return {"success": True, "batch_id": batch_id, "resolution_results": results, "batch_updated": True}
+        # Recalculate batch totals
+        batch.calculate_totals()
+        batch.save()
+
+    # `success` reports whether anything was applied, not merely that the request
+    # was processed (#615). It used to be a hard-coded True, so a resolution that
+    # matched no branch -- leaving success False and an EMPTY message inside
+    # resolution_results -- came back inside a successful response, and the client
+    # (public/js/dd_batch_management_enhanced.js:1047 tests `success !== false`)
+    # reported "Conflict resolutions applied successfully" for a no-op.
+    return {
+        "success": applied,
+        "batch_id": batch_id,
+        "resolution_results": results,
+        "batch_updated": applied,
+    }
+
+
+def _resolution_outcome(batch_id, resolution):
+    """Dispatch one resolution action; return {"success": bool, "message": str}."""
+    action = resolution.get("action")
+
+    if action in ("update_mandate", "update_iban"):
+        # One branch for both names: `get_batch_conflicts` offers update_iban for
+        # an IBAN-flavoured failure and update_mandate for a mandate-flavoured
+        # one, but the remedy is the same write and only update_mandate had a
+        # branch -- so an operator correcting a wrong IBAN was told "success" by
+        # the wrapper while the batch still debited the old account (#615, the
+        # sibling of the exclude_duplicates gap that issue names).
+        entry = _batch_child_row(batch_id, resolution["entry_id"])
+        if resolution.get("new_mandate_reference"):
+            entry.mandate_reference = resolution["new_mandate_reference"]
+        if resolution.get("new_iban"):
+            entry.iban = resolution["new_iban"]
+        entry.status = "Pending"
+        entry.result_message = ""
+        entry.save()
+        return {"success": True, "message": _("Mandate details updated successfully")}
+
+    if action == "exclude_entry":
+        # Remove the entry from the batch entirely. SEPA generation iterates
+        # every child row regardless of status, so merely flagging an entry
+        # would NOT stop it being debited; the row must be deleted (mirrors
+        # the consolidate path below).
+        #
+        # Resolved through _batch_child_row first: frappe.delete_doc defaults to
+        # ignore_missing=True, so deleting an entry_id that does not exist
+        # returned silently and this reported "Entry excluded from batch" for a
+        # row that was never in the batch -- the same false report as an
+        # unimplemented action (#615), reached through an implemented one.
+        entry = _batch_child_row(batch_id, resolution["entry_id"])
+        frappe.delete_doc("Direct Debit Batch Invoice", entry.name)
+        return {"success": True, "message": _("Entry excluded from batch")}
+
+    if action == "consolidate_entries":
+        # Consolidate duplicate entries
+        mandate_ref = resolution["mandate_reference"]
+        entries = frappe.get_all(
+            "Direct Debit Batch Invoice",
+            filters={"parent": batch_id, "mandate_reference": mandate_ref},
+            fields=["name", "amount"],
+        )
+
+        if len(entries) > 1:
+            # Keep first entry, sum amounts, remove others
+            total_amount = sum(flt(e.amount) for e in entries)
+            first_entry = frappe.get_doc("Direct Debit Batch Invoice", entries[0].name)
+            first_entry.amount = total_amount
+            first_entry.save()
+
+            # Remove other entries
+            for i in range(1, len(entries)):
+                frappe.delete_doc("Direct Debit Batch Invoice", entries[i].name)
+
+            return {"success": True, "message": f"Consolidated {len(entries)} entries into one"}
+
+        return {"success": False, "message": _("Nothing to consolidate")}
+
+    if action == "manual_review":
+        # Offered by get_batch_conflicts for an error it cannot classify. There
+        # is deliberately nothing to apply, but it must SAY so: silence here is
+        # what #615 is about.
+        return {
+            "success": False,
+            "message": _("This conflict has no automated remedy and must be resolved by hand"),
+        }
+
+    # No silent fall-through. Every action this endpoint does not implement now
+    # reports itself; previously an unhandled action left success=False with an
+    # empty message inside an overall {"success": True} response, so an operator
+    # choosing an advertised remedy got a no-op that read as applied (#615).
+    return {"success": False, "message": _("Unknown resolution action: {0}").format(action)}
+
+
+def _batch_child_row(batch_id, entry_id):
+    """Load a Direct Debit Batch Invoice row, refusing one from another batch.
+
+    Every resolution names an `entry_id` and the endpoint names a `batch_id`, and
+    nothing tied the two together: an entry_id belonging to a different batch was
+    edited or deleted there while this batch's totals were recalculated. Both
+    branches that take an entry_id go through here.
+    """
+    row = frappe.get_doc("Direct Debit Batch Invoice", entry_id)
+    if row.parent != batch_id:
+        raise ValidationError(f"Entry {entry_id} does not belong to batch {batch_id}")
+    return row
 
 
 @frappe.whitelist()
