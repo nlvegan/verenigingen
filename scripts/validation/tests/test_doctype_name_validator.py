@@ -168,6 +168,31 @@ class TestAuthority(unittest.TestCase):
             self.assertIn(real, known)
 
 
+class TestAuthorityGuard(unittest.TestCase):
+    """A partial authority must refuse, not accuse."""
+
+    def test_a_missing_required_app_is_refused(self):
+        known = {v: k for k, v in dnv.AUTHORITY_PROBES.items()}
+        del known["Expense Claim"]  # hrms not installed
+        problem = dnv.authority_problem(known)
+        self.assertIsNotNone(problem)
+        self.assertIn("hrms", problem)
+
+    def test_a_doctype_from_an_unrequired_app_is_refused(self):
+        known = {v: k for k, v in dnv.AUTHORITY_PROBES.items()}
+        known["Owl Theme Settings"] = "owl_theme"
+        problem = dnv.authority_problem(known)
+        self.assertIsNotNone(problem)
+        self.assertIn("owl_theme", problem)
+
+    def test_control_a_complete_authority_is_accepted(self):
+        known = {v: k for k, v in dnv.AUTHORITY_PROBES.items()}
+        self.assertIsNone(dnv.authority_problem(known))
+
+    def test_the_real_authority_on_this_bench_is_accepted(self):
+        self.assertIsNone(dnv.authority_problem(dnv.known_doctypes()))
+
+
 class TestSelfCheck(unittest.TestCase):
     def test_self_check_passes(self):
         self.assertEqual(dnv.self_check(), 0)

@@ -417,6 +417,9 @@ def iter_python_files(paths) -> list[Path]:
 def census(paths) -> tuple[Counter, dict[str, list[_Finding]]]:
     """(Counter of `path::doctype` -> count, detail keyed by the same)."""
     known = known_doctypes()
+    problem = authority_problem(known)
+    if problem:
+        raise RuntimeError("refusing to run: " + problem)
     counts: Counter = Counter()
     detail: dict[str, list[_Finding]] = defaultdict(list)
     for path in iter_python_files(paths):
@@ -472,6 +475,50 @@ def write_baseline(path: Path, counts: Counter) -> None:
 # the control
 
 
+# One doctype per REQUIRED app. These are the load-bearing probes: they come from
+# OTHER apps, so they fail if BENCH_APPS resolved to this checkout instead of the
+# bench -- the exact way a git worktree breaks the authority (measured: 142
+# doctypes instead of 1134), a failure that would otherwise surface as this gate
+# flagging `frappe.get_doc("User", ...)`.
+AUTHORITY_PROBES = {
+    "frappe": "User",
+    "erpnext": "Sales Invoice",
+    "hrms": "Expense Claim",
+    "payments": "Payment Gateway Account",
+    "verenigingen": "Chapter Board Member",
+}
+
+
+def authority_problem(known: dict[str, str]) -> str | None:
+    """Why this authority cannot be trusted, or None.
+
+    Checked on EVERY run, not only `--self-check`. `known_doctypes()` skips a
+    required app that is absent rather than complaining, so on a bench without
+    (say) hrms the census would quietly treat every `Expense Claim` literal as an
+    unknown doctype and the gate would accuse ~50 innocent lines. Refusing to run
+    is the only honest answer: the census would be about a different tree than the
+    baseline it is compared against.
+    """
+    for app_name, probe in AUTHORITY_PROBES.items():
+        if probe not in known:
+            return (
+                f"the authority does not know {probe!r} from {app_name!r} "
+                f"({len(known)} doctypes loaded from {BENCH_APPS}). Either BENCH_APPS "
+                f"did not resolve to the bench's apps/ directory, or {app_name} is not "
+                f"installed -- and this census would then be about a different tree "
+                f"than the baseline."
+            )
+    # Nothing from an app OUTSIDE the required set may leak in: that is what made
+    # the gate machine-dependent (owl_theme on this dev bench, absent in CI).
+    extra = sorted(set(known.values()) - set(REQUIRED_APPS))
+    if extra:
+        return (
+            f"doctypes were loaded from non-required apps {extra} -- the census "
+            f"would differ between benches."
+        )
+    return None
+
+
 SELF_CHECK_SOURCE = '''
 import frappe
 
@@ -490,32 +537,9 @@ def f():
 def self_check() -> int:
     """A sweep that flags nothing, including its own control, is not a passing sweep."""
     known = known_doctypes()
-    # One doctype per REQUIRED app. These are the load-bearing probes: they come
-    # from OTHER apps, so they fail if BENCH_APPS resolved to this checkout
-    # instead of the bench -- the exact way a git worktree breaks the authority
-    # (measured: 142 doctypes instead of 1134), a failure that would otherwise
-    # surface as the validator flagging `frappe.get_doc("User", ...)`.
-    probes = {
-        "frappe": "User",
-        "erpnext": "Sales Invoice",
-        "hrms": "Expense Claim",
-        "payments": "Payment Gateway Account",
-        "verenigingen": "Chapter Board Member",
-    }
-    for app_name, required in probes.items():
-        if required not in known:
-            print(f"SELF-CHECK FAILED: the authority does not know {required!r} from "
-                  f"{app_name!r} ({len(known)} doctypes loaded from {BENCH_APPS}). "
-                  f"Either BENCH_APPS did not resolve to the bench's apps/ directory, "
-                  f"or {app_name} is not installed -- and the census would then be "
-                  f"about a different tree than the baseline.")
-            return 2
-    # And nothing from an app OUTSIDE the required set may leak in: that is what
-    # made the gate machine-dependent (owl_theme on this bench, absent in CI).
-    extra = sorted(set(known.values()) - set(REQUIRED_APPS))
-    if extra:
-        print(f"SELF-CHECK FAILED: doctypes loaded from non-required apps {extra} -- "
-              f"the census would differ between benches.")
+    problem = authority_problem(known)
+    if problem:
+        print("SELF-CHECK FAILED: " + problem)
         return 2
     lines = SELF_CHECK_SOURCE.splitlines()
     flagged = set()
