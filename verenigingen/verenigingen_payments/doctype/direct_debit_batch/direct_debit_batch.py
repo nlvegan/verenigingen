@@ -137,11 +137,14 @@ class DirectDebitBatch(Document):
         `dd_batch_optimizer` excludes already-batched invoices in SQL evaluated
         once per run, before any batch in that run exists.
 
-        It also does not see a duplicate that has been merged rather than removed:
-        `dd_batch_api.apply_conflict_resolutions`' `consolidate_entries` groups
-        rows by `mandate_reference` and collapses them into one row carrying the
-        SUM, so two rows for one invoice become one row at twice the amount and
-        pass this check. That is a separate defect in the consolidation key.
+        It also cannot see a duplicate that has been MERGED rather than removed --
+        one row carrying the sum of two -- because there genuinely is one row per
+        invoice afterwards. That shape was reachable through
+        `dd_batch_api.apply_conflict_resolutions`' `consolidate_entries`, which
+        grouped rows by `mandate_reference` and summed the group; it now keys on
+        the invoice and removes duplicate rows without summing (#613), so the only
+        producer of it is gone. The blind spot itself remains: any future code that
+        collapses two rows into one carrying their sum would pass this check.
         """
         rows_by_invoice = {}
         for position, row in enumerate(self.invoices or [], start=1):

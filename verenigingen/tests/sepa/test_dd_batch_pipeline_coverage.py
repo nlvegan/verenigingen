@@ -137,6 +137,37 @@ class _BatchPipelineBase(EnhancedTestCase):
         self._track("Direct Debit Batch", batch.name)
         return batch
 
+    def _plant_duplicate_row(self, row_name, amount=None, mandate_reference=None, iban=None):
+        """Copy an existing batch child row straight into the child table.
+
+        `DirectDebitBatch.validate_no_duplicate_invoices` (#606) rejects a batch
+        listing one invoice twice, so a duplicate can no longer be created through
+        `save()` -- and the batches that need a repair path are precisely the ones
+        that already hold one. `db_insert()` writes the row the way a pre-guard
+        batch already holds it, bypassing the parent document entirely.
+
+        `mandate_reference` / `iban` override the clone's, because the CANONICAL
+        duplicate does not share them. #597/#604 measured how the pair arises: a
+        member holding a membership mandate and a donation mandate made the eligible-
+        invoice join return one row PER Active mandate, and `sm.mandate_id`/`sm.iban`
+        became the child row -- so the two rows for one invoice name two different
+        accounts, at the same amount. A copy that shares the mandate is the easy
+        half of the shape and hides that.
+
+        Returns the planted row's name.
+        """
+        clone = frappe.copy_doc(frappe.get_doc("Direct Debit Batch Invoice", row_name))
+        clone.name = None
+        clone.idx = 99
+        if amount is not None:
+            clone.amount = amount
+        if mandate_reference is not None:
+            clone.mandate_reference = mandate_reference
+        if iban is not None:
+            clone.iban = iban
+        clone.db_insert()
+        return clone.name
+
     def _one_invoice_batch(self):
         member = self._member_with_membership()
         mandate = self._sepa.create_test_sepa_mandate(member=member.name, status="Active")

@@ -241,8 +241,16 @@ class TestDDBatchAPI(EnhancedTestCase):
         self.assertIn("update_iban", actions)
         self.assertNotIn("manual_review", actions)
 
-    def test_get_batch_conflicts_duplicate_mandate(self):
-        """Two entries sharing a mandate_reference produce a duplicate_mandate conflict."""
+    def test_get_batch_conflicts_two_invoices_on_one_mandate_is_not_a_conflict(self):
+        """Two entries sharing a mandate but naming DIFFERENT invoices are ordinary.
+
+        This asserted a `duplicate_mandate` conflict offering "consolidate". A member
+        with two unpaid invoices is the normal case, and consolidating those two rows
+        merged two distinct debts into one debit that reconciles only the first
+        invoice (#626). The conflict now keys on the invoice, which is the row set
+        that really is a double debit; duplicate invoices are covered in
+        tests/sepa/test_dd_batch_conflict_resolution.py.
+        """
         member, customer, membership, mandate = self._make_member_with_mandate()
         inv1 = self.sepa_factory.create_test_sales_invoice(
             customer=customer.name, member=member.name, status="Unpaid", submit=True
@@ -279,13 +287,12 @@ class TestDDBatchAPI(EnhancedTestCase):
         self._track_test_document("Direct Debit Batch", batch.name)
 
         result = get_batch_conflicts(batch.name)
-        dup = [c for c in result["conflicts"] if c["type"] == "duplicate_mandate"]
-        self.assertEqual(len(dup), 1)
-        self.assertEqual(dup[0]["mandate_reference"], mandate.mandate_id)
-        self.assertEqual(dup[0]["count"], 2)
-        actions = [o["action"] for o in dup[0]["resolution_options"]]
-        self.assertIn("consolidate_entries", actions)
-        self.assertIn("exclude_duplicates", actions)
+        self.assertTrue(result["success"])
+        self.assertEqual(
+            [c for c in result["conflicts"] if c["type"] in ("duplicate_mandate", "duplicate_invoice")],
+            [],
+            "one mandate with two distinct invoices is two legitimate collections",
+        )
 
     # ------------------------------------------------------ get_eligible_invoices
 
@@ -395,14 +402,20 @@ class TestDDBatchAPI(EnhancedTestCase):
         self.assertNotIn(excluded_name, remaining)
         self.assertIn(kept_name, remaining)
 
-    def test_apply_conflict_resolutions_consolidate_entries_persists(self):
-        """consolidate_entries sums duplicate-mandate rows into one and the result
-        persists.
+    def test_apply_conflict_resolutions_consolidate_entries_keeps_invoices_apart(self):
+        """consolidate_entries must NOT merge two distinct invoices into one debit.
 
-        Regression: the endpoint edited child docs directly (sum into first row,
-        delete the rest) then called batch.save() on a stale in-memory batch,
-        reverting the consolidation. A reload before save() now keeps it: a single
-        row with the summed 55.0 survives.
+        This test used to assert the opposite -- "a single row with the summed
+        55.0" -- and that assertion is why the behaviour looked deliberate. It was
+        written for a real regression (a stale in-memory batch.save() reverting the
+        child-row edits) and was right about that; the reload it guards is now
+        exercised by the de-duplication case in
+        tests/sepa/test_dd_batch_conflict_resolution.py, which asserts the removal
+        survives the parent save.
+
+        Merging distinct invoices debits their sum through the surviving row while
+        `mark_batch_invoices_as_paid` only ever visits the rows that remain, so the
+        deleted row's invoice is collected and never reconciled (#626).
         """
         member, customer, membership, mandate = self._make_member_with_mandate()
         inv1 = self.sepa_factory.create_test_sales_invoice(
@@ -441,24 +454,23 @@ class TestDDBatchAPI(EnhancedTestCase):
 
         resolutions = [{"action": "consolidate_entries", "mandate_reference": mandate.mandate_id}]
         result = apply_conflict_resolutions(batch.name, resolutions)
+        # The request was processed; nothing was applied (#615).
         self.assertTrue(result["success"])
+        self.assertFalse(result["applied"])
+        self.assertFalse(result["batch_updated"])
         res0 = result["resolution_results"][0]
-        # The resolution itself reports success...
-        self.assertTrue(res0["success"], res0.get("message"))
-        self.assertIn("Consolidated", res0["message"])
+        # The resolution refuses, and says why.
+        self.assertFalse(res0["success"], res0.get("message"))
+        self.assertIn("Nothing to consolidate", res0["message"])
 
-        # ...and the consolidation persists: a single row with the summed 55.0.
+        # Both debts remain, as separate debits that each name their own invoice.
         remaining = frappe.get_all(
             "Direct Debit Batch Invoice",
             filters={"parent": batch.name, "mandate_reference": mandate.mandate_id},
-            fields=["name", "amount"],
+            fields=["name", "invoice", "amount"],
         )
-        amounts = sorted(r["amount"] for r in remaining)
-        self.assertEqual(
-            amounts,
-            [55.0],
-            "Consolidation should leave one row summed to 55.0",
-        )
+        self.assertEqual(sorted(r["amount"] for r in remaining), [25.0, 30.0])
+        self.assertEqual({r["invoice"] for r in remaining}, {inv1.name, inv2.name})
 
     def test_apply_conflict_resolutions_requires_inputs(self):
         result = apply_conflict_resolutions(None, None)

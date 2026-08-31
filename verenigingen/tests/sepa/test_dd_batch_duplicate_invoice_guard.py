@@ -234,10 +234,7 @@ class TestWhichExistingBatchesTheGuardCanStrand(_DuplicateInvoiceBase):
 
         # Plant the duplicate the way a pre-guard batch would already hold it:
         # straight into the child table, bypassing the parent document.
-        clone = frappe.copy_doc(frappe.get_doc("Direct Debit Batch Invoice", batch.invoices[0].name))
-        clone.name = None
-        clone.idx = 99
-        clone.db_insert()
+        self._plant_duplicate_row(batch.invoices[0].name)
         batch.reload()
         listed = [child.invoice for child in batch.invoices]
         self.assertEqual(len(listed), 2)
