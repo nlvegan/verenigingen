@@ -62,6 +62,21 @@ class _VolunteerFixtures:
             self._chapter_doc = self.create_test_chapter()
         return self._chapter_doc.name
 
+    def _board_role(self):
+        """A Chapter Role for a board seat.
+
+        Chapter Role is `autoname: field:role_name`, so the name is a GLOBAL unique
+        key -- a fixed name collides with any other test in the shard that wants one.
+        Per-test unique name instead.
+        """
+        if not getattr(self, "_board_role_name", None):
+            role = self.factory.ensure_chapter_role(
+                f"TestBoardRole-{frappe.generate_hash(length=8)}", {"permissions_level": "Basic"}
+            )
+            self.factory.track_document("Chapter Role", role.name)
+            self._board_role_name = role.name
+        return self._board_role_name
+
     def _volunteer(self, status="New"):
         """A Volunteer with a Member and no assignments.
 
@@ -351,4 +366,111 @@ class TestTerminationClosesAssignments(_VolunteerFixtures, EnhancedTestCase):
             "Inactive",
             self._status(volunteer),
             "A stale assignment row reactivated a terminated volunteer.",
+        )
+
+
+class TestDerivationCannotResurrectATerminatedVolunteer(_VolunteerFixtures, EnhancedTestCase):
+    """A REAL Chapter Board Member seat, which the assignment_history tests never create.
+
+    Found by a skeptical review, which reproduced it rather than reading for it. The
+    first version of this fix closed only `assignment_history` rows on termination and
+    claimed in a comment that the Chapter Board Member rows the derivation also consults
+    were "already deactivated by the time this runs, because EndBoardPositionsOperation
+    runs earlier in the operation list".
+
+    That claim was wrong. `EndBoardPositionsOperation.enabled =
+    termination_request.end_board_positions` -- a user-facing checkbox -- and
+    `end_board_positions_safe()` additionally swallows a failure on any single position.
+    So the seat can still read is_active=1, and a full derivation computed the volunteer
+    straight back to "Active" two lines after termination set them Inactive: a terminated
+    volunteer reading Active, which is worse than the bug being fixed.
+
+    The class-level lesson is that `test_termination_closes_current_assignments` seats
+    only through AssignmentHistoryManager, so it could not see this no matter how it was
+    asserted -- the scenario its own docstring names was the one it could not reach.
+    """
+
+    def test_a_live_board_seat_does_not_reactivate_a_terminated_volunteer(self):
+        from verenigingen.services.termination.termination_integration import (
+            terminate_volunteer_records_safe,
+        )
+
+        volunteer = self._volunteer(status="Active")
+        chapter = frappe.get_doc("Chapter", self._chapter())
+        chapter.append(
+            "board_members",
+            {
+                "volunteer": volunteer.name,
+                "chapter_role": self._board_role(),
+                "from_date": today(),
+                "is_active": 1,
+            },
+        )
+        chapter.save()
+
+        # CONTROL: the seat must really be live, or this test proves nothing -- it
+        # would pass just as happily against a volunteer holding no seat at all.
+        self.assertTrue(
+            frappe.db.exists("Chapter Board Member", {"volunteer": volunteer.name, "is_active": 1}),
+            "control failed: no live board seat was created",
+        )
+
+        # end_board_positions is OFF, so nothing clears that seat. This is the
+        # operator's explicit choice and termination must still stick.
+        terminate_volunteer_records_safe(volunteer.member, "Voluntary", today(), "test termination")
+
+        self.assertEqual("Inactive", self._status(volunteer))
+        self.assertTrue(
+            frappe.db.exists("Chapter Board Member", {"volunteer": volunteer.name, "is_active": 1}),
+            "the seat was closed after all, so this test no longer covers the case it "
+            "exists for -- re-read the docstring before deleting it",
+        )
+
+        # The failure mode is the LATER save, once the in-memory doc is gone.
+        volunteer.reload()
+        volunteer.note = "a later unrelated edit"
+        volunteer.save()
+
+        self.assertEqual(
+            "Inactive",
+            self._status(volunteer),
+            "A live board seat promoted a terminated volunteer back to Active. An "
+            "ordinary save must never promote out of Inactive.",
+        )
+
+
+class TestSeatingDoesNotQueueAccountCreation(_VolunteerFixtures, EnhancedTestCase):
+    """The status refresh must not switch on volunteer account provisioning (#705).
+
+    Also from the skeptical review. Before #705 `_check_auto_activation` was dead for
+    the case it was written for, because nothing save()d the Volunteer after a seating.
+    Adding that save makes it reachable on every board/team seating, and the review
+    measured one Account Creation Request created per first-time seating.
+
+    That is not just an extra row: `ACR.queue_processing()` calls `frappe.db.commit()`
+    unless `frappe.flags.in_test`, so the commit is invisible to this entire suite and
+    live in production -- inside callers that hold savepoints and FOR UPDATE locks.
+    Enabling that provisioning may be right, but it is a separate decision, not a side
+    effect of a status fix.
+
+    This test can still see the ACR itself, which is what makes it worth writing: the
+    row is created in test mode even though the commit is not.
+    """
+
+    def test_seating_a_volunteer_creates_no_account_creation_request(self):
+        volunteer = self._volunteer(status="New")
+
+        before = frappe.db.count("Account Creation Request", {"source_record": volunteer.member})
+        self._seat(volunteer)
+
+        # CONTROL: the seating must actually have moved the status, or the save under
+        # test never happened and the assertion below is vacuous.
+        self.assertEqual("Active", self._status(volunteer), "control failed: the seating did nothing")
+
+        self.assertEqual(
+            before,
+            frappe.db.count("Account Creation Request", {"source_record": volunteer.member}),
+            "Seating a volunteer queued an Account Creation Request. That path commits "
+            "in production (ACR.queue_processing, skipped under frappe.flags.in_test) "
+            "and would destroy the savepoints its callers hold.",
         )

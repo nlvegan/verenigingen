@@ -42,10 +42,33 @@ class AssignmentHistoryManager(BaseHistoryManager):
         """
         volunteer = frappe.get_doc("Volunteer", volunteer_id)
         before = volunteer.status
-        volunteer.update_status()
+        volunteer.apply_assignment_derivation()
 
         if volunteer.status == before:
             return  # nothing to persist; do not churn modified/version rows
+
+        # Suppress Volunteer._check_auto_activation for this save.
+        #
+        # Before #705 that method was effectively DEAD for the case its own docstring
+        # names ("Auto-queue volunteer activation when assignments are added"),
+        # because nothing ever save()d the Volunteer after a seating -- the child
+        # write bypasses the parent's hooks. Adding the save here makes it reachable
+        # on every board/team seating for the first time, and a skeptical review
+        # measured the consequence: one Account Creation Request created per
+        # first-time seating.
+        #
+        # That matters beyond the extra row. ACR.queue_processing() calls
+        # frappe.db.commit() unless frappe.flags.in_test -- so it is invisible to the
+        # whole test suite and live in production, and this save runs inside callers
+        # that hold savepoints and FOR UPDATE locks (BoardManager during Chapter.save,
+        # termination). A commit there destroys open savepoints; termination already
+        # carries recovery code for exactly that class of failure.
+        #
+        # Turning that provisioning on may well be right, but it is a separate
+        # decision with its own blast radius, not a side effect of a status fix. This
+        # reuses the per-document flag _check_auto_activation already honours, and the
+        # flag's own comment already gives this reasoning.
+        volunteer.flags.bulk_member_operations = True
 
         # ignore_permissions: JUSTIFIED. This is a system-owned derivation, not a
         # user edit -- the status is a pure function of assignment rows that were

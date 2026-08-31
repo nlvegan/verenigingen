@@ -315,7 +315,7 @@ class Volunteer(Document):
             )
 
     def update_status(self):
-        """Derive status from assignments (#705).
+        """Derive status from assignments on an ordinary save (#705).
 
             New       zero assignment rows, ever          derived
             Active    at least one CURRENT assignment     derived
@@ -323,19 +323,37 @@ class Volunteer(Document):
             Retired   manual only -- never written here
             Onboarding no writer exists -- left alone
 
-        This is EVENT-DRIVEN, not a recompute-from-scratch: a volunteer with no
-        assignment evidence in either direction keeps the status they were given.
-        That is deliberate. `volunteer_activation_service` sets Active when a
-        reviewer ticks "activate as volunteer" during application review, and those
-        volunteers hold no assignment row at all -- recomputing from scratch would
-        silently demote every one of them on their next save and drop them out of
-        the production queries that filter `v.status = 'Active'`.
+        EVENT-DRIVEN, not a recompute-from-scratch: a volunteer with no assignment
+        evidence in either direction keeps the status they were given. That is
+        deliberate -- `volunteer_activation_service` sets Active when a reviewer
+        ticks "activate as volunteer" during application review, and those
+        volunteers hold no assignment row at all. Recomputing from scratch would
+        silently demote every one of them and drop them out of the production
+        queries that filter `v.status = 'Active'`.
+
+        AN ORDINARY SAVE NEVER PROMOTES OUT OF "Inactive". That asymmetry is the
+        whole reason termination survives, and it was found by a skeptical review
+        that reproduced the bug rather than reading for it:
+
+            terminate_volunteer_records_safe() sets Inactive and then save()s.
+            EndBoardPositionsOperation, which clears the Chapter Board Member rows
+            this derivation also consults, is CONDITIONAL --
+            `self.enabled = termination_request.end_board_positions`, a user-facing
+            checkbox -- and end_board_positions_safe() additionally swallows a
+            failure on any single position. So a board seat can still read
+            is_active=1 here, and a full derivation would compute the volunteer
+            straight back to "Active" two lines after termination set them Inactive.
+
+        Closing the seat instead would override an explicit operator choice, and
+        would mean writing Chapter child rows from inside volunteer termination.
+        Refusing to promote on an ordinary save costs nothing real: a genuinely
+        returning volunteer is promoted by the assignment write itself, through
+        apply_assignment_derivation() below.
 
         The previous version only ratcheted UPWARD, and only out of "New", so it
         could never move a volunteer down. It also never ran on the path that
         matters: assignments are written through update_child_table(), which does
-        not run this document's hooks. AssignmentHistoryManager now calls the
-        derivation itself -- see refresh_volunteer_status().
+        not run this document's hooks at all.
         """
         if not self.status:
             self.status = "New"
@@ -345,11 +363,30 @@ class Volunteer(Document):
         if self.status in MANUAL_STATUSES:
             return
 
+        if self.status == "New" and self._has_current_assignment():
+            # Safe in this direction: termination leaves Inactive, never New.
+            self.status = "Active"
+        elif self.status == "Active" and self._has_any_assignment() and not self._has_current_assignment():
+            # Held a role, holds none now. Not "New" -- the rule reserves New for
+            # volunteers with zero historical OR current roles. `_has_any_assignment`
+            # is required so a manually-activated volunteer with no rows at all is
+            # left alone rather than demoted.
+            self.status = "Inactive"
+
+    def apply_assignment_derivation(self):
+        """Full derivation, for use immediately after an assignment row changed.
+
+        Unlike update_status() this MAY promote out of Inactive, because here there
+        is real evidence that the assignments just changed -- a volunteer coming
+        back to a role should go Active. Called only from
+        AssignmentHistoryManager.refresh_volunteer_status().
+        """
+        if self.status in MANUAL_STATUSES:
+            return
+
         if self._has_current_assignment():
             self.status = "Active"
         elif self._has_any_assignment():
-            # Had a role, holds none now. Not "New" -- the rule reserves New for
-            # volunteers with zero historical OR current roles.
             self.status = "Inactive"
 
     def _has_current_assignment(self):
