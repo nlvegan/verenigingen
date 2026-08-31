@@ -11,6 +11,7 @@ import frappe
 from frappe.utils import now
 
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 def sync_donor_to_customer(doc, method=None):
@@ -80,6 +81,11 @@ def sync_donor_to_customer(doc, method=None):
                 update_modified=False,
             )
 
+    except NON_RESUMABLE_DB_ERRORS:
+        # sync_with_customer now propagates these instead of swallowing them (#666), and
+        # this handler's only action is a frappe.log_error -- another write on the
+        # transaction the server has already discarded. Let it reach the request boundary.
+        raise
     except Exception as e:
         # Enhanced error logging with operational context
         error_context = {
@@ -293,6 +299,11 @@ def bulk_sync_donors_to_customers(filters: dict | None = None):
                 elif original_customer and donor_doc.customer:
                     results["updated_customers"] += 1
 
+            except NON_RESUMABLE_DB_ERRORS:
+                # Tallying this as one bad donor and continuing would run the remaining
+                # syncs against a transaction the server has discarded. Reachable only
+                # since sync_with_customer stopped swallowing (#666).
+                raise
             except Exception as e:
                 results["errors"] += 1
                 results["error_details"].append({"donor": donor_data.name, "error": str(e)})
