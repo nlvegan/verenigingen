@@ -14,7 +14,15 @@ import time
 from typing import Any, Callable, Dict, List, Optional
 
 import frappe
+from frappe.model import child_table_fields, default_fields, optional_fields
 from frappe.utils import now
+
+# Frappe's own list of the columns every row has outside the doctype's `fields`.
+# Taken from the framework rather than hand-written: a hand-written set was
+# asymmetric -- it allowed `parent` but refused `creation`/`modified`/`doctype`,
+# which is exactly what `as_dict()` returns, and returning `row.as_dict()` is a
+# live pattern in this app (`payment_history_service.py:551`).
+_STD_ROW_FIELDS = frozenset(default_fields) | frozenset(child_table_fields) | frozenset(optional_fields)
 
 
 class MemberFinancialHistoryManager:
@@ -59,6 +67,10 @@ class MemberFinancialHistoryManager:
         Returns:
             bool: Success status
         """
+        child_doctype = self._resolve_child_doctype()
+        if not child_doctype:
+            return False
+
         max_attempts = 5
 
         for attempt in range(max_attempts):
@@ -108,6 +120,10 @@ class MemberFinancialHistoryManager:
                         f"Entry builder returned None for {entry_id} in {self.doc.name} {self.history_field} "
                         f"(likely invoice not found or customer mismatch)"
                     )
+                    return False
+
+                entry_data = self._drop_unknown_fields(child_doctype, entry_data, entry_id)
+                if entry_data is None:
                     return False
 
                 if existing_idx is not None:
@@ -236,6 +252,13 @@ class MemberFinancialHistoryManager:
             bool: Success status
         """
         try:
+            child_doctype = self._resolve_child_doctype()
+            if not child_doctype:
+                return False
+            field_updates = self._drop_unknown_fields(child_doctype, field_updates, entry_id)
+            if field_updates is None:
+                return False
+
             history_list = getattr(self.doc, self.history_field, []) or []
 
             # Find and update the entry
@@ -264,6 +287,91 @@ class MemberFinancialHistoryManager:
                 "Financial History Field Update Error",
             )
             return False
+
+    def _resolve_child_doctype(self):
+        """The child doctype behind `self.history_field`, or None if it is not a table.
+
+        Resolved BEFORE the row lock is taken: a manager built with a misspelt
+        `history_field_name` can never write anything and should not hold a lock
+        while finding that out.
+
+        Callers treat None as a hard failure. An earlier version treated it as
+        "nothing to check against" and passed, which made the field filter below
+        fail OPEN on the exact typo class it exists to catch -- measured, with a
+        control: `history_field_name="payment_histroy"` accepted an entry of pure
+        nonsense while `"payment_history"` refused the same entry.
+        `history_field_name` is a bare string literal at every call site
+        (`webhook_wrapper_service_unified.py:2774` passes "donor_history"), so that
+        is a live shape, not a hypothetical.
+        """
+        table_field = self.doc.meta.get_field(self.history_field)
+        child_doctype = table_field.options if table_field else None
+        if child_doctype:
+            return child_doctype
+
+        frappe.log_error(
+            title="Financial History Unknown Table",
+            message=(
+                f"{self.doc.doctype} {self.doc.name} has no child table "
+                f"{self.history_field!r}; nothing can be written to it."
+            ),
+        )
+        return None
+
+    def _drop_unknown_fields(self, child_doctype, entry_data, entry_id):
+        """Strip keys the child doctype does not have, loudly. None == unwritable.
+
+        Frappe drops an unknown key silently -- `append()` and `setattr` put it on
+        the Python object, it never reaches `get_valid_dict()`, and no column
+        exists -- so a misspelt or copy-pasted key is lost with no error at all.
+        That is #465: the Mollie donation writer set `mollie_payment_id`,
+        `journal_entry` and `payment_type` on `Member Payment History`, none of
+        which exist, for as long as the code had been there.
+
+        STRIP AND CONTINUE, not refuse. Refusing was the first version of this and
+        it was wrong. An unknown key is unstorable by definition, so refusing
+        converts "lose one field" into "lose the whole row" -- and on the Mollie
+        donation path a False becomes `status: "error"`, which
+        `verenigingen_payments/mollie/api/unified_payment_api.py:85` turns into
+        HTTP 500 under the comment "Trigger Mollie retry". A schema typo is the
+        most permanent refusal there is, so every re-delivery for the next ~26h
+        would hit the identical refusal and write another Error Log row. The
+        webhook service already excludes permanent refusals from the retry ladder
+        for exactly this reason (its `not activation.get("permanent")` branch); a
+        new guard should not walk into it.
+
+        Loudness comes from the Error Log instead, which the harness already
+        watches (`ErrorLogGuardMixin`; `VERENIGINGEN_FAIL_ON_ERROR_LOG=1` turns any
+        Error Log written during a test into a failure). CI is the gate, not
+        production traffic.
+
+        SCOPE, narrowly: this covers writers that go through this manager. It is
+        NOT every writer that touches these tables -- eight production sites call
+        `doc.append(<history table>, ...)` directly and are invisible here, three
+        of them carrying this very defect. All eight are enumerated in #712. Had
+        the Mollie donation writer used `member.append(...)`, as its own file's
+        siblings do, this guard would not have caught #465 either.
+        """
+        known = {df.fieldname for df in frappe.get_meta(child_doctype).fields if df.fieldname}
+        unknown = sorted(k for k in entry_data if k not in known and k not in _STD_ROW_FIELDS)
+        if not unknown:
+            return entry_data
+
+        kept = {k: v for k, v in entry_data.items() if k not in unknown}
+        # Keyword arguments, and title first: `frappe.log_error(title, message)` puts
+        # arg 1 in `Error Log.method` and arg 2 in `Error Log.error` -- measured, not
+        # read. The sibling calls in this module pass them the other way round, which
+        # files the whole message as the title; that is #485's class, not fixed here.
+        frappe.log_error(
+            title="Financial History Unknown Field",
+            message=(
+                f"{child_doctype} has no field(s) {unknown}; they were DROPPED from "
+                f"entry {entry_id} for {self.doc.doctype} {self.doc.name} "
+                f"{self.history_field}. Frappe would have dropped them silently. "
+                f"Kept: {sorted(kept)}"
+            ),
+        )
+        return kept or None
 
     def _trim_history(self):
         """Trim history to max entries, keeping newest entries."""
