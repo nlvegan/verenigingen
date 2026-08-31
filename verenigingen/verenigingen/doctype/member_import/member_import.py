@@ -22,6 +22,11 @@ from verenigingen.utils.csv_import_processor import (
 )
 from verenigingen.utils.error_handling import sanitize_error_for_audit
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.transaction_errors import (
+    NON_RESUMABLE_DB_ERRORS,
+    release_savepoint_if_present,
+    rollback_to_savepoint,
+)
 
 ADDRESS_TYPE_MAP = {
     "Standaardadres": "Personal",
@@ -109,7 +114,28 @@ class MemberImport(BaseCSVImport):
         return mapping
 
     def _process_single_member(self, row: Dict, error_log: List[str]) -> Tuple[str, str]:
-        """Create a single Member from a mapped row. Returns (status, member_name)."""
+        """Create a single Member from a mapped row. Returns (status, member_name).
+
+        The row is one savepointed unit of work (#570). Without the savepoint a row
+        that failed anywhere after ``member_doc.insert()`` -- ``Member.after_insert``
+        raising because the ERPNext Customer could not be created is the live case,
+        and it re-raises deliberately under ``bulk_member_operations`` so the importer
+        can report it -- was left written, then committed by the batch loop
+        (``csv_import_processor.process_import``: ``if batch_commit: frappe.db.commit()``)
+        while being reported "skipped". A systematic misconfiguration therefore
+        produced N orphaned Members under a summary saying nothing had been created.
+
+        The two sibling importers -- ``member_import_service._create_new_member``
+        and ``vip_import._process_single_row`` -- already had a savepoint per row.
+        This one does NOT copy their spelling: both roll back with raw
+        ``frappe.db.sql("ROLLBACK TO SAVEPOINT ...")`` under a silent
+        ``except Exception: pass``, which is the masking shape
+        ``utils/transaction_errors`` exists to eliminate and which the AST ratchet
+        cannot see (#701). The canonical helpers are used here instead.
+        """
+        savepoint = f"member_import_row_{frappe.generate_hash(length=8)}"
+        frappe.db.savepoint(savepoint)
+        member_doc = None
         try:
             member_id = row.get("member_id", "")
             status_mapping = self._get_status_mapping()
@@ -166,17 +192,66 @@ class MemberImport(BaseCSVImport):
             if self.import_addresses and row.get("addresses"):
                 self._create_addresses(member_doc, row["addresses"])
 
-            return ("created", member_doc.name)
-
-        except frappe.DuplicateEntryError:
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213/1205: the server has already thrown the transaction away,
+            # savepoints included. What this buys is precise, and worth stating
+            # because it is less than it looks: it stops `rollback_to_savepoint`
+            # running against a savepoint that no longer exists, whose 1305 would
+            # REPLACE the deadlock and defeat every guard keyed on the error's
+            # type (#561). It does NOT abort the import -- `process_import`'s own
+            # row loop catches this re-raise, counts it as one skipped row and
+            # carries on against a dead transaction. That fix belongs at the loop,
+            # not here: #700.
+            raise
+        except (frappe.DuplicateEntryError, frappe.UniqueValidationError):
+            # UniqueValidationError is the one that actually fires here: `member_id`
+            # is a unique FIELD, and frappe raises DuplicateEntryError only for a
+            # primary-key collision. The two are unrelated classes
+            # (DuplicateEntryError derives from NameError), so listing only the
+            # latter sent every duplicate down the catch-all below and showed the
+            # operator a raw IntegrityError repr instead of the offending member_id.
+            # This rollback is not merely defensive. `Member.autoname` is
+            # `format:...{####}`, which increments the shared `tabSeries` row named
+            # '' in `set_new_name`, BEFORE `db_insert()`. InnoDB rolls back only the
+            # failed statement, so that increment SURVIVES the constraint violation
+            # and this rollback is what undoes it. Measured on test_site_4: series
+            # 15519 -> 15520 on the failed insert, back to 15519 after the rollback.
+            # The Member row itself really is absent, which is why
+            # `_rejected_row_message` has to check before naming it.
+            rolled_back = rollback_to_savepoint(savepoint)
             error_log.append(
-                f"Row {row.get('row_number', '?')}: Duplicate member_id {row.get('member_id', '')}"
+                self._rejected_row_message(
+                    row, f"Duplicate member_id {row.get('member_id', '')}", member_doc, rolled_back
+                )
             )
             return ("skipped", "")
         except Exception as e:
-            sanitized = sanitize_error_for_audit(str(e))
-            error_log.append(f"Row {row.get('row_number', '?')}: {sanitized}")
+            rolled_back = rollback_to_savepoint(savepoint)
+            error_log.append(
+                self._rejected_row_message(row, sanitize_error_for_audit(str(e)), member_doc, rolled_back)
+            )
             return ("skipped", "")
+        else:
+            release_savepoint_if_present(savepoint)
+            return ("created", member_doc.name)
+
+    def _rejected_row_message(self, row: Dict, reason: str, member_doc, rolled_back: bool) -> str:
+        """The operator-facing line for a row that was not imported.
+
+        ``rollback_to_savepoint`` returns False when the savepoint is already gone,
+        which a nested commit anywhere under the insert would do. The row's writes
+        are durable at that point, so the plain "not imported" wording would be a
+        claim about the database that is not true: name the surviving Member instead
+        so somebody can act on it.
+        """
+        prefix = f"Row {row.get('row_number', '?')}: {reason}"
+        member_name = getattr(member_doc, "name", None)
+        if rolled_back or not member_name or not frappe.db.exists("Member", member_name):
+            return prefix
+        return (
+            f"{prefix} -- this row could NOT be rolled back, so Member {member_name} "
+            "is still in the database and needs manual review."
+        )
 
     def _create_addresses(self, member_doc, addresses: List[Dict]):
         """Create Address records and link the preferred one as primary_address."""
@@ -223,6 +298,11 @@ class MemberImport(BaseCSVImport):
                 if addr_type == (self.preferred_address_type or "Standaardadres"):
                     primary_address_name = address_doc.name
 
+            except NON_RESUMABLE_DB_ERRORS:
+                # Swallowing a 1213/1205 here would hide it from the guard in
+                # _process_single_member and leave the rest of the row running
+                # against a transaction the server has already discarded.
+                raise
             except Exception:
                 pass  # Address creation failure should not block member import
 

@@ -496,12 +496,14 @@ class Member(
                     # button MijnRood Sync Event.apply_event. The load-bearing property
                     # is the caller's reporting, not the absence of a user.
                     #
-                    # Rollback is the caller's too, and only two of the three importers
-                    # do it: member_import_service (savepoint per row) and vip_import
-                    # (savepoint per row) roll back; the Member Import doctype has no
-                    # savepoint at all, so its row stays committed and is reported
-                    # "skipped" with the reason in the import's error log. That is
-                    # develop's behaviour and predates this change - filed as #570.
+                    # Rollback is the caller's too, and all three importers now do it:
+                    # member_import_service and vip_import have had a savepoint per row
+                    # throughout; the Member Import doctype had none until #570, so its
+                    # row stayed COMMITTED while being reported "skipped" with the reason
+                    # in the import's error log. That was develop's behaviour and predated
+                    # this change. (member_import_service and vip_import roll back with
+                    # raw SQL under a silent `except Exception: pass`, which can leave the
+                    # rollback undone without saying so - #701.)
                     #
                     # Same flag pair as Volunteer.after_insert: importers set it
                     # globally, VIP import also per document.
