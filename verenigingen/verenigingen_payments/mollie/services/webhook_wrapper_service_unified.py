@@ -881,7 +881,7 @@ class UnifiedWebhookWrapperService:
             if not self._update_donor_record(donation, payment_data):
                 history_failures.append("donor_history")
 
-            if not self._update_member_payment_history(donation, payment_data, journal_entry_name):
+            if not self._update_member_payment_history(donation, payment_data):
                 history_failures.append("member payment history")
 
             # Check for pending refunds even during new payment processing
@@ -1125,7 +1125,7 @@ class UnifiedWebhookWrapperService:
                 else:
                     results.append("Donor record update failed")
                     component_failures.append("donor_history")
-                if self._update_member_payment_history(donation, payment_data, journal_entry_name):
+                if self._update_member_payment_history(donation, payment_data):
                     results.append("Member payment history updated")
                 else:
                     results.append("Member payment history update failed")
@@ -2820,17 +2820,22 @@ class UnifiedWebhookWrapperService:
             self.logger.error("Error updating Donor record", error=e)
             return False
 
-    def _update_member_payment_history(self, donation, payment_data, journal_entry_name):
+    def _update_member_payment_history(self, donation, payment_data):
         """
         Update Member payment history for ALL donations (not just subscriptions).
 
         Uses MemberFinancialHistoryManager for atomic child table updates
         without full document save.
 
+        Took a `journal_entry_name` until #465 and no longer does: the row does not
+        store the Journal Entry (see `build_entry` below for why), so keeping the
+        parameter would claim a dependency the method does not have. Its sibling
+        `_update_donation_payment_history_atomic` still takes one, and still needs
+        it -- `Donation Payment.journal_entry` is a real field.
+
         Args:
             donation: Donation document
             payment_data: Mollie payment data dict
-            journal_entry_name: Journal Entry name to link
 
         Returns:
             bool: Success status
@@ -2852,7 +2857,6 @@ class UnifiedWebhookWrapperService:
 
         try:
             member = frappe.get_doc("Member", member_name)
-            payment_id = payment_data.get("id")
 
             # Use MemberFinancialHistoryManager for atomic updates
             from verenigingen.utils.member_financial_history_manager import get_payment_history_manager
@@ -2863,15 +2867,57 @@ class UnifiedWebhookWrapperService:
             extractor = get_payment_data_extractor()
 
             def build_entry():
+                # Every key here must be a field of `Member Payment History`.
+                # Three were not (#465), and Frappe drops an unknown key silently:
+                # `append()` sets it as a plain Python attribute, it never reaches
+                # `get_valid_dict()`, and no column exists. `mollie_payment_id`,
+                # `journal_entry` and `payment_type` were all lost this way.
+                #
+                # `mollie_payment_id` and `journal_entry` are NOT re-homed here:
+                # both already live on the `Donation Payment` row that
+                # `_update_donation_payment_history_atomic` writes from the same
+                # webhook call with the same values, and that copy is the one the
+                # idempotency manager actually reads. This row links to the
+                # Donation, so both are one hop away.
+                #
+                # `payment_type` IS re-homed, to `transaction_type` -- this
+                # doctype's classifier, which the sibling Mollie writers already
+                # set ("Membership Payment"). It is the only place donation rows
+                # sit beside invoice rows, so a NULL there is indistinguishable
+                # from an unclassified legacy row.
+                #
+                # `invoice_doctype` is mandatory, not cosmetic: `invoice` is a
+                # Dynamic Link keyed on it, and `get_invalid_links()` throws
+                # "Invoice DocType must be set first" on every later full save of
+                # the parent Member. The write itself lands regardless because
+                # `update_child_table()` skips `_validate_links()`, so one donation
+                # left that Member unsavable by any full-document path.
+                #
+                # Cost of setting it, stated because it is the same objection used
+                # above against re-homing the JE: this makes `Donation` a dynamic-link
+                # target of `Member Payment History`, so `check_if_doc_is_dynamically_linked`
+                # will refuse to delete a referenced Donation, and there is no
+                # `Donation.on_trash` to clear the reference. Accepted here and not
+                # there because THIS link is what the row is: without it the row
+                # points at nothing and breaks its own parent. Nothing in production
+                # deletes a Donation today.
+                #
+                # `payment_status` is deliberately left unset. It is the Select every
+                # reader branches on (`financial_mixin.py:136`, `payment-utils.js:141`),
+                # and its vocabulary is invoice settlement -- stamping "Paid" would
+                # fold donations into the member's paid-INVOICE counts. `status`
+                # carries "Completed" as it did before. Whether a donation row
+                # belongs in those counts at all is the modelling question in #713
+                # (a full history rebuild discards these rows outright), not
+                # something to decide here.
                 return {
-                    "mollie_payment_id": payment_id,
-                    "invoice": donation.name,  # Use donation as reference
-                    "journal_entry": journal_entry_name,
+                    "invoice": donation.name,  # the Donation is this row's document
+                    "invoice_doctype": "Donation",
+                    "transaction_type": "Donation",
                     "amount": extractor.extract_amount(payment_data, allow_zero=True),
                     "payment_date": extractor.extract_payment_date(payment_data),
                     "payment_method": "Mollie",
                     "status": "Completed",
-                    "payment_type": "Donation",
                 }
 
             success = history_manager.add_or_update_entry(
