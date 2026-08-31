@@ -9,6 +9,12 @@ import frappe
 from frappe.utils import getdate, today
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+from verenigingen.verenigingen_payments.utils.collection_rows import (
+    refuse_invoices_with_more_than_one_row,
+)
+from verenigingen.verenigingen_payments.utils.mandate_candidates import (
+    members_with_ambiguous_mandate,
+)
 from verenigingen.verenigingen_payments.utils.sepa_constants import stranded_batch_exclusion
 
 # Cache TTL in seconds (5 minutes)
@@ -266,7 +272,34 @@ class SEPAMandateService:
             as_dict=True,
         )
 
-        return invoices
+        # The mandate join above is purpose-filtered (#597) but still unbounded: two
+        # Active mandates SHARING `used_for_memberships` make it one-to-many, so one
+        # invoice comes back once per mandate -- same `name`, different `mandate_name`,
+        # different `iban`. `sepa_batch_processor.add_invoices_to_batch_optimized`
+        # passes these rows on as a LIST, so BOTH become Direct Debit Batch child rows
+        # and #606's guard fails the whole monthly batch (#627). (The two child rows
+        # end up carrying the SAME iban, not the two the query returned: this row's
+        # `iban` is dropped downstream in favour of
+        # `batch_performance_optimizer.get_members_with_mandates_bulk`'s last-wins
+        # pick. The duplicate ROW COUNT is what #606 rejects on, and it is real.)
+        #
+        # Refused rather than de-duplicated, and refused on the MANDATES rather than
+        # on the rows: the account this member is debited on is chosen by that
+        # last-wins loop, which filters neither `iban` nor `mandate_id`, so a pair the
+        # query below can tell apart is still a pair it cannot (#567/#578/#584).
+        ambiguous_members = members_with_ambiguous_mandate(
+            [invoice.get("member") for invoice in invoices],
+            "Monthly SEPA collection: ambiguous membership mandate",
+        )
+        if ambiguous_members:
+            invoices = [invoice for invoice in invoices if invoice.get("member") not in ambiguous_members]
+
+        # The invariant itself, on the rows actually returned -- exact, drift-proof,
+        # and blind to nothing but a fan-out a downstream resolver collapses. See
+        # `collection_rows` for why both guards are here.
+        return refuse_invoices_with_more_than_one_row(
+            invoices, "name", "Monthly SEPA collection: duplicated invoice row"
+        )
 
     def validate_mandate_status_batch(self, mandate_names: List[str]) -> Dict[str, Dict]:
         """

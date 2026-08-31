@@ -125,9 +125,32 @@ def _create_monthly_dues_collection_batch_impl():
             frappe.logger().info("No invoices found for SEPA batch creation")
             return None
     else:
-        frappe.log_error(
-            f"Failed to create monthly SEPA batch: {result['error']}", "Monthly SEPA Batch Creation Error"
+        # The same silent-monthly-loss shape as the daily optimizer (#627 §3), and the
+        # analysis in #621 did not cover it. `execute_with_retry` has already exhausted
+        # its retries by here, so this is the run's terminal state: nothing was
+        # collected, and the next automatic attempt is the next configured creation day
+        # -- by default the 1st of next month.
+        #
+        # An Error Log alone is a record nobody is looking at on the day it matters, so
+        # the notification goes out too. `send_system_error_notification` swallows its
+        # own send failures, so this cannot make the failure worse.
+        #
+        # Keyword form: `log_error(title, message)`. The positional call this replaced
+        # put the message in `Error Log.method` (Data, truncated at 140 chars) and left
+        # the title as the whole body.
+        from verenigingen.verenigingen_payments.api.sepa_batch_notifications import (
+            send_system_error_notification,
         )
+
+        detail = (
+            f"Monthly SEPA dues collection batch for {processing_date} could not be "
+            f"created after {result.get('retries_attempted', 0)} retries: "
+            f"{result['error']}. NO membership dues were collected in this run; the "
+            f"next automatic attempt is the next configured batch creation day, so "
+            f"this needs a manual batch run rather than a wait."
+        )
+        frappe.log_error(title="Monthly SEPA Batch Creation Error", message=detail)
+        send_system_error_notification(detail)
         return None
 
 
