@@ -24,6 +24,11 @@ from datetime import date, timedelta
 import frappe
 from frappe.utils import now
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.modified_stamp import (
+    assert_site_clock_modified,
+    raw_modified,
+    wait_for_second_boundary,
+)
 from verenigingen.verenigingen_payments.services.sepa_mandate_member_integration_service import SEPAMandateMemberIntegrationService
 
 
@@ -472,6 +477,114 @@ class TestSEPAMandateMemberIntegrationService(EnhancedTestCase):
                 links = frappe.db.get_all('Member SEPA Mandate Link',
                                         filters={'parent': mandate.member})
                 self.assertEqual(len(links), 1)
+
+    # ========================================================================
+    # #453: neither the link row nor the member may get a hand-written
+    # `modified`
+    # ========================================================================
+
+    def _link_row_name(self, mandate):
+        return frappe.db.get_value(
+            "Member SEPA Mandate Link",
+            {"parent": mandate.member, "sepa_mandate": mandate.name},
+            "name",
+        )
+
+    def test_link_update_stamps_the_link_row_from_the_site_clock(self):
+        """The child row's `modified` must be the value Frappe would write.
+
+        The update used to be a raw `UPDATE ... SET modified = NOW()`: the
+        database server's clock, truncated to the second, into a `datetime(6)`
+        column that Frappe fills from the site clock with microseconds (#453).
+        """
+        mandate = self._create_test_mandate()
+        self._delete_mandate_links(mandate)
+
+        with self._in_test_flag(True):
+            with patch.object(self.service, '_get_audit_context_data', return_value={}):
+                self.service._execute_secure_mandate_link_update(mandate)
+
+                mandate.status = 'Cancelled'
+                started_at = wait_for_second_boundary()
+                result = self.service._execute_secure_mandate_link_update(mandate)
+
+        self.assertEqual(result['action'], 'update_existing_link')
+        assert_site_clock_modified(
+            self, "Member SEPA Mandate Link", self._link_row_name(mandate), started_at
+        )
+
+    def test_link_creation_stamps_the_link_row_from_the_site_clock(self):
+        """Same for the INSERT branch, which wrote `creation, modified` as
+        `NOW(), NOW()`."""
+        mandate = self._create_test_mandate()
+        self._delete_mandate_links(mandate)
+
+        with self._in_test_flag(True):
+            with patch.object(self.service, '_get_audit_context_data', return_value={}):
+                started_at = wait_for_second_boundary()
+                result = self.service._execute_secure_mandate_link_update(mandate)
+
+        self.assertEqual(result['action'], 'create_new_link')
+        link_name = self._link_row_name(mandate)
+        assert_site_clock_modified(self, "Member SEPA Mandate Link", link_name, started_at)
+
+        # `sepa_mandate` is a Dynamic Link reading its target doctype from
+        # `sepa_mandate_doctype`. The raw INSERT this replaced omitted the column and
+        # silently inherited the table's DB-level DEFAULT; an ORM append writes NULL
+        # there, and the next Member.save() then throws "SEPA Mandate DocType must be
+        # set first". Pin it so the row does not depend on a column default.
+        self.assertEqual(
+            frappe.db.get_value("Member SEPA Mandate Link", link_name, "sepa_mandate_doctype"),
+            "SEPA Mandate",
+        )
+
+    def test_link_update_stamps_the_member_from_the_site_clock(self):
+        """The service bumps `Member.modified` for cache invalidation. That bump
+        is the write most exposed to #453: `Member` is the app's most widely held
+        document type, and `member_utils.create_sepa_mandate_from_bank_details`
+        already carries a comment (member_utils.py:452) saying a pre-insert copy
+        of the member cannot be saved after this hook runs."""
+        mandate = self._create_test_mandate()
+
+        with self._in_test_flag(True):
+            with patch.object(self.service, '_get_audit_context_data', return_value={}):
+                started_at = wait_for_second_boundary()
+                self.service._execute_secure_mandate_link_update(mandate)
+
+        assert_site_clock_modified(self, "Member", mandate.member, started_at)
+
+    def test_two_link_updates_in_one_second_still_move_member_modified(self):
+        """Frappe's optimistic lock compares `modified` as a STRING.
+
+        Two writes inside the same second at second precision produce the *same*
+        stamp, so `Document.check_if_latest` sees no change and a stale
+        in-memory copy overwrites the concurrent write instead of raising
+        `TimestampMismatchError`. Measured on test_site_4 with a raw `NOW()`
+        pair: the save succeeded; the same pair with `NOW(6)` and with
+        `frappe.db.set_value` both raised. `wait_for_second_boundary()` puts both
+        writes in one second on purpose -- that is the condition under test, not
+        an accident to be avoided.
+        """
+        mandate = self._create_test_mandate()
+
+        with self._in_test_flag(True):
+            with patch.object(self.service, '_get_audit_context_data', return_value={}):
+                wait_for_second_boundary()
+                self.service._execute_secure_mandate_link_update(mandate)
+                first = raw_modified("Member", mandate.member)
+                self.service._execute_secure_mandate_link_update(mandate)
+                second = raw_modified("Member", mandate.member)
+
+        self.assertNotEqual(
+            str(first),
+            str(second),
+            msg=(
+                "two consecutive mandate-link updates left Member.modified unchanged "
+                f"({first!r}); check_if_latest compares this as a string, so a stale "
+                "in-memory Member would be saved over the second write without a "
+                "TimestampMismatchError. See #453."
+            ),
+        )
 
     # ========================================================================
     # Tests for audit and context methods

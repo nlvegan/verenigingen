@@ -315,15 +315,29 @@ class MemberManager(BaseManager):
             if not frappe.db.exists("Member", member_id):
                 frappe.throw(_("Member {0} does not exist in database").format(member_id))
 
-            # Use direct database insert to bypass validation issues
+            # Use direct database insert to bypass validation issues.
+            # `creation`/`modified` are passed as parameters, not written with MariaDB's
+            # NOW(): NOW() is the DATABASE SERVER's clock at SECOND precision, while
+            # Frappe fills these datetime(6) columns from the SITE clock with microseconds
+            # -- so NOW() produced a row that looked created hours earlier or later than it
+            # was, depending on the two clocks' skew (#453).
             chapter_member_name = frappe.generate_hash(length=10)
+            stamp = now()
             frappe.db.sql(
                 """
                 INSERT INTO `tabChapter Member`
                 (name, parent, parenttype, parentfield, member, enabled, status, creation, modified, owner, modified_by)
-                VALUES (%s, %s, 'Chapter', 'members', %s, 1, 'Pending', NOW(), NOW(), %s, %s)
+                VALUES (%s, %s, 'Chapter', 'members', %s, 1, 'Pending', %s, %s, %s, %s)
             """,
-                (chapter_member_name, self.chapter_name, member_id, frappe.session.user, frappe.session.user),
+                (
+                    chapter_member_name,
+                    self.chapter_name,
+                    member_id,
+                    stamp,
+                    stamp,
+                    frappe.session.user,
+                    frappe.session.user,
+                ),
             )
             frappe.db.commit()
 

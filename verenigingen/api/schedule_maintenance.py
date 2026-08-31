@@ -182,16 +182,22 @@ def cleanup_orphaned_schedules(issue_type, dry_run=True) -> OperationResult[Dict
                     schedule_doc = frappe.get_doc("Membership Dues Schedule", schedule_data["name"])
                     original_status = schedule_doc.status
 
-                    # Cancel using direct SQL (safe approach proven to work)
-                    frappe.db.sql(
-                        """
-                        UPDATE `tabMembership Dues Schedule`
-                        SET status = 'Cancelled',
-                            modified = NOW(),
-                            modified_by = %s
-                        WHERE name = %s
-                    """,
-                        (frappe.session.user, schedule_data["name"]),
+                    # Cancel below the ORM: this tool exists to clean up schedules the
+                    # controller's own validation would reject, so a doc.save() is not an
+                    # option. frappe.db.set_value is the same bypass -- it explicitly does
+                    # not run document events -- but it maintains `modified`/`modified_by`
+                    # itself and clears the document cache, which the raw UPDATE this
+                    # replaced did neither of. That UPDATE wrote `modified = NOW()`:
+                    # MariaDB's NOW() is the DATABASE SERVER's clock at SECOND precision,
+                    # while Frappe fills these datetime(6) columns from the SITE clock with
+                    # microseconds. Two writes inside one second therefore collapsed to the
+                    # same stamp and Document.check_if_latest -- which compares it as a
+                    # string -- stopped rejecting stale in-memory copies (#453).
+                    frappe.db.set_value(
+                        "Membership Dues Schedule",
+                        schedule_data["name"],
+                        "status",
+                        "Cancelled",
                     )
 
                     # Add a comment for audit trail

@@ -21,6 +21,10 @@ matching schedules (not just the first 10).
 import frappe
 
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.modified_stamp import (
+    assert_site_clock_modified,
+    wait_for_second_boundary,
+)
 
 
 def _load_api():
@@ -288,6 +292,36 @@ class TestScheduleMaintenance(VereningingenTestCase):
 
         self._real_cleanup(api, "inappropriate_zero_rates")
         self.assertEqual(self._schedule_status(sched.name), "Cancelled")
+
+    # ------------------------------------------------------------------
+    # #453: the cancellation must not hand-write `modified`
+    # ------------------------------------------------------------------
+    def test_cleanup_stamps_modified_from_the_site_clock(self):
+        """The cancellation is a database-level write, but `modified` still has
+        to be the value Frappe itself would have written.
+
+        The cancellation used to be a raw `UPDATE ... SET modified = NOW()`.
+        MariaDB's `NOW()` is the *database server's* clock at *second*
+        precision, while Frappe writes `modified` from the site clock with
+        microseconds into a `datetime(6)` column, so the stamp landed both on
+        the wrong clock and up to a second before the write that produced it
+        (#453). Both halves are observable here: a truncated stamp falls below
+        `started_at`, and a database-clock stamp falls outside the window in
+        whichever direction the two clocks are skewed.
+        """
+        api = _load_api()
+        sched, _, _ = self._make_active_schedule()
+        self._persist_orphaned_member(sched.name)
+
+        started_at = wait_for_second_boundary()
+        self._real_cleanup(api, "orphaned_members")
+
+        self.assertEqual(self._schedule_status(sched.name), "Cancelled")
+        assert_site_clock_modified(self, "Membership Dues Schedule", sched.name, started_at)
+        self.assertEqual(
+            frappe.db.get_value("Membership Dues Schedule", sched.name, "modified_by"),
+            frappe.session.user,
+        )
 
     def test_cleanup_inappropriate_zero_rates_targets_ALL_not_just_first_10(self):
         """Regression guard for the (now-fixed) [:10] cap bug.
