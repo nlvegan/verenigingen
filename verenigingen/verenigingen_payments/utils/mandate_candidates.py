@@ -176,7 +176,15 @@ def cancel_active_mandates(member: str, reason: str, purposes=None, new_status: 
     run.
 
     `purposes` is the set the REPLACEMENT will serve; pass None to supersede every
-    Active mandate regardless of purpose.
+    Active mandate regardless of purpose. Note that this is `is None`, not
+    falsiness: an EMPTY sequence means "this replacement serves nothing, so nothing
+    overlaps it", and the answer to that is to cancel nothing -- not to cancel
+    everything. Three of the five call sites compute their purposes with a list
+    comprehension over the flags the request set, so `[]` is what a purposeless
+    request produces, and reading it as "every purpose" cancelled the member's
+    membership AND donation mandates on a request that authorized neither (#617).
+    That is the same falsy-vs-None trap `resolve_purpose_flag` documents above
+    (#597): asking for any purpose has to be deliberate.
 
     Returns the cancelled names AND the union of their purpose flags. The union is
     the part that is easy to get wrong: `SEPA Mandate` carries
@@ -197,7 +205,7 @@ def cancel_active_mandates(member: str, reason: str, purposes=None, new_status: 
     rather than load-bearing. It is here because the flag combination is reachable
     (three independent checkboxes) and the failure it prevents is silent.
     """
-    wanted = tuple(purposes) if purposes else PURPOSE_FLAGS
+    wanted = PURPOSE_FLAGS if purposes is None else tuple(purposes)
     for flag in wanted:
         if flag not in PURPOSE_FLAGS:
             raise ValueError(f"unknown mandate purpose {flag!r}")

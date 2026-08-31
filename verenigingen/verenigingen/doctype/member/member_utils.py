@@ -877,12 +877,16 @@ def create_and_link_mandate(
         "SEPA Mandate", filters={"member": member, "status": "Active", "is_active": 1}, fields=["name"]
     )
 
-    # Supersede EVERY Active mandate, not only those matching this call's purpose.
-    # A member may hold at most one Active mandate (#584), so the purpose-scoped
-    # version of this loop would leave a membership mandate Active while activating a
-    # donations one, and the guard would then reject the new mandate -- measured: on
-    # develop this call succeeded, on the branch it raised. Suspended (not Cancelled)
-    # is preserved: this flow's supersession has always been recoverable.
+    # Supersede only the Active mandates this call's purposes OVERLAP. The comment
+    # here used to say the opposite -- "supersede EVERY Active mandate" -- which was
+    # written in 0d8695f87 when the call really was purpose-blind, and was left
+    # behind when d45657a0e added the comprehension below. A member may hold one
+    # Active mandate PER purpose (#584), so cancelling a donation mandate because
+    # they re-signed for memberships would end a collection nobody asked to stop.
+    # A request that ticks NO purpose therefore supersedes nothing (#617) and is
+    # then rejected by `validate_active_mandate_has_a_purpose` (#606).
+    # Suspended (not Cancelled) is preserved: this flow's supersession has always
+    # been recoverable.
     superseded = cancel_active_mandates(
         member,
         f"Superseded by a new SEPA mandate for member {member}",

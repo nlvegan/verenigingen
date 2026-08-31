@@ -382,6 +382,12 @@ class SEPAMandateManager(StatelessService):
         # Step 4: Check for existing active mandates with same IBAN
         if not allow_duplicate_iban:
             existing_mandates = self.get_active_mandates(member, iban=iban)
+            # Falsiness, NOT `is None`, and deliberately unlike
+            # `cancel_active_mandates`, which reads `[]` as "overlaps nothing" (#617).
+            # Here an empty list falls through to "no purpose filter", so every Active
+            # mandate on this IBAN counts as a duplicate -- the conservative answer for
+            # a check whose failure mode is admitting a duplicate. `create_mandate`
+            # launders `[]` to None before it ever gets here (see its `or None`).
             if purposes:
                 wanted = [resolve_purpose_flag(p) for p in purposes]
                 existing_mandates = [
@@ -597,6 +603,19 @@ class SEPAMandateManager(StatelessService):
                 allow_duplicate_iban=allow_duplicate_iban,
                 # The purposes THIS mandate will carry (set at Step 5 below), so a
                 # member's donation mandate does not block their membership one.
+                #
+                # The trailing `or None` is LOAD-BEARING, and it is not the same
+                # `or None` idiom as the `bic or None` above. `validate_mandate_creation`
+                # tests `if purposes:` (line 385), so an empty list there means "no
+                # purpose filter" -- i.e. ANY Active mandate on this IBAN counts as a
+                # duplicate. That is the safe reading for a duplicate check (it refuses
+                # more), but it is the OPPOSITE of what an empty list means to
+                # `cancel_active_mandates`, where `[]` means "this replacement overlaps
+                # nothing, so supersede nothing" (#617). Two functions in this domain
+                # therefore read `purposes=[]` in opposite directions on purpose; this
+                # `or None` is what keeps a 0/0 call taking the conservative branch
+                # rather than silently skipping the duplicate check. Do not delete it as
+                # noise, and do not "harmonise" line 385 without re-reading both.
                 purposes=[
                     flag
                     for flag, on in (

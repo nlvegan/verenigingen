@@ -107,21 +107,29 @@ class SEPAMandate(Document):
         a row will find it unsaveable while Active until a purpose is ticked.
 
         NOT the motivating case, though an earlier draft of this docstring said it
-        was -- and it is a class of TWO, both deprecated: `api/member/sepa_api.py`'s
+        was -- and it is a class of THREE, only two of them deprecated (an earlier
+        draft said TWO, both deprecated, which was wrong): `api/member/sepa_api.py`'s
         `create_and_link_mandate_enhanced` and `doctype/member/member_utils.py`'s
-        `create_and_link_mandate` have the identical shape, and no caller in the
-        tree passes 0/0 to either. Taking the first:
+        `create_and_link_mandate` are deprecated, but `member_utils.py`'s
+        `create_sepa_mandate_from_bank_details` is NOT -- it is a live
+        `@frappe.whitelist()` + `@critical_api(FINANCIAL)` endpoint with the same
+        signature, the same purpose comprehension and the same `status = "Active"`.
+        No in-tree Python caller passes 0/0 to any of the three, but the member
+        form's mandate dialog (`sepa-utils.js:181-191`) renders both purposes as
+        plain Check fields with no "tick at least one" rule, so a desk user reaches
+        it. Taking the first:
         `create_and_link_mandate_enhanced(used_for_memberships=0,
         used_for_donations=0)` computes `wanted = []` and hands it to
-        `cancel_active_mandates(purposes=[])`, whose
-        `tuple(purposes) if purposes else PURPOSE_FLAGS` reads an empty list as
-        "every purpose". But it then calls `carry_forward_purposes` BEFORE
-        activating, so whenever anything WAS superseded the replacement inherits
-        that purpose and this guard does not fire (measured both ways). The real
-        defect there is the widened supersession -- a purposeless request cancels
-        the member's donation mandate too and merges it onto one IBAN -- which is
-        a separate bug, not this one. This guard only catches the case where
-        nothing was cancelled.
+        `cancel_active_mandates(purposes=[])`, which used to read an empty list as
+        "every purpose". It then calls `carry_forward_purposes` BEFORE activating,
+        so whenever anything WAS superseded the replacement inherited that purpose
+        and this guard did not fire (measured both ways) -- the real defect there
+        was the widened supersession, a purposeless request cancelling the member's
+        donation mandate too and merging it onto one IBAN. That was a separate bug
+        and is now fixed: `cancel_active_mandates` distinguishes `None` from an
+        empty sequence (#617), so a purposeless request supersedes nothing and this
+        guard is what rejects it. The two halves compose -- this one is still what
+        catches the case where nothing was cancelled.
         """
         if self.status != "Active":
             return
