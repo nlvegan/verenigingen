@@ -227,7 +227,7 @@ _get_email_config_service::2  # clone family, 100% of pairs near-identical
 _get_headers::2
 _get_inner_fn::2
 _get_member_for_user::2  # clone family, 100% of pairs near-identical
-_get_member_sepa_mandate::3  # clone family, 33% of pairs near-identical
+_get_member_sepa_mandate::2  # clone family, 100% of pairs near-identical
 _get_memory_usage::2  # clone family, 100% of pairs near-identical
 _get_mollie_client::4
 _get_nested_model_class::6
