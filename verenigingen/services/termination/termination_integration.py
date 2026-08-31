@@ -23,6 +23,7 @@ from frappe.utils import today
 from verenigingen.utils import append_to_text_field
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+from verenigingen.verenigingen.doctype.volunteer.volunteer import CURRENT_ASSIGNMENT_STATUSES
 
 # Machine-readable marker written into a Team Member row's `notes` when a
 # membership is soft-disabled by suspension. Restoration (unsuspension) only
@@ -1292,6 +1293,25 @@ def terminate_volunteer_records_safe(member_name, termination_type, termination_
 
                 # Update volunteer status based on termination type
                 disciplinary_types = ["Policy Violation", "Disciplinary Action", "Expulsion"]
+
+                # Close any still-open assignment BEFORE setting the status (#705).
+                #
+                # Since #705 Volunteer.status is derived from assignments, and the
+                # derivation runs in before_save -- so if a terminated volunteer were
+                # left holding an assignment row in Active/Paused/On Hold, the save
+                # below would compute them straight back to "Active" and quietly undo
+                # the termination. Closing the rows first makes the derived value and
+                # the value set here agree, which is why no carve-out is needed.
+                #
+                # EndBoardPositionsOperation and SuspendTeamMembershipsOperation run
+                # earlier in the operation list, so the Chapter Board Member and Team
+                # Member rows the derivation also consults are already deactivated by
+                # the time this runs.
+                for assignment in volunteer_doc.assignment_history or []:
+                    if assignment.status in CURRENT_ASSIGNMENT_STATUSES:
+                        assignment.status = "Completed"
+                        if not assignment.end_date:
+                            assignment.end_date = termination_date
 
                 # Update volunteer status (inactive_reason field doesn't exist,
                 # so we store the reason in the note field instead)

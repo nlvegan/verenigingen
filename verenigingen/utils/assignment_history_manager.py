@@ -25,6 +25,39 @@ class AssignmentHistoryManager(BaseHistoryManager):
     RECURSION_FLAG = "_updating_assignment_history"
 
     @staticmethod
+    def refresh_volunteer_status(volunteer_id: str) -> None:
+        """Re-derive Volunteer.status after the assignment rows changed (#705).
+
+        THIS IS THE WHOLE POINT OF #705. Assignments are written through
+        safe_child_table_update() -> frappe update_child_table(), which writes the
+        child rows and NOTHING else: the parent's validate / before_save / on_update
+        never run. So Volunteer.update_status() -- which has existed all along --
+        never saw a seating, and a volunteer could hold three assignment rows and a
+        board seat while still reading "New" (the veg11 case in #705).
+
+        Going through a real save() rather than db_set() is deliberate: the save is
+        what dispatches Volunteer.on_update, which is where the role-profile resync
+        hangs (#688). A db_set here would move the status silently and leave the
+        role profile stale -- the same defect in a new costume.
+        """
+        volunteer = frappe.get_doc("Volunteer", volunteer_id)
+        before = volunteer.status
+        volunteer.update_status()
+
+        if volunteer.status == before:
+            return  # nothing to persist; do not churn modified/version rows
+
+        # ignore_permissions: JUSTIFIED. This is a system-owned derivation, not a
+        # user edit -- the status is a pure function of assignment rows that were
+        # just written through safe_child_table_update()'s own permission check
+        # (Volunteer:write). The callers are background and service paths
+        # (BoardManager on Chapter save, team_service, termination), which run as
+        # users who may hold no Volunteer:write of their own; without this the
+        # status would silently fail to move for exactly the automated seatings
+        # this fix exists to catch.
+        volunteer.save(ignore_permissions=True)
+
+    @staticmethod
     def add_assignment_history(
         volunteer_id: str,
         assignment_type: str,
@@ -49,6 +82,18 @@ class AssignmentHistoryManager(BaseHistoryManager):
         """
 
         def _callback(volunteer):
+            # Retired is manual and terminal (#705), and the repo owner's decision
+            # is that re-seating a retired volunteer is REFUSED rather than silently
+            # un-retiring them: un-retiring is a deliberate two-step. Returning False
+            # skips the save, so no row is written.
+            if volunteer.status == "Retired":
+                frappe.logger().warning(
+                    f"Refused assignment for retired volunteer {volunteer_id}: "
+                    f"{reference_doctype} {reference_name} - {role}. "
+                    "Change their status before assigning a new role."
+                )
+                return False
+
             # Idempotency guard: a volunteer can only hold a given role for a
             # given reference once at a time, so detect an existing *Active*
             # assignment by (reference, role) ALONE — ignoring start_date.
@@ -109,12 +154,19 @@ class AssignmentHistoryManager(BaseHistoryManager):
             )
             return None  # save needed
 
-        return AssignmentHistoryManager._with_doc(
+        result = AssignmentHistoryManager._with_doc(
             volunteer_id,
             f"add assignment history: {assignment_type} - {role}",
             _callback,
             error_title="Assignment History Add Failed",
         )
+
+        # The child write above bypasses the parent's hooks entirely, so the
+        # derivation has to be invoked here or status never moves (#705).
+        if result:
+            AssignmentHistoryManager.refresh_volunteer_status(volunteer_id)
+
+        return result
 
     @staticmethod
     def complete_assignment_history(
@@ -213,12 +265,19 @@ class AssignmentHistoryManager(BaseHistoryManager):
             )
             return None  # save needed
 
-        return AssignmentHistoryManager._with_doc(
+        result = AssignmentHistoryManager._with_doc(
             volunteer_id,
             f"complete assignment history: {assignment_type} - {role}",
             _callback,
             error_title="Assignment History Complete Failed",
         )
+
+        # The child write above bypasses the parent's hooks entirely, so the
+        # derivation has to be invoked here or status never moves (#705).
+        if result:
+            AssignmentHistoryManager.refresh_volunteer_status(volunteer_id)
+
+        return result
 
     @staticmethod
     def get_active_assignments(
@@ -307,9 +366,16 @@ class AssignmentHistoryManager(BaseHistoryManager):
             )
             return False  # not found
 
-        return AssignmentHistoryManager._with_doc(
+        result = AssignmentHistoryManager._with_doc(
             volunteer_id,
             f"remove assignment history: {assignment_type} - {role}",
             _callback,
             error_title="Assignment History Remove Failed",
         )
+
+        # The child write above bypasses the parent's hooks entirely, so the
+        # derivation has to be invoked here or status never moves (#705).
+        if result:
+            AssignmentHistoryManager.refresh_volunteer_status(volunteer_id)
+
+        return result

@@ -81,6 +81,18 @@ def safe_log_error(message: str, title: Optional[str] = None) -> None:
     frappe.log_error(safe_message, title)
 
 
+# An assignment counts as CURRENT while it is in one of these states: the role is
+# still held. Decided by the repo owner 2026-08-31 -- Paused and On Hold count,
+# because the volunteer has not given the seat up. Only Completed and Cancelled
+# release it. Used by both the status derivation and the Retired guard, so the two
+# cannot drift apart.
+CURRENT_ASSIGNMENT_STATUSES = ("Active", "Paused", "On Hold")
+
+# Statuses the derivation must never write over. Retired is manual and terminal;
+# Onboarding has no production writer at all and is left as it is (#705).
+MANUAL_STATUSES = ("Retired", "Onboarding")
+
+
 class Volunteer(Document):
     def onload(self) -> None:
         """Load address and contacts in `__onload`"""
@@ -112,6 +124,7 @@ class Volunteer(Document):
         self.validate_unique_member_link()
         self.validate_volunteer_age()
         self.validate_dates()
+        self.validate_retired_has_no_current_assignment()
 
     def validate_required_fields(self):
         """Check if required fields are filled"""
@@ -279,15 +292,84 @@ class Volunteer(Document):
                 f"No email provided for volunteer {self.name} - skipping account creation"
             )
 
+    def validate_retired_has_no_current_assignment(self):
+        """Retired is manual and terminal, so it must not contradict a held role (#705).
+
+        Deliberately NOT wrapped in try/except. validate_volunteer_age above caught
+        its own frappe.throw in a broad `except Exception` for months and therefore
+        never blocked a single save (#658); a guard that logs instead of refusing is
+        not a guard. The test for this reads the row back rather than only asserting
+        that an exception was raised.
+        """
+        if self.status != "Retired":
+            return
+
+        if self._has_current_assignment():
+            frappe.throw(
+                _(
+                    "This volunteer still holds a current assignment, so they cannot be "
+                    "set to Retired. End their assignments first (an assignment counts as "
+                    "current while its status is Active, Paused or On Hold)."
+                ),
+                title=_("Volunteer still has assignments"),
+            )
+
     def update_status(self):
-        """Update volunteer status based on assignments"""
-        if not self.status or self.status == "New":
-            # Use cheaper existence checks instead of full aggregation query
-            has_assignments = self._has_any_assignment()
-            if has_assignments:
-                self.status = "Active"
-            else:
-                self.status = "New"
+        """Derive status from assignments (#705).
+
+            New       zero assignment rows, ever          derived
+            Active    at least one CURRENT assignment     derived
+            Inactive  had assignments, none current now   derived, and termination
+            Retired   manual only -- never written here
+            Onboarding no writer exists -- left alone
+
+        This is EVENT-DRIVEN, not a recompute-from-scratch: a volunteer with no
+        assignment evidence in either direction keeps the status they were given.
+        That is deliberate. `volunteer_activation_service` sets Active when a
+        reviewer ticks "activate as volunteer" during application review, and those
+        volunteers hold no assignment row at all -- recomputing from scratch would
+        silently demote every one of them on their next save and drop them out of
+        the production queries that filter `v.status = 'Active'`.
+
+        The previous version only ratcheted UPWARD, and only out of "New", so it
+        could never move a volunteer down. It also never ran on the path that
+        matters: assignments are written through update_child_table(), which does
+        not run this document's hooks. AssignmentHistoryManager now calls the
+        derivation itself -- see refresh_volunteer_status().
+        """
+        if not self.status:
+            self.status = "New"
+
+        # Retired is the repo owner's manual, terminal state; Onboarding has no
+        # writer at all. Neither is the derivation's to overwrite.
+        if self.status in MANUAL_STATUSES:
+            return
+
+        if self._has_current_assignment():
+            self.status = "Active"
+        elif self._has_any_assignment():
+            # Had a role, holds none now. Not "New" -- the rule reserves New for
+            # volunteers with zero historical OR current roles.
+            self.status = "Inactive"
+
+    def _has_current_assignment(self):
+        """Does this volunteer hold a role RIGHT NOW?
+
+        "Current" is decided by Volunteer Assignment.status: Active, Paused and
+        On Hold all mean the role is still held -- a paused board member has not
+        given up the seat. Only Completed and Cancelled release it.
+        """
+        for row in self.assignment_history or []:
+            if row.status in CURRENT_ASSIGNMENT_STATUSES:
+                return True
+
+        if frappe.db.exists("Chapter Board Member", {"volunteer": self.name, "is_active": 1}):
+            return True
+
+        if frappe.db.exists("Team Member", {"volunteer": self.name, "is_active": 1}):
+            return True
+
+        return False
 
     def _has_any_assignment(self):
         """
