@@ -523,13 +523,62 @@ class TestFinancialReconciliationComprehensive(VereningingenTestCase):
         self.assertIsNotNone(deferred_revenue_entry)
 
     def test_partial_period_billing_reconciliation(self):
-        """Test billing reconciliation for partial periods due to status changes"""
+        """Pin the fixture's partial-period proration arithmetic (see #683).
+
+        Scope, stated honestly: the app has **no** production membership-dues
+        proration to call. The only proration primitive in the codebase is
+        ``verenigingen_payments.utils.financial_calculation_utils.prorate_amount_by_days``,
+        which is documented for Mollie settlement reconciliation, has one
+        production caller (``financial_dashboard``), and is already covered
+        directly by ``tests/payment/test_financial_calculation_utils.py``.
+        Routing this membership-termination test through it would assert a
+        coupling that does not exist. What this test does cover is the fixture
+        path: Member -> Customer -> SEPA Mandate, a persisted Sales Invoice
+        round-trip, and the day-count/refund arithmetic in
+        ``process_partial_period_reconciliation``.
+
+        Note: ``create_test_invoice`` accepts ``coverage_start``/``coverage_end``
+        and never assigns them. The fields are real and production writes them --
+        ``services/billing/invoice_generator.py:677-678`` sets
+        ``custom_coverage_start_date``/``custom_coverage_end_date`` -- so the
+        fixture invoice is unlike a production one in exactly that respect. The
+        window passed below documents intent only and is not asserted on. Left
+        alone to keep this diff to the #683 defect; the dead parameters are their
+        own pre-existing bug.
+
+        Note also that ``member.termination_date`` (set below) is a silent no-op:
+        ``Member`` has no such field -- the only one in the app is on
+        ``Membership Termination Request``. The only persisted effect of the
+        "termination" is ``status = "Quit"``; the date reaches the helper as a
+        plain string. Pre-existing, and likewise left alone.
+        """
         member = self.test_member
 
-        # Member active for partial billing period
-        period_start = today()
-        period_end = add_days(add_months(today(), 1), -1)
-        termination_date = add_days(today(), 15)  # Mid-period termination
+        # Fixed 31-day period. #683: this used ``today()`` for period_start and
+        # ``add_days(add_months(today(), 1), -1)`` for period_end, which is the
+        # last day of the month ONLY when today() is the 1st -- add_months
+        # clamps at month end, so on the 29th-31st of a month followed by a
+        # shorter one the window came out short and the assertion failed. That
+        # was 14 of the 730 days in 2026-2027, and it reddened develop.
+        #
+        # January because it has 31 days in every year, leap or not. The CURRENT
+        # year rather than a hardcoded one so the fixture never drifts away from
+        # the session clock -- but note that is a preference, not a requirement:
+        # what actually covers a 1 January posting date is erpnext's test
+        # bootstrap, which seeds calendar-aligned ``_Test Fiscal Year 2012``
+        # through ``2050``. ``ensure_test_fiscal_year_for_all_companies()``
+        # guarantees a Fiscal Year *covering today()* -- not one spanning
+        # today()'s calendar year -- and runs once per SESSION
+        # (``frappe.flags._test_fiscal_year_ensured``, tests/utils/base.py), so
+        # it is not what makes 1 January safe.
+        #
+        # Only ``period_start`` is posted to a document, and it is always in the
+        # past. ``period_end`` and ``termination_date`` are in the future during
+        # 1-15 January; harmless, because neither reaches a document.
+        year = getdate(today()).year
+        period_start = f"{year}-01-01"
+        period_end = f"{year}-01-31"  # 31 days
+        termination_date = f"{year}-01-16"  # 15 days used
 
         # Create full-period invoice
         full_period_invoice = self.create_test_invoice(
@@ -540,7 +589,10 @@ class TestFinancialReconciliationComprehensive(VereningingenTestCase):
             coverage_end=period_end,
         )
 
-        # Member terminates mid-period
+        # Member terminates mid-period. member_since is realigned because setUp
+        # builds it as add_months(today(), -6), which for most of the year lands
+        # AFTER this fixed period -- an invoice predating the membership it bills.
+        member.member_since = period_start
         member.status = "Quit"
         member.termination_date = termination_date
         member.save()
@@ -552,18 +604,32 @@ class TestFinancialReconciliationComprehensive(VereningingenTestCase):
 
         self.assertTrue(partial_reconciliation.get("success"))
 
-        # Verify proration calculation
-        days_used = (getdate(termination_date) - getdate(period_start)).days
-        total_days = (getdate(period_end) - getdate(period_start)).days + 1
-        expected_proration = (days_used / total_days) * 25.0
+        # Literals, not a second copy of the helper's formula. #683: the two
+        # copies disagreed on 14 days a year, and "make them agree again" is how
+        # that defect was written in the first place. 15 of 31 days of a
+        # EUR 25.00 period is 15/31 * 25 = 12.0968, leaving 12.9032 to refund.
+        self.assertEqual(partial_reconciliation.get("days_used"), 15)
+        self.assertEqual(partial_reconciliation.get("total_days"), 31)
+        self.assertAlmostEqual(partial_reconciliation.get("prorated_amount"), 12.10, places=2)
+        self.assertAlmostEqual(partial_reconciliation.get("refund_amount"), 12.90, places=2)
 
-        actual_proration = partial_reconciliation.get("prorated_amount")
-        self.assertAlmostEqual(actual_proration, expected_proration, places=2)
-
-        # Verify refund calculation
-        expected_refund = 25.0 - expected_proration
-        actual_refund = partial_reconciliation.get("refund_amount")
-        self.assertAlmostEqual(actual_refund, expected_refund, places=2)
+        # posting_date is the one assertion here with independent value: it
+        # pins erpnext's transaction_base, which overwrites posting_date with
+        # now_datetime() whenever set_posting_time is falsy. Verified by an
+        # isolating mutation -- shifting the stored posting_date by a day leaves
+        # every proration number byte-identical (they come from the string
+        # arguments) and reddens only this line.
+        #
+        # net_total is NOT a second guard: because the helper now reads it,
+        # anything that moves it also moves prorated_amount, which is asserted
+        # above and fails first. It is kept as executable documentation of what
+        # 12.10/12.90 are a fraction of. (It would not catch a tax template
+        # either -- that moves grand_total, not net_total.)
+        persisted = frappe.db.get_value(
+            "Sales Invoice", full_period_invoice.name, ["net_total", "posting_date"], as_dict=True
+        )
+        self.assertEqual(flt(persisted.net_total), 25.0)
+        self.assertEqual(str(persisted.posting_date), period_start)
 
     # Helper Methods
 
@@ -814,13 +880,31 @@ class TestFinancialReconciliationComprehensive(VereningingenTestCase):
     def process_partial_period_reconciliation(
         self, member_name, invoice_name, period_start, termination_date
     ):
-        """Process partial period billing reconciliation"""
-        from frappe.utils import get_last_day, get_first_day
+        """Simulate partial-period billing reconciliation for the fixture.
 
-        invoice_amount = 25.0
+        This is NOT production code and does not stand in for any. The app owns
+        no membership-dues proration at all -- a mid-period joiner is billed the
+        full ``dues_rate`` and ``handle_membership_termination`` leaves proration
+        as an explicit ``pass``. See the scope note on
+        ``test_partial_period_billing_reconciliation`` and #683.
+
+        The day-count expression below is the ONLY copy of that formula: the
+        caller asserts against literals rather than recomputing it. The previous
+        arrangement had a second, different formula in the test body, and the two
+        disagreed on 14 of the 730 days in 2026-2027. (The number 31 itself is
+        deliberately written out in the caller's literals -- that is the point of
+        asserting against constants rather than against an expression.)
+        """
+        from frappe.utils import get_first_day, get_last_day
+
+        # Read the amount off the invoice the test persisted rather than
+        # hardcoding it, so ``invoice_name`` is load-bearing. create_test_invoice
+        # applies no tax template, so net_total is the membership dues rate.
+        invoice_amount = flt(frappe.db.get_value("Sales Invoice", invoice_name, "net_total"))
+
         days_used = (getdate(termination_date) - getdate(period_start)).days
-        # Use the real number of days in the period's calendar month so the
-        # proration matches the test's period_end (last day of the month).
+        # Days in period_start's calendar month. The caller passes a whole
+        # calendar month, so this is the period length.
         total_days = (getdate(get_last_day(period_start)) - getdate(get_first_day(period_start))).days + 1
 
         prorated_amount = (days_used / total_days) * invoice_amount
