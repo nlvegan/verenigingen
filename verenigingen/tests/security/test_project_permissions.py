@@ -31,6 +31,7 @@ from verenigingen.utils.project_permissions import (
     PermissionSystemError,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
 
 
 class TestProjectPermissionHelpers(EnhancedTestCase):
@@ -175,15 +176,9 @@ class TestChapterPermissions(EnhancedTestCase):
         import random
         chapter_suffix = random.randint(1000, 9999)
 
-        # Chapter needs a region - create one if it doesn't exist
-        # Region name is auto-generated from region_name field (becomes "test-region")
-        region_name = "test-region"
-        if not frappe.db.exists("Region", region_name):
-            frappe.get_doc({
-                "doctype": "Region",
-                "region_name": "Test Region",
-                "region_code": "TR",
-            }).insert(ignore_if_duplicate=True)
+        # Chapter needs a region. One owner for the shared "Test Region"
+        # docname (#406); the docname is the slug, not the title.
+        region_name = ensure_test_region()
 
         self.chapter = frappe.get_doc({
             "doctype": "Chapter",

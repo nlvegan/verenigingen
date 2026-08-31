@@ -146,7 +146,9 @@ class TestComprehensiveSuiteDemo(VereningingenWorkflowTestCase):
         # Register items with dependencies
         cleanup_manager.register("Member", "test-member-1")
         cleanup_manager.register("Membership", "test-membership-1", dependencies=["Member:test-member-1"])
-        cleanup_manager.register("Verenigingen Volunteer", "test-volunteer-1", dependencies=["Member:test-member-1"])
+        # "Volunteer", not "Verenigingen Volunteer" -- the latter is a role name and
+        # register() now rejects a non-DocType outright (#491).
+        cleanup_manager.register("Volunteer", "test-volunteer-1", dependencies=["Member:test-member-1"])
 
         # Test dependency sorting (would clean Membership and Volunteer before Member)
         sorted_stack = cleanup_manager._sort_by_dependencies()

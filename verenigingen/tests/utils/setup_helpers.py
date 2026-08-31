@@ -324,22 +324,17 @@ class TestEnvironmentSetup:
         """Create standard test chapters for testing"""
         chapters = []
 
-        # Get the actual test region name (it might be slugified)
-        test_region = frappe.db.get_value("Region", {"region_code": "TR"}, "name")
-        if not test_region:
-            # Create test region if it doesn't exist
-            region = frappe.get_doc(
-                {
-                    "doctype": "Region",
-                    "region_name": "Test Region",
-                    "region_code": "TR",
-                    "country": "Netherlands",
-                    "is_active": 1,
-                    "postal_code_patterns": "1000-9999",  # Cover all test postal codes
-                }
-            )
-            region.insert()
-            test_region = region.name
+        # Local import on purpose -- see region_fixtures' module docstring.
+        from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
+
+        # Get the shared test region through its ONE owner (#406). This used to be
+        # keyed on region_code == "TR" -- a predicate the "TST"/"TSTRG" writers
+        # falsify while the row itself is present, so the insert below then died on
+        # the "test-region" PRIMARY key. The chapters created here carry their own
+        # `postal_codes`, which is what chapter matching reads, so the region's
+        # `postal_code_patterns` (previously "1000-9999" here and nowhere else) is
+        # no longer seeded; see ensure_test_region's docstring.
+        test_region = ensure_test_region()
 
         # Amsterdam Chapter
         if not DocumentExistenceValidator.check_document_exists("Chapter", "Test Amsterdam Chapter"):

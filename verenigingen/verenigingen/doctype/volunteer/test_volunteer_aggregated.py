@@ -7,6 +7,7 @@ import frappe
 from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
 
 
 class TestVolunteerAggregatedAssignments(EnhancedTestCase):
@@ -56,7 +57,10 @@ class TestVolunteerAggregatedAssignments(EnhancedTestCase):
             }
         )
         self.test_volunteer.insert()
-        self._docs_to_delete.append(("Verenigingen Volunteer", self.test_volunteer.name))
+        # "Volunteer", the doctype actually inserted. "Verenigingen Volunteer" is a
+        # ROLE name; tearDown's delete_doc on it can only ever raise and be
+        # swallowed, so the volunteer leaked (#491, same class as factories.py).
+        self._docs_to_delete.append(("Volunteer", self.test_volunteer.name))
 
         # Create Chapter Role if it doesn't exist
         role_name = "Secretary"
@@ -73,20 +77,11 @@ class TestVolunteerAggregatedAssignments(EnhancedTestCase):
             chapter_role.insert(ignore_permissions=True)
             self._docs_to_delete.append(("Chapter Role", role_name))
 
-        # Ensure the referenced Region master exists (idempotent). Region
-        # autoname is field:region_name (slugified to "test-region"), so match
-        # on the slugified docname and link the Chapter to it.
-        region_docname = "test-region"
-        if not frappe.db.exists("Region", region_docname):
-            frappe.get_doc(
-                {
-                    "doctype": "Region",
-                    "region_name": "Test Region",
-                    "region_code": "TSTRG",
-                    "country": "Netherlands",
-                    "is_active": 1,
-                }
-            ).insert(ignore_permissions=True)
+        # Ensure the referenced Region master exists, through its ONE owner
+        # (#406). This file used to write region_code "TSTRG" into the shared
+        # "test-region" docname that twelve other files look up by "TR"; the
+        # loser of that race died with DuplicateEntryError on the PRIMARY key.
+        region_docname = ensure_test_region()
 
         # 3. Create a chapter with explicit name
         chapter_name = f"Test_Chapter_{unique_suffix}"

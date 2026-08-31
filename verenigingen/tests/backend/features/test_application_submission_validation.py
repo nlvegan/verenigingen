@@ -47,7 +47,14 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
     def tearDown(self):
         """Clean up test records"""
         try:
-            for record_type, record_name in self.test_cleanup_records:
+            # REVERSED: these deletes used to be no-ops -- every volunteer was
+            # registered under "Verenigingen Volunteer", which is not a DocType, so
+            # the `frappe.db.exists` guard below read False and skipped them (#491).
+            # Now that they run, insertion order would delete the Member BEFORE the
+            # Volunteer that links to it. `force=True` skips the link check, so it
+            # would pass while orphaning the volunteer -- and any raise here rolls
+            # back the whole teardown, commit included.
+            for record_type, record_name in reversed(self.test_cleanup_records):
                 if frappe.db.exists(record_type, record_name):
                     frappe.delete_doc(record_type, record_name, force=True)
             frappe.db.commit()
@@ -95,7 +102,7 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
 
             if volunteers:
                 volunteer = volunteers[0]
-                self.add_cleanup_record("Verenigingen Volunteer", volunteer["name"])
+                self.add_cleanup_record("Volunteer", volunteer["name"])
                 self.assertEqual(volunteer["status"], "New", "Volunteer should be created with 'New' status")
 
             # Check member record
@@ -152,7 +159,7 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
         volunteer = create_volunteer_record(member)
 
         if volunteer:
-            self.add_cleanup_record("Verenigingen Volunteer", volunteer.name)
+            self.add_cleanup_record("Volunteer", volunteer.name)
 
             # Verify correct status is used
             self.assertEqual(volunteer.status, "New", "create_volunteer_record should use 'New' status")
@@ -227,7 +234,7 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             )
             self.assertEqual(len(volunteers), 1, "Exactly one volunteer record should be created")
             self.assertEqual(volunteers[0]["status"], "New", "Volunteer should have 'New' status")
-            self.add_cleanup_record("Verenigingen Volunteer", volunteers[0]["name"])
+            self.add_cleanup_record("Volunteer", volunteers[0]["name"])
 
             member = frappe.get_doc("Member", member_record)
             if member.primary_address:
@@ -288,7 +295,7 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
 
             if volunteers:
                 volunteer = volunteers[0]
-                self.add_cleanup_record("Verenigingen Volunteer", volunteer["name"])
+                self.add_cleanup_record("Volunteer", volunteer["name"])
 
                 # Verify volunteer was created with correct status and name handling
                 self.assertEqual(volunteer["status"], "New")

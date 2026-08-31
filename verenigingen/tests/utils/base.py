@@ -613,30 +613,14 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
             )
             item_group.insert(ignore_permissions=True)
 
-        # Ensure test Region exists.
-        # The Region docname is the slugified region_name ("Test Region" -> "test-region").
-        # A prior run may have left a "test-region" doc with a uniquified region_code
-        # (e.g. "TR17"), so a region_code=="TR" check alone misses it and the re-insert
-        # below then collides on the primary key. Fall back to the docname to reuse it.
-        existing_region = frappe.db.get_value("Region", {"region_code": "TR"}, "name") or (
-            "test-region" if frappe.db.exists("Region", "test-region") else None
-        )
-        if not existing_region:
-            region = frappe.get_doc(
-                {
-                    "doctype": "Region",
-                    "region_name": "Test Region",
-                    "region_code": "TR",
-                    "country": "Netherlands",
-                    "is_active": 1,
-                }
-            )
-            region.insert(ignore_permissions=True)
-            # Store the actual name that was generated
-            existing_region = region.name
+        # Local import on purpose -- see region_fixtures' module docstring.
+        from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
 
-        # Store the region name for use in tests
-        cls._test_region_name = existing_region
+        # Ensure the shared test Region exists, through its ONE owner (#406).
+        # The docname is the slugified region_name ("Test Region" -> "test-region")
+        # and that docname -- not region_code -- is the primary key the insert
+        # collides on, so it is the only predicate the get-or-create can key on.
+        cls._test_region_name = ensure_test_region()
 
         # Ensure test Membership Type exists
         if not frappe.db.exists("Membership Type", "Test Membership"):
@@ -662,8 +646,14 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
             cls, "_test_chapter_name", f"Test Chapter {frappe.generate_hash(length=8)}"
         )
         if not frappe.db.exists("Chapter", cls._test_chapter_name):
-            # Get the actual region name after insert
-            region_name = frappe.db.get_value("Region", {"region_code": "TR"}, "name") or "test-region"
+            # Local import on purpose -- see region_fixtures' module docstring.
+            from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
+
+            # Through the one owner (#406). This read `region_code == "TR"`, so if
+            # any other Region held that code the class fixture silently linked to
+            # a FOREIGN region; and the `or "test-region"` fallback named a docname
+            # that need not exist, failing link validation on a cold site.
+            region_name = ensure_test_region()
             chapter = frappe.get_doc(
                 {
                     "doctype": "Chapter",
@@ -824,29 +814,23 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
     @staticmethod
     def get_test_region_name():
-        """Get (creating if necessary) the canonical test region name.
+        """Get (creating if necessary) the canonical test region docname.
 
-        On accumulated dev sites a Region with code "TR" already exists, but on a
-        fresh CI site it does not. Returning a bare "test-region" string for a row
-        that doesn't exist makes any chapter created with that region fail link
-        validation. So ensure the region exists and return its real name.
+        This was a SECOND owner of `test-region` and it collided exactly like the
+        sixteen in #406, only harder to see: it wrote `region_name="test-region"`
+        (already scrubbed), which autonames to the same primary key, and it keyed
+        its get-or-create on `region_code == "TR"` -- the predicate that reads
+        False whenever another writer holds that docname under a different code.
+        It also committed, so the row it created outlived the test that made it.
+
+        Reproduced on test_site_5 by freeing "TR" and running the old body
+        verbatim: DuplicateEntryError ... Duplicate entry 'test-region' for key
+        'PRIMARY'. Delegating removes the second owner rather than repairing it.
         """
-        existing = frappe.db.get_value("Region", {"region_code": "TR"}, "name")
-        if existing:
-            return existing
+        # Local import on purpose -- see region_fixtures' module docstring.
+        from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
 
-        region = frappe.get_doc(
-            {
-                "doctype": "Region",
-                "region_name": "test-region",
-                "region_code": "TR",
-                "country": "Netherlands",
-                "is_active": 1,
-            }
-        )
-        region.insert(ignore_permissions=True)
-        frappe.db.commit()
-        return region.name
+        return ensure_test_region()
 
     @classmethod
     def setup_payment_modes(cls):

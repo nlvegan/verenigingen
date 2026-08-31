@@ -27,23 +27,7 @@ import unittest
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-
-
-def _ensure_test_region():
-    """Idempotently ensure a "Test Region" exists; return its slug docname."""
-    slug = "test-region"
-    if not frappe.db.exists("Region", slug):
-        region = frappe.get_doc(
-            {
-                "doctype": "Region",
-                "region_name": "Test Region",
-                "region_code": "TR",
-                "country": "Netherlands",
-                "is_active": 1,
-            }
-        )
-        region.insert(ignore_permissions=True)
-    return slug
+from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
 
 
 class TestChapterUtilsAccess(EnhancedTestCase):
@@ -57,7 +41,7 @@ class TestChapterUtilsAccess(EnhancedTestCase):
         token = f"{int(time.time() * 1000)}{frappe.generate_hash(length=4)}"
         self.token = token
 
-        region = _ensure_test_region()
+        region = ensure_test_region()
         self.chapter_fin = self.create_chapter(chapter_name=f"CU Fin {token}", region=region)
         self.chapter_basic = self.create_chapter(chapter_name=f"CU Basic {token}", region=region)
 
@@ -217,7 +201,7 @@ class TestChapterUtilsAccess(EnhancedTestCase):
         )
         ephemeral_role.save()
         new_chapter = self.create_chapter(
-            chapter_name=f"CU Dangle {self.token}", region=_ensure_test_region()
+            chapter_name=f"CU Dangle {self.token}", region=ensure_test_region()
         )
         self._add_board_position(new_chapter.name, self.fin_volunteer.name, ephemeral_role.name)
         frappe.db.commit()
@@ -258,7 +242,7 @@ class TestChapterUtilsAccess(EnhancedTestCase):
 
         # A dedicated national chapter, distinct from the member's own chapter(s).
         national_chapter = self.create_chapter(
-            chapter_name=f"CU National {self.token}", region=_ensure_test_region()
+            chapter_name=f"CU National {self.token}", region=ensure_test_region()
         )
         # Give the financial volunteer an ACTIVE Financial board seat in it.
         self._add_board_position(national_chapter.name, self.fin_volunteer.name, self.financial_role.name)
@@ -280,7 +264,7 @@ class TestChapterUtilsAccess(EnhancedTestCase):
         from verenigingen.services.chapter.chapter_utils import get_user_accessible_chapters
 
         national_chapter = self.create_chapter(
-            chapter_name=f"CU National Neg {self.token}", region=_ensure_test_region()
+            chapter_name=f"CU National Neg {self.token}", region=ensure_test_region()
         )
         # fin_volunteer has NO board position in national_chapter.
         frappe.db.set_single_value("Verenigingen Settings", "national_board_chapter", national_chapter.name)
@@ -297,7 +281,7 @@ class TestChapterUtilsAccess(EnhancedTestCase):
         from verenigingen.services.chapter.chapter_utils import get_user_accessible_chapters
 
         national_chapter = self.create_chapter(
-            chapter_name=f"CU National Basic {self.token}", region=_ensure_test_region()
+            chapter_name=f"CU National Basic {self.token}", region=ensure_test_region()
         )
         # Basic-level seat for the financial volunteer in the national chapter.
         self._add_board_position(national_chapter.name, self.fin_volunteer.name, self.basic_role.name)
@@ -386,7 +370,7 @@ class TestChapterUtilsAccess(EnhancedTestCase):
         )
         broken_role.save()
         third_chapter = self.create_chapter(
-            chapter_name=f"CU Broken Role {self.token}", region=_ensure_test_region()
+            chapter_name=f"CU Broken Role {self.token}", region=ensure_test_region()
         )
         self._add_board_position(third_chapter.name, self.fin_volunteer.name, broken_role.name)
         frappe.db.commit()
@@ -545,7 +529,7 @@ class TestChapterUtilsPrimaryChapter(EnhancedTestCase):
 
         token = f"{int(time.time() * 1000)}{frappe.generate_hash(length=4)}"
         self.token = token
-        self.chapter = self.create_chapter(chapter_name=f"PC Chapter {token}", region=_ensure_test_region())
+        self.chapter = self.create_chapter(chapter_name=f"PC Chapter {token}", region=ensure_test_region())
         self.member = self.create_test_member(
             first_name="Primary", last_name="Member", email=f"pc-{token}@test.com"
         )
@@ -601,7 +585,7 @@ class TestChapterUtilsPrimaryChapter(EnhancedTestCase):
         from verenigingen.services.chapter.chapter_utils import get_member_primary_chapter
 
         older_chapter = self.create_chapter(
-            chapter_name=f"PC Older {self.token}", region=_ensure_test_region()
+            chapter_name=f"PC Older {self.token}", region=ensure_test_region()
         )
         self._add_chapter_member(
             older_chapter.name, self.member.name, join_date=frappe.utils.add_days(frappe.utils.today(), -30)
@@ -621,7 +605,7 @@ class TestChapterUtilsDuesSplit(EnhancedTestCase):
 
         token = f"{int(time.time() * 1000)}{frappe.generate_hash(length=4)}"
         self.token = token
-        self.chapter = self.create_chapter(chapter_name=f"DS Chapter {token}", region=_ensure_test_region())
+        self.chapter = self.create_chapter(chapter_name=f"DS Chapter {token}", region=ensure_test_region())
 
     def test_get_chapter_split_percentage_default(self):
         from verenigingen.services.chapter.chapter_utils import get_chapter_split_percentage

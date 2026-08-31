@@ -31,6 +31,7 @@ would fail these tests.
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
 from verenigingen.utils.project_permissions import (
     get_chapter_permission_level,
     get_project_permission_query_conditions,
@@ -113,12 +114,8 @@ class _ProjectPermBase(EnhancedTestCase):
         return team
 
     def _ensure_region(self):
-        region_name = "test-region"
-        if not frappe.db.exists("Region", region_name):
-            frappe.get_doc({"doctype": "Region", "region_name": "Test Region", "region_code": "TR"}).insert(
-                ignore_if_duplicate=True
-            )
-        return region_name
+        # One owner for the shared "Test Region" docname (#406).
+        return ensure_test_region()
 
     def _make_chapter(self, chapter_name):
         chapter = frappe.get_doc(

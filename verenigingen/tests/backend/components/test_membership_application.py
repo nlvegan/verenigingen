@@ -17,6 +17,7 @@ from verenigingen.api.membership_application import (
     submit_application,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.utils.validation.application_validators import (
     validate_birth_date as validate_birth_date_util,
@@ -80,15 +81,10 @@ class TestMembershipApplication(VereningingenTestCase):
             )
             item_group.insert()
 
-        # Create required Region for chapters
-        # Note: Region autoname is field:region_name which converts "Test Region" to "test-region"
-        if not frappe.db.exists("Region", "test-region"):
-            region = frappe.get_doc({
-                "doctype": "Region",
-                "region_name": "Test Region",
-                "region_code": "TST"
-            })
-            region.insert()
+        # Create required Region for chapters. One owner for the shared
+        # "Test Region" docname (#406) -- this file used to write region_code
+        # "TST" into a row twelve other files expected to carry "TR".
+        ensure_test_region()
 
         # Create test membership type
         if not frappe.db.exists("Membership Type", "Test Membership"):

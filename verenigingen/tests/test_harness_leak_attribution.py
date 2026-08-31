@@ -24,6 +24,7 @@ import frappe
 from frappe.utils import now
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
 from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.tests.setup import ensure_root_territory
 
@@ -384,6 +385,35 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
         self.assertTrue(
             hasattr(ensure_mollie_gl_accounts, "__wrapped__"),
             "ensure_mollie_gl_accounts creates shared master data and must be @shared_fixture",
+        )
+
+    def test_the_shared_region_helper_is_declared_shared(self):
+        """`ensure_test_region` owns the single "test-region" docname (#406).
+
+        Seventeen call sites resolve it, and on `test_site_5` 225 Chapters link to
+        it. Built lazily from inside whichever test calls first, so without
+        `@shared_fixture` the captured-insert drain claims it for that one test and
+        deletes it at that test's teardown -- and every later class whose chapter
+        names it then fails link validation, not merely the region lookup. Module
+        level, so the six-method check above does not cover it.
+        """
+        from verenigingen.tests.fixtures import enhanced_test_factory as factory_module
+        from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
+
+        # `hasattr(f, "__wrapped__")` -- what the six sibling checks assert -- only
+        # says SOME functools.wraps decorator is applied, which `lru_cache` and any
+        # local decorator satisfy too. Compare the wrapper's code object with a
+        # freshly built `shared_fixture` wrapper instead: that is identity with THIS
+        # decorator, and it is what the six should have asserted.
+        self.assertTrue(
+            hasattr(ensure_test_region, "__wrapped__"),
+            "ensure_test_region creates shared master data and must be @shared_fixture",
+        )
+        self.assertIs(
+            ensure_test_region.__code__,
+            factory_module.shared_fixture(lambda: None).__code__,
+            "ensure_test_region must be wrapped by @shared_fixture specifically, not "
+            "merely by something that sets __wrapped__",
         )
 
     def test_no_shared_fixture_helper_is_decorated_in_one_copy_and_not_its_clone(self):
@@ -1718,25 +1748,17 @@ class _BorrowedChapterFixture:
     def _region(self):
         """Resolve the region `with_chapter` would resolve, creating it if absent.
 
-        Done here rather than left to the builder so this test never depends on
-        which other suite ran first, and so the Region it may create is tracked --
-        `with_chapter` inserts one without registering it.
+        Through the shared owner (#406): this used to be its own `region_code ==
+        "TR"` get-or-create, which is the predicate that collides on the shared
+        `test-region` docname whenever a "TST"/"TSTRG" writer got there first.
+
+        Deliberately NOT tracked for deletion any more. It used to be, on the
+        grounds that "the Region it may create is tracked" -- but this fixture's
+        tearDown COMMITS its deletes, so on a cold site the first class to call
+        this would create the shared region and then permanently remove it from
+        every later class in the shard. That is #330 with a different doctype.
         """
-        existing = frappe.db.get_value("Region", {"region_code": "TR"}, "name")
-        if existing:
-            return existing
-        region = frappe.get_doc(
-            {
-                "doctype": "Region",
-                "region_name": "Test Region",
-                "region_code": "TR",
-                "country": "Netherlands",
-                "is_active": 1,
-            }
-        )
-        region.insert()
-        self.created.append(("Region", region.name))
-        return region.name
+        return ensure_test_region()
 
     def _seed_chapter(self, label="Borrowed"):
         """Create a chapter THROUGH the builder, then commit it.
@@ -1919,6 +1941,94 @@ class BuilderMustNotSilentlyDropTheChapterLinkageTest(
         message = str(caught.exception)
         self.assertIn(name, message, message)
         self.assertIn(member.name, message, message)
+
+
+class BuilderRegistersTheDoctypeItActuallyInsertedTest(
+    _BorrowedChapterFixture, unittest.TestCase
+):
+    """A cleanup registered under a name that is not a DocType deletes nothing (#491).
+
+    `with_volunteer_profile` inserted a `Volunteer` and registered the cleanup under
+    `"Verenigingen Volunteer"` -- a ROLE name. `cleanup()` gates each delete on
+    `frappe.db.exists`, which for a doctype with no table returns `None`, so the
+    guard read "already gone" and the loop walked past it. Measured on test_site_5,
+    one run of `backend.unit.controllers.test_volunteer_controller` with the guard
+    instrumented: **10 of 10** Volunteer registrations skipped as gone, **0**
+    deletes attempted, and `tabVolunteer` grew by exactly one row per run (the
+    others were undone by the per-class rollback, not by the cleanup).
+
+    The volunteer is COMMITTED here, but NOT for the reason the borrowed-chapter
+    test next door gives. Under the defect no rollback path can erase the row
+    either way: `_delete_registered_document` takes its savepoint AFTER the
+    existence check, and under the defect that check short-circuits, so nothing is
+    rolled back. The commit is defence against `cleanup()` regressing to a
+    transaction-wide rollback -- which is what it used to do (#483) and what would
+    make "it is gone" true for the wrong reason. It is not free: `cleanup()` does
+    not commit its deletes (#489), so the row is put back and the fixture's own
+    tearDown, which does commit, is what finally removes it.
+    """
+
+    def test_a_volunteer_the_builder_created_is_deleted_by_its_cleanup(self):
+        from verenigingen.tests.utils.factories import TestDataBuilder
+
+        builder = TestDataBuilder()
+        data = builder.with_member().with_volunteer_profile().build()
+        volunteer, member = data["volunteer"].name, data["member"].name
+        frappe.db.commit()
+        self.created.append(("Volunteer", volunteer))
+        self.created.append(("Member", member))
+
+        self.assertTrue(frappe.db.exists("Volunteer", volunteer), "precondition")
+        failures = builder.cleanup()
+
+        self.assertEqual([], failures, "precondition: the cleanup itself must not fail")
+        self.assertFalse(
+            frappe.db.exists("Volunteer", volunteer),
+            "the builder registered the volunteer under a name that is not a DocType, "
+            "so the cleanup skipped it as 'already gone' and the row leaked (#491)",
+        )
+
+    def test_registering_a_doctype_that_does_not_exist_is_refused(self):
+        """The INSTRUMENT, not just the two names it got wrong.
+
+        `check_document_exists` answers False for "the row is gone" and for "the
+        DocType is gone" alike -- measured on test_site_5, all three of
+        ("Volunteer Expense", "Verenigingen Volunteer", "Volunteer") returned False
+        for a name that does not exist, and only the third of those is a DocType.
+        A cleanup handed an unknown doctype has to say so at the registration, which
+        is the line that is wrong; raising from `cleanup()` instead would skip the
+        caller's `super().tearDown()` (#483).
+        """
+        from verenigingen.tests.utils.factories import TestCleanupManager
+
+        manager = TestCleanupManager()
+        with self.assertRaises(ValueError) as ctx:
+            manager.register("Verenigingen Volunteer", "whatever")
+        self.assertIn("not a DocType", str(ctx.exception))
+        self.assertEqual([], manager._cleanup_stack, "a refused registration must not be recorded")
+        self.assertEqual({}, manager._dependencies, "nor must its dependency edge")
+
+        # The control: a real doctype still registers.
+        manager.register("Volunteer", "whatever")
+        self.assertEqual(1, len(manager._cleanup_stack))
+
+    def test_the_archived_expense_builder_says_why_instead_of_failing_obscurely(self):
+        """`with_expense` targeted `Volunteer Expense`, archived in 1a8e5fa2 and
+        dropped by `patches/v2_2/drop_volunteer_expense_archived_doctype.py`.
+
+        It cannot work, and both call sites already sit behind
+        `@unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)`. It now raises the same
+        NotImplementedError, with the same migration pointer, as
+        `VereningingenTestCase.create_test_volunteer_expense`.
+        """
+        from verenigingen.tests.utils.factories import TestDataBuilder
+
+        # No member/volunteer precondition: `with_expense` used to require one and
+        # now raises unconditionally, so building a real Member and Volunteer here
+        # would only be two more rows to clean up.
+        with self.assertRaises(NotImplementedError) as ctx:
+            TestDataBuilder().with_expense(10, "anything")
+        self.assertIn("Expense Claim", str(ctx.exception))
 
 
 if __name__ == "__main__":

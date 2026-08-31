@@ -27,6 +27,7 @@ import frappe
 from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
 from verenigingen.utils.constants import Roles
 
 
@@ -90,18 +91,8 @@ class NationalChapterAccessBase(EnhancedTestCase):
         frappe.db.commit()
 
     def _ensure_region(self):
-        slug = "test-region"
-        if not frappe.db.exists("Region", slug):
-            frappe.get_doc(
-                {
-                    "doctype": "Region",
-                    "region_name": "Test Region",
-                    "region_code": "TR",
-                    "country": "Netherlands",
-                    "is_active": 1,
-                }
-            ).insert(ignore_permissions=True)
-        return slug
+        # One owner for the shared "Test Region" docname (#406).
+        return ensure_test_region()
 
     def _set_national_chapter(self, chapter_name):
         # NON-committed: rolls back with the test, read in-transaction by prod.
