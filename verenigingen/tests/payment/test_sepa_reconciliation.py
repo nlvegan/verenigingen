@@ -33,8 +33,10 @@ PRODUCT BUGS exposed (xfailed / documented below and in the orchestrator report)
 
 import json
 import unittest
+from unittest.mock import patch
 
 import frappe
+from erpnext.accounts.doctype.payment_entry.payment_entry import PaymentEntry
 from frappe.utils import add_days, flt, getdate, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -42,7 +44,10 @@ from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
 from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.tests.support.error_log_assertions import assert_error_log
 from verenigingen.tests.support.invoice_payments import receive_against_invoice
+from verenigingen.tests.support.non_resumable_errors import deadlock as _deadlock
+from verenigingen.tests.support.non_resumable_errors import lock_wait_timeout as _timeout
 from verenigingen.tests.support.sepa_test_company import get_eur_bank_account, get_eur_test_company
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen_payments.api import sepa_reconciliation as recon
 
 
@@ -909,8 +914,12 @@ class TestSepaReturnParsing(ReconBase):
             "NO-SUCH-MEMBER-123,99.00,Insufficient funds\n"
         )
         result = recon.process_sepa_return_file(csv_content, file_type="csv")
-        self.assertTrue(result["success"], msg=result)
+        # `success` used to be a constant True. It now means "every return in the file was
+        # actually applied", and an unidentifiable member is money clawed back with nothing
+        # reversed -- see test_a_row_that_names_no_invoice_also_costs_the_file_its_success (#576).
+        self.assertFalse(result["success"], msg=result)
         self.assertEqual(result["total_processed"], 1)
+        self.assertEqual(result["status_counts"], {"not_found": 1}, msg=result)
         self.assertEqual(result["processed_returns"][0]["status"], "not_found")
 
     def test_parse_xml_invalid_raises(self):
@@ -1160,6 +1169,258 @@ class TestProcessIndividualReturn(ReconBase):
         self.assertEqual(result["invoice"], bundle["invoice"].name)
         real_pe.reload()
         self.assertEqual(real_pe.docstatus, 2, "the submitted payment is the one to reverse")
+
+
+# =============================================================================
+# #576: a return that FAILED must not be reported as a processed file
+# =============================================================================
+class TestReturnFailureIsNotReportedAsSuccess(ReconBase):
+    """A returned direct debit that could not be reversed must not read as success.
+
+    `process_individual_return` wrapped its whole body -- the invoice lookup,
+    `reverse_failed_sepa_payment`, `create_failed_payment_record`,
+    `notify_member_of_failed_payment` -- in one `except Exception` that returned
+    `{"status": "error"}` and wrote nothing anywhere. `process_sepa_return_file`
+    collected that row and reported `{"success": True}`. So on a live return file the
+    bank had clawed the money back, the Sales Invoice stayed `Paid` with
+    `outstanding_amount = 0`, the member was never notified, the Error Log was empty,
+    and the operator was told the file had been processed (#576).
+
+    **What these tests inject is the exception CLASS, not contention.** No real 1213 is
+    produced -- the same caveat as the #470/#475/#481 modules, and it is a real limit:
+    these establish which frame catches the class and what the caller is then told, and
+    they establish nothing about whether a genuine deadlock arises at that statement or
+    about what the server has already discarded when it does. The injection point is
+    `PaymentEntry.cancel` -- the only DB-WRITING statement on this path, and therefore the
+    most likely site; #576 records the error string and not a frame, so "the statement it
+    deadlocks on" would be inference stated as measurement. Everything above it -- the
+    member lookup, the candidate filter, the mode_of_payment/docstatus check -- is the
+    real code.
+
+    Each non-resumable test has an ordinary-exception twin and a success twin. Without
+    both, every assertion here is equally consistent with "the endpoint now propagates
+    everything" and with "`success` became a constant False", which are different and
+    wrong changes: the structured per-row failure is what the endpoint is for.
+    """
+
+    def _settled_return_fixture(self, first_name):
+        """A member whose 42.00 invoice is settled by a submitted SEPA Direct Debit PE.
+
+        `mode_of_payment` is load-bearing -- `reverse_failed_sepa_payment` only cancels a
+        "SEPA Direct Debit" entry, so without it the reversal would find nothing and every
+        "still un-reversed" assertion below would pass for the wrong reason.
+        """
+        bundle = self._make_member_with_invoice(first_name=first_name, grand_total=42.0)
+        _invoice, payment_entry = receive_against_invoice(
+            self, bundle["invoice"].name, 42.0, mode_of_payment="SEPA Direct Debit"
+        )
+        bundle["payment_entry"] = payment_entry
+        bundle["member_id"] = frappe.db.get_value("Member", bundle["member"].name, "member_id")
+        self.assertTrue(bundle["member_id"], "member should have a member_id")
+        return bundle
+
+    def _return_file(self, bundle):
+        return (
+            "Member_ID,Amount,Return_Reason,Return_Code\n"
+            f"{bundle['member_id']},42.00,Insufficient funds,AM04\n"
+        )
+
+    def _assert_the_fixture_invoice_is_still_settled(self, bundle):
+        """PRECONDITION, not an outcome -- and the reason it is worth printing anyway.
+
+        In the two non-resumable tests `PaymentEntry.cancel` is patched to raise, so
+        "nothing was cancelled" is guaranteed by the stub and this helper cannot fail
+        there. It is asserted so the reader can see WHAT the endpoint was reporting
+        success over: at the moment of the report the bank has clawed the money back and
+        the ledger still says Paid. Do not read a green run here as evidence about
+        rollback semantics -- test_a_return_that_reverses_still_reports_the_file_as_a_success
+        is the test that observes the ledger actually moving.
+        """
+        bundle["payment_entry"].reload()
+        self.assertEqual(
+            bundle["payment_entry"].docstatus,
+            1,
+            "the returned direct debit was NOT reversed -- its Receive entry is still submitted",
+        )
+        self.assertEqual(
+            float(frappe.db.get_value("Sales Invoice", bundle["invoice"].name, "outstanding_amount")),
+            0.0,
+            "the invoice is still settled, so the receivable the bank clawed back is not on the books",
+        )
+
+    def _run_return_file(self, bundle, error):
+        """Feed the return file with `error` raised from the cancel, and report both exits.
+
+        Returns `(raised, result)` -- exactly one is None. Written this way rather than
+        with `assertRaises` so the failure message can print the summary the endpoint
+        handed back next to the un-reversed debit, which is the whole of #576.
+        """
+        raised = None
+        result = None
+        with patch.object(PaymentEntry, "cancel", side_effect=error):
+            try:
+                result = recon.process_sepa_return_file(self._return_file(bundle), file_type="csv")
+            except NON_RESUMABLE_DB_ERRORS as exc:
+                raised = exc
+        return raised, result
+
+    def test_a_deadlock_in_the_reversal_reaches_the_caller(self):
+        """1213. The server has discarded the transaction; nothing downstream may proceed.
+
+        Red on develop: the endpoint returns
+        `{'success': True, 'processed_returns': [{'status': 'error', 'error': "(1213, ...)"}]}`
+        while the Payment Entry below is still submitted.
+        """
+        bundle = self._settled_return_fixture("RetDead")
+        raised, result = self._run_return_file(bundle, _deadlock())
+
+        self._assert_the_fixture_invoice_is_still_settled(bundle)
+        self.assertIsNotNone(
+            raised,
+            "a 1213 during the reversal must reach the caller. It did not: the endpoint "
+            f"reported {result!r} while the direct debit above is still un-reversed.",
+        )
+
+    def test_a_lock_wait_timeout_in_the_reversal_reaches_the_caller(self):
+        """1205, the other member of the class and the half-applied one."""
+        bundle = self._settled_return_fixture("RetTimeout")
+        raised, result = self._run_return_file(bundle, _timeout())
+
+        self._assert_the_fixture_invoice_is_still_settled(bundle)
+        self.assertIsNotNone(
+            raised,
+            "a 1205 during the reversal must reach the caller. It did not: the endpoint "
+            f"reported {result!r} while the direct debit above is still un-reversed.",
+        )
+
+    def test_an_ordinary_failure_is_logged_and_the_file_is_not_reported_as_a_success(self):
+        """CONTROL for the guard's position, and the assertion for the missing log.
+
+        An ordinary error keeps the per-row structured failure -- that is the endpoint's
+        purpose and a guard written as `except Exception: raise` would break it -- but the
+        row must now be written to the Error Log and must cost the file its `success`.
+        """
+        self.expectErrorLog("SEPA Return Processing Failed")
+        bundle = self._settled_return_fixture("RetOrdinary")
+        token = f"576-ordinary-{frappe.generate_hash(length=8)}"
+
+        with patch.object(PaymentEntry, "cancel", side_effect=RuntimeError(token)):
+            result = recon.process_sepa_return_file(self._return_file(bundle), file_type="csv")
+
+        self.assertFalse(
+            result["success"],
+            f"a file whose only return could not be reversed is not a success: {result!r}",
+        )
+        self.assertEqual(result["status_counts"], {"error": 1}, msg=result)
+        self.assertEqual(result["processed_returns"][0]["status"], "error", msg=result)
+        self._assert_the_fixture_invoice_is_still_settled(bundle)
+        assert_error_log(
+            self,
+            "SEPA Return Processing Failed",
+            unique=token,
+            # "amount 42.0," and not "42.0": the raw CSV cell is "42.00", so the bare
+            # number would be satisfied by the unparsed string and discriminate nothing.
+            must_contain=[bundle["member_id"], "AM04", "amount 42.0,"],
+        )
+
+    def test_a_return_that_reverses_still_reports_the_file_as_a_success(self):
+        """CONTROL. The success path must look DIFFERENT from the two failure paths.
+
+        Without this every assertion above is equally consistent with `success` having
+        become a constant False, and with the endpoint having stopped reversing anything.
+        """
+        bundle = self._settled_return_fixture("RetSuccess")
+
+        result = recon.process_sepa_return_file(self._return_file(bundle), file_type="csv")
+
+        self.assertTrue(result["success"], msg=result)
+        self.assertEqual(result["status_counts"], {"processed": 1}, msg=result)
+        bundle["payment_entry"].reload()
+        self.assertEqual(
+            bundle["payment_entry"].docstatus, 2, "the returned direct debit must be reversed"
+        )
+        self.assertEqual(
+            float(frappe.db.get_value("Sales Invoice", bundle["invoice"].name, "outstanding_amount")),
+            42.0,
+            "the receivable the bank clawed back must be back on the books",
+        )
+
+    def test_a_row_that_names_no_invoice_also_costs_the_file_its_success(self):
+        """CONTROL that `success` means APPLIED, not merely "nothing threw".
+
+        A return whose member/invoice cannot be identified is money the bank has taken
+        back with nothing reversed, and -- unlike `ambiguous`, which writes a titled Error
+        Log row through `log_ambiguous_refusal` -- this branch records nothing at all. An
+        earlier draft of this PR counted it as a success on the grounds that it was a
+        "decided outcome, already logged"; the second half of that was simply false, which
+        is what made the first half indefensible. `status_counts` is what distinguishes it
+        from a row that threw.
+        """
+        result = recon.process_sepa_return_file(
+            "Member_ID,Amount,Return_Reason\nNO-SUCH-MEMBER-576,99.00,Insufficient funds\n",
+            file_type="csv",
+        )
+
+        self.assertFalse(result["success"], msg=result)
+        self.assertEqual(result["status_counts"], {"not_found": 1}, msg=result)
+
+    def test_an_invoice_settled_by_something_other_than_a_direct_debit_is_not_reported_as_reversed(self):
+        """The candidate filter admits invoices `reverse_failed_sepa_payment` cannot touch.
+
+        The filter requires only `{customer, docstatus 1, grand_total == amount, status in
+        (Paid, Partly Paid)}`; nothing in it asks HOW the invoice was settled. But
+        `reverse_failed_sepa_payment` cancels only a submitted Payment Entry whose
+        `mode_of_payment == "SEPA Direct Debit"`, and returns None otherwise -- and the
+        caller discarded that return value.
+
+        So a dues invoice of the same amount settled by iDEAL, bank transfer or a Journal
+        Entry -- ordinary for recurring dues -- was reported
+        `{"status": "processed", "action": "Payment reversed and member notified"}` with
+        nothing reversed, plus a "SEPA Payment Failed" Comment and a High-priority ToDo
+        telling a member their payment failed when it had not. That is #576's own sentence
+        with a different status string, and #567's consequence on top of it.
+
+        Red on develop AND on the first draft of this branch, which is why it is here: the
+        `success` gate this PR adds is computed from those status strings, so a status
+        string that lies makes the new contract lie.
+        """
+        self.expectErrorLog("SEPA Return Not Reversed")
+        bundle = self._make_member_with_invoice(first_name="RetNotDD", grand_total=42.0)
+        # Bank Draft, not SEPA Direct Debit: a real settled invoice the reversal cannot touch.
+        _invoice, payment_entry = receive_against_invoice(
+            self, bundle["invoice"].name, 42.0, mode_of_payment="Bank Draft"
+        )
+        bundle["member_id"] = frappe.db.get_value("Member", bundle["member"].name, "member_id")
+
+        result = recon.process_sepa_return_file(self._return_file(bundle), file_type="csv")
+
+        self.assertEqual(result["status_counts"], {"not_reversed": 1}, msg=result)
+        self.assertFalse(result["success"], msg=result)
+        payment_entry.reload()
+        self.assertEqual(payment_entry.docstatus, 1, "the non-SEPA payment must not be cancelled")
+        self.assertFalse(
+            frappe.get_all(
+                "Comment",
+                filters={
+                    "reference_doctype": "Member",
+                    "reference_name": bundle["member"].name,
+                    "content": ["like", "%SEPA Payment Failed%"],
+                },
+            ),
+            "no failed-payment record may be written for a payment that was not reversed",
+        )
+        self.assertFalse(
+            frappe.get_all(
+                "ToDo", filters={"reference_type": "Member", "reference_name": bundle["member"].name}
+            ),
+            "the member must not be told a payment failed when nothing was reversed",
+        )
+        assert_error_log(
+            self,
+            "SEPA Return Not Reversed",
+            unique=bundle["invoice"].name,
+            must_contain=[bundle["member_id"], "place this return by hand"],
+        )
 
 
 # =============================================================================
