@@ -212,7 +212,8 @@ Use the `/dues-invoice-manager` dashboard for manual invoice generation and the 
 
 ### Mollie Payment Processing
 
-- Payment retries execute daily via `payment_retry.execute_payment_retry`.
+- Payment retries execute daily via `payment_retry.execute_scheduled_payment_retries`
+  (a sweep over due `SEPA Payment Retry` records).
 - Bank transaction reconciliation runs daily.
 - Subscription auditing and member reconciliation are available via the admin dashboards listed above.
 - Webhooks are processed by the background service user (Vereinigingen Webhook User role profile).
@@ -258,7 +259,7 @@ All scheduled tasks are defined in `vereinigingen/hooks/scheduler.py`. Tasks are
 | `periodic_sepa_mandate_child_table_sync` | Sync SEPA mandate child table entries |
 | `process_contact_request_automation` | Process queued member contact requests |
 | `update_dashboard_data_periodically` | Refresh e-Boekhouden dashboard data |
-| `execute_payment_retry` | Retry failed Mollie payments |
+| `execute_scheduled_payment_retries` | Retry failed Mollie payments (sweeps due retries) |
 | `reconcile_bank_transactions` | Match bank transactions to invoices |
 | `check_and_send_expiry_notifications` | Notify about expiring SEPA mandates |
 | `refresh_all_expense_approvers` | Update expense claim approver assignments |

@@ -47,7 +47,10 @@ scheduler_events = {
         # E-Boekhouden integration
         "verenigingen.e_boekhouden.utils.eboekhouden_api.update_dashboard_data_periodically",
         # Payment processing
-        "verenigingen.verenigingen_payments.utils.payment_retry.execute_payment_retry",
+        # NOTE: the sweep, not execute_payment_retry itself -- a scheduler entry is
+        # called with no arguments, so execute_payment_retry(retry_record=None)
+        # returned on its first line and no retry ever ran (#622).
+        "verenigingen.verenigingen_payments.utils.payment_retry.execute_scheduled_payment_retries",
         "verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation.reconcile_bank_transactions",
         "verenigingen.verenigingen_payments.utils.sepa_notifications.check_and_send_expiry_notifications",
         # Expense management

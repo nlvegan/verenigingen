@@ -101,3 +101,37 @@ VALID_SEQUENCE_TYPES = ["FRST", "RCUR", "OOFF", "FNAL"]
 # =============================================================================
 
 SEPA_CURRENCY = "EUR"
+
+
+# A Direct Debit Batch that can no longer collect: a DRAFT, carrying no generated
+# SEPA file, whose collection date has passed. `DirectDebitBatch.before_submit`
+# refuses a batch dated before today, so such a row can never be submitted through
+# the real path and can never charge anyone -- yet a plain `docstatus != 2` test
+# treats it as live and withholds its invoices from every future collection,
+# permanently. Measured on veg11: 8 of them, over two months old.
+#
+# Kept deliberately narrow. Anything submitted is collecting; a draft dated today or
+# later is what the monthly flow leaves behind while `auto_submit_sepa_batches` is 0
+# (the default) for a human to submit; and a draft that already generated a file may
+# have had that file taken to the bank by hand, which nothing here would know.
+#
+# Callers must bind `today` to the SITE's calendar day -- never the database's
+# CURDATE(), which names a different day for hours of every day while before_submit
+# judges on the site's (#628).
+#
+# One definition, three call sites (payment_retry, sepa_mandate_service,
+# dd_batch_optimizer): this predicate is the kind of thing that otherwise gets fixed
+# in one place and missed in the others.
+STRANDED_BATCH_EXCLUSION = """
+    NOT (
+        {alias}.docstatus = 0
+        AND IFNULL({alias}.sepa_file_generated, 0) = 0
+        AND {alias}.batch_date IS NOT NULL
+        AND {alias}.batch_date < %(today)s
+    )
+"""
+
+
+def stranded_batch_exclusion(alias="ddb"):
+    """SQL fragment excluding batches that can no longer collect. See above."""
+    return STRANDED_BATCH_EXCLUSION.format(alias=alias)

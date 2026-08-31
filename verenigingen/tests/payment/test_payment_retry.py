@@ -575,6 +575,87 @@ class TestExecutePaymentRetry(RetryBase):
         self.assertEqual(set(all_batches), {first_batch})
 
 
+    def _batch_holding(self, invoice_name):
+        rows = frappe.get_all(
+            "Direct Debit Batch Invoice", filters={"invoice": invoice_name}, pluck="parent"
+        )
+        return rows[0] if rows else None
+
+    def _failed_submit_leaves_a_batch(self, label):
+        """Drive execute_payment_retry to a submit failure; return (invoice, batch)."""
+        member = self._make_member_with_customer(label)
+        membership = self.sepa.create_test_membership(member=member.name, status="Active")
+        invoice = self._make_unpaid_invoice(member)
+        self.sepa.create_test_sepa_mandate(member=member.name, status="Active", used_for_memberships=1)
+        rec = self._make_retry_record(
+            member,
+            invoice,
+            status="Scheduled",
+            retry_count=1,
+            next_retry_date=today(),
+            membership=membership.name,
+        )
+        with patch(
+            "verenigingen.verenigingen_payments.services.sepa_xml_generation_service."
+            "sepa_xml_service.generate_sepa_xml_for_batch",
+            side_effect=RuntimeError("SEPA generation blew up after the fence"),
+        ):
+            retry.execute_payment_retry(retry_record=rec.name)
+        rec.reload()
+        self.assertEqual(rec.status, "Error")
+        batch = self._batch_holding(invoice.name)
+        self.assertIsNotNone(batch, "expected the failed attempt to leave a batch behind")
+        return invoice, batch
+
+    def test_a_stranded_batch_stops_blocking_once_its_collection_date_has_passed(self):
+        """The fix for the permanent lock, stated as the property that matters.
+
+        The fence COMMITS the freshly inserted draft batch before submit -- on purpose,
+        so a redelivered job cannot double-charge. If submit then fails, that draft
+        stays behind, and a plain `docstatus != 2` guard treats it as live forever:
+        the daily sweep, the enqueued job and the desk button all refuse the invoice
+        from then on. Measured on veg11: 8 such drafts, no SEPA file, two months old.
+
+        `DirectDebitBatch.before_submit` refuses a batch dated before today, so once
+        the collection date passes that draft can never be submitted and can never
+        charge anyone. From that point it must stop withholding the invoice.
+        """
+        invoice, batch = self._failed_submit_leaves_a_batch("StrandedPast")
+
+        # Same day: it could still be submitted, so it must still block.
+        self.assertTrue(
+            retry._invoice_in_open_batch(invoice.name),
+            "a draft dated today may still be submitted; releasing the invoice now "
+            "would open the double-charge window the guard exists to close",
+        )
+
+        # Tomorrow, from the batch's point of view.
+        frappe.db.set_value("Direct Debit Batch", batch, "batch_date", add_days(getdate(today()), -1))
+        self.assertFalse(
+            retry._invoice_in_open_batch(invoice.name),
+            "a fileless draft whose collection date has passed can never be submitted, "
+            "yet it is still withholding the invoice -- this is the permanent lock",
+        )
+
+    def test_a_stranded_batch_that_generated_a_file_keeps_blocking(self):
+        """Control: a generated file may have been taken to the bank by hand.
+
+        Nothing in this system records that, so a batch that reached generation must
+        keep withholding its invoice even once its date has passed -- otherwise the
+        narrowing above would trade a permanent lock for a double charge.
+        """
+        invoice, batch = self._failed_submit_leaves_a_batch("StrandedWithFile")
+        frappe.db.set_value(
+            "Direct Debit Batch",
+            batch,
+            {"batch_date": add_days(getdate(today()), -1), "sepa_file_generated": 1},
+        )
+        self.assertTrue(
+            retry._invoice_in_open_batch(invoice.name),
+            "a batch that generated a SEPA file must keep blocking, whatever its date",
+        )
+
+
 class TestRetryDebitsTheMembershipMandate(RetryBase):
     """The retry debits the mandate it picks, and it used to pick by recency.
 
@@ -710,6 +791,153 @@ class TestRetryDebitsTheMembershipMandate(RetryBase):
             any("No active SEPA mandate" in c for c in comments),
             "reporting a refusal as 'none found' is what sends the operator to create another",
         )
+
+
+# =============================================================================
+# The DAILY SCHEDULER ENTRY (#622)
+# =============================================================================
+class TestScheduledRetrySweep(RetryBase):
+    """The registered daily scheduler entry must actually execute due retries.
+
+    Frappe runs a ``scheduler_events`` entry with NO arguments -- see
+    ``ScheduledJobType.execute``, which does ``frappe.get_attr(self.method)()``
+    (frappe/core/doctype/scheduled_job_type/scheduled_job_type.py:156). Nothing
+    on the way supplies parameters: the ``@critical_api`` wrapper forwards
+    ``func(*args, **validated_kwargs)`` and injects nothing.
+
+    #622: the entry registered was ``execute_payment_retry(retry_record=None)``,
+    whose first two lines are ``if not retry_record: return`` -- so the daily run
+    was a silent no-op and no scheduled retry ever executed. The other automatic
+    path cannot compensate: ``PaymentRetryManager.create_retry_job`` enqueues the
+    retry immediately, but ``calculate_next_retry_date`` puts ``next_retry_date``
+    at least 3 days out (``retry_intervals = [3, 7, 14]``), so that job is
+    guaranteed to be filtered out by the due-date guard as well.
+
+    These tests bind to the CONTRACT rather than to a function name: they resolve
+    whichever ``payment_retry`` method the daily hook registers and call it the
+    way the scheduler does. The observable is a due record for a member with NO
+    active SEPA mandate, which the body parks in status 'Failed' -- reached only
+    if the sweep passed the record through.
+    """
+
+    #: Read from the hooks module directly, not via ``frappe.get_hooks``, which
+    #: is Redis-cached per site and can serve the installed checkout's copy
+    #: rather than the tree under test.
+    _PREFIX = "verenigingen.verenigingen_payments.utils.payment_retry."
+
+    def _daily_entry(self):
+        """The single daily scheduler entry belonging to payment_retry."""
+        from verenigingen.hooks.scheduler import scheduler_events
+
+        entries = [m for m in scheduler_events["daily"] if m.startswith(self._PREFIX)]
+        self.assertEqual(
+            len(entries),
+            1,
+            f"expected exactly one payment_retry daily scheduler entry, got {entries}",
+        )
+        return entries[0]
+
+    def _scheduled_record(self, label, day_offset):
+        """A 'Scheduled' retry due ``day_offset`` days from today, for a member
+        with no active SEPA mandate."""
+        member = self._make_member_with_customer(label)
+        membership = self.sepa.create_test_membership(member=member.name, status="Active")
+        invoice = self._make_unpaid_invoice(member)
+        return self._make_retry_record(
+            member,
+            invoice,
+            status="Scheduled",
+            retry_count=1,
+            # getdate()/today() are site-tz; never Python's date.today() (#628).
+            next_retry_date=add_days(getdate(today()), day_offset),
+            membership=membership.name,
+        )
+
+    def _run_daily_entry(self):
+        """Invoke the registered entry exactly as the scheduler does.
+
+        The sweep is global, so it may also pick up 'Scheduled' rows left by
+        other modules sharing this database. Stub only the external SEPA XML
+        file generation so such a collateral record cannot demand live org SEPA
+        credentials or write a file; every other guard runs for real.
+        """
+        with patch(
+            "verenigingen.verenigingen_payments.services.sepa_xml_generation_service."
+            "sepa_xml_service.generate_sepa_xml_for_batch",
+            return_value="/files/dummy-sepa.xml",
+        ):
+            frappe.get_attr(self._daily_entry())()
+
+    def _no_mandate_comment(self, rec):
+        return frappe.get_all(
+            "Comment",
+            filters={
+                "reference_doctype": "SEPA Payment Retry",
+                "reference_name": rec.name,
+            },
+            pluck="content",
+        )
+
+    def test_daily_entry_executes_a_retry_due_today(self):
+        """A retry due today is executed by the scheduled entry, with no argument
+        supplied -- the whole point of #622."""
+        rec = self._scheduled_record("SweepDueToday", 0)
+
+        self._run_daily_entry()
+
+        rec.reload()
+        self.assertEqual(
+            rec.status,
+            "Failed",
+            "due retry was not executed by the daily scheduler entry",
+        )
+        self.assertTrue(any("No active SEPA mandate" in c for c in self._no_mandate_comment(rec)))
+
+    def test_daily_entry_executes_a_retry_whose_date_was_missed(self):
+        """A retry whose date has already passed (scheduler outage, a tz-boundary
+        day roll) must still be picked up -- otherwise it is stranded in
+        'Scheduled' forever, which is #622 narrowed rather than fixed."""
+        rec = self._scheduled_record("SweepOverdue", -4)
+
+        self._run_daily_entry()
+
+        rec.reload()
+        self.assertEqual(
+            rec.status,
+            "Failed",
+            "overdue retry was left behind by the daily scheduler entry",
+        )
+
+    def test_daily_entry_leaves_a_retry_that_is_not_yet_due(self):
+        """The sweep is bounded: a retry scheduled for a future date is untouched,
+        so 'it executed the due one' is not just 'it executes everything'."""
+        rec = self._scheduled_record("SweepNotYetDue", 5)
+
+        self._run_daily_entry()
+
+        rec.reload()
+        self.assertEqual(rec.status, "Scheduled")
+        self.assertIsNone(rec.last_retry_date)
+
+    def test_daily_entry_ignores_records_not_in_scheduled_status(self):
+        """Only 'Scheduled' rows are swept. A record already 'Retried' today is
+        not re-run, and an 'Escalated' one is not resurrected."""
+        member = self._make_member_with_customer("SweepWrongStatus")
+        membership = self.sepa.create_test_membership(member=member.name, status="Active")
+        invoice = self._make_unpaid_invoice(member)
+        escalated = self._make_retry_record(
+            member,
+            invoice,
+            status="Escalated",
+            retry_count=3,
+            next_retry_date=getdate(today()),
+            membership=membership.name,
+        )
+
+        self._run_daily_entry()
+
+        escalated.reload()
+        self.assertEqual(escalated.status, "Escalated")
 
 
 # =============================================================================

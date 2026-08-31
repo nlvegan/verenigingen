@@ -141,7 +141,7 @@ From `hooks/doc_events.py`:
 ### Error Handling and Recovery
 
 - Failed invoice generation retry via `invoice_error_handler_service.py`
-- Payment retry processing: daily `execute_payment_retry`
+- Payment retry processing: daily `execute_scheduled_payment_retries`
 - Bulk retry processor: hourly `process_retry_queues`
 - Amendment processing: hourly for same-day turnaround
 
