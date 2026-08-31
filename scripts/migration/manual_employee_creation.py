@@ -57,7 +57,7 @@ def create_employee_for_volunteer(volunteer_name):
         employee_doc.insert(ignore_permissions=True)
 
         # Link to volunteer
-        frappe.db.set_value("Verenigingen Volunteer", volunteer_name, "employee_id", employee_doc.name)
+        frappe.db.set_value("Volunteer", volunteer_name, "employee_id", employee_doc.name)
 
         return {
             "success": True,

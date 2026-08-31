@@ -176,15 +176,13 @@ class AssertionHelpers:
 
         raise AssertionError(f"Volunteer {volunteer_name} is not actively assigned to team {team_name}")
 
-    @staticmethod
-    def assert_expense_approved(expense_name):
-        """Assert that a volunteer expense is approved"""
-        expense = frappe.get_doc("Volunteer_Expense", expense_name)
-
-        if expense.status != "Approved":
-            raise AssertionError(f"Expense {expense_name} is not approved (status: {expense.status})")
-
-        return True
+    # ``assert_expense_approved`` was removed here (#677). It read
+    # ``frappe.get_doc("Volunteer_Expense", ...)``: an underscore where a space
+    # belongs, *and* a doctype that no longer exists either way -- Volunteer
+    # Expense was archived in 1a8e5fa2 and its table is dropped by
+    # ``patches/v2_2/drop_volunteer_expense_archived_doctype.py``. It had no
+    # callers and could not have had a working one. Expense assertions now go
+    # through ERPNext's ``Expense Claim``.
 
     @staticmethod
     def assert_termination_completed(member_name):

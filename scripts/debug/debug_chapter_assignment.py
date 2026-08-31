@@ -17,11 +17,18 @@ def debug_jantje_chapter_assignment():
         order_by="chapter_join_date desc",
     )
 
-    # Check board memberships
-    board_members = frappe.get_all(
-        "Verenigingen Chapter Board Member",
-        filters={"member": member_name, "is_active": 1},
-        fields=["parent as chapter", "chapter_role", "is_active"],
+    # Check board memberships. The doctype is "Chapter Board Member" ("Verenigingen
+    # Chapter Board Member" is the Role), and it links to a Volunteer, not a Member --
+    # renaming alone would only have turned the missing table into a missing column.
+    volunteer = frappe.db.get_value("Volunteer", {"member": member_name}, "name")
+    board_members = (
+        frappe.get_all(
+            "Chapter Board Member",
+            filters={"volunteer": volunteer, "is_active": 1},
+            fields=["parent as chapter", "chapter_role", "is_active"],
+        )
+        if volunteer
+        else []
     )
 
     # Check current chapter display
