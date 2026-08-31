@@ -421,7 +421,21 @@ class BrandSettings(Document):
                 required_permissions=["System Settings:write"],
             )
             if not result.success:
-                frappe.throw(f"Failed to sync brand settings: {'; '.join(result.errors)}")
+                # Report, do NOT throw. Deliberately fail-open: Owl Theme is an optional
+                # app and branding is cosmetic, so a rejected theme write must not refuse
+                # the admin's Brand Settings save. This used to frappe.throw into this
+                # method's own handler below -- same shape as the four real dead gates in
+                # donor.py (#666), where one reflexive `except frappe.ValidationError:
+                # raise` would turn a cosmetic failure into a blocked save. Same message,
+                # same log, same non-blocking save; only the mechanism changed.
+                errors = "; ".join(result.errors)
+                frappe.log_error(f"Error syncing to Owl Theme: {errors}", "Brand Settings Sync")
+                frappe.msgprint(
+                    _("Failed to sync brand settings to Owl Theme: {0}").format(errors),
+                    title=_("Theme Sync Failed"),
+                    indicator="red",
+                )
+                return
 
             frappe.msgprint(_("Successfully synced brand settings to Owl Theme"))
 
