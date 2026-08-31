@@ -8,11 +8,12 @@ import hashlib
 import io
 import json
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, List, Optional
 
 import frappe
 from frappe import _
+from frappe.utils import add_days, getdate
 
 from verenigingen.services.mollie_debug_service import MollieDebugService
 from verenigingen.utils.constants import Roles
@@ -148,12 +149,15 @@ def validate_csv_members(
 
         # Validate global date format if provided
         parsed_global_date = None
-        max_date = (datetime.now() + timedelta(days=365)).date()
+        # Site-tz today throughout: the charge date the admin types comes off the
+        # site's calendar, so bounding it with the process date rejects a legitimate
+        # next-day charge whenever the two clocks name different days (#637).
+        max_date = add_days(getdate(), 365)
         if global_charge_date:
             try:
                 parsed_global_date = datetime.strptime(global_charge_date, "%Y-%m-%d").date()
                 # Charge date should be in the future (at least tomorrow)
-                if parsed_global_date <= datetime.now().date():
+                if parsed_global_date <= getdate():
                     return {"status": "error", "error": "Global charge date must be in the future"}
                 # Charge date should not be more than 1 year in the future
                 if parsed_global_date > max_date:
@@ -225,7 +229,7 @@ def validate_csv_members(
             if has_date_column and row.get("charge_date"):
                 try:
                     row_date = datetime.strptime(row["charge_date"].strip(), "%Y-%m-%d").date()
-                    if row_date <= datetime.now().date():
+                    if row_date <= getdate():
                         result["issues"].append("Charge date must be in the future")
                     elif row_date > max_date:
                         result["issues"].append("Charge date cannot be more than 1 year in the future")

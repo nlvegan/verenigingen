@@ -92,7 +92,7 @@ def forecast_member_growth(months_ahead=12):
         # Calculate confidence interval (simplified)
         std_dev = np.std(y) * (1 + 0.05 * i)  # Increasing uncertainty
 
-        forecast_months.append(add_months(datetime.now(), i).strftime("%B %Y"))
+        forecast_months.append(add_months(now_datetime(), i).strftime("%B %Y"))
         forecast_values.append(max(0, int(prediction)))
         confidence_intervals.append(
             {"lower": max(0, int(prediction - 1.96 * std_dev)), "upper": int(prediction + 1.96 * std_dev)}
@@ -156,7 +156,11 @@ def forecast_revenue(months_ahead=12):
 
     # Generate revenue forecast
     revenue_forecast = []
-    current_month = datetime.now().month
+    # Site-tz month: this indexes the seasonal-factor table below, and must name the
+    # same month as the `add_months(now_datetime(), i)` labels this forecast is
+    # rendered against. (It bounds no SQL -- unlike the year reads elsewhere in this
+    # module, which do.) (#637)
+    current_month = getdate().month
 
     for i, member_count in enumerate(member_forecast["forecast"]["values"]):
         forecast_month = (current_month + i) % 12 + 1

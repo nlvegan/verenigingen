@@ -2,11 +2,10 @@ import calendar
 import csv
 import io
 import json
-from datetime import datetime, timedelta
 
 import frappe
 from frappe import _
-from frappe.utils import add_months, flt, format_date, getdate, today
+from frappe.utils import add_months, flt, format_date, getdate, now_datetime, today
 
 from verenigingen.utils.member_portal_utils import setup_portal_context
 from verenigingen.utils.member_utils import get_current_user_member_name_required
@@ -207,7 +206,9 @@ def get_coverage_info(member, current_schedule):
     if not customer:
         return {"percentage": 0, "covered_months": 0, "total_months": 12}
 
-    now = datetime.now()
+    # Site-tz year: bounds a query over site-clock posting dates. Identical shape to
+    # payment_dashboard.py:95 and api/payment_dashboard.py:59 (#637).
+    now = now_datetime()
     year_start = f"{now.year}-01-01"
     year_end = f"{now.year}-12-31"
 
@@ -243,7 +244,9 @@ def get_coverage_info(member, current_schedule):
 def get_calendar_data():
     """Get current calendar data"""
 
-    now = datetime.now()
+    # Site-tz: the month/year shown must be the site's, matching every date this
+    # page renders beside it (#637).
+    now = now_datetime()
     month_names = [
         _("January"),
         _("February"),

@@ -1,5 +1,3 @@
-from datetime import datetime
-
 import frappe
 from frappe import _
 from frappe.utils import add_months, flt, getdate, today
@@ -68,7 +66,8 @@ def get_financial_overview(member):
     # Calculate total paid this year
     from verenigingen.utils.payment_utils import get_total_payments_for_year
 
-    total_paid_year = get_total_payments_for_year(customer, datetime.now().year)
+    # Site-tz year: the totals below are bounded by site-clock posting dates (#637).
+    total_paid_year = get_total_payments_for_year(customer, getdate().year)
 
     # Get annual target from current schedule
     current_schedule = get_current_dues_schedule(member)
@@ -92,7 +91,7 @@ def get_financial_overview(member):
 
 def get_payment_count_for_year(customer):
     """Get count of payments made this year"""
-    year_start = f"{datetime.now().year}-01-01"
+    year_start = f"{getdate().year}-01-01"
     return frappe.db.count(
         "Payment Entry",
         {

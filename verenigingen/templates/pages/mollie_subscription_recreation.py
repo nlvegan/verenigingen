@@ -13,6 +13,7 @@ from typing import Dict, Optional
 
 import frappe
 from frappe import _
+from frappe.utils import getdate
 
 from verenigingen.services.mollie_debug_service import MollieDebugService
 from verenigingen.utils.constants import Roles
@@ -403,7 +404,10 @@ def parse_and_validate_csv(
             # Check if current next invoice date is in the past (only if date is changing and validation not skipped)
             if not skip_date_validation and date_changed and current_next_date:
                 current_date_obj = datetime.strptime(current_next_date, "%Y-%m-%d").date()
-                if current_date_obj >= datetime.now().date():
+                # Site-tz today: current_next_date comes from the subscription's
+                # own calendar, so a process-clock comparison mis-reports whether it
+                # is in the past whenever the two clocks name different days (#637).
+                if current_date_obj >= getdate():
                     warnings.append("Current next invoice date is NOT in the past")
                     status = "warning"
 

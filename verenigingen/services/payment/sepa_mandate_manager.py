@@ -38,12 +38,12 @@ Author: Verenigingen Development Team
 """
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 from typing import Any, Dict, List, Optional
 
 import frappe
 from frappe import _
-from frappe.utils import today
+from frappe.utils import now_datetime, today
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.services.payment.validation_service import ValidationResult, get_payment_validation_service
@@ -446,8 +446,19 @@ class SEPAMandateManager(StatelessService):
         # Replace SQL wildcards that could be used maliciously
         member_id_safe = str(member_id).replace("%", "\\%").replace("_", "\\_").replace("\\", "\\\\")
 
-        # Format date as YYYYMMDD
-        now = datetime.now()
+        # Format date as YYYYMMDD, on the SITE clock: the day named inside `mandate_id`
+        # should be the day the row's own `creation` and `sign_date` name, and those are
+        # site-tz. Three of the five writers of this field were already site-clock
+        # (`sepa_mandate_management.py:87,94` via nowdate(), `member_utils.py:394,904`
+        # via now()); this and `member_utils.generate_mandate_reference` were the two
+        # outliers (#637).
+        #
+        # Scope, stated narrowly: this generator's own sequence lookup is keyed ONLY on
+        # the date string in `mandate_id`, with no `creation` filter, so a wrong clock
+        # here mislabels the day but cannot by itself produce a duplicate. The
+        # reachable collision is in `member_utils`, which mixes the two clocks inside
+        # one query; see the comment there.
+        now = now_datetime()
         date_str = now.strftime("%Y%m%d")
         base_pattern = f"M-{member_id_safe}-{date_str}"
 

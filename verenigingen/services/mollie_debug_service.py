@@ -2060,7 +2060,9 @@ class MollieDebugService(StatelessService):
                 - due_date: The due date if provided (for bank transfer payments)
                 - error: Error message (if failed)
         """
-        from datetime import datetime, timedelta
+        from datetime import datetime
+
+        from frappe.utils import add_days, getdate
 
         # Validate amount using centralized helper
         amount_float = validate_mollie_amount(amount, min_amount=0.01)
@@ -2085,8 +2087,11 @@ class MollieDebugService(StatelessService):
             except ValueError:
                 raise ValueError(_("Invalid due date format. Use YYYY-MM-DD"))
 
-            tomorrow = (datetime.now() + timedelta(days=1)).date()
-            max_date = (datetime.now() + timedelta(days=100)).date()
+            # Site-tz today: `due_date` is a calendar day chosen against the site's
+            # calendar, so "at least tomorrow" measured from the process date rejects
+            # a valid next-day due date whenever the two clocks differ (#637).
+            tomorrow = add_days(getdate(), 1)
+            max_date = add_days(getdate(), 100)
 
             if due_date_obj < tomorrow:
                 raise ValueError(_("Due date must be at least tomorrow"))

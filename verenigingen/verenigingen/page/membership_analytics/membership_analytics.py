@@ -34,7 +34,10 @@ def get_dashboard_data(
 ):
     """Get all dashboard data for membership analytics"""
     if not year:
-        year = datetime.now().year
+        # Site-tz calendar throughout this module: every year/month below becomes a
+        # SQL bound against site-clock columns, so a process-clock year selects the
+        # wrong period across a year/month boundary (#637).
+        year = getdate().year
 
     # Ensure year is an integer
     year = int(year)
@@ -76,13 +79,13 @@ def get_summary_metrics(year, period="year", filters: dict | None = None):
         start_date, end_date = get_year_date_range(year)
     elif period == "quarter":
         # Get current quarter
-        current_month = datetime.now().month
+        current_month = getdate().month
         quarter = (current_month - 1) // 3 + 1
         start_month = (quarter - 1) * 3 + 1
         start_date = f"{year}-{start_month:02d}-01"
         end_date = getdate(add_months(start_date, 3)) - timedelta(days=1)
     else:  # month
-        current_month = datetime.now().month
+        current_month = getdate().month
         start_date = f"{year}-{current_month:02d}-01"
         end_date = getdate(add_months(start_date, 1)) - timedelta(days=1)
 
@@ -95,7 +98,7 @@ def get_summary_metrics(year, period="year", filters: dict | None = None):
     # the name that isn't available at module scope.
     from frappe.utils import nowdate
 
-    current_year = datetime.now().year
+    current_year = getdate().year
     if year == current_year:
         # For current year, count members active as of today
         cutoff_date = nowdate()
@@ -1413,7 +1416,7 @@ def get_cohort_analysis(year=None, cohort_interval="monthly"):
 def _get_monthly_cohorts(earliest_date):
     """Generate monthly cohorts from earliest_date to now"""
     cohorts = []
-    current_date = datetime.now()
+    current_date = now_datetime()
     cohort_date = datetime(earliest_date.year, earliest_date.month, 1)
 
     while cohort_date <= current_date:
@@ -1469,7 +1472,7 @@ def _get_monthly_cohorts(earliest_date):
 def _get_quarterly_cohorts(earliest_date):
     """Generate quarterly cohorts from earliest_date to now"""
     cohorts = []
-    current_date = datetime.now()
+    current_date = now_datetime()
 
     # Start from the beginning of the earliest quarter
     cohort_year = earliest_date.year
@@ -1548,7 +1551,7 @@ def _get_quarterly_cohorts(earliest_date):
 def _get_yearly_cohorts(earliest_date):
     """Generate yearly cohorts from earliest_date to now"""
     cohorts = []
-    current_date = datetime.now()
+    current_date = now_datetime()
     cohort_year = earliest_date.year
 
     while cohort_year <= current_date.year:

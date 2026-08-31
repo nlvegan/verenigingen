@@ -676,8 +676,11 @@ class MollieSettings(Document):
         # Sort months for easier iteration
         configured_months.sort()
 
-        # Calculate minimum eligible date (min_months_ahead from the anchor)
-        today = frappe.utils.getdate(anchor) if anchor else datetime.now().date()
+        # Calculate minimum eligible date (min_months_ahead from the anchor).
+        # getdate(None) already returns the SITE's today, so the ternary was mixing
+        # two clocks in one expression: a caller-supplied anchor was read site-tz
+        # while the default fell back to the process date (#637).
+        today = frappe.utils.getdate(anchor)
         min_date = today + relativedelta(months=min_months_ahead)
 
         # Find the first configured month that is >= min_date

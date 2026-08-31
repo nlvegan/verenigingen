@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, get_datetime
+from frappe.utils import add_days, get_datetime, now_datetime
 
 from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.constants import Roles
@@ -534,7 +534,11 @@ class SecurityMonitor:
     def check_unusual_member_operations(self) -> List[Dict]:
         """Check for unusual member data operations"""
         alerts = []
-        now = datetime.now()
+        # Site-tz clock: `Member.modified` is written on the SITE clock, so a
+        # process-clock cutoff makes this "last hour" window the full offset too long
+        # (the BULK_MEMBER_UPDATE alert over-fires) or negative (a security monitor
+        # that never fires). Same shape as auth_monitoring:52 (#637).
+        now = now_datetime()
         hour_ago = now - timedelta(hours=1)
 
         # Check for bulk member updates

@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import cint, now, today
+from frappe.utils import cint, now, now_datetime, today
 
 # Import security framework
 from verenigingen.utils.constants import Roles
@@ -724,9 +724,13 @@ def generate_mandate_reference(member: str):
 
     member_id = member_doc.member_id or member_doc.name.replace("Assoc-Member-", "").replace("-", "")
 
-    from datetime import datetime
-
-    now_dt = datetime.now()
+    # Site-tz clock, not the process clock. `SEPA Mandate.creation` is written by
+    # Frappe on the SITE clock, so a process-clock midnight is the wrong lower bound
+    # for "mandates created today": where the site is behind the process, this
+    # morning's mandate falls outside the window, the sequence restarts at 001, and
+    # the suggested reference collides with the existing one -- `mandate_id` is
+    # `unique: 1`, so the collision is a DuplicateEntryError on save (#637).
+    now_dt = now_datetime()
     date_str = now_dt.strftime("%Y%m%d")
 
     existing_mandates_today = frappe.get_all(

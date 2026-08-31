@@ -8,6 +8,8 @@ Extracted from Direct Debit Batch system for better separation of concerns.
 from datetime import datetime, timedelta
 from typing import Any, Dict, List
 
+from frappe.utils import getdate
+
 from verenigingen.verenigingen_payments.services.sepa_configuration_service import sepa_config_service
 
 
@@ -182,7 +184,10 @@ class BatchValidationService:
         try:
             # Parse collection date
             collection_dt = datetime.strptime(collection_date, "%Y-%m-%d").date()
-            today = datetime.now().date()
+            # Site-tz today: the notice-day boundaries below reject a batch outright
+            # (DATE_TOO_EARLY), and the collection date the caller submits comes from
+            # the site's calendar, not the process's (#637).
+            today = getdate()
 
             # Get date settings
             date_settings = self.config_service.get_collection_date_settings()

@@ -1,8 +1,6 @@
 # Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
-from datetime import datetime
-
 import frappe
 from frappe import _
 from frappe.model.document import Document
@@ -140,7 +138,12 @@ class PeriodicDonationAgreement(Document):
 
     def generate_agreement_number(self):
         """Generate unique agreement number"""
-        year = datetime.now().year
+        # Site-tz year, not the process year: the agreement number is persisted and
+        # must agree with start_date (which is site-tz). On 31 Dec / 1 Jan inside the
+        # divergence window the two name different years, so the stamped ANBI number
+        # would claim a different year from the agreement it names, and the sequence
+        # lookup below would search the wrong year's series (#637).
+        year = getdate().year
 
         # Get the last agreement number for this year
         last_agreement = frappe.db.sql(
@@ -517,9 +520,10 @@ class PeriodicDonationAgreement(Document):
     def set_default_tax_year(self):
         """Set default tax year if not provided"""
         if self.anbi_eligible and not self.tax_year_applicable:
-            from datetime import datetime
-
-            current_year = datetime.now().year
+            # Site-tz year: max() below compares against start_date's year, which is
+            # site-tz. Mixing the two clocks picks the wrong tax year for an ANBI
+            # agreement created across a New Year boundary (#637).
+            current_year = getdate().year
             # Tax benefits typically start from the year after agreement or current year
             if self.start_date:
                 start_year = getdate(self.start_date).year
