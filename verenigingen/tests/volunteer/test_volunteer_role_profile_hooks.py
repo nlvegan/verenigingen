@@ -25,6 +25,7 @@ import frappe
 
 from verenigingen.services.member.account.user_role_profile_calculator import (
     get_user_role_profiles,
+    is_active_volunteer,
     sync_user_role_profile,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -188,22 +189,24 @@ class TestVolunteerStatusRoleProfileSync(EnhancedTestCase):
                 self.assertEqual([expected], get_user_role_profiles(email))
 
     def test_the_active_status_set_is_read_from_the_calculator_not_from_here(self):
-        """The premise, checked against the two sources of truth rather than this file.
+        """The premise, checked by CALLING the calculator rather than reading it.
 
         ACTIVE_STATUSES / INACTIVE_STATUSES above are literals, and a test that only
         compares literals to each other is a tautology. Two real checks instead:
 
         1. The Select options on the DocType must be exactly the union, so a sixth
            Volunteer status cannot be added without the sweep above being updated.
-        2. ACTIVE_STATUSES must equal the list `is_active_volunteer()` actually
-           filters on. Dropping "Onboarding" from the calculator would otherwise
-           leave this file's lists unchanged and only redden the sweep, pointing at
-           the wrong place.
+        2. is_active_volunteer() is CALLED once per status and must agree with this
+           file about every one of them.
+
+        Point 2 was originally a source-text substring match: assert the ACTIVE
+        literals appear in the function body and the INACTIVE ones do not. A
+        skeptical review inverted the filter from ["in", [...]] to ["not in", [...]]
+        -- a complete semantic inversion -- and that version still PASSED, because
+        the literals never moved, only the operator between them. Six sibling tests
+        caught the inversion, so nothing escaped; but a premise check that cannot
+        see the operator is not checking the premise. Only a call can.
         """
-        import inspect
-
-        from verenigingen.services.member.account import user_role_profile_calculator
-
         options = frappe.get_meta("Volunteer").get_field("status").options.split("\n")
         options = [o.strip() for o in options if o.strip()]
         self.assertCountEqual(
@@ -213,21 +216,16 @@ class TestVolunteerStatusRoleProfileSync(EnhancedTestCase):
             "and re-check is_active_volunteer() in user_role_profile_calculator.py.",
         )
 
-        source = inspect.getsource(user_role_profile_calculator.is_active_volunteer)
-        for status in ACTIVE_STATUSES:
-            self.assertIn(
-                f'"{status}"',
-                source,
-                f"is_active_volunteer() no longer filters on {status!r}, but this file "
-                "still treats it as conferring the volunteer profile.",
-            )
-        for status in INACTIVE_STATUSES:
-            self.assertNotIn(
-                f'"{status}"',
-                source,
-                f"is_active_volunteer() now filters on {status!r}, which this file "
-                "treats as NOT conferring the volunteer profile.",
-            )
+        for status in ACTIVE_STATUSES + INACTIVE_STATUSES:
+            with self.subTest(status=status):
+                volunteer, email = self._volunteer_with_user(status=status)
+                self.assertEqual(
+                    status in ACTIVE_STATUSES,
+                    is_active_volunteer(email, volunteer.member),
+                    f"is_active_volunteer() disagrees with this file about {status!r}. "
+                    "One of the two is wrong -- check the status filter in "
+                    "user_role_profile_calculator.py before editing the lists here.",
+                )
 
     def test_a_disabled_user_is_skipped(self):
         """The termination case is deliberately NOT covered by this hook.

@@ -20,6 +20,7 @@ import importlib.util
 import inspect
 import sys
 import unittest
+from collections import Counter
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -1141,9 +1142,31 @@ class TestHookKeysAreDoctypes(unittest.TestCase):
         pairs = self._collect()
         # Guard against a silently empty sweep: if a hooks dict is renamed or moved,
         # _collect() returns a short list and the assertion below passes vacuously.
-        # 59 pairs at the time of writing (23 doc_events, 15 permission_query_conditions,
-        # 16 has_permission, 4 doctype_js, 1 override_doctype_class); floor set well
-        # below that so ordinary churn does not trip it.
+        # A total floor alone is NOT enough -- measured on this branch the sweep is 59
+        # pairs (doc_events 23, permission_query_conditions 16, has_permission 15,
+        # doctype_js 4, override_doctype_class 1), so the two smallest surfaces could
+        # drop out ENTIRELY and 58 or 55 would still clear any floor set below that.
+        # So require every declared surface to contribute, then keep the total floor
+        # for the large ones, set well below 59 so ordinary churn does not trip it.
+        # Named as a LITERAL, deliberately not derived from DOCTYPE_KEYED_HOOKS:
+        # a set built from that list shrinks in step with it, so deleting an entry
+        # would satisfy the comparison with itself. A renamed dict is already caught
+        # by getattr() in _collect(); this catches the two quieter cases, a surface
+        # dropped from the list and a surface that collects nothing.
+        expected_surfaces = {
+            "doc_events",
+            "permission_query_conditions",
+            "has_permission",
+            "doctype_js",
+            "override_doctype_class",
+        }
+        surfaces = Counter(surface for surface, _ in pairs)
+        self.assertEqual(
+            expected_surfaces,
+            set(surfaces),
+            "A doctype-keyed hooks surface contributed nothing to the sweep, so it is "
+            f"no longer being checked at all. Got: {dict(surfaces)}",
+        )
         self.assertGreater(len(pairs), 50, f"the sweep collected only {len(pairs)} keys")
 
         not_doctypes = [
