@@ -19,7 +19,7 @@ from decimal import Decimal
 from typing import Dict, List, Optional
 
 import frappe
-from frappe.utils import get_datetime, getdate
+from frappe.utils import get_datetime, getdate, now_datetime
 
 from verenigingen.utils.constants import Roles
 from verenigingen.verenigingen_payments.services.sepa_configuration_service import sepa_config_service
@@ -162,7 +162,14 @@ class SEPAXMLAdapter:
         # Use the batch's stored generation timestamp (set by the generation
         # service) so regenerating the same batch yields byte-identical XML and
         # is correctly recognized as a duplicate upload; fall back to now().
-        creation_datetime = datetime.now()
+        #
+        # The fallback is site-tz because `sepa_generation_date` -- the value it
+        # stands in for -- is stored as `f"{nowdate()} {nowtime()}"`, and because
+        # `sepa_rulebook_validator.validate_creation_datetime` (MSG002, CRITICAL)
+        # judges the resulting CreDtTm with `> now_datetime()`. A process-clock
+        # fallback ahead of the site clock re-creates the exact false positive #634
+        # fixed on the primary path (#637).
+        creation_datetime = now_datetime()
         stored_gen_date = batch_doc.get("sepa_generation_date")
         # Only honour real datetime/str values (mocked batches in tests may
         # return non-date objects here).
@@ -172,7 +179,7 @@ class SEPAXMLAdapter:
                 if isinstance(parsed, datetime):
                     creation_datetime = parsed
             except Exception:
-                creation_datetime = datetime.now()
+                creation_datetime = now_datetime()
 
         # Generate XML using enhanced generator
         xml_string = self.generator.generate_sepa_xml(

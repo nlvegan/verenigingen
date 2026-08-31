@@ -6,11 +6,10 @@ by waiting for the primary transaction to complete before updating member
 expense history. Uses exponential backoff retry logic to handle conflicts.
 """
 
-from datetime import datetime, timedelta
 
 import frappe
 from frappe import _
-from frappe.utils import cint
+from frappe.utils import cint, now_datetime
 
 # Upper bound on the in-job backoff, kept under the 120s enqueue timeout used by
 # the retry call site so the wait can never consume the job's whole budget.
@@ -104,7 +103,14 @@ def update_member_expense_history_with_retry(
 
         # Check if member was recently modified (potential conflict indicator)
         member_modified = member_doc.modified
-        now = datetime.now()
+        # Site-tz clock: `Member.modified` is written by Frappe on the SITE clock, so
+        # measuring it against the process clock makes this 30-SECOND conflict window
+        # `offset + 30s` wide where the site is ahead (every member touched in the last
+        # few hours trips the guard) and NEGATIVE where it is behind (the guard never
+        # fires at all). Measured on test_site_2: process - modified = -9408s, site -
+        # modified = +3191s, i.e. the guard tripped on a row modified 53 minutes ago
+        # (#637).
+        now = now_datetime()
 
         # If member was modified in the last 30 seconds, there might be a conflict
         if member_modified and (now - member_modified).total_seconds() < 30:
