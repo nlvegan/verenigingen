@@ -91,13 +91,13 @@ from verenigingen.tests.payment.test_batch_one_row_per_invoice import (
 from verenigingen.tests.payment.test_dd_batch_scheduler_orchestration import (
     _SchedulerOrchestrationBase,
 )
-from verenigingen.verenigingen_payments.api import dd_batch_optimizer as dd_opt
 from verenigingen.verenigingen_payments.api import dd_batch_scheduler as sched
 from verenigingen.verenigingen_payments.api.dd_batch_optimizer import (
     get_eligible_invoices_for_batching,
 )
 from verenigingen.verenigingen_payments.utils import sepa_mandate_service
 from verenigingen.verenigingen_payments.utils.collection_rows import (
+    DISCRIMINATING_FIELDS,
     refuse_invoices_with_more_than_one_row,
 )
 from verenigingen.verenigingen_payments.utils.sepa_mandate_service import SEPAMandateService
@@ -205,8 +205,13 @@ class TestOneRowPerInvoiceUnderAmbiguousMandates(AmbiguousMandateFixture):
         """The DAILY path: one invoice, one row -- or none, never two.
 
         Each row here becomes a `Direct Debit Batch Invoice` child row, i.e. one
-        SEPA transaction. Two rows for one invoice are two debits of one member's
-        account for one debt, on two different IBANs.
+        SEPA transaction. Two rows for one invoice are two debits for one debt.
+
+        Both daily rows carry the SAME `iban` -- this query takes it from `mem`, not
+        from the mandate -- and differ in `mandate_reference`, which is what the
+        collection is authorised under and what decides FRST/RCUR and the SEPA
+        Mandate Usage record. (The monthly twin below selects `sm.iban`, so there the
+        two rows name two different accounts outright.)
 
         The healthy sibling is what makes a green result meaningful: refusing the
         ambiguous member must not be reachable by refusing everyone.
@@ -222,17 +227,17 @@ class TestOneRowPerInvoiceUnderAmbiguousMandates(AmbiguousMandateFixture):
             len(theirs), 1, f"the unambiguous member's invoice produced {len(theirs)} rows: {theirs}"
         )
         # ZERO, not "at most one". Two rows are two debits for one debt; ONE row is a
-        # debit under whichever of two mandates the database happened to return, and
-        # they name different accounts. `report_members_with_multiple_active_mandates`
-        # already tells operators that a batch will "REFUSE to select an IBAN ...
-        # rather than guess" for exactly this member, so an arbitrary pick here would
-        # be both a wrong debit and a broken promise. Asserting <= 1 would let a
-        # de-duplication that keeps an arbitrary row pass.
+        # debit under whichever of two mandates the database happened to return.
+        # `report_members_with_multiple_active_mandates` already tells operators that
+        # a batch will "REFUSE to select an IBAN ... rather than guess" for exactly
+        # this member, so an arbitrary pick here would be both a wrong collection and
+        # a broken promise. Asserting <= 1 would let a de-duplication that keeps an
+        # arbitrary row pass.
         self.assertEqual(
             len(mine),
             0,
-            f"one invoice produced {len(mine)} batch rows -- each becomes a debit, and "
-            f"the member's two mandates name different accounts: {mine}",
+            f"one invoice produced {len(mine)} batch rows -- each becomes a debit "
+            f"under a different mandate: {mine}",
         )
 
     def test_one_active_mandate_yields_one_monthly_row(self):
@@ -288,7 +293,7 @@ class TestOneRowPerInvoiceUnderAmbiguousMandates(AmbiguousMandateFixture):
 
         logs = frappe.get_all(
             "Error Log",
-            filters={"creation": [">=", before], "method": MANDATE_REFUSAL_TITLE},
+            filters={"creation": [">=", before], "method": ROW_REFUSAL_TITLE},
             fields=["method", "error"],
         )
         hits = [
@@ -297,11 +302,12 @@ class TestOneRowPerInvoiceUnderAmbiguousMandates(AmbiguousMandateFixture):
             if ambiguous["member"].name in (log.get("error") or "")
             and ambiguous["second_mandate"].mandate_id in (log.get("error") or "")
         ]
-        # Scoped to the MANDATE refusal's own title on purpose. The row-level guard
-        # (`collection_rows`) also drops this invoice and also names the member and
-        # both mandate ids, so an unscoped search would be satisfied by either and
-        # neither guard would be pinned. This is the message that says "cancel all
-        # but one", which is what #627 asked the refusal to say.
+        # Scoped to the row guard's own title: that is the only refusal on the daily
+        # path (the mandate counter is monthly-only -- see
+        # `members_with_ambiguous_mandate`), and an unscoped search would also be
+        # satisfied by an Error Log some other suite wrote. The message must name the
+        # member AND both mandates, because "cancel all but one" is unactionable
+        # without knowing which ones collided.
         self.assertTrue(
             hits,
             "the ambiguous member's invoice was dropped from the collection with no "
@@ -374,41 +380,41 @@ class TestEachGuardIsPinnedWhereOnlyItCanAct(AmbiguousMandateFixture):
             "IBAN the mandate resolver happened to see last",
         )
 
-    def test_the_daily_producer_still_refuses_with_only_the_row_guard(self):
-        """The row guard's WIRING into the daily producer, not just the helper.
-
-        On the ordinary two-mandate member both guards fire, so deleting this call
-        site changes nothing any other test can see (measured: the mutation
-        survives 17 tests). Disabling the mandate counter at its seam runs the
-        producer in the arrangement that will exist the day a join fans out for a
-        reason the mandates do not explain -- which is the only reason this guard
-        is here.
-        """
-        healthy = self._build_ambiguous_chain("AmbigRowOnlyOk")
-        ambiguous = self._build_ambiguous_chain("AmbigRowOnly", second_mandate=True)
-
-        with patch.object(dd_opt, "members_with_ambiguous_mandate", return_value=set()):
-            rows = dd_opt.get_eligible_invoices_for_batching()
-
-        names = [row.get("invoice") for row in rows]
-        self.assertEqual(
-            names.count(healthy["invoice"].name), 1, "the unambiguous member must still be batched"
-        )
-        self.assertEqual(
-            names.count(ambiguous["invoice"].name),
-            0,
-            "with the mandate counter off, the fan-out reached the batch unchecked",
-        )
-
     def test_the_monthly_producer_still_refuses_with_only_the_row_guard(self):
-        """The same wiring, in the monthly producer."""
+        """The row guard's WIRING into the monthly producer, not just the helper.
+
+        The monthly path carries BOTH guards, so on the ordinary two-mandate member
+        deleting this call site changes nothing any other test can see -- measured:
+        the mutation survived the whole module. Disabling the mandate counter at its
+        seam runs the producer in the arrangement that will exist the day a join fans
+        out for a reason the mandates do not explain, which is the only reason the row
+        guard is on this path at all.
+
+        (The daily producer has only the row guard, so it needs no such test: every
+        daily refusal above already exercises this call site.)
+        """
         healthy = self._build_ambiguous_chain("AmbigRowOnlyMonOk")
         ambiguous = self._build_ambiguous_chain("AmbigRowOnlyMon", second_mandate=True)
+        before = frappe.utils.now()
 
         with patch.object(sepa_mandate_service, "members_with_ambiguous_mandate", return_value=set()):
             rows = SEPAMandateService().get_sepa_invoices_with_mandates(
                 frappe.utils.today(), lookback_days=3650
             )
+
+        # SELF-CHECK, or this test goes quietly vacuous. `patch.object` only
+        # intercepts while the call site is a module-level `from ... import`; rewrite
+        # it as a qualified `mandate_candidates.members_with_ambiguous_mandate(...)`
+        # and the patch stops biting, the counter refuses instead, and the assertions
+        # below still pass while testing nothing.
+        self.assertEqual(
+            frappe.get_all(
+                "Error Log",
+                filters={"creation": [">=", before], "method": MONTHLY_MANDATE_REFUSAL_TITLE},
+            ),
+            [],
+            "the mandate counter still ran, so this test is not measuring the row guard",
+        )
 
         names = [row.get("name") for row in rows]
         self.assertEqual(names.count(healthy["invoice"].name), 1)
@@ -416,6 +422,54 @@ class TestEachGuardIsPinnedWhereOnlyItCanAct(AmbiguousMandateFixture):
             names.count(ambiguous["invoice"].name),
             0,
             "with the mandate counter off, the monthly fan-out reached the batch unchecked",
+        )
+
+    def test_the_operator_facing_query_refuses_the_duplicate_too(self):
+        """The THIRD copy of the same join, in `dd_batch_api.get_eligible_invoices`.
+
+        #662 examined this query and cleared the mandate join as "bounded by #604's
+        purpose filter" -- the belief #627 disproves. So this instance was filed
+        nowhere, and the class was two-of-three closed.
+
+        Unlike the two scheduled producers this one is operator-facing: its rows are
+        rendered as a selectable list, so an unrefused duplicate offers the same
+        invoice twice and `validate_no_duplicate_invoices` (#606) then rejects the
+        batch the operator just built.
+        """
+        from verenigingen.verenigingen_payments.api.dd_batch_api import get_eligible_invoices
+
+        healthy = self._build_ambiguous_chain("AmbigApiOk")
+        ambiguous = self._build_ambiguous_chain("AmbigApiDup", second_mandate=True)
+
+        result = get_eligible_invoices({"due_date": frappe.utils.add_days(frappe.utils.today(), 400)})
+        names = [row.get("name") for row in result["invoices"]]
+
+        self.assertEqual(
+            names.count(healthy["invoice"].name),
+            1,
+            "the unambiguous member's invoice must still be offered exactly once",
+        )
+        self.assertEqual(
+            names.count(ambiguous["invoice"].name),
+            0,
+            "the same invoice was offered twice, and selecting both builds a batch "
+            "#606 will reject",
+        )
+
+    def test_the_refusal_names_every_field_that_decides_the_debit(self):
+        """`DISCRIMINATING_FIELDS` must keep covering `dd_batch_api`'s own set.
+
+        The two were derived independently at opposite ends of the pipeline -- #613
+        refuses a de-duplication when duplicate rows disagree on those fields; this
+        refuses the production of such rows and names them in the log. They are not
+        imported across the api/utils layer boundary, so nothing but this stops them
+        drifting apart and a refusal quietly ceasing to say what collided.
+        """
+        from verenigingen.verenigingen_payments.api.dd_batch_api import DEBIT_DECIDING_FIELDS
+
+        self.assertEqual(
+            tuple(DISCRIMINATING_FIELDS[-len(DEBIT_DECIDING_FIELDS) :]),
+            tuple(DEBIT_DECIDING_FIELDS),
         )
 
     def test_only_the_row_guard_sees_a_duplicate_the_mandates_do_not_explain(self):
@@ -656,6 +710,60 @@ class TestABatchCreationFailureIsNotSilent(_SchedulerOrchestrationBase):
         )
 
 
+class TestTheFailureReportSaysWhatWasActuallyLost(_SchedulerOrchestrationBase):
+    """A report that names the wrong loss sends an operator to the wrong repair.
+
+    Three cases, not two, and the two-way version got the most likely one exactly
+    backwards. `batch_groups` is assigned at STEP 3 of `create_optimal_batches`, and
+    steps 1-3 now include two refusal helpers that each run a query and write Error
+    Logs -- so a throw there leaves `batch_groups == []`, `created == []`, and
+    `created < planned` is `0 < 0`, i.e. False. The else-branch then announced "Every
+    planned batch was created" about a run that never reached batch creation.
+
+    The Error Log and the notification are two records of ONE event, so they share
+    one sentence. They did not: the log branched while the notification asserted a
+    loss unconditionally, and the notification is the one that gets emailed.
+    """
+
+    def test_a_failure_before_batch_creation_does_not_claim_batches_were_created(self):
+        from verenigingen.verenigingen_payments.api import dd_batch_optimizer as opt
+
+        before = frappe.utils.now()
+        with patch.object(
+            opt, "get_eligible_invoices_for_batching", side_effect=frappe.ValidationError("planted step-1")
+        ):
+            result = opt.create_optimal_batches(config={"min_invoices_per_batch": 1})
+
+        self.assertEqual((result["batches_created"], result["batches_planned"]), (0, 0))
+        logged = [
+            log["error"]
+            for log in frappe.get_all(
+                "Error Log",
+                filters={"creation": [">=", before], "method": "DD Batch Optimization Error"},
+                fields=["error"],
+            )
+            if "planted step-1" in (log.get("error") or "")
+        ]
+        self.assertTrue(logged, "the pre-batch failure left no Error Log")
+        self.assertIn("failed before batch creation", logged[0])
+        self.assertNotIn("Every planned batch was created", logged[0])
+
+    def test_the_notification_and_the_error_log_agree_about_the_loss(self):
+        """They are two records of one event; contradicting each other is the defect."""
+        outcomes = {
+            "nothing planned": ({"batches_created": 0, "batches_planned": 0}, "failed before batch creation"),
+            "partial": ({"batches_created": 1, "batches_planned": 3}, "were NOT collected"),
+            "after creation": ({"batches_created": 3, "batches_planned": 3}, "after batch creation"),
+        }
+        for label, (counts, expected) in outcomes.items():
+            with self.subTest(outcome=label):
+                result = dict(counts)
+                result.update({"success": False, "error": "planted", "batch_names": []})
+                with patch(f"{NOTIF_MODULE}.send_system_error_notification") as notify:
+                    sched.report_failed_batch_creation(result, frappe.utils.today())
+                self.assertIn(expected, notify.call_args[0][0])
+
+
 class TestAPartiallyFailedRunStillHandlesTheBatchesItCommitted(_SchedulerOrchestrationBase):
     """The gate `create_optimal_batches` results are read through.
 
@@ -692,7 +800,11 @@ class TestAPartiallyFailedRunStillHandlesTheBatchesItCommitted(_SchedulerOrchest
         }
 
         settings = self._enable_auto_creation()
-        settings.db_set("last_batch_creation_run", None, update_modified=False)
+        # NOT `db_set(None)` as an arrange step: measured, that Single field reads
+        # back as `datetime(1, 1, 1, 0, 0)`, so `assertIsNotNone` on it can never
+        # fail and the assertion below would be vacuous. Compare against a timestamp
+        # taken before the run instead.
+        before_run = frappe.utils.now_datetime()
 
         with patch.object(sched, "is_batch_creation_day", return_value=True), patch.object(
             sched, "should_skip_batch_creation", return_value=False
@@ -720,12 +832,16 @@ class TestAPartiallyFailedRunStillHandlesTheBatchesItCommitted(_SchedulerOrchest
         self.assertTrue(notify.called, "a partially failed run raised no alarm")
         self.assertIn("1 of 3", notify.call_args[0][0])
         self.assertIn(batch_names[0], notify.call_args[0][0])
-        self.assertIsNotNone(
-            frappe.db.get_value(
-                "Verenigingen Payments Settings", "Verenigingen Payments Settings",
-                "last_batch_creation_run",
-            ),
-            "the run created batches but recorded no last-run timestamp",
+        last_run = frappe.db.get_value(
+            "Verenigingen Payments Settings",
+            "Verenigingen Payments Settings",
+            "last_batch_creation_run",
+        )
+        self.assertIsNotNone(last_run, "no last-run timestamp at all")
+        self.assertGreaterEqual(
+            last_run,
+            before_run,
+            "the run created batches but did not record a NEW last-run timestamp",
         )
 
 

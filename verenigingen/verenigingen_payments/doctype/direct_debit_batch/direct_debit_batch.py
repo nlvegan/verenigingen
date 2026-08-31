@@ -128,12 +128,13 @@ class DirectDebitBatch(Document):
         recoverable and re-runnable by hand, whereas a batch that persists with a
         duplicate can be submitted by a path that never reads `validation_status`
         -- and that money does not come back. #627 also removed the reachable
-        PRODUCER (an unbounded SEPA Mandate join in both automated collection
-        queries) and added a producer-side refusal that drops a duplicated invoice
-        rather than the run, so reaching this throw now takes a route neither
-        producer has. #662 is the known remaining one -- the same unbounded join in
-        `dd_batch_api.get_eligible_invoices` -- which has no working in-tree consumer
-        today only because of #679.
+        PRODUCER: the same unbounded SEPA Mandate join sat in all THREE invoice
+        queries that feed this document (the daily optimizer, the monthly service and
+        `dd_batch_api.get_eligible_invoices`), and each now refuses a duplicated
+        invoice rather than passing it on. So reaching this throw takes a route none
+        of them has. (#662 is about a DIFFERENT unbounded join in that third query --
+        `mem.customer`, which is not unique -- and is still open; it explicitly
+        cleared the mandate join, which #627 disproved.)
 
         SCOPE. This is a WITHIN-batch check. Two batches each listing the invoice
         once are still two debits, and the guard cannot see that;

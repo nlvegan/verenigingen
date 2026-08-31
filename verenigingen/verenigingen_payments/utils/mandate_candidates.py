@@ -147,8 +147,8 @@ def members_with_ambiguous_mandate(members, refusal_title: str, purpose: str = "
     refusal, and the same Error Log through `log_ambiguous_mandate_refusal`, so
     an operator reads one message format wherever the refusal came from.
 
-    It exists because the two AUTOMATED collection producers resolve the mandate
-    inside their invoice query instead:
+    It exists for the MONTHLY automated producer, which resolves the mandate inside
+    its invoice query:
 
         LEFT JOIN `tabSEPA Mandate` sm
             ON sm.member = mem.name
@@ -174,37 +174,36 @@ def members_with_ambiguous_mandate(members, refusal_title: str, purpose: str = "
     -- MariaDB has no partial unique index, as that patch spells out. The guard is also
     an unlocked read-then-throw, so two concurrent activations both pass it.
 
-    THE FILTER SET IS DELIBERATELY LOOSER THAN EITHER COLLECTION QUERY, and it is
-    worth being exact about which direction that errs in, because an earlier draft of
-    this docstring claimed parity and was wrong.
+    THE FILTER SET IS DELIBERATELY LOOSER THAN THE QUERY IT GUARDS, and it is worth
+    being exact about the direction, because an earlier draft of this docstring
+    claimed parity and was wrong.
 
-    Neither query mentions `is_active`, so omitting it is parity. What is NOT parity:
-    the daily query's WHERE also carries `sm.mandate_id IS NOT NULL`, and the monthly
-    query's also carries `sm.iban IS NOT NULL AND sm.iban != '' AND sm.mandate_id IS
-    NOT NULL`. So a member whose second Active membership mandate has a blank `iban`
-    or `mandate_id` is counted here as two and refused, while the query would have
-    returned exactly one row. Measured: the unguarded daily query returns 1 row for
-    such a member and this function still refuses them.
+    `get_sepa_invoices_with_mandates`' WHERE also carries `sm.iban IS NOT NULL AND
+    sm.iban != '' AND sm.mandate_id IS NOT NULL`; this counter carries none of those,
+    so a member whose second Active membership mandate has a blank `iban` is counted
+    here as two and refused, while that query returns exactly one row. (`is_active` is
+    parity: neither mentions it.)
 
-    That is the SAFE direction, and on the monthly path it is the CORRECT one. The
-    account a monthly child row is debited on does not come from the query at all --
+    That looseness is the POINT, not a defect. The account a monthly child row is
+    debited on does not come from that query at all --
     `batch_performance_optimizer.get_members_with_mandates_bulk` re-resolves the
-    mandate filtering only on member + status + purpose, and assigns it in a
-    last-wins loop with no ORDER BY. So a pair the collection query can tell apart is
-    still a pair that resolver cannot, and tightening this filter to match the query
-    would hand it an arbitrary IBAN (measured: 2 candidates on 2 accounts in, one
-    arbitrarily chosen IBAN out, no refusal, no log).
+    mandate filtering only on member + status + purpose, and assigns it in a last-wins
+    loop with no ORDER BY (#708). Measured: 2 candidates on 2 accounts in, one
+    arbitrarily chosen IBAN out, no refusal and no log. So a pair the collection query
+    can tell apart is still a pair the resolver cannot, and tightening this filter to
+    match the query would hand it an arbitrary IBAN.
 
-    On the daily path the same shape is an over-refusal: that member is not collected
-    this period, and only the Error Log below says so. Both fields are `reqd: 1` on
-    SEPA Mandate, so a blank one needs a raw write -- the same class of route as the
-    ambiguity itself. Refusing to debit is recoverable; debiting the wrong account is
-    not.
+    NOT used by the daily producer, deliberately. There, the row's `iban` comes from
+    `mem`, `sm.mandate_id IS NOT NULL` is in the WHERE, and `get_mandate_for_batch_row`
+    re-keys on `mandate_id`, which is `unique: 1` -- one row or none, not a choice. A
+    looser count there could only over-refuse a member that query resolves cleanly, so
+    the daily producer relies on
+    `collection_rows.refuse_invoices_with_more_than_one_row` alone.
 
-    The exact, drift-proof half of this invariant lives in
-    `collection_rows.refuse_invoices_with_more_than_one_row`, which observes the rows
-    a query actually returned. It cannot see the resolver ambiguity above, which is
-    why both exist.
+    That row-level guard is the exact, drift-proof half of this invariant: it observes
+    the rows a query actually returned, so it cannot over-refuse and cannot drift. It
+    also cannot see the resolver ambiguity above, which is why the monthly path needs
+    both.
 
     Returns the members to EXCLUDE; the caller drops their rows. That loses one
     member's collection for the period, which is why the refusal is logged with the

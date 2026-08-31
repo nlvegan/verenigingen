@@ -23,9 +23,6 @@ from verenigingen.utils.security.authorization import (
 from verenigingen.verenigingen_payments.utils.collection_rows import (
     refuse_invoices_with_more_than_one_row,
 )
-from verenigingen.verenigingen_payments.utils.mandate_candidates import (
-    members_with_ambiguous_mandate,
-)
 from verenigingen.verenigingen_payments.utils.sepa_constants import stranded_batch_exclusion
 
 # Configuration constants
@@ -134,14 +131,13 @@ def create_optimal_batches(target_date=None, config=None):
         # put the message in `Error Log.method` (Data, truncated at 140 chars) while
         # the title became the whole `error` body -- discarding the traceback entirely.
         created_names = [batch.name for batch in created_batches]
-        # Only claim a loss that happened. The throw can also come from step 5,
-        # AFTER every group was built, and telling an operator that invoices were not
-        # collected when they all were sends them to re-run a batch by hand.
-        uncollected = (
-            " The invoices in the remaining groups were NOT collected."
-            if len(created_names) < len(batch_groups)
-            else " Every planned batch was created; the failure is after batch creation."
-        )
+        # Only claim a loss that happened, and only a loss this function can see.
+        # THREE cases, not two: `batch_groups` is assigned in step 3, so any throw in
+        # steps 1-3 -- which now includes two refusal helpers that each run a query
+        # and write Error Logs -- leaves it EMPTY, and `0 < 0` is False. A two-way
+        # branch therefore told an operator "every planned batch was created" about a
+        # run that never reached batch creation at all (measured).
+        uncollected = _describe_what_was_lost(len(created_names), len(batch_groups))
         frappe.log_error(
             title="DD Batch Optimization Error",
             message=(
@@ -158,6 +154,24 @@ def create_optimal_batches(target_date=None, config=None):
             "batch_names": created_names,
             "batches_planned": len(batch_groups),
         }
+
+
+def _describe_what_was_lost(created, planned):
+    """One sentence saying which invoices this failure did and did not collect.
+
+    Shared by `create_optimal_batches`' Error Log and
+    `dd_batch_scheduler.report_failed_batch_creation`'s notification, because those
+    are two records of ONE event and an operator reading both must not find them
+    contradicting each other. They did: the Error Log branched on created-vs-planned
+    while the notification asserted a loss unconditionally, so a step-5 failure
+    produced "every planned batch was created" in one and "the remaining groups were
+    NOT collected" in the other -- and the wrong one was the one that got emailed.
+    """
+    if not planned:
+        return " No batches were planned: the run failed before batch creation, so NOTHING " "was collected."
+    if created < planned:
+        return " The invoices in the remaining groups were NOT collected."
+    return " Every planned batch was created; the failure is after batch creation."
 
 
 def get_eligible_invoices_for_batching():
@@ -279,29 +293,26 @@ def get_eligible_invoices_for_batching():
     # state `patches/v2_2/report_members_with_multiple_active_mandates` exists to
     # REPORT rather than repair, so it is the ordinary condition of any install
     # upgraded across #584, not an exotic one. Such a member returned one row PER
-    # mandate for ONE invoice: same `invoice`, different `mandate_reference`, different
-    # account. Both rows become Direct Debit Batch child rows, so since #606 the batch
-    # is REJECTED -- and one member's second mandate stops the whole month's collection
+    # mandate for ONE invoice: same `invoice`, same `iban` (this query takes it from
+    # `mem`, not from the mandate) -- but a different `mandate_reference`, which is
+    # what the SEPA XML collects under and what decides FRST/RCUR and the usage
+    # record. Both rows become Direct Debit Batch child rows, so since #606 the batch
+    # is REJECTED and one member's second mandate stops the whole month's collection
     # for everybody.
     #
-    # Their rows are dropped rather than de-duplicated: the candidates name different
-    # IBANs, so keeping either one debits an account nobody chose (#567/#578/#584), and
-    # that patch already tells operators a batch will "REFUSE to select an IBAN ...
-    # rather than guess" for exactly this member. The refusal names the member and the
-    # mandate ids in the Error Log; see `members_with_ambiguous_mandate`.
-    ambiguous_members = members_with_ambiguous_mandate(
-        [invoice.get("member") for invoice in invoices],
-        "DD Batch Optimizer: ambiguous membership mandate",
-    )
-
-    # And the invariant itself, on the rows this SELECT actually returned. The
-    # refusal above asks about MANDATES, which is what lets it see an ambiguity a
-    # downstream resolver would collapse to one row; this asks whether the query
-    # fanned out, which is what makes it exact and drift-proof. Neither subsumes the
-    # other, and a duplicate arriving through a join nobody has looked at yet is
-    # caught here rather than by the throw in
-    # `DirectDebitBatch.validate_no_duplicate_invoices` that takes the whole run
-    # down (#606/#627).
+    # The whole invoice is dropped rather than de-duplicated to one row: the two rows
+    # name two different mandates, so keeping either collects the debt under a mandate
+    # nobody chose (#567/#578/#584), and that patch already tells operators a batch
+    # will "REFUSE to select an IBAN ... rather than guess" for exactly this member.
+    #
+    # Refused on the ROWS, not on the mandates, and only here. This query already
+    # tells the two mandates apart -- `sm.mandate_id IS NOT NULL` in the WHERE, and
+    # `get_mandate_for_batch_row` re-keys on `mandate_id`, which is `unique: 1`, so it
+    # is one row or none rather than a choice. There is no ambiguity left for a
+    # mandate-level count to catch that this does not already catch, and a count would
+    # be LOOSER than the WHERE above (it cannot see `mandate_id IS NOT NULL`) and so
+    # could only over-refuse a member the query resolves cleanly. The monthly producer
+    # is the opposite case and does need one; see `members_with_ambiguous_mandate`.
     invoices = refuse_invoices_with_more_than_one_row(
         invoices, "invoice", "DD Batch Optimizer: duplicated invoice row"
     )
@@ -309,17 +320,8 @@ def get_eligible_invoices_for_batching():
     # Additional validation for edge cases
     validated_invoices = []
     excluded_count = 0
-    ambiguous_count = 0
 
     for invoice in invoices:
-        if invoice.get("member") in ambiguous_members:
-            # Counted apart from the eligibility exclusions below: those are
-            # "this member should not be billed", this one is "this member should
-            # be billed and we cannot say from which account". Rolling them
-            # together would hide a refusal inside a number an operator reads as
-            # routine.
-            ambiguous_count += 1
-            continue
         # Double-check member eligibility for billing
         if validate_member_eligibility_for_billing(invoice):
             validated_invoices.append(invoice)
@@ -332,8 +334,7 @@ def get_eligible_invoices_for_batching():
 
     frappe.logger().info(
         f"Found {len(validated_invoices)} eligible invoices for batching "
-        f"({excluded_count} excluded due to member status, "
-        f"{ambiguous_count} refused for an ambiguous SEPA mandate)"
+        f"({excluded_count} excluded due to member status)"
     )
     return validated_invoices
 

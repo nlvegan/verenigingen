@@ -22,7 +22,11 @@ from verenigingen.utils.security.authorization import (
     require_sepa_permission,
 )
 from verenigingen.utils.settings_utils import get_payments_settings
-from verenigingen.verenigingen_payments.api.dd_batch_optimizer import DEFAULT_CONFIG, create_optimal_batches
+from verenigingen.verenigingen_payments.api.dd_batch_optimizer import (
+    DEFAULT_CONFIG,
+    _describe_what_was_lost,
+    create_optimal_batches,
+)
 
 
 def daily_batch_optimization():
@@ -180,14 +184,27 @@ def report_failed_batch_creation(result, target_date):
     )
 
     created = result.get("batch_names") or []
+    planned = result.get("batches_planned")
+    # The SAME sentence the Error Log uses. These are two records of one event, and
+    # they contradicted each other: the log branched on created-vs-planned while this
+    # asserted a loss unconditionally, so a failure AFTER every batch was built told
+    # the log "every planned batch was created" and told the operator's inbox "the
+    # remaining groups were NOT collected" -- and the inbox is the one that gets read.
+    # `batches_created` is the authority for HOW MANY, not `len(batch_names)`: a
+    # caller that reports a count without the names must still get the right verdict,
+    # and reading only the names silently turns that into "nothing was created".
+    created_count = result.get("batches_created")
+    if created_count is None:
+        created_count = len(created)
+    lost = _describe_what_was_lost(created_count, planned if planned is not None else created_count)
     detail = (
         f"Automated SEPA batch creation for {target_date} FAILED: {result.get('error')}. "
-        f"{len(created)} of {result.get('batches_planned', 'an unknown number of')} "
+        f"{created_count} of {planned if planned is not None else 'an unknown number of'} "
         f"planned batches were created and committed before the failure "
-        f"({', '.join(created) or 'none'}); the invoices in the remaining groups were "
-        f"NOT collected. The next automatic attempt is the next configured batch "
-        f"creation day (Verenigingen Payments Settings.batch_creation_days, default "
-        f"the 1st of the month), so this needs a manual batch run rather than a wait."
+        f"({', '.join(created) or 'none'}).{lost} "
+        f"The next automatic attempt is the next configured batch creation day "
+        f"(Verenigingen Payments Settings.batch_creation_days, default the 1st of the "
+        f"month), so this needs a manual batch run rather than a wait."
     )
 
     frappe.log_error(title="Batch Scheduler: batch creation failed", message=detail)
