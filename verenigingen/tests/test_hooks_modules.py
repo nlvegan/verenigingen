@@ -1074,30 +1074,56 @@ class TestDocEventNamesAreDispatched(unittest.TestCase):
         )
 
 
-class TestDocEventKeysAreDoctypes(unittest.TestCase):
-    """Regression: every doc_events key must name a DocType that exists (#688).
+class TestHookKeysAreDoctypes(unittest.TestCase):
+    """Regression: every doctype-keyed hook this app owns must name a real DocType (#688).
 
     The sibling gate above pins the event NAME. This one pins the KEY, which is the
-    other half of the same silence. frappe.get_doc_hooks() builds a dict keyed by
-    doctype name and looks up only the doctype being saved, so a key naming nothing
-    is never consulted: the handler strings still resolve, the app still boots,
-    nothing errors — the code just never runs.
+    other half of the same silence. Frappe indexes these dicts by doctype name and
+    looks up only the doctype in hand, so a key naming nothing is never consulted:
+    the handler strings still resolve, the app still boots, nothing errors — the code
+    just never runs.
 
-    The trap here is a `Verenigingen `-prefixed name, because this app has a Role, a
-    Role Profile and a DocType whose names differ only by that prefix. Four Volunteer
+    The trap is a `Verenigingen `-prefixed name, because this app has a Role, a Role
+    Profile and a DocType whose names differ only by that prefix. Four Volunteer
     handlers sat under the Role name "Verenigingen Volunteer" for nine months, from
-    the very commit that created volunteer.json. Same failure shape as `after_save`:
-    no error, no log, just absence.
+    the very commit that created volunteer.json.
 
-    Scope: keys owned by this app. `*` is frappe's wildcard, and other installed apps
-    legitimately register doctypes that do not exist on every site (hrms registers
-    `Loan`, which needs the separate lending app), so only our own dict is checked.
+    ALL FIVE doctype-keyed surfaces are swept, not just doc_events. A gate scoped to
+    the one instance that happened to be broken would be the same mistake one level
+    up — and `permission_query_conditions` is the surface where it would matter most,
+    since a scope that never loads reads as no scope at all.
+
+    Scope: dicts this app defines. `*` is frappe's wildcard, and other installed apps
+    legitimately register doctypes absent from a given site (hrms registers `Loan`,
+    which needs the separate lending app), so `frappe.get_hooks()` is deliberately
+    NOT used here — it merges every app.
     """
 
-    def test_every_doc_events_key_is_a_real_doctype(self):
-        import frappe
+    # (hooks submodule, dict attribute). override_doctype_class lives in the package
+    # __init__ rather than a submodule, so it is added separately below.
+    DOCTYPE_KEYED_HOOKS = [
+        ("doc_events", "doc_events"),
+        ("permissions", "permission_query_conditions"),
+        ("permissions", "has_permission"),
+        ("doctypes", "doctype_js"),
+    ]
 
-        doc_events = load_hooks_submodule("doc_events").doc_events
+    def _collect(self):
+        """Every (surface, key) pair this app registers against a doctype."""
+        pairs = []
+        for submodule, attr in self.DOCTYPE_KEYED_HOOKS:
+            registry = getattr(load_hooks_submodule(submodule), attr)
+            pairs += [(attr, key) for key in registry]
+
+        import verenigingen.hooks as app_hooks
+
+        pairs += [
+            ("override_doctype_class", key) for key in getattr(app_hooks, "override_doctype_class", {})
+        ]
+        return pairs
+
+    def test_every_doctype_keyed_hook_names_a_real_doctype(self):
+        import frappe
 
         # CONTROL: a "does this doctype exist" probe that answers the same way for
         # both inputs cannot fail this test for the right reason. Prove it
@@ -1112,14 +1138,24 @@ class TestDocEventKeysAreDoctypes(unittest.TestCase):
             "now resolves, this gate has stopped meaning anything",
         )
 
+        pairs = self._collect()
+        # Guard against a silently empty sweep: if a hooks dict is renamed or moved,
+        # _collect() returns a short list and the assertion below passes vacuously.
+        # 59 pairs at the time of writing (23 doc_events, 15 permission_query_conditions,
+        # 16 has_permission, 4 doctype_js, 1 override_doctype_class); floor set well
+        # below that so ordinary churn does not trip it.
+        self.assertGreater(len(pairs), 50, f"the sweep collected only {len(pairs)} keys")
+
         not_doctypes = [
-            key for key in doc_events if key != "*" and not frappe.db.exists("DocType", key)
+            f"{surface}[{key!r}]"
+            for surface, key in pairs
+            if key != "*" and not frappe.db.exists("DocType", key)
         ]
 
         self.assertEqual(
             [],
             not_doctypes,
-            "These doc_events keys name no DocType, so every handler under them is "
+            "These hook keys name no DocType, so everything registered under them is "
             "silently inert. Check for a Role or Role Profile name that differs from "
             "the DocType only by a 'Verenigingen ' prefix:\n  " + "\n  ".join(not_doctypes),
         )
@@ -1130,6 +1166,11 @@ class TestDocEventKeysAreDoctypes(unittest.TestCase):
         Asserting the key alone would pass if someone re-added the Role name beside
         the DocType name, so this reads the framework's own dispatch map rather than
         our dict — get_doc_hooks() is what Document.run_method() consults.
+
+        NOTE for anyone reproducing this by hand: frappe.get_hooks() is served from
+        the redis `app_hooks` cache, so a console probe run with PYTHONPATH pointed
+        at a worktree can still return the INSTALLED app's hooks. Use
+        frappe._load_app_hooks(), or clear the cache. The test harness clears it.
         """
         import frappe
 

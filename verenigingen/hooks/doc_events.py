@@ -173,6 +173,16 @@ doc_events = {
         # transition. NOT closed by this: termination runs
         # DeactivateUserAccountOperation BEFORE TerminateVolunteerRecordsOperation,
         # so the user is already disabled and sync_user_role_profile skips it (#692).
+        #
+        # COST, because this is a save-path handler: on a transition INTO
+        # Active/Onboarding the sync does a User.save() and, since the
+        # "Verenigingen Volunteer" role profile contains the Employee role,
+        # _ensure_employee_for_profile() inserts an ERPNext Employee. Volunteer
+        # .update_status() flips New -> Active in before_save for any volunteer with
+        # an assignment, so bulk writers reach this: vip_import.py:406,474 saves per
+        # CSV row. The downgrade direction is cheap -- "Verenigingen Member" has no
+        # Employee role, so the insert branch returns early. Same mechanism the
+        # Team/Chapter role-profile hooks and account_creation_manager already run.
         "on_update": [
             "verenigingen.services.volunteer.volunteer_role_profile_hooks.on_volunteer_status_change",
         ],
@@ -187,23 +197,33 @@ doc_events = {
     # User.roles from the assigned profile on every save and would undo a removal
     # performed before it. A Volunteer-side second writer does only the removal,
     # so its effect is undone by the next User save. The function was deleted
-    # along with this registration; it had no other caller.
+    # along with this registration; it had no other caller. The defect itself is
+    # still live in on_member_on_update ("Member") and on_chapter_role_on_update
+    # ("Chapter Role"), which call the same function -- #702, which also carries the
+    # Volunteer.member re-link case BoardManager cannot see.
     #
     # performance_event_handlers.on_volunteer_assignment_change. Inert even when
     # registered correctly: its body branches on doc.doctype == "Verenigingen
     # Volunteer", so a real Volunteer save falls through every branch. Measured
     # on test_site_1 (2026-08-31): 0 bulk-loader calls for doctype "Volunteer",
     # 1 for the string the body tests. A speculative cache warm, same shape as
-    # the SEPA Mandate preload declined below.
+    # the SEPA Mandate preload declined below. The function was deleted with the
+    # registration -- it had none left anywhere, and leaving a body that still
+    # names two non-DocTypes would invite exactly the "just fix the key" revival
+    # this block argues against.
     #
     # native_expense_helpers.update_employee_approver. The daily scheduled
     # refresh_all_expense_approvers (hooks/scheduler.py) already recomputes
     # Employee.expense_approver for every volunteer with an employee_id, through
     # this same function. A Volunteer on_update is the wrong trigger regardless:
     # the value derives from Chapter Board Member / Chapter Member / Team Member
-    # rows and Verenigingen Settings, none of which touch the Volunteer doc,
-    # while employee_id itself is written with
-    # frappe.db.set_value(update_modified=False) and fires no event at all.
+    # rows and Verenigingen Settings, none of which touch the Volunteer doc.
+    # Nothing writes Volunteer.employee_id through the ORM either: the ACR pipeline
+    # uses frappe.db.set_value (account_creation_manager.py:341), which dispatches no
+    # document event at all -- that is true of set_value generally, not of the
+    # update_modified=False flag, which only suppresses the timestamp. So this
+    # handler would have run on saves that cannot change the approver and missed
+    # every change that can.
     # =========================================================================
     # FINANCIAL SYSTEM - PAYMENTS
     # =========================================================================

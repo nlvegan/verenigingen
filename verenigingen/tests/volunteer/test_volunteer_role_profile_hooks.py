@@ -183,22 +183,47 @@ class TestVolunteerStatusRoleProfileSync(EnhancedTestCase):
 
                 self.assertEqual([expected], get_user_role_profiles(email))
 
-    def test_status_options_still_match_the_calculators_active_set(self):
-        """The premise, checked against the DocType rather than against this file.
+    def test_the_active_status_set_is_read_from_the_calculator_not_from_here(self):
+        """The premise, checked against the two sources of truth rather than this file.
 
-        ACTIVE_STATUSES above is a literal. If someone adds a sixth Volunteer status,
-        the subTest sweep would keep passing while the new option is untested, so read
-        the Select options from the meta and require every one of them to be covered.
+        ACTIVE_STATUSES / INACTIVE_STATUSES above are literals, and a test that only
+        compares literals to each other is a tautology. Two real checks instead:
+
+        1. The Select options on the DocType must be exactly the union, so a sixth
+           Volunteer status cannot be added without the sweep above being updated.
+        2. ACTIVE_STATUSES must equal the list `is_active_volunteer()` actually
+           filters on. Dropping "Onboarding" from the calculator would otherwise
+           leave this file's lists unchanged and only redden the sweep, pointing at
+           the wrong place.
         """
+        import inspect
+
+        from verenigingen.services.member.account import user_role_profile_calculator
+
         options = frappe.get_meta("Volunteer").get_field("status").options.split("\n")
         options = [o.strip() for o in options if o.strip()]
-
         self.assertCountEqual(
             options,
             ACTIVE_STATUSES + INACTIVE_STATUSES,
-            "Volunteer.status options changed. Re-check is_active_volunteer() in "
-            "user_role_profile_calculator.py and update the lists above.",
+            "Volunteer.status options changed. Update the lists at the top of this file "
+            "and re-check is_active_volunteer() in user_role_profile_calculator.py.",
         )
+
+        source = inspect.getsource(user_role_profile_calculator.is_active_volunteer)
+        for status in ACTIVE_STATUSES:
+            self.assertIn(
+                f'"{status}"',
+                source,
+                f"is_active_volunteer() no longer filters on {status!r}, but this file "
+                "still treats it as conferring the volunteer profile.",
+            )
+        for status in INACTIVE_STATUSES:
+            self.assertNotIn(
+                f'"{status}"',
+                source,
+                f"is_active_volunteer() now filters on {status!r}, which this file "
+                "treats as NOT conferring the volunteer profile.",
+            )
 
     def test_a_disabled_user_is_skipped(self):
         """The termination case is deliberately NOT covered by this hook.

@@ -37,6 +37,17 @@ from verenigingen.utils.security_decorators import development_only
 # (User.populate_role_profile_roles resets User.roles from the assigned profile on
 # every save), so the removal would be undone by the next User save. See
 # BoardManager.flush_pending_board_profile_syncs for the ordering that is correct.
+#
+# That defect is NOT gone -- it was only removed from a registration that never
+# ran. on_member_on_update and on_chapter_role_on_update below are registered
+# under real DocTypes and call the same function, so they ship it live. Tracked
+# in #702; do not read this block as "the second-writer problem was fixed".
+#
+# #702 also carries the case BoardManager structurally cannot see: Volunteer.member
+# is editable (unique, but not set_only_once), and BoardManager runs only from
+# Chapter.on_update, so a re-link leaves board access on the old member's user.
+# Restoring this handler would not have closed that either -- it removes the Role
+# and never the role profile that re-grants it.
 
 
 def on_member_on_update(doc, method):
