@@ -1074,6 +1074,83 @@ class TestDocEventNamesAreDispatched(unittest.TestCase):
         )
 
 
+class TestDocEventKeysAreDoctypes(unittest.TestCase):
+    """Regression: every doc_events key must name a DocType that exists (#688).
+
+    The sibling gate above pins the event NAME. This one pins the KEY, which is the
+    other half of the same silence. frappe.get_doc_hooks() builds a dict keyed by
+    doctype name and looks up only the doctype being saved, so a key naming nothing
+    is never consulted: the handler strings still resolve, the app still boots,
+    nothing errors — the code just never runs.
+
+    The trap here is a `Verenigingen `-prefixed name, because this app has a Role, a
+    Role Profile and a DocType whose names differ only by that prefix. Four Volunteer
+    handlers sat under the Role name "Verenigingen Volunteer" for nine months, from
+    the very commit that created volunteer.json. Same failure shape as `after_save`:
+    no error, no log, just absence.
+
+    Scope: keys owned by this app. `*` is frappe's wildcard, and other installed apps
+    legitimately register doctypes that do not exist on every site (hrms registers
+    `Loan`, which needs the separate lending app), so only our own dict is checked.
+    """
+
+    def test_every_doc_events_key_is_a_real_doctype(self):
+        import frappe
+
+        doc_events = load_hooks_submodule("doc_events").doc_events
+
+        # CONTROL: a "does this doctype exist" probe that answers the same way for
+        # both inputs cannot fail this test for the right reason. Prove it
+        # discriminates before trusting the sweep below.
+        self.assertTrue(
+            frappe.db.exists("DocType", "Volunteer"),
+            "control failed: the real DocType 'Volunteer' was not found",
+        )
+        self.assertFalse(
+            frappe.db.exists("DocType", "Verenigingen Volunteer"),
+            "control failed: 'Verenigingen Volunteer' is a Role, not a DocType — if it "
+            "now resolves, this gate has stopped meaning anything",
+        )
+
+        not_doctypes = [
+            key for key in doc_events if key != "*" and not frappe.db.exists("DocType", key)
+        ]
+
+        self.assertEqual(
+            [],
+            not_doctypes,
+            "These doc_events keys name no DocType, so every handler under them is "
+            "silently inert. Check for a Role or Role Profile name that differs from "
+            "the DocType only by a 'Verenigingen ' prefix:\n  " + "\n  ".join(not_doctypes),
+        )
+
+    def test_volunteer_handlers_are_registered_under_the_volunteer_doctype(self):
+        """The specific regression: Volunteer handlers must dispatch on a real save.
+
+        Asserting the key alone would pass if someone re-added the Role name beside
+        the DocType name, so this reads the framework's own dispatch map rather than
+        our dict — get_doc_hooks() is what Document.run_method() consults.
+        """
+        import frappe
+
+        doc_hooks = frappe.get_doc_hooks()
+
+        self.assertIsNotNone(
+            doc_hooks.get("Volunteer"),
+            "No doc_events are dispatched for the Volunteer DocType. If the "
+            "role-profile sync was removed deliberately, delete this test with it.",
+        )
+        self.assertIn(
+            "verenigingen.services.volunteer.volunteer_role_profile_hooks.on_volunteer_status_change",
+            doc_hooks["Volunteer"].get("on_update", []),
+        )
+        self.assertIsNone(
+            doc_hooks.get("Verenigingen Volunteer"),
+            "'Verenigingen Volunteer' is a Role name. Handlers registered under it "
+            "never fire (#688).",
+        )
+
+
 class TestImportSideEffectGuards(unittest.TestCase):
     """Verify imports don't trigger database or cache calls."""
 

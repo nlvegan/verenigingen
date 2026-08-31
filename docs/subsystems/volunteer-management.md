@@ -112,11 +112,14 @@ From `hooks/scheduler.py`:
 
 From `hooks/doc_events.py`:
 
-**Verenigingen Volunteer `on_update`:**
-- Update employee approver (`native_expense_helpers`)
-- Chapter role events (`chapter_role_events.on_volunteer_on_update`)
-- Performance event handlers
-- Volunteer role profile hooks (`on_volunteer_status_change`)
+**Volunteer `on_update`:**
+- Volunteer role profile hooks (`on_volunteer_status_change`) — recalculates the user's
+  role profile when `Volunteer.status` crosses the Active/Onboarding boundary.
+
+Until #688 this block was keyed on `Verenigingen Volunteer`, a Role name rather than a
+DocType, so none of its four handlers ever fired. Three were retired rather than
+restored — see the notes in `hooks/doc_events.py`. `Employee.expense_approver` is kept
+current by the daily `refresh_all_expense_approvers` job, not by a document event.
 
 ### Permission and Access Control
 

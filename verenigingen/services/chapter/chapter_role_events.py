@@ -27,39 +27,16 @@ from verenigingen.utils.security_decorators import development_only
 # on_chapter_board_member_on_trash. These child table doc_events never fire when
 # rows are managed via parent save. Role assignment and role profile sync are now
 # handled by BoardManager.handle_board_member_additions/changes/deletions.
-
-
-def on_volunteer_on_update(doc, method):
-    """
-    Event handler for Volunteer updates
-    Re-evaluates board roles if member linkage changes
-    """
-    try:
-        # Check if the member field changed
-        if doc.has_value_changed("member"):
-            old_member = doc._doc_before_save.get("member") if doc._doc_before_save else None
-            new_member = doc.member
-
-            # Handle old member - remove board role if they lost their volunteer record
-            if old_member:
-                old_member_doc = frappe.get_doc("Member", old_member)
-                old_user_email = old_member_doc.user or old_member_doc.email
-
-                if old_user_email:
-                    assign_chapter_board_role(old_user_email)
-                    frappe.logger().info(f"Re-evaluated board role for old member {old_user_email}")
-
-            # Handle new member - assign board role if they have board positions
-            if new_member:
-                new_member_doc = frappe.get_doc("Member", new_member)
-                new_user_email = new_member_doc.user or new_member_doc.email
-
-                if new_user_email:
-                    assign_chapter_board_role(new_user_email)
-                    frappe.logger().info(f"Re-evaluated board role for new member {new_user_email}")
-
-    except Exception as e:
-        frappe.log_error(f"Error in volunteer update handler: {str(e)}")
+#
+# REMOVED: on_volunteer_on_update (#688). It re-ran assign_chapter_board_role()
+# when Volunteer.member changed. It was registered under "Verenigingen Volunteer"
+# -- a Role name, not a DocType -- so it never fired, and BoardManager was built
+# in its absence to own the same decision. Restoring it would make a second writer
+# of the board role, and a broken one: assign_chapter_board_role()'s else-branch
+# raw-deletes the Has Role row WITHOUT the role-profile sync that must precede it
+# (User.populate_role_profile_roles resets User.roles from the assigned profile on
+# every save), so the removal would be undone by the next User save. See
+# BoardManager.flush_pending_board_profile_syncs for the ordering that is correct.
 
 
 def on_member_on_update(doc, method):

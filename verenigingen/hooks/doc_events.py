@@ -158,14 +158,52 @@ doc_events = {
     # =========================================================================
     # VOLUNTEER SYSTEM
     # =========================================================================
-    "Verenigingen Volunteer": {
+    # The DocType is "Volunteer". Four handlers sat under the key "Verenigingen
+    # Volunteer" -- a Role name, not a DocType -- from the commit that created
+    # volunteer.json (2dbea04eb, 2025-11-20), so none of them ever ran.
+    # get_doc_hooks() keys on doctype name and never looks a stray key up: no
+    # error, no log. Only the role-profile sync earned restoration (#688).
+    "Volunteer": {
+        # Volunteer.status IS an input to calculate_user_role_profile:
+        # is_active_volunteer() reads it, so Active/Onboarding confer the
+        # "Verenigingen Volunteer" profile and New/Inactive/Retired do not.
+        # Nothing else live recalculates on a status change -- the Team and
+        # Chapter role-profile hooks diff their own child tables, and
+        # Volunteer.on_update only queues an ACR on the narrow New -> non-New
+        # transition. NOT closed by this: termination runs
+        # DeactivateUserAccountOperation BEFORE TerminateVolunteerRecordsOperation,
+        # so the user is already disabled and sync_user_role_profile skips it (#692).
         "on_update": [
-            "verenigingen.services.volunteer.native_expense_helpers.update_employee_approver",
-            "verenigingen.services.chapter.chapter_role_events.on_volunteer_on_update",
-            "verenigingen.utils.performance_event_handlers.on_volunteer_assignment_change",
             "verenigingen.services.volunteer.volunteer_role_profile_hooks.on_volunteer_status_change",
         ],
     },
+    # DELIBERATELY NOT RESTORED -- the other three of the four:
+    #
+    # chapter_role_events.on_volunteer_on_update. It called
+    # permissions.assign_chapter_board_role(), whose else-branch raw-deletes the
+    # Has Role row. BoardManager.handle_board_member_additions/changes/deletions
+    # already owns that decision and orders it deliberately: role profile first,
+    # then role withdrawal, because User.populate_role_profile_roles() resets
+    # User.roles from the assigned profile on every save and would undo a removal
+    # performed before it. A Volunteer-side second writer does only the removal,
+    # so its effect is undone by the next User save. The function was deleted
+    # along with this registration; it had no other caller.
+    #
+    # performance_event_handlers.on_volunteer_assignment_change. Inert even when
+    # registered correctly: its body branches on doc.doctype == "Verenigingen
+    # Volunteer", so a real Volunteer save falls through every branch. Measured
+    # on test_site_1 (2026-08-31): 0 bulk-loader calls for doctype "Volunteer",
+    # 1 for the string the body tests. A speculative cache warm, same shape as
+    # the SEPA Mandate preload declined below.
+    #
+    # native_expense_helpers.update_employee_approver. The daily scheduled
+    # refresh_all_expense_approvers (hooks/scheduler.py) already recomputes
+    # Employee.expense_approver for every volunteer with an employee_id, through
+    # this same function. A Volunteer on_update is the wrong trigger regardless:
+    # the value derives from Chapter Board Member / Chapter Member / Team Member
+    # rows and Verenigingen Settings, none of which touch the Volunteer doc,
+    # while employee_id itself is written with
+    # frappe.db.set_value(update_modified=False) and fires no event at all.
     # =========================================================================
     # FINANCIAL SYSTEM - PAYMENTS
     # =========================================================================
