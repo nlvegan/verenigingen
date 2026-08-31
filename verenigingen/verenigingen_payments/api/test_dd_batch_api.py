@@ -454,8 +454,9 @@ class TestDDBatchAPI(EnhancedTestCase):
 
         resolutions = [{"action": "consolidate_entries", "mandate_reference": mandate.mandate_id}]
         result = apply_conflict_resolutions(batch.name, resolutions)
-        # Nothing was applied, so the envelope reports no change (#615).
-        self.assertFalse(result["success"])
+        # The request was processed; nothing was applied (#615).
+        self.assertTrue(result["success"])
+        self.assertFalse(result["applied"])
         self.assertFalse(result["batch_updated"])
         res0 = result["resolution_results"][0]
         # The resolution refuses, and says why.

@@ -102,7 +102,7 @@ class _ConflictResolutionBase(_BatchPipelineBase):
         return frappe.get_all(
             "Direct Debit Batch Invoice",
             filters={"parent": batch_name},
-            fields=["name", "invoice", "amount"],
+            fields=["name", "invoice", "amount", "iban", "mandate_reference"],
             order_by="idx asc",
         )
 
@@ -138,16 +138,24 @@ class TestDistinctInvoicesAreNeverMerged(_ConflictResolutionBase):
         self.assertIn("Nothing to consolidate", outcome["message"])
 
     def test_a_refusal_leaves_the_batch_untouched_and_says_so(self):
-        """`batch_updated` must not claim a change the refusal did not make."""
+        """`applied`/`batch_updated` must not claim a change the refusal did not make.
+
+        The stale `entry_count` is what makes this discriminating: an unconditional
+        parent save would recalculate it back to 2, so only a run that really skips
+        the save leaves the planted 99 in place.
+        """
         batch, _member, mandate = self._batch_for_one_member([25.0, 30.0])
+        frappe.db.set_value("Direct Debit Batch", batch.name, "entry_count", 99, update_modified=False)
 
         result = apply_conflict_resolutions(
             batch.name, [{"action": "consolidate_entries", "mandate_reference": mandate.mandate_id}]
         )
 
+        self.assertTrue(result["success"], "the request itself was processed")
+        self.assertFalse(result["applied"])
         self.assertFalse(result["batch_updated"])
         batch.reload()
-        self.assertEqual(batch.entry_count, 2)
+        self.assertEqual(batch.entry_count, 99, "a refusal must not save the parent")
         self.assertEqual(flt(batch.total_amount), 55.0)
 
     def test_two_invoices_on_one_mandate_are_not_reported_as_a_conflict(self):
@@ -229,11 +237,85 @@ class TestDuplicateRowsForOneInvoiceAreDeduplicated(_ConflictResolutionBase):
 
         outcome = result["resolution_results"][0]
         self.assertFalse(outcome["success"])
-        self.assertIn("disagree about the amount", outcome["message"])
-        self.assertIn("25.0", outcome["message"])
-        self.assertIn("40.0", outcome["message"])
+        self.assertIn("disagree about what to debit", outcome["message"])
+        self.assertIn("amount: 25.0, 40.0", outcome["message"])
         self.assertEqual(len(self._batch_rows(batch.name)), 2)
-        self.assertFalse(result["batch_updated"])
+        self.assertFalse(result["applied"])
+
+    def test_duplicates_naming_two_different_mandates_are_refused_too(self):
+        """The canonical duplicate names TWO accounts, and the amounts AGREE.
+
+        #597/#604 measured how the pair arises: a member holding a membership
+        mandate and a donation mandate made the eligible-invoice join return one row
+        per Active mandate, both carrying `si.outstanding_amount` but each carrying
+        its own `sm.mandate_id`/`sm.iban`. An amount-only refusal never fires here,
+        so de-duplicating would keep whichever row sorted first and collect a
+        membership debt on whichever account that happened to be -- the
+        mandate-purpose violation #604/#605/#606 exist to prevent.
+        """
+        batch, _member, mandate = self._batch_for_one_member([25.0])
+        original = self._batch_rows(batch.name)[0]
+        self._plant_duplicate_row(
+            batch.invoices[0].name,
+            mandate_reference="TST-DONATION-MANDATE",
+            iban="NL39RABO0300065264",
+        )
+
+        result = apply_conflict_resolutions(
+            batch.name, [{"action": "consolidate_entries", "invoice": original.invoice}]
+        )
+
+        outcome = result["resolution_results"][0]
+        self.assertFalse(outcome["success"])
+        self.assertIn("disagree about what to debit", outcome["message"])
+        self.assertIn("mandate_reference", outcome["message"])
+        self.assertIn("TST-DONATION-MANDATE", outcome["message"])
+        self.assertIn("iban", outcome["message"])
+        self.assertEqual(len(self._batch_rows(batch.name)), 2)
+
+    def test_a_mandate_scope_still_sees_a_duplicate_that_names_another_mandate(self):
+        """The mandate scope chooses which INVOICES to repair, not which rows.
+
+        Filtering the rows on `mandate_reference` returns one row of the pair, and
+        the endpoint would then report "one row per invoice, each once" about a
+        batch that holds two and cannot be saved at all.
+        """
+        batch, _member, mandate = self._batch_for_one_member([25.0])
+        self._plant_duplicate_row(
+            batch.invoices[0].name,
+            mandate_reference="TST-DONATION-MANDATE",
+            iban="NL39RABO0300065264",
+        )
+
+        result = apply_conflict_resolutions(
+            batch.name, [{"action": "consolidate_entries", "mandate_reference": mandate.mandate_id}]
+        )
+
+        outcome = result["resolution_results"][0]
+        self.assertNotIn(
+            "each once",
+            outcome["message"],
+            "the batch holds two rows for one invoice; saying otherwise is false",
+        )
+        self.assertIn("disagree about what to debit", outcome["message"])
+
+    def test_the_surviving_row_keeps_the_account_the_duplicates_agreed_on(self):
+        """Which row survives is only immaterial because every debit-deciding field
+        is identical by then. Pin that, so a change that starts picking a row
+        without that guarantee is visible."""
+        batch, _member, mandate = self._batch_for_one_member([25.0])
+        original = self._batch_rows(batch.name)[0]
+        self._plant_duplicate_row(batch.invoices[0].name)
+
+        apply_conflict_resolutions(
+            batch.name, [{"action": "consolidate_entries", "invoice": original.invoice}]
+        )
+
+        rows = self._batch_rows(batch.name)
+        self.assertEqual(len(rows), 1)
+        survivor = frappe.get_doc("Direct Debit Batch Invoice", rows[0].name)
+        self.assertEqual(survivor.mandate_reference, mandate.mandate_id)
+        self.assertEqual(survivor.iban, original.iban)
 
     def test_consolidation_scoped_to_an_invoice_leaves_the_other_invoice_alone(self):
         """`consolidate_entries` also accepts an `invoice` scope, and it must not
@@ -280,7 +362,10 @@ class TestEveryOfferedRemedyIsImplemented(_ConflictResolutionBase):
         conflicts = get_batch_conflicts(batch.name)["conflicts"]
 
         offered = {option["action"] for conflict in conflicts for option in conflict["resolution_options"]}
-        self.assertTrue(offered, "the fixture must actually produce conflicts")
+        # Name the remedy the duplicate conflict must offer, not just "some options
+        # were returned": the three failed-entry conflicts satisfy a bare
+        # assertTrue, so deleting duplicate-invoice detection entirely would pass.
+        self.assertIn("consolidate_entries", offered)
         self.assertNotIn("exclude_duplicates", offered)
 
     def test_every_offered_action_reaches_a_branch(self):
@@ -385,8 +470,12 @@ class TestAFailedResolutionLeavesNothingBehind(_ConflictResolutionBase):
 
         result = apply_conflict_resolutions(batch.name, [{"action": "exclude_entry", "entry_id": excluded}])
 
-        # The caller is told it failed...
+        # The caller is told it failed. `success` False here means the REQUEST
+        # failed -- @handle_api_error's OperationResult.fail, which carries `error`
+        # and no resolution_results -- and not a remedy that correctly declined,
+        # which reports itself per resolution inside a success envelope.
         self.assertFalse(result["success"], result)
+        self.assertIn("error", result)
 
         # ...and the row it was told was not excluded is still in the batch. Before
         # the savepoint the deletion was committed anyway, so this invoice silently

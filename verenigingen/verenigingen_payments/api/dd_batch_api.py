@@ -504,13 +504,24 @@ def apply_conflict_resolutions(batch_id, resolutions):
 
     Args:
         batch_id (str): ID of the batch
-        resolutions (dict): Resolution actions to apply
+        resolutions (list[dict]): Resolution actions to apply. Each dict carries an
+            `action` (one of update_mandate, update_iban, exclude_entry,
+            consolidate_entries, manual_review) plus that action's parameters --
+            `entry_id`, or `invoice` / `mandate_reference` for consolidate_entries.
 
     Returns:
-        dict: Result of resolution application
+        dict: {"success": True, "resolution_results": [...], "applied": bool,
+               "batch_updated": bool}. `success` reports that the request was
+               processed; a remedy that correctly declines is reported per
+               resolution, not as a request failure.
     """
     # Validate input
     validate_required_fields({"batch_id": batch_id, "resolutions": resolutions}, ["batch_id", "resolutions"])
+
+    # A whitelisted endpoint reached with a form-encoded body hands this over as a
+    # JSON string; iterating it would yield one character per "resolution".
+    if isinstance(resolutions, str):
+        resolutions = frappe.parse_json(resolutions)
 
     # Check permissions
     if not can_manage_dd_batches():
@@ -531,9 +542,11 @@ def apply_conflict_resolutions(batch_id, resolutions):
     # describe the batch as it was. An excluded row committed under a "failed"
     # result is an invoice that is silently never collected.
     #
-    # A savepoint rather than frappe.db.begin(): begin() issues START TRANSACTION,
-    # which raises ImplicitCommitError inside an open transaction (always, under a
-    # request and under the test runner).
+    # A savepoint rather than frappe.db.begin(): begin() opens a NEW transaction
+    # boundary rather than a nested one, and it raises ImplicitCommitError whenever
+    # the surrounding transaction has already written (`check_implicit_commit` tests
+    # `transaction_writes`). A savepoint nests inside whatever transaction the
+    # request or the test runner already has open.
     savepoint = f"dd_conflict_resolutions_{frappe.generate_hash(length=8)}"
     frappe.db.savepoint(savepoint)
     try:
@@ -567,16 +580,22 @@ def apply_conflict_resolutions(batch_id, resolutions):
     else:
         release_savepoint_if_present(savepoint)
 
-    # `success` reports whether anything was applied, not merely that the request
-    # was processed (#615). It used to be a hard-coded True, so a resolution that
-    # matched no branch -- leaving success False and an EMPTY message inside
-    # resolution_results -- came back inside a successful response, and the client
-    # (public/js/dd_batch_management_enhanced.js:1047 tests `success !== false`)
-    # reported "Conflict resolutions applied successfully" for a no-op.
+    # `success` stays the request-level flag: the request was processed. What #615
+    # is about -- an operator being told a remedy was applied when it was not -- is
+    # answered by every resolution now carrying a non-empty message, and by
+    # `applied`, which says whether ANY of them changed anything. `batch_updated`
+    # was previously hard-coded True even when nothing was touched.
+    #
+    # `success` deliberately does NOT become `applied`. Two of the advertised
+    # remedies correctly decline (`manual_review` has nothing to apply; consolidate
+    # refuses an ambiguous duplicate), and a client following the usual
+    # `success !== false` convention would render those as "Failed to apply
+    # conflict resolutions" and hide the very message the operator needs.
     return {
-        "success": applied,
+        "success": True,
         "batch_id": batch_id,
         "resolution_results": results,
+        "applied": applied,
         "batch_updated": applied,
     }
 
@@ -599,8 +618,24 @@ def _apply_one_resolution(batch_id, resolution):
         result.update(_resolution_outcome(batch_id, resolution))
     except NON_RESUMABLE_DB_ERRORS:
         raise
-    except Exception as e:
+    except (frappe.ValidationError, ValidationError) as e:
+        # A deliberate refusal (a missing entry_id, a row belonging to another
+        # batch, a guard on the child row). The message IS the answer, so it goes
+        # to the operator without an Error Log row.
         rollback_to_savepoint(savepoint)
+        result["success"] = False
+        result["message"] = str(e)
+    except Exception as e:
+        # Anything else is a defect, not a refusal, and this handler is the only
+        # thing between it and a returned string: without the log there is no
+        # traceback anywhere, and the falsy `success` it produces is load-bearing
+        # (it gates the parent save).
+        rollback_to_savepoint(savepoint)
+        log_error(
+            e,
+            context={"function": "apply_conflict_resolutions", "batch_id": batch_id},
+            module=__name__,
+        )
         result["success"] = False
         result["message"] = str(e)
     else:
@@ -674,7 +709,7 @@ def _batch_child_row(batch_id, entry_id):
     """
     row = frappe.get_doc("Direct Debit Batch Invoice", entry_id)
     if row.parent != batch_id:
-        raise ValidationError(f"Entry {entry_id} does not belong to batch {batch_id}")
+        raise ValidationError(_("Entry {0} does not belong to batch {1}").format(entry_id, batch_id))
     return row
 
 
@@ -698,35 +733,64 @@ def _remove_duplicate_invoice_rows(batch_id, resolution):
       collected (#626).
 
     So the key is the invoice. Rows naming different invoices are different debts
-    and are left as separate debits. `mandate_reference` is still accepted as a
-    scope so an existing caller's payload keeps working: it narrows WHICH rows are
-    considered, it no longer decides what gets merged.
+    and are left as separate debits.
 
-    Amounts are not summed. Two rows for one invoice each already carry that
-    invoice's amount, so the correct total after de-duplication is one of them,
-    not their sum. Where the duplicates disagree about the amount the rows are
-    left alone and the disagreement is reported -- picking one would debit a
-    number nobody chose, and this repo's own precedent for an ambiguous financial
-    pick (#567/#578/#584) is to refuse it rather than order it.
+    `mandate_reference` is accepted as a scope so an existing caller's payload keeps
+    working, but only to choose WHICH INVOICES to repair -- the rows of those
+    invoices are then loaded without it. Filtering the rows themselves on the
+    mandate would hide the canonical duplicate: the pair that duplicates one invoice
+    routinely carries DIFFERENT mandate references, because that is how it got there
+    (#597/#604 -- a member holding a membership mandate and a donation mandate
+    produced two rows for one invoice, each with its own `sm.mandate_id`/`sm.iban`).
+    A mandate-filtered query returns one row of that pair, and this function would
+    then report "one row per invoice, each once" about a batch that holds two and
+    cannot be saved at all.
+
+    Nothing is merged and no field is picked. Two rows for one invoice each already
+    carry that invoice's whole amount, so the correct total after de-duplication is
+    one of them, not their sum -- all 9 row-producing sites were read and none
+    splits an invoice across rows. But the surviving row also carries the IBAN and
+    the mandate reference the money moves on, and those are exactly what the
+    duplicate pair disagrees about. So the refusal covers every field that decides
+    the debit -- amount, iban, mandate_reference -- rather than the amount alone:
+    keeping `group[0]` when the pair names two different mandates would collect a
+    membership debt on whichever mandate happened to sort first, which is the
+    mandate-purpose violation #604/#605/#606 exist to prevent. This repo's precedent
+    for an ambiguous financial pick (#567/#578/#584) is to refuse it, not to order
+    it, and `exclude_entry` is the operator's way to remove the right row by hand.
+
+    `sequence_type` and `status` are deliberately NOT in that set: neither decides
+    where money goes or how much (SEPA generation iterates every row regardless of
+    status), so a difference there must not block a repair.
     """
-    filters = {"parent": batch_id}
-    if resolution.get("invoice"):
-        filters["invoice"] = resolution["invoice"]
-    if resolution.get("mandate_reference"):
-        filters["mandate_reference"] = resolution["mandate_reference"]
-
-    if len(filters) == 1:
+    invoice = resolution.get("invoice")
+    mandate_reference = resolution.get("mandate_reference")
+    if not invoice and not mandate_reference:
         return {
             "success": False,
             "message": _("consolidate_entries needs an invoice or a mandate_reference to scope it"),
         }
 
+    scope = {"parent": batch_id}
+    if invoice:
+        scope["invoice"] = invoice
+    if mandate_reference:
+        scope["mandate_reference"] = mandate_reference
+
+    scoped_invoices = sorted(
+        {
+            row.invoice
+            for row in frappe.get_all("Direct Debit Batch Invoice", filters=scope, fields=["invoice"])
+            if row.invoice
+        }
+    )
+    if not scoped_invoices:
+        return {"success": False, "message": _("No rows in this batch match that invoice or mandate")}
+
     rows = frappe.get_all(
         "Direct Debit Batch Invoice",
-        filters=filters,
-        fields=["name", "invoice", "amount"],
-        # Explicit "asc": Frappe appends the direction to a bare field name, so
-        # order_by="idx" would sort DESC and keep the LAST row instead of the first.
+        filters={"parent": batch_id, "invoice": ["in", scoped_invoices]},
+        fields=["name", "invoice", "amount", "iban", "mandate_reference"],
         order_by="idx asc",
     )
 
@@ -734,7 +798,7 @@ def _remove_duplicate_invoice_rows(batch_id, resolution):
     for row in rows:
         rows_by_invoice.setdefault(row.invoice, []).append(row)
 
-    duplicates = {invoice: group for invoice, group in rows_by_invoice.items() if len(group) > 1}
+    duplicates = {inv: group for inv, group in rows_by_invoice.items() if len(group) > 1}
     if not duplicates:
         return {
             "success": False,
@@ -746,25 +810,26 @@ def _remove_duplicate_invoice_rows(batch_id, resolution):
             ).format(len(rows), len(rows_by_invoice)),
         }
 
-    disagreeing = {
-        invoice: group for invoice, group in duplicates.items() if len({flt(r.amount) for r in group}) > 1
-    }
-    if disagreeing:
-        listed = "; ".join(
-            "{0} ({1})".format(invoice, ", ".join(str(flt(r.amount)) for r in group))
-            for invoice, group in sorted(disagreeing.items())
-        )
+    disagreements = []
+    for inv, group in sorted(duplicates.items()):
+        for field in DEBIT_DECIDING_FIELDS:
+            values = {_debit_field_value(row, field) for row in group}
+            if len(values) > 1:
+                disagreements.append("{0} {1}: {2}".format(inv, field, ", ".join(sorted(values))))
+    if disagreements:
         return {
             "success": False,
             "message": _(
-                "Duplicate rows disagree about the amount owed, so none were removed: {0}. "
-                "Correct the amounts by hand -- keeping one arbitrarily would debit a value "
-                "nobody chose."
-            ).format(listed),
+                "Duplicate rows disagree about what to debit, so none were removed: {0}. "
+                "Resolve it by hand (exclude_entry removes one row) -- keeping either "
+                "arbitrarily would debit a value or an account nobody chose."
+            ).format("; ".join(disagreements)),
         }
 
     removed = 0
     for group in duplicates.values():
+        # Every field that decides the debit is identical across the group by now,
+        # so which row survives is immaterial to the money.
         for row in group[1:]:
             frappe.delete_doc("Direct Debit Batch Invoice", row.name)
             removed += 1
@@ -773,6 +838,18 @@ def _remove_duplicate_invoice_rows(batch_id, resolution):
         "success": True,
         "message": _("Removed {0} duplicate row(s) covering {1} invoice(s)").format(removed, len(duplicates)),
     }
+
+
+# The three child-row fields that decide where the money goes and how much. A
+# duplicate pair that disagrees on any of them is refused rather than resolved.
+DEBIT_DECIDING_FIELDS = ("amount", "iban", "mandate_reference")
+
+
+def _debit_field_value(row, field):
+    """One duplicate row's value for a debit-deciding field, as a comparable string."""
+    if field == "amount":
+        return str(flt(row.amount))
+    return (row.get(field) or "").strip()
 
 
 @frappe.whitelist()
