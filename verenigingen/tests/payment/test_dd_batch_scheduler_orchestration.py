@@ -63,6 +63,22 @@ class _SchedulerOrchestrationBase(EnhancedTestCase):
             member.db_set("customer", customer_name)
         frappe.db.set_value("Customer", customer_name, "member", member.name)
         membership = self.sepa.create_test_membership(member=member.name)
+        # Link the invoice to its dues schedule. Since #616 the eligibility SQL
+        # reaches Membership through `si.membership_dues_schedule_display ->
+        # mds.membership` instead of "any Active membership of this member", so an
+        # invoice with no schedule is not a dues invoice and is not batched.
+        # `Membership.on_submit` already created the schedule; reuse it.
+        schedule = self.sepa.create_test_membership_dues_schedule(
+            member=member.name, payment_terms_template="SEPA Direct Debit"
+        )
+        # The helper above is a get-or-create; only its reuse branch returns the
+        # schedule `Membership.on_submit` built, and only that one carries
+        # `membership`. Assert it, or a factory change surfaces here as the far
+        # more confusing "this invoice is not eligible".
+        self.assertTrue(
+            frappe.db.get_value("Membership Dues Schedule", schedule.name, "membership"),
+            "fixture precondition: the dues schedule must name its membership",
+        )
         mandate = self.sepa.create_test_sepa_mandate(member=member.name)
         frappe.db.set_value(
             "Member",
@@ -72,6 +88,7 @@ class _SchedulerOrchestrationBase(EnhancedTestCase):
         invoice = self.sepa.create_test_sales_invoice(
             customer=customer_name,
             member=member.name,
+            membership_dues_schedule_display=schedule.name,
             grand_total=amount,
             status="Unpaid",
             submit=True,
@@ -80,6 +97,7 @@ class _SchedulerOrchestrationBase(EnhancedTestCase):
         self._track_test_document("Member", member.name)
         self._track_test_document("Customer", customer_name)
         self._track_test_document("Membership", membership.name)
+        self._track_test_document("Membership Dues Schedule", schedule.name)
         self._track_test_document("SEPA Mandate", mandate.name)
         return member, invoice
 

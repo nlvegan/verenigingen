@@ -123,7 +123,7 @@ def get_eligible_invoices_for_batching():
             si.grand_total as amount,
             si.currency,
             si.posting_date,
-            m.name as membership,
+            mds.membership as membership,
             mem.name as member,
             mem.full_name as member_name,
             mem.iban,
@@ -131,12 +131,52 @@ def get_eligible_invoices_for_batching():
             sm.mandate_id as mandate_reference,
             mem.member_since,
             mem.status as member_status,
-            m.status as membership_status,
+            mds.status as membership_status,
             'Normal' as priority
         FROM
             `tabMember` mem
-        JOIN `tabMembership` m ON m.member = mem.name
         JOIN `tabSales Invoice` si ON si.customer = mem.customer
+        -- Reach the membership through the invoice's OWN dues schedule (#616).
+        --
+        -- This used to be `JOIN tabMembership m ON m.member = mem.name` with
+        -- `AND m.status = 'Active'`, which is one-to-MANY: multiple Active
+        -- memberships per member are explicitly permitted
+        -- (`Membership.validate_existing_memberships` is bypassed by
+        -- `frappe.flags.allow_multiple_memberships`, set by a whitelisted server
+        -- action that exists for exactly that). So one invoice produced one row
+        -- PER Active membership -- same `invoice`, same `iban`, same
+        -- `mandate_reference`. Measured: 2 rows for one EUR 25 invoice, i.e. the
+        -- same double debit #604 removed from the mandate join, by a second route.
+        --
+        -- The dues schedule is joined on its PRIMARY KEY, so it is one row or
+        -- none rather than a tiebreak, and it is the only thing that knows which
+        -- membership an invoice was raised for. This is the resolution the other
+        -- automated collection path already uses
+        -- (`sepa_mandate_service.get_sepa_invoices_with_mandates`: si -> mds ->
+        -- Member via `mds.member`) and the one `validate_all_pending_invoices`
+        -- below already uses, down to reading `mds.status` as the membership
+        -- status. A third, divergent resolver is the #495/#394 failure mode.
+        --
+        -- `tabMembership` is deliberately NOT joined any more. Requiring the
+        -- invoice's own membership to be Active silently dropped every renewed
+        -- member: `Membership.create_or_update_dues_schedule` reuses the existing
+        -- schedule and never re-points `mds.membership`, so after a renewal the
+        -- schedule still names the PREVIOUS membership, which
+        -- `process_membership_statuses` marks Expired. The schedule's own status
+        -- is the billing authority and stays Active across a renewal.
+        -- `mds.membership` is kept as the row's label; a NULL one is rejected by
+        -- `validate_member_eligibility_for_billing` with a log rather than
+        -- reaching the reqd Link on `Direct Debit Batch Invoice`.
+        --
+        -- `mds.member = mem.name` preserves what the old join guaranteed
+        -- structurally -- the `member` and `membership` written to one Direct
+        -- Debit Batch child row describe the same person -- and bounds the
+        -- remaining one-to-many join above it: `Member.customer` is a plain Link
+        -- with no unique constraint, so `si.customer = mem.customer` can match
+        -- several Members on its own. `mds` is one row, so this pins `mem` to one.
+        JOIN `tabMembership Dues Schedule` mds
+            ON mds.name = si.membership_dues_schedule_display
+            AND mds.member = mem.name
         -- Purpose filter (#597). Without it this join produced one row PER
         -- Active mandate, so a member with a membership mandate and a donation
         -- mandate yielded TWO rows for ONE invoice -- and `sm.mandate_id`/`sm.iban`
@@ -157,7 +197,11 @@ def get_eligible_invoices_for_batching():
             AND sm.mandate_id IS NOT NULL
             -- ⚠️ CRITICAL VALIDATION: Exclude terminated/inactive members
             AND mem.status NOT IN ('Quit', 'Expelled', 'Deceased', 'Suspended', 'Quit')
-            AND m.status = 'Active'
+            -- The dues schedule's status, not a membership's (#616): it is what
+            -- termination, pausing and payment plans actually flip, and it is
+            -- what `validate_all_pending_invoices` below already reports as the
+            -- membership status.
+            AND mds.status = 'Active'
             -- Exclude invoices already in batches
             AND si.name NOT IN (
                 SELECT DISTINCT ddi.invoice
@@ -214,6 +258,23 @@ def validate_member_eligibility_for_billing(invoice_data):
             frappe.log_error(
                 f"Attempted to bill terminated member: {member_name} (status: {member_status})",
                 "Member Status Validation",
+            )
+            return False
+
+        # `Direct Debit Batch Invoice.membership` is a REQUIRED Link, and since
+        # #616 it carries the dues schedule's `membership` verbatim. That field
+        # is not `reqd` on the schedule: `TemplateCreationService.create_from_template`
+        # sets it only `if membership_id`, and the whitelisted
+        # `create_schedule_from_template(member, template_name)` passes no
+        # membership at all. Rejecting the row here fails ONE invoice with an
+        # Error Log an operator can act on, instead of throwing on the reqd field
+        # and taking the whole collection run down -- the "right failure, wrong
+        # outcome" #616 is about.
+        if not invoice_data.get("membership"):
+            frappe.log_error(
+                f"Dues schedule for member {member_name} has no membership link; "
+                f"invoice {invoice_data.get('invoice')} cannot be batched",
+                "Dues Schedule Membership Missing",
             )
             return False
 

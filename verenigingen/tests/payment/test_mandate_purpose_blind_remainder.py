@@ -329,6 +329,12 @@ class TestDuesEligibilityIsNotAnsweredByADonationMandate(DonationOnlyMandateFixt
         return {
             "invoice": "SINV-PURPOSE-TEST",
             "member": self.member.name,
+            # Every real row from `get_eligible_invoices_for_batching` carries the
+            # dues schedule's membership, and since #616 the gate rejects a row
+            # without one. Omitting it here would make BOTH tests below pass for
+            # the wrong reason -- the donation-mandate test would refuse the row
+            # before ever reaching the mandate check it exists to exercise.
+            "membership": "MS-PURPOSE-TEST",
             "member_status": self.member.status,
             "membership_status": "Active",
             "payment_method": "SEPA Direct Debit",
