@@ -270,6 +270,39 @@ repos:
         stages: [pre-commit]
         exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/validation/archived/|verenigingen/tests/)'
 
+      - id: doctype-name-validator
+        name: 🏷️  Unknown DocType Name Guard (ratchet)
+        description: >-
+          Blocks a NEW string literal in a doctype-name position naming something that
+          is not a DocType in any app on this bench. Nothing in the framework says so
+          for you: `frappe.db.exists` routes through `sql(..., ignore=True)`, swallows
+          the missing-table 1146 and returns None — the same answer as "no such row" —
+          while `get_value` / `set_value` / `count` raise into whichever broad `except`
+          is nearest. That is how a permission gate in the Chapter Members report
+          spelled the ROLE name "Verenigingen Chapter Board Member" instead of the
+          DocType "Chapter Board Member" and denied every chapter board member for
+          nine months (#677), and how TestDataBuilder registered cleanups under two
+          doctypes that do not exist and leaked every Volunteer it created (#491).
+          Also covers this app's own cleanup registries (`track_doc`, `register`,
+          `add_cleanup_record`) — where #491 actually lived, and where no
+          `frappe.`-shaped grep would have looked. Ratcheted against
+          scripts/validation/doctype_name_baseline.txt (93 known sites, mostly
+          aspirational doctypes in tests) so existing code does not block commits;
+          only a NEW name, or a new occurrence in a file already listed, fails.
+          A deliberate unknown name — a negative test — is marked
+          `# doctype-ok: <reason>`, and probing with `frappe.db.exists("DocType", X)`
+          first exempts X in that file.
+          This hook only sees the files you touched; the Code Validation workflow
+          re-runs it over the whole tree. The exclude below must stay a SUBSET of
+          SCAN_ROOTS in the validator — anything scanned here but absent from the
+          baseline fails on first edit.
+        entry: python scripts/validation/doctype_name_validator.py
+        language: system
+        pass_filenames: true
+        files: '\.py$'
+        stages: [pre-commit]
+        exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/validation/archived/)'
+
       - id: duplicate-helper-validator
         name: 👯 Duplicate Helper Guard (ratchet)
         description: >-

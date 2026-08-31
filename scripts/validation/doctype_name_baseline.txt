@@ -1,0 +1,58 @@
+# Known unknown-DocType-name call sites -- the ratchet baseline for
+# scripts/validation/doctype_name_validator.py. Regenerate with
+# --update-baseline. Keyed path::doctype::count; line numbers are
+# deliberately absent because they rot on any edit above them.
+#
+# Every entry is a string in a doctype-name position naming something that is
+# not a DocType in any app on this bench. Most are aspirational doctypes in
+# tests. An entry LEAVING this file is progress and does not fail the gate;
+# a new one, or a new occurrence in a file already listed, does.
+#
+# A deliberate unknown name -- a negative test -- goes in the source as
+# `# doctype-ok: <reason>` and never reaches this file.
+scripts/admin/role_renamer.py::Role Profile Role::1
+scripts/debug/board/debug_board_console.py::Person::1
+scripts/maintenance/rename_roles_with_prefix.py::Role Profile Role::1
+scripts/monitoring/zabbix_integration.py::Volunteer Expense::1
+scripts/validation/features/test_member_portal_fix.py::Volunteer Expense::3
+verenigingen/email/automated_campaigns.py::Campaign Execution Log::1
+verenigingen/email/simplified_email_manager.py::Newsletter::2
+verenigingen/fixes/eboekhouden_utils.py::E-Boekhouden Account Map::1
+verenigingen/tests/backend/components/test_termination_impact.py::Verenigingen Chapter Board Member::2
+verenigingen/tests/backend/comprehensive/test_chapter_membership_validation_edge_cases.py::Volunteer Expense::1
+verenigingen/tests/backend/comprehensive/test_comprehensive_suite_demo.py::Verenigingen Volunteer::1
+verenigingen/tests/backend/comprehensive/test_dd_batch_edge_cases.py::DD Conflict Report::2
+verenigingen/tests/backend/comprehensive/test_dd_batch_edge_cases.py::DD Security Audit Log::4
+verenigingen/tests/backend/comprehensive/test_dd_batch_edge_cases.py::DD Security Event Log::2
+verenigingen/tests/backend/comprehensive/test_financial_integration_edge_cases.py::Volunteer Expense::5
+verenigingen/tests/backend/comprehensive/test_termination_workflow_edge_cases.py::Volunteer Expense::1
+verenigingen/tests/backend/features/test_application_submission_validation.py::Verenigingen Volunteer::4
+verenigingen/tests/backend/integration/test_erpnext_expense_integration_real.py::Volunteer Expense::2
+verenigingen/tests/backend/integration/test_volunteer_portal_integration.py::Volunteer Expense::1
+verenigingen/tests/backend/security/test_security_comprehensive.py::Volunteer Expense::3
+verenigingen/tests/backend/workflows/test_member_lifecycle.py::Volunteer Expense::3
+verenigingen/tests/backend/workflows/test_member_lifecycle_complete.py::Volunteer Expense::1
+verenigingen/tests/backend/workflows/test_volunteer_journey.py::Volunteer Expense::6
+verenigingen/tests/chapter/test_chapter_board_permissions_comprehensive.py::Volunteer Expense::2
+verenigingen/tests/e2e/test_workflow_validation.py::Dispute Case::1
+verenigingen/tests/fixtures/enhanced_test_factory.py::Member Application::2
+verenigingen/tests/test_enhanced_test_factory_drain.py::ToyDoc::2
+verenigingen/tests/utils/factories.py::Verenigingen Volunteer::1
+verenigingen/tests/utils/factories.py::Volunteer Expense::1
+verenigingen/tests/workflows/test_communication_system_integration.py::Communication Preferences::2
+verenigingen/tests/workflows/test_communication_system_integration.py::Communication Unsubscribe::2
+verenigingen/tests/workflows/test_financial_workflows.py::Payment Retry Schedule::4
+verenigingen/tests/workflows/test_performance_comprehensive.py::Volunteer Expense::1
+verenigingen/tests/workflows/test_security_comprehensive_advanced.py::GDPR Deletion Request::2
+verenigingen/tests/workflows/test_security_comprehensive_advanced.py::Member Consent::4
+verenigingen/tests/workflows/test_sepa_processing_pipeline.py::SEPA Mandate Renewal::2
+verenigingen/tests/workflows/test_volunteer_board_finance_persona.py::Volunteer Expense::4
+verenigingen/utils/security/security_monitoring.py::Security Alert::1
+verenigingen/verenigingen/doctype/verenigingen_settings/verenigingen_settings.py::Donor Type::1
+verenigingen/verenigingen/report/users_by_team/validation_script.py::Team Member Role::1
+verenigingen/verenigingen/report/volunteer_interest_analysis/volunteer_interest_analysis.py::Member Volunteer Interest::1
+verenigingen/verenigingen/report/volunteer_interest_analysis/volunteer_interest_analysis.py::Member Volunteer Skill::1
+verenigingen/verenigingen_payments/mollie/tests/test_integration_boundaries.py::Chargeback Dispute::1
+verenigingen/verenigingen_payments/monitoring/balance_monitor.py::Balance Threshold::1
+verenigingen/verenigingen_payments/utils/sepa_alerting_system.py::SEPA Settings::1
+verenigingen/verenigingen_payments/utils/sepa_rollback_manager.py::SEPA_Compensation_Transaction::6
