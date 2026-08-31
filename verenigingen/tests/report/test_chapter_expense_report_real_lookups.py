@@ -59,7 +59,7 @@ class TestChapterExpenseReportRealLookups(EnhancedTestCase):
                 "status": "Active",
                 "company": company,
             }
-        ).insert(ignore_permissions=True)
+        ).insert()
         self._track_test_document("Employee", emp.name, priority=2)
         return emp
 
@@ -97,7 +97,7 @@ class TestChapterExpenseReportRealLookups(EnhancedTestCase):
                 **custom,
             }
         )
-        claim.insert(ignore_permissions=True)
+        claim.insert()
         # Drained highest-first: the claim reads its employee as the GL party on
         # cancel, so it must outrank the Employee (2) it points at.
         self._track_test_document("Expense Claim", claim.name, priority=6)
@@ -137,7 +137,7 @@ class TestChapterExpenseReportRealLookups(EnhancedTestCase):
                 "team_type": "Project Team",
                 "start_date": today(),
             }
-        ).insert(ignore_permissions=True)
+        ).insert()
         self._track_test_document("Team", team.name, priority=3)
         employee = self._employee(company)
         claim = self._expense_claim(
