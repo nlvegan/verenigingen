@@ -76,10 +76,14 @@ class TestVolunteerStatusRoleProfileSync(EnhancedTestCase):
         return volunteer, email
 
     def _set_status(self, volunteer, status):
-        """Change status through a real save, so the doc_event actually dispatches."""
+        """Change status through a real save, so the doc_event actually dispatches.
+
+        No ignore_permissions: the harness runs as Administrator, and a save that
+        needed a bypass would not be the save production performs.
+        """
         volunteer.reload()
         volunteer.status = status
-        volunteer.save(ignore_permissions=True)
+        volunteer.save()
         return volunteer
 
     # ------------------------------------------------------------------ wiring
@@ -146,13 +150,13 @@ class TestVolunteerStatusRoleProfileSync(EnhancedTestCase):
         # Drive the stored profile out of sync so a recalculation is visible either way.
         user_doc = frappe.get_doc("User", email)
         user_doc.set("role_profiles", [])
-        user_doc.save(ignore_permissions=True)
+        user_doc.save()
         self.assertEqual([], get_user_role_profiles(email))
 
         # NEGATIVE leg: a save that does not touch status must not recalculate.
         volunteer.reload()
         volunteer.note = "unrelated edit"
-        volunteer.save(ignore_permissions=True)
+        volunteer.save()
         self.assertEqual(
             [],
             get_user_role_profiles(email),
