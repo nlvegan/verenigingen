@@ -34,6 +34,16 @@ accounting semantics are not in them, and three of the four root causes behind t
   was planted by a fixture. So `{"account_type": "Income Account"}` resolves only when a
   sibling suite in the same shard already created one. `Sales Invoice` requires neither —
   `validate_account_head` checks company + non-group and nothing else. (#431, #442)
+  **The EXPENSE side is the same defect and now has numbers** (test_site_5, 2026-08-31):
+  **44 of 57** companies have zero `account_type = "Expense Account"` rows; the typed
+  lookup returns `None` on **44/44** of those, while a `root_type = "Expense"` fallback
+  resolves **43** (the 44th has no expense leaves at all). `Payable` *is* typed, which is
+  why only the expense side of a paired lookup breaks — a useful discriminator. Three
+  tests passed locally and failed in CI on exactly this, and the typed rows that made
+  them pass were planted by other suites (one named `Mollie Fees (owned by BTR
+  coverage)`). Fix shape, already in `test_document_links.py` and propagated by PR #691:
+  `account_type=... OR root_type=...`, **plus an explicit `order_by`** — see the next
+  bullet, or which typed row you get depends on what a sibling created last. (#442, #691)
 - **`order_by="name"` sorts DESC.** Frappe appends the direction, so a bare field name
   gives you the maximum. Write `order_by="name asc"` if you meant ascending. And an
   omitted `order_by` on `db.get_value` is `creation DESC`, while `get_all` is
