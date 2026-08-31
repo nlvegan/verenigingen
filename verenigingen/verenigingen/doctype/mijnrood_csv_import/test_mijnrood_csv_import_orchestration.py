@@ -18,6 +18,7 @@ import random
 
 import frappe
 
+from verenigingen.tests.utils.force_delete import force_delete
 from verenigingen.verenigingen.doctype.mijnrood_csv_import.test_mijnrood_csv_import_pipeline import (
     _BaseMijnroodPipelineTest,
 )
@@ -83,7 +84,7 @@ class TestMijnroodChapterAssignment(_BaseMijnroodPipelineTest):
 
         if frappe.db.exists("Chapter", new_chapter_name):
             # Track the created chapter for cleanup.
-            self.addCleanup(lambda: self._force_delete("Chapter", new_chapter_name))
+            self.addCleanup(force_delete, "Chapter", new_chapter_name)
             self.assertTrue(self._member_in_chapter(member.name, new_chapter_name))
         else:
             # Auto-creation may legitimately fail in a bare test site (missing
