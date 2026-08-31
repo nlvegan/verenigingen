@@ -8,7 +8,9 @@ Targets branches/methods in verenigingen/verenigingen/doctype/volunteer/voluntee
 that the existing test_volunteer.py / test_volunteer_aggregated.py skip:
 
   - validate_member_link (nonexistent member -> throw)
-  - validate_volunteer_age (too young -> throw; no birth_date -> skip; valid age)
+  - validate_volunteer_age (too young -> REFUSED, no row created; a stale or zero
+    stored Member.age is ignored in favour of birth_date; no birth_date -> skip; no
+    member -> skip; valid age)
   - validate_dates (assignment start > end -> throw)
   - update_status / _has_any_assignment (New -> Active on assignment)
   - on_trash (child-table cleanup)
@@ -29,7 +31,7 @@ meaningful behaviour. No mocking of frappe.db / get_doc / business functions.
 import json
 
 import frappe
-from frappe.utils import add_days, today
+from frappe.utils import add_days, add_years, getdate, today
 
 from verenigingen.services.volunteer.assignment_query_builder import invalidate_volunteer_assignment_cache
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -89,25 +91,85 @@ class TestVolunteerControllerCoverage(EnhancedTestCase):
     # ------------------------------------------------------------------
     # validate_volunteer_age
     # ------------------------------------------------------------------
-    def test_validate_age_uses_member_age_field_when_present(self):
-        """When the linked Member already exposes a numeric `age`, the age gate uses
-        it directly. An adult age passes and the volunteer is created."""
-        frappe.db.set_value("Member", self.test_member.name, "age", 40)
+    def _set_member_age_fields(self, member_name, **values):
+        """Write `birth_date` / `age` straight onto the row.
+
+        Member's own validate() enforces `minimum_membership_age`, so an under-age
+        Member cannot be built through the factory; set_value bypasses the hooks. It is
+        also the only way to produce the stale/zero stored `age` these tests need,
+        since any save recomputes it.
+        """
+        frappe.db.set_value("Member", member_name, values, update_modified=False)
+
+    def test_validate_age_underage_member_is_refused(self):
+        """The minimum-volunteer-age rule must BLOCK the save, not merely complain.
+
+        The rejection is raised inside validate_volunteer_age's own `try`, and the
+        handler used to catch `Exception` without re-raising -- so the message was
+        shown, an Error Log row was written, and the Volunteer was created anyway
+        (#658). Assert the refusal from both sides: the insert raises AND no
+        tabVolunteer row survives for that member. Asserting only that it raises
+        would still pass if some later validation happened to reject the row.
+
+        The stored `age` is set to an adult 40 so the assertion on "Member age: 14"
+        can only be produced by the birth-date calculation -- this pins that the gate
+        computed the age rather than reading the field, and kills a "return None
+        instead of calculating" mutation, which would skip the gate entirely via the
+        `if age is None` guard.
+        """
+        self._set_member_age_fields(
+            self.test_member.name, birth_date=add_years(getdate(today()), -14), age=40
+        )
+        doc = self._build_volunteer_doc(member_name=self.test_member.name)
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            doc.insert()
+        self.assertIn("Member age: 14", str(ctx.exception))
+        self.assertFalse(frappe.db.exists("Volunteer", {"member": self.test_member.name}))
+
+    def test_validate_age_ignores_a_stale_stored_age_field(self):
+        """The gate computes from birth_date and must NOT read the stored `Member.age`.
+
+        `Member.age` is written only on save with no scheduled refresh, so it lags by
+        up to a year -- 371 of 711 Members on veg11 disagree with the calendar, always
+        low. A gate that reads it falsely refuses people the calendar admits. Here the
+        member's birth_date is the factory default (1990 -> adult) while the stored
+        age says 10, so only a gate reading the field would reject.
+
+        The previous version of this test set `age = 40` on that same 1990 member: an
+        adult on BOTH branches, so it passed whichever branch ran and could not detect
+        the one it was named after.
+        """
+        self._set_member_age_fields(self.test_member.name, age=10)
+        with self.assertNoErrorLog():
+            doc = self._build_volunteer_doc(member_name=self.test_member.name)
+            doc.insert()
+        self.assertTrue(frappe.db.exists("Volunteer", doc.name))
+
+    def test_validate_age_ignores_a_zero_stored_age_field(self):
+        """`Member.age` is `int(11) NOT NULL DEFAULT 0`, so "never computed" reads back
+        as 0, not None -- and 0 is below every configured minimum. A gate preferring
+        the stored field would refuse this adult outright once the rejection actually
+        blocks the save. Same property as the stale-age test, pinned separately
+        because 0 is the value the schema hands out by default.
+        """
+        self._set_member_age_fields(self.test_member.name, age=0)
         with self.assertNoErrorLog():
             doc = self._build_volunteer_doc(member_name=self.test_member.name)
             doc.insert()
         self.assertTrue(frappe.db.exists("Volunteer", doc.name))
 
     def test_validate_age_skipped_when_no_member_linked(self):
-        """No member linked -> age validation returns early (no error logged)."""
+        """No member linked -> the gate returns before it looks the Member up at all.
+
+        Delete the early return and `frappe.get_doc("Member", None)` raises
+        DoesNotExistError, which the handler now re-raises, so this test can fail. The
+        previous version asserted `doc.member is None` -- the value it had just
+        assigned one line above -- and could not.
+        """
+        doc = self._build_volunteer_doc(member_name=self.test_member.name)
+        doc.member = None
         with self.assertNoErrorLog():
-            doc = self._build_volunteer_doc(member_name=self.test_member.name)
-            doc.member = None
-            # member is mandatory on the doctype, so insert would fail on mandatory;
-            # instead exercise validate_volunteer_age directly with no member.
             doc.validate_volunteer_age()
-        # Method returns None and logs nothing when member is unset.
-        self.assertIsNone(doc.member)
 
     def test_validate_age_adult_member_passes(self):
         """An adult member (factory default birth_date 1990) passes the age gate and

@@ -170,17 +170,15 @@ class Volunteer(Document):
             if not member.birth_date:
                 return  # Skip if no birth date
 
-            # Prefer the stored field; fall back to the service that owns this
-            # arithmetic rather than a fourth copy of it. Member.age is written by
-            # member_age_service on every save where birth_date is set, so the
-            # fallback is close to unreachable -- measured 0 of 711 Members on veg11
-            # and 0 of 174 on test_site_1 have birth_date set with age NULL -- which
-            # is exactly why the copy that lived here was never covered by a test and
-            # could drift unnoticed.
-            age = member.age if member.age is not None else calculate_member_age(member.birth_date)
+            # Compute from birth_date; do NOT read the stored `Member.age`: that
+            # column is NOT NULL DEFAULT 0 (an uncomputed row reads 0, below every
+            # minimum) and refreshes only on save, so it lags up to a year. Harmless
+            # while the rejection below was swallowed; now that it blocks the save a
+            # stale age would falsely refuse. Measurements #658; class #657.
+            age = calculate_member_age(member.birth_date)
             if age is None:
-                # Unparseable birth date. calculate_member_age already logged it, and
-                # comparing None against the minimum below would raise TypeError.
+                # Unparseable birth date; already logged by the service, and None
+                # would raise TypeError against the minimum below.
                 return
 
             # Get minimum volunteer age from Verenigingen Settings
@@ -195,6 +193,12 @@ class Volunteer(Document):
                     frappe.ValidationError,
                 )
 
+        except frappe.ValidationError:
+            # The rejection above IS a frappe.ValidationError and the broad handler
+            # below caught it, so the Volunteer was created anyway -- the rule was
+            # dead (#658). Same fix as 36bb501b9. Also propagates get_doc()'s
+            # DoesNotExistError, which validate_member_link() already throws for.
+            raise
         except Exception as e:
             frappe.log_error(
                 f"Error validating volunteer age for {self.name}: {str(e)}", "Volunteer Age Validation Error"
