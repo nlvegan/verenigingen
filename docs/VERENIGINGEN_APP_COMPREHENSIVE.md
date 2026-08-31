@@ -669,7 +669,7 @@ class VolunteerActivity(Document):
 
     def on_submit(self):
         """Update volunteer statistics on submission"""
-        volunteer = frappe.get_doc("Verenigingen Volunteer", self.volunteer)
+        volunteer = frappe.get_doc("Volunteer", self.volunteer)
         volunteer.total_hours_logged += self.hours_spent
         volunteer.activities_completed += 1
         volunteer.last_activity_date = self.activity_date
@@ -1386,9 +1386,9 @@ class DataPrivacyManager:
             comm_doc.save()
 
         # Anonymize volunteer records
-        volunteer = frappe.get_value("Verenigingen Volunteer", {"member": member_name}, "name")
+        volunteer = frappe.get_value("Volunteer", {"member": member_name}, "name")
         if volunteer:
-            volunteer_doc = frappe.get_doc("Verenigingen Volunteer", volunteer)
+            volunteer_doc = frappe.get_doc("Volunteer", volunteer)
             volunteer_doc.emergency_contact = None
             volunteer_doc.special_requirements = None
             volunteer_doc.save()

@@ -15,6 +15,9 @@ def get_context(context):
 
     # Set theme settings to avoid template errors
     try:
+        # owl_theme is an optional theme app; the except below supplies the
+        # documented defaults when it is not installed.
+        # doctype-ok: optional app, handled by the fallback below
         theme_settings = frappe.get_single("Owl Theme Settings")
         context.theme_settings = theme_settings
     except:

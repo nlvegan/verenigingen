@@ -175,21 +175,23 @@ def get_erpnext_expense_data(filters):
         organization_type = claim.get("custom_organization_type") or "Unknown"
         organization_name = "Unknown"
 
-        # Get organization name based on type
+        # Get organization name based on type.
+        # Both lookups used to name a doctype that does not exist -- "Verenigingen
+        # Chapter" / "Verenigingen Volunteer Team" -- and frappe.db.get_value does
+        # NOT swallow the resulting MariaDB 1146 the way frappe.db.exists does, so
+        # this raised straight out of the report for every Chapter/Team claim (#677).
+        # Chapter has no chapter_name field: it autonames on prompt, so its docname
+        # is the chapter's name and there is nothing to look up.
         if organization_type == "Chapter" and claim.get("custom_chapter"):
-            organization_name = frappe.db.get_value(
-                "Verenigingen Chapter", claim.get("custom_chapter"), "chapter_name"
-            ) or claim.get("custom_chapter")
+            organization_name = claim.get("custom_chapter")
         elif organization_type == "Team" and claim.get("custom_team"):
-            organization_name = frappe.db.get_value(
-                "Verenigingen Volunteer Team", claim.get("custom_team"), "team_name"
-            ) or claim.get("custom_team")
+            organization_name = claim.get("custom_team")
 
         if claim.get("employee"):
             # Try to find volunteer by employee_id
             try:
                 volunteer_record = frappe.db.get_value(
-                    "Verenigingen Volunteer",
+                    "Volunteer",
                     {"employee_id": claim.get("employee")},
                     ["name", "volunteer_name"],
                     as_dict=True,

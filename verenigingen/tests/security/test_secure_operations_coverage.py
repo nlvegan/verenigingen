@@ -245,7 +245,7 @@ class TestSecureOperationsCoverage(EnhancedTestCase):
 
         # A doctype that does not exist makes frappe.get_meta raise; the function
         # must swallow it into a violation rather than propagate.
-        bogus = frappe._dict(doctype="NoSuchDocTypeForIntegrityXYZ", name="x")
+        bogus = frappe._dict(doctype="NoSuchDocTypeForIntegrityXYZ", name="x")  # doctype-ok: the unknown doctype is the input under test
         violations = verify_document_integrity(bogus, ["link_validation"])
         self.assertTrue(
             any("Integrity verification failed" in v for v in violations),

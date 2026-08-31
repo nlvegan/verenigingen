@@ -275,7 +275,7 @@ class TestDonorCustomerIntegration(VereningingenTestCase):
         donor.donor_email = "manualsync@example.com"
         donor.flags.ignore_customer_sync = True
         donor.save()
-        self.track_doc("donor", donor.name)
+        self.track_doc("Donor", donor.name)
         
         # Verify no customer initially
         self.assertFalse(donor.customer)

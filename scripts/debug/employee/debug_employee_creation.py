@@ -58,7 +58,7 @@ def test_volunteer_employee_creation():
 
     # Get a volunteer without employee_id
     volunteer = frappe.db.get_value(
-        "Verenigingen Volunteer",
+        "Volunteer",
         {"employee_id": ["is", "not set"]},
         ["name", "volunteer_name", "personal_email"],
         as_dict=True,

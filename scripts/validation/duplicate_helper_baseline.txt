@@ -416,7 +416,7 @@ _member_with_membership::6
 _member_with_mollie::2  # clone family, 100% of pairs near-identical
 _member_with_schedule::5
 _member_with_subscription::2
-_member_with_user::3
+_member_with_user::4
 _membership_type::2
 _memorial_mutation::3
 _migration::2
@@ -507,7 +507,7 @@ _schedule::2
 _sdk_payment::2
 _seat::4
 _seat_board_member::2
-_seat_on_board::2
+_seat_on_board::3
 _seed::2
 _seed_pending_write::2  # clone family, 100% of pairs near-identical
 _send_email::3

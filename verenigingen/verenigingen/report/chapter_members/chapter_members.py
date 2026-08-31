@@ -29,12 +29,7 @@ def execute(filters=None):
             volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name")
 
             if volunteer:
-                is_board_member = frappe.db.exists(
-                    "Verenigingen Chapter Board Member",
-                    {"parent": chapter, "volunteer": volunteer, "is_active": 1},
-                )
-
-                if not is_board_member:
+                if not _has_active_board_seat(chapter, volunteer):
                     frappe.throw("You can only view members of chapters where you are a board member")
             else:
                 frappe.throw("You must be registered as a volunteer to access this report")
@@ -73,11 +68,7 @@ def execute(filters=None):
         if member:
             volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name")
             if volunteer:
-                is_board_member = frappe.db.exists(
-                    "Verenigingen Chapter Board Member",
-                    {"parent": chapter, "volunteer": volunteer, "is_active": 1},
-                )
-                can_view_pending = bool(is_board_member)
+                can_view_pending = _has_active_board_seat(chapter, volunteer)
 
     # Build SQL query with appropriate filtering
     where_conditions = ["cm.parent = %(chapter)s"]
@@ -133,3 +124,37 @@ def execute(filters=None):
     )
 
     return columns, data
+
+
+def _has_active_board_seat(chapter, volunteer):
+    """Does `volunteer` hold an active seat on `chapter`'s board?
+
+    The doctype is `Chapter Board Member`. `Verenigingen Chapter Board Member`,
+    which both call sites above used to name, is the *Role* granted by this
+    report's own JSON -- not a DocType. `frappe.db.exists` resolves an unknown
+    doctype through `frappe.db.sql(..., ignore=True)`, which swallows the
+    MariaDB 1146 for the missing table and returns None: indistinguishable from
+    "no such row". So the access gate was answered `False` for everybody and no
+    board member could open this report at all (#677).
+
+    One function rather than the same expression at two call sites 44 lines
+    apart, which is how the name came to be wrong in both.
+
+    Named `_has_active_board_seat`, not `is_active_board_member`: that name is
+    already taken by
+    `services/member/account/user_role_profile_calculator.py:548`, whose
+    predicate is deliberately NOT chapter-scoped ("on ANY active chapter
+    board"). Two functions with one name and opposite scoping is how the wrong
+    one gets called.
+    """
+    return bool(
+        frappe.db.exists(
+            "Chapter Board Member",
+            {
+                "parent": chapter,
+                "parenttype": "Chapter",
+                "volunteer": volunteer,
+                "is_active": 1,
+            },
+        )
+    )
