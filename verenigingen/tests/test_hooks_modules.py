@@ -1183,35 +1183,37 @@ class TestHookKeysAreDoctypes(unittest.TestCase):
             "the DocType only by a 'Verenigingen ' prefix:\n  " + "\n  ".join(not_doctypes),
         )
 
-    def test_volunteer_handlers_are_registered_under_the_volunteer_doctype(self):
-        """The specific regression: Volunteer handlers must dispatch on a real save.
+    def test_no_volunteer_handler_is_registered_under_either_name(self):
+        """All four Volunteer handlers are retired, and neither key dispatches (#688).
 
-        Asserting the key alone would pass if someone re-added the Role name beside
-        the DocType name, so this reads the framework's own dispatch map rather than
-        our dict — get_doc_hooks() is what Document.run_method() consults.
+        Reads the framework's own dispatch map rather than our dict, because our dict
+        having (or lacking) a key proves nothing about what Document.run_method()
+        actually consults -- that gap is the whole bug.
 
-        NOTE for anyone reproducing this by hand: frappe.get_hooks() is served from
-        the redis `app_hooks` cache, so a console probe run with PYTHONPATH pointed
-        at a worktree can still return the INSTALLED app's hooks. Use
-        frappe._load_app_hooks(), or clear the cache. The test harness clears it.
+        "Verenigingen Volunteer" is a Role name and must never appear again. But
+        "Volunteer" is asserted empty too, and that half is load-bearing: wiring
+        `volunteer_role_profile_hooks.on_volunteer_status_change` here was MEASURED
+        to strip board users of their Chapter Board Member role
+        (test_permissions_doc_checks_coverage: 31 OK on develop, 5 FAILED with it
+        wired), because sync_user_role_profile replaces User.role_profiles and
+        populate_role_profile_roles then resets User.roles from the profile. If a
+        future change adds a Volunteer on_update, re-read that measurement first --
+        the role-profile staleness it was meant to fix is real, but this is not the
+        place it can be fixed.
         """
         import frappe
 
         doc_hooks = frappe.get_doc_hooks()
 
-        self.assertIsNotNone(
-            doc_hooks.get("Volunteer"),
-            "No doc_events are dispatched for the Volunteer DocType. If the "
-            "role-profile sync was removed deliberately, delete this test with it.",
-        )
-        self.assertIn(
-            "verenigingen.services.volunteer.volunteer_role_profile_hooks.on_volunteer_status_change",
-            doc_hooks["Volunteer"].get("on_update", []),
-        )
         self.assertIsNone(
             doc_hooks.get("Verenigingen Volunteer"),
             "'Verenigingen Volunteer' is a Role name. Handlers registered under it "
             "never fire (#688).",
+        )
+        self.assertIsNone(
+            doc_hooks.get("Volunteer"),
+            "A Volunteer doc_event was added. See this test's docstring: the last "
+            "attempt removed board roles from live users.",
         )
 
 

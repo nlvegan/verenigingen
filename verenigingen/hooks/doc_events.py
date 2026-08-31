@@ -162,32 +162,38 @@ doc_events = {
     # Volunteer" -- a Role name, not a DocType -- from the commit that created
     # volunteer.json (2dbea04eb, 2025-11-20), so none of them ever ran.
     # get_doc_hooks() keys on doctype name and never looks a stray key up: no
-    # error, no log. Only the role-profile sync earned restoration (#688).
-    "Volunteer": {
-        # Volunteer.status IS an input to calculate_user_role_profile:
-        # is_active_volunteer() reads it, so Active/Onboarding confer the
-        # "Verenigingen Volunteer" profile and New/Inactive/Retired do not.
-        # Nothing else live recalculates on a status change -- the Team and
-        # Chapter role-profile hooks diff their own child tables, and
-        # Volunteer.on_update only queues an ACR on the narrow New -> non-New
-        # transition. NOT closed by this: termination runs
-        # DeactivateUserAccountOperation BEFORE TerminateVolunteerRecordsOperation,
-        # so the user is already disabled and sync_user_role_profile skips it (#692).
-        #
-        # COST, because this is a save-path handler: on a transition INTO
-        # Active/Onboarding the sync does a User.save() and, since the
-        # "Verenigingen Volunteer" role profile contains the Employee role,
-        # _ensure_employee_for_profile() inserts an ERPNext Employee. Volunteer
-        # .update_status() flips New -> Active in before_save for any volunteer with
-        # an assignment, so bulk writers reach this: vip_import.py:406,474 saves per
-        # CSV row. The downgrade direction is cheap -- "Verenigingen Member" has no
-        # Employee role, so the insert branch returns early. Same mechanism the
-        # Team/Chapter role-profile hooks and account_creation_manager already run.
-        "on_update": [
-            "verenigingen.services.volunteer.volunteer_role_profile_hooks.on_volunteer_status_change",
-        ],
-    },
-    # DELIBERATELY NOT RESTORED -- the other three of the four:
+    # error, no log. ALL FOUR are retired; Volunteer dispatches no doc_events (#688).
+    #
+    # volunteer_role_profile_hooks.on_volunteer_status_change was going to be
+    # RESTORED under "Volunteer" -- Volunteer.status really is an input to
+    # calculate_user_role_profile() via is_active_volunteer(), and nothing else live
+    # recalculates on a status change, so the profile goes stale. Restoring it was
+    # MEASURED to be destructive and was withdrawn:
+    #
+    #   origin/develop  tests/security/test_permissions_doc_checks_coverage  31 OK
+    #   with the handler wired under "Volunteer"                             5 FAILED
+    #
+    # It loses board users their role. sync_user_role_profile() REPLACES
+    # User.role_profiles, and User.populate_role_profile_roles() then resets
+    # User.roles from that profile -- so the directly-assigned "Verenigingen Chapter
+    # Board Member" role is stripped and _users_with_chapter_board_role() returns
+    # ['Administrator']. That is the same ordering hazard
+    # BoardManager.flush_pending_board_profile_syncs documents (apply the profile
+    # FIRST, then the role, because a later profile sync undoes a role granted before
+    # it): the handler is a second writer of the role profile, firing at an
+    # uncontrolled time.
+    #
+    # #688's blast-radius measurement said 0 of 15 board users would lose the role.
+    # That number was real but did not discriminate: 14 of the 15 were protected by
+    # an early return (no Member record), not by the logic. Fixtures DO have Member
+    # records and take the real path.
+    #
+    # The staleness gap is therefore still open and is tracked separately -- closing
+    # it means changing how sync_user_role_profile and directly-assigned roles
+    # interact, which is not a doc_events change. The function is deliberately left
+    # in place for that work rather than deleted.
+    #
+    # The other three, and why none of them is a gap:
     #
     # chapter_role_events.on_volunteer_on_update. It called
     # permissions.assign_chapter_board_role(), whose else-branch raw-deletes the
