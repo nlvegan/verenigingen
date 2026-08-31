@@ -16,6 +16,8 @@ import tempfile
 
 import frappe
 
+from verenigingen.tests.utils.force_delete import force_delete
+
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen.doctype.procurios_membership_import.procurios_membership_import import (
     process_import_background,
@@ -77,11 +79,11 @@ class TestMembershipImportFlow(EnhancedTestCase):
 
     def tearDown(self):
         for name in self._created_imports:
-            self._force_delete("Procurios Membership Import", name)
+            force_delete("Procurios Membership Import", name)
         for name in self._created_files:
-            self._force_delete("File", name)
+            force_delete("File", name)
         for name in self._created_users:
-            self._force_delete("User", name)
+            force_delete("User", name)
         settings = frappe.get_single("Verenigingen Settings")
         for field, value in self._saved_settings.items():
             settings.set(field, value)
@@ -90,13 +92,6 @@ class TestMembershipImportFlow(EnhancedTestCase):
         settings.save(ignore_permissions=True)
         frappe.db.commit()
         super().tearDown()
-
-    @staticmethod
-    def _force_delete(doctype, name):
-        try:
-            frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
-        except Exception:
-            pass
 
     # ---- helpers ----
 

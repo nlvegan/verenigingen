@@ -85,6 +85,7 @@ from unittest.mock import patch
 import frappe
 from frappe.utils import flt
 
+from verenigingen.tests.utils.force_delete import force_delete
 from verenigingen.tests.payment.test_batch_one_row_per_invoice import (
     TwoActiveMembershipsFixture,
 )
@@ -176,12 +177,12 @@ class ReleasesWhatTheBatcherCommitted:
         for usage in frappe.get_all(
             "SEPA Mandate Usage", filters={"batch_reference": ["in", batches]}, pluck="name"
         ):
-            self._force_delete("SEPA Mandate Usage", usage)
+            force_delete("SEPA Mandate Usage", usage)
 
         for batch in batches:
             # Deleting the parent removes its `Direct Debit Batch Invoice` children,
             # which are what point at the Member, Membership and Sales Invoice.
-            self._force_delete("Direct Debit Batch", batch)
+            force_delete("Direct Debit Batch", batch)
 
         self._release_chain_in_dependency_order()
         frappe.db.commit()
@@ -214,25 +215,12 @@ class ReleasesWhatTheBatcherCommitted:
                     frappe.get_doc("Sales Invoice", invoice.name).cancel()
                 except Exception:
                     pass
-            self._force_delete("Sales Invoice", invoice.name)
+            force_delete("Sales Invoice", invoice.name)
 
         for address in frappe.get_all(
             "Address", filters={"creation": [">=", self._batcher_window_start]}, pluck="name"
         ):
-            self._force_delete("Address", address)
-
-    @staticmethod
-    def _force_delete(doctype, name):
-        try:
-            frappe.delete_doc(doctype, name, force=True, ignore_permissions=True, delete_permanently=True)
-        except frappe.DoesNotExistError:
-            pass
-        except Exception:
-            # Never fail a teardown over cleanup: the leak ratchet is what reports a
-            # record that survives, and it reports it with the identity and reason.
-            # Swallowing here loses nothing that the ratchet does not already say.
-            pass
-
+            force_delete("Address", address)
 
 class AmbiguousMandateFixture(ReleasesWhatTheBatcherCommitted, TwoActiveMembershipsFixture):
     """#616's batchable member -> mandate -> invoice chain, plus a SECOND Active
