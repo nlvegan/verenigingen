@@ -227,7 +227,9 @@
             <div class="form-group">
                 <label>{{ _("Date of Birth") }}<span class="required">*</span></label>
                 <input type="date" name="birth_date" required>
-                <div class="help-text">{{ _("You must be at least 16 years old to volunteer") }}</div>
+                {% if minimum_volunteer_age %}
+                <div class="help-text">{{ _("You must be at least {0} years old to volunteer").format(minimum_volunteer_age) }}</div>
+                {% endif %}
             </div>
         </div>
 
@@ -430,8 +432,13 @@ document.querySelector('input[name="birth_date"]').addEventListener('change', fu
         age--;
     }
 
-    if (age < 16) {
-        alert('{{ _("You must be at least 16 years old to volunteer.") }}');
+    // Threshold from Verenigingen Settings, not a literal: this used to hardcode
+    // 16, so lowering minimum_volunteer_age left the browser CLEARING the birth
+    // date of an applicant the server would have accepted (#659). 0/unset means
+    // no client-side check -- the server gate is the authority regardless.
+    const minimumAge = {{ minimum_volunteer_age or 0 }};
+    if (minimumAge && age < minimumAge) {
+        alert('{{ _("You must be at least {0} years old to volunteer.") }}'.replace('{0}', minimumAge));
         e.target.value = '';
     }
 });

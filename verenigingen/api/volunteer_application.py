@@ -12,6 +12,7 @@ from frappe.utils import getdate, now_datetime, today
 
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
+from verenigingen.utils.validation_utilities import AgeValidator
 
 
 @frappe.whitelist(allow_guest=True)
@@ -39,13 +40,59 @@ def submit_volunteer_application(**data) -> OperationResult[Dict[str, Any]]:
                 error_code="MISSING_REQUIRED_FIELDS",
             )
 
-        # Validate age (must be at least 16)
-        birth_date = getdate(data.get("birth_date"))
-        age = (getdate(today()) - birth_date).days / 365.25
-
-        if age < 16:
+        # Validate age against Verenigingen Settings.minimum_volunteer_age.
+        #
+        # This used to be a hardcoded `if age < 16`, so raising the association's
+        # minimum changed the desk path and left the public form -- the one entry
+        # point reachable without a login -- still accepting 16-year-olds (#659).
+        # AgeValidator is the same gate volunteer.py and
+        # bulk_volunteer_creation_service.py go through, so all three now answer
+        # alike for the same applicant on the same day.
+        #
+        # Normalise the submitted date first. getdate() throws frappe.ValidationError
+        # on an unparseable string, and that must not be mistaken for the
+        # configuration error caught below -- both are frappe.ValidationError.
+        try:
+            birth_date = getdate(data.get("birth_date"))
+        except frappe.ValidationError:
+            # frappe.throw appends to frappe.local.message_log BEFORE raising, and
+            # response.py serialises that into _server_messages on every response --
+            # so catching the exception is not enough to stop the guest seeing a red
+            # popup echoing their raw input. Measured, not assumed.
+            frappe.clear_messages()
+            birth_date = None
+        if not birth_date:
             return OperationResult.fail(
-                _("You must be at least 16 years old to volunteer"), error_code="AGE_REQUIREMENT_NOT_MET"
+                _("Please provide a valid birth date"), error_code="INVALID_BIRTH_DATE"
+            )
+
+        try:
+            age_result = AgeValidator.validate_age(birth_date, context="volunteer", throw_on_error=False)
+        except frappe.ValidationError:
+            # _get_configurable_min_age throws when minimum_volunteer_age is
+            # missing or <= 0; there is deliberately no hardcoded fallback. On a
+            # guest endpoint an age gate must fail CLOSED -- one that silently
+            # opens on a config error is worse than one that is temporarily shut.
+            #
+            # clear_messages() is what actually keeps the settings field name out of
+            # the response: without it the caught throw still reaches the guest as
+            # "minimum_volunteer_age is not configured in Verenigingen Settings" via
+            # _server_messages, and only the OperationResult body is generic.
+            frappe.clear_messages()
+            frappe.log_error(
+                "Volunteer Application Age Config Error",
+                "Verenigingen Settings.minimum_volunteer_age is not configured; the public "
+                "volunteer application is refusing all submissions until it is set.",
+            )
+            return OperationResult.fail(
+                _("Volunteer applications are temporarily unavailable. Please contact us."),
+                error_code="AGE_REQUIREMENT_NOT_CONFIGURED",
+            )
+
+        if not age_result.is_valid:
+            return OperationResult.fail(
+                age_result.message or _("You do not meet the minimum age to volunteer"),
+                error_code="AGE_REQUIREMENT_NOT_MET",
             )
 
         # Check for existing volunteer with same email

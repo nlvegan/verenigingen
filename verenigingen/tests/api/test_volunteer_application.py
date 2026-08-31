@@ -7,7 +7,7 @@ record (plus, optionally, a membership application).
 
 These tests are written to catch REAL regressions in:
   - required-field validation
-  - age gating (>= 16)
+  - age gating against the configured Verenigingen Settings.minimum_volunteer_age
   - duplicate-application detection (per status)
   - the guest permission boundary (a guest CAN submit, and guest input cannot
     set protected fields such as `status` or `user`)
@@ -26,6 +26,7 @@ from verenigingen.api.volunteer_application import (
     _map_time_commitment,
     submit_volunteer_application,
 )
+from verenigingen.tests.support.verenigingen_settings import pinned_setting
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 
@@ -209,27 +210,126 @@ class TestVolunteerApplication(VereningingenTestCase):
         self.assertEqual(self._error_code(result), "MISSING_REQUIRED_FIELDS")
         self.assertIn("first_name", self._error_message(result))
 
-    def test_applicant_under_16_is_rejected(self):
+    # These two pin minimum_volunteer_age at 16 rather than assuming it. They were
+    # deterministic while the endpoint hardcoded 16; once it reads the setting (#659)
+    # they are red on any site configured otherwise -- measured red at 21, which is
+    # a configuration #659 exists to support.
+    def test_applicant_below_a_pinned_minimum_of_16_is_rejected(self):
         from frappe.utils import add_years, today
 
-        # 15 years old today -> below the 16 minimum.
-        too_young = add_years(today(), -15)
-        payload = self._valid_payload(birth_date=too_young)
-        result = self._submit_as_guest(payload)
+        with pinned_setting("minimum_volunteer_age", 16):
+            # 15 years old today -> below the pinned 16 minimum.
+            payload = self._valid_payload(birth_date=add_years(today(), -15))
+            result = self._submit_as_guest(payload)
 
         self.assertFalse(self._ok(result))
         self.assertEqual(self._error_code(result), "AGE_REQUIREMENT_NOT_MET")
         # The under-age applicant must NOT have created a Volunteer record.
         self.assert_doc_not_exists("Volunteer", {"email": payload["email"]})
 
-    def test_applicant_exactly_old_enough_is_accepted(self):
+    def test_applicant_above_a_pinned_minimum_of_16_is_accepted(self):
         from frappe.utils import add_days, add_years, today
 
-        # 16 years + a day old -> just over the threshold.
-        old_enough = add_days(add_years(today(), -16), -1)
-        payload = self._valid_payload(birth_date=old_enough)
-        result = self._track_created_volunteer(self._submit_as_guest(payload))
+        with pinned_setting("minimum_volunteer_age", 16):
+            # 16 years + a day old -> just over the pinned threshold.
+            old_enough = add_days(add_years(today(), -16), -1)
+            payload = self._valid_payload(birth_date=old_enough)
+            result = self._track_created_volunteer(self._submit_as_guest(payload))
         self.assertTrue(self._ok(result), self._error_message(result))
+
+    # ------------------------------------------------------------------
+    # #659 — the configured minimum, not a literal 16
+    #
+    # This endpoint hardcoded `if age < 16` and never read
+    # Verenigingen Settings.minimum_volunteer_age, so raising the association's
+    # minimum left the one entry point reachable without a login still
+    # accepting 16-year-olds. Both directions are asserted: a raised minimum
+    # must start rejecting, and a lowered one must start accepting — a literal
+    # 16 cannot satisfy both.
+    # ------------------------------------------------------------------
+    def test_public_application_rejects_below_a_raised_minimum_volunteer_age(self):
+        from frappe.utils import add_years, today
+
+        with pinned_setting("minimum_volunteer_age", 21):
+            payload = self._valid_payload(birth_date=add_years(today(), -18))
+            result = self._submit_as_guest(payload)
+
+        self.assertFalse(self._ok(result), "18 is below a configured minimum of 21")
+        self.assertEqual(self._error_code(result), "AGE_REQUIREMENT_NOT_MET")
+        self.assertIn(
+            "at least 21 years old",
+            self._error_message(result),
+            "The message must quote the CONFIGURED minimum",
+        )
+        self.assert_doc_not_exists("Volunteer", {"email": payload["email"]})
+
+    def test_public_application_accepts_above_a_lowered_minimum_volunteer_age(self):
+        from frappe.utils import add_years, today
+
+        with pinned_setting("minimum_volunteer_age", 14):
+            payload = self._valid_payload(birth_date=add_years(today(), -15))
+            result = self._track_created_volunteer(self._submit_as_guest(payload))
+
+        self.assertTrue(
+            self._ok(result),
+            f"15 is above a configured minimum of 14: {self._error_message(result)}",
+        )
+
+    def test_public_application_accepts_on_the_exact_nth_birthday(self):
+        """#657 + #659 together: the applicant turns exactly `min_age` today.
+
+        21 is not divisible by 4, so substituting the configured value WITHOUT
+        the integer-calendar fix would reject this applicant.
+        """
+        from frappe.utils import add_years, today
+
+        with pinned_setting("minimum_volunteer_age", 21):
+            payload = self._valid_payload(birth_date=add_years(today(), -21))
+            result = self._track_created_volunteer(self._submit_as_guest(payload))
+
+        self.assertTrue(
+            self._ok(result),
+            f"An applicant turning 21 today meets a minimum of 21: {self._error_message(result)}",
+        )
+
+    def test_unparseable_birth_date_is_reported_as_such_not_as_a_config_error(self):
+        """getdate() and _get_configurable_min_age both raise frappe.ValidationError.
+
+        Conflating them would tell a guest who typed a bad date that the service
+        is unavailable, and would write a misleading Error Log every time.
+        """
+        payload = self._valid_payload(birth_date="not-a-date")
+        frappe.local.message_log = []
+        result = self._submit_as_guest(payload)
+        leaked = list(frappe.local.message_log)
+
+        self.assertFalse(self._ok(result))
+        self.assertEqual(self._error_code(result), "INVALID_BIRTH_DATE")
+        self.assertEqual(leaked, [], f"getdate's caught throw leaked to the guest: {leaked}")
+        self.assert_doc_not_exists("Volunteer", {"email": payload["email"]})
+
+    def test_public_application_refuses_when_the_minimum_is_not_configured(self):
+        """_get_configurable_min_age throws rather than falling back to a literal.
+
+        An unauthenticated endpoint must fail CLOSED on a configuration error —
+        an age gate that silently opens is worse than one that is temporarily
+        shut — and must not leak the settings-field name to the caller.
+        """
+        with pinned_setting("minimum_volunteer_age", 0):
+            payload = self._valid_payload()
+            frappe.local.message_log = []
+            result = self._submit_as_guest(payload)
+            leaked = list(frappe.local.message_log)
+
+        self.assertFalse(self._ok(result))
+        self.assertEqual(self._error_code(result), "AGE_REQUIREMENT_NOT_CONFIGURED")
+        self.assertNotIn("minimum_volunteer_age", self._error_message(result))
+        # The OperationResult body was never where the name could appear.
+        # frappe.throw appends to message_log BEFORE raising, and response.py
+        # serialises message_log into _server_messages -- which the portal renders
+        # as a msgprint dialog. Catching the exception does not empty that queue.
+        self.assertEqual(leaked, [], f"the caught throw leaked to the guest: {leaked}")
+        self.assert_doc_not_exists("Volunteer", {"email": payload["email"]})
 
     # ------------------------------------------------------------------
     # Duplicate-application detection
@@ -484,6 +584,34 @@ class TestVolunteerApplication(VereningingenTestCase):
     # ------------------------------------------------------------------
     # notes-building / mapping unit behavior (pure functions)
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # #659 — the FORM in front of the endpoint carried the same literal
+    # ------------------------------------------------------------------
+    def test_the_public_form_renders_the_configured_minimum_not_a_literal(self):
+        """apply.html hardcoded 16 in its help text AND in its own birth-date check.
+
+        The client check does not merely warn — it CLEARS the field, so with the
+        literal in place, lowering minimum_volunteer_age left the browser blocking
+        an applicant the fixed endpoint would have accepted. Rendered rather than
+        grepped, so the Jinja plumbing is exercised end to end.
+        """
+        from frappe.website.serve import get_response_content
+
+        with pinned_setting("minimum_volunteer_age", 21), self.as_user("Guest"):
+            html = get_response_content("volunteer/apply")
+
+        # Narrowed to the age lines: asserting against the whole rendered page
+        # dumps ~40KB of HTML into the CI log on every failure.
+        age_lines = [
+            line.strip()
+            for line in html.splitlines()
+            if "years old to volunteer" in line or "minimumAge" in line
+        ]
+        rendered = "\n".join(age_lines)
+        self.assertIn("You must be at least 21 years old to volunteer", rendered)
+        self.assertIn("const minimumAge = 21;", rendered)
+        self.assertNotIn("at least 16 years old to volunteer", rendered)
+
     def test_time_commitment_mapping(self):
         self.assertEqual(_map_time_commitment("1-5"), "Occasional")
         self.assertEqual(_map_time_commitment("6-10"), "Regular (Monthly)")

@@ -64,6 +64,8 @@ then run e.g. `verenigingen.tests.backend.components.test_enhanced_sepa_processi
 red on develop, green here.
 """
 
+from contextlib import contextmanager
+
 import frappe
 
 SETTINGS = "Verenigingen Settings"
@@ -143,3 +145,59 @@ def _harness_company() -> str | None:
         if frappe.db.exists("Company", candidate):
             return candidate
     return None
+
+
+@contextmanager
+def pinned_setting(field: str, value):
+    """Pin one `Verenigingen Settings` field for the duration of a block.
+
+    Both writes commit, but for two DIFFERENT reasons -- do not collapse them:
+
+    * the RESTORE, for the reason `_write` above does. Measured: an uncommitted
+      restore LEAKS. `submit_volunteer_application` calls `frappe.db.commit()`
+      when it succeeds, so a pin taken around it is committed by the code under
+      test; the restore then lands in a fresh transaction that the harness
+      rollback (per test under `EnhancedTestCase`, per class under
+      `VereningingenTestCase`) throws away, and the site is left holding the
+      pinned value. Not hypothetical -- it left `minimum_volunteer_age = 21` on
+      test_site_1 and reddened an unrelated test in the next run.
+    * the PIN, because code under test may roll back. That same endpoint's outer
+      handler calls `frappe.db.rollback()`, which would silently discard an
+      uncommitted pin and leave the test exercising the site's ambient value --
+      green, and about nothing.
+
+    Cost to weigh before reaching for this: the pin's commit defeats the per-test
+    rollback for anything inserted BEFORE the `with` block, so take the pin first.
+
+    `clear_document_cache` matters too: the readers are split between
+    `frappe.db.get_single_value` (AgeValidator._get_configurable_min_age) and
+    `frappe.get_cached_doc` (vip_import._validate_volunteer_age).
+
+    Lives here rather than in each test class because two modules now pin an age
+    threshold, and near-identical private copies are exactly what the
+    duplicate-helper census flags as a clone family.
+    """
+    original = frappe.db.get_single_value(SETTINGS, field)
+    _write_setting(field, value)
+    try:
+        yield
+    finally:
+        _write_setting(field, original)
+
+
+def _write_setting(field: str, value) -> None:
+    frappe.db.set_single_value(SETTINGS, field, value)
+    frappe.clear_document_cache(SETTINGS, SETTINGS)
+    frappe.db.commit()
+
+
+def pin_setting(test_case, field: str, value) -> None:
+    """`pinned_setting` for a pin taken in `setUp` rather than around a block.
+
+    The restore goes through `addCleanup`, not `tearDown`: it must run AFTER the
+    base tearDown (which rolls back before each tracked-doc delete and would
+    otherwise discard it) and it must survive a `setUp` that raises later on.
+    """
+    original = frappe.db.get_single_value(SETTINGS, field)
+    test_case.addCleanup(_write_setting, field, original)
+    _write_setting(field, value)

@@ -23,7 +23,7 @@ class AgeValidationResult:
     """Result object for age validation operations"""
 
     def __init__(
-        self, is_valid: bool, age_years: float, message: Optional[str] = None, warning: Optional[str] = None
+        self, is_valid: bool, age_years: int, message: Optional[str] = None, warning: Optional[str] = None
     ):
         self.is_valid = is_valid
         self.age_years = age_years
@@ -43,68 +43,90 @@ class AgeValidator:
     CONTEXTS = {
         "membership": {
             "max_age": 120,
-            "error_template": _("Member must be at least {min_age} years old (current age: {age:.1f})"),
-            "max_error_template": _("Please verify birth date - age {age:.1f} years seems unrealistic"),
+            "error_template": _("Member must be at least {min_age} years old (current age: {age})"),
+            "max_error_template": _("Please verify birth date - age {age} years seems unrealistic"),
         },
         "volunteer": {
             "max_age": 120,
-            "error_template": _("Volunteers must be at least {min_age} years old (current age: {age:.1f})"),
-            "max_error_template": _("Please verify birth date - age {age:.1f} years seems unrealistic"),
+            "error_template": _("Volunteers must be at least {min_age} years old (current age: {age})"),
+            "max_error_template": _("Please verify birth date - age {age} years seems unrealistic"),
         },
         "voting": {
             "max_age": 120,
-            "error_template": _("Voting rights require minimum age of {min_age} (current age: {age:.1f})"),
-            "max_error_template": _("Please verify birth date - age {age:.1f} years seems unrealistic"),
+            "error_template": _("Voting rights require minimum age of {min_age} (current age: {age})"),
+            "max_error_template": _("Please verify birth date - age {age} years seems unrealistic"),
         },
         "student_membership": {
             "max_age": 30,
             "error_template": _(
-                "Student memberships are available for ages {min_age}-{max_age} (current age: {age:.1f})"
+                "Student memberships are available for ages {min_age}-{max_age} (current age: {age})"
             ),
             "max_error_template": _(
-                "Student memberships are available for ages {min_age}-{max_age} (current age: {age:.1f})"
+                "Student memberships are available for ages {min_age}-{max_age} (current age: {age})"
             ),
         },
         "youth_membership": {
             "max_age": 17,
             "error_template": _(
-                "Youth memberships are available for ages {min_age}-{max_age} (current age: {age:.1f})"
+                "Youth memberships are available for ages {min_age}-{max_age} (current age: {age})"
             ),
             "max_error_template": _(
-                "Youth memberships are available for ages {min_age}-{max_age} (current age: {age:.1f})"
+                "Youth memberships are available for ages {min_age}-{max_age} (current age: {age})"
             ),
         },
         "senior_membership": {
             "max_age": 120,
-            "error_template": _(
-                "Senior memberships are available for ages {min_age}+ (current age: {age:.1f})"
-            ),
-            "max_error_template": _("Please verify birth date - age {age:.1f} years seems unrealistic"),
+            "error_template": _("Senior memberships are available for ages {min_age}+ (current age: {age})"),
+            "max_error_template": _("Please verify birth date - age {age} years seems unrealistic"),
         },
     }
 
     @staticmethod
-    def calculate_age(
-        birth_date: Union[str, date], reference_date: Optional[Union[str, date]] = None
-    ) -> float:
+    def calculate_age(birth_date: Union[str, date], reference_date: Optional[Union[str, date]] = None) -> int:
         """
-        Calculate age in years with decimal precision
+        Calculate the completed calendar age in whole years.
+
+        This used to return ``age_days / 365.25``. That float is NOT the calendar
+        age: an N-year span contains exactly N//4 leap days, so N * 365.25 is a
+        whole number of days only when 4 divides N. At every other threshold the
+        float sits ~0.002 BELOW the integer on the person's own birthday, and
+        ``if age_years < min_age`` in validate_age then rejects them -- measured at
+        47.8% of birth dates for voting (18), 47.0% for student (14) and 75.0% for
+        senior (65). See #657.
+
+        The arithmetic itself is owned by member_age_service.calculate_member_age;
+        this delegates rather than spelling it a second time. The import is local
+        because validation_utilities is a low-level utility and must not take a
+        module-load dependency on the services layer (member_age_service imports
+        AgeValidator back, also lazily).
 
         Args:
             birth_date: Birth date as string or date object
             reference_date: Reference date for calculation (defaults to today)
 
         Returns:
-            Age in years as float
+            Completed age in whole years as int
+
+        Raises:
+            ValidationError: if the birth date is after the reference date, or the
+                age could not be computed. calculate_member_age swallows its own
+                errors and returns None; this entry point deliberately does not
+                (the #597 swallow trap). Direct callers see the refusal;
+                validate_age catches it below and converts it to a soft
+                AgeValidationResult when throw_on_error is False.
         """
+        from verenigingen.services.member.utils.member_age_service import calculate_member_age
+
         birth_date_obj = getdate(birth_date) if isinstance(birth_date, str) else birth_date
         reference_date_obj = getdate(reference_date) if reference_date else getdate(today())
 
         if birth_date_obj > reference_date_obj:
             raise ValidationError(_("Birth date cannot be in the future"))
 
-        age_days = (reference_date_obj - birth_date_obj).days
-        return age_days / 365.25
+        age = calculate_member_age(birth_date_obj, reference_date=reference_date_obj)
+        if age is None:
+            raise ValidationError(_("Birth date is not a valid date"))
+        return age
 
     @classmethod
     def validate_age(
@@ -502,12 +524,12 @@ class DateRangeValidator:
 
 def validate_minimum_age(
     birth_date: Union[str, date], min_age: int = 16, context: str = "membership"
-) -> Tuple[bool, float]:
+) -> Tuple[bool, int]:
     """
     Legacy wrapper for age validation (backward compatibility)
 
     Returns:
-        Tuple of (is_valid, age_in_years)
+        Tuple of (is_valid, completed_age_in_whole_years)
     """
     result = AgeValidator.validate_age(
         birth_date, context=context, custom_min_age=min_age, throw_on_error=False
@@ -515,12 +537,12 @@ def validate_minimum_age(
     return result.is_valid, result.age_years
 
 
-def calculate_age(birth_date: Union[str, date]) -> float:
+def calculate_age(birth_date: Union[str, date]) -> int:
     """
     Simple age calculation utility
 
     Returns:
-        Age in years as float
+        Completed age in whole years as int
     """
     return AgeValidator.calculate_age(birth_date)
 

@@ -35,6 +35,7 @@ import frappe
 from frappe.utils import add_days, flt, getdate, today
 
 from verenigingen.services.billing.coverage_calculator import CoverageCalculator
+from verenigingen.tests.support.verenigingen_settings import pin_setting
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 DUES_RATE = 7.0
@@ -114,19 +115,15 @@ class TestWeeklyBillingFrequency(VereningingenTestCase):
     # ------------------------------------------------------------------ helpers
 
     def _pin_setting(self, fieldname, value):
-        previous = frappe.db.get_single_value("Verenigingen Settings", fieldname)
-        self.addCleanup(self._restore_setting, fieldname, previous)
-        self._write_setting(fieldname, value)
-
-    def _restore_setting(self, fieldname, value):
-        self._write_setting(fieldname, value)
-        # The base tearDown commits; without our own commit the restore is left
-        # uncommitted and its rollback would leak the pinned value into the shard.
-        frappe.db.commit()
-
-    def _write_setting(self, fieldname, value):
-        frappe.db.set_single_value("Verenigingen Settings", fieldname, value)
-        frappe.clear_document_cache("Verenigingen Settings", "Verenigingen Settings")
+        # Delegates to tests/support/verenigingen_settings, which owns this. This
+        # used to be three private helpers here; #659 needed the same thing and the
+        # duplicate-helper census flagged the collision.
+        #
+        # Behaviour change worth knowing: the shared helper commits the PIN as well
+        # as the restore (the local copy committed only the restore). Safe here
+        # because these pins run before any fixture is created in setUp -- keep them
+        # first if this setUp grows.
+        pin_setting(self, fieldname, value)
 
     def _make_weekly_schedule(self):
         """Switch the member's auto-created schedule to Weekly and return it."""

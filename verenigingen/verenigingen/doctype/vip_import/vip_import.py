@@ -314,7 +314,7 @@ def _validate_volunteer_age(member: Document) -> Optional[str]:
     Returns:
         Error message if validation fails, None if valid
     """
-    from frappe.utils import date_diff, getdate
+    from verenigingen.services.member.utils.member_age_service import calculate_member_age
 
     if not member.get("birth_date"):
         return None  # Can't validate without birth date
@@ -325,11 +325,17 @@ def _validate_volunteer_age(member: Document) -> Optional[str]:
     except Exception:
         min_volunteer_age = 16
 
-    age_in_days = date_diff(today(), member.birth_date)
-    age_in_years = age_in_days / 365.25
+    # Completed calendar years, not date_diff/365.25: that float dips ~0.002 below
+    # the integer on the member's own birthday, so at any threshold not divisible
+    # by 4 this path rejected people the desk path accepted the same day (#657).
+    # The arithmetic now agrees; the `or 16` fallback above can still make the two
+    # disagree, because _get_configurable_min_age refuses where this substitutes 16.
+    age_in_years = calculate_member_age(member.birth_date)
+    if age_in_years is None:
+        return None  # Unparseable birth date - nothing to validate against
 
     if age_in_years < min_volunteer_age:
-        return f"Member must be at least {min_volunteer_age} years old to be a volunteer (current age: {int(age_in_years)})"
+        return f"Member must be at least {min_volunteer_age} years old to be a volunteer (current age: {age_in_years})"
 
     return None
 

@@ -11,6 +11,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, getdate, today
 
+from verenigingen.tests.support.verenigingen_settings import pinned_setting
 from verenigingen.utils.csv.vip_data_validator import VIPDataValidator
 
 
@@ -1301,14 +1302,11 @@ class TestVIPImportCreateAndProcess(FrappeTestCase):
         """
         from verenigingen.verenigingen.doctype.vip_import.vip_import import _create_volunteer
 
-        settings = frappe.get_single("Verenigingen Settings")
-        orig_membership_age = settings.get("minimum_membership_age")
-        orig_volunteer_age = settings.get("minimum_volunteer_age")
-        try:
-            frappe.db.set_single_value("Verenigingen Settings", "minimum_membership_age", 16)
-            frappe.db.set_single_value("Verenigingen Settings", "minimum_volunteer_age", 21)
-            frappe.clear_document_cache("Verenigingen Settings", "Verenigingen Settings")
-
+        # pinned_setting owns this (tests/support/verenigingen_settings). The local
+        # copy this replaces committed INSIDE the try -- via member.insert() below --
+        # and then restored in a finally WITHOUT committing, so the restore was
+        # discardable and the shard could inherit minimum_volunteer_age = 21.
+        with pinned_setting("minimum_membership_age", 16), pinned_setting("minimum_volunteer_age", 21):
             uid = self._uid()
             member = frappe.get_doc(
                 {
@@ -1329,10 +1327,6 @@ class TestVIPImportCreateAndProcess(FrappeTestCase):
 
             with self.assertRaises(frappe.ValidationError):
                 _create_volunteer({"volunteer_status": "Active"}, member)
-        finally:
-            frappe.db.set_single_value("Verenigingen Settings", "minimum_membership_age", orig_membership_age)
-            frappe.db.set_single_value("Verenigingen Settings", "minimum_volunteer_age", orig_volunteer_age)
-            frappe.clear_document_cache("Verenigingen Settings", "Verenigingen Settings")
 
 
 class TestVIPImportFinalStatusAndAccountCreation(FrappeTestCase):

@@ -20,14 +20,18 @@ from frappe.utils import getdate
 from verenigingen.utils.service_error_handler import handle_service_error, safe_import
 
 
-def calculate_member_age(birth_date):
+def calculate_member_age(birth_date, reference_date=None):
     """Calculate age based on birth_date field.
 
-    Extracted from member.py without modification. Pure utility function
-    that can be used by any code needing age calculation.
+    This is the single owner of the age formula in this app: completed calendar
+    years, never a days/365.25 float (that dips ~0.002 below the integer on the
+    person's own birthday -- #657).
 
     Args:
         birth_date: Birth date as string or date object
+        reference_date: Date to measure the age at. Defaults to the site-tz today.
+            AgeValidator.calculate_age needs this; dropping it silently would
+            change what its callers are asking.
 
     Returns:
         int: Age in years, or None if birth_date is invalid
@@ -37,7 +41,7 @@ def calculate_member_age(birth_date):
             # Site-tz today, not the server/process date: in the late-UTC window the
             # two name different calendar days, so a member whose birthday is today
             # comes out a year younger (#628).
-            today_date = getdate()
+            today_date = getdate(reference_date) if reference_date else getdate()
             if isinstance(birth_date, str):
                 born = datetime.strptime(birth_date, "%Y-%m-%d").date()
             else:
@@ -185,11 +189,14 @@ def get_age_group(birth_date):
         # latter dips ~0.002 below the integer at an exact birthday (e.g. someone
         # born exactly 18 years ago today computes as 17.998), which would
         # mis-bucket them one group down on certain calendar dates.
+        # The formula itself lives in calculate_member_age above -- this used to
+        # carry its own copy, 150 lines from the original, which is exactly the
+        # duplication that let #657 survive in AgeValidator.
         bd = getdate(birth_date)
         ref = getdate(today())
         if bd > ref:
             return None
-        age = ref.year - bd.year - ((ref.month, ref.day) < (bd.month, bd.day))
+        age = calculate_member_age(bd, reference_date=ref)
 
         if age < 18:
             return "Minor"
