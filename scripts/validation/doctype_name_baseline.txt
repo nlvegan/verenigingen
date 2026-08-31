@@ -21,13 +21,11 @@ verenigingen/fixes/eboekhouden_utils.py::E-Boekhouden Account Map::1
 verenigingen/hooks/doc_events.py::Verenigingen Volunteer::1
 verenigingen/tests/backend/components/test_termination_impact.py::Verenigingen Chapter Board Member::2
 verenigingen/tests/backend/comprehensive/test_chapter_membership_validation_edge_cases.py::Volunteer Expense::1
-verenigingen/tests/backend/comprehensive/test_comprehensive_suite_demo.py::Verenigingen Volunteer::1
 verenigingen/tests/backend/comprehensive/test_dd_batch_edge_cases.py::DD Conflict Report::2
 verenigingen/tests/backend/comprehensive/test_dd_batch_edge_cases.py::DD Security Audit Log::4
 verenigingen/tests/backend/comprehensive/test_dd_batch_edge_cases.py::DD Security Event Log::2
 verenigingen/tests/backend/comprehensive/test_financial_integration_edge_cases.py::Volunteer Expense::5
 verenigingen/tests/backend/comprehensive/test_termination_workflow_edge_cases.py::Volunteer Expense::1
-verenigingen/tests/backend/features/test_application_submission_validation.py::Verenigingen Volunteer::4
 verenigingen/tests/backend/integration/test_erpnext_expense_integration_real.py::Volunteer Expense::2
 verenigingen/tests/backend/integration/test_volunteer_portal_integration.py::Volunteer Expense::1
 verenigingen/tests/backend/security/test_security_comprehensive.py::Volunteer Expense::3
@@ -38,8 +36,6 @@ verenigingen/tests/chapter/test_chapter_board_permissions_comprehensive.py::Volu
 verenigingen/tests/e2e/test_workflow_validation.py::Dispute Case::1
 verenigingen/tests/fixtures/enhanced_test_factory.py::Member Application::2
 verenigingen/tests/test_enhanced_test_factory_drain.py::ToyDoc::2
-verenigingen/tests/utils/factories.py::Verenigingen Volunteer::1
-verenigingen/tests/utils/factories.py::Volunteer Expense::1
 verenigingen/tests/workflows/test_communication_system_integration.py::Communication Preferences::2
 verenigingen/tests/workflows/test_communication_system_integration.py::Communication Unsubscribe::2
 verenigingen/tests/workflows/test_financial_workflows.py::Payment Retry Schedule::4

@@ -2003,6 +2003,7 @@ class BuilderRegistersTheDoctypeItActuallyInsertedTest(
 
         manager = TestCleanupManager()
         with self.assertRaises(ValueError) as ctx:
+            # doctype-ok: the unknown doctype is the input under test (#491)
             manager.register("Verenigingen Volunteer", "whatever")
         self.assertIn("not a DocType", str(ctx.exception))
         self.assertEqual([], manager._cleanup_stack, "a refused registration must not be recorded")

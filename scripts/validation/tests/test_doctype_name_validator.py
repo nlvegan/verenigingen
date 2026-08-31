@@ -116,6 +116,29 @@ class TestDetection(unittest.TestCase):
         )
         self.assertEqual(_names('import frappe\nfrappe.get_all("Nope")\n'), ["Nope"])
 
+    def test_suppression_on_the_line_above(self):
+        """A multi-line call reports its opening line, which often has no room."""
+        self.assertEqual(
+            _names(
+                "import frappe\n"
+                "# doctype-ok: optional app\n"
+                'frappe.get_single(\n    "Nope"\n)\n'
+            ),
+            [],
+        )
+
+    def test_suppression_does_not_reach_two_lines_up(self):
+        """Control: without a bound, a suppression silences code nobody links it to."""
+        self.assertEqual(
+            _names(
+                "import frappe\n"
+                "# doctype-ok: this is about something else\n"
+                "x = 1\n"
+                'frappe.get_all("Nope")\n'
+            ),
+            ["Nope"],
+        )
+
     def test_unparseable_file_is_skipped_rather_than_crashing(self):
         self.assertEqual(_names("def (:\n"), [])
 

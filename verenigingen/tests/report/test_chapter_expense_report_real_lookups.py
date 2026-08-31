@@ -68,16 +68,40 @@ class TestChapterExpenseReportRealLookups(EnhancedTestCase):
         # already carry a near-identical private copy of exactly that, and the
         # duplicate-helper ratchet blocks a seventh -- correctly, since a
         # copy-pasted helper is where a fix goes to die.
+        # `account_type = "Expense Account"` is NOT set by ERPNext's standard chart
+        # of accounts -- expense leaves carry `root_type = "Expense"` and an empty
+        # account_type. Measured on test_site_5: 43 of 56 companies have a standard
+        # chart and ZERO rows typed "Expense Account", while every one has 29-41
+        # root_type="Expense" leaves. The two typed rows on the shared test company
+        # were planted by other suites ("Mollie Fees (owned by BTR coverage)"), so
+        # the typed lookup alone resolves only on a warm site. It passed locally and
+        # failed on all three tests in CI for exactly that reason.
+        # `Payable` IS typed by ERPNext, which is why only the expense side broke.
+        # order_by is explicit: frappe defaults get_value to `creation DESC`, so the
+        # account picked would otherwise depend on what a sibling suite created last.
         expense_acct = frappe.db.get_value(
-            "Account", {"account_type": "Expense Account", "company": company, "is_group": 0}, "name"
+            "Account",
+            {"account_type": "Expense Account", "company": company, "is_group": 0},
+            "name",
+            order_by="name asc",
+        ) or frappe.db.get_value(
+            "Account",
+            {"root_type": "Expense", "company": company, "is_group": 0},
+            "name",
+            order_by="name asc",
         )
         payable = frappe.db.get_value(
-            "Account", {"account_type": "Payable", "company": company, "is_group": 0}, "name"
+            "Account",
+            {"account_type": "Payable", "company": company, "is_group": 0},
+            "name",
+            order_by="name asc",
         )
         # Fail rather than skip. get_eur_test_company() raises rather than handing
         # back a chart-less company, so a missing account here means the fixture
         # contract broke -- and a skip would silently no-op all three tests, which
-        # is indistinguishable from them passing.
+        # is indistinguishable from them passing. That is not hypothetical: this
+        # assertion is what made the CI-only failure legible instead of a green
+        # run of zero tests.
         self.assertTrue(
             expense_acct and payable,
             f"{company} has no expense/payable account: the test company fixture is broken, "

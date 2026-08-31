@@ -157,6 +157,24 @@ def _find_bench_apps(start: Path = REPO_ROOT) -> Path:
 BENCH_APPS = _find_bench_apps()
 DEFAULT_BASELINE = Path(__file__).with_name("doctype_name_baseline.txt")
 
+# The apps whose DocTypes count as "known". Deliberately a FIXED list, not
+# "every app on the bench".
+#
+# The authority used to be every app with a pyproject.toml under `apps/`, which
+# made the verdict depend on the machine: this dev bench also carries `owl_theme`
+# and `builder`, so `frappe.get_single("Owl Theme Settings")` was known here and
+# unknown in CI. The gate passed locally and failed in CI on a byte-identical
+# tree -- which is this repo's definition of your own non-determinism, not a CI
+# problem. A ratchet that answers differently per bench is not a gate.
+#
+# These five are the apps this app declares and CI installs
+# (`.github/actions/setup/action.yml` clones frappe, erpnext, hrms, payments).
+# A DocType from any OTHER app is treated as unknown everywhere, which is the
+# honest answer: code naming it cannot assume it is installed, and the two
+# `Owl Theme Settings` call sites already handle that with try/except and a
+# documented fallback. They carry `# doctype-ok:` rather than a baseline entry.
+REQUIRED_APPS = ("frappe", "erpnext", "hrms", "payments", "verenigingen")
+
 # The roots the baseline covers. The pre-commit hook sees only the files you
 # touched, so its `exclude` must stay a SUBSET of this: a file the hook scans
 # but the baseline does not cover fails spuriously on its first edit.
@@ -227,9 +245,14 @@ SUPPRESS = "doctype-ok:"
 
 
 def known_doctypes(bench_apps: Path = BENCH_APPS) -> dict[str, str]:
-    """Every DocType name defined by a JSON in any app on the bench -> its app."""
+    """Every DocType name defined by a JSON in a REQUIRED app -> that app.
+
+    Scoped to ``REQUIRED_APPS`` so the same tree yields the same census on every
+    bench; see the note on that constant.
+    """
     known: dict[str, str] = {}
-    for app_dir in sorted(bench_apps.iterdir()):
+    for app_name in REQUIRED_APPS:
+        app_dir = bench_apps / app_name
         if not (app_dir / "pyproject.toml").exists():
             continue
         for json_file in app_dir.rglob("**/doctype/*/*.json"):
@@ -334,6 +357,22 @@ def scan_source(source: str) -> list[_Finding]:
     return visitor.found
 
 
+def _suppressed(lines: list[str], lineno: int) -> bool:
+    """Is this call marked `# doctype-ok:`?
+
+    The call's own line, or the line immediately above it. Both, because a call
+    that spans several lines reports the line of the opening `frappe.get_single(`
+    and there is often no room for a reason there -- `Owl Theme Settings` needs
+    two sentences about an optional app. One line of lookbehind only: a comment
+    further up is about something else, and a suppression that reaches an
+    arbitrary distance is one nobody can see from the line it silences.
+    """
+    for candidate in (lineno, lineno - 1):
+        if 0 < candidate <= len(lines) and SUPPRESS in lines[candidate - 1]:
+            return True
+    return False
+
+
 def unknown_in_file(path: Path, known: dict[str, str]) -> list[_Finding]:
     """Unknown-doctype findings in one file, probes and probe-guarded names removed."""
     try:
@@ -352,8 +391,7 @@ def unknown_in_file(path: Path, known: dict[str, str]) -> list[_Finding]:
             continue
         if finding.name in probed:
             continue
-        line = lines[finding.lineno - 1] if 0 < finding.lineno <= len(lines) else ""
-        if SUPPRESS in line:
+        if _suppressed(lines, finding.lineno):
             continue
         out.append(finding)
     return out
@@ -452,23 +490,39 @@ def f():
 def self_check() -> int:
     """A sweep that flags nothing, including its own control, is not a passing sweep."""
     known = known_doctypes()
-    # "User" and "Sales Invoice" are the load-bearing ones: they come from OTHER
-    # apps, so they fail if BENCH_APPS resolved to this checkout instead of the
-    # bench -- the exact way a git worktree breaks the authority, and a failure
-    # that would otherwise show up as the validator flagging frappe's own APIs.
-    for required in ("Member", "Chapter Board Member", "Chapter", "Volunteer", "Team",
-                     "User", "DocType", "Sales Invoice"):
+    # One doctype per REQUIRED app. These are the load-bearing probes: they come
+    # from OTHER apps, so they fail if BENCH_APPS resolved to this checkout
+    # instead of the bench -- the exact way a git worktree breaks the authority
+    # (measured: 142 doctypes instead of 1134), a failure that would otherwise
+    # surface as the validator flagging `frappe.get_doc("User", ...)`.
+    probes = {
+        "frappe": "User",
+        "erpnext": "Sales Invoice",
+        "hrms": "Expense Claim",
+        "payments": "Payment Gateway Account",
+        "verenigingen": "Chapter Board Member",
+    }
+    for app_name, required in probes.items():
         if required not in known:
-            print(f"SELF-CHECK FAILED: the authority does not know {required!r} "
-                  f"({len(known)} doctypes loaded from {BENCH_APPS}) -- "
-                  f"BENCH_APPS did not resolve to the bench's apps/ directory.")
+            print(f"SELF-CHECK FAILED: the authority does not know {required!r} from "
+                  f"{app_name!r} ({len(known)} doctypes loaded from {BENCH_APPS}). "
+                  f"Either BENCH_APPS did not resolve to the bench's apps/ directory, "
+                  f"or {app_name} is not installed -- and the census would then be "
+                  f"about a different tree than the baseline.")
             return 2
+    # And nothing from an app OUTSIDE the required set may leak in: that is what
+    # made the gate machine-dependent (owl_theme on this bench, absent in CI).
+    extra = sorted(set(known.values()) - set(REQUIRED_APPS))
+    if extra:
+        print(f"SELF-CHECK FAILED: doctypes loaded from non-required apps {extra} -- "
+              f"the census would differ between benches.")
+        return 2
     lines = SELF_CHECK_SOURCE.splitlines()
     flagged = set()
     for finding in scan_source(SELF_CHECK_SOURCE):
         if finding.kind == "probe" or finding.name in known or finding.name in RAW_TABLES:
             continue
-        if SUPPRESS in lines[finding.lineno - 1]:
+        if _suppressed(lines, finding.lineno):
             continue
         flagged.add(finding.name)
     probed = {f.name for f in scan_source(SELF_CHECK_SOURCE) if f.kind == "probe"}

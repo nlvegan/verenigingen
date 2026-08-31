@@ -758,6 +758,10 @@ def get_theme_settings() -> Any:
         Theme settings document or dict with defaults
     """
     try:
+        # owl_theme is an optional theme app: absent in CI and in any bench that has
+        # not installed it. The except below is the documented behaviour, not an
+        # error path, so the unknown doctype here is deliberate.
+        # doctype-ok: optional app, handled by the fallback below
         return frappe.get_single("Owl Theme Settings")
     except Exception:
         return frappe._dict(
