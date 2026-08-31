@@ -159,3 +159,162 @@ class TestChapterMembersReport(VereningingenTestCase):
         with self.assertNoErrorLog():
             _, data = report.execute({"chapter": chapter.name})
         self.assertEqual(data, [])
+
+
+class TestChapterMembersReportBoardAccess(VereningingenTestCase):
+    """The unprivileged branch: a chapter board member running the report.
+
+    The report's own JSON grants the *Verenigingen Chapter Board Member* role,
+    and ``execute`` has a branch that is supposed to let such a user through for
+    their own chapter. Every test above runs as Administrator, so that branch was
+    never exercised -- and it was dead: the guard asked
+    ``frappe.db.exists("Verenigingen Chapter Board Member", ...)``, which is the
+    *Role* name, not the DocType. ``frappe.db.exists`` on a doctype whose table is
+    absent goes through ``frappe.db.sql(..., ignore=True)``, which swallows
+    MariaDB 1146 and returns ``None`` -- indistinguishable from "no such row". So
+    the gate always threw and no board member could open the report (#677).
+
+    Both halves are asserted here, because correcting the name *activates* a check
+    that had never run: a board member of the chapter must get through, and a
+    volunteer who is not on that board must still be refused.
+    """
+
+    def _unprivileged_user(self, tag):
+        return self.create_test_user(
+            email=f"cm_{tag}_{frappe.generate_hash(length=8)}@test.invalid",
+            roles=["Verenigingen Chapter Board Member"],
+        )
+
+    def _member_with_user(self, user):
+        member = self.create_test_member(
+            first_name="Board",
+            last_name=f"Runner{frappe.generate_hash(length=4)}",
+            email=f"board.{frappe.generate_hash(length=6)}@test.invalid",
+            status="Active",
+        )
+        member.user = user.name
+        member.save()
+        return member
+
+    def _seat_on_board(self, chapter, volunteer):
+        role = self.create_test_chapter_role()
+        doc = frappe.get_doc("Chapter", chapter.name)
+        doc.append(
+            "board_members",
+            {
+                "volunteer": volunteer.name,
+                "chapter_role": role.name,
+                "from_date": today(),
+                "is_active": 1,
+            },
+        )
+        doc.save()
+        return doc
+
+    def _add_member_row(self, chapter_name, member, status="Active", enabled=1):
+        doc = frappe.get_doc("Chapter", chapter_name)
+        doc.append(
+            "members",
+            {
+                "member": member.name,
+                "chapter_join_date": today(),
+                "status": status,
+                "enabled": enabled,
+            },
+        )
+        doc.save()
+
+    def _member(self):
+        return self.create_test_member(
+            first_name="Chap",
+            last_name=f"Member{frappe.generate_hash(length=4)}",
+            email=f"chap.{frappe.generate_hash(length=6)}@test.invalid",
+            status="Active",
+        )
+
+    def test_board_member_can_run_the_report_for_their_own_chapter(self):
+        """The defect: on develop this throws, for the very chapter they sit on."""
+        chapter = self.create_test_chapter()
+        user = self._unprivileged_user("board")
+        member = self._member_with_user(user)
+        volunteer = self.create_test_volunteer(member=member.name)
+        self._seat_on_board(chapter, volunteer)
+
+        listed = self._member()
+        self._add_member_row(chapter.name, listed, status="Active")
+
+        with self.as_user(user.name):
+            _, data = report.execute({"chapter": chapter.name})
+
+        self.assertIn(
+            listed.name,
+            {r["member"] for r in data},
+            "a board member must see their own chapter's members",
+        )
+
+    def test_non_board_volunteer_is_still_refused(self):
+        """Control: correcting the doctype name must not open the report up.
+
+        Same shape as the test above -- member, linked user, volunteer -- with the
+        single difference that the volunteer holds no seat on this chapter's board.
+        If this passed, the fix would have replaced a gate that never opens with
+        one that never closes.
+        """
+        chapter = self.create_test_chapter()
+        user = self._unprivileged_user("outsider")
+        member = self._member_with_user(user)
+        self.create_test_volunteer(member=member.name)
+
+        with self.as_user(user.name):
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                report.execute({"chapter": chapter.name})
+
+        self.assertIn("board member", str(ctx.exception))
+
+    def test_board_member_of_another_chapter_is_refused(self):
+        """Control: a real, seated board member is still scoped to their chapter."""
+        own_chapter = self.create_test_chapter()
+        other_chapter = self.create_test_chapter()
+        user = self._unprivileged_user("elsewhere")
+        member = self._member_with_user(user)
+        volunteer = self.create_test_volunteer(member=member.name)
+        self._seat_on_board(own_chapter, volunteer)
+
+        with self.as_user(user.name):
+            with self.assertRaises(frappe.ValidationError):
+                report.execute({"chapter": other_chapter.name})
+
+    def test_board_member_sees_pending_members(self):
+        """The second, identical guard 44 lines below governs ``can_view_pending``.
+
+        Without it a board member who *could* open the report would still be served
+        the filtered row set, so this pins the sibling site too (#399).
+        """
+        chapter = self.create_test_chapter()
+        user = self._unprivileged_user("pending")
+        member = self._member_with_user(user)
+        volunteer = self.create_test_volunteer(member=member.name)
+        self._seat_on_board(chapter, volunteer)
+
+        pending = self._member()
+        self._add_member_row(chapter.name, pending, status="Pending")
+
+        with self.as_user(user.name):
+            _, data = report.execute({"chapter": chapter.name})
+
+        self.assertIn(
+            pending.name,
+            {r["member"] for r in data},
+            "a board member must be able to see pending members of their chapter",
+        )
+
+    def test_user_without_a_member_record_is_refused(self):
+        """Control at the outer guard: no Member row -> refused before the board check."""
+        chapter = self.create_test_chapter()
+        user = self._unprivileged_user("nomember")
+
+        with self.as_user(user.name):
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                report.execute({"chapter": chapter.name})
+
+        self.assertIn("must be a member", str(ctx.exception))
