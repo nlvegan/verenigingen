@@ -765,13 +765,17 @@ def process_sepa_return_file(file_content, file_type="csv"):
             status_counts[status] = status_counts.get(status, 0) + 1
 
         return {
-            # An "error" row means a returned direct debit was NOT reversed, so the
-            # money is gone from the bank account while the Sales Invoice still reads
-            # Paid. Reporting that file as a success is how it stayed invisible (#576).
-            # "not_found" and "ambiguous" are decided outcomes -- refusals, already
-            # logged, and deliberately not folded in here -- but the operator still has
-            # to place those returns by hand, which is why every status is counted.
-            "success": not status_counts.get("error"),
+            # "success" means every return in this file was actually APPLIED -- not
+            # merely that nothing threw, which is what it used to mean and is how #576
+            # stayed invisible. Any row that is not "processed" is money the bank has
+            # clawed back with nothing reversed, and needs a human: "error" threw,
+            # "not_reversed" matched an invoice no direct debit settled, "ambiguous"
+            # refused to choose between two, and "not_found" could not identify the
+            # member at all. Only "ambiguous" writes an Error Log row of its own
+            # (log_ambiguous_refusal); "not_found" records nothing anywhere, which is
+            # exactly why it may not be counted as a success. status_counts is what tells
+            # the operator which of the four they are looking at.
+            "success": set(status_counts) <= {"processed"},
             "processed_returns": processed_returns,
             "total_processed": len(processed_returns),
             "status_counts": status_counts,
@@ -784,7 +788,12 @@ def process_sepa_return_file(file_content, file_type="csv"):
         # back (frappe/app.py) and answers non-200 instead of a lying success body.
         raise
     except Exception as e:
-        frappe.log_error(f"Error processing SEPA return file: {str(e)}")
+        # Keyword form for the same reason as process_individual_return's: positionally,
+        # this message lands in the 140-char `method` column and the title is lost.
+        frappe.log_error(
+            title="SEPA Return File Processing Failed",
+            message=f"SEPA return file ({file_type}) could not be processed: {e}\n\n{frappe.get_traceback()}",
+        )
         return {"success": False, "error": str(e)}
 
 
@@ -923,7 +932,36 @@ def process_individual_return(return_item):
             invoice_name = invoice["name"]
 
             # Reverse the payment entry
-            reverse_failed_sepa_payment(invoice_name, return_item)
+            reversed_payment_entry = reverse_failed_sepa_payment(invoice_name, return_item)
+
+            if not reversed_payment_entry:
+                # The candidate filter above asks only {customer, docstatus, grand_total,
+                # status}; nothing in it asks HOW the invoice was settled. But
+                # reverse_failed_sepa_payment cancels ONLY a submitted Payment Entry whose
+                # mode_of_payment is "SEPA Direct Debit", and returns None otherwise -- so a
+                # dues invoice of the same amount paid by iDEAL, bank transfer or a Journal
+                # Entry used to come back "Payment reversed and member notified" having
+                # reversed nothing, with a failed-payment Comment and a High-priority ToDo
+                # telling a member their payment failed when it had not (#576's own sentence
+                # with a different status string, plus #567's consequence).
+                #
+                # Refusing is recoverable; the two writes below are not. So neither runs.
+                frappe.log_error(
+                    title="SEPA Return Not Reversed",
+                    message=(
+                        f"SEPA return for member reference {return_item.get('member_reference')} "
+                        f"(amount {return_item.get('amount')}, return code "
+                        f"{return_item.get('return_code')}) matched invoice {invoice_name}, which "
+                        "has no submitted SEPA Direct Debit payment to cancel. Nothing was "
+                        "reversed and the member was not notified; place this return by hand."
+                    ),
+                )
+                return {
+                    "member_reference": return_item.get("member_reference"),
+                    "invoice": invoice_name,
+                    "status": "not_reversed",
+                    "action": "Matched invoice has no submitted SEPA Direct Debit payment to reverse",
+                }
 
             # Create failed payment record
             create_failed_payment_record(member[0], invoice_name, return_item)
@@ -950,15 +988,22 @@ def process_individual_return(return_item):
         # nothing to carry on with -- the remaining rows of the file would be processed
         # against state the server has thrown away.
         #
-        # NOT retried, although 1213 is transient by definition: a retry is only safe on
-        # an idempotent unit of work and this one is not. create_failed_payment_record
-        # and notify_member_of_failed_payment each insert unconditionally, so a second
-        # pass duplicates the Comment and the follow-up ToDo; and once
-        # reverse_failed_sepa_payment has cancelled the Receive entry the invoice is no
-        # longer Paid, so the retry would not recognise it as this return's candidate at
-        # all and would report "not_found" over a reversal that did happen. Re-running
-        # the whole file after the transaction is gone IS safe, so that is what the
-        # operator is left to do.
+        # NOT retried, and the two members need different reasons for that:
+        #
+        # * 1213 cannot be retried IN PLACE at all -- the transaction and every savepoint
+        #   in it are gone, so there is no state to retry FROM (transaction_errors.py's
+        #   docstring is the standing statement of this).
+        # * 1205 leaves the transaction live and half-applied, so a retry is mechanically
+        #   possible and still wrong, because this unit of work is not idempotent:
+        #   create_failed_payment_record and notify_member_of_failed_payment each insert
+        #   unconditionally, so a second pass duplicates the Comment and the follow-up
+        #   ToDo; and once reverse_failed_sepa_payment has cancelled the Receive entry the
+        #   invoice is no longer Paid, so the retry would not recognise it as this
+        #   return's candidate and would report "not_found" over a reversal that happened.
+        #
+        # Re-running the whole file once the transaction is gone IS safe -- an already
+        # reversed invoice is no longer a candidate -- so that is what the operator is
+        # left to do, loudly.
         #
         # No frappe.db.rollback() here, deliberately (#504): the request boundary
         # already rolls back, and process_sepa_return_file -- the only caller -- has no

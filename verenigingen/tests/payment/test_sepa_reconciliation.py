@@ -914,8 +914,12 @@ class TestSepaReturnParsing(ReconBase):
             "NO-SUCH-MEMBER-123,99.00,Insufficient funds\n"
         )
         result = recon.process_sepa_return_file(csv_content, file_type="csv")
-        self.assertTrue(result["success"], msg=result)
+        # `success` used to be a constant True. It now means "every return in the file was
+        # actually applied", and an unidentifiable member is money clawed back with nothing
+        # reversed -- see test_a_row_that_names_no_invoice_also_costs_the_file_its_success (#576).
+        self.assertFalse(result["success"], msg=result)
         self.assertEqual(result["total_processed"], 1)
+        self.assertEqual(result["status_counts"], {"not_found": 1}, msg=result)
         self.assertEqual(result["processed_returns"][0]["status"], "not_found")
 
     def test_parse_xml_invalid_raises(self):
@@ -1187,9 +1191,11 @@ class TestReturnFailureIsNotReportedAsSuccess(ReconBase):
     these establish which frame catches the class and what the caller is then told, and
     they establish nothing about whether a genuine deadlock arises at that statement or
     about what the server has already discarded when it does. The injection point is
-    `PaymentEntry.cancel`, which is the statement `reverse_failed_sepa_payment` deadlocks
-    ON in production, so everything above it -- the member lookup, the candidate filter,
-    the mode_of_payment/docstatus check -- is the real code.
+    `PaymentEntry.cancel` -- the only DB-WRITING statement on this path, and therefore the
+    most likely site; #576 records the error string and not a frame, so "the statement it
+    deadlocks on" would be inference stated as measurement. Everything above it -- the
+    member lookup, the candidate filter, the mode_of_payment/docstatus check -- is the
+    real code.
 
     Each non-resumable test has an ordinary-exception twin and a success twin. Without
     both, every assertion here is equally consistent with "the endpoint now propagates
@@ -1219,8 +1225,17 @@ class TestReturnFailureIsNotReportedAsSuccess(ReconBase):
             f"{bundle['member_id']},42.00,Insufficient funds,AM04\n"
         )
 
-    def _assert_the_debit_is_still_unreversed(self, bundle):
-        """The money consequence: the bank took it back, the ledger still says Paid."""
+    def _assert_the_fixture_invoice_is_still_settled(self, bundle):
+        """PRECONDITION, not an outcome -- and the reason it is worth printing anyway.
+
+        In the two non-resumable tests `PaymentEntry.cancel` is patched to raise, so
+        "nothing was cancelled" is guaranteed by the stub and this helper cannot fail
+        there. It is asserted so the reader can see WHAT the endpoint was reporting
+        success over: at the moment of the report the bank has clawed the money back and
+        the ledger still says Paid. Do not read a green run here as evidence about
+        rollback semantics -- test_a_return_that_reverses_still_reports_the_file_as_a_success
+        is the test that observes the ledger actually moving.
+        """
         bundle["payment_entry"].reload()
         self.assertEqual(
             bundle["payment_entry"].docstatus,
@@ -1259,7 +1274,7 @@ class TestReturnFailureIsNotReportedAsSuccess(ReconBase):
         bundle = self._settled_return_fixture("RetDead")
         raised, result = self._run_return_file(bundle, _deadlock())
 
-        self._assert_the_debit_is_still_unreversed(bundle)
+        self._assert_the_fixture_invoice_is_still_settled(bundle)
         self.assertIsNotNone(
             raised,
             "a 1213 during the reversal must reach the caller. It did not: the endpoint "
@@ -1271,7 +1286,7 @@ class TestReturnFailureIsNotReportedAsSuccess(ReconBase):
         bundle = self._settled_return_fixture("RetTimeout")
         raised, result = self._run_return_file(bundle, _timeout())
 
-        self._assert_the_debit_is_still_unreversed(bundle)
+        self._assert_the_fixture_invoice_is_still_settled(bundle)
         self.assertIsNotNone(
             raised,
             "a 1205 during the reversal must reach the caller. It did not: the endpoint "
@@ -1298,12 +1313,14 @@ class TestReturnFailureIsNotReportedAsSuccess(ReconBase):
         )
         self.assertEqual(result["status_counts"], {"error": 1}, msg=result)
         self.assertEqual(result["processed_returns"][0]["status"], "error", msg=result)
-        self._assert_the_debit_is_still_unreversed(bundle)
+        self._assert_the_fixture_invoice_is_still_settled(bundle)
         assert_error_log(
             self,
             "SEPA Return Processing Failed",
             unique=token,
-            must_contain=[bundle["member_id"], "AM04", "42.0"],
+            # "amount 42.0," and not "42.0": the raw CSV cell is "42.00", so the bare
+            # number would be satisfied by the unparsed string and discriminate nothing.
+            must_contain=[bundle["member_id"], "AM04", "amount 42.0,"],
         )
 
     def test_a_return_that_reverses_still_reports_the_file_as_a_success(self):
@@ -1328,20 +1345,82 @@ class TestReturnFailureIsNotReportedAsSuccess(ReconBase):
             "the receivable the bank clawed back must be back on the books",
         )
 
-    def test_a_row_that_names_no_invoice_is_reported_without_costing_the_file_its_success(self):
-        """CONTROL for the OTHER direction: `not_found` is a reported outcome, not an error.
+    def test_a_row_that_names_no_invoice_also_costs_the_file_its_success(self):
+        """CONTROL that `success` means APPLIED, not merely "nothing threw".
 
-        It still means the return was not applied, which is why the count is in the
-        summary -- but it was decided and recorded deliberately, so it must not be folded
-        into "something threw". Pins that `success` is gated on errors specifically.
+        A return whose member/invoice cannot be identified is money the bank has taken
+        back with nothing reversed, and -- unlike `ambiguous`, which writes a titled Error
+        Log row through `log_ambiguous_refusal` -- this branch records nothing at all. An
+        earlier draft of this PR counted it as a success on the grounds that it was a
+        "decided outcome, already logged"; the second half of that was simply false, which
+        is what made the first half indefensible. `status_counts` is what distinguishes it
+        from a row that threw.
         """
         result = recon.process_sepa_return_file(
             "Member_ID,Amount,Return_Reason\nNO-SUCH-MEMBER-576,99.00,Insufficient funds\n",
             file_type="csv",
         )
 
-        self.assertTrue(result["success"], msg=result)
+        self.assertFalse(result["success"], msg=result)
         self.assertEqual(result["status_counts"], {"not_found": 1}, msg=result)
+
+    def test_an_invoice_settled_by_something_other_than_a_direct_debit_is_not_reported_as_reversed(self):
+        """The candidate filter admits invoices `reverse_failed_sepa_payment` cannot touch.
+
+        The filter requires only `{customer, docstatus 1, grand_total == amount, status in
+        (Paid, Partly Paid)}`; nothing in it asks HOW the invoice was settled. But
+        `reverse_failed_sepa_payment` cancels only a submitted Payment Entry whose
+        `mode_of_payment == "SEPA Direct Debit"`, and returns None otherwise -- and the
+        caller discarded that return value.
+
+        So a dues invoice of the same amount settled by iDEAL, bank transfer or a Journal
+        Entry -- ordinary for recurring dues -- was reported
+        `{"status": "processed", "action": "Payment reversed and member notified"}` with
+        nothing reversed, plus a "SEPA Payment Failed" Comment and a High-priority ToDo
+        telling a member their payment failed when it had not. That is #576's own sentence
+        with a different status string, and #567's consequence on top of it.
+
+        Red on develop AND on the first draft of this branch, which is why it is here: the
+        `success` gate this PR adds is computed from those status strings, so a status
+        string that lies makes the new contract lie.
+        """
+        self.expectErrorLog("SEPA Return Not Reversed")
+        bundle = self._make_member_with_invoice(first_name="RetNotDD", grand_total=42.0)
+        # Bank Draft, not SEPA Direct Debit: a real settled invoice the reversal cannot touch.
+        _invoice, payment_entry = receive_against_invoice(
+            self, bundle["invoice"].name, 42.0, mode_of_payment="Bank Draft"
+        )
+        bundle["member_id"] = frappe.db.get_value("Member", bundle["member"].name, "member_id")
+
+        result = recon.process_sepa_return_file(self._return_file(bundle), file_type="csv")
+
+        self.assertEqual(result["status_counts"], {"not_reversed": 1}, msg=result)
+        self.assertFalse(result["success"], msg=result)
+        payment_entry.reload()
+        self.assertEqual(payment_entry.docstatus, 1, "the non-SEPA payment must not be cancelled")
+        self.assertFalse(
+            frappe.get_all(
+                "Comment",
+                filters={
+                    "reference_doctype": "Member",
+                    "reference_name": bundle["member"].name,
+                    "content": ["like", "%SEPA Payment Failed%"],
+                },
+            ),
+            "no failed-payment record may be written for a payment that was not reversed",
+        )
+        self.assertFalse(
+            frappe.get_all(
+                "ToDo", filters={"reference_type": "Member", "reference_name": bundle["member"].name}
+            ),
+            "the member must not be told a payment failed when nothing was reversed",
+        )
+        assert_error_log(
+            self,
+            "SEPA Return Not Reversed",
+            unique=bundle["invoice"].name,
+            must_contain=[bundle["member_id"], "place this return by hand"],
+        )
 
 
 # =============================================================================
