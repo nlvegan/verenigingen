@@ -39,6 +39,7 @@ from unittest.mock import patch  # noqa: E402
 import frappe  # noqa: E402
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase  # noqa: E402
+from verenigingen.tests.utils.force_delete import force_delete  # noqa: E402
 from verenigingen.verenigingen.doctype.mijnrood_csv_import.mijnrood_csv_import import (  # noqa: E402
     get_import_template,
     process_import_background,
@@ -81,27 +82,20 @@ class _BaseMijnroodPipelineTest(EnhancedTestCase):
 
     def tearDown(self):
         for name in self._created_terminations:
-            self._force_delete("Membership Termination Request", name)
+            force_delete("Membership Termination Request", name)
         for name in self._created_acrs:
-            self._force_delete("Account Creation Request", name)
+            force_delete("Account Creation Request", name)
         for name in self._created_volunteers:
-            self._force_delete("Volunteer", name)
+            force_delete("Volunteer", name)
         for name in self._created_members:
-            self._force_delete("Member", name)
+            force_delete("Member", name)
         for name in self._created_imports:
-            self._force_delete("Mijnrood CSV Import", name)
+            force_delete("Mijnrood CSV Import", name)
         for name in self._created_trackers:
-            self._force_delete("Bulk Operation Tracker", name)
+            force_delete("Bulk Operation Tracker", name)
         for name in self._created_files:
-            self._force_delete("File", name)
+            force_delete("File", name)
         super().tearDown()
-
-    @staticmethod
-    def _force_delete(doctype, name):
-        try:
-            frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
-        except Exception:
-            pass
 
     # --- CSV / File / import-doc fixtures ----------------------------------
 

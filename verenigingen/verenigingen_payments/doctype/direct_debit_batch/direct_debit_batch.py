@@ -115,21 +115,26 @@ class DirectDebitBatch(Document):
         for every batch name `create_optimal_batches` returns. So the recorded
         route is not unreachable, and throwing has a real price on that pipeline:
         `create_optimal_batches` wraps the whole group loop in `except Exception`,
-        so a duplicate in group 3 leaves groups 1-2 inserted, discards
-        `batch_names` (nobody handles their validation status) and reports
-        `batches_created: 0`. Worse, `dd_batch_scheduler` then reports that as
-        "No batches created - no eligible invoices" through `frappe.logger().info`,
-        which reaches nothing anyone reads, so the run looks like a quiet no-op.
-        And the retry is NOT the next day: the scheduled task is daily but
-        `_daily_batch_optimization_impl` returns unless `is_batch_creation_day()`,
-        which reads `Verenigingen Payments Settings.batch_creation_days` --
-        default `"1"` -- so by default the next attempt is the 1st of next month.
+        so a duplicate in group 3 stops groups 4+ being built. It USED TO also
+        report `batches_created: 0` while groups 1-2 sat inserted and committed,
+        and `dd_batch_scheduler` USED TO read that as "No batches created - no
+        eligible invoices" through `frappe.logger().info` -- a rotating file at
+        level ERROR that reaches nobody -- so a lost month looked like a quiet
+        no-op, and the retry is not the next day but the next configured creation
+        day (`batch_creation_days`, default `"1"`). #627 fixed that half: the
+        failure now names the batches it already committed, lands in the Error Log
+        with its traceback and raises a system notification.
         The tradeoff is still taken deliberately: a lost optimization run is
         recoverable and re-runnable by hand, whereas a batch that persists with a
         duplicate can be submitted by a path that never reads `validation_status`
-        -- and that money does not come back. The silent-loss half of this is
-        tracked separately; it is a pre-existing property of that pipeline's
-        `except Exception`, not something this guard introduces.
+        -- and that money does not come back. #627 also removed the reachable
+        PRODUCER: the same unbounded SEPA Mandate join sat in all THREE invoice
+        queries that feed this document (the daily optimizer, the monthly service and
+        `dd_batch_api.get_eligible_invoices`), and each now refuses a duplicated
+        invoice rather than passing it on. So reaching this throw takes a route none
+        of them has. (#662 is about a DIFFERENT unbounded join in that third query --
+        `mem.customer`, which is not unique -- and is still open; it explicitly
+        cleared the mandate join, which #627 disproved.)
 
         SCOPE. This is a WITHIN-batch check. Two batches each listing the invoice
         once are still two debits, and the guard cannot see that;

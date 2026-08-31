@@ -22,7 +22,11 @@ from verenigingen.utils.security.authorization import (
     require_sepa_permission,
 )
 from verenigingen.utils.settings_utils import get_payments_settings
-from verenigingen.verenigingen_payments.api.dd_batch_optimizer import DEFAULT_CONFIG, create_optimal_batches
+from verenigingen.verenigingen_payments.api.dd_batch_optimizer import (
+    DEFAULT_CONFIG,
+    _describe_what_was_lost,
+    create_optimal_batches,
+)
 
 
 def daily_batch_optimization():
@@ -72,7 +76,12 @@ def _daily_batch_optimization_impl():
         # Create optimal batches with enhanced validation
         result = create_optimal_batches(target_date=target_date, config=config)
 
-        if result["success"] and result["batches_created"] > 0:
+        # Read `batches_created`, not `success`, to decide whether there are batches
+        # to handle. A run that failed PART WAY still committed the batches it had
+        # already inserted, and they are exactly the ones whose `validation_status`
+        # this block acts on. Discarding them because the overall result is False is
+        # how a half-finished run left validated-by-nobody batches behind (#627).
+        if result.get("batches_created", 0) > 0:
             # Process validation results for each created batch
             validation_summary = {"blocked": 0, "processed_with_warnings": 0, "processed": 0}
 
@@ -128,11 +137,17 @@ def _daily_batch_optimization_impl():
                 f"Warnings: {validation_summary['processed_with_warnings']}, "
                 f"Blocked: {validation_summary['blocked']}"
             )
-        else:
+
+        if not result.get("success"):
+            report_failed_batch_creation(result, target_date)
+        elif not result.get("batches_created"):
             frappe.logger().info("No batches created - no eligible invoices")
 
     except Exception as e:
-        frappe.log_error(f"Error in daily batch optimization: {str(e)}", "Batch Scheduler Error")
+        frappe.log_error(
+            title="Batch Scheduler Error",
+            message=f"Daily batch optimization raised: {str(e)}\n\n{frappe.get_traceback()}",
+        )
 
         # Send system error notification
         from verenigingen.verenigingen_payments.api.sepa_batch_notifications import (
@@ -140,6 +155,60 @@ def _daily_batch_optimization_impl():
         )
 
         send_system_error_notification(str(e))
+
+
+def report_failed_batch_creation(result, target_date):
+    """A collection run that FAILED must not be reported as "nothing to collect".
+
+    `create_optimal_batches` catches every exception and returns
+    `{"success": False, ...}`, so the scheduler's outer `except` -- the only thing
+    that called `send_system_error_notification` -- can never fire for a batch that
+    failed to build. What the caller did instead was fall into an `else:` that
+    reported the benign reason, *"No batches created - no eligible invoices"*,
+    through `frappe.logger().info`: a rotating file at level ERROR with
+    `propagate=False`, so the line is dropped on level and would not reach an
+    operator or CI even if it were not (#627).
+
+    The cost of that mis-report is a month, not a day. The task is scheduled daily,
+    but `_daily_batch_optimization_impl` returns unless `is_batch_creation_day()`,
+    which reads `Verenigingen Payments Settings.batch_creation_days` -- default
+    `"1"` -- so by default nothing tries again until the 1st of next month.
+
+    Both channels, deliberately: the Error Log is the durable record an operator can
+    search after the fact, and the notification is what reaches them in time to run
+    the batch by hand. `send_system_error_notification` swallows its own send
+    failures into an Error Log, so this cannot itself take the run down.
+    """
+    from verenigingen.verenigingen_payments.api.sepa_batch_notifications import (
+        send_system_error_notification,
+    )
+
+    created = result.get("batch_names") or []
+    planned = result.get("batches_planned")
+    # The SAME sentence the Error Log uses. These are two records of one event, and
+    # they contradicted each other: the log branched on created-vs-planned while this
+    # asserted a loss unconditionally, so a failure AFTER every batch was built told
+    # the log "every planned batch was created" and told the operator's inbox "the
+    # remaining groups were NOT collected" -- and the inbox is the one that gets read.
+    # `batches_created` is the authority for HOW MANY, not `len(batch_names)`: a
+    # caller that reports a count without the names must still get the right verdict,
+    # and reading only the names silently turns that into "nothing was created".
+    created_count = result.get("batches_created")
+    if created_count is None:
+        created_count = len(created)
+    lost = _describe_what_was_lost(created_count, planned if planned is not None else created_count)
+    detail = (
+        f"Automated SEPA batch creation for {target_date} FAILED: {result.get('error')}. "
+        f"{created_count} of {planned if planned is not None else 'an unknown number of'} "
+        f"planned batches were created and committed before the failure "
+        f"({', '.join(created) or 'none'}).{lost} "
+        f"The next automatic attempt is the next configured batch creation day "
+        f"(Verenigingen Payments Settings.batch_creation_days, default the 1st of the "
+        f"month), so this needs a manual batch run rather than a wait."
+    )
+
+    frappe.log_error(title="Batch Scheduler: batch creation failed", message=detail)
+    send_system_error_notification(detail)
 
 
 def is_batch_creation_day():

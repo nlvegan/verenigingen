@@ -201,7 +201,6 @@ _finalize::2
 _finalize_import_results::4
 _finalize_leak_check::2
 _find_subscription_for_payment::2
-_force_delete::2  # clone family, 100% of pairs near-identical
 _future_date::2
 _gateway_mutation::2
 _generate_performance_recommendations::2

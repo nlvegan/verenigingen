@@ -78,6 +78,9 @@ from verenigingen.utils.transaction_errors import (
     release_savepoint_if_present,
     rollback_to_savepoint,
 )
+from verenigingen.verenigingen_payments.utils.collection_rows import (
+    refuse_invoices_with_more_than_one_row,
+)
 
 
 @frappe.whitelist()
@@ -466,6 +469,24 @@ def get_eligible_invoices(filters: dict | None = None):
     """
 
     eligible_invoices = frappe.db.sql(query, values, as_dict=True)
+
+    # The THIRD copy of the join #627 bounded in the two automated producers, and the
+    # one #662 explicitly cleared -- it examined `mem.customer` (non-unique, still
+    # open) and recorded the mandate join as already bounded by #604's purpose filter.
+    # It is not: that filter separates a membership mandate from a donation mandate,
+    # not two Active mandates SHARING the membership purpose, which
+    # `patches/v2_2/report_members_with_multiple_active_mandates` exists precisely
+    # because installs carry. Either way one invoice comes back twice here, and both
+    # `sm.mandate_id` and `sm.iban` go into the Direct Debit Batch child row -- so the
+    # operator is offered the same invoice twice and `validate_no_duplicate_invoices`
+    # (#606) then refuses the batch they built from it.
+    #
+    # Refused, not de-duplicated, for the same reason as everywhere else in this file:
+    # the duplicate pair disagrees about `DEBIT_DECIDING_FIELDS`, and keeping either
+    # row debits an account nobody chose (#567/#578/#584).
+    eligible_invoices = refuse_invoices_with_more_than_one_row(
+        eligible_invoices, "name", "DD Batch eligible invoices: duplicated invoice row"
+    )
 
     # Filter invoices that are not already in pending batches
     filtered_invoices = []

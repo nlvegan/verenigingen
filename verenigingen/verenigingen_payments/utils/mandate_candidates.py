@@ -138,6 +138,99 @@ def unambiguous_active_mandate(
     return MandateChoice(None, len(rows))
 
 
+def members_with_ambiguous_mandate(members, refusal_title: str, purpose: str = "used_for_memberships") -> set:
+    """Which of `members` have no single Active mandate for `purpose` to debit.
+
+    `unambiguous_active_mandate` above asks that question one member at a time,
+    which is the right shape for a form and the wrong one for a collection run
+    of a thousand invoices. This is the same rule, set-based: ONE query, the same
+    refusal, and the same Error Log through `log_ambiguous_mandate_refusal`, so
+    an operator reads one message format wherever the refusal came from.
+
+    It exists for the MONTHLY automated producer, which resolves the mandate inside
+    its invoice query:
+
+        LEFT JOIN `tabSEPA Mandate` sm
+            ON sm.member = mem.name
+            AND sm.status = 'Active' AND sm.used_for_memberships = 1
+
+    A join is not a choice. #597/#604's purpose filter bounds a member holding a
+    membership mandate AND a donation mandate, but two Active mandates SHARING the
+    membership purpose still make that join one-to-many, so one Sales Invoice comes
+    back once per mandate -- same invoice, different `mandate_id`, in general a
+    different IBAN. Both rows become `Direct Debit Batch Invoice` child rows, i.e.
+    two debits for one debt off two accounts; since #606 the batch is rejected
+    instead, which takes down the WHOLE run for every other member in it (#627).
+
+    Refusing rather than de-duplicating is the point, and it is the behaviour the app
+    has already PROMISED. `patches/v2_2/report_members_with_multiple_active_mandates`
+    exists because rows predating #584's guard are deliberately not rewritten -- which
+    mandate a member intends to be charged on is a data decision -- and it tells the
+    operator, verbatim, that until they cancel the superseded ones "direct debit
+    batches will REFUSE to select an IBAN for it (rather than guess)". That was true
+    of `get_invoice_mandate_info` and false of both AUTOMATED producers, which fanned
+    out instead. So this is not a `frappe.db.set_value` edge case: it is the default
+    state of any install upgraded across #584, and the guard cannot be an index either
+    -- MariaDB has no partial unique index, as that patch spells out. The guard is also
+    an unlocked read-then-throw, so two concurrent activations both pass it.
+
+    THE FILTER SET IS DELIBERATELY LOOSER THAN THE QUERY IT GUARDS, and it is worth
+    being exact about the direction, because an earlier draft of this docstring
+    claimed parity and was wrong.
+
+    `get_sepa_invoices_with_mandates`' WHERE also carries `sm.iban IS NOT NULL AND
+    sm.iban != '' AND sm.mandate_id IS NOT NULL`; this counter carries none of those,
+    so a member whose second Active membership mandate has a blank `iban` is counted
+    here as two and refused, while that query returns exactly one row. (`is_active` is
+    parity: neither mentions it.)
+
+    That looseness is the POINT, not a defect. The account a monthly child row is
+    debited on does not come from that query at all --
+    `batch_performance_optimizer.get_members_with_mandates_bulk` re-resolves the
+    mandate filtering only on member + status + purpose, and assigns it in a last-wins
+    loop with no ORDER BY (#708). Measured: 2 candidates on 2 accounts in, one
+    arbitrarily chosen IBAN out, no refusal and no log. So a pair the collection query
+    can tell apart is still a pair the resolver cannot, and tightening this filter to
+    match the query would hand it an arbitrary IBAN.
+
+    NOT used by the daily producer, deliberately. There, the row's `iban` comes from
+    `mem`, `sm.mandate_id IS NOT NULL` is in the WHERE, and `get_mandate_for_batch_row`
+    re-keys on `mandate_id`, which is `unique: 1` -- one row or none, not a choice. A
+    looser count there could only over-refuse a member that query resolves cleanly, so
+    the daily producer relies on
+    `collection_rows.refuse_invoices_with_more_than_one_row` alone.
+
+    That row-level guard is the exact, drift-proof half of this invariant: it observes
+    the rows a query actually returned, so it cannot over-refuse and cannot drift. It
+    also cannot see the resolver ambiguity above, which is why the monthly path needs
+    both.
+
+    Returns the members to EXCLUDE; the caller drops their rows. That loses one
+    member's collection for the period, which is why the refusal is logged with the
+    mandate ids: it is only defensible if an operator can find out it happened and
+    which mandate to cancel.
+    """
+    wanted = {m for m in members if m}
+    if not wanted:
+        return set()
+
+    purpose = resolve_purpose_flag(purpose)
+    filters = {"member": ["in", sorted(wanted)], "status": "Active"}
+    if purpose is not None:
+        filters[purpose] = 1
+
+    by_member = {}
+    for row in frappe.get_all("SEPA Mandate", filters=filters, fields=["member", *MANDATE_FIELDS]):
+        by_member.setdefault(row.member, []).append(row)
+
+    refused = set()
+    for member, rows in by_member.items():
+        if len(rows) > 1:
+            log_ambiguous_mandate_refusal(member, rows, purpose, refusal_title)
+            refused.add(member)
+    return refused
+
+
 def log_ambiguous_mandate_refusal(member: str, rows, purpose, refusal_title: str) -> None:
     """Record WHY a mandate was not chosen, so a refusal is actionable.
 
