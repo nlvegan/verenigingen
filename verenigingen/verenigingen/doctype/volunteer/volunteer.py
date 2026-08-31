@@ -170,35 +170,15 @@ class Volunteer(Document):
             if not member.birth_date:
                 return  # Skip if no birth date
 
-            # Compute from the birth date; do NOT read the stored `Member.age`.
-            #
-            # 65139d02b made this method delegate to the service that owns the
-            # arithmetic, but kept the pre-existing preference for the stored field.
-            # That preference was harmless while the rejection below was being
-            # swallowed. Now that it blocks the save it is not:
-            #
-            #   - `Member.age` is `int(11) NOT NULL DEFAULT 0`, so a row whose age was
-            #     never computed reads back as 0, never as None -- below every
-            #     configured minimum. The documented `is not None` fallback could
-            #     therefore never run.
-            #   - `age` is written only by `update_member_age_field` on save, with no
-            #     scheduled refresh, so it lags by up to a year: 371 of 711 Members on
-            #     veg11 and 31 of 268 on test_site_2 disagree with the calendar (#657).
-            #     The drift is strictly downward (0 rows read high on either site), so
-            #     a stored age can only ever refuse someone the calendar admits.
-            #
-            # Costs nothing today -- `minimum_membership_age` is also 16, so no stored
-            # age below the volunteer minimum exists -- but the two settings are
-            # independent, and the repo treats "join at 16, volunteer at 21" as a
-            # legitimate configuration (vip_import tests). At 21 the stale field would
-            # falsely refuse 17 members on veg11. The other four volunteer-age checks
-            # in this app (bulk creation service, vip_import, volunteer_application,
-            # validation_utilities) all compute from the birth date; this was the only
-            # one that did not.
+            # Compute from birth_date; do NOT read the stored `Member.age`: that
+            # column is NOT NULL DEFAULT 0 (an uncomputed row reads 0, below every
+            # minimum) and refreshes only on save, so it lags up to a year. Harmless
+            # while the rejection below was swallowed; now that it blocks the save a
+            # stale age would falsely refuse. Measurements #658; class #657.
             age = calculate_member_age(member.birth_date)
             if age is None:
-                # Unparseable birth date. calculate_member_age already logged it, and
-                # comparing None against the minimum below would raise TypeError.
+                # Unparseable birth date; already logged by the service, and None
+                # would raise TypeError against the minimum below.
                 return
 
             # Get minimum volunteer age from Verenigingen Settings
@@ -214,16 +194,10 @@ class Volunteer(Document):
                 )
 
         except frappe.ValidationError:
-            # The minimum-age rejection above IS a frappe.ValidationError, and the
-            # broad handler below used to catch it: the member saw the message and an
-            # Error Log row was written, but the Volunteer was created anyway, so the
-            # rule was dead on the only path that matters (#658). Same defect and same
-            # fix as 36bb501b9 in member_age_service, one file away.
-            #
-            # This also propagates the DoesNotExistError that get_doc() would raise for
-            # a dangling member link, which is the correct outcome and not a new one on
-            # the save path: validate_member_link() runs first and already throws for
-            # exactly that case.
+            # The rejection above IS a frappe.ValidationError and the broad handler
+            # below caught it, so the Volunteer was created anyway -- the rule was
+            # dead (#658). Same fix as 36bb501b9. Also propagates get_doc()'s
+            # DoesNotExistError, which validate_member_link() already throws for.
             raise
         except Exception as e:
             frappe.log_error(
