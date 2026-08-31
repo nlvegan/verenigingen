@@ -55,6 +55,40 @@ class TestDetection(unittest.TestCase):
         self.assertEqual(_names('self._cleanup_manager.register("Nope", x)\n'), ["Nope"])
         self.assertEqual(_names('self.track_doc("Member", x)\n'), [])
 
+    def test_hook_dict_keys_are_a_doctype_position(self):
+        """A wrong `doc_events` key registers handlers that can never fire.
+
+        Nothing raises: `frappe.get_doc_hooks()` simply never looks the key up.
+        Measured on test_site_5 before the fix -- `'Verenigingen Volunteer'` was a
+        doc_events key holding four `on_update` handlers, `'Volunteer'` was not a
+        key at all, and `get_doc_hooks()['Volunteer']` was None.
+        """
+        source = (
+            'doc_events = {\n'
+            '    "Member": {"on_update": ["a.b"]},\n'
+            '    "Verenigingen Volunteer": {"on_update": ["c.d"]},\n'
+            '}\n'
+        )
+        self.assertEqual(_names(source, known=("Member",)), ["Verenigingen Volunteer"])
+
+    def test_hook_wildcard_key_is_not_a_doctype(self):
+        """frappe's `"*"` in doc_events means "every doctype", not a doctype."""
+        self.assertEqual(_names('doc_events = {"*": {"on_update": ["a.b"]}}\n'), [])
+        # Control: a neighbouring bad key in the same dict is still reported, so
+        # the exemption is scoped to "*" rather than disabling the whole check.
+        self.assertEqual(
+            _names('doc_events = {"*": {"on_update": ["a.b"]}, "Nope": {}}\n'), ["Nope"]
+        )
+
+    def test_a_dict_that_is_not_a_hook_mapping_is_ignored(self):
+        """Only the hooks.py names are keyed by doctype; an arbitrary dict is not."""
+        self.assertEqual(_names('some_other_map = {"Nope": 1}\n'), [])
+
+    def test_schema_validator_helpers_are_a_doctype_position(self):
+        """`validate_field("Verenigingen Volunteer", ...)` raises into a swallow."""
+        self.assertEqual(_names('validator.validate_field("Nope", "x")\n'), ["Nope"])
+        self.assertEqual(_names('validator.validate_field("Member", "x")\n'), [])
+
     def test_non_literal_first_argument_is_ignored(self):
         """A variable's value is not knowable here; guessing is how a gate lies."""
         self.assertEqual(_names('import frappe\nfrappe.get_all(doctype_var)\n'), [])

@@ -74,8 +74,15 @@ class TestChapterExpenseReportRealLookups(EnhancedTestCase):
         payable = frappe.db.get_value(
             "Account", {"account_type": "Payable", "company": company, "is_group": 0}, "name"
         )
-        if not expense_acct or not payable:
-            self.skipTest("No expense/payable accounts available on the test company")
+        # Fail rather than skip. get_eur_test_company() raises rather than handing
+        # back a chart-less company, so a missing account here means the fixture
+        # contract broke -- and a skip would silently no-op all three tests, which
+        # is indistinguishable from them passing.
+        self.assertTrue(
+            expense_acct and payable,
+            f"{company} has no expense/payable account: the test company fixture is broken, "
+            "not the code under test",
+        )
         claim = frappe.get_doc(
             {
                 "doctype": "Expense Claim",
@@ -146,7 +153,13 @@ class TestChapterExpenseReportRealLookups(EnhancedTestCase):
 
         row = self._claim_row(claim.name)
         self.assertEqual(row["organization_type"], "Team")
-        self.assertEqual(row["organization_name"], team.team_name)
+        # Team autonames `field:team_name` and frappe writes the docname back into
+        # that field on rename (model/rename_doc.py update_autoname_field), so
+        # name == team_name always. This asserts the docname is surfaced; it cannot
+        # distinguish a lookup from the docname, which is exactly why the lookup was
+        # dropped rather than corrected. What it DOES pin is the 1146 regression.
+        self.assertEqual(row["organization_name"], team.name)
+        self.assertEqual(team.name, team.team_name, "premise: Team autonames on team_name")
 
     def test_volunteer_name_comes_from_the_volunteer_not_the_employee(self):
         """The swallowed third site: `except Exception: pass` left this at the employee name."""

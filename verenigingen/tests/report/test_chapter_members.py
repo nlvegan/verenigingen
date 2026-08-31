@@ -22,8 +22,15 @@ from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.verenigingen.report.chapter_members import chapter_members as report
 
 
-class TestChapterMembersReport(VereningingenTestCase):
-    # ------------------------------------------------------------- helpers
+class ChapterMembersFixtures:
+    """Fixtures shared by both classes below.
+
+    A mixin rather than a copy in each class: the two classes had a
+    byte-identical `_member` and two chapter-row helpers that differed only in
+    whether they took a Chapter doc or a docname. That is the shape the
+    duplicate-helper ratchet exists to stop, inside one file where the ratchet
+    cannot see it (it keys on name-across-FILES).
+    """
 
     def _member(self):
         return self.create_test_member(
@@ -34,7 +41,9 @@ class TestChapterMembersReport(VereningingenTestCase):
         )
 
     def _add_to_chapter(self, chapter, member, status="Active", enabled=1, leave_reason=None):
-        chapter.append(
+        """`chapter` may be a Chapter doc or a docname."""
+        doc = chapter if hasattr(chapter, "append") else frappe.get_doc("Chapter", chapter)
+        doc.append(
             "members",
             {
                 "member": member.name,
@@ -44,8 +53,11 @@ class TestChapterMembersReport(VereningingenTestCase):
                 "leave_reason": leave_reason,
             },
         )
-        chapter.save()
+        doc.save()
+        return doc
 
+
+class TestChapterMembersReport(ChapterMembersFixtures, VereningingenTestCase):
     # ------------------------------------------------------------- guards
 
     def test_missing_chapter_raises(self):
@@ -161,7 +173,7 @@ class TestChapterMembersReport(VereningingenTestCase):
         self.assertEqual(data, [])
 
 
-class TestChapterMembersReportBoardAccess(VereningingenTestCase):
+class TestChapterMembersReportBoardAccess(ChapterMembersFixtures, VereningingenTestCase):
     """The unprivileged branch: a chapter board member running the report.
 
     The report's own JSON grants the *Verenigingen Chapter Board Member* role,
@@ -211,27 +223,6 @@ class TestChapterMembersReportBoardAccess(VereningingenTestCase):
         doc.save()
         return doc
 
-    def _add_member_row(self, chapter_name, member, status="Active", enabled=1):
-        doc = frappe.get_doc("Chapter", chapter_name)
-        doc.append(
-            "members",
-            {
-                "member": member.name,
-                "chapter_join_date": today(),
-                "status": status,
-                "enabled": enabled,
-            },
-        )
-        doc.save()
-
-    def _member(self):
-        return self.create_test_member(
-            first_name="Chap",
-            last_name=f"Member{frappe.generate_hash(length=4)}",
-            email=f"chap.{frappe.generate_hash(length=6)}@test.invalid",
-            status="Active",
-        )
-
     def test_board_member_can_run_the_report_for_their_own_chapter(self):
         """The defect: on develop this throws, for the very chapter they sit on."""
         chapter = self.create_test_chapter()
@@ -241,7 +232,7 @@ class TestChapterMembersReportBoardAccess(VereningingenTestCase):
         self._seat_on_board(chapter, volunteer)
 
         listed = self._member()
-        self._add_member_row(chapter.name, listed, status="Active")
+        self._add_to_chapter(chapter.name, listed, status="Active")
 
         with self.as_user(user.name):
             _, data = report.execute({"chapter": chapter.name})
@@ -297,7 +288,7 @@ class TestChapterMembersReportBoardAccess(VereningingenTestCase):
         self._seat_on_board(chapter, volunteer)
 
         pending = self._member()
-        self._add_member_row(chapter.name, pending, status="Pending")
+        self._add_to_chapter(chapter.name, pending, status="Pending")
 
         with self.as_user(user.name):
             _, data = report.execute({"chapter": chapter.name})

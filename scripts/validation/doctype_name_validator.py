@@ -68,16 +68,46 @@ and also exempts other calls on the same name in the same file.
 Ratchet, not a gate
 -------------------
 
-The tree had **89** unknown-name call sites when this was written (33 distinct
-names; 22 sites in production code, 12 in ``scripts/``, 55 in tests). Most are
-aspirational doctypes in tests that never existed. Failing on all of them would
-just be turned off, so existing sites are baselined in
+The tree had unknown-name sites already when this was written. Failing on all of
+them would just get the gate turned off, so they are baselined in
 ``doctype_name_baseline.txt`` and only an INCREASE fails. The baseline is keyed
 ``path::doctype::count`` -- deliberately not line numbers, which rot on any edit
 above them.
 
+**The count is not written here on purpose.** An earlier draft of this docstring
+said "89 sites, 33 names" and was stale within the same branch that added it,
+while the baseline, the hook description and the ratchet test all said something
+else. Run it instead::
+
+    python scripts/validation/doctype_name_validator.py --stats
+
 A deliberate use -- a negative test that *wants* an unknown doctype -- is marked
 inline with ``# doctype-ok: <reason>``.
+
+What this cannot see
+--------------------
+
+Say this out loud rather than letting a green run be over-trusted. The scan is
+literal-and-call-shaped, so these carry the same bug invisibly:
+
+* **Tuple / list elements.** ``[("Verenigingen Volunteer", "volunteer_name"), ...]``
+  fed to a loop that calls ``validate_field(doctype, field)`` -- the call's
+  arguments are variables by then. This shape was live in
+  ``tests/fixtures/test_secure_factory.py`` and had to be found by reading.
+* **Filter *values*.** ``{"attached_to_doctype": "Volunteer Expense"}`` names a
+  doctype in a position this does not model.
+* **Raw SQL.** ``SELECT ... FROM `tabVerenigingen Volunteer` `` is a string.
+  ``patches/v2_2/drop_orphan_volunteer_doctype_rows.py`` does this deliberately.
+* **Prose.** Docstrings, ``docs/*.md`` and migration guides are where the next
+  copy-paste comes from; four of them carried these names.
+* **Non-literals**, by design -- a variable's value is not knowable statically,
+  and guessing is how a gate starts lying.
+
+The probe exemption is also file-wide, not scope-aware: one
+``frappe.db.exists("DocType", X)`` anywhere in a file exempts *every* mention of
+X in it. That is deliberate -- ``api/chapter_dashboard_api.py:511`` probes once
+and then uses the name several times below -- but it does mean an unguarded use
+in a file that happens to probe elsewhere is not reported.
 
 Usage
 -----
@@ -163,7 +193,28 @@ META_ARG1 = {
 APP_ARG0_SUFFIXES = (
     ".register", ".track_doc", ".track_document", "._track_test_document",
     ".add_cleanup_record",
+    # This app's own schema validator. `validate_field("Verenigingen Volunteer",
+    # "volunteer_name")` raises FieldValidationError, which the caller swallows
+    # into {"success": False} -- a whitelisted endpoint that has never passed.
+    ".validate_field", ".validate_field_exists", ".validate_link_field_value",
 )
+
+# hooks.py mappings whose DICT KEYS are doctype names. A wrong key is not an
+# error anywhere -- `frappe.get_doc_hooks()` simply never looks it up -- so four
+# `on_update` handlers sat registered and dead under "Verenigingen Volunteer",
+# while `Volunteer` had no entry at all. Measured on test_site_5:
+#     'Verenigingen Volunteer' in get_hooks("doc_events")  -> True
+#     'Volunteer'              in get_hooks("doc_events")  -> False
+#     get_doc_hooks()['Volunteer']                         -> None
+HOOK_DICTS_KEYED_BY_DOCTYPE = {
+    "doc_events", "permission_query_conditions", "has_permission",
+    "has_website_permission", "override_doctype_class",
+    "override_doctype_dashboards", "doctype_js", "doctype_list_js",
+    "doctype_tree_js", "doctype_calendar_js",
+}
+
+# frappe's own wildcard key in doc_events: "every doctype", not a doctype name.
+HOOK_WILDCARD_KEYS = {"*"}
 
 # Physical tables that are not DocTypes. `frappe.db.delete` on these is correct.
 RAW_TABLES = {"__Auth", "Singles", "Series", "__global_search", "__UserSettings"}
@@ -226,6 +277,17 @@ class _Finding:
 class _Visitor(ast.NodeVisitor):
     def __init__(self):
         self.found: list[_Finding] = []
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        """`doc_events = {"Some DocType": {...}}` -- the KEYS are doctype names."""
+        for target in node.targets:
+            name = target.id if isinstance(target, ast.Name) else None
+            if name in HOOK_DICTS_KEYED_BY_DOCTYPE and isinstance(node.value, ast.Dict):
+                for key in node.value.keys:
+                    literal = _literal(key)
+                    if literal is not None and literal not in HOOK_WILDCARD_KEYS:
+                        self.found.append(_Finding(key.lineno, name + "[X]", literal, "call"))
+        self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
         api = _dotted(node.func)

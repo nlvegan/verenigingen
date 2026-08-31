@@ -150,6 +150,11 @@ def _has_active_board_seat(chapter, volunteer):
     return bool(
         frappe.db.exists(
             "Chapter Board Member",
-            {"parent": chapter, "volunteer": volunteer, "is_active": 1},
+            {
+                "parent": chapter,
+                "parenttype": "Chapter",
+                "volunteer": volunteer,
+                "is_active": 1,
+            },
         )
     )

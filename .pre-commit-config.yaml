@@ -292,14 +292,18 @@ repos:
           A deliberate unknown name — a negative test — is marked
           `# doctype-ok: <reason>`, and probing with `frappe.db.exists("DocType", X)`
           first exempts X in that file.
-          This hook only sees the files you touched; the Code Validation workflow
-          re-runs it over the whole tree. The exclude below must stay a SUBSET of
-          SCAN_ROOTS in the validator — anything scanned here but absent from the
-          baseline fails on first edit.
+          This hook only sees the files you touched. Unlike its siblings there is
+          deliberately NO Code Validation job: that workflow checks this app out
+          standalone, where the authority would hold only Verenigingen's own
+          doctypes and the gate would flag `frappe.get_doc("User", ...)`. Whole-tree
+          enforcement is verenigingen/tests/test_doctype_name_ratchet.py, which runs
+          on a bench that has frappe/erpnext/hrms/payments.
+          `files` is pinned to SCAN_ROOTS in the validator: a file scanned here but
+          not covered by --update-baseline could fail with no way to record it.
         entry: python scripts/validation/doctype_name_validator.py
         language: system
         pass_filenames: true
-        files: '\.py$'
+        files: '^(verenigingen|scripts)/.*\.py$'
         stages: [pre-commit]
         exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/validation/archived/)'
 

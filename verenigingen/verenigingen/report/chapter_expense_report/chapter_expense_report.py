@@ -185,9 +185,7 @@ def get_erpnext_expense_data(filters):
         if organization_type == "Chapter" and claim.get("custom_chapter"):
             organization_name = claim.get("custom_chapter")
         elif organization_type == "Team" and claim.get("custom_team"):
-            organization_name = frappe.db.get_value(
-                "Team", claim.get("custom_team"), "team_name"
-            ) or claim.get("custom_team")
+            organization_name = claim.get("custom_team")
 
         if claim.get("employee"):
             # Try to find volunteer by employee_id
