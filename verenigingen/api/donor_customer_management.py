@@ -20,6 +20,7 @@ from verenigingen.utils.security.api_security_framework import (
     high_security_api,
     standard_api,
 )
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 @frappe.whitelist()
@@ -120,6 +121,11 @@ def force_donor_customer_sync(donor_name: str) -> OperationResult[Dict[str, Any]
 
         return OperationResult.ok(data=data, message=_("Customer {0} successfully").format(action))
 
+    except NON_RESUMABLE_DB_ERRORS:
+        # The handler below logs and returns a 200 "sync failed"; both are writes on a
+        # transaction the server has already discarded. Reachable only since
+        # sync_with_customer stopped swallowing (#666).
+        raise
     except Exception as e:
         error_msg = _("Error forcing donor-customer sync: {0}").format(str(e))
         frappe.log_error(

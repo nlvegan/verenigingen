@@ -330,11 +330,7 @@ verenigingen/verenigingen/doctype/chapter_join_request/chapter_join_request.py::
 verenigingen/verenigingen/doctype/chapter_join_request/chapter_join_request.py::get_member_chapter_join_requests::1
 verenigingen/verenigingen/doctype/donation/donation.py::send_donation_confirmation_email::1
 verenigingen/verenigingen/doctype/donation/donation.py::send_payment_confirmation_email::1
-verenigingen/verenigingen/doctype/donor/donor.py::Donor.create_customer_from_donor::1
-verenigingen/verenigingen/doctype/donor/donor.py::Donor.create_new_customer_contact::1
 verenigingen/verenigingen/doctype/donor/donor.py::Donor.get_customer_info::1
-verenigingen/verenigingen/doctype/donor/donor.py::Donor.get_or_create_customer_contact::1
-verenigingen/verenigingen/doctype/donor/donor.py::Donor.sync_donor_to_customer_contact::1
 verenigingen/verenigingen/doctype/member/mixins/chapter_mixin.py::ChapterMixin.get_board_roles::1
 verenigingen/verenigingen/doctype/member/mixins/chapter_mixin.py::ChapterMixin.get_chapters::1
 verenigingen/verenigingen/doctype/member/mixins/chapter_mixin.py::ChapterMixin.is_board_member::1

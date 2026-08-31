@@ -181,3 +181,208 @@ class TestDonorCoverage(VereningingenTestCase):
         # in_test is set during the run and no opt-in flag -> sync is a no-op.
         donor.sync_with_customer()
         self.assertFalse(donor.customer)
+
+    # ------------------------------------------------------------ sync failures must not read "Synced"
+
+    # `customer_sync_status` is a read-only Select (Synced/Pending/Error/Auto-Created)
+    # reported on by get_sync_status_summary and donor_customer_management. Every sync
+    # sub-step used to log-and-swallow its failure, so control fell through to
+    # `customer_sync_status = "Synced"` for a sync that did not happen (#666). The donor
+    # save must still succeed -- an external Customer sync failing is not grounds to
+    # refuse the donor -- but the status has to read "Error", which sync_with_customer
+    # already writes and which nothing could reach.
+
+    def _run_sync_hook(self, donor, as_user=None, **changes):
+        """Drive the real on_update hook, which is what persists the status.
+
+        The document is re-fetched rather than reloaded: sync_with_customer dedupes on
+        `_sync_already_done` / `_last_sync_hash`, which are plain instance attributes and
+        survive doc.reload(). Re-running the hook on the same object after a successful
+        sync is a no-op, which would leave every assertion below satisfied by the FIRST
+        sync's result instead of the one under test.
+        """
+        from verenigingen.services.member.donor import donor_customer_sync as dcs
+
+        fresh = frappe.get_doc("Donor", donor.name)
+        for field, value in changes.items():
+            setattr(fresh, field, value)
+        fresh.flags.enable_customer_sync_in_test = True
+        if as_user is None:
+            dcs.sync_donor_to_customer(fresh)
+            return fresh
+        original_user = frappe.session.user
+        frappe.set_user(as_user)
+        try:
+            dcs.sync_donor_to_customer(fresh)
+        finally:
+            frappe.set_user(original_user)
+        return fresh
+
+    def _user_without_customer_permission(self):
+        """An actor who may not create a Customer and cannot request system escalation.
+
+        Only a User row is created, and the harness deletes it -- no shared master data is
+        touched, which is the whole point (see the note in the creation test below).
+        """
+        user = frappe.new_doc("User")
+        user.email = f"nocust.{frappe.generate_hash(length=8).lower()}@example.invalid"
+        user.first_name = "No Customer Perm"
+        user.send_welcome_email = 0
+        user.append("roles", {"role": "Verenigingen Member"})
+        # Plain insert: the suite runs as Administrator, so no permission bypass is needed.
+        user.insert()
+        self.track_doc("User", user.name)
+        return user.name
+
+    def _persisted_status(self, donor):
+        return frappe.db.get_value("Donor", donor.name, "customer_sync_status")
+
+    # Every Error Log title the sync writes on a failure, listed rather than matched by
+    # a loose substring: "Donor" used to match only because the fixture's Customer is
+    # named "Test Donor <hash>" and that name appears in secure_operations' row -- five
+    # of these tests passed VERENIGINGEN_FAIL_ON_ERROR_LOG=1 by fixture-name coincidence,
+    # and the sixth (whose Customer has no name yet at insert) failed.
+    _SYNC_FAILURE_LOG_TITLES = (
+        "Secure Operation Failed",
+        "Donor Customer Creation Error",
+        "Donor-Customer Data Sync Error",
+        "Donor-Customer Contact Sync Error",
+        "Donor Customer Contact Creation Error",
+        "Customer Contact Creation Error",
+        "Customer Contact Link Error",
+        "Donor-Customer Sync Error",
+        "Donor-Customer Sync Hook Error",
+        # sanitize_customer_links logs every broken link it repairs; the
+        # unresolvable-contact test creates one deliberately.
+        "Link Sanitization - Auto-Cleared",
+        # _get_donor_customer_group's fallback chain, reached from
+        # create_customer_from_donor. Neither fires on a site that already resolves a
+        # donor customer group, which is exactly why they are listed rather than
+        # discovered: on a fresh CI site the group must be auto-created first.
+        "Donor Customer Group Configuration Error",
+        "Customer Group Auto-Creation Error",
+    )
+
+    def _expect_sync_failure_logs(self):
+        self.expectErrorLog(*self._SYNC_FAILURE_LOG_TITLES)
+
+    def test_successful_sync_persists_synced(self):
+        """CONTROL for the failure tests below: an unbroken sync still records "Synced".
+        Without it, a fix that wrote "Error" unconditionally would pass every one of
+        them."""
+        donor = self.create_test_donor_with_sync()
+        with self.assertNoErrorLog():
+            self._run_sync_hook(donor)
+        self.assertEqual(self._persisted_status(donor), "Synced")
+
+    def test_failed_customer_update_persists_error_not_synced(self):
+        """donor.py sync_data_to_customer: the Customer save fails, so the sync did not
+        happen -- the row must not claim it did.
+
+        The Customer is given a Link value that does not resolve, so its save fails
+        exactly as it would in production; sanitize_customer_links only clears
+        member/contact/address links, so customer_group survives to the save.
+        """
+        donor = self.create_test_donor_with_sync()
+        frappe.db.set_value(
+            "Customer", donor.customer, "customer_group", "__no_such_group__", update_modified=False
+        )
+        self._expect_sync_failure_logs()
+        self._run_sync_hook(donor)
+        self.assertEqual(self._persisted_status(donor), "Error")
+
+    def test_failed_customer_creation_persists_error(self):
+        """donor.py create_customer_from_donor: the Customer insert fails, so
+        get_or_create_customer yielded nothing and sync_with_customer skipped its whole
+        status block -- leaving whatever the row held before. Must be "Error"."""
+        donor = self.create_test_donor()
+        self._expect_sync_failure_logs()
+        # The failure is a permission denial -- the case #666 names -- driven by an actor
+        # who may not create a Customer and holds no role in ESCALATION_ALLOWED_ROLES.
+        # Note what does NOT follow: secure_document_operation raises
+        # frappe.PermissionError internally but converts it to success=False, and the
+        # caller re-throws that with frappe.throw, so what arrives at the recorder is a
+        # ValidationError. This test does not discriminate the bare `raise` from
+        # `except frappe.ValidationError: raise`; measured, none of these tests does.
+        #
+        # Nothing shared is poisoned to get here. An earlier version pointed
+        # Selling Settings.territory at a missing Territory; sync_data_to_customer
+        # commits while frappe.flags.in_test is set, so the poison outlived the test and
+        # the restore -- registered with addCleanup -- was itself undone by the harness
+        # rollback that runs after it. It broke every later test in the module and had to
+        # be repaired by hand on two sites.
+        self._run_sync_hook(donor, as_user=self._user_without_customer_permission())
+        self.assertEqual(self._persisted_status(donor), "Error")
+
+    def test_failed_contact_update_persists_error_not_synced(self):
+        """donor.py sync_donor_to_customer_contact: the Contact save fails, so the donor's
+        new email never reached the Customer -- yet the Customer save that follows still
+        succeeded and the row said "Synced".
+
+        The break has to live in the value being COPIED, not on the stored Contact:
+        saving the Customer re-saves its primary Contact, so a Contact that is broken in
+        the database fails the Customer save too and the assertion is then satisfied by
+        sync_data_to_customer instead. Here the stored Contact stays valid and only the
+        incoming address is bad, which isolates this handler -- confirmed by mutation:
+        reverting only this `raise` reddens this test.
+        """
+        donor = self.create_test_donor_with_sync()
+        contact = frappe.db.get_value("Customer", donor.customer, "customer_primary_contact")
+        self.assertTrue(contact, "sync must have produced a primary Contact for this test to mean anything")
+        frappe.db.set_value("Donor", donor.name, "donor_email", "not an email", update_modified=False)
+        self._expect_sync_failure_logs()
+        self._run_sync_hook(donor)
+        self.assertEqual(self._persisted_status(donor), "Error")
+
+    def test_unresolvable_contact_persists_error(self):
+        """donor.py get_or_create_customer_contact: a Customer whose primary-contact link
+        points at a deleted Contact cannot be resolved, so no contact data syncs.
+
+        This handler is one layer below the four #666 lists: its try body contains no
+        literal frappe.throw, so the AST predicate misses it -- but it swallows the one
+        create_new_customer_contact re-raises, which would nullify that fix on this path.
+        """
+        donor = self.create_test_donor_with_sync()
+        frappe.db.set_value(
+            "Customer",
+            donor.customer,
+            "customer_primary_contact",
+            "__no_such_contact__",
+            update_modified=False,
+        )
+        self._expect_sync_failure_logs()
+        self._run_sync_hook(donor)
+        self.assertEqual(self._persisted_status(donor), "Error")
+
+    def test_failed_contact_creation_persists_error(self):
+        """donor.py create_new_customer_contact: all retries exhausted. The Contact
+        carries the donor's email, so an address the Contact schema rejects fails every
+        attempt -- and the Customer was still created, so the sync used to report success
+        for a donor whose email reached nothing.
+
+        The bad address is written straight to the row because Donor.validate rejects it.
+        """
+        donor = self.create_test_donor()
+        frappe.db.set_value("Donor", donor.name, "donor_email", "not an email", update_modified=False)
+        self._expect_sync_failure_logs()
+        self._run_sync_hook(donor)
+        self.assertEqual(self._persisted_status(donor), "Error")
+
+    def test_failed_primary_contact_link_save_persists_error(self):
+        """donor.py refresh_customer_from_contact: it saves the Customer on the caller's
+        behalf and the caller then sets `_contact_triggered_customer_save`, which
+        suppresses sync_data_to_customer's own save. So a failure swallowed here is not
+        merely lost -- it also cancels the only retry, leaving an unsaved Customer
+        reported as "Synced".
+
+        Not one of the four #666 lists (no literal frappe.throw in its try body). The
+        Customer is broken and the donor renamed so the Contact needs saving: that is
+        what routes the Customer save through this method instead of the caller's own.
+        """
+        donor = self.create_test_donor_with_sync()
+        frappe.db.set_value(
+            "Customer", donor.customer, "customer_group", "__no_such_group__", update_modified=False
+        )
+        self._expect_sync_failure_logs()
+        self._run_sync_hook(donor, donor_name=f"Renamed {frappe.generate_hash(length=6)}")
+        self.assertEqual(self._persisted_status(donor), "Error")

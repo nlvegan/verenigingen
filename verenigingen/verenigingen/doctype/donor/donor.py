@@ -13,6 +13,7 @@ from frappe.utils.password import decrypt, encrypt
 from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 class Donor(Document):
@@ -295,6 +296,11 @@ class Donor(Document):
                 # The calling code will handle the save
                 # This avoids timestamp mismatch errors
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # This handler's whole job is to WRITE the failure down. After a 1213 the
+            # transaction is gone, so that write lands on state the server discarded --
+            # the defect secure_document_operation documents at its own catch-all.
+            raise
         except Exception as e:
             # Update sync status on error
             self.customer_sync_status = "Error"
@@ -372,10 +378,9 @@ class Donor(Document):
             if self.name:  # Only if donor has been saved
                 frappe.db.set_value("Customer", customer.name, "donor", self.name)
 
-            # Create Contact record for email/mobile (Customer fields are read-only)
-            contact = self.create_new_customer_contact(customer.name)
-            if not contact and frappe.flags.get("in_test"):
-                print("⚠️ Warning: Could not create Contact during customer creation")
+            # Create Contact record for email/mobile (Customer fields are read-only).
+            # Raises once its retries are spent, so there is no None branch to guard.
+            self.create_new_customer_contact(customer.name)
 
             frappe.logger().info(f"Created customer {customer.name} for donor {self.name}")
             return customer.name
@@ -396,7 +401,12 @@ class Donor(Document):
                 print(f"❌ Customer creation failed for donor {self.name}")
                 print(f"❌ Error: {str(e)}")
                 print(f"❌ Full traceback:\n{error_details}")
-            return None
+            # Returning None made sync_with_customer skip its whole status block, so a
+            # failed creation left customer_sync_status untouched (#666). Propagate to
+            # sync_with_customer, which records "Error"; it does not block the save.
+            # A Contact failure now aborts after the Customer row exists, so Donor.customer
+            # is left unset; the next sync re-resolves it via the {"donor": name} lookup.
+            raise
 
     def sync_data_to_customer(self, customer_name):
         """Sync donor data to customer record"""
@@ -541,11 +551,25 @@ class Donor(Document):
                 f"Error syncing data from donor {self.name} to customer {customer_name}: {str(e)}",
                 "Donor-Customer Data Sync Error",
             )
+            # Swallowing here let sync_with_customer fall through to
+            # customer_sync_status = "Synced" for a sync that failed (#666). Re-raise so
+            # its handler records "Error" instead -- that handler is the only caller, so
+            # the donor save is still never blocked by a Customer failure.
+            #
+            # Everything, not just frappe.ValidationError. Every failure reachable TODAY
+            # arrives as one anyway (secure_document_operation converts even a
+            # PermissionError to success=False and the caller re-throws it), so this is a
+            # latent shape rather than a live bug -- but the raw customer.save() in
+            # refresh_customer_from_contact and the four bare frappe.db.set_value calls on
+            # this path are not funnelled through it, and frappe.PermissionError and
+            # frappe.DuplicateEntryError are not ValidationError subclasses (measured).
+            raise
 
     def sync_donor_to_customer_contact(self, customer_name, customer_doc=None):
         """
         Create or update Contact record for Customer with donor contact info.
-        Returns True if contact was updated, False otherwise.
+        Returns True if contact was updated, False if nothing needed changing, and
+        raises if the contact could not be synced (see sync_with_customer, #666).
 
         Args:
             customer_name: Customer name
@@ -646,7 +670,10 @@ class Donor(Document):
                 f"Error syncing donor {self.name} contact info to customer {customer_name}: {str(e)}",
                 "Donor-Customer Contact Sync Error",
             )
-            return False
+            # `return False` reads as "the contact needed no update"; the caller then
+            # saved the Customer and reported "Synced" for a donor whose email never
+            # reached the Contact (#666).
+            raise
 
     def get_or_create_customer_contact(self, customer_name):
         """Get existing or create new primary contact for customer"""
@@ -679,7 +706,11 @@ class Donor(Document):
                 f"Error getting/creating contact for customer {customer_name}: {str(e)}",
                 "Customer Contact Creation Error",
             )
-            return None
+            # Not one of the four sites #666 lists -- no literal frappe.throw in this try
+            # body, so the AST predicate misses it -- but it swallows the one
+            # create_new_customer_contact now re-raises, which would nullify that fix on
+            # the re-sync path and keep reporting "Synced" (#666).
+            raise
 
     def create_new_customer_contact(self, customer_name, max_retries=3):
         """Create a new Contact record for the customer with retry logic"""
@@ -748,7 +779,10 @@ class Donor(Document):
                         print(
                             f"❌ All {max_retries} Contact creation attempts failed for customer {customer_name}"
                         )
-                    return None
+                    # Raise only once the retries are spent, so the backoff below still
+                    # runs. `return None` reported the sync as "Synced" for a Customer
+                    # that never got the donor's email or phone (#666).
+                    raise
                 else:
                     # Wait before retry with exponential backoff (0.5s, 1s, 2s)
                     wait_time = 0.5 * (2**attempt)
@@ -807,6 +841,11 @@ class Donor(Document):
                 f"Error setting customer {customer_name} primary contact to {contact_name}: {str(e)}",
                 "Customer Contact Link Error",
             )
+            # This method saves the Customer on the caller's behalf, and the caller then
+            # sets _contact_triggered_customer_save to suppress its own save. Swallowing
+            # here therefore also cancelled the only retry, leaving an unsaved Customer
+            # recorded as "Synced" (#666).
+            raise
 
     def _get_donor_customer_group(self):
         """Get donor customer group from configuration with auto-repair"""
