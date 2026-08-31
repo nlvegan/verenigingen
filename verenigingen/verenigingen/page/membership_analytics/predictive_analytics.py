@@ -156,7 +156,10 @@ def forecast_revenue(months_ahead=12):
 
     # Generate revenue forecast
     revenue_forecast = []
-    # Site-tz month: this feeds a SQL bound against site-clock columns (#637).
+    # Site-tz month: this indexes the seasonal-factor table below, and must name the
+    # same month as the `add_months(now_datetime(), i)` labels this forecast is
+    # rendered against. (It bounds no SQL -- unlike the year reads elsewhere in this
+    # module, which do.) (#637)
     current_month = getdate().month
 
     for i, member_count in enumerate(member_forecast["forecast"]["values"]):

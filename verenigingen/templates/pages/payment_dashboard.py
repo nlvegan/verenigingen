@@ -1,5 +1,3 @@
-from datetime import datetime
-
 import frappe
 from frappe import _
 from frappe.utils import add_months, flt, getdate, today
