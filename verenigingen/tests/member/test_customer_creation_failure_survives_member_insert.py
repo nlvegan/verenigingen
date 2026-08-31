@@ -35,6 +35,10 @@ import frappe
 import verenigingen.services.member.approval.application_payments as approval_payments
 import verenigingen.utils.application_payments as application_payments_shim
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.customer_creation_faults import (
+    BROKEN_CUSTOMER_GROUP,
+    break_customer_group,
+)
 
 CUSTOMER_KEPT_MESSAGE = "The member was saved, but no customer record could be created"
 
@@ -59,18 +63,6 @@ class TestCustomerCreationFailureSurvivesMemberInsert(EnhancedTestCase):
         member = frappe.get_doc(self._member_payload(with_email=with_email))
         member.insert()
         return member
-
-    def _break_customer_group(self):
-        """Realistic fault: Customer.customer_group points at a group that is gone.
-
-        The real ``Customer.insert()`` runs and raises ``LinkValidationError`` -- a
-        ``frappe.ValidationError`` subclass, which is what most real customer
-        failures are (missing link, missing mandatory field, a ``frappe.throw`` for
-        insufficient permissions).
-        """
-        original = approval_payments.resolve_non_group_customer_group
-        approval_payments.resolve_non_group_customer_group = lambda: "No Such Customer Group ZZZ"
-        self.addCleanup(setattr, approval_payments, "resolve_non_group_customer_group", original)
 
     def _raise_from_customer_creation(self, error):
         """Fault: customer creation raises ``error`` (for the non-ValidationError cases)."""
@@ -200,7 +192,7 @@ class TestCustomerCreationFailureSurvivesMemberInsert(EnhancedTestCase):
     def test_link_validation_failure_keeps_the_member(self):
         """The dominant real failure shape (a ValidationError subclass)."""
         self.expectErrorLog("Member customer creation failed", "Customer Creation Error")
-        self._break_customer_group()
+        break_customer_group(self)
         watch = self._error_log_watch()
         frappe.clear_messages()
 
@@ -214,7 +206,7 @@ class TestCustomerCreationFailureSurvivesMemberInsert(EnhancedTestCase):
         messages = str(frappe.get_message_log())
         self.assertIn(CUSTOMER_KEPT_MESSAGE, messages, "the user must be told the member was kept")
         self.assertIn(
-            "No Such Customer Group ZZZ",
+            BROKEN_CUSTOMER_GROUP,
             messages,
             "a deliberate validation message is the user's to read, so it is echoed",
         )
@@ -318,7 +310,7 @@ class TestCustomerCreationFailureSurvivesMemberInsert(EnhancedTestCase):
         self.expectErrorLog("Customer Creation Error")
         member = self._insert_member(with_email=False)
         rolled_back = self._spy_on_savepoint_rollbacks()
-        self._break_customer_group()
+        break_customer_group(self)
 
         with self.assertRaises(frappe.ValidationError):
             approval_payments.create_customer_for_member(member)
@@ -339,7 +331,7 @@ class TestCustomerCreationFailureSurvivesMemberInsert(EnhancedTestCase):
         5,000-row import goes green with one Error Log row per member.
         """
         self.expectErrorLog("Customer Creation Error", "CSV Import Validation Error", "customer_handling Error")
-        self._break_customer_group()
+        break_customer_group(self)
 
         from verenigingen.services.csv_import.member_import_service import get_member_import_service
 
@@ -361,7 +353,7 @@ class TestCustomerCreationFailureSurvivesMemberInsert(EnhancedTestCase):
             f"a row whose Customer could not be created must not be reported created, got {status!r}",
         )
         self.assertIn(
-            "No Such Customer Group ZZZ",
+            BROKEN_CUSTOMER_GROUP,
             status,
             "the reason has to travel back to the operator's import summary",
         )
@@ -377,7 +369,7 @@ class TestCustomerCreationFailureSurvivesMemberInsert(EnhancedTestCase):
         """
         self.expectErrorLog("Customer Creation Error")
         member = self._insert_member(with_email=False)
-        self._break_customer_group()
+        break_customer_group(self)
 
         with self.assertRaises(frappe.ValidationError):
             member.create_customer()
@@ -430,7 +422,7 @@ class TestCustomerCreationFailureSurvivesMemberInsert(EnhancedTestCase):
         leaves the whole suite green.
         """
         self.expectErrorLog("Customer Creation Error")
-        self._break_customer_group()
+        break_customer_group(self)
         self.assertFalse(
             getattr(frappe.flags, "bulk_member_operations", False),
             "this test is about the per-doc flag, so the global one must be off",
