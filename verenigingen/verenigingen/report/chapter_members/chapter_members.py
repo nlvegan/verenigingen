@@ -29,7 +29,7 @@ def execute(filters=None):
             volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name")
 
             if volunteer:
-                if not is_active_board_member(chapter, volunteer):
+                if not _has_active_board_seat(chapter, volunteer):
                     frappe.throw("You can only view members of chapters where you are a board member")
             else:
                 frappe.throw("You must be registered as a volunteer to access this report")
@@ -68,7 +68,7 @@ def execute(filters=None):
         if member:
             volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name")
             if volunteer:
-                can_view_pending = is_active_board_member(chapter, volunteer)
+                can_view_pending = _has_active_board_seat(chapter, volunteer)
 
     # Build SQL query with appropriate filtering
     where_conditions = ["cm.parent = %(chapter)s"]
@@ -126,7 +126,7 @@ def execute(filters=None):
     return columns, data
 
 
-def is_active_board_member(chapter, volunteer):
+def _has_active_board_seat(chapter, volunteer):
     """Does `volunteer` hold an active seat on `chapter`'s board?
 
     The doctype is `Chapter Board Member`. `Verenigingen Chapter Board Member`,
@@ -139,6 +139,13 @@ def is_active_board_member(chapter, volunteer):
 
     One function rather than the same expression at two call sites 44 lines
     apart, which is how the name came to be wrong in both.
+
+    Named `_has_active_board_seat`, not `is_active_board_member`: that name is
+    already taken by
+    `services/member/account/user_role_profile_calculator.py:548`, whose
+    predicate is deliberately NOT chapter-scoped ("on ANY active chapter
+    board"). Two functions with one name and opposite scoping is how the wrong
+    one gets called.
     """
     return bool(
         frappe.db.exists(

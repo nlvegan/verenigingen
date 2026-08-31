@@ -58,7 +58,7 @@ class TestDocTypeNameRatchet(unittest.TestCase):
         """The premise of the fix, asserted rather than assumed.
 
         If any of these ever becomes a real DocType, the whole reasoning in
-        `chapter_members.is_active_board_member` and in the validator's docstring
+        `chapter_members._has_active_board_seat` and in the validator's docstring
         stops holding and both need re-reading -- so fail loudly rather than let
         the ratchet quietly agree.
         """
