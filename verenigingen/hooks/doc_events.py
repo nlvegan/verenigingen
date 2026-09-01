@@ -61,6 +61,17 @@ directly (e.g. frappe.get_doc("Chapter Member", name).save()).
 
 doc_events = {
     # =========================================================================
+    # ALL DOCTYPES ("*" is Frappe's wildcard key, not a doctype name --
+    # frappe/model/document.py:1653, merged in frappe/__init__.py:945)
+    # =========================================================================
+    "*": {
+        # #609: a whole-second creation/modified timestamp makes check_if_latest
+        # / validate_set_only_once disagree with themselves on the very next
+        # save/submit of the same in-memory object. See
+        # verenigingen/utils/timestamp_normalization.py for the mechanism.
+        "after_insert": "verenigingen.utils.timestamp_normalization.normalize_whole_second_timestamps",
+    },
+    # =========================================================================
     # COMMUNICATION / EMAIL
     # =========================================================================
     "Email Template": {
