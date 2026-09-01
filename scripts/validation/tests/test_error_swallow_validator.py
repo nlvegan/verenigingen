@@ -5,6 +5,7 @@ Pure-Python (no bench/site needed): each case is a source snippet written to a t
 file and run through scan_file(). Run with:  python -m pytest this_file.py
 or plain:  python scripts/validation/tests/test_error_swallow_validator.py
 """
+import ast
 import importlib.util
 import sys
 import tempfile
@@ -1694,6 +1695,31 @@ class AssignSwallowTest(unittest.TestCase):
         self.assertEqual(findings, [])
         self.assertEqual(bad, [])
 
+    def test_a_lone_false_flag_is_flagged_not_exempted(self):
+        """The 'set a failure flag' idiom (`all_valid = False`, `released =
+        False`) is 11 of the 35 sites this arm found tree-wide, and is left
+        flagged ON PURPOSE (skeptical review). A falsy BOOLEAN is exactly as
+        capable of being the caller's real signal as a falsy dict is of being a
+        legitimate empty result -- this syntactic test cannot tell "the flag
+        correctly says it failed" from "the flag is false because the check that
+        would have set it never ran", and exempting the shape by name would also
+        exempt a genuine swallow wearing it.
+        """
+        self.assertEqual(
+            len(
+                _flagged(
+                    "def f(x):\n"
+                    "    try:\n"
+                    "        released = try_release(x)\n"
+                    "    except Exception:\n"
+                    "        frappe.log_error('boom')\n"
+                    "        released = False\n"
+                    "    return {'released': released}\n"
+                )
+            ),
+            1,
+        )
+
 
 class AssignShrinkExplanationTest(unittest.TestCase):
     """The shrink explainer must stay in step with the assign arm (#601), the same
@@ -1776,6 +1802,153 @@ class AssignShrinkExplanationTest(unittest.TestCase):
 
     def test_a_deleted_function_explains_an_assign_shrink(self):
         self.assertEqual(self._shrink("def g(x):\n    return x\n", {"mod.py::f": 1}), [])
+
+    def test_a_legitimate_sibling_is_not_accused_when_another_handler_is_fixed(self):
+        """Skeptical review C1: `_shrink_causes` iterates EVERY handler in the
+        function, not only the one that dropped out of the count. A handler with
+        TWO own-scope assigns -- one falsy, one an informative flag -- was NEVER
+        counted by `_falsy_only_assigns` (which requires ALL assigns falsy). It
+        must not become "unrecognised" collateral damage the moment a sibling
+        handler in the SAME function is legitimately fixed and the function's
+        total count drops.
+
+        This is `volunteer/dashboard.py`'s exact shape, verbatim: `expense_summary`
+        zeroed beside `data_warning` set, neither line touched, while `result` two
+        handlers below is fixed to carry the cause.
+        """
+        self.assertEqual(
+            self._shrink(
+                "def get_context(context):\n"
+                "    try:\n"
+                "        context.expense_summary = compute(context)\n"
+                "    except Exception as e:\n"
+                "        frappe.log_error(f'boom: {e}')\n"
+                "        context.expense_summary = {'total': 0}\n"
+                "        context.data_warning = _('Some data could not be loaded.')\n"
+                "\n"
+                "    try:\n"
+                "        result = compute2(context)\n"
+                "    except Exception as e:\n"
+                "        frappe.log_error(f'boom2: {e}')\n"
+                "        result = {'ok': False, 'error': str(e)}\n"
+                "\n"
+                "    return context\n",
+                {"mod.py::get_context": 2},
+            ),
+            [],
+        )
+
+    def test_a_lone_assign_evasion_is_still_reported_beside_a_fixed_sibling(self):
+        """The control for the test above: a handler with exactly ONE own-scope
+        assign that changed shape WITHOUT carrying the cause is still a plausible
+        descendant of a counted swallow, and must still be reported."""
+        unexplained = self._shrink(
+            "def f(x):\n"
+            "    try:\n"
+            "        stats = compute(x)\n"
+            "    except Exception:\n"
+            "        frappe.log_error('boom')\n"
+            "        stats = State.NOT_FOUND\n"
+            "\n"
+            "    try:\n"
+            "        result = compute2(x)\n"
+            "    except Exception as e:\n"
+            "        frappe.log_error('boom2')\n"
+            "        result = {'ok': False, 'error': str(e)}\n"
+            "\n"
+            "    return {'stats': stats, 'result': result}\n",
+            {"mod.py::f": 2},
+        )
+        self.assertEqual([(u.reason, u.lineno) for u in unexplained], [("unrecognised", 4)])
+
+
+class HandlerFingerprintTest(unittest.TestCase):
+    """`_handler_fingerprint` must identify a handler by what it hands back, not
+    by the source text of the assignment (skeptical review C2).
+    """
+
+    def test_two_assign_only_handlers_in_one_function_get_different_fingerprints(self):
+        """The collision `_handler_fingerprint`'s assigns segment was added to
+        prevent: two DIFFERENT assign-only handlers in the same function must not
+        share a fingerprint, or the base-tree comparison in `_silent_census`
+        cannot tell them apart."""
+        src = (
+            "def f(x):\n"
+            "    try:\n"
+            "        a = compute(x)\n"
+            "    except Exception:\n"
+            "        a = {}\n"
+            "\n"
+            "    try:\n"
+            "        b = compute2(x)\n"
+            "    except Exception:\n"
+            "        b = []\n"
+        )
+        tree = ast.parse(src)
+        handlers = [n for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler)]
+        self.assertEqual(len(handlers), 2)
+        fingerprints = {esv._handler_fingerprint(h) for h in handlers}
+        self.assertEqual(len(fingerprints), 2)
+
+    def test_renaming_the_assigned_target_does_not_change_the_fingerprint(self):
+        """A pure variable rename is not a behavioural change: fingerprinting the
+        whole statement (target included) made this read as a brand-new
+        fingerprint, so a rename anywhere in the function could make a
+        PRE-EXISTING silent sibling look newly silent."""
+        before = ast.parse(
+            "def f(x):\n"
+            "    try:\n"
+            "        b = compute(x)\n"
+            "    except Exception:\n"
+            "        b = []\n"
+        )
+        after = ast.parse(
+            "def f(x):\n"
+            "    try:\n"
+            "        rows = compute(x)\n"
+            "    except Exception:\n"
+            "        rows = []\n"
+        )
+        h1 = next(n for n in ast.walk(before) if isinstance(n, ast.ExceptHandler))
+        h2 = next(n for n in ast.walk(after) if isinstance(n, ast.ExceptHandler))
+        self.assertEqual(esv._handler_fingerprint(h1), esv._handler_fingerprint(h2))
+
+    def test_renaming_elsewhere_does_not_make_a_silent_sibling_look_new(self):
+        """The end-to-end regression this was actually caught by: a rename in ONE
+        handler must not make an UNRELATED, always-silent sibling handler in the
+        same function get reported as newly silent."""
+        base = (
+            "def f(x):\n"
+            "    try:\n"
+            "        a = compute(x)\n"
+            "    except Exception:\n"
+            "        b = []\n"
+            "\n"
+            "    try:\n"
+            "        c = compute2(x)\n"
+            "    except Exception as e:\n"
+            "        frappe.log_error('boom')\n"
+            "        c = {'x': 0}\n"
+            "\n"
+            "    return {'a': a, 'c': c}\n"
+        )
+        head = base.replace("        b = []\n", "        rows = []\n").replace(
+            "        c = {'x': 0}\n", "        c = {'ok': False, 'error': str(e)}\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            headdir, basedir = root / "head", root / "base"
+            headdir.mkdir()
+            basedir.mkdir()
+            (headdir / "mod.py").write_text(head)
+            (basedir / "mod.py").write_text(base)
+            original = esv.REPO_ROOT
+            esv.REPO_ROOT = headdir
+            try:
+                reported = esv.explain_shrink({"mod.py::f": 2}, [str(headdir)], base_root=basedir)
+            finally:
+                esv.REPO_ROOT = original
+        self.assertEqual(reported, [])
 
 
 if __name__ == "__main__":

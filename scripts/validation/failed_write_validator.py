@@ -35,6 +35,16 @@ The two rules are complementary and must stay separate: this one deliberately
 returns nothing for a handler that swallows into a falsy value, because that is
 the sibling's turf and reporting it twice would double every message.
 
+The fourth row narrowed with the sibling's own ASSIGN arm (#601): a handler with
+a persistence call, no return, and nothing but falsy own-scope assigns is now the
+sibling's turf too, whether or not the ``try`` is trailing -- previously it was
+ENTIRELY this validator's ``FALLS_THROUGH`` case. Measured against the head tree
+at the time #601 landed: zero of that PR's 35 new sibling findings contain a
+persistence call in the enclosing function, so the overlap is zero TODAY, the
+same "not a live defect yet" state the divergence above has been in since #589.
+Widening either rule's falsy/failure test is still the trigger for re-measuring
+this row, not just the dict-arm one above.
+
 That split is drawn by two SEPARATE copies of ``_is_falsy_return`` -- one here, one
 in ``error_swallow_validator`` -- and they have DIVERGED. #589 taught the sibling
 that a non-empty dict of falsy literals is falsy; this copy still recognises only
