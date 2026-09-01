@@ -145,6 +145,16 @@ def create_mandate_usage_record(mandate_name, reference_doctype, reference_name,
         if mandate.status != "Active":
             frappe.throw(_("Cannot use inactive mandate: {0}").format(mandate.mandate_id))
 
+        # `status` is only recalculated on save (SEPAMandate.set_status_based_on_
+        # dates(), run from validate()) -- nothing re-evaluates it on a schedule.
+        # A mandate nobody has re-saved since its expiry_date passed can sit in
+        # the DB with a STALE status="Active" indefinitely, and the check above
+        # would miss it. Check expiry_date directly too, so this guard means what
+        # its own comment already claimed. This is what the ORIGINAL dead
+        # SEPAMandateUsage.validate_mandate_status() (#596) checked explicitly.
+        if mandate.expiry_date and getdate(mandate.expiry_date) < getdate(today()):
+            frappe.throw(_("Mandate {0} has expired").format(mandate.mandate_id))
+
         # Add usage record to the mandate's usage_history child table
         usage_row = mandate.append(
             "usage_history",

@@ -544,6 +544,49 @@ class TestSEPAMandate(EnhancedTestCase):
         with self.assertRaises(frappe.ValidationError):
             self.mandate.save()
 
+    def test_create_usage_record_rejects_an_expired_mandate_with_stale_active_status(self):
+        """A mandate past its expiry_date must refuse a new usage record, even when
+        the persisted `status` column is still stale-"Active".
+
+        SEPAMandate.set_status_based_on_dates() only recalculates status ON SAVE, so
+        a mandate nobody has re-saved since its expiry_date passed can sit in the DB
+        with status="Active" indefinitely -- there is no scheduled job that revisits
+        it. create_mandate_usage_record()'s own docstring/comment already claims to
+        guard against "a cancelled or expired mandate", but the code only checked
+        `mandate.status != "Active"`, never expiry_date directly -- so a usage record
+        against a date-expired-but-status-stale mandate went through silently. The
+        ORIGINAL dead SEPAMandateUsage.validate_mandate_status() (#596) checked
+        expiry_date explicitly and would have caught this, had Frappe ever run it.
+        """
+        from verenigingen.verenigingen_payments.doctype.sepa_mandate_usage.sepa_mandate_usage import (
+            create_mandate_usage_record,
+        )
+
+        # sign_date well in the past: validate_mandate_dates() rejects sign_date >
+        # expiry_date, so a sign_date of today() would collide with the stale
+        # expiry_date set below and raise "Sign date cannot be after expiry date"
+        # -- a false positive for assertRaises that has nothing to do with the gap
+        # under test. Measured directly: this DID happen with sign_date=today()
+        # before this was fixed to add_days(today(), -60).
+        self.mandate.sign_date = add_days(today(), -60)
+        self.mandate.status = "Active"
+        self.mandate.expiry_date = add_days(today(), 30)  # not yet expired, so insert() accepts it
+        self.mandate.insert()
+
+        # Simulate staleness: push expiry_date into the past via db_set, which
+        # bypasses validate() (and therefore set_status_based_on_dates()) entirely --
+        # exactly like a mandate nobody has re-saved since it expired.
+        frappe.db.set_value("SEPA Mandate", self.mandate.name, "expiry_date", add_days(today(), -1))
+        frappe.db.commit()
+
+        with self.assertRaises(frappe.ValidationError):
+            create_mandate_usage_record(
+                mandate_name=self.mandate.name,
+                reference_doctype="Sales Invoice",
+                reference_name="INV-TEST-EXPIRED-STALE",
+                amount=10.00,
+            )
+
 
 def create_test_member():
     """Helper function to create a test member with a unique alphanumeric name"""

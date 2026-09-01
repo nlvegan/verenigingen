@@ -319,12 +319,13 @@ class SEPAMandate(Document):
         SEPA Mandate Usage is a child table (`"istable": 1`), so Frappe never calls
         its own validate() -- see #596. `create_mandate_usage_record()`
         (verenigingen_payments/doctype/sepa_mandate_usage/sepa_mandate_usage.py)
-        already works around the dead validate() for the active/not-expired check
-        and for sequence_type, with a docstring explaining exactly why (validate()
-        is skipped in some save paths too, e.g. under frappe.flags.in_import) -- but
-        it never replicated the amount-vs-maximum_amount check, and neither does
-        any other caller. Checked here, from the parent, so it applies regardless
-        of which path added the row.
+        already works around the dead validate() for the active-status check, the
+        expiry-date check (added alongside this fix -- it only checked status, not
+        expiry_date directly, even though its own comment claimed to guard against
+        "a cancelled or expired mandate") and for sequence_type -- but it never
+        replicated the amount-vs-maximum_amount check, and neither does any other
+        caller. Checked here, from the parent, so it applies regardless of which
+        path added the row.
         """
         if not self.maximum_amount:
             return
