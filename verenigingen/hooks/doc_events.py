@@ -69,7 +69,20 @@ doc_events = {
         # / validate_set_only_once disagree with themselves on the very next
         # save/submit of the same in-memory object. See
         # verenigingen/utils/timestamp_normalization.py for the mechanism.
-        "after_insert": "verenigingen.utils.timestamp_normalization.normalize_whole_second_timestamps",
+        #
+        # on_update, NOT after_insert: the whole-second now() that triggers this
+        # can land on ANY set_user_and_timestamp() call, not only the initial
+        # insert -- a live CI recurrence on an unrelated PR hit it on the FIRST
+        # of two submit() calls on the same in-memory Sales Invoice, and the
+        # after_insert-only registration this app shipped first did not cover
+        # it (verified by reproduction: forcing a whole-second now() on a save()
+        # after a normal insert() still raised TimestampMismatchError with only
+        # after_insert registered). on_update fires for both `insert()` (its
+        # `_action` is "save") and every later save()/submit() -- see this
+        # module's docstring, "To run on ALL saves, register under on_update
+        # ALONE". Do NOT also register after_insert: that fires it twice on
+        # every insert.
+        "on_update": "verenigingen.utils.timestamp_normalization.normalize_whole_second_timestamps",
     },
     # =========================================================================
     # COMMUNICATION / EMAIL

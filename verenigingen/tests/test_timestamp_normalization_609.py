@@ -18,11 +18,27 @@ whole-second `freeze_time()` hits it 100% of the time -- see the four
 which insert/save inside a `@freeze_time("... 00:00:00")` (zero microseconds)
 window without an intervening `reload()`.
 
-This module tests mitigation #1 (the production `doc_events["*"]["after_insert"]`
+This module tests mitigation #1 (the production `doc_events["*"]["on_update"]`
 normaliser). Mitigation #2 (the test-harness `db_insert` normalisation) is
 covered separately in `verenigingen/tests/fixtures/test_timestamp_normalization_harness_609.py`
 -- kept apart because it exercises the harness's own monkey-patch, not
 production hook wiring.
+
+**on_update, not after_insert.** The wildcard normaliser originally shipped
+registered under `after_insert` only. A live CI recurrence on an unrelated PR
+(#729) proved that insufficient: a test called `.submit()` twice on the same
+in-memory Sales Invoice, and the whole-second `now()` landed on the FIRST
+`submit()` (a `set_user_and_timestamp()` call, same as insert, just not one)
+-- `after_insert` never fires for that, so the string was never trimmed, and
+the SECOND `submit()`'s `check_if_latest()` raised exactly the #609 defect.
+Reproduced directly (force a whole-second `now()` on a `save()` call after a
+normal `insert()` -- `TimestampMismatchError` with `after_insert` only,
+`RESULT: second save OK` with `on_update`) before switching the registration.
+`on_update` fires for both `insert()` (`_action == "save"`) and every later
+`save()`/`submit()` (`frappe/model/document.py:run_post_save_methods`), so it
+covers the whole-second event landing on ANY write, not only the first one.
+`TestWildcardHookEndToEndOnSubsequentSave` below is the regression test for
+this specific shape.
 """
 
 import unittest
@@ -121,19 +137,38 @@ class TestNormalizeWholeSecondTimestampsHandler(unittest.TestCase):
 
 
 class TestWildcardHookIsWired(unittest.TestCase):
-    """Regression: the after_insert normaliser must stay registered under the
-    doc_events wildcard key ("*" -- frappe/model/document.py:1653, merged in
-    frappe/__init__.py:945). This is a cheap, direct check of the source dict
-    (no DB, no hook-cache interaction) that fails immediately if someone
-    later removes the wiring while leaving the handler function itself intact.
+    """Regression: the normaliser must stay registered under the doc_events
+    wildcard key ("*" -- frappe/model/document.py:1653, merged in
+    frappe/__init__.py:945) AND under `on_update` specifically -- NOT
+    `after_insert`, which does not fire for a save()/submit() of an existing
+    document (see module docstring for the CI recurrence this missed). This
+    is a cheap, direct check of the source dict (no DB, no hook-cache
+    interaction) that fails immediately if someone later removes the wiring,
+    or narrows it back to after_insert, while leaving the handler function
+    itself intact.
     """
 
-    def test_after_insert_handler_registered_on_wildcard(self):
+    def test_on_update_handler_registered_on_wildcard(self):
+        star = doc_events.get("*", {})
+        on_update = star.get("on_update", [])
+        if isinstance(on_update, str):
+            on_update = [on_update]
+        self.assertIn(
+            "verenigingen.utils.timestamp_normalization.normalize_whole_second_timestamps",
+            on_update,
+        )
+
+    def test_not_registered_under_after_insert_alone(self):
+        """after_insert never fires for a save()/submit() of an existing doc
+        -- registering there ONLY (in addition to or instead of on_update)
+        would silently reintroduce the #729 gap. on_update already covers
+        insert (see module docstring), so after_insert should carry nothing
+        of ours."""
         star = doc_events.get("*", {})
         after_insert = star.get("after_insert", [])
         if isinstance(after_insert, str):
             after_insert = [after_insert]
-        self.assertIn(
+        self.assertNotIn(
             "verenigingen.utils.timestamp_normalization.normalize_whole_second_timestamps",
             after_insert,
         )
@@ -210,4 +245,48 @@ class TestWildcardHookEndToEnd(EnhancedTestCase):
 
         doc.db_set("priority", "High")
         doc.description = "second save"
+        doc.save()
+
+
+class TestWildcardHookEndToEndOnSubsequentSave(EnhancedTestCase):
+    """Regression for the #729 CI recurrence: the whole-second `now()` landed
+    on a save() AFTER a normal insert(), not on the insert itself. Mirrors
+    `test_erpnext_integration_comprehensive.py::test_financial_report_integration`,
+    which calls `.submit()` twice on the same in-memory Sales Invoice (the
+    factory's `create_test_sales_invoice` already submits when no `status`
+    kwarg is given) -- reproduced here directly with a mocked `now()` rather
+    than depending on that test's factory-submits-implicitly shape, so this
+    stays sensitive to the mechanism even if that test is later changed.
+    """
+
+    def setUp(self):
+        super().setUp()
+        frappe.client_cache.delete_value("app_hooks")
+        frappe.local.doc_events_hooks = None
+
+    def test_whole_second_save_then_second_save_does_not_raise(self):
+        """TRIGGER: a normal insert(), then a save() whose own now() call is
+        whole-second, then a THIRD save/submit on the same in-memory object
+        with no reload() in between. Without on_update coverage (i.e. with
+        only after_insert, as originally shipped) the third save raises
+        TimestampMismatchError -- verified by reproduction before this test
+        was written."""
+        import frappe.model.document as fmd
+        from unittest.mock import patch
+
+        doc = frappe.get_doc({"doctype": "ToDo", "description": "#729 repro insert"})
+        doc.insert()
+        self._track_test_document("ToDo", doc.name)
+        self.assertFalse(str(doc.creation).endswith(".000000"))
+
+        with patch.object(fmd, "now", lambda: "2026-08-25 14:03:48.000000"):
+            doc.description = "first save, whole-second now()"
+            doc.save()
+
+        # The normaliser must have fixed the string by the time save() returns,
+        # from the on_update hook firing during THIS save -- not from
+        # after_insert, which does not fire here at all.
+        self.assertFalse(str(doc.modified).endswith(".000000"), f"modified={doc.modified!r}")
+
+        doc.description = "second save, real clock, no reload() in between"
         doc.save()

@@ -2387,7 +2387,11 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         self._orig_db_insert = _docmod.Document.db_insert
         captured = self._captured_inserts
-        normalized = self._normalized_whole_second_timestamps
+        # getattr/setdefault, not a plain attribute read: _DrainProbe
+        # (test_harness_leak_attribution.py) calls this method directly on an
+        # EnhancedTestCase instance whose setUp() (where this list is normally
+        # created) deliberately never ran.
+        normalized = self.__dict__.setdefault("_normalized_whole_second_timestamps", [])
         orig = self._orig_db_insert
 
         def _capturing_db_insert(doc, *args, **kwargs):

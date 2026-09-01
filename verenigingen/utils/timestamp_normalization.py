@@ -20,10 +20,22 @@ with themselves purely because of this in-memory/on-disk formatting mismatch:
   hard-coded `standard_set_once_fields` entry (`frappe/model/meta.py:144-147`),
   so this hits every DocType -> `CannotChangeConstantError`
 
-Both fire only when a document is inserted and then saved/submitted from the
-SAME in-memory object with no intervening `reload()`. Production hits this at
-roughly 1-in-10^6 per document (measured on CI, see #609); a whole-second
+Both fire only when a whole-second `now()` lands on a `set_user_and_timestamp()`
+call (insert OR any later save/submit) and the SAME in-memory object is then
+saved/submitted again with no intervening `reload()`. Production hits this at
+roughly 1-in-10^6 per write (measured on CI, see #609); a whole-second
 `freeze_time()` in a test hits it 100% of the time.
+
+**Not limited to insert.** #609's own production sites are all `insert()` ->
+`submit()` pairs, but the defect itself is about ANY write, not only the
+first one on a document. A live CI recurrence on an unrelated PR (#729) hit
+it on the FIRST of two `submit()` calls on the same in-memory Sales Invoice
+(a pre-existing test double-submit) -- the wildcard hook below was
+originally registered under `after_insert` only, which does not fire for
+that second write, and missed it. Reproduced directly (mock `now()` to a
+whole second on a `save()` after a normal `insert()`) before switching the
+registration to `on_update`, which fires for insert too (`_action == "save"`)
+plus every later save/submit.
 
 The fix here does NOT touch the framework (forbidden by CLAUDE.md) and does
 NOT re-read the database. It only needs to make the IN-MEMORY string match
@@ -60,11 +72,14 @@ def strip_whole_second_suffix(doc, fieldnames=TIMESTAMP_FIELDS):
 
 
 def normalize_whole_second_timestamps(doc, method=None):
-    """`doc_events["*"]["after_insert"]` handler. See module docstring / #609.
+    """`doc_events["*"]["on_update"]` handler. See module docstring / #609.
 
-    Registered on the wildcard doctype so every insert in every one of the 21
-    production `insert()` -> `save()`/`submit()` sites is covered from one
-    place, per #609's scope decision, rather than patching each call site.
+    Registered on the wildcard doctype under `on_update` (fires for every
+    insert AND every later save/submit -- NOT `after_insert`, which misses
+    saves of an already-existing document) so every one of the 21 production
+    `insert()` -> `save()`/`submit()` sites, and any other write, is covered
+    from one place, per #609's scope decision, rather than patching each
+    call site.
     """
     touched = strip_whole_second_suffix(doc)
     if touched:
