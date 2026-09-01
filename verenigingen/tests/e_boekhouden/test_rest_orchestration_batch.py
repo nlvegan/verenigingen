@@ -50,6 +50,7 @@ from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
     _import_rest_mutations_batch_enhanced,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.non_resumable_errors import deadlock
 
 ABBR = "EBBA"
 COMPANY = "TEST-EB-Batch-Company"
@@ -100,6 +101,30 @@ class _RaisingIterator:
 
     def fetch_mutation_detail(self, mutation_id):
         raise RuntimeError(self.TAG)
+
+
+class _PartialFailureIterator:
+    """Stub for EBoekhoudenRESTIterator returning REAL detail for every mutation
+    except one, for which it raises a given (non-resumable) error -- simulating a
+    1213/1205 surfacing from a live API call partway through a batch.
+
+    ``ok_mutations`` supplies detail for every id that is not the failing one; the
+    failing id need not be in there (a bare ``{"id": ..., "type": ...}`` is enough
+    since fetch_mutation_detail never returns for it).
+    """
+
+    def __init__(self, ok_mutations, failing_id, error_factory):
+        self._ok = {m["id"]: m for m in ok_mutations}
+        self._failing_id = failing_id
+        self._error_factory = error_factory
+
+    def __call__(self):
+        return self
+
+    def fetch_mutation_detail(self, mutation_id):
+        if mutation_id == self._failing_id:
+            raise self._error_factory()
+        return self._ok[mutation_id]
 
 
 class _SettingsStub:
@@ -513,3 +538,77 @@ class TestImportRestMutationsBatchEnhanced(_BatchClusterBase):
         self.assertEqual(result["failed"], len(mutations))
         self.assertEqual(result["skipped"], 0)
         self.assertIn("No cost center found", result["errors"])
+
+
+class TestImportRestMutationsBatchEnhancedAbortsOnNonResumableError(_BatchClusterBase):
+    """#572: a 1213/1205 raised mid-batch must ABORT the batch and report how far it
+    got, instead of being folded into an ordinary per-mutation failure (the pre-#572
+    behaviour) and continuing to feed mutations into a transaction the server has
+    already discarded.
+
+    New processors disabled (``eboekhouden_use_new_processors=False``, the function's
+    own config gate -- the same seam ``test_processing_error_counts_as_failed`` uses,
+    not business-logic mocking) so the error is raised deterministically from
+    ``EBoekhoudenRESTIterator.fetch_mutation_detail`` inside the LEGACY path, driven by
+    a REAL Type-7 memorial mutation exactly like this file's SUCCESS case.
+    """
+
+    def test_deadlock_mid_batch_aborts_and_reports_last_imported_mutation(self):
+        ok_id, deadlock_id, unreached_id = 970400, 970401, 970402
+        ok_mutation = self._memorial_mutation(ok_id)
+        unreached_mutation = self._memorial_mutation(unreached_id)
+        mutations = [ok_mutation, {"id": deadlock_id, "type": 7}, unreached_mutation]
+
+        for mutation_id in (ok_id, deadlock_id, unreached_id):
+            self.assertFalse(
+                frappe.db.exists("Journal Entry", {"eboekhouden_mutation_nr": str(mutation_id)})
+            )
+
+        self.expectErrorLog("ABORTED")
+
+        orig_flag = frappe.conf.get("eboekhouden_use_new_processors")
+        frappe.conf["eboekhouden_use_new_processors"] = False
+        try:
+            with patch(
+                "verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator.EBoekhoudenRESTIterator",
+                new=_PartialFailureIterator([ok_mutation, unreached_mutation], deadlock_id, deadlock),
+            ):
+                with self.assertRaises(frappe.QueryDeadlockError):
+                    _import_rest_mutations_batch_enhanced(
+                        "MIG-ABORT", mutations, self.settings, mutation_type=7
+                    )
+        finally:
+            if orig_flag is None:
+                frappe.conf.pop("eboekhouden_use_new_processors", None)
+            else:
+                frappe.conf["eboekhouden_use_new_processors"] = orig_flag
+
+        # The mutation imported BEFORE the deadlock must still be persisted -- its
+        # own savepoint was released before the batch ever saw the error.
+        self.assertTrue(
+            frappe.db.exists("Journal Entry", {"eboekhouden_mutation_nr": str(ok_id)}),
+            "the mutation imported before the deadlock must still be persisted",
+        )
+        # The mutation AFTER the abort point must never have been attempted --
+        # the batch stopped instead of continuing past the non-resumable error.
+        self.assertFalse(
+            frappe.db.exists("Journal Entry", {"eboekhouden_mutation_nr": str(unreached_id)}),
+            "a mutation after the abort point must never be attempted",
+        )
+
+        # And an operator-visible report exists, naming how far the batch got --
+        # NOT `debug_info`, which never reaches an operator on this path.
+        abort_logs = frappe.get_all(
+            "Error Log",
+            filters={"method": ["like", "%ABORTED%"]},
+            fields=["name", "method", "error"],
+            order_by="creation desc",
+            limit=1,
+        )
+        self.assertTrue(abort_logs, "expected an ABORTED Error Log entry to be written")
+        self.assertIn("Memorial Bookings", abort_logs[0].method)
+        self.assertIn(
+            str(ok_id),
+            abort_logs[0].error,
+            "the report must name the last successfully imported mutation",
+        )

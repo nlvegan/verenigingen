@@ -18,6 +18,11 @@ from verenigingen.e_boekhouden.utils.eboekhouden_payment_naming import (
     get_journal_entry_title,
 )
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+from verenigingen.utils.transaction_errors import (
+    NON_RESUMABLE_DB_ERRORS,
+    release_savepoint_if_present,
+    rollback_to_savepoint,
+)
 
 # eBoekhouden mutation type labels (singular form — for individual transaction display)
 MUTATION_TYPE_SINGULAR = {
@@ -3162,6 +3167,12 @@ def _process_mutation_with_coordinator(
                             message=f"Mutation ID: {mutation_id}\nType: {mutation_type}\nDescription: {mutation.get('description', 'N/A')}\n\nDebug Info:\n"
                             + "\n".join(processor_debug if processor_debug else ["No debug info"]),
                         )
+            except NON_RESUMABLE_DB_ERRORS:
+                # A 1213/1205 here means falling back to legacy would run
+                # _process_single_mutation against a transaction the server has
+                # already discarded (or half-applied) -- not a "new processor
+                # failed" case the legacy path can retry (#572).
+                raise
             except Exception as proc_error:
                 debug_info.append(
                     f"New processor failed for mutation {mutation_id} (Type {mutation_type}): {str(proc_error)}, using legacy"
@@ -3185,6 +3196,12 @@ def _process_mutation_with_coordinator(
             debug_info.append(f"Failed to process mutation {mutation_id} - no document returned")
             return {"action": "failed"}
 
+    except NON_RESUMABLE_DB_ERRORS:
+        # Converting this to {"action": "error", ...} is exactly the swallow #572 was
+        # opened for, one call frame further from the savepoint: the caller would
+        # count it as an ordinary per-mutation failure and move on, on a
+        # transaction the server has already discarded (or half-applied).
+        raise
     except Exception as processing_error:
         error_str = str(processing_error)
         is_stock = "Stock accounts" in error_str and "can only be updated via Stock Transactions" in error_str
@@ -3413,25 +3430,65 @@ def _retry_transient_failures(migration_name, errors, failed, imported, debug_in
     }
 
 
-def _finalize_mutation_savepoint(savepoint_name, succeeded, debug_info):
+def _finalize_mutation_savepoint(savepoint_name, succeeded):
     """Release a per-mutation savepoint, rolling back first if the mutation
     did not succeed.
 
-    Tolerates the savepoint having been dropped (e.g. by a stray commit deeper
-    in the call stack): a missing savepoint is logged to debug_info but must
-    not abort the whole batch.
+    Converged onto the shared helpers (#572, following #561's convergence of every
+    other copy of this pattern): rollback and release are split because they have
+    different correct behaviours on their own error paths, and each already
+    tolerates the one benign condition (the savepoint having been dropped, e.g. by
+    a stray commit deeper in the call stack -- MariaDB 1305) without a bespoke
+    try/except here.
+
+    A NON-resumable error (a 1213 deadlock, or 1205, raised by the ROLLBACK TO
+    SAVEPOINT / RELEASE SAVEPOINT itself) is NOT tolerated: it propagates out of
+    this function. The caller invokes this from a ``finally``, so on that error the
+    surrounding batch loop stops feeding mutations into a transaction the server
+    has already discarded, instead of recording one WARNING line nobody reads and
+    continuing as if nothing happened.
     """
-    try:
-        if not succeeded:
-            frappe.db.rollback(save_point=savepoint_name)
-        frappe.db.release_savepoint(savepoint_name)
-    except Exception as savepoint_error:  # non-resumable-ok: see #572
-        # NOT converged onto transaction_errors.rollback_to_savepoint()/
-        # release_savepoint_if_present() with the rest of this class (#561): those re-raise
-        # anything that is not a missing savepoint, and this handler currently swallows a
-        # 1213 and a lost connection into debug_info as well. Making it loud changes what a
-        # long-running eBoekhouden migration does mid-batch, which needs its own proof.
-        debug_info.append(f"SAVEPOINT WARNING - could not finalize {savepoint_name}: {savepoint_error}")
+    if not succeeded:
+        rollback_to_savepoint(savepoint_name)
+    release_savepoint_if_present(savepoint_name)
+
+
+def _report_batch_abort(
+    type_name, mutations, aborted_index, imported, failed, skipped, last_imported_mutation_id, abort_error
+):
+    """Log an operator-visible summary when a non-resumable DB error stops a batch (#572).
+
+    ``debug_info`` never reaches an operator on the main code path: the only place that
+    logs it is `_log_batch_summary`, at the END of a batch that ran to completion, and an
+    abort skips straight past that. So this writes directly to Error Log, the channel this
+    whole module already uses for every other batch report (`_log_batch_summary`,
+    `_retry_transient_failures`'s caller, the opening-balance path) -- called with (title,
+    message) in the ORDER the signature wants, not the swapped order the rest of the app
+    is prone to (#602).
+
+    Names the last mutation this batch actually imported: everything after it in this
+    batch is unknown state, not failed state, because the transaction under it is gone.
+    """
+    total = len(mutations) if mutations else 0
+    processed = aborted_index + 1
+    remaining = max(total - processed, 0)
+    message = (
+        f"Batch import for {type_name} ABORTED after a non-resumable database error.\n\n"
+        f"Processed: {processed} of {total} mutations before the error.\n"
+        f"Imported: {imported}\n"
+        f"Failed: {failed}\n"
+        f"Skipped: {skipped}\n"
+        f"Not yet attempted: {remaining}\n"
+        f"Last successfully imported mutation: {last_imported_mutation_id or 'none this batch'}\n\n"
+        f"Error: {abort_error}\n\n"
+        "The transaction this batch was running in is gone -- nothing after the last "
+        "imported mutation above should be assumed persisted. Re-run this mutation type "
+        "to pick up where it stopped; already-imported mutations are skipped on re-import."
+    )
+    frappe.log_error(
+        title=f"eBoekhouden REST Import - {type_name} - ABORTED (non-resumable error)",
+        message=message,
+    )
 
 
 def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, mutation_type=None):
@@ -3507,78 +3564,106 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
             debug_info.append("Falling back to legacy processing for entire batch")
             coordinator = None
 
-    for i, mutation in enumerate(mutations):
-        # Process each mutation inside its own savepoint: a mutation can create
-        # several documents, so a failure partway through must roll back its
-        # partial writes instead of leaving an orphaned half-record to be
-        # committed at the type-batch boundary. _process_mutation_with_coordinator
-        # catches its own errors and returns a result dict, so the savepoint is
-        # rolled back whenever the mutation did not succeed — not only on an
-        # uncaught exception.
-        savepoint_name = f"eb_mut_{frappe.generate_hash(length=10)}"
-        frappe.db.savepoint(savepoint_name)
-        mutation_succeeded = False
-        try:
-            # Skip if already imported
-            mutation_id = mutation.get("id")
-            mutation_type = mutation.get("type", 0)
+    # Set once a mutation actually imports, so an abort mid-batch (below) can name
+    # the last one an operator can trust is really there.
+    last_imported_mutation_id = None
+    aborted_at_index = None
 
-            if not mutation_id:
-                errors.append("Mutation missing ID, skipping")
-                debug_info.append("ERROR - Mutation missing ID")
-                failed += 1
-                continue
+    try:
+        for i, mutation in enumerate(mutations):
+            # Process each mutation inside its own savepoint: a mutation can create
+            # several documents, so a failure partway through must roll back its
+            # partial writes instead of leaving an orphaned half-record to be
+            # committed at the type-batch boundary. _process_mutation_with_coordinator
+            # catches its own errors and returns a result dict, so the savepoint is
+            # rolled back whenever the mutation did not succeed — not only on an
+            # uncaught exception.
+            savepoint_name = f"eb_mut_{frappe.generate_hash(length=10)}"
+            frappe.db.savepoint(savepoint_name)
+            mutation_succeeded = False
+            try:
+                # Skip if already imported
+                mutation_id = mutation.get("id")
+                mutation_type = mutation.get("type", 0)
 
-            # Check for existing documents
-            existing_je = _check_if_already_imported(mutation_id, "Journal Entry")
-            existing_pe = _check_if_already_imported(mutation_id, "Payment Entry")
-            existing_si = _check_if_already_imported(mutation_id, "Sales Invoice")
-            existing_pi = _check_if_already_imported(mutation_id, "Purchase Invoice")
-
-            if existing_je or existing_pe or existing_si or existing_pi:
-                skipped += 1
-                continue
-
-            # Check if this mutation should be skipped (e.g., zero-amount system notifications)
-            if should_skip_mutation(mutation, debug_info):
-                skipped += 1
-                continue
-
-            # Process the mutation with coordinator + legacy fallback
-            result = _process_mutation_with_coordinator(
-                mutation, mutation_id, mutation_type, coordinator, company, cost_center, debug_info
-            )
-
-            if result["action"] == "skip":
-                skipped += 1
-                continue
-            elif result["action"] == "success":
-                imported += 1
-                mutation_succeeded = True
-                if result.get("method") == "new_processors":
-                    processed_with_new += 1
-                else:
-                    processed_with_legacy += 1
-            elif result["action"] == "failed":
-                failed += 1
-            elif result["action"] == "error":
-                if result.get("is_stock_error"):
-                    skipped += 1
-                else:
+                if not mutation_id:
+                    errors.append("Mutation missing ID, skipping")
+                    debug_info.append("ERROR - Mutation missing ID")
                     failed += 1
-                    errors.append(result["error_msg"])
+                    continue
 
-        except Exception as e:
-            failed += 1
-            error_msg = f"Error in batch processing loop for mutation {i}: {str(e)}"
-            errors.append(error_msg)
-            debug_info.append(f"LOOP ERROR - {error_msg}")
-        finally:
-            # Roll back unless the mutation fully succeeded — a failed/errored
-            # mutation reaches here without an exception (its error was caught
-            # in _process_mutation_with_coordinator), so its partial writes
-            # must still be undone.
-            _finalize_mutation_savepoint(savepoint_name, mutation_succeeded, debug_info)
+                # Check for existing documents
+                existing_je = _check_if_already_imported(mutation_id, "Journal Entry")
+                existing_pe = _check_if_already_imported(mutation_id, "Payment Entry")
+                existing_si = _check_if_already_imported(mutation_id, "Sales Invoice")
+                existing_pi = _check_if_already_imported(mutation_id, "Purchase Invoice")
+
+                if existing_je or existing_pe or existing_si or existing_pi:
+                    skipped += 1
+                    continue
+
+                # Check if this mutation should be skipped (e.g., zero-amount system notifications)
+                if should_skip_mutation(mutation, debug_info):
+                    skipped += 1
+                    continue
+
+                # Process the mutation with coordinator + legacy fallback
+                result = _process_mutation_with_coordinator(
+                    mutation, mutation_id, mutation_type, coordinator, company, cost_center, debug_info
+                )
+
+                if result["action"] == "skip":
+                    skipped += 1
+                    continue
+                elif result["action"] == "success":
+                    imported += 1
+                    mutation_succeeded = True
+                    last_imported_mutation_id = mutation_id
+                    if result.get("method") == "new_processors":
+                        processed_with_new += 1
+                    else:
+                        processed_with_legacy += 1
+                elif result["action"] == "failed":
+                    failed += 1
+                elif result["action"] == "error":
+                    if result.get("is_stock_error"):
+                        skipped += 1
+                    else:
+                        failed += 1
+                        errors.append(result["error_msg"])
+
+            except NON_RESUMABLE_DB_ERRORS:
+                # The transaction (1213: entirely; 1205: at least this statement) is
+                # already gone. Folding this into "LOOP ERROR" below and continuing
+                # would feed every remaining mutation into state the server has
+                # already discarded, each appearing to succeed or fail on its own
+                # terms while actually resting on nothing. Propagate instead.
+                raise
+            except Exception as e:
+                failed += 1
+                error_msg = f"Error in batch processing loop for mutation {i}: {str(e)}"
+                errors.append(error_msg)
+                debug_info.append(f"LOOP ERROR - {error_msg}")
+            finally:
+                # Roll back unless the mutation fully succeeded — a failed/errored
+                # mutation reaches here without an exception (its error was caught
+                # in _process_mutation_with_coordinator), so its partial writes
+                # must still be undone. A non-resumable error here also propagates
+                # (see _finalize_mutation_savepoint) and is caught below.
+                _finalize_mutation_savepoint(savepoint_name, mutation_succeeded)
+    except NON_RESUMABLE_DB_ERRORS as abort_error:
+        aborted_at_index = i
+        _report_batch_abort(
+            type_name,
+            mutations,
+            aborted_at_index,
+            imported,
+            failed,
+            skipped,
+            last_imported_mutation_id,
+            abort_error,
+        )
+        raise
 
     # Post-processing: categorize errors, log summary, retry transient failures
     error_categories = _categorize_batch_errors(errors)

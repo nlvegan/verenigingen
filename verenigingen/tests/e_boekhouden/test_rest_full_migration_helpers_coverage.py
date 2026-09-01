@@ -137,34 +137,32 @@ class TestRetryTransientFailures(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Pure: _finalize_mutation_savepoint (tolerant of dropped savepoint)
+# Pure: _finalize_mutation_savepoint (tolerant of dropped savepoint; #572
+# converged it onto utils.transaction_errors -- see test_mutation_savepoint.py
+# for the "does NOT tolerate a non-resumable error" coverage this file does not
+# duplicate).
 # ---------------------------------------------------------------------------
 class TestFinalizeMutationSavepoint(EnhancedTestCase):
-    """Release a per-mutation savepoint; a missing one is logged, never raised."""
+    """Release a per-mutation savepoint; a missing one (1305) is tolerated, never raised."""
 
     def test_release_existing_savepoint_succeeds_silently(self):
         sp = "ebkh_test_sp_ok"
         frappe.db.savepoint(sp)
-        debug = []
-        # succeeded=True => no rollback, just release. Must not append a warning.
-        _finalize_mutation_savepoint(sp, succeeded=True, debug_info=debug)
-        self.assertFalse(any("SAVEPOINT WARNING" in m for m in debug))
+        # succeeded=True => no rollback, just release. Must not raise.
+        _finalize_mutation_savepoint(sp, succeeded=True)
 
     def test_rollback_then_release_on_failure(self):
         sp = "ebkh_test_sp_fail"
         frappe.db.savepoint(sp)
-        debug = []
-        # succeeded=False => rollback to savepoint, then release; no warning.
-        _finalize_mutation_savepoint(sp, succeeded=False, debug_info=debug)
-        self.assertFalse(any("SAVEPOINT WARNING" in m for m in debug))
+        # succeeded=False => rollback to savepoint, then release. Must not raise.
+        _finalize_mutation_savepoint(sp, succeeded=False)
 
-    def test_missing_savepoint_is_tolerated_and_logged(self):
-        debug = []
-        # Never created -> release raises internally -> caught, warning appended,
-        # and the function returns normally (does not abort the batch).
-        _finalize_mutation_savepoint("ebkh_never_created_sp", succeeded=True, debug_info=debug)
-        self.assertTrue(any("SAVEPOINT WARNING" in m for m in debug))
-        self.assertTrue(any("ebkh_never_created_sp" in m for m in debug))
+    def test_missing_savepoint_is_tolerated(self):
+        # Never created -> release_savepoint_if_present() hits the tolerated
+        # 1305 path internally (reported via frappe.logger(), not Error Log --
+        # its own documented behaviour) and the function returns normally
+        # rather than aborting the batch.
+        _finalize_mutation_savepoint("ebkh_never_created_sp", succeeded=True)
 
 
 # ---------------------------------------------------------------------------
