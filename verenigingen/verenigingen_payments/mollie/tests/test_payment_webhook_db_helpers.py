@@ -209,16 +209,12 @@ class TestCreatePaymentEntryForDonation(EnhancedTestCase):
         # to tearDown's rollback alone (as before), this write survives any commit
         # `create_payment_entry_for_donation` -- or a future change to it -- makes
         # on a reachable path, permanently stripping the company's bank default for
-        # the rest of the shard (#582). The `finally` restore commits explicitly:
-        # if a commit ever DOES land between the null-write and here, an uncommitted
-        # restore is itself undone by the next rollback (measured -- a simulated
-        # intervening commit left the field None after rollback with no commit here,
-        # and restored with one), so this is Pattern 3/4 from CLAUDE.md's Transaction
-        # Handling Patterns, not an unconditional commit habit.
+        # the rest of the shard (#582). Both the null-write and the restore are
+        # inside `try`/`finally` so a raise between them still restores.
         original_default = frappe.db.get_value("Company", company, "default_bank_account")
-        frappe.db.set_value("Company", company, "default_bank_account", None)
-        frappe.clear_document_cache("Company", company)
         try:
+            frappe.db.set_value("Company", company, "default_bank_account", None)
+            frappe.clear_document_cache("Company", company)
             result = create_payment_entry_for_donation(
                 donation, {"payment_id": "tr_nobank", "method": "ideal"}
             )
@@ -226,7 +222,18 @@ class TestCreatePaymentEntryForDonation(EnhancedTestCase):
         finally:
             frappe.db.set_value("Company", company, "default_bank_account", original_default)
             frappe.clear_document_cache("Company", company)
-            frappe.db.commit()
+            # Commit the restore only when it actually moved something: this repo's
+            # own guard for the same situation (sepa_test_company.py:404-410) --
+            # committing unconditionally took a sibling suite's TEST-LEAK count from
+            # 3/3/3 to 6/6/4 by prematurely committing this test's other in-flight,
+            # not-yet-tracked fixtures. If a commit ever DOES land between the
+            # null-write and here (none does today, on any path this test reaches --
+            # verified by reading create_payment_entry_for_donation in full), an
+            # uncommitted restore is itself undone by the next test's rollback
+            # (measured with a simulated intervening commit); when nothing else
+            # commits, restoring None to None costs nothing to also skip.
+            if original_default is not None:
+                frappe.db.commit()
 
     def test_idempotent_returns_existing_payment_entry(self):
         """When a Payment Entry already exists for (reference_no, party), the
