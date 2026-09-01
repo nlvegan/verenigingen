@@ -149,10 +149,12 @@ class SEPAMemoryMonitor:
         }
 
         frappe.log_error(
-            f"High memory usage detected: {snapshot.process_memory_mb:.1f}MB "
+            title="SEPA Memory Alert",
+            message=f"High memory usage detected: {snapshot.process_memory_mb:.1f}MB "
             f"(threshold: {self.alert_threshold_mb:.1f}MB)",
-            "SEPA Memory Alert",
-            alert_data,
+            # Pre-existing (not a #602 concern): reference_doctype expects a DocType
+            # name string, not a dict. Left as-is -- out of scope here.
+            reference_doctype=alert_data,
         )
 
         # Also log to performance monitoring

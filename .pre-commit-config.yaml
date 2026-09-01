@@ -388,7 +388,7 @@ repos:
         entry: python scripts/validation/log_error_arg_order_validator.py
         language: system
         pass_filenames: true
-        files: '\.py$'
+        files: '^(verenigingen|scripts)/.*\.py$'
         stages: [pre-commit]
         exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/validation/archived/|verenigingen/tests/)'
 

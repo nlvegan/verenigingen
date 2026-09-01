@@ -316,6 +316,28 @@ jobs:
         fi
         echo "Baseline did not grow."
 
+    # The two steps above cannot catch the abuse that actually defeats this ratchet:
+    # a `# log-error-args-ok:` pragma added on an EXISTING baselined site. That call
+    # still matches the swap shape, but `_counts` excludes anything suppressed, so
+    # the baseline shrinks exactly like a real fix would -- the growth check only
+    # ever sees NEW sites appear, not an old one being hidden behind a pragma. Must
+    # compare the BASE branch's baseline against the HEAD tree: the head's own
+    # baseline is kept in sync with the head tree by the step above, so diffing a
+    # freshly-synced baseline against itself would report nothing every time.
+    - name: Every shrink was actually a fix
+      if: github.event_name == 'pull_request'
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      run: |
+        BASELINE=scripts/validation/log_error_arg_order_baseline.txt
+        if ! git cat-file -e "$BASE_SHA:$BASELINE" 2>/dev/null; then
+          echo "No baseline on the base branch yet — nothing to compare."
+          exit 0
+        fi
+        git show "$BASE_SHA:$BASELINE" > "$RUNNER_TEMP/base_log_error_baseline.txt"
+        python scripts/validation/log_error_arg_order_validator.py \
+          --check-shrink "$RUNNER_TEMP/base_log_error_baseline.txt"
+
   # Same shape as the swallowed-exception ratchet above, and for the same reason:
   # the pre-commit hook can be skipped (`git commit -n`, `SKIP=`), and it only ever
   # sees the files in one change. That is how this rule died the first time -- 40

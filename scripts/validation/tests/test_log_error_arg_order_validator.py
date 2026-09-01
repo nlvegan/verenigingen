@@ -78,6 +78,17 @@ class PlantedViolationTest(unittest.TestCase):
         )
         self.assertEqual(len(findings), 1)
 
+    def test_three_positional_args_on_frappe_log_error_is_flagged(self):
+        """The real #602 site this shape exists for: sepa_memory_optimizer.py's
+        `frappe.log_error(f"...", "SEPA Memory Alert", alert_data)` -- a third
+        positional argument (reference_doctype in frappe's real signature) does
+        not change that this is still title-and-message swapped."""
+        findings = _flagged(
+            "def f(alert_data):\n"
+            "    frappe.log_error(f'High memory: {alert_data}', 'SEPA Memory Alert', alert_data)\n"
+        )
+        self.assertEqual(len(findings), 1)
+
 
 class AcceptsCorrectCallTest(unittest.TestCase):
     """The validator must NOT flag calls already in the right order."""
@@ -132,6 +143,21 @@ class AcceptsCorrectCallTest(unittest.TestCase):
         )
         self.assertEqual(findings, [])
 
+    def test_three_positional_args_on_local_method_is_not_flagged(self):
+        """This repo has several same-named LOCAL methods with a genuinely
+        different 3-argument convention -- log_error(message, record_type,
+        record_data) -- that happen to produce the identical (message-shaped,
+        literal) AST shape on 3 real sites (account_migration_service.py,
+        e_boekhouden_migration.py). A 3rd positional argument is only trusted
+        as a swap when the receiver unambiguously names frappe's own function;
+        `self.log_error` (or any other non-`frappe.` receiver) is not."""
+        findings = _flagged(
+            "class Svc:\n"
+            "    def f(self, e, data):\n"
+            "        self.log_error(f'Failed: {e}', 'account', data)\n"
+        )
+        self.assertEqual(findings, [])
+
     def test_both_dynamic_arguments_is_not_flagged(self):
         """No literal-title shape on either side -- nothing to say which is which."""
         findings = _flagged(
@@ -141,13 +167,15 @@ class AcceptsCorrectCallTest(unittest.TestCase):
         self.assertEqual(findings, [])
 
     def test_unrelated_dotted_call_named_log_error_is_matched_by_name(self):
-        """Matched by NAME only (documented limit) -- a non-frappe receiver with the
-        same method name is a false positive an author marks with the pragma."""
+        """Matched by NAME only (documented limit): a non-frappe receiver with the
+        same method name and the swapped 2-arg shape is STILL flagged -- this is
+        exactly the false-positive risk an author marks with the pragma (see
+        SuppressionMarkerTest), not something the detector filters out on its own."""
         findings = _flagged(
             "def f(e):\n"
-            "    tracker.log_error(f'boom {e}', 'Title')  # log-error-args-ok: false-positive\n"
+            "    tracker.log_error(f'boom {e}', 'Title')\n"
         )
-        self.assertEqual(findings, [])
+        self.assertEqual(len(findings), 1)
 
 
 class SuppressionMarkerTest(unittest.TestCase):
@@ -197,19 +225,23 @@ class ModuleLevelAndNestingTest(unittest.TestCase):
 
 
 class RatchetTest(unittest.TestCase):
-    """The baseline comparison in main(): only sites ABOVE the known count are new."""
+    """Exercises the ACTUAL comparison main() runs (`new_findings`), not a second
+    copy of it -- a copy here would stay green even if `new_findings`'s `>`
+    silently became `>=` and started reporting sites that never grew."""
 
     def test_counts_below_or_equal_baseline_are_not_new(self):
         counts = Counter({"a.py::f": 1})
         baseline = {"a.py::f": 1}
-        new = {k: v for k, v in counts.items() if v > baseline.get(k, 0)}
-        self.assertEqual(new, {})
+        self.assertEqual(lev.new_findings(counts, baseline), {})
 
     def test_counts_above_baseline_are_new(self):
         counts = Counter({"a.py::f": 2})
         baseline = {"a.py::f": 1}
-        new = {k: v for k, v in counts.items() if v > baseline.get(k, 0)}
-        self.assertEqual(new, {"a.py::f": 2})
+        self.assertEqual(lev.new_findings(counts, baseline), {"a.py::f": 2})
+
+    def test_key_absent_from_baseline_is_new(self):
+        counts = Counter({"a.py::f": 1})
+        self.assertEqual(lev.new_findings(counts, {}), {"a.py::f": 1})
 
     def test_load_and_write_baseline_roundtrip(self):
         with tempfile.TemporaryDirectory() as d:
@@ -234,13 +266,67 @@ class SweptDirectoriesAreCleanTest(unittest.TestCase):
         ]
         offenders = []
         for root in swept:
-            if not root.exists():
-                continue
+            self.assertTrue(root.exists(), f"swept directory moved or was deleted: {root}")
             for path in root.rglob("*.py"):
                 findings, _ = lev.scan_file(path)
                 for qualname, lineno in findings:
                     offenders.append(f"{path}:{lineno} {qualname}")
         self.assertEqual(offenders, [], f"new swapped log_error sites: {offenders}")
+
+
+class ShrinkExplainerTest(unittest.TestCase):
+    """explain_shrink() must catch a pragma hiding a baselined site -- the abuse
+    that defeats the growth check, which only ever sees NEW sites appear."""
+
+    def setUp(self):
+        # A real file under REPO_ROOT, not tempfile.TemporaryDirectory(): explain_shrink
+        # resolves baseline keys as REPO_ROOT / rel, so it has to be a real repo-relative
+        # path to be found at all.
+        self.probe_dir = lev.REPO_ROOT / "scripts" / "validation" / "tests" / "_shrink_probe"
+        self.probe_dir.mkdir(exist_ok=True)
+        self.probe_file = self.probe_dir / "probe_mod.py"
+        self.rel = str(self.probe_file.relative_to(lev.REPO_ROOT))
+
+    def tearDown(self):
+        self.probe_file.unlink(missing_ok=True)
+        self.probe_dir.rmdir()
+
+    def _write(self, source: str):
+        self.probe_file.write_text(source)
+
+    def test_pragma_added_on_baselined_site_is_reported_as_suppressed(self):
+        self._write("def f(e):\n    frappe.log_error(f'boom {e}', 'Title')  # log-error-args-ok: false-positive\n")
+        baseline = {f"{self.rel}::f": 1}
+        unexplained = lev.explain_shrink(baseline, [str(lev.REPO_ROOT / "scripts")])
+        self.assertEqual(len(unexplained), 1)
+        self.assertEqual(unexplained[0].reason, "suppressed")
+
+    def test_genuine_fix_is_not_reported(self):
+        self._write("def f(e):\n    frappe.log_error(title='Title', message=f'boom {e}')\n")
+        baseline = {f"{self.rel}::f": 1}
+        unexplained = lev.explain_shrink(baseline, [str(lev.REPO_ROOT / "scripts")])
+        self.assertEqual(unexplained, [])
+
+    def test_deleted_file_is_not_reported(self):
+        baseline = {f"{self.rel}::f": 1}
+        # File never written this test -- simulates deletion.
+        unexplained = lev.explain_shrink(baseline, [str(lev.REPO_ROOT / "scripts")])
+        self.assertEqual(unexplained, [])
+
+
+class ScanFileAllTest(unittest.TestCase):
+    """scan_file_all sees a suppressed site that scan_file excludes -- the whole
+    reason it exists as a separate function for explain_shrink to use."""
+
+    def test_suppressed_site_is_still_returned(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "snippet.py"
+            p.write_text(
+                "def f(e):\n"
+                "    frappe.log_error(f'boom {e}', 'Title')  # log-error-args-ok: false-positive\n"
+            )
+            self.assertEqual(lev.scan_file(p)[0], [])  # ordinary scan: suppressed, invisible
+            self.assertEqual(lev.scan_file_all(p), [("f", 2)])  # scan_file_all: still sees it
 
 
 if __name__ == "__main__":
