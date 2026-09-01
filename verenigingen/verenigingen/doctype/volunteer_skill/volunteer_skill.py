@@ -1,23 +1,18 @@
 # Copyright (c) 2025, Your Organization and contributors
 # For license information, please see license.txt
 
-import frappe
-from frappe import _
 from frappe.model.document import Document
 
 
 class VolunteerSkill(Document):
-    def validate(self):
-        # Ensure proficiency level is valid
-        if hasattr(self, "proficiency_level") and self.proficiency_level:
-            level = (
-                self.proficiency_level.split(" - ")[0]
-                if " - " in self.proficiency_level
-                else self.proficiency_level
-            )
-            try:
-                level_value = int(level)
-                if level_value < 1 or level_value > 5:
-                    frappe.throw(_("Proficiency level must be between 1 and 5"))
-            except ValueError:
-                frappe.throw(_("Invalid proficiency level format"))
+    """Child table (istable: 1) of Volunteer.skills_and_qualifications.
+
+    #596: this class used to define validate() (proficiency_level must parse as
+    "N - Label" with N in 1..5). Frappe never runs it -- there is no
+    d.run_method("validate") for children anywhere in insert()/save(). Not moved
+    to the parent: proficiency_level is a Select field whose options are exactly
+    "1 - Beginner", "2 - Basic", "3 - Intermediate", "4 - Advanced", "5 - Expert",
+    and Frappe's own Document._validate_selects() (called from _validate() for
+    children too, regardless of any custom validate()) already rejects any value
+    outside that declared list -- this was always redundant.
+    """
