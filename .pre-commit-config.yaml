@@ -307,6 +307,29 @@ repos:
         stages: [pre-commit]
         exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/validation/archived/)'
 
+      - id: child-doctype-validate-guard
+        name: 🧟 Dead Child-Validate Guard (hard gate)
+        description: >-
+          Blocks a NEW `def validate` on the controller of an `"istable": 1` DocType.
+          Frappe never calls a child DocType's validate(): Document._validate() (and
+          insert()/_save() more generally) iterate children calling only framework
+          helpers (_validate_data_fields, _validate_selects, _validate_non_negative,
+          ...), never d.run_method("validate"). #596 found 15 of these across this
+          app; one (Member SEPA Mandate Link) was the documented mechanism behind
+          another DocType's behaviour and never actually ran, which #584 had to work
+          around. A hard gate, not a ratchet — #596 emptied the census to zero by
+          moving each real rule into its parent's validate() (iterating the child
+          table there) and deleting the rest, so there is nothing pre-existing to
+          grandfather in. A deliberate exception (a controller invoked directly,
+          never through parent.save()) is exempted with
+          `def validate(self):  # child-validate-ok: <reason>`.
+        entry: python scripts/validation/child_doctype_validate_guard.py
+        language: system
+        pass_filenames: true
+        files: '/doctype/.*\.py$'
+        stages: [pre-commit]
+        exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/validation/archived/)'
+
       - id: duplicate-helper-validator
         name: 👯 Duplicate Helper Guard (ratchet)
         description: >-
