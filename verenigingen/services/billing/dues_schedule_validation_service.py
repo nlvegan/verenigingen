@@ -567,11 +567,13 @@ class DuesScheduleValidationService(StatelessService):
             - Returns True if no member or membership type (nothing to compare)
             - Returns True if no active membership - defensive only: the sole
               production caller, EligibilityChecker.check_eligibility(), already
-              calls check_active_membership() on the same (member, Active,
-              docstatus=1) filter earlier in its pipeline and returns before
-              reaching this method, so this branch is currently unreachable in
-              practice. It stays fail-open (not an error) in case a future
-              caller invokes this method without that upstream guard.
+              checks for an active membership on the same (member, Active,
+              docstatus=1) criteria via check_active_membership() earlier in its
+              pipeline and returns before reaching this method, so this branch
+              is not reachable through that path today (barring a concurrent
+              membership status change between the two lookups). It stays
+              fail-open (not an error) in case a future caller invokes this
+              method without that upstream guard.
             - Returns False only if membership types mismatch
             - Gracefully handles validation errors (doesn't block generation)
 
@@ -596,12 +598,14 @@ class DuesScheduleValidationService(StatelessService):
                 # Defensive fallback, not a live gap: the only production caller,
                 # EligibilityChecker.check_membership_type_consistency() (called
                 # from check_eligibility()), only reaches this method after
-                # check_active_membership() has already passed on this exact
-                # filter, so "no active membership" cannot occur here today. See
-                # the Business Logic note above - #619.
+                # check_active_membership() has already checked the same
+                # (member, Active, docstatus=1) criteria (via
+                # DocumentExistenceValidator.check_document_exists, a different
+                # call than the frappe.get_all() above but the same filter) and
+                # passed. See the Business Logic note above - #619.
                 return {
                     "valid": True,
-                    "reason": "No active membership found - not this method's concern to enforce",
+                    "reason": "No active membership found - will be handled by eligibility check",
                 }
 
             current_type = current_membership[0].membership_type
