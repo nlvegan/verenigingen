@@ -70,19 +70,24 @@ doc_events = {
         # save/submit of the same in-memory object. See
         # verenigingen/utils/timestamp_normalization.py for the mechanism.
         #
-        # on_update, NOT after_insert: the whole-second now() that triggers this
-        # can land on ANY set_user_and_timestamp() call, not only the initial
-        # insert -- a live CI recurrence on an unrelated PR hit it on the FIRST
-        # of two submit() calls on the same in-memory Sales Invoice, and the
-        # after_insert-only registration this app shipped first did not cover
-        # it (verified by reproduction: forcing a whole-second now() on a save()
-        # after a normal insert() still raised TimestampMismatchError with only
-        # after_insert registered). on_update fires for both `insert()` (its
-        # `_action` is "save") and every later save()/submit() -- see this
-        # module's docstring, "To run on ALL saves, register under on_update
-        # ALONE". Do NOT also register after_insert: that fires it twice on
-        # every insert.
-        "on_update": "verenigingen.utils.timestamp_normalization.normalize_whole_second_timestamps",
+        # on_change, NOT after_insert and NOT on_update: the whole-second
+        # now() that triggers this can land on ANY set_user_and_timestamp()
+        # call, not only the initial insert -- a live CI recurrence on an
+        # unrelated PR hit it on the FIRST of two submit() calls on the same
+        # in-memory Sales Invoice, which after_insert-only (this app's first
+        # attempt) does not cover (verified by reproduction). on_update is
+        # ALSO insufficient: run_post_save_methods() only calls it for
+        # _action in ("save", "submit") -- a save() on an already-submitted
+        # doc (_action == "update_after_submit"), a cancel(), and db_set()
+        # (which stamps `modified` via the same now() call, document.py:1533)
+        # all skip on_update entirely. on_change is unconditional in
+        # run_post_save_methods() AND is what db_set() itself calls
+        # (document.py:1566), so it is the only event that covers every path
+        # that can produce the whole-second value. Do NOT also register
+        # after_insert or on_update: on_change already fires on insert too,
+        # so either would just double-fire (a harmless no-op the second time,
+        # but pure waste).
+        "on_change": "verenigingen.utils.timestamp_normalization.normalize_whole_second_timestamps",
     },
     # =========================================================================
     # COMMUNICATION / EMAIL

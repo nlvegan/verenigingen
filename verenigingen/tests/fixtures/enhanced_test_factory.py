@@ -2367,7 +2367,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         defect at ~1-in-10^6 per document). This wrapper is the one place
         every test-site insert already passes through, so trimming the
         in-memory string here defuses all 277 test sites named in #609 from
-        one place, the same way the doc_events["*"] after_insert hook covers
+        one place, the same way the doc_events["*"] on_change hook covers
         the 21 production sites.
 
         HARNESS-FIDELITY TRADE-OFF (deliberate, see #609): once this fires,
@@ -4856,11 +4856,23 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # "Paid" (outstanding_amount=0) was actually left at the real
         # ledger-calculated value (#609). Draft invoices never submit, so this
         # reordering makes no difference for them -- the block below still runs.
+        #
+        # `status` is NOT derived from this: submit()'s own GL posting already
+        # ran set_status() before this block, using the PRE-fix outstanding_amount
+        # -- e.g. outstanding_amount=0.0 here does not retroactively make
+        # invoice.status become "Paid". This was already true before this
+        # reordering (status and outstanding_amount could already disagree);
+        # the reordering only makes outstanding_amount itself trustworthy.
+        # Pass status="Overdue" (below) or db_set("status", ...) yourself if a
+        # caller needs status to match a custom outstanding_amount.
         if "grand_total" in kwargs or "outstanding_amount" in kwargs:
             invoice.db_set("grand_total", kwargs.get("grand_total", invoice.grand_total))
             invoice.db_set("outstanding_amount", kwargs.get("outstanding_amount", invoice.outstanding_amount))
 
-        # Update status after submit if needed (for Overdue status)
+        # Update status after submit if needed (for Overdue status). Only
+        # "Draft" and "Overdue" are honored here -- any other `status` kwarg
+        # (e.g. "Paid", "Submitted") is accepted but silently ignored; this
+        # predates #609 and is unchanged by it.
         if kwargs.get("status") == "Overdue":
             invoice.db_set("status", "Overdue")
 

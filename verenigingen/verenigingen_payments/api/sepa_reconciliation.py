@@ -1374,7 +1374,7 @@ def create_manual_payment_entry(bank_transaction, batch_item):
     payment_entry.insert()
     # reload() guards against #609 (whole-second creation/modified timestamp ->
     # TimestampMismatchError / CannotChangeConstantError on submit(), frappe#38219
-    # precedent). Belt-and-braces alongside the doc_events["*"] after_insert
+    # precedent). Belt-and-braces alongside the doc_events["*"] on_change
     # normaliser -- see verenigingen/api/chapter_join.py's matching call for the
     # full rationale.
     payment_entry.reload()

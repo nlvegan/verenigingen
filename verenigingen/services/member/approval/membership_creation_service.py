@@ -392,7 +392,7 @@ class MembershipCreationService(StatelessService):
             # reload() guards against #609 (whole-second creation/modified
             # timestamp -> TimestampMismatchError / CannotChangeConstantError on
             # submit(), frappe#38219 precedent). Belt-and-braces alongside the
-            # doc_events["*"] after_insert normaliser -- see chapter_join.py's
+            # doc_events["*"] on_change normaliser -- see chapter_join.py's
             # matching call for the full rationale.
             membership.reload()
             membership.submit()
