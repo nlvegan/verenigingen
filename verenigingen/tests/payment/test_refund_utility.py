@@ -37,6 +37,9 @@ from verenigingen.verenigingen_payments.utils.payment_services.refund_utility im
 REFUND_MODULE = "verenigingen.verenigingen_payments.utils.payment_services.refund_utility"
 
 
+_bank_company_cache = None
+
+
 def _bank_company():
     """Return a company that actually has a Bank account.
 
@@ -51,10 +54,22 @@ def _bank_company():
     had a Bank-type leaf account created (get_value orders `creation DESC`), and
     None on a shard with none yet (#583). `get_eur_test_company` + `get_eur_bank_account`
     own both the company and its Bank Account by name instead of borrowing either.
+
+    Called from 4 test-method bodies across 3 classes. Both owning helpers commit
+    (`sepa_test_company.py:126`, `:361`, and conditionally `:409`), which -- called
+    from a test body rather than `setUpClass` -- prematurely commits that test's
+    other in-flight, not-yet-tracked fixtures (the #581 review's exact TEST-LEAK
+    finding). Memoized at module scope so the owning calls, and their commits, run
+    at most once per test process rather than once per call; the underlying
+    company/account rows are already idempotent get-or-create, so reusing the
+    cached name across tests changes nothing about what gets built.
     """
-    company = get_eur_test_company()
-    get_eur_bank_account(company)
-    return company
+    global _bank_company_cache
+    if _bank_company_cache is None:
+        company = get_eur_test_company()
+        get_eur_bank_account(company)
+        _bank_company_cache = company
+    return _bank_company_cache
 
 
 def _make_supplier(test_case):

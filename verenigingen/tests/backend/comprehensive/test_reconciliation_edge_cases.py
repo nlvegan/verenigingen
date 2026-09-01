@@ -21,6 +21,72 @@ from frappe.utils import today, add_days, flt, getdate
 from unittest.mock import patch, MagicMock
 from verenigingen.tests.utils.base import VereningingenTestCase
 
+# Matches create_test_invoice's hardcoded company below, not self.settings_company.
+_COMPANY = "_Test Company"
+_OWNED_BANK_NAME = "Test Recon Bank"
+_OWNED_GL_ACCOUNT_NAME = "Test Recon Bank GL"
+_OWNED_BANK_ACCOUNT_NAME = "Test Recon Bank Account"
+
+
+def _ensure_owned_bank_account(test_case):
+    """Get-or-create the Bank Account this module owns on `_Test Company`, by NAME.
+
+    Shared by both test classes below (they previously carried near-identical
+    copies). Company-scoped AND owned by a fixed name throughout -- an unscoped
+    `frappe.db.get_value("Bank Account", {"is_default": 1}, "name")` (the guard
+    both callers used) or `frappe.db.get_value("Account", {"account_type": "Bank",
+    "is_group": 0}, "name")` (the old GL lookup) resolves to "whichever Bank
+    account/GL leaf some other module created most recently" -- cross-company, and
+    on `_Test Company` specifically resolves to a *gateway clearing* account
+    (`Mollie - _TC`, measured) rather than a real bank -- both live exposures
+    fixed under #583.
+
+    The parent-account lookup deliberately does NOT fall back to "any is_group
+    Asset account" the way an earlier version of this file did: that fallback is
+    the exact bug `sepa_test_company._bank_account_parent`'s docstring describes
+    (`_Test Company` carries many such groups, and `creation DESC` picks an
+    arbitrary one, e.g. `Temporary Accounts`). `_Test Company` is ERPNext's own
+    standard test fixture and always carries a Bank group.
+    """
+    existing = frappe.db.get_value(
+        "Bank Account", {"account_name": _OWNED_BANK_ACCOUNT_NAME, "company": _COMPANY}, "name"
+    )
+    if existing:
+        return existing
+
+    if not frappe.db.exists("Bank", _OWNED_BANK_NAME):
+        bank_doc = frappe.new_doc("Bank")
+        bank_doc.bank_name = _OWNED_BANK_NAME
+        bank_doc.save()
+        test_case.track_doc("Bank", bank_doc.name)
+
+    gl_account = frappe.db.get_value(
+        "Account", {"company": _COMPANY, "account_name": _OWNED_GL_ACCOUNT_NAME, "is_group": 0}, "name"
+    )
+    if not gl_account:
+        parent = frappe.db.get_value(
+            "Account", {"company": _COMPANY, "account_type": "Bank", "is_group": 1}, "name"
+        )
+        gl_doc = frappe.new_doc("Account")
+        gl_doc.account_name = _OWNED_GL_ACCOUNT_NAME
+        gl_doc.company = _COMPANY
+        gl_doc.parent_account = parent
+        gl_doc.account_type = "Bank"
+        gl_doc.is_group = 0
+        gl_doc.save()
+        test_case.track_doc("Account", gl_doc.name)
+        gl_account = gl_doc.name
+
+    bank_account = frappe.new_doc("Bank Account")
+    bank_account.account_name = _OWNED_BANK_ACCOUNT_NAME
+    bank_account.bank = _OWNED_BANK_NAME
+    bank_account.account = gl_account
+    bank_account.company = _COMPANY
+    bank_account.is_default = 1
+    bank_account.save()
+    test_case.track_doc("Bank Account", bank_account.name)
+    return bank_account.name
+
 
 class TestPartialPaymentReconciliation(VereningingenTestCase):
     """Test partial payment reconciliation scenarios"""
@@ -188,10 +254,7 @@ class TestPartialPaymentReconciliation(VereningingenTestCase):
 
     def create_test_bank_transaction(self, deposit, description, date, reference_number=None):
         """Create test bank transaction"""
-        # Get or create a bank account
-        bank_account = frappe.db.get_value("Bank Account", {"is_default": 1}, "name")
-        if not bank_account:
-            bank_account = self._create_test_bank_account()
+        bank_account = _ensure_owned_bank_account(self)
 
         bt = frappe.new_doc("Bank Transaction")
         bt.date = date
@@ -204,60 +267,6 @@ class TestPartialPaymentReconciliation(VereningingenTestCase):
         bt.save()
         self.track_doc("Bank Transaction", bt.name)
         return bt
-
-    def _create_test_bank_account(self):
-        """Create test bank account if none exists"""
-        # Get or create bank
-        bank = frappe.db.get_value("Bank", {}, "name")
-        if not bank:
-            bank_doc = frappe.new_doc("Bank")
-            bank_doc.bank_name = "Test Bank"
-            bank_doc.save()
-            self.track_doc("Bank", bank_doc.name)
-            bank = bank_doc.name
-
-        gl_account = self._get_or_create_bank_gl_account()
-
-        bank_account = frappe.new_doc("Bank Account")
-        bank_account.account_name = f"Test Bank Account {frappe.generate_hash(length=6)}"
-        bank_account.bank = bank
-        bank_account.account = gl_account
-        bank_account.is_default = 1
-        bank_account.save()
-        self.track_doc("Bank Account", bank_account.name)
-        return bank_account.name
-
-    def _get_or_create_bank_gl_account(self):
-        """A non-group Bank-type GL Account on `_Test Company`, creating one if absent.
-
-        Company-scoped and get-or-create: an unscoped `frappe.db.get_value("Account",
-        {"account_type": "Bank", "is_group": 0}, "name")` resolves to "whichever Bank
-        account some other module created most recently" (get_value orders by
-        `creation DESC`), and returns None outright on a site with no non-group Bank
-        account at all -- both live exposures fixed under #583. `_Test Company` matches
-        `create_test_invoice`'s hardcoded company above, not `self.settings_company`.
-        """
-        company = "_Test Company"
-        gl_account = frappe.db.get_value(
-            "Account", {"company": company, "account_type": "Bank", "is_group": 0}, "name"
-        )
-        if gl_account:
-            return gl_account
-
-        parent = frappe.db.get_value(
-            "Account", {"company": company, "account_type": "Bank", "is_group": 1}, "name"
-        ) or frappe.db.get_value(
-            "Account", {"company": company, "root_type": "Asset", "is_group": 1}, "name"
-        )
-        account = frappe.new_doc("Account")
-        account.account_name = f"Test Bank GL {frappe.generate_hash(length=6)}"
-        account.company = company
-        account.parent_account = parent
-        account.account_type = "Bank"
-        account.is_group = 0
-        account.save()
-        self.track_doc("Account", account.name)
-        return account.name
 
     def reconcile_transaction(self, transaction):
         """Attempt to reconcile a bank transaction.
@@ -306,46 +315,7 @@ class TestDuplicatePaymentDetection(VereningingenTestCase):
 
     def _create_bank_transaction(self, reference, deposit):
         """Create a persisted Bank Transaction for duplicate-detection tests."""
-        bank_account = frappe.db.get_value("Bank Account", {"is_default": 1}, "name")
-        if not bank_account:
-            bank = frappe.db.get_value("Bank", {}, "name")
-            if not bank:
-                bank_doc = frappe.new_doc("Bank")
-                bank_doc.bank_name = "Test Bank"
-                bank_doc.save()
-                self.track_doc("Bank", bank_doc.name)
-                bank = bank_doc.name
-            # Company-scoped and get-or-create: an unscoped lookup here resolves to
-            # "whichever Bank account some other module created most recently"
-            # (get_value orders creation DESC) and returns None on a site with no
-            # non-group Bank account at all -- #583.
-            company = "_Test Company"
-            gl_account = frappe.db.get_value(
-                "Account", {"company": company, "account_type": "Bank", "is_group": 0}, "name"
-            )
-            if not gl_account:
-                parent = frappe.db.get_value(
-                    "Account", {"company": company, "account_type": "Bank", "is_group": 1}, "name"
-                ) or frappe.db.get_value(
-                    "Account", {"company": company, "root_type": "Asset", "is_group": 1}, "name"
-                )
-                gl_doc = frappe.new_doc("Account")
-                gl_doc.account_name = f"Test Bank GL {frappe.generate_hash(length=6)}"
-                gl_doc.company = company
-                gl_doc.parent_account = parent
-                gl_doc.account_type = "Bank"
-                gl_doc.is_group = 0
-                gl_doc.save()
-                self.track_doc("Account", gl_doc.name)
-                gl_account = gl_doc.name
-            account = frappe.new_doc("Bank Account")
-            account.account_name = f"Test Bank Account {frappe.generate_hash(length=6)}"
-            account.bank = bank
-            account.account = gl_account
-            account.is_default = 1
-            account.save()
-            self.track_doc("Bank Account", account.name)
-            bank_account = account.name
+        bank_account = _ensure_owned_bank_account(self)
 
         bt = frappe.new_doc("Bank Transaction")
         bt.date = today()
