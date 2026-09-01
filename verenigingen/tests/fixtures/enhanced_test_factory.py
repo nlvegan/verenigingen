@@ -3522,6 +3522,20 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
             ensure_netherlands_territory()
 
+            # Same reasoning, for the Item Group / Customer Group / Supplier Group
+            # roots (#562): no dependency on company/fiscal year/accounts, only on
+            # themselves, so seeded here rather than inside _ensure_master_data
+            # where a partial failure could skip them silently.
+            from verenigingen.tests.setup import (
+                ensure_root_customer_group,
+                ensure_root_item_group,
+                ensure_root_supplier_group,
+            )
+
+            ensure_root_item_group()
+            ensure_root_customer_group()
+            ensure_root_supplier_group()
+
             # Ensure master data exists
             self._ensure_master_data()
 

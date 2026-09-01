@@ -596,6 +596,88 @@ def ensure_root_department():
         )
 
 
+def ensure_root_item_group():
+    """Guarantee the root ``All Item Groups`` exists, named exactly that. Idempotent.
+
+    Same gap as ``ensure_root_territory`` above, for a different root (#562).
+    ``erpnext.tests.utils.BootStrapTestData()`` creates it in the same batch as
+    "All Territories" and "All Customer Groups" (``get_preset_records("India")``
+    -- see ``_erpnext_base_masters_present``'s docstring), but that batch only
+    runs from ``ensure_erpnext_base_masters()``, which neither harness base
+    calls directly: both call ``ensure_netherlands_territory()`` (hence
+    ``ensure_root_territory`` existing at all), never
+    ``ensure_erpnext_base_masters()`` itself. So a fresh site whose first test
+    is harness-based got the Territory root and NOT this one -- MEASURED:
+    deleting both trees and calling ``ensure_prerequisites()`` (which happens
+    to self-heal "All Customer Groups") left "All Item Groups" absent, and
+    ``tests/backend/components/test_membership_utilities.py``'s
+    ``_create_membership_item`` -- used by every ``EnhancedTestCase`` that calls
+    ``MembershipTestUtilities.create_membership_type_with_dues_schedule`` with
+    the default ``create_item=True`` -- raised ``LinkValidationError: Could not
+    find Parent Item Group: All Item Groups``.
+
+    Same shape as ``ensure_root_territory``: hardcoded name, ``db.exists``-gated,
+    untracked (shared with production Item records, so per-test drains must not
+    delete it), and deliberately does NOT commit -- both harness bases call this
+    from setup that runs before the captured-insert hook is installed.
+    """
+    if frappe.db.exists("Item Group", "All Item Groups"):
+        return
+
+    frappe.get_doc(
+        {"doctype": "Item Group", "item_group_name": "All Item Groups", "is_group": 1}
+    ).insert(ignore_permissions=True)
+
+    if not frappe.db.exists("Item Group", "All Item Groups"):
+        raise RuntimeError(
+            "Root Item Group 'All Item Groups' still does not exist after creating it; "
+            "every child Item Group insert and every Item.item_group='All Item Groups' "
+            "assignment will fail."
+        )
+
+
+def ensure_root_customer_group():
+    """Guarantee the root ``All Customer Groups`` exists, named exactly that.
+
+    Same reasoning as ``ensure_root_item_group`` above, for the Customer Group
+    tree (#562). Idempotent, untracked, does not commit -- see that function's
+    docstring for why.
+    """
+    if frappe.db.exists("Customer Group", "All Customer Groups"):
+        return
+
+    frappe.get_doc(
+        {"doctype": "Customer Group", "customer_group_name": "All Customer Groups", "is_group": 1}
+    ).insert(ignore_permissions=True)
+
+    if not frappe.db.exists("Customer Group", "All Customer Groups"):
+        raise RuntimeError(
+            "Root Customer Group 'All Customer Groups' still does not exist after "
+            "creating it; every Customer creation that defaults to it will fail."
+        )
+
+
+def ensure_root_supplier_group():
+    """Guarantee the root ``All Supplier Groups`` exists, named exactly that.
+
+    Same reasoning as ``ensure_root_item_group`` above, for the Supplier Group
+    tree (#562). Idempotent, untracked, does not commit -- see that function's
+    docstring for why.
+    """
+    if frappe.db.exists("Supplier Group", "All Supplier Groups"):
+        return
+
+    frappe.get_doc(
+        {"doctype": "Supplier Group", "supplier_group_name": "All Supplier Groups", "is_group": 1}
+    ).insert(ignore_permissions=True)
+
+    if not frappe.db.exists("Supplier Group", "All Supplier Groups"):
+        raise RuntimeError(
+            "Root Supplier Group 'All Supplier Groups' still does not exist after "
+            "creating it; every Supplier creation that defaults to it will fail."
+        )
+
+
 def ensure_test_fiscal_year_for_all_companies():
     """Guarantee a Fiscal Year covers today() and applies to EVERY company.
 

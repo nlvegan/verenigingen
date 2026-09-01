@@ -86,6 +86,11 @@ UNGUARDED_CALLS = {
         # Measured by mutation, which is why the postcondition below now demands
         # each named call be FOUND rather than only checking the file exists.
         "ensure_netherlands_territory",
+        # Same call site, same reasoning, for the Item Group / Customer Group /
+        # Supplier Group roots (#562).
+        "ensure_root_item_group",
+        "ensure_root_customer_group",
+        "ensure_root_supplier_group",
     },
 }
 

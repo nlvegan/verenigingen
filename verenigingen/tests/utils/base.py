@@ -99,6 +99,22 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         ensure_netherlands_territory()
 
+        # The Item Group / Customer Group / Supplier Group roots, same gap as
+        # the Territory root above: erpnext's BootStrapTestData() creates all
+        # three in one batch, but only when ensure_erpnext_base_masters()
+        # actually runs its seeding branch, which this class does not reach on
+        # its own -- ensure_netherlands_territory() above only seeds Territory
+        # (#562). Cheap once present: existence checks, no writes.
+        from verenigingen.tests.setup import (
+            ensure_root_customer_group,
+            ensure_root_item_group,
+            ensure_root_supplier_group,
+        )
+
+        ensure_root_item_group()
+        ensure_root_customer_group()
+        ensure_root_supplier_group()
+
         # OWN the company production code resolves from Verenigingen Settings,
         # instead of inheriting whatever ran before us. Much of the code under
         # test reads that single rather than taking a company argument
