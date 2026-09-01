@@ -705,112 +705,25 @@ class TestOptimizedChapterLookup(EnhancedTestCase):
 # ---------------------------------------------------------------------------
 # 12. ChapterBoardMember child table controller
 # ---------------------------------------------------------------------------
-class TestChapterBoardMemberController(EnhancedTestCase):
-    """Tests for ChapterBoardMember child table — validation hooks."""
-
-    def setUp(self):
-        super().setUp()
-        self.chapter = self.ensure_test_chapter("Test BoardMember Chapter")
-
-    def _make_board_member_doc(self, **overrides):
-        """Create an in-memory ChapterBoardMember doc for validation tests."""
-        member = self.create_test_member(first_name="Board", last_name="Ctrl")
-        volunteer = self.create_test_volunteer(member_name=member.name)
-        role = self.factory.ensure_chapter_role("Test Board Role")
-
-        doc = frappe.get_doc({
-            "doctype": "Chapter Board Member",
-            "parent": self.chapter.name,
-            "parenttype": "Chapter",
-            "parentfield": "board_members",
-            "volunteer": volunteer.name,
-            "chapter_role": role.name,
-            "from_date": today(),
-            "is_active": 1,
-        })
-        for k, v in overrides.items():
-            setattr(doc, k, v)
-        return doc
-
-    def test_validate_required_fields_missing_volunteer(self):
-        """validate_required_fields throws when volunteer is missing."""
-        doc = self._make_board_member_doc()
-        doc.volunteer = None
-        with self.assertRaises(Exception):
-            doc.validate_required_fields()
-
-    def test_validate_required_fields_missing_role(self):
-        """validate_required_fields throws when chapter_role is missing."""
-        doc = self._make_board_member_doc()
-        doc.chapter_role = None
-        with self.assertRaises(Exception):
-            doc.validate_required_fields()
-
-    def test_validate_required_fields_missing_from_date(self):
-        """validate_required_fields throws when from_date is missing."""
-        doc = self._make_board_member_doc()
-        doc.from_date = None
-        with self.assertRaises(Exception):
-            doc.validate_required_fields()
-
-    def test_validate_date_range_invalid(self):
-        """validate_date_range throws when to_date is before from_date."""
-        doc = self._make_board_member_doc(
-            from_date="2025-06-01",
-            to_date="2025-01-01",
-        )
-        with self.assertRaises(Exception):
-            doc.validate_date_range()
-
-    def test_validate_date_range_valid(self):
-        """validate_date_range does not throw for valid range."""
-        doc = self._make_board_member_doc(
-            from_date="2025-01-01",
-            to_date="2025-12-31",
-        )
-        doc.validate_date_range()
-
-    def test_validate_active_status_past_end_date(self):
-        """validate_active_status throws when active with past end date."""
-        doc = self._make_board_member_doc(
-            is_active=1,
-            to_date="2020-01-01",
-        )
-        with self.assertRaises(Exception):
-            doc.validate_active_status()
-
-    def test_validate_email_format_invalid(self):
-        """validate_email_format throws for invalid email."""
-        doc = self._make_board_member_doc()
-        doc.email = "not-an-email"
-        with self.assertRaises(Exception):
-            doc.validate_email_format()
-
-    def test_validate_email_format_valid(self):
-        """validate_email_format does not throw for valid email."""
-        doc = self._make_board_member_doc()
-        doc.email = "test@example.com"
-        doc.validate_email_format()
-
-    def test_validate_volunteer_exists_invalid(self):
-        """validate_volunteer_exists throws for nonexistent volunteer."""
-        doc = self._make_board_member_doc()
-        doc.volunteer = "NONEXISTENT-VOL-99999"
-        with self.assertRaises(Exception):
-            doc.validate_volunteer_exists()
-
-    def test_validate_role_exists_invalid(self):
-        """validate_role_exists throws for nonexistent role."""
-        doc = self._make_board_member_doc()
-        doc.chapter_role = "NONEXISTENT-ROLE-99999"
-        with self.assertRaises(Exception):
-            doc.validate_role_exists()
-
-    def test_full_validate_success(self):
-        """Full validate() passes for a valid board member doc."""
-        doc = self._make_board_member_doc()
-        # Should not raise
-        doc.validate()
+# TestChapterBoardMemberController removed (#596). Every test in it called a
+# ChapterBoardMember validation method (validate_required_fields,
+# validate_date_range, validate_active_status, validate_email_format,
+# validate_volunteer_exists, validate_role_exists, or validate() itself)
+# DIRECTLY on a standalone doc -- but ChapterBoardMember is a child DocType
+# (istable: 1), and Frappe never calls d.run_method("validate") for a child row
+# saved the real way (chapter_doc.append("board_members", {...}) +
+# chapter_doc.save(), which is what BoardManager.add_board_member and every
+# other caller actually does). So this class exercised methods that never ran
+# outside the test itself and has been deleted along with them. The equivalent,
+# real-path-exercising coverage is:
+#   - required fields / Link existence: Frappe's own mandatory + Link-field
+#     validation (framework-level, not app code -- nothing to test here)
+#   - date range, active-status-vs-past-end-date, email format:
+#     BoardMemberValidator.validate_single_board_member() in
+#     chapter/validators/board_member_validator.py, now wired into
+#     ChapterValidator.validate_all() -> Chapter.validate(); see
+#     test_chapter.py::test_board_member_to_date_before_from_date_is_rejected
+#     for the through-Chapter.save() version of this same rule.
 
 
 class TestChapterSecurityBoardMemberApproval(EnhancedTestCase):

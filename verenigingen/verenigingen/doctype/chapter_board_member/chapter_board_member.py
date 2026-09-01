@@ -95,70 +95,17 @@ class ChapterBoardMember(Document):
         """
         withdraw_board_member_role_if_unseated(self.volunteer, exclude_row=self.name)
 
-    def validate(self):
-        """Validate board member data and relationships"""
-        self.validate_required_fields()
-        self.validate_volunteer_exists()
-        self.validate_role_exists()
-        self.validate_date_range()
-        self.validate_active_status()
-        self.validate_email_format()
-        self.validate_user_account()
-
-    def validate_required_fields(self):
-        """Validate required fields are present"""
-        if not self.volunteer:
-            frappe.throw("Volunteer is required for board member")
-        if not self.chapter_role:
-            frappe.throw("Chapter Role is required for board member")
-        if not self.from_date:
-            frappe.throw("Start Date (from_date) is required for board member")
-
-    def validate_volunteer_exists(self):
-        """Validate that the volunteer record exists"""
-        if self.volunteer and not frappe.db.exists("Volunteer", self.volunteer):
-            frappe.throw(f"Volunteer {self.volunteer} does not exist")
-
-    def validate_role_exists(self):
-        """Validate that the chapter role exists"""
-        if self.chapter_role and not frappe.db.exists("Chapter Role", self.chapter_role):
-            frappe.throw(f"Chapter Role {self.chapter_role} does not exist")
-
-    def validate_date_range(self):
-        """Validate start and end date logic"""
-        if self.from_date and self.to_date:
-            from_date = frappe.utils.getdate(self.from_date)
-            to_date = frappe.utils.getdate(self.to_date)
-            if to_date < from_date:
-                frappe.throw(f"End Date ({to_date}) cannot be before Start Date ({from_date})")
-
-    def validate_active_status(self):
-        """Validate active status consistency with dates"""
-        if self.is_active and self.to_date:
-            to_date = frappe.utils.getdate(self.to_date)
-            if to_date < frappe.utils.getdate(frappe.utils.today()):
-                frappe.throw(f"Board member cannot be active with an end date ({to_date}) in the past")
-
-    def validate_email_format(self):
-        """Validate email format if provided"""
-        if self.email:
-            import re
-
-            email_pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-            if not re.match(email_pattern, self.email):
-                frappe.throw(f"Invalid email format: {self.email}")
-
-    def validate_user_account(self):
-        """Ensure volunteer/member has a linked user account"""
-        if self.volunteer:
-            volunteer_doc = frappe.get_doc("Volunteer", self.volunteer)
-            if volunteer_doc.member:
-                user = frappe.db.get_value("Member", volunteer_doc.member, "user")
-                if not user:
-                    frappe.msgprint(
-                        f"Warning: Volunteer {self.volunteer} does not have a linked user account. Board member role cannot be assigned.",
-                        indicator="orange",
-                    )
+    # #596: this class used to define validate() (required fields, volunteer/role
+    # existence, date range, active-status-vs-past-end-date, email format, a
+    # missing-user-account warning). Frappe never runs it -- child DocType
+    # validate() is not called anywhere in insert()/save(). The rules worth
+    # keeping now run from the PARENT: ChapterValidator.validate_all() calls
+    # BoardMemberValidator.validate_all_board_members(), which runs
+    # validate_single_board_member() (same checks, same file:
+    # verenigingen/verenigingen/doctype/chapter/validators/board_member_validator.py)
+    # per row. The missing-user-account check was a msgprint warning, not a
+    # blocking rule, and is not ported; required-field/exists checks are also
+    # already covered by Frappe's own mandatory + Link-field validation.
 
     def _send_board_added_notification(self):
         """Send notification when a volunteer is added to the board."""

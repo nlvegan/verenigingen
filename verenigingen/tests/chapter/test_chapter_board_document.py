@@ -201,52 +201,19 @@ class TestChapterBoardDocument(EnhancedTestCase):
         with self.assertRaises(frappe.ValidationError):
             chapter_doc.save()
 
-    def test_file_type_validation(self):
-        """Test that only allowed file types can be uploaded"""
-        from verenigingen.verenigingen.doctype.chapter_board_document.chapter_board_document import ALLOWED_EXTENSIONS
-
-        # Verify our allowed extensions list includes common formats
-        self.assertIn('.pdf', ALLOWED_EXTENSIONS)
-        self.assertIn('.docx', ALLOWED_EXTENSIONS)
-        self.assertIn('.md', ALLOWED_EXTENSIONS)
-        self.assertIn('.epub', ALLOWED_EXTENSIONS)
-        self.assertIn('.jpg', ALLOWED_EXTENSIONS)
-
-        # Verify disallowed extensions are not in the list
-        self.assertNotIn('.exe', ALLOWED_EXTENSIONS)
-        self.assertNotIn('.bat', ALLOWED_EXTENSIONS)
-        self.assertNotIn('.sh', ALLOWED_EXTENSIONS)
-
-        # child-table-skip: validation testing only - no insert()
-        # Test the validation logic directly
-        test_doc = frappe.get_doc({
-            "doctype": "Chapter Board Document",
-            "document_type": "Policy",
-            "document_name": "Test Document",
-            "document_file": "/files/malicious.exe"
-        })
-
-        # Should raise validation error for .exe file
-        with self.assertRaises(frappe.ValidationError) as context:
-            test_doc.validate()
-        self.assertIn("not allowed", str(context.exception))
-
-    def test_path_traversal_prevention(self):
-        """Test that path traversal attempts in document names are blocked"""
-
-        # child-table-skip: validation testing only - no insert()
-        # Test the validation logic directly
-        test_doc = frappe.get_doc({
-            "doctype": "Chapter Board Document",
-            "document_type": "Policy",
-            "document_name": "../../etc/passwd",
-            "document_file": "/files/test.pdf"
-        })
-
-        # Should raise validation error for path traversal
-        with self.assertRaises(frappe.ValidationError) as context:
-            test_doc.validate()
-        self.assertIn("path", str(context.exception).lower())
+    # test_file_type_validation and test_path_traversal_prevention removed
+    # (#596). Both called `test_doc.validate()` directly on a standalone,
+    # never-inserted Chapter Board Document instance -- but Chapter Board
+    # Document is a child DocType (istable: 1), and Frappe never calls
+    # d.run_method("validate") for a child row saved the real way (via
+    # chapter_doc.append(...) + chapter_doc.save(), which is what every other
+    # test in this file and all production code actually does). So these two
+    # tests exercised code that never ran outside the test itself, and their
+    # ALLOWED_EXTENSIONS/path-traversal checks were removed along with the rest
+    # of the dead validate() -- board_documents is a hidden, deprecated field
+    # with no production writer (see chapter_board_document.py's docstring;
+    # board documents now live on the separate Organization Document doctype,
+    # exercised by test_document_retrieval_by_type below).
 
     def test_allowed_document_formats(self):
         """Test that common document formats are accepted"""

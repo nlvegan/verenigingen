@@ -36,11 +36,18 @@ class ChapterValidator(BaseValidator):
         info_result = self.info_validator.validate_chapter_info(chapter_data)
         result.merge(info_result)
 
-        # Validate board-level constraints only
-        # Individual board member validation happens in ChapterBoardMember.validate()
+        # Validate individual board members AND board-level constraints.
+        #
+        # #596: this used to call validate_board_constraints() only, on the belief
+        # that per-member validation happened in ChapterBoardMember.validate() --
+        # it never did, since Frappe does not run a child DocType's validate().
+        # validate_all_board_members() runs validate_single_board_member() per row
+        # (required fields, volunteer/role existence, date range, active-status-vs-
+        # past-end-date, email format) and then validate_board_constraints() for the
+        # board-level checks (unique roles, size), so nothing here is duplicated.
         if hasattr(self.chapter_doc, "board_members") and self.chapter_doc.board_members:
             board_data = self._board_members_to_list(self.chapter_doc.board_members)
-            board_result = self.board_validator.validate_board_constraints(board_data)
+            board_result = self.board_validator.validate_all_board_members(board_data)
             result.merge(board_result)
 
         # Validate postal codes
