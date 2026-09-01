@@ -3211,6 +3211,11 @@ def _process_mutation_with_coordinator(
                 # _process_single_mutation against a transaction the server has
                 # already discarded (or half-applied) -- not a "new processor
                 # failed" case the legacy path can retry (#572).
+                # KNOWN GAP (#731): a lost connection (2006/2013) is NOT a member
+                # of NON_RESUMABLE_DB_ERRORS -- verified empirically, it surfaces
+                # as a plain OperationalError on both driver backends, not
+                # QueryDeadlockError/QueryTimeoutError -- so it still falls through
+                # to the catch-all below instead of propagating here.
                 raise
             except Exception as proc_error:
                 debug_info.append(
@@ -3240,6 +3245,8 @@ def _process_mutation_with_coordinator(
         # opened for, one call frame further from the savepoint: the caller would
         # count it as an ordinary per-mutation failure and move on, on a
         # transaction the server has already discarded (or half-applied).
+        # KNOWN GAP (#731): same caveat as the guard above -- a lost connection
+        # (2006/2013) is not covered and still reaches the catch-all below.
         raise
     except Exception as processing_error:
         error_str = str(processing_error)
@@ -3723,6 +3730,9 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
                 # would feed every remaining mutation into state the server has
                 # already discarded, each appearing to succeed or fail on its own
                 # terms while actually resting on nothing. Propagate instead.
+                # KNOWN GAP (#731): a lost connection (2006/2013) is not a member of
+                # NON_RESUMABLE_DB_ERRORS (verified empirically against both driver
+                # backends) and would still be swallowed as a "LOOP ERROR" below.
                 raise
             except Exception as e:
                 failed += 1
