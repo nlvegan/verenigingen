@@ -17,13 +17,14 @@ class SEPAMandateUsage(Document):
     """Child table (istable: 1) of SEPA Mandate.usage_history.
 
     #596: this class used to define validate() (validate_mandate_status,
-    set_sequence_type, validate_amount). Frappe never runs it -- there is no
-    d.run_method("validate") for children anywhere in insert()/save().
-    create_mandate_usage_record() below already works around that for the
-    mandate-active check and for sequence_type (see its docstring -- it has to,
-    because validate() is skipped in some save paths regardless, e.g. under
-    frappe.flags.in_import). The amount-vs-maximum_amount check had no other
-    enforcement and now runs from SEPAMandate.validate_usage_history_amounts()
+    set_sequence_type, validate_amount). Frappe never runs it when this row is
+    saved via its parent (mandate.append(...); mandate.save()) -- there is no
+    d.run_method("validate") on that path. create_mandate_usage_record() below
+    already works around that for the mandate-active/not-expired check and for
+    sequence_type (see its docstring -- it has to, because validate() is skipped
+    in some save paths regardless, e.g. under frappe.flags.in_import). The
+    amount-vs-maximum_amount check had no other enforcement and now runs from
+    SEPAMandate.validate_usage_history_amounts()
     (verenigingen_payments/doctype/sepa_mandate/sepa_mandate.py), iterating
     self.usage_history from the parent, where Frappe actually calls validate().
     """
@@ -61,14 +62,9 @@ class SEPAMandateUsage(Document):
 
         return "RCUR"
 
-    def validate_amount(self):
-        """Validate amount against mandate limits"""
-        if not self.amount or not self.get("parent"):
-            return
-
-        mandate = frappe.get_doc("SEPA Mandate", self.parent)
-        if mandate.maximum_amount and self.amount > mandate.maximum_amount:
-            frappe.throw(f"Amount €{self.amount} exceeds mandate maximum of €{mandate.maximum_amount}")
+    # validate_amount() (amount vs mandate.maximum_amount) was removed along with
+    # validate() above -- it had no other caller, and its logic now lives on the
+    # parent (see the class docstring).
 
     # Note: SEPA Mandate Usage is a child table document ("istable": 1)
     # Child tables don't have on_submit() events - they're managed by the parent document

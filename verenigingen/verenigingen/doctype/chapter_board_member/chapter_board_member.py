@@ -95,17 +95,32 @@ class ChapterBoardMember(Document):
         """
         withdraw_board_member_role_if_unseated(self.volunteer, exclude_row=self.name)
 
-    # #596: this class used to define validate() (required fields, volunteer/role
-    # existence, date range, active-status-vs-past-end-date, email format, a
-    # missing-user-account warning). Frappe never runs it -- child DocType
-    # validate() is not called anywhere in insert()/save(). The rules worth
-    # keeping now run from the PARENT: ChapterValidator.validate_all() calls
-    # BoardMemberValidator.validate_all_board_members(), which runs
-    # validate_single_board_member() (same checks, same file:
-    # verenigingen/verenigingen/doctype/chapter/validators/board_member_validator.py)
-    # per row. The missing-user-account check was a msgprint warning, not a
-    # blocking rule, and is not ported; required-field/exists checks are also
-    # already covered by Frappe's own mandatory + Link-field validation.
+    def validate(self):  # child-validate-ok: this row is loaded and saved DIRECTLY
+        # (not via chapter_doc.append()+chapter_doc.save()) by
+        # services/chapter/chapter_assignment_service.py's board-term-ending code
+        # (frappe.get_doc("Chapter Board Member", name); ...; .save()). Frappe's
+        # child-table skip ONLY applies to a row saved as part of its parent's
+        # save -- a standalone Document.save() runs the full normal lifecycle on
+        # self regardless of istable, so validate() DOES run here. #596 originally
+        # deleted this method entirely on the (incomplete) belief that a child
+        # DocType's validate() never runs anywhere; it does, on this path.
+        #
+        # required-field/Link-existence checks are NOT repeated here -- those are
+        # covered by Frappe's own mandatory + Link-field validation regardless of
+        # this method. Date range, active-status-vs-past-end-date and email format
+        # have no other enforcement and are what this delegates to, via the same
+        # validator ChapterValidator.validate_all() uses for the parent.append()+
+        # save() path (verenigingen/verenigingen/doctype/chapter/validators/
+        # board_member_validator.py) -- one rule, one implementation, two call sites.
+        from verenigingen.verenigingen.doctype.chapter.validators.board_member_validator import (
+            BoardMemberValidator,
+        )
+
+        result = BoardMemberValidator().validate_single_board_member(self.as_dict())
+        for warning in result.warnings:
+            frappe.msgprint(warning, indicator="orange", alert=True)
+        if not result.is_valid:
+            frappe.throw("; ".join(result.errors))
 
     def _send_board_added_notification(self):
         """Send notification when a volunteer is added to the board."""

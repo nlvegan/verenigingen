@@ -227,7 +227,12 @@ class TestTeam(EnhancedTestCase):
             },
         )
 
-        with self.assertRaises(frappe.ValidationError):
+        # assertRaisesRegex, not assertRaises: frappe.LinkValidationError is a
+        # subclass of ValidationError (frappe/exceptions.py), so a bare
+        # assertRaises(ValidationError) would also pass for an unrelated failure
+        # -- e.g. "Team Member" not existing as a valid Team Role -- and prove
+        # nothing about the date-range rule under test.
+        with self.assertRaisesRegex(frappe.ValidationError, "End date cannot be before start date"):
             team.save()
 
     def test_team_member_active_flag_and_status_are_kept_in_sync(self):
@@ -244,6 +249,25 @@ class TestTeam(EnhancedTestCase):
         team.reload()
 
         self.assertEqual(team.team_members[0].status, "Inactive")
+
+    def test_team_member_is_active_flag_is_cleared_when_status_is_not_active(self):
+        """The other direction of the same sync: is_active=1 with a non-"Active"
+        status must clear is_active, not touch status.
+
+        Ported verbatim from the dead TeamMember.sync_status_and_active_flag()
+        ("elif self.is_active and self.status != 'Active': self.is_active = 0")
+        -- asymmetric on purpose (it corrects is_active, not status, in this
+        branch) and untested before this: only the is_active=0 branch above had
+        coverage. See #596.
+        """
+        team = self.create_test_team()
+        team.team_members[0].is_active = 1
+        team.team_members[0].status = "On Leave"
+        team.save()
+        team.reload()
+
+        self.assertEqual(team.team_members[0].status, "On Leave")
+        self.assertFalse(team.team_members[0].is_active)
 
     def test_team_creation(self):
         """Test creating a team"""

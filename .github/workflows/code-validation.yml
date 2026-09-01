@@ -432,6 +432,33 @@ jobs:
             body: body
           });
 
+  # Same reason as the swallowed-exception ratchet above: the pre-commit hook can
+  # be skipped (`git commit -n`, `SKIP=`) and only ever sees the files in one
+  # commit. This is a HARD GATE, not a ratchet with a baseline -- #596 emptied the
+  # census to zero, so there is nothing pre-existing to grandfather in and any
+  # finding here is a fresh instance of the same bug class.
+  child-doctype-validate-guard:
+    name: 🧟 Dead Child-Validate Guard (hard gate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    # Stdlib-only (ast, json, argparse, pathlib) by design: no bench, no site,
+    # no dependency install.
+    - name: Unit-test the guard itself
+      run: python -m unittest discover -s scripts/validation/tests -p 'test_child_doctype_validate_guard.py' -v
+
+    - name: Whole-tree check
+      run: python scripts/validation/child_doctype_validate_guard.py
+
   # The former `integration-test` job was deleted in PR #53.
   # It invoked scripts/testing/runners/validation_test_runner.py, which was
   # removed on 2026-03-03 by the test-suite Phase 1 dead-code sweep (commit

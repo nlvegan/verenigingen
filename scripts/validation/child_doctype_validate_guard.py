@@ -1,30 +1,51 @@
 #!/usr/bin/env python3
-"""Hard gate: a controller for an `"istable": 1` DocType must not define `validate()`.
+"""Hard gate: a controller for an `"istable": 1` DocType must not define `validate()`
+UNLESS it is genuinely invoked as a standalone document (see the exemption below).
 
-Frappe never runs a child DocType's `validate()`. `Document.run_before_save_methods`
-(`frappe/model/document.py`) calls `self.run_method("validate")` on the **parent
-only**; `Document._validate()` iterates children calling framework helpers
-exclusively (`_validate_data_fields`, `_validate_selects`, `_validate_non_negative`,
-...) -- there is no `d.run_method("validate")` anywhere in that path, for either
-`insert()` or `save()`. Measured on `test_site_1`: spying `MemberSEPAMandateLink
-.validate` across two `Member.save()` calls that each appended a new child row
-counted 0 invocations, with the parent's own `validate()` (the control, in the same
-run) firing once per save -- see #596.
+Frappe does not run a child row's `validate()` when that row is saved AS PART OF ITS
+PARENT's save -- the normal way child rows are created/updated
+(`parent.append(...); parent.save()`). `Document._save()`'s `update_children()` ->
+`update_child_table()` calls `d.db_update()` on each child directly;
+`insert()` calls `d.db_insert()` the same way. Neither goes through
+`d.run_method(...)`, so `d.validate()` never runs on that path. Measured on
+`test_site_1`: spying `MemberSEPAMandateLink.validate` across two `Member.save()`
+calls that each appended a new child row counted 0 invocations, with the parent's
+own `validate()` (the control, in the same run) firing once per save -- see #596.
 
-A `def validate` on a child controller is therefore dead code. It is either
-harmless (the rule it states is enforced elsewhere) or a SILENT GAP -- the only
-statement of a rule that consequently never runs. #596 found 15 of these; one, on
-`Member SEPA Mandate Link`, was the documented mechanism behind another DocType's
-behaviour and the fix for #584 had to work around its absence.
+**This does NOT mean a child controller's `validate()` never runs at all.** A child
+row is still an ordinary `Document` instance: `frappe.get_doc("<child doctype>",
+name).save()` runs the FULL normal lifecycle on `self` -- `_save()` calls
+`self.run_before_save_methods()` -> `self.run_method("validate")` unconditionally,
+with no special case for `istable: 1`. Measured directly: spying `Document.run_method`
+while loading and saving a "Has Role" row (istable: 1) standalone recorded a
+`validate` call for that exact row. Two production sites do this today --
+`chapter_assignment_service.py`'s board-term-ending code and
+`member_subscribers.py`'s status sync both `frappe.get_doc("Chapter ...", name)` then
+`.save()` the row directly, bypassing the parent Chapter entirely.
+
+A `def validate` on a child controller is therefore dead code **only on the
+parent.append()+parent.save() path**. It is either harmless there (the rule is
+enforced elsewhere on that path), a SILENT GAP on that path, or -- if the class is
+also saved standalone anywhere in this codebase -- genuinely live and must stay.
+#596 found 15 sites of the first two kinds; one, on `Member SEPA Mandate Link`, was
+the documented mechanism behind another DocType's behaviour and the fix for #584 had
+to work around its absence. Grep for `frappe.get_doc("<ThisDocType>"` before deleting
+one of these -- a hit followed by `.save()` on the same variable means the class is
+NOT dead code and needs a `# child-validate-ok:` exemption instead (see below), not a
+deletion.
 
 This is a HARD GATE, not a ratchet: #596 emptied the census to zero by moving each
-real rule into its parent's `validate()` (iterating the child table there) and
-deleting the rest, so any new hit is a fresh instance of the same class of bug, not
-inherited debt. There is nothing to grandfather in.
+parent.append()+save()-path rule into its parent's `validate()` (iterating the child
+table there), restoring a thin standalone-invocation `validate()` where a direct-save
+site was found, and deleting the rest, so any new hit is a fresh instance of the same
+class of bug, not inherited debt. There is nothing to grandfather in.
 
-A deliberate exception -- a child controller intentionally invoked directly, never
-through `parent.save()` -- is exempted by putting a `# child-validate-ok: <reason>`
-comment on the `def validate` line itself.
+A deliberate exception -- a child controller intentionally invoked directly, via
+`frappe.get_doc("<ThisDocType>", name).save()` somewhere in the codebase -- is
+exempted by putting a `# child-validate-ok: <reason>` comment on the `def validate`
+line itself. Prefer naming the actual call site in the reason, e.g.
+`# child-validate-ok: chapter_assignment_service.py loads and saves this row
+directly`.
 
 Usage:
     python scripts/validation/child_doctype_validate_guard.py             # whole tree
@@ -39,7 +60,13 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SCAN_ROOTS = ["verenigingen"]
+# Absolute, not "verenigingen": a relative root resolves against the CALLER's cwd,
+# not this file's location. From repo root that happens to still work; from any
+# other cwd (a pre-commit hook can run from either, and so can a bare `python
+# scripts/validation/child_doctype_validate_guard.py` invoked from elsewhere) it
+# silently scans zero files and reports a vacuous "clean" census. Measured: from
+# /tmp this walked 0 files and returned exit 0 with the relative form.
+SCAN_ROOTS = [str(REPO_ROOT / "verenigingen")]
 EXCLUDE_DIR_NAMES = {
     "node_modules",
     ".git",
@@ -173,13 +200,13 @@ def main(argv=None) -> int:
     if findings:
         print(
             "Child DocType Validate Guard: def validate() on an \"istable\": 1 controller "
-            "is DEAD CODE."
+            "is DEAD CODE on the parent.append()+parent.save() path (see #596)."
         )
         print(
-            "Frappe never calls it (see #596) -- there is no d.run_method(\"validate\") for "
-            "children anywhere in insert()/save(). Move the rule into the PARENT's validate(), "
-            "iterating the child table there, or delete it if the rule is already enforced "
-            "elsewhere."
+            "Move the rule into the PARENT's validate(), iterating the child table there, "
+            "or delete it if the rule is already enforced elsewhere. If this class IS saved "
+            "standalone somewhere (grep for frappe.get_doc(\"<ThisDocType>\", ...) followed "
+            "by .save()), validate() DOES run there -- keep it and exempt the line instead."
         )
         print(
             f'Deliberate exception: `def validate(self):  # {EXEMPT_MARKER} <reason>`\n'

@@ -31,8 +31,16 @@ class SEPARetryBatch(Document):
             return
 
         for operation in self.operations:
-            # Set defaults for new operations. Moved here from the dead
-            # SEPARetryOperation.validate() (#596).
+            # Set defaults for new operations, BEFORE the retry_attempts<=max_retries
+            # check below. Moved here from the dead SEPARetryOperation.validate()
+            # (#596) in the same order that method used. This is a behaviour change
+            # from the tree just before this PR (though not from anything that ever
+            # actually ran): the check below used to sit above a max_retries default
+            # set only at the bottom of the loop, so `if operation.retry_attempts and
+            # operation.max_retries` was False -- and the check silently skipped --
+            # for a row with retry_attempts set and max_retries left unset. Ordering
+            # the default first, as the original dead code did, means that row now
+            # gets checked and can throw where it silently saved before.
             if not operation.status:
                 operation.status = "Pending"
 

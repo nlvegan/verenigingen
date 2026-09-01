@@ -40,15 +40,29 @@ class ChapterValidator(BaseValidator):
         #
         # #596: this used to call validate_board_constraints() only, on the belief
         # that per-member validation happened in ChapterBoardMember.validate() --
-        # it never did, since Frappe does not run a child DocType's validate().
-        # validate_all_board_members() runs validate_single_board_member() per row
-        # (required fields, volunteer/role existence, date range, active-status-vs-
-        # past-end-date, email format) and then validate_board_constraints() for the
-        # board-level checks (unique roles, size), so nothing here is duplicated.
+        # it never did, since Frappe does not run a child DocType's validate() on
+        # the parent.append()+parent.save() path. validate_single_board_member()
+        # checks required fields, volunteer/role existence, date range,
+        # active-status-vs-past-end-date and email format.
+        #
+        # Scoped to ACTIVE rows only (not validate_all_board_members(), which runs
+        # it over every row unconditionally): a Chapter accumulates historical,
+        # already-closed board terms (is_active=0) that were never validated by
+        # anything before this change -- volunteer.email, for instance, has no
+        # Email fieldtype validation at all, so a malformed address sitting in a
+        # years-old closed term is unremarkable today. Retroactively enforcing
+        # these rules against history would make ANY future Chapter save --
+        # including one touching only, say, the introduction text -- fail on data
+        # nobody is changing. New and currently-active rows are exactly what "is
+        # this board valid right now" should mean.
         if hasattr(self.chapter_doc, "board_members") and self.chapter_doc.board_members:
             board_data = self._board_members_to_list(self.chapter_doc.board_members)
-            board_result = self.board_validator.validate_all_board_members(board_data)
-            result.merge(board_result)
+            for i, member in enumerate(board_data):
+                if member.get("is_active"):
+                    result.merge(self.board_validator.validate_single_board_member(member, i))
+            # Board-level constraints (unique roles, size) look at active rows
+            # internally already and are unaffected by history the same way.
+            result.merge(self.board_validator.validate_board_constraints(board_data))
 
         # Validate postal codes
         if chapter_data.get("postal_codes"):

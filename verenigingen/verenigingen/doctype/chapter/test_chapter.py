@@ -861,3 +861,75 @@ class TestChapter(EnhancedTestCase):
             0,
             "The invalid-date-range board member row must not have been persisted",
         )
+
+    def test_saving_an_unrelated_field_does_not_retroactively_validate_closed_board_terms(self):
+        """A historical (is_active=0) board member row with an invalid email must
+        NOT block a Chapter save that has nothing to do with that row.
+
+        ChapterValidator.validate_all() scopes the per-row checks (email format,
+        date range, active-status) added for #596 to ACTIVE rows only. Without
+        that scoping, this row -- created with a malformed email that nothing
+        ever validated (volunteer.email has no Email fieldtype constraint) --
+        would fail on every future save of this Chapter, including one that only
+        touches the introduction text, since Frappe never ran a per-row check
+        against it while it was open either.
+        """
+        unique_id = self.get_unique_id()
+        chapter = frappe.get_doc(
+            {
+                "doctype": "Chapter",
+                "name": f"Test Historical Board Chapter {unique_id}",
+                "region": self.test_region,
+                "status": "Active",
+                "introduction": "Original introduction",
+            }
+        )
+        chapter.insert()
+
+        volunteer = frappe.get_doc(
+            {
+                "doctype": "Volunteer",
+                "volunteer_name": f"Historical Test Volunteer {unique_id}",
+                "email": f"historical{unique_id}@organization.org",
+                "member": self.test_member.name,
+                "status": "Active",
+                "start_date": today(),
+            }
+        )
+        volunteer.insert()
+
+        role_name = f"Historical Test Role {unique_id}"
+        role = frappe.get_doc(
+            {
+                "doctype": "Chapter Role",
+                "role_name": role_name,
+                "permissions_level": "Basic",
+                "is_active": 1,
+            }
+        )
+        role.insert()
+
+        # A closed board term with data that would fail validate_single_board_member
+        # (malformed email) if it were checked -- but it is closed (is_active=0),
+        # so it should never be re-litigated.
+        chapter.append(
+            "board_members",
+            {
+                "volunteer": volunteer.name,
+                "volunteer_name": volunteer.volunteer_name,
+                "email": "not-a-valid-email",
+                "chapter_role": role_name,
+                "from_date": add_days(today(), -365),
+                "to_date": add_days(today(), -30),
+                "is_active": 0,
+            },
+        )
+        chapter.save()  # EnhancedTestCase handles permissions
+
+        # An unrelated later save must still succeed.
+        chapter.reload()
+        chapter.introduction = "Updated introduction, nothing to do with the board"
+        chapter.save()  # must not raise
+
+        chapter.reload()
+        self.assertEqual(chapter.introduction, "Updated introduction, nothing to do with the board")
