@@ -44,14 +44,20 @@ ROOTS = {
     "Supplier Group": "All Supplier Groups",
 }
 
-# Callables that guarantee at least one of the roots before it is used.
+# Callables that guarantee ALL THREE roots before any is used. Deliberately
+# does NOT include `ensure_prerequisites`: it creates "All Customer Groups"
+# unconditionally but "All Item Groups" only inside its own
+# `if not exists("Item Group", "Services")` branch, and never touches
+# "All Supplier Groups" at all -- listing it here would be a blanket claim
+# this guard cannot back for two of the three roots. Its one real consumer,
+# `test_setup_init.py`, is exempted below by name instead, scoped to the one
+# root it actually depends on.
 _ROOT_SEEDERS = (
     "ensure_root_item_group",
     "ensure_root_customer_group",
     "ensure_root_supplier_group",
     "ensure_erpnext_base_masters",
     "ensure_member_test_masters",
-    "ensure_prerequisites",
 )
 
 # Modules that name a root but never write it to the database. Exempt with the
@@ -61,16 +67,43 @@ _NO_DATABASE_WRITE = {
     # row of any of these doctypes is read or written. Same file, same reason,
     # as `test_harness_territory_root._NO_DATABASE_WRITE`.
     "verenigingen/tests/e_boekhouden/test_party_resolver.py",
-    # Names "All Supplier Groups" only as `BASE_MASTER_SENTINEL`, a
-    # (doctype, name) tuple used to probe `ensure_erpnext_base_masters()`'s
-    # gate -- read, deleted and restored under its own `rows_deleted`
-    # savepoint machinery, never assumed to pre-exist as a fixture.
-    "verenigingen/tests/test_harness_territory_root.py",
+    # `TestSetupSeedFunctions.test_ensure_prerequisites` (the only class here
+    # naming a root) calls `setup_mod.ensure_prerequisites()` immediately
+    # before asserting "All Customer Groups" exists, and that call recreates
+    # the row itself when missing -- MEASURED empirically during #562's
+    # investigation (deleting the root and calling `ensure_prerequisites()`
+    # recreated it). Not a `_ROOT_SEEDERS` entry because `ensure_prerequisites`
+    # does not reliably cover the other two roots -- see the comment there.
+    "verenigingen/tests/backend/components/test_setup_init.py",
 }
 
 
 class GroupRootsAreSeededTest(unittest.TestCase):
     """Behaviour, against the real seeders and the real database."""
+
+    @classmethod
+    def setUpClass(cls):
+        """Seed what these tests then take away.
+
+        A plain `unittest.TestCase` reaches neither harness base, so this
+        module would otherwise need the tree an earlier module left behind --
+        the exact order-dependence it exists to close. Without this, every
+        test here that assumes a warm site passes only because
+        `test_each_root_seeder_is_idempotent` (alphabetically earlier) happens
+        to call each seeder first and leave the roots behind -- an
+        order-dependent test whose control is satisfied by a sibling, caught
+        during #562's review.
+        """
+        super().setUpClass()
+        from verenigingen.tests.setup import (
+            ensure_root_customer_group,
+            ensure_root_item_group,
+            ensure_root_supplier_group,
+        )
+
+        ensure_root_item_group()
+        ensure_root_customer_group()
+        ensure_root_supplier_group()
 
     def test_the_probe_actually_removes_each_root(self):
         """The control. Without this, every test below could pass on a warm
@@ -127,20 +160,21 @@ class GroupRootsAreSeededTest(unittest.TestCase):
                 seeder()
                 self.assertEqual(1, frappe.db.count(doctype, {"name": root}))
 
-    def test_harness_setup_seeds_all_three_roots_before_any_test_body_runs(self):
+    def test_the_item_group_seeder_makes_a_child_insert_possible(self):
         """The actual regression: #562's write
         (`test_membership_utilities.py:85-88`, an `Item Group` insert under
-        "All Item Groups") must succeed once a class on either harness base has
-        gone through its setUp/setUpClass, even on a site where nothing else
-        seeded the tree. Reproduces the write directly rather than importing
-        `MembershipTestUtilities` -- the point under test is the root's
-        presence, not that helper's other side effects."""
+        "All Item Groups") must succeed once `ensure_root_item_group()` -- what
+        both harness bases now call from setUp/setUpClass, see
+        `enhanced_test_factory.py` and `tests/utils/base.py` -- has run, even on
+        a site where nothing else seeded the tree. Reproduces the write
+        directly rather than importing `MembershipTestUtilities` -- the point
+        under test is the root's presence, not that helper's other side
+        effects. This test calls the seeder itself rather than going through
+        either harness base; `HarnessBasesSeedAllThreeRootsTest` below is what
+        pins that both bases actually reach it."""
         with rows_deleted("Item Group", ROOTS["Item Group"]):
             from verenigingen.tests.setup import ensure_root_item_group
 
-            # This is exactly what both harness bases now call from
-            # setUp/setUpClass -- see enhanced_test_factory.py and
-            # tests/utils/base.py.
             ensure_root_item_group()
 
             item_group = frappe.get_doc(
@@ -152,10 +186,9 @@ class GroupRootsAreSeededTest(unittest.TestCase):
                 }
             )
             item_group.insert(ignore_permissions=True)
-            try:
-                self.assertTrue(frappe.db.exists("Item Group", "TestGroupRoots562"))
-            finally:
-                frappe.delete_doc("Item Group", "TestGroupRoots562", force=True, ignore_permissions=True)
+            self.assertTrue(frappe.db.exists("Item Group", "TestGroupRoots562"))
+            # No cleanup: the whole block is inside `rows_deleted`'s savepoint,
+            # which rolls back this insert along with the root deletion above.
 
 
 class HarnessBasesSeedAllThreeRootsTest(unittest.TestCase):
@@ -163,20 +196,23 @@ class HarnessBasesSeedAllThreeRootsTest(unittest.TestCase):
 
     `ensure_root_territory` existing was not enough on its own (#516/#524); the
     same is true here unless something on the path every harness-based test
-    takes actually calls the three new seeders. This inspects the two call
-    sites directly (`tests/utils/base.py` and
-    `tests/fixtures/enhanced_test_factory.py`) via the same AST-call-detection
-    used by the source guard below, rather than instantiating either full test
-    base -- doing that from inside a test module would recurse.
-    """
+    takes actually calls the three new seeders. This inspects the call site
+    directly via the same AST-call-detection used by the source guard below,
+    rather than instantiating the full test base -- doing that from inside a
+    test module would recurse.
 
-    def test_verenigingen_test_case_setup_class_calls_all_three_seeders(self):
-        path = APP_ROOT / "verenigingen" / "tests" / "utils" / "base.py"
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        calls = called_names(tree)
-        for seeder in ("ensure_root_item_group", "ensure_root_customer_group", "ensure_root_supplier_group"):
-            with self.subTest(seeder=seeder):
-                self.assertIn(seeder, calls, f"tests/utils/base.py never calls {seeder}()")
+    Only `tests/fixtures/enhanced_test_factory.py` is pinned here.
+    `tests/utils/base.py` -> `VereningingenTestCase.setUpClass` is already
+    pinned by `test_harness_setup_fatal.SetupCallsAreNotSwallowedTest.
+    test_every_named_setup_call_is_still_there_to_guard` (the three seeders are
+    listed in that module's `UNGUARDED_CALLS` for that file) -- a second copy
+    of the same assertion here would be exactly the kind of duplicate the
+    duplicate-helper ratchet exists to catch. `enhanced_test_factory.py`'s
+    call is deliberately NOT in `UNGUARDED_CALLS` (its surrounding handler
+    re-raises rather than swallows, so that guard's "not caught by an except"
+    check would misreport a re-raise as a swallow), which is why it still
+    needs its own pin here.
+    """
 
     def test_enhanced_test_factory_calls_all_three_seeders(self):
         path = APP_ROOT / "verenigingen" / "tests" / "fixtures" / "enhanced_test_factory.py"
@@ -194,6 +230,19 @@ class GroupRootConsumersOutsideTheHarnessAreGuardedTest(unittest.TestCase):
     `test_harness_territory_root.TerritoryConsumersOutsideTheHarnessAreGuardedTest`
     -- read that class's docstring for what this cannot see (a mention vs. a
     write, import side effects, per-file rather than per-class granularity).
+
+    Two more, specific to this guard: the sweep globs `test_*.py` only and
+    `looks_like_a_test_class` needs a `TestCase`-shaped base or a `test*`
+    method, so it cannot see a plain helper class with no `unittest.TestCase`
+    anywhere in reach -- which is exactly #562's own named exposure.
+    `MembershipTestUtilities` (`test_membership_utilities.py`, despite the
+    filename) is such a class: it defines `_create_membership_item`'s
+    unguarded Item Group write but contains zero test classes itself, so this
+    guard would not have flagged that file even before the fix. What actually
+    closes that gap is every real caller (`test_membership_type_minimum_
+    period.py`, `test_membership_controller.py`, `test_application_submission_
+    validation.py`) reaching a harness base -- verified by hand, not by this
+    guard.
     """
 
     def test_every_test_module_naming_a_root_either_inherits_it_or_seeds_it(self):

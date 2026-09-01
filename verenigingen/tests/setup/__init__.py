@@ -380,9 +380,10 @@ def _erpnext_base_masters_present():
 
     Deliberately NOT ``exists("Territory", "All Territories")`` alone. That row
     used to be a sound proxy for the whole set -- ``get_preset_records("India")``
-    creates "All Territories", "All Customer Groups", "All Item Groups" and
-    "All Supplier Groups" in one batch (``erpnext/setup/setup_wizard/operations/
-    install_fixtures.py``), so any one of them implied the batch had run.
+    creates "All Territories", "All Customer Groups", "All Item Groups",
+    "All Supplier Groups" and ``Warehouse Type`` "Transit" in one batch
+    (``erpnext/setup/setup_wizard/operations/install_fixtures.py``), so any one
+    of them implied the batch had run.
 
     ``ensure_root_territory`` broke that: it creates the root on its own, from
     three call sites that never reach this function
@@ -399,10 +400,20 @@ def _erpnext_base_masters_present():
     Fixing the raise is what made the sentinel forgeable, which is why the gate
     moves here in the same change.
 
-    "All Supplier Groups" is the half that cannot be forged: this app creates no
-    ``Supplier Group`` anywhere (25 references, all reads). The root Territory is
-    kept in the conjunction because it is the row every Customer defaults to, so
-    its absence must open the gate even on a site that somehow has the rest.
+    The second conjunct used to be ``Supplier Group`` "All Supplier Groups" --
+    "the half that cannot be forged", per this docstring before #562 -- on the
+    strength of this app writing no ``Supplier Group`` anywhere. #562 broke THAT
+    invariant too: ``ensure_root_supplier_group()`` now creates exactly that row
+    from both harness bases, the same shape that made the Territory-only gate
+    forgeable in the first place (MEASURED: with only the Territory root seeded,
+    the old two-doctype gate read closed). ``Warehouse Type`` "Transit" replaces
+    it as the sentinel this app genuinely never writes (0 occurrences outside
+    comments, verified) -- Company creation depends on it
+    (``create_default_warehouses`` -> "Could not find Warehouse Type: Transit"),
+    so nothing here can create a plausible reason to write it defensively either.
+    The root Territory is kept in the conjunction because it is the row every
+    Customer defaults to, so its absence must open the gate even on a site that
+    somehow has the rest.
 
     Residual, deliberately NOT handled here: ``BootStrapTestData()`` runs on
     IMPORT, once per process. If a rollback removes its rows after that import,
@@ -411,7 +422,7 @@ def _erpnext_base_masters_present():
     still strictly better than closing on a row a neighbour forged.
     """
     return frappe.db.exists("Territory", "All Territories") and frappe.db.exists(
-        "Supplier Group", "All Supplier Groups"
+        "Warehouse Type", "Transit"
     )
 
 
@@ -620,6 +631,13 @@ def ensure_root_item_group():
     untracked (shared with production Item records, so per-test drains must not
     delete it), and deliberately does NOT commit -- both harness bases call this
     from setup that runs before the captured-insert hook is installed.
+
+    Residual, shared with ``ensure_root_territory``/``ensure_root_department``
+    and not newly introduced here: ERPNext's own preset creates this row as
+    ``_("All Item Groups")``, so on a non-English site language this and the
+    real one would coexist and ``NestedSet.validate_one_root`` would raise
+    ``NestedSetMultipleRootsError``. This app hardcodes English test data
+    throughout; not fixed here.
     """
     if frappe.db.exists("Item Group", "All Item Groups"):
         return

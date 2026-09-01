@@ -142,7 +142,13 @@ class TerritoryRootIsSeededTest(unittest.TestCase):
         self.assertEqual(1, frappe.db.count("Territory", {"name": ROOT}))
 
 
-BASE_MASTER_SENTINEL = ("Supplier Group", "All Supplier Groups")
+BASE_MASTER_SENTINEL = ("Warehouse Type", "Transit")
+#: Was `("Supplier Group", "All Supplier Groups")` until #562: that root is no
+#: longer forge-proof once `ensure_root_supplier_group()` exists (both harness
+#: bases now create it directly, same shape that made the Territory-only gate
+#: forgeable in the first place -- see `_erpnext_base_masters_present`'s
+#: docstring). `Warehouse Type` "Transit" replaces it: same
+#: `get_preset_records("India")` batch, zero writes anywhere in this app.
 
 
 class SeedingTheRootMustNotCloseTheBaseMasterGateTest(unittest.TestCase):
@@ -209,6 +215,42 @@ class SeedingTheRootMustNotCloseTheBaseMasterGateTest(unittest.TestCase):
                 "the base-master gate closed on the root Territory alone, so "
                 "ensure_erpnext_base_masters() will early-return and seed nothing: "
                 "no Customer Groups, no Chart of Accounts, no set_defaults_for_tests()",
+            )
+
+    def test_the_full_harness_seeding_path_does_not_close_the_gate(self):
+        """The pin #562 needed and did not have: the ACTUAL harness call chain
+        (Territory, then Item Group, Customer Group, Supplier Group -- what
+        `VereningingenTestCase.setUpClass` and `EnhancedTestCase.setUp` both run)
+        must not forge the sentinel between them. A pin scoped to
+        `ensure_root_territory` alone stayed green while
+        `ensure_root_supplier_group()` (added in the same change) broke this
+        exact property for a different doctype -- MEASURED during #562's review.
+        """
+        from verenigingen.tests.setup import (
+            _erpnext_base_masters_present,
+            ensure_netherlands_territory,
+            ensure_root_customer_group,
+            ensure_root_item_group,
+            ensure_root_supplier_group,
+        )
+
+        doctype, name = BASE_MASTER_SENTINEL
+        with rows_deleted(doctype, name):
+            ensure_netherlands_territory()
+            ensure_root_item_group()
+            ensure_root_customer_group()
+            ensure_root_supplier_group()
+
+            self.assertFalse(
+                frappe.db.exists(doctype, name),
+                f"precondition: {doctype} {name} must still be absent",
+            )
+            self.assertFalse(
+                _erpnext_base_masters_present(),
+                "the full harness seeding path closed the base-master gate without "
+                "Warehouse Type 'Transit' present, so ensure_erpnext_base_masters() "
+                "will early-return and seed nothing for every module that calls "
+                "ensure_member_test_masters() afterwards",
             )
 
     def test_the_root_seeder_writes_nothing_that_could_forge_the_sentinel(self):

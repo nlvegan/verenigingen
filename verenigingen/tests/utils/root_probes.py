@@ -104,8 +104,19 @@ def non_harness_test_classes(tree: ast.Module) -> list:
     NOT defined in this same file (an imported class under some other name)
     still cannot be resolved further -- see `looks_like_a_test_class`'s
     docstring for why that residual is accepted rather than chased.
+
+    The resolution map is built from MODULE-LEVEL classes only
+    (`tree.body`), not every `ClassDef` an `ast.walk` finds: keying by name
+    from a walk that also visits nested classes lets an inner class of the
+    same name silently overwrite an outer one's entry, corrupting resolution
+    for both. A base name that refers to a nested class does not resolve
+    (falls through to the imported-name case above) rather than risk that
+    collision -- nested test-harness base classes are not a pattern this app
+    uses.
     """
-    class_bases = {node.name: _base_names(node) for node in ast.walk(tree) if isinstance(node, ast.ClassDef)}
+    class_bases = {
+        node.name: _base_names(node) for node in tree.body if isinstance(node, ast.ClassDef)
+    }
 
     def reaches_harness(name: str, seen: set) -> bool:
         if name in HARNESS_BASES:
@@ -119,7 +130,7 @@ def non_harness_test_classes(tree: ast.Module) -> list:
     for node in ast.walk(tree):
         if not isinstance(node, ast.ClassDef):
             continue
-        base_names = class_bases[node.name]
+        base_names = _base_names(node)
         if not looks_like_a_test_class(node, base_names):
             continue
         if any(reaches_harness(base, set()) for base in base_names):

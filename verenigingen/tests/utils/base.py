@@ -2792,12 +2792,14 @@ class VereningingenIntegrationTestCase(VereningingenTestCase):
             )
             company.insert(ignore_permissions=True)
 
-        # Ensure default customer group
-        if not frappe.db.exists("Customer Group", "All Customer Groups"):
-            customer_group = frappe.get_doc(
-                {"doctype": "Customer Group", "customer_group_name": "All Customer Groups", "is_group": 1}
-            )
-            customer_group.insert(ignore_permissions=True)
+        # Ensure default customer group. `ensure_member_test_masters()` above
+        # already guarantees this via `ensure_root_customer_group()` (#562);
+        # this call is now just that -- kept explicit rather than relying on
+        # the transitive path, since the class docstring above still promises
+        # "Customer Groups" as one of the things this method ensures.
+        from verenigingen.tests.setup import ensure_root_customer_group
+
+        ensure_root_customer_group()
 
     def execute_workflow_stage(self, workflow_name, stage_name, context):
         """Execute a specific workflow stage"""
