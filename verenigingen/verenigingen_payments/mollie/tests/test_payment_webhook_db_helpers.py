@@ -198,14 +198,35 @@ class TestCreatePaymentEntryForDonation(EnhancedTestCase):
         donation, donor = _make_unsubmitted_donation(self, donor_name="NoBank Donor", amount=10.0)
         self._persist_donor_customer_link(donor, self._persist_customer("NoBank Customer").name)
 
-        # Ensure the bank lookups all fail: no default_bank_account, no 'Mollie'
-        # account. (Settings.mollie_bank_account is not a real field -> .get None.)
-        frappe.db.set_value("Company", company, "default_bank_account", None)
         if frappe.db.exists("Account", {"company": company, "account_name": "Mollie"}):
             self.skipTest("Site has a 'Mollie' account; bank-missing branch not reproducible")
 
-        result = create_payment_entry_for_donation(donation, {"payment_id": "tr_nobank", "method": "ideal"})
-        self.assertIsNone(result)
+        # Ensure the bank lookups all fail: no default_bank_account, no 'Mollie'
+        # account. (Settings.mollie_bank_account is not a real field -> .get None.)
+        # Unset only within this test, with the Company document cache cleared so
+        # erpnext's get_cached_value re-reads it, and restored in `finally` --
+        # mirroring test_sepa_reconciliation.py's pattern for the same field. Left
+        # to tearDown's rollback alone (as before), this write survives any commit
+        # `create_payment_entry_for_donation` -- or a future change to it -- makes
+        # on a reachable path, permanently stripping the company's bank default for
+        # the rest of the shard (#582). The `finally` restore commits explicitly:
+        # if a commit ever DOES land between the null-write and here, an uncommitted
+        # restore is itself undone by the next rollback (measured -- a simulated
+        # intervening commit left the field None after rollback with no commit here,
+        # and restored with one), so this is Pattern 3/4 from CLAUDE.md's Transaction
+        # Handling Patterns, not an unconditional commit habit.
+        original_default = frappe.db.get_value("Company", company, "default_bank_account")
+        frappe.db.set_value("Company", company, "default_bank_account", None)
+        frappe.clear_document_cache("Company", company)
+        try:
+            result = create_payment_entry_for_donation(
+                donation, {"payment_id": "tr_nobank", "method": "ideal"}
+            )
+            self.assertIsNone(result)
+        finally:
+            frappe.db.set_value("Company", company, "default_bank_account", original_default)
+            frappe.clear_document_cache("Company", company)
+            frappe.db.commit()
 
     def test_idempotent_returns_existing_payment_entry(self):
         """When a Payment Entry already exists for (reference_no, party), the
