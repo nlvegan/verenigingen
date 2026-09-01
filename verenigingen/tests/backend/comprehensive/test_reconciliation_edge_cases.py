@@ -216,8 +216,7 @@ class TestPartialPaymentReconciliation(VereningingenTestCase):
             self.track_doc("Bank", bank_doc.name)
             bank = bank_doc.name
 
-        # Get a GL account
-        gl_account = frappe.db.get_value("Account", {"account_type": "Bank", "is_group": 0}, "name")
+        gl_account = self._get_or_create_bank_gl_account()
 
         bank_account = frappe.new_doc("Bank Account")
         bank_account.account_name = f"Test Bank Account {frappe.generate_hash(length=6)}"
@@ -227,6 +226,38 @@ class TestPartialPaymentReconciliation(VereningingenTestCase):
         bank_account.save()
         self.track_doc("Bank Account", bank_account.name)
         return bank_account.name
+
+    def _get_or_create_bank_gl_account(self):
+        """A non-group Bank-type GL Account on `_Test Company`, creating one if absent.
+
+        Company-scoped and get-or-create: an unscoped `frappe.db.get_value("Account",
+        {"account_type": "Bank", "is_group": 0}, "name")` resolves to "whichever Bank
+        account some other module created most recently" (get_value orders by
+        `creation DESC`), and returns None outright on a site with no non-group Bank
+        account at all -- both live exposures fixed under #583. `_Test Company` matches
+        `create_test_invoice`'s hardcoded company above, not `self.settings_company`.
+        """
+        company = "_Test Company"
+        gl_account = frappe.db.get_value(
+            "Account", {"company": company, "account_type": "Bank", "is_group": 0}, "name"
+        )
+        if gl_account:
+            return gl_account
+
+        parent = frappe.db.get_value(
+            "Account", {"company": company, "account_type": "Bank", "is_group": 1}, "name"
+        ) or frappe.db.get_value(
+            "Account", {"company": company, "root_type": "Asset", "is_group": 1}, "name"
+        )
+        account = frappe.new_doc("Account")
+        account.account_name = f"Test Bank GL {frappe.generate_hash(length=6)}"
+        account.company = company
+        account.parent_account = parent
+        account.account_type = "Bank"
+        account.is_group = 0
+        account.save()
+        self.track_doc("Account", account.name)
+        return account.name
 
     def reconcile_transaction(self, transaction):
         """Attempt to reconcile a bank transaction.
@@ -284,7 +315,29 @@ class TestDuplicatePaymentDetection(VereningingenTestCase):
                 bank_doc.save()
                 self.track_doc("Bank", bank_doc.name)
                 bank = bank_doc.name
-            gl_account = frappe.db.get_value("Account", {"account_type": "Bank", "is_group": 0}, "name")
+            # Company-scoped and get-or-create: an unscoped lookup here resolves to
+            # "whichever Bank account some other module created most recently"
+            # (get_value orders creation DESC) and returns None on a site with no
+            # non-group Bank account at all -- #583.
+            company = "_Test Company"
+            gl_account = frappe.db.get_value(
+                "Account", {"company": company, "account_type": "Bank", "is_group": 0}, "name"
+            )
+            if not gl_account:
+                parent = frappe.db.get_value(
+                    "Account", {"company": company, "account_type": "Bank", "is_group": 1}, "name"
+                ) or frappe.db.get_value(
+                    "Account", {"company": company, "root_type": "Asset", "is_group": 1}, "name"
+                )
+                gl_doc = frappe.new_doc("Account")
+                gl_doc.account_name = f"Test Bank GL {frappe.generate_hash(length=6)}"
+                gl_doc.company = company
+                gl_doc.parent_account = parent
+                gl_doc.account_type = "Bank"
+                gl_doc.is_group = 0
+                gl_doc.save()
+                self.track_doc("Account", gl_doc.name)
+                gl_account = gl_doc.name
             account = frappe.new_doc("Bank Account")
             account.account_name = f"Test Bank Account {frappe.generate_hash(length=6)}"
             account.bank = bank

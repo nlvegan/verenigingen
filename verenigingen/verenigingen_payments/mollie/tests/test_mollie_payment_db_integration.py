@@ -51,9 +51,11 @@ def _ensure_bank_account(test_case):
     """Return a usable Bank Account, creating one (linked to a real bank GL
     account) if the site has none. Tracked for cleanup when created here."""
     company = _get_test_company()
-    existing = frappe.db.get_value("Bank Account", {"company": company}, "name") or frappe.db.get_value(
-        "Bank Account", {}, "name"
-    )
+    # Company-scoped only: the unscoped `or frappe.db.get_value("Bank Account", {},
+    # "name")` fallback this replaced could return ANY Bank Account on the site --
+    # cross-company, by recency -- instead of falling through to the create branch
+    # below (#583).
+    existing = frappe.db.get_value("Bank Account", {"company": company}, "name")
     if existing:
         return existing
 

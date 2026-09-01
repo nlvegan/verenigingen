@@ -51,7 +51,7 @@ import frappe
 from frappe.utils import add_days, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+from verenigingen.tests.support.sepa_test_company import get_eur_bank_account, get_eur_test_company
 
 # ---------------------------------------------------------------------------
 # Patch seam (proven; identical to test_mollie_debug_service.py).
@@ -878,15 +878,15 @@ class TestBulkProcessMemberPayments(_BulkServiceTest):
 
     # --- fixtures ---------------------------------------------------------
     def _ensure_eur_bank_account(self):
+        """The EUR test company's owned Bank Account, created if absent.
+
+        The previous version searched progressively wider filters ending in `{}`
+        -- any Bank Account on the site at all, by recency -- which could return a
+        non-EUR, cross-company row instead of failing loudly (#583).
+        `get_eur_bank_account` owns the account by name rather than borrowing.
+        """
         company = get_eur_test_company()
-        for filters in ({"is_company_account": 1, "company": company}, {"is_company_account": 1}, {}):
-            for ba in frappe.get_all("Bank Account", filters=filters, pluck="name"):
-                account = frappe.db.get_value("Bank Account", ba, "account")
-                if account and frappe.db.get_value("Account", account, "account_currency") == "EUR":
-                    return ba
-        return frappe.db.get_value("Bank Account", {"is_company_account": 1}, "name") or frappe.db.get_value(
-            "Bank Account", {}, "name"
-        )
+        return get_eur_bank_account(company)
 
     def _make_draft_bank_transaction(self, bank_account):
         bt = frappe.new_doc("Bank Transaction")

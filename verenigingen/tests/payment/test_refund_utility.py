@@ -22,6 +22,7 @@ from unittest.mock import patch
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.sepa_test_company import get_eur_bank_account, get_eur_test_company
 from verenigingen.verenigingen_payments.mollie.tests.mollie_test_helper import (
     ensure_mollie_reversal_accounts,
 )
@@ -44,9 +45,16 @@ def _bank_company():
     ERPNext '_Test'/'Wind Power LLC' companies) -> a 'Pay'-type Payment Entry
     then fails with 'No Bank account found'. Pinning a bank-equipped company makes
     these tests independent of the ambient default company.
+
+    The previous version derived the company from `frappe.db.get_value("Account",
+    {"account_type": "Bank", "is_group": 0}, "company")` -- whichever company last
+    had a Bank-type leaf account created (get_value orders `creation DESC`), and
+    None on a shard with none yet (#583). `get_eur_test_company` + `get_eur_bank_account`
+    own both the company and its Bank Account by name instead of borrowing either.
     """
-    company = frappe.db.get_value("Account", {"account_type": "Bank", "is_group": 0}, "company")
-    return company or frappe.get_list("Company", limit=1)[0].name
+    company = get_eur_test_company()
+    get_eur_bank_account(company)
+    return company
 
 
 def _make_supplier(test_case):
