@@ -288,6 +288,71 @@ class TestMemberIBANHistory(EnhancedTestCase):
         self.assertEqual(member.bic, original_bic)
 
 
+class TestMemberIBANHistoryParentValidation(EnhancedTestCase):
+    """#596: Member IBAN History's own validate() never runs (it's a child
+    DocType -- Frappe only calls validate() on the parent). These rules were
+    only ever enforced there in the dead code; this proves they now run from
+    Member.validate() instead, which iterates member.iban_history.
+    """
+
+    def test_bic_is_backfilled_for_a_row_appended_without_one(self):
+        """Mirrors services/member/approval/member_approval_service.py's
+        create_member_iban_history(), which appends iban_history with no bic
+        key at all. Before #596 nothing ever derived one for that row."""
+        member = self.create_test_member(iban="NL91ABNA0417164300")
+        member.append(
+            "iban_history",
+            {
+                "iban": member.iban,
+                "bank_account_name": member.bank_account_name or "Approval Test",
+                "from_date": today(),
+                "is_active": 0,  # avoid colliding with the row create_test_member may set up
+                "change_reason": "Application Approval",
+            },
+        )
+        member.save()
+        member.reload()
+
+        appended = next(
+            r for r in member.iban_history if r.change_reason == "Application Approval"
+        )
+        self.assertEqual(appended.bic, "ABNANL2A")
+
+    def test_to_date_before_from_date_is_rejected(self):
+        member = self.create_test_member(iban="NL13TEST0123456789")
+        member.append(
+            "iban_history",
+            {
+                "iban": member.iban,
+                "bic": member.bic,
+                "bank_account_name": "Bad Dates",
+                "from_date": "2026-01-10",
+                "to_date": "2026-01-01",
+                "is_active": 0,
+                "change_reason": "Other",
+            },
+        )
+        with self.assertRaises(frappe.ValidationError):
+            member.save()
+
+    def test_active_row_with_a_to_date_is_rejected(self):
+        member = self.create_test_member(iban="NL13TEST0123456789")
+        member.append(
+            "iban_history",
+            {
+                "iban": member.iban,
+                "bic": member.bic,
+                "bank_account_name": "Active With End Date",
+                "from_date": today(),
+                "to_date": today(),
+                "is_active": 1,
+                "change_reason": "Other",
+            },
+        )
+        with self.assertRaises(frappe.ValidationError):
+            member.save()
+
+
 def run_tests():
     """Run all Member IBAN history tests"""
     suite = unittest.TestLoader().loadTestsFromTestCase(TestMemberIBANHistory)

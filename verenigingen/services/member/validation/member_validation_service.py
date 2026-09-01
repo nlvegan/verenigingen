@@ -222,6 +222,7 @@ class MemberValidationService(StatelessService):
             member_doc.validate_payment_method()
             member_doc.set_payment_reference()
             member_doc.validate_bank_details()
+            member_doc.validate_iban_history_rows()
 
             return {"success": True}
         except Exception as e:

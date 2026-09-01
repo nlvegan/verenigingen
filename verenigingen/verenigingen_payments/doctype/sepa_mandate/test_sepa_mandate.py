@@ -515,6 +515,35 @@ class TestSEPAMandate(EnhancedTestCase):
             # Just verify the test runs without validation in test context
             self.mandate.save()
 
+    def test_usage_amount_over_mandate_maximum_is_rejected(self):
+        """A usage row whose amount exceeds the mandate's maximum_amount must be rejected.
+
+        SEPA Mandate Usage's own validate() used to check this (validate_amount), but
+        Frappe never runs a child DocType's validate(). create_mandate_usage_record()
+        already works around the dead validate() for the mandate-active/expired check
+        and for sequence_type, but NOT for this amount check -- so today a usage row
+        with amount > maximum_amount persists silently, both through
+        create_mandate_usage_record() and through a direct append+save. See #596.
+        """
+        self.mandate.status = "Active"
+        self.mandate.maximum_amount = 100.00
+        self.mandate.insert()
+
+        self.mandate.append(
+            "usage_history",
+            {
+                "usage_date": today(),
+                "reference_doctype": "Sales Invoice",
+                "reference_name": "INV-TEST-OVERLIMIT",
+                "amount": 150.00,
+                "sequence_type": "RCUR",
+                "status": "Pending",
+            },
+        )
+
+        with self.assertRaises(frappe.ValidationError):
+            self.mandate.save()
+
 
 def create_test_member():
     """Helper function to create a test member with a unique alphanumeric name"""

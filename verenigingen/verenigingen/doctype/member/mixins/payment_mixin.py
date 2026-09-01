@@ -312,6 +312,44 @@ class PaymentMixin:
 
         return result.data.get("formatted_iban", iban)
 
+    def validate_iban_history_rows(self):
+        """Enforce the rules `Member IBAN History.validate()` stated but never ran.
+
+        Member IBAN History is a child table (`"istable": 1`), so Frappe never calls
+        its own `validate()` -- see #596. Its `to_date`/`is_active` consistency checks
+        had no other enforcement, and its BIC auto-derivation was the only thing that
+        would have filled in a missing BIC for a row appended without one (as
+        `services/member/approval/member_approval_service.py`'s
+        `create_member_iban_history` does). IBAN format/checksum validation is
+        deliberately NOT repeated here: `track_iban_change` above already formats and
+        validates `self.iban` before appending, so every row this class itself writes
+        already carries a clean IBAN; re-validating a possibly-legacy IBAN already
+        sitting in history on every subsequent save would risk breaking old records
+        this method never touched before.
+        """
+        from verenigingen.utils.validation.iban_validator import derive_bic_from_iban
+
+        for row in self.iban_history:
+            if row.to_date and row.from_date and row.to_date < row.from_date:
+                frappe.throw(
+                    _("IBAN History row {0}: Valid Until date cannot be before Valid From date").format(
+                        row.idx
+                    )
+                )
+
+            if row.is_active and row.to_date:
+                frappe.throw(
+                    _("IBAN History row {0}: Active IBAN records should not have an end date").format(row.idx)
+                )
+
+            if not row.changed_by:
+                row.changed_by = frappe.session.user
+
+            if row.iban and not row.bic:
+                derived_bic = derive_bic_from_iban(row.iban)
+                if derived_bic:
+                    row.bic = derived_bic
+
     def track_iban_change(self):
         """
         Track IBAN changes in history.
