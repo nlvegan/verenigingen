@@ -415,6 +415,15 @@ def _erpnext_base_masters_present():
     Customer defaults to, so its absence must open the gate even on a site that
     somehow has the rest.
 
+    Caveat on "genuinely never writes": that holds for how CI actually
+    provisions a site (``reinstall`` + ``install-app``, which marks patches
+    complete without executing them -- ``set_all_patches_as_completed()``).
+    erpnext's ``v13_0/stock_entry_enhancements`` patch creates this exact row
+    directly, outside ``get_preset_records``, when it actually RUNS -- which
+    would only happen on a site restored from a pre-that-patch snapshot and
+    then migrated forward. If this app ever provisions test sites that way,
+    this sentinel silently stops detecting an unseeded site.
+
     Residual, deliberately NOT handled here: ``BootStrapTestData()`` runs on
     IMPORT, once per process. If a rollback removes its rows after that import,
     re-entering the branch below cannot recreate them -- the import is cached and
