@@ -622,52 +622,14 @@ class TestSEPAReturnFileLog(EnhancedTestCase):
         self.assertEqual(log.failed_reversals, 2)
 
 
-class TestPaymentHistory(EnhancedTestCase):
-    """Tests for Payment History child table — uniqueness and validation.
-
-    Payment History is a child table of Donation. We test validation
-    logic directly since creating full Donation parents is complex.
-    """
-
-    def setUp(self):
-        super().setUp()
-        frappe.set_user("Administrator")
-
-    def test_payment_history_validate_required_fields(self):
-        """Missing payment_date should throw."""
-        ph = frappe.new_doc("Payment History")
-        ph.payment_date = None
-        ph.amount = 10
-        ph.payment_status = "Completed"
-        with self.assertRaises(frappe.ValidationError):
-            ph.validate_required_fields()
-
-    def test_payment_history_invalid_amount(self):
-        """Zero or negative amount should throw."""
-        ph = frappe.new_doc("Payment History")
-        ph.payment_date = today()
-        ph.amount = 0
-        ph.payment_status = "Completed"
-        with self.assertRaises(frappe.ValidationError):
-            ph.validate_required_fields()
-
-    def test_payment_history_invalid_status(self):
-        """Invalid payment status should throw."""
-        ph = frappe.new_doc("Payment History")
-        ph.payment_date = today()
-        ph.amount = 10
-        ph.payment_status = "InvalidStatus"
-        with self.assertRaises(frappe.ValidationError):
-            ph.validate_required_fields()
-
-    def test_payment_history_valid_statuses(self):
-        """All valid statuses should pass validation."""
-        for status in ["Open", "Pending", "Completed", "Cancelled", "Error"]:
-            ph = frappe.new_doc("Payment History")
-            ph.payment_date = today()
-            ph.amount = 10
-            ph.payment_status = status
-            ph.validate_required_fields()  # Should not raise
+# TestPaymentHistory removed (#596). It exercised PaymentHistory.validate_required_fields()
+# directly -- a method that lived only inside the dead child-DocType validate() this issue
+# removed. Its own docstring's premise ("Payment History is a child table of Donation") was
+# already wrong: no DocType JSON on this bench declares a Table field pointing at "Payment
+# History" (Donation's actual payment child table is the distinct "Donation Payment"), and no
+# non-test code references the doctype name at all. The tests called the private helper
+# directly rather than going through .validate(), so they never actually exercised the
+# framework gap #596 is about; removing them loses no real coverage.
 
 
 class TestMollieReconciliationService(EnhancedTestCase):

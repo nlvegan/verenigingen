@@ -511,3 +511,29 @@ class TestDonation(EnhancedTestCase):
             donation.save()
         enqueued = [c for c in mock_enqueue.call_args_list if "send_payment_confirmation_email" in str(c)]
         self.assertTrue(enqueued, "Expected payment confirmation email to be enqueued on paid transition")
+
+    # ------------------------------------------------------------------
+    # validate() — Donation Payment rows (#596)
+    # ------------------------------------------------------------------
+    def test_mollie_payment_row_without_id_is_rejected(self):
+        """A `payments` row with payment_method "Mollie" must carry a mollie_payment_id.
+
+        Donation Payment's own validate() used to check this, but Frappe never
+        runs a child DocType's validate(). Nothing else checked it, so before
+        #596 a Mollie payment row with a blank mollie_payment_id persisted
+        silently. See donation_payment.py for why the OTHER half of that dead
+        method (amount > 0) was deleted rather than ported: production
+        deliberately appends negative amounts for refunds.
+        """
+        donation = self._make_donation()
+        donation.append(
+            "payments",
+            {
+                "payment_date": frappe.utils.today(),
+                "amount": 10,
+                "payment_method": "Mollie",
+                "payment_status": "Pending",
+            },
+        )
+        with patch("frappe.sendmail"), self.assertRaises(frappe.ValidationError):
+            donation.insert()
