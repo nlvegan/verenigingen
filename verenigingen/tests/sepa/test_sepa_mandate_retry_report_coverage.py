@@ -436,24 +436,25 @@ class TestSEPARetryOperationController(EnhancedTestCase):
     """Real-doc coverage for the SEPA Retry Operation child controller (18.6%)."""
 
     def _validated_operation(self, **kwargs):
-        """Build a standalone SEPA Retry Operation and run its REAL controller
-        validate(), returning the validated doc.
+        """Build a SEPA Retry Batch carrying one operation row, insert it through
+        the real controller, and return the validated operation row.
 
-        Frappe does NOT auto-run a child-table controller's validate() when the
-        parent is saved, and EnhancedTestCase runs with frappe.flags.in_import
-        set (which also suppresses JSON field defaults on child rows). Inserting
-        a parent batch therefore neither applies the operation's defaults nor
-        runs its business rules. Driving SEPARetryOperation.validate() directly
-        exercises the actual production unit under test (the same approach the
-        is_eligible_for_retry / should_retry_now tests already use).
+        #596: SEPA Retry Operation is a child DocType (istable: 1), so Frappe
+        never calls d.run_method("validate") on it -- there is no such call
+        anywhere in insert()/save(). Its defaults and business rules now run
+        from SEPARetryBatch.validate() -> validate_operations()
+        (sepa_retry_batch.py), iterating self.operations from the PARENT, which
+        is what Frappe actually calls. This used to construct a standalone
+        SEPARetryOperation and call its own (dead) .validate() directly --
+        exercising code that never ran outside the test. Going through the real
+        parent insert() is what actually proves these rules apply in production.
         """
-        from verenigingen.verenigingen_payments.doctype.sepa_retry_operation.sepa_retry_operation import (
-            SEPARetryOperation,
-        )
-
-        op = SEPARetryOperation({"doctype": "SEPA Retry Operation", "operation_type": "Other", **kwargs})
-        op.validate()
-        return op
+        batch = frappe.new_doc("SEPA Retry Batch")
+        batch.batch_date = today()
+        batch.append("operations", {"operation_type": "Other", **kwargs})
+        batch.insert()
+        self._track_test_document("SEPA Retry Batch", batch.name)
+        return batch.operations[0]
 
     def test_validate_sets_defaults(self):
         op = self._validated_operation()

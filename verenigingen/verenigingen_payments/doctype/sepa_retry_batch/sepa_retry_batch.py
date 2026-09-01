@@ -1,6 +1,8 @@
 # Copyright (c) 2025, Verenigingen and contributors
 # For license information, please see license.txt
 
+from datetime import timedelta
+
 import frappe
 from frappe import _
 from frappe.model.document import Document
@@ -29,6 +31,22 @@ class SEPARetryBatch(Document):
             return
 
         for operation in self.operations:
+            # Set defaults for new operations. Moved here from the dead
+            # SEPARetryOperation.validate() (#596).
+            if not operation.status:
+                operation.status = "Pending"
+
+            if not operation.retry_attempts:
+                operation.retry_attempts = 0
+
+            if not operation.max_retries:
+                operation.max_retries = 3
+
+            # Success should have at least one attempt recorded. Moved here from
+            # the dead SEPARetryOperation.validate() (#596).
+            if operation.status == "Success" and operation.retry_attempts == 0:
+                operation.retry_attempts = 1
+
             # Validate operation type is set
             if not operation.operation_type:
                 frappe.throw(_("Operation type is required for all retry operations"))
@@ -52,9 +70,26 @@ class SEPARetryBatch(Document):
                         )
                     )
 
-            # Set default max retries if not specified (following SEPAErrorHandler pattern)
-            if not operation.max_retries:
-                operation.max_retries = 3
+            # Validate the reference document exists. Moved here from the dead
+            # SEPARetryOperation.validate() (#596) -- Frappe never runs a child
+            # DocType's validate(), so this was never enforced.
+            if operation.reference_doctype and operation.reference_document:
+                if not frappe.db.exists(operation.reference_doctype, operation.reference_document):
+                    frappe.throw(
+                        _("Reference document {0} of type {1} does not exist").format(
+                            operation.reference_document, operation.reference_doctype
+                        )
+                    )
+
+            # Compute the exponential-backoff next_retry_time for a still-pending
+            # operation. Moved here from the dead SEPARetryOperation.validate()
+            # (#596) -- without it, should_retry_now() ("if not self.next_retry_time:
+            # return True") retries immediately with no backoff.
+            if operation.status == "Pending" and operation.retry_attempts and not operation.next_retry_time:
+                base_delay_minutes = 5
+                delay_minutes = base_delay_minutes * (2 ** (operation.retry_attempts - 1))
+                delay_minutes = min(delay_minutes, 120)  # Cap at 2 hours
+                operation.next_retry_time = now_datetime() + timedelta(minutes=delay_minutes)
 
     def calculate_totals(self):
         """Calculate batch totals from the in-memory operations.

@@ -1,8 +1,6 @@
 # Copyright (c) 2025, Verenigingen and contributors
 # For license information, please see license.txt
 
-import frappe
-from frappe import _
 from frappe.model.document import Document
 from frappe.utils import now_datetime
 
@@ -13,84 +11,19 @@ class SEPARetryOperation(Document):
     Following patterns from DirectDebitBatch child table validation
     """
 
-    def validate(self):
-        """Validate retry operation - following child table patterns from main system"""
-        # Set defaults for new operations
-        if not self.status:
-            self.status = "Pending"
-
-        if not self.retry_attempts:
-            self.retry_attempts = 0
-
-        if not self.max_retries:
-            self.max_retries = 3  # Following SEPAErrorHandler default
-
-        # Validate retry logic constraints
-        self.validate_retry_constraints()
-        self.validate_error_category()
-        self.validate_reference_documents()
-
-    def validate_retry_constraints(self):
-        """Validate retry attempt constraints - adapted from DirectDebitBatch validation patterns"""
-        # Check if retry attempts exceed maximum
-        if self.retry_attempts > self.max_retries:
-            frappe.throw(
-                _("Retry attempts ({0}) cannot exceed max retries ({1}) for {2} operation").format(
-                    self.retry_attempts, self.max_retries, self.operation_type
-                )
-            )
-
-        # Validate status transitions
-        if self.status == "Success" and self.retry_attempts == 0:
-            # Success should have at least one attempt recorded
-            self.retry_attempts = 1
-
-        # Set next retry time if still retrying
-        if self.status == "Pending" and self.retry_attempts > 0:
-            if not self.next_retry_time:
-                # Calculate next retry time using exponential backoff (following SEPAErrorHandler pattern)
-                from datetime import timedelta
-
-                base_delay_minutes = 5  # 5 minutes base delay
-                delay_minutes = base_delay_minutes * (2 ** (self.retry_attempts - 1))
-                delay_minutes = min(delay_minutes, 120)  # Cap at 2 hours
-
-                self.next_retry_time = now_datetime() + timedelta(minutes=delay_minutes)
-
-    def validate_error_category(self):
-        """Validate error category matches allowed values from SEPAErrorHandler"""
-        if self.error_category:
-            allowed_categories = ["temporary", "validation", "authorization", "data", "unknown"]
-            if self.error_category not in allowed_categories:
-                frappe.throw(_("Error category must be one of: {0}").format(", ".join(allowed_categories)))
-
-            # Auto-set retry eligibility based on category (following SEPAErrorHandler logic)
-            if self.error_category in ["validation", "data"]:
-                # These typically shouldn't be retried
-                if self.status == "Pending" and self.retry_attempts > 0:
-                    frappe.logger().warning(
-                        f"Warning: {self.error_category} errors typically cannot be resolved by retrying for operation {self.name}"
-                    )
-
-    def validate_reference_documents(self):
-        """Validate reference document information"""
-        # If reference document is specified, validate the doctype exists
-        if self.reference_doctype and self.reference_document:
-            if not frappe.db.exists(self.reference_doctype, self.reference_document):
-                frappe.throw(
-                    _("Reference document {0} of type {1} does not exist").format(
-                        self.reference_document, self.reference_doctype
-                    )
-                )
-
-        # Some operation types should have reference documents
-        operation_types_requiring_reference = ["Invoice Creation", "Mandate Validation", "Payment Processing"]
-
-        if self.operation_type in operation_types_requiring_reference:
-            if not (self.reference_doctype and self.reference_document):
-                frappe.logger().warning(
-                    f"Operation type '{self.operation_type}' typically requires a reference document for operation {self.name}"
-                )
+    # #596: this class used to define validate() (default status/retry_attempts/
+    # max_retries, retry_attempts <= max_retries, error_category allow-list,
+    # exponential-backoff next_retry_time, reference-document existence). Frappe
+    # never runs it -- there is no d.run_method("validate") for children anywhere
+    # in insert()/save(). SEPARetryBatch.validate() -> validate_operations()
+    # (sepa_retry_batch.py) already iterates self.operations from the parent and
+    # now carries every one of these checks, including the two that had no other
+    # enforcement (reference-document existence and the backoff computation --
+    # without the latter, should_retry_now() below retries immediately since
+    # next_retry_time is never set). The error-category-vs-status "shouldn't be
+    # retried" and reference-document-recommended notices were frappe.logger()
+    # .warning() calls, which are dropped by default handler level and never
+    # written anywhere CI or an operator would see -- not preserved.
 
     def is_eligible_for_retry(self):
         """Check if this operation is eligible for retry - following SEPAErrorHandler patterns"""
