@@ -205,12 +205,21 @@ class TestCreatePaymentEntryForDonation(EnhancedTestCase):
         # account. (Settings.mollie_bank_account is not a real field -> .get None.)
         # Unset only within this test, with the Company document cache cleared so
         # erpnext's get_cached_value re-reads it, and restored in `finally` --
-        # mirroring test_sepa_reconciliation.py's pattern for the same field. Left
-        # to tearDown's rollback alone (as before), this write survives any commit
-        # `create_payment_entry_for_donation` -- or a future change to it -- makes
-        # on a reachable path, permanently stripping the company's bank default for
-        # the rest of the shard (#582). Both the null-write and the restore are
-        # inside `try`/`finally` so a raise between them still restores.
+        # mirroring test_sepa_reconciliation.py:1608-1637's pattern for the same
+        # field, which relies on tearDown's rollback alone and does NOT commit
+        # here. #582 established `create_payment_entry_for_donation` commits on
+        # NO reachable path today, so there is nothing an explicit commit would be
+        # protecting against yet -- and unlike the shard-wide memoized value
+        # `sepa_test_company.py:404-410` guards (idempotent, same result on every
+        # call), `original_default` is a per-test snapshot of ambient site config:
+        # whether "this company already has a real default" is true depends on
+        # what an unrelated earlier test in the shard happened to stamp, which is
+        # exactly the order-dependent failure class #581/#582/#583 exist to
+        # eliminate -- a commit here would fire on some sites/orderings and not
+        # others, for no benefit today. Both the null-write and the restore are
+        # inside `try`/`finally` so a raise between them still restores. If a
+        # future change adds a commit inside `create_payment_entry_for_donation`,
+        # revisit this with the actual commit boundary in view.
         original_default = frappe.db.get_value("Company", company, "default_bank_account")
         try:
             frappe.db.set_value("Company", company, "default_bank_account", None)
@@ -222,18 +231,6 @@ class TestCreatePaymentEntryForDonation(EnhancedTestCase):
         finally:
             frappe.db.set_value("Company", company, "default_bank_account", original_default)
             frappe.clear_document_cache("Company", company)
-            # Commit the restore only when it actually moved something: this repo's
-            # own guard for the same situation (sepa_test_company.py:404-410) --
-            # committing unconditionally took a sibling suite's TEST-LEAK count from
-            # 3/3/3 to 6/6/4 by prematurely committing this test's other in-flight,
-            # not-yet-tracked fixtures. If a commit ever DOES land between the
-            # null-write and here (none does today, on any path this test reaches --
-            # verified by reading create_payment_entry_for_donation in full), an
-            # uncommitted restore is itself undone by the next test's rollback
-            # (measured with a simulated intervening commit); when nothing else
-            # commits, restoring None to None costs nothing to also skip.
-            if original_default is not None:
-                frappe.db.commit()
 
     def test_idempotent_returns_existing_payment_entry(self):
         """When a Payment Entry already exists for (reference_no, party), the
