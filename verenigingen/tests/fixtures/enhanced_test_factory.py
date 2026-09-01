@@ -4842,18 +4842,27 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # That is the inversion this drain ordering exists to prevent.
         self._track_test_document("Sales Invoice", invoice.name, priority=6)
 
-        # Update grand_total and outstanding_amount manually for testing
-        # This simulates overdue invoices with specific amounts
+        # Submit if status is not Draft
+        if kwargs.get("status") != "Draft":
+            invoice.submit()
+
+        # Update grand_total and outstanding_amount manually for testing. This
+        # simulates overdue/paid invoices with specific amounts.
+        #
+        # MUST run AFTER submit(): submit() posts GL entries, and
+        # update_outstanding_amt() (gl_entry.py) recomputes and overwrites
+        # outstanding_amount from the ledger. A db_set() done before submit() is
+        # silently discarded by that overwrite -- so a fixture invoice meant to be
+        # "Paid" (outstanding_amount=0) was actually left at the real
+        # ledger-calculated value (#609). Draft invoices never submit, so this
+        # reordering makes no difference for them -- the block below still runs.
         if "grand_total" in kwargs or "outstanding_amount" in kwargs:
             invoice.db_set("grand_total", kwargs.get("grand_total", invoice.grand_total))
             invoice.db_set("outstanding_amount", kwargs.get("outstanding_amount", invoice.outstanding_amount))
 
-        # Submit if status is not Draft
-        if kwargs.get("status") != "Draft":
-            invoice.submit()
-            # Update status after submit if needed (for Overdue status)
-            if kwargs.get("status") == "Overdue":
-                invoice.db_set("status", "Overdue")
+        # Update status after submit if needed (for Overdue status)
+        if kwargs.get("status") == "Overdue":
+            invoice.db_set("status", "Overdue")
 
         return invoice
 
