@@ -197,6 +197,7 @@ from frappe.utils import getdate
 from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.tests.utils.error_log_guard import ErrorLogGuardMixin
 from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
+from verenigingen.utils.timestamp_normalization import strip_whole_second_suffix
 
 from .field_validator import FieldValidationError, FieldValidator
 
@@ -2330,6 +2331,10 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # captured/drained (it must persist across methods). addCleanup guarantees
         # the patch is removed even if the test errors.
         self._captured_inserts = []
+        # #609: every whole-second creation/modified string normalized inside
+        # _capturing_db_insert lands here -- see that method's docstring for
+        # why this list exists (harness-fidelity trade-off, made assertable).
+        self._normalized_whole_second_timestamps = []
         self._install_insert_capture()
         self.addCleanup(self._uninstall_insert_capture)
 
@@ -2353,15 +2358,51 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
           long-term fix is for tests to create such records via the tracked factory
           rather than raw inserts. Deletions swallow all errors and never fail
           tearDown.
+
+        Also normalizes #609's whole-second creation/modified defect (see
+        verenigingen/utils/timestamp_normalization.py): a whole-second
+        `freeze_time()` makes an insert()-then-save()/submit() of the same
+        in-memory object raise TimestampMismatchError or
+        CannotChangeConstantError 100% of the time (production sees the same
+        defect at ~1-in-10^6 per document). This wrapper is the one place
+        every test-site insert already passes through, so trimming the
+        in-memory string here defuses all 277 test sites named in #609 from
+        one place, the same way the doc_events["*"] after_insert hook covers
+        the 21 production sites.
+
+        HARNESS-FIDELITY TRADE-OFF (deliberate, see #609): once this fires,
+        the test no longer exercises the real framework insert->save
+        timestamp path for that document -- the very re-stringify mismatch
+        this defect is about never has a chance to occur, because the
+        in-memory string was fixed before any save/submit happened. That is
+        the point (six whole-second `freeze_time()` decorators in this app
+        would otherwise fail 100% of the time on every run), but it is a
+        real reduction in what the harness proves, so this must not be
+        silent: every normalization is appended to
+        `self._normalized_whole_second_timestamps` (assert against it
+        directly) and logged via the harness logger (visible in CI, unlike a
+        bare `frappe.logger()` -- see CLAUDE.md's "known traps").
         """
         import frappe.model.document as _docmod
 
         self._orig_db_insert = _docmod.Document.db_insert
         captured = self._captured_inserts
+        normalized = self._normalized_whole_second_timestamps
         orig = self._orig_db_insert
 
         def _capturing_db_insert(doc, *args, **kwargs):
             result = orig(doc, *args, **kwargs)
+            try:
+                touched = strip_whole_second_suffix(doc)
+                if touched:
+                    normalized.append((doc.doctype, doc.name, tuple(touched)))
+                    get_harness_logger("timestamp_normalization").warning(
+                        f"[#609] normalized whole-second timestamp on {doc.doctype} "
+                        f"{doc.name}: {touched} (harness-fidelity trade-off -- see "
+                        "_install_insert_capture's docstring)"
+                    )
+            except Exception:
+                pass
             if _insert_capture_suspended:
                 # A shared, process-wide fixture is being built. See
                 # suspend_insert_capture() for why claiming these rows is wrong.
