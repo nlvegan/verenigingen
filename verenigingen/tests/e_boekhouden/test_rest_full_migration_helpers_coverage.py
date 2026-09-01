@@ -21,8 +21,12 @@ This file targets the *remaining* helpers:
   - _get_memorial_booking_amounts        (pure debit/credit convention)
   - _get_bank_transaction_stats          (DB aggregate + branch formatting)
   - _retry_transient_failures            (no-retry / non-transient branches)
-  - _finalize_mutation_savepoint         (savepoint release / tolerant failure)
   - _validate_memorial_booking           (balance assertion / raise paths)
+
+_finalize_mutation_savepoint moved to test_mutation_savepoint.py (#572): that file
+asserts real rollback/release side effects (a written ToDo appears or vanishes) plus
+non-resumable-error propagation, which this file's versions never did -- they only
+asserted "does not raise", which a `pass` body also satisfies.
 
 Run with:
     bench --site veg11.veganisme.org run-tests --app verenigingen \
@@ -36,7 +40,6 @@ import frappe
 from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
     _check_if_already_imported,
     _check_if_invoice_number_exists,
-    _finalize_mutation_savepoint,
     _get_bank_transaction_stats,
     _get_memorial_booking_amounts,
     _retry_transient_failures,
@@ -134,35 +137,6 @@ class TestRetryTransientFailures(unittest.TestCase):
         result = _retry_transient_failures("MIG-1", errors=errors, failed=1, imported=0, debug_info=debug)
         self.assertIsNone(result["retry_summary"])
         self.assertEqual(result["failed"], 1)
-
-
-# ---------------------------------------------------------------------------
-# Pure: _finalize_mutation_savepoint (tolerant of dropped savepoint; #572
-# converged it onto utils.transaction_errors -- see test_mutation_savepoint.py
-# for the "does NOT tolerate a non-resumable error" coverage this file does not
-# duplicate).
-# ---------------------------------------------------------------------------
-class TestFinalizeMutationSavepoint(EnhancedTestCase):
-    """Release a per-mutation savepoint; a missing one (1305) is tolerated, never raised."""
-
-    def test_release_existing_savepoint_succeeds_silently(self):
-        sp = "ebkh_test_sp_ok"
-        frappe.db.savepoint(sp)
-        # succeeded=True => no rollback, just release. Must not raise.
-        _finalize_mutation_savepoint(sp, succeeded=True)
-
-    def test_rollback_then_release_on_failure(self):
-        sp = "ebkh_test_sp_fail"
-        frappe.db.savepoint(sp)
-        # succeeded=False => rollback to savepoint, then release. Must not raise.
-        _finalize_mutation_savepoint(sp, succeeded=False)
-
-    def test_missing_savepoint_is_tolerated(self):
-        # Never created -> release_savepoint_if_present() hits the tolerated
-        # 1305 path internally (reported via frappe.logger(), not Error Log --
-        # its own documented behaviour) and the function returns normally
-        # rather than aborting the batch.
-        _finalize_mutation_savepoint("ebkh_never_created_sp", succeeded=True)
 
 
 # ---------------------------------------------------------------------------

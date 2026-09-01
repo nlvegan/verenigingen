@@ -2969,6 +2969,7 @@ def start_full_rest_import(migration_name, mutation_types=None):
         total_failed = 0
         total_skipped = 0
         errors = []
+        aborted_type_names = []
 
         for i, mutation_type in enumerate(mutation_types):
             try:
@@ -3079,13 +3080,51 @@ def start_full_rest_import(migration_name, mutation_types=None):
                     migration_doc.db_set("total_records", current_total)
                     frappe.db.commit()
 
+            except NON_RESUMABLE_DB_ERRORS as abort_error:
+                # _import_rest_mutations_batch_enhanced already aborted its own batch
+                # and logged the operator-visible report (_report_batch_abort); it
+                # attaches that report's counts to the exception because this is its
+                # ONLY caller and the alternative -- treating the whole type as one
+                # opaque failure below -- would both lose the real partial counts and
+                # leave migration_doc's own counters silently contradicting the Error
+                # Log entry an operator would go read.
+                summary = getattr(abort_error, "batch_abort_summary", None) or {
+                    "imported": 0,
+                    "skipped": 0,
+                    "failed": len(mutations) if mutations else 1,
+                }
+                total_imported += summary.get("imported", 0)
+                total_skipped += summary.get("skipped", 0)
+                total_failed += summary.get("failed", 0)
+                aborted_type_names.append(type_name)
+                errors.append(
+                    f"ABORTED importing mutation type {mutation_type} ({type_name}) after a "
+                    f"non-resumable database error: {abort_error}. See the '... - ABORTED "
+                    f"(non-resumable error)' Error Log entry for how far it got."
+                )
+                migration_doc.db_set(
+                    "current_operation",
+                    f"ABORTED {type_name} (type {mutation_type}) after a non-resumable "
+                    f"database error -- see Error Log",
+                )
+                migration_doc.db_set("imported_records", total_imported)
+                migration_doc.db_set("failed_records", total_failed)
+                frappe.db.commit()
             except Exception as e:
                 errors.append(f"Error importing mutation type {mutation_type}: {str(e)}")
                 total_failed += 1
 
-        # Final progress update
+        # Final progress update. Do NOT blindly overwrite current_operation with
+        # "Import completed" when a type aborted on a non-resumable error above --
+        # that would erase the one place on the migration document itself (as
+        # opposed to Error Log) that told an operator something went wrong (#572).
         total_records = total_imported + total_failed + total_skipped
-        migration_doc.db_set("current_operation", "Import completed")
+        final_operation = (
+            "Import completed"
+            if not aborted_type_names
+            else f"Import completed WITH ABORTS: {', '.join(aborted_type_names)} -- see Error Log"
+        )
+        migration_doc.db_set("current_operation", final_operation)
         migration_doc.db_set("progress_percentage", 100)
         migration_doc.db_set("imported_records", total_imported)
         migration_doc.db_set("failed_records", total_failed)
@@ -3456,39 +3495,86 @@ def _finalize_mutation_savepoint(savepoint_name, succeeded):
 def _report_batch_abort(
     type_name, mutations, aborted_index, imported, failed, skipped, last_imported_mutation_id, abort_error
 ):
-    """Log an operator-visible summary when a non-resumable DB error stops a batch (#572).
+    """Log an operator-visible summary when a non-resumable DB error stops a batch (#572),
+    and return it as a dict so the caller can account for the batch correctly instead of
+    treating the whole type as one opaque failure.
 
     ``debug_info`` never reaches an operator on the main code path: the only place that
     logs it is `_log_batch_summary`, at the END of a batch that ran to completion, and an
     abort skips straight past that. So this writes directly to Error Log, the channel this
-    whole module already uses for every other batch report (`_log_batch_summary`,
-    `_retry_transient_failures`'s caller, the opening-balance path) -- called with (title,
+    whole module already uses for every other batch report -- called with (title,
     message) in the ORDER the signature wants, not the swapped order the rest of the app
     is prone to (#602).
 
-    Names the last mutation this batch actually imported: everything after it in this
-    batch is unknown state, not failed state, because the transaction under it is gone.
+    The durability of "Imported" below depends on WHICH error this is, and this function
+    is careful not to overclaim it: `_import_rest_mutations_batch_enhanced` issues no
+    commit of its own (the surrounding migration commits once per mutation type, before
+    fetching this type's mutations -- see `start_full_rest_import`), so:
+
+    * a 1213 deadlock discards the ENTIRE uncommitted transaction, not just work after
+      the failure point. Every mutation this batch "imported" (released its savepoint)
+      is gone too, not just the ones after `last_imported_mutation_id`.
+    * a 1205 lock-wait timeout only rolls back the failed statement; this mutation's own
+      savepoint rollback has already undone ITS partial writes, so earlier mutations
+      remain queued in the still-open transaction and are committed with the rest of
+      this type's work by the caller.
     """
     total = len(mutations) if mutations else 0
     processed = aborted_index + 1
     remaining = max(total - processed, 0)
+    is_deadlock = isinstance(abort_error, frappe.QueryDeadlockError)
+
+    if is_deadlock:
+        persistence_note = (
+            "This is a DEADLOCK (1213): it discards the ENTIRE uncommitted transaction, "
+            "not just work after the point of failure. This function commits nothing of "
+            "its own, so NONE of this batch's mutations -- including the ones counted as "
+            "'Imported' above -- are durably persisted. Re-run this ENTIRE mutation type."
+        )
+    else:
+        persistence_note = (
+            "This is a LOCK-WAIT TIMEOUT (1205): only the failed statement rolled back, "
+            "and this mutation's own savepoint rollback has already undone its partial "
+            "writes. Earlier mutations in this batch remain queued in the still-open "
+            "transaction and will be committed along with the rest of this mutation "
+            "type's work, assuming nothing else goes wrong first."
+        )
+
     message = (
         f"Batch import for {type_name} ABORTED after a non-resumable database error.\n\n"
         f"Processed: {processed} of {total} mutations before the error.\n"
-        f"Imported: {imported}\n"
+        f"Imported (savepoint released -- see note below for what that actually means): {imported}\n"
         f"Failed: {failed}\n"
         f"Skipped: {skipped}\n"
         f"Not yet attempted: {remaining}\n"
-        f"Last successfully imported mutation: {last_imported_mutation_id or 'none this batch'}\n\n"
+        f"Last mutation this batch processed before the error: {last_imported_mutation_id or 'none this batch'}\n\n"
         f"Error: {abort_error}\n\n"
-        "The transaction this batch was running in is gone -- nothing after the last "
-        "imported mutation above should be assumed persisted. Re-run this mutation type "
-        "to pick up where it stopped; already-imported mutations are skipped on re-import."
+        f"{persistence_note}"
     )
     frappe.log_error(
         title=f"eBoekhouden REST Import - {type_name} - ABORTED (non-resumable error)",
         message=message,
     )
+
+    # Reporting counts for the CALLER (start_full_rest_import's running totals), kept
+    # separate from the message's raw counts above: a deadlock means none of this
+    # batch's "imported" mutations are actually persisted, so crediting them to
+    # total_imported would make the migration document's own counters overclaim
+    # exactly what this function exists to stop overclaiming. Every mutation in the
+    # batch is accounted for somewhere (imported+skipped+failed == total), matching
+    # the convention the no-cost-center early-return already uses.
+    reporting_imported = 0 if is_deadlock else imported
+    reporting_skipped = skipped
+    reporting_failed = total - reporting_imported - reporting_skipped
+    return {
+        "type_name": type_name,
+        "processed": processed,
+        "total": total,
+        "imported": reporting_imported,
+        "skipped": reporting_skipped,
+        "failed": reporting_failed,
+        "last_imported_mutation_id": last_imported_mutation_id,
+    }
 
 
 def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, mutation_type=None):
@@ -3567,7 +3653,6 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
     # Set once a mutation actually imports, so an abort mid-batch (below) can name
     # the last one an operator can trust is really there.
     last_imported_mutation_id = None
-    aborted_at_index = None
 
     try:
         for i, mutation in enumerate(mutations):
@@ -3652,17 +3737,24 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
                 # (see _finalize_mutation_savepoint) and is caught below.
                 _finalize_mutation_savepoint(savepoint_name, mutation_succeeded)
     except NON_RESUMABLE_DB_ERRORS as abort_error:
-        aborted_at_index = i
-        _report_batch_abort(
-            type_name,
-            mutations,
-            aborted_at_index,
-            imported,
-            failed,
-            skipped,
-            last_imported_mutation_id,
-            abort_error,
-        )
+        try:
+            # Reporting must never replace the error it is reporting: an insert
+            # failure inside _report_batch_abort would otherwise surface to the
+            # caller as an Error Log write failure instead of the deadlock (the
+            # same "a raise inside an except replaces the exception" trap #561
+            # documents for a rollback, applied here to a report).
+            abort_error.batch_abort_summary = _report_batch_abort(
+                type_name,
+                mutations,
+                i,
+                imported,
+                failed,
+                skipped,
+                last_imported_mutation_id,
+                abort_error,
+            )
+        except Exception:  # non-resumable-ok: reporting must not replace the abort error
+            pass
         raise
 
     # Post-processing: categorize errors, log summary, retry transient failures

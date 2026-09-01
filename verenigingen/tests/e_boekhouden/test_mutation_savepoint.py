@@ -67,17 +67,21 @@ class TestFinalizeMutationSavepoint(EnhancedTestCase):
 
     def test_missing_savepoint_does_not_raise(self):
         """A dropped/missing savepoint (1305) is tolerated — it must not abort the batch."""
+        savepoint_name = f"eb_test_missing_{frappe.generate_hash(length=8)}"
         # rollback_to_savepoint() itself reports the tolerated 1305 to Error Log
-        # (its own documented, tested behaviour) -- expected here, not a leak.
+        # (its own documented, tested behaviour) -- expected here, not a leak. Asserted
+        # below rather than only tolerated, so a future regression that stops reporting
+        # it would fail loudly instead of the guard just staying quiet either way.
         self.expectErrorLog("Savepoint rollback skipped")
-        _finalize_mutation_savepoint(
-            f"eb_test_missing_{frappe.generate_hash(length=8)}", succeeded=False
+
+        _finalize_mutation_savepoint(savepoint_name, succeeded=False)
+
+        self.assertTrue(
+            frappe.db.exists(
+                "Error Log", {"error": ("like", f"%Savepoint {savepoint_name} was already gone%")}
+            ),
+            "a missing savepoint must still be reported (via the shared helper), not silently dropped",
         )
-        # No exception is the assertion: the shared helper already has its own
-        # coverage (test_savepoint_rollback_cannot_mask_the_error.py) proving the
-        # 1305 case reports to Error Log rather than debug_info, which this
-        # function no longer collects at all -- see the propagation test below
-        # for what DOES still need to reach the caller.
 
     def test_non_resumable_error_from_rollback_propagates(self):
         """A 1213 raised by the ROLLBACK TO SAVEPOINT itself must NOT be swallowed (#572).

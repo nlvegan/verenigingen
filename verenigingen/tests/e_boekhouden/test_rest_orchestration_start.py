@@ -528,6 +528,96 @@ class TestStartImportPerTypeExceptionCaptured(_StartImportBase):
 
 
 # ---------------------------------------------------------------------------
+# 6b. a non-resumable error mid-batch (#572) must be visible on migration_doc,
+#     not silently folded into the generic per-type "Error importing..." string
+#     the test above exercises for ordinary errors.
+# ---------------------------------------------------------------------------
+
+
+class _DeadlockOnDetailIterator(_FakeIterator):
+    """Like _FakeIterator, but raises a REAL frappe.QueryDeadlockError from
+    fetch_mutation_detail for one specific mutation id -- simulating a 1213
+    surfacing mid-batch, from inside _import_rest_mutations_batch_enhanced's
+    legacy detail-fetch path.
+
+    NOTE on what this proves: this is a Python-level exception, not a genuine
+    MariaDB deadlock, so no server-side transaction rollback happens -- the
+    OK mutation's Journal Entry really does get inserted into this test's (still
+    open) DB transaction. This test is about the ACCOUNTING and REPORTING that
+    follows a batch abort (does start_full_rest_import lose the partial counts,
+    does it tell the operator via the migration doc), not about proving a real
+    1213's durability semantics -- see test_rest_orchestration_batch.py's
+    equivalent caveat for that distinction.
+    """
+
+    def __init__(self, per_type, deadlock_id):
+        super().__init__(per_type=per_type)
+        self._deadlock_id = deadlock_id
+
+    def fetch_mutation_detail(self, mutation_id):
+        if str(mutation_id) == str(self._deadlock_id):
+            return _raise_deadlock()
+        return super().fetch_mutation_detail(mutation_id)
+
+
+def _raise_deadlock():
+    from verenigingen.tests.support.non_resumable_errors import deadlock
+
+    raise deadlock()
+
+
+class TestStartImportAbortsOnNonResumableError(_StartImportBase):
+    def test_deadlock_mid_batch_is_reported_on_the_migration_doc(self):
+        """Before #572's fix reached this caller, the abort from
+        _import_rest_mutations_batch_enhanced would have been swallowed by the SAME
+        generic `except Exception` the test above exercises -- losing the partial
+        imported/failed counts (blind `total_failed += 1` for the whole type) and
+        leaving migration_doc's own counters silent about what happened. This
+        asserts the dedicated NON_RESUMABLE_DB_ERRORS branch instead: real counts,
+        and an operator reading the migration document sees ABORTED.
+        """
+        migration = self._make_migration()
+        ok_id = self._unique_mutation_id()
+        deadlock_id = self._unique_mutation_id()
+        ok_mutation = self._type7_memorial(ok_id)
+        deadlock_mutation = {"id": deadlock_id, "type": 7, "date": nowdate()}
+
+        fake = _DeadlockOnDetailIterator(
+            per_type={7: [ok_mutation, deadlock_mutation]}, deadlock_id=deadlock_id
+        )
+
+        orig_flag = frappe.conf.get("eboekhouden_use_new_processors")
+        frappe.conf["eboekhouden_use_new_processors"] = False
+        try:
+            with patch(ITERATOR_TARGET, new=fake):
+                result = start_full_rest_import(migration.name, mutation_types=[7])
+        finally:
+            if orig_flag is None:
+                frappe.conf.pop("eboekhouden_use_new_processors", None)
+            else:
+                frappe.conf["eboekhouden_use_new_processors"] = orig_flag
+
+        # The overall run does not crash: the per-type loop catches the abort of
+        # THIS type and (there being no further types here) finishes normally --
+        # the documented "abort the batch, not necessarily the whole migration"
+        # design from the issue.
+        self.assertTrue(result.get("success"), msg=f"unexpected failure: {result}")
+
+        migration.reload()
+        self.assertIn(
+            "ABORT",
+            migration.current_operation or "",
+            "an operator viewing the migration document must see the abort, not just Error Log",
+        )
+        # A deadlock discards the whole uncommitted batch (see _report_batch_abort's
+        # persistence note), so NEITHER mutation is credited as imported -- both
+        # count as failed. Silently crediting `ok_id` here would repeat exactly the
+        # overclaim #572 was opened to stop.
+        self.assertEqual(migration.imported_records, 0)
+        self.assertEqual(migration.failed_records, 2)
+
+
+# ---------------------------------------------------------------------------
 # 7. type-0 opening-balance branch
 # ---------------------------------------------------------------------------
 

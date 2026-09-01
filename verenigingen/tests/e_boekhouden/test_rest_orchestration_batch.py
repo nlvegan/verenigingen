@@ -554,6 +554,18 @@ class TestImportRestMutationsBatchEnhancedAbortsOnNonResumableError(_BatchCluste
     """
 
     def test_deadlock_mid_batch_aborts_and_reports_last_imported_mutation(self):
+        """
+        NOTE on what this proves: ``_PartialFailureIterator`` raises a Python
+        ``frappe.QueryDeadlockError`` directly -- there is no real MariaDB deadlock, so
+        no server-side transaction rollback happens here. That means this test proves
+        the CONTROL FLOW (the batch stops instead of continuing past the error, and the
+        already-persisted-in-this-test-transaction JE for ``ok_id`` is not touched by
+        the abort path itself) -- not the DURABILITY claim `_report_batch_abort`'s
+        message makes about a genuine 1213 destroying the whole uncommitted batch.
+        Proving that durability claim needs two contending connections producing a
+        real deadlock, the technique `test_savepoint_rollback_cannot_mask_the_error.py`
+        already documents; out of scope for this control-flow test.
+        """
         ok_id, deadlock_id, unreached_id = 970400, 970401, 970402
         ok_mutation = self._memorial_mutation(ok_id)
         unreached_mutation = self._memorial_mutation(unreached_id)
@@ -565,6 +577,7 @@ class TestImportRestMutationsBatchEnhancedAbortsOnNonResumableError(_BatchCluste
             )
 
         self.expectErrorLog("ABORTED")
+        before = frappe.utils.now_datetime()
 
         orig_flag = frappe.conf.get("eboekhouden_use_new_processors")
         frappe.conf["eboekhouden_use_new_processors"] = False
@@ -583,11 +596,12 @@ class TestImportRestMutationsBatchEnhancedAbortsOnNonResumableError(_BatchCluste
             else:
                 frappe.conf["eboekhouden_use_new_processors"] = orig_flag
 
-        # The mutation imported BEFORE the deadlock must still be persisted -- its
-        # own savepoint was released before the batch ever saw the error.
+        # The mutation processed BEFORE the deadlock is still visible in THIS test's
+        # (uncommitted) DB transaction -- the abort path does not itself undo it. This
+        # is a control-flow assertion, not a durability one: see the docstring above.
         self.assertTrue(
             frappe.db.exists("Journal Entry", {"eboekhouden_mutation_nr": str(ok_id)}),
-            "the mutation imported before the deadlock must still be persisted",
+            "the mutation processed before the deadlock must not be touched by the abort path",
         )
         # The mutation AFTER the abort point must never have been attempted --
         # the batch stopped instead of continuing past the non-resumable error.
@@ -597,10 +611,13 @@ class TestImportRestMutationsBatchEnhancedAbortsOnNonResumableError(_BatchCluste
         )
 
         # And an operator-visible report exists, naming how far the batch got --
-        # NOT `debug_info`, which never reaches an operator on this path.
+        # NOT `debug_info`, which never reaches an operator on this path. Scoped to
+        # rows written by THIS call: the mutation ids are fixed constants and Error
+        # Log is MyISAM (survives rollback), so an unscoped query could pass against a
+        # stale row left by a run that died before teardown.
         abort_logs = frappe.get_all(
             "Error Log",
-            filters={"method": ["like", "%ABORTED%"]},
+            filters={"method": ["like", "%ABORTED%"], "creation": [">=", before]},
             fields=["name", "method", "error"],
             order_by="creation desc",
             limit=1,
@@ -610,5 +627,5 @@ class TestImportRestMutationsBatchEnhancedAbortsOnNonResumableError(_BatchCluste
         self.assertIn(
             str(ok_id),
             abort_logs[0].error,
-            "the report must name the last successfully imported mutation",
+            "the report must name the last mutation the batch processed before the error",
         )
