@@ -231,7 +231,8 @@ def batch_insert(docs: List, operation_type: str = "general", batch_size: int = 
                     inserted.append(doc)
                 except Exception as e:
                     frappe.log_error(
-                        f"Batch insert failed for {doc.doctype}: {str(e)}", "Migration Batch Insert"
+                        title="Migration Batch Insert",
+                        message=f"Batch insert failed for {doc.doctype}: {str(e)}",
                     )
 
             # Commit after each batch

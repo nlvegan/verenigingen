@@ -205,13 +205,13 @@ class EBoekhoudenHTTPClientMixin:
                     return self._session_token
                 else:
                     frappe.log_error(
-                        f"Session token request failed: {response.status_code} - {response.text}",
-                        "E-Boekhouden REST",
+                        title="E-Boekhouden REST",
+                        message=f"Session token request failed: {response.status_code} - {response.text}",
                     )
                     return None
 
             except Exception as e:
-                frappe.log_error(f"Error getting session token: {str(e)}", "E-Boekhouden REST")
+                frappe.log_error(title="E-Boekhouden REST", message=f"Error getting session token: {str(e)}")
                 return None
 
     def invalidate_token(self) -> None:
@@ -408,7 +408,9 @@ class EBoekhoudenHTTPClientMixin:
             except RequestException as e:
                 # Non-retryable request errors
                 self._increment_metric("requests_failed")
-                frappe.log_error(f"E-Boekhouden API request failed: {str(e)}", "E-Boekhouden REST")
+                frappe.log_error(
+                    title="E-Boekhouden REST", message=f"E-Boekhouden API request failed: {str(e)}"
+                )
                 raise
 
         # If we get here, all retries were exhausted

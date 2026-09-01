@@ -81,7 +81,9 @@ class PaymentService:
 
             self.gateway = PaymentGatewayFactory.get_gateway("Mollie", "Default")
         except Exception as e:
-            frappe.log_error(f"Failed to initialize payment gateway: {e}", "Payment Service Init")
+            frappe.log_error(
+                title="Payment Service Init", message=f"Failed to initialize payment gateway: {e}"
+            )
             self.gateway = None
 
     def _validate_configuration(self):
@@ -98,7 +100,9 @@ class PaymentService:
             is_test_mode = self._is_test_mode()
             frappe.logger().info(f"Mollie service initialized in {'test' if is_test_mode else 'live'} mode")
         except Exception as e:
-            frappe.log_error(f"Could not determine Mollie environment: {e}", "Mollie Configuration Warning")
+            frappe.log_error(
+                title="Mollie Configuration Warning", message=f"Could not determine Mollie environment: {e}"
+            )
 
     def _validate_donor_fields(self):
         """Validate that Donor DocType has required Mollie fields."""
@@ -159,8 +163,8 @@ class PaymentService:
 
         except Exception as e:
             frappe.log_error(
-                f"Single payment creation error for donation {donation_doc.name}: {e}",
-                "Mollie Single Payment Error",
+                title="Mollie Single Payment Error",
+                message=f"Single payment creation error for donation {donation_doc.name}: {e}",
             )
             return {
                 "status": "error",
@@ -240,8 +244,8 @@ class PaymentService:
 
         except Exception as e:
             frappe.log_error(
-                f"Recurring payment creation error for donation {donation_doc.name}: {e}\nTraceback: {frappe.get_traceback()}",
-                "Mollie Recurring Payment Error",
+                title="Mollie Recurring Payment Error",
+                message=f"Recurring payment creation error for donation {donation_doc.name}: {e}\nTraceback: {frappe.get_traceback()}",
             )
             return {
                 "status": "error",
@@ -299,7 +303,7 @@ class PaymentService:
         elif payment_type == "membership_dues":
             result.update(self._process_membership_payment(payment))
         else:
-            frappe.log_error(f"Unknown payment type: {payment_type}", "Payment Processing")
+            frappe.log_error(title="Payment Processing", message=f"Unknown payment type: {payment_type}")
 
         return result
 
@@ -406,7 +410,7 @@ class PaymentService:
         except Exception as e:
             frappe.db.rollback()
             frappe.logger().debug(f"Overall customer creation error: {e}")
-            frappe.log_error(f"Mollie customer creation error: {e}", "Mollie Customer Error")
+            frappe.log_error(title="Mollie Customer Error", message=f"Mollie customer creation error: {e}")
             return {"status": "error", "message": "Customer creation failed"}
 
     def _get_webhook_url(self) -> str:

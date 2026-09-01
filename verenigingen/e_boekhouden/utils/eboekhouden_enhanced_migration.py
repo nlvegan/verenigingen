@@ -105,7 +105,7 @@ class EnhancedEBoekhoudenMigration:
         try:
             self.payment_mappings = get_payment_account_mappings(self.company)
         except Exception as e:
-            frappe.log_error(f"Error loading payment mappings: {str(e)}", "Migration Setup")
+            frappe.log_error(title="Migration Setup", message=f"Error loading payment mappings: {str(e)}")
             self.payment_mappings = {}
 
         # Cost center
@@ -302,8 +302,8 @@ class EnhancedEBoekhoudenMigration:
                 # Validate expected contract fields are present
                 if not isinstance(result, dict):
                     frappe.log_error(
-                        f"start_full_rest_import returned {type(result).__name__} instead of dict",
-                        "REST Import Contract Violation",
+                        title="REST Import Contract Violation",
+                        message=f"start_full_rest_import returned {type(result).__name__} instead of dict",
                     )
                     result = {"success": False, "error": "REST import returned invalid response type"}
 

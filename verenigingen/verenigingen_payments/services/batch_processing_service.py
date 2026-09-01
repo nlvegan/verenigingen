@@ -82,8 +82,8 @@ class BatchProcessingService:
             except Exception as e:
                 self._set_invoice_status_after_submit(invoice_item, "Failed", "RJCT", f"Error: {str(e)}")
                 frappe.log_error(
-                    f"Error processing payment for invoice {invoice_item.invoice}: {str(e)}",
-                    "SEPA Direct Debit Payment Error",
+                    title="SEPA Direct Debit Payment Error",
+                    message=f"Error processing payment for invoice {invoice_item.invoice}: {str(e)}",
                 )
 
         # Update batch status (persisted via db_set, see above).
@@ -129,7 +129,8 @@ class BatchProcessingService:
             error_msg = _("Error processing batch: {0}").format(str(e))
             BatchLoggingUtilities.add_to_document_batch_log(batch_doc, error_msg)
             frappe.log_error(
-                f"Error processing batch {batch_doc.name}: {str(e)}", "SEPA Direct Debit Batch Error"
+                title="SEPA Direct Debit Batch Error",
+                message=f"Error processing batch {batch_doc.name}: {str(e)}",
             )
             raise frappe.ValidationError(error_msg)
 
@@ -361,8 +362,8 @@ class BatchProcessingService:
             )
         except Exception:
             frappe.log_error(
-                f"Failed to mark SEPA Mandate Usage collected for invoice {invoice_name}",
-                "SEPA Mandate Usage Update Error",
+                title="SEPA Mandate Usage Update Error",
+                message=f"Failed to mark SEPA Mandate Usage collected for invoice {invoice_name}",
             )
 
     def _update_batch_status_after_processing(self, batch_doc, success_count: int) -> None:

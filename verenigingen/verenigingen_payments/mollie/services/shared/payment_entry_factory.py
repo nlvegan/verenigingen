@@ -196,16 +196,17 @@ class PaymentEntryFactory:
         except MollieDataValidationError as e:
             self.logger.error(f"Invalid mollie_data for {context}: {e}")
             frappe.log_error(
-                f"Payment Entry creation failed - invalid input data\n"
+                title="Payment Entry Factory - Validation Error",
+                message=f"Payment Entry creation failed - invalid input data\n"
                 f"Context: {context}\n"
                 f"Error: {str(e)}",
-                "Payment Entry Factory - Validation Error",
             )
             return None
         except Exception as e:
             self.logger.error(f"Failed to create Payment Entry for {context}: {e}")
             frappe.log_error(
-                f"Payment Entry creation failed for {context}: {str(e)}", "Payment Entry Factory"
+                title="Payment Entry Factory",
+                message=f"Payment Entry creation failed for {context}: {str(e)}",
             )
             return None
         finally:

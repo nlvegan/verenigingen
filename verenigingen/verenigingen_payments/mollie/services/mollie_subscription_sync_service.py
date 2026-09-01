@@ -251,11 +251,11 @@ class MollieSubscriptionSyncService:
 
                         except Exception as update_retry_error:
                             frappe.log_error(
-                                f"Subscription swap successful but member record update failed for {member.name}\n"
+                                title="Mollie Subscription Member Update Failure",
+                                message=f"Subscription swap successful but member record update failed for {member.name}\n"
                                 f"New subscription: {new_subscription.id}\n"
                                 f"Old subscription: {old_subscription_id} (cancelled)\n"
                                 f"Error: {str(update_retry_error)}",
-                                "Mollie Subscription Member Update Failure",
                             )
 
                             return {
@@ -292,14 +292,14 @@ class MollieSubscriptionSyncService:
 
                         except Exception as rollback_error:
                             frappe.log_error(
-                                f"🚨 CRITICAL: Failed to rollback new subscription {new_subscription.id} for member {member.name}\n"
+                                title="Mollie Subscription Sync Critical Failure",
+                                message=f"🚨 CRITICAL: Failed to rollback new subscription {new_subscription.id} for member {member.name}\n"
                                 f"Original error: {str(sync_error)}\n"
                                 f"Rollback error: {str(rollback_error)}\n"
                                 f"Member now has TWO active subscriptions:\n"
                                 f"- Old: {old_subscription_id}\n"
                                 f"- New: {new_subscription.id}\n"
                                 f"Manual cancellation of one subscription required.",
-                                "Mollie Subscription Sync Critical Failure",
                             )
 
                             return {
@@ -354,8 +354,8 @@ class MollieSubscriptionSyncService:
 
         except MollieIntegrationError as e:
             frappe.log_error(
-                f"Mollie subscription sync failed for amendment {amendment_doc.name}: {str(e)}",
-                "Mollie Subscription Sync Error",
+                title="Mollie Subscription Sync Error",
+                message=f"Mollie subscription sync failed for amendment {amendment_doc.name}: {str(e)}",
             )
             return {
                 "status": "error",
@@ -365,8 +365,8 @@ class MollieSubscriptionSyncService:
 
         except Exception as e:
             frappe.log_error(
-                f"Unexpected error during subscription sync for amendment {amendment_doc.name}: {str(e)}",
-                "Mollie Subscription Sync Error",
+                title="Mollie Subscription Sync Error",
+                message=f"Unexpected error during subscription sync for amendment {amendment_doc.name}: {str(e)}",
             )
             return {
                 "status": "error",
@@ -642,11 +642,11 @@ class MollieSubscriptionSyncService:
         )
 
         frappe.log_error(
-            f"Subscription amount mismatch for member {member.name}, subscription {subscription_id}\n"
+            title="Mollie Subscription Amount Mismatch",
+            message=f"Subscription amount mismatch for member {member.name}, subscription {subscription_id}\n"
             f"Mollie amount: {mollie_amount} EUR\n"
             f"Expected amount: {expected_amount} EUR\n"
             f"Membership: {membership.name}",
-            "Mollie Subscription Amount Mismatch",
         )
 
         return {

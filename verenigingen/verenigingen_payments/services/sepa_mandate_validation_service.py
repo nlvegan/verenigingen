@@ -66,7 +66,9 @@ class SEPAMandateValidationService:
             return validation_result
 
         except Exception as e:
-            frappe.log_error(f"Error in validate_mandate_dates: {str(e)}", "SEPA Mandate Validation")
+            frappe.log_error(
+                title="SEPA Mandate Validation", message=f"Error in validate_mandate_dates: {str(e)}"
+            )
             validation_result["errors"].append(f"Date validation error: {str(e)}")
             validation_result["is_valid"] = False
             return validation_result
@@ -131,7 +133,9 @@ class SEPAMandateValidationService:
             return validation_result
 
         except Exception as e:
-            frappe.log_error(f"Error in validate_mandate_iban: {str(e)}", "SEPA Mandate Validation")
+            frappe.log_error(
+                title="SEPA Mandate Validation", message=f"Error in validate_mandate_iban: {str(e)}"
+            )
             validation_result["errors"].append(f"IBAN validation error: {str(e)}")
             validation_result["is_valid"] = False
             return validation_result
@@ -185,7 +189,9 @@ class SEPAMandateValidationService:
             return validation_result
 
         except Exception as e:
-            frappe.log_error(f"Error in validate_mandate_business_rules: {str(e)}", "SEPA Mandate Validation")
+            frappe.log_error(
+                title="SEPA Mandate Validation", message=f"Error in validate_mandate_business_rules: {str(e)}"
+            )
             validation_result["errors"].append(f"Business rule validation error: {str(e)}")
             validation_result["is_valid"] = False
             return validation_result
@@ -245,7 +251,9 @@ class SEPAMandateValidationService:
             return validation_result
 
         except Exception as e:
-            frappe.log_error(f"Error in validate_mandate_uniqueness: {str(e)}", "SEPA Mandate Validation")
+            frappe.log_error(
+                title="SEPA Mandate Validation", message=f"Error in validate_mandate_uniqueness: {str(e)}"
+            )
             validation_result["errors"].append(f"Uniqueness validation error: {str(e)}")
             validation_result["is_valid"] = False
             return validation_result

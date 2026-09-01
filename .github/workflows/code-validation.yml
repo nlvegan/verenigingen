@@ -232,6 +232,90 @@ jobs:
           --check-shrink "$RUNNER_TEMP/base_swallow_baseline.txt" \
           --base-tree "$RUNNER_TEMP/base_tree"
 
+  # frappe.log_error is (title, message) -- frappe/utils/error.py:44. This app calls
+  # it the other way round positionally at roughly 1100 sites (#602): the swapped
+  # "title" (the real, dynamic message) gets truncated to 140 chars, and the real
+  # traceback is never recorded, because frappe's own swap-detection heuristic only
+  # fires when the (wrongly positioned) title argument contains a newline. Same
+  # ratchet shape as the swallowed-exception guard above: a hook-only gate can be
+  # skipped with `git commit -n`, and only ever sees one change's files.
+  log-error-arg-order-ratchet:
+    name: 🔄 log_error Argument Order Guard (ratchet)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        # Needed by the growth check below, which diffs against the base branch.
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    # Stdlib-only (ast, argparse, pathlib) by design: no bench, no site, no install.
+    - name: Unit-test the validator itself
+      run: python -m unittest discover -s scripts/validation/tests -p 'test_log_error_arg_order_validator.py' -v
+
+    - name: Ratchet check (whole tree)
+      run: python scripts/validation/log_error_arg_order_validator.py
+
+    # A ratchet that never tightens is not a ratchet. If someone fixes a swap
+    # without regenerating, the baseline keeps a ceiling higher than the tree, and
+    # the removed slot can be silently refilled later.
+    - name: Baseline is in sync with the tree
+      run: |
+        python scripts/validation/log_error_arg_order_validator.py --update-baseline
+        if ! git diff --quiet -- scripts/validation/log_error_arg_order_baseline.txt; then
+          echo "::error file=scripts/validation/log_error_arg_order_baseline.txt::Baseline is out of sync with the tree."
+          echo "Regenerate it and commit the result:"
+          echo "    python scripts/validation/log_error_arg_order_validator.py --update-baseline"
+          echo ""
+          echo "Drift (committed vs regenerated):"
+          git --no-pager diff -- scripts/validation/log_error_arg_order_baseline.txt
+          exit 1
+        fi
+        echo "Baseline matches the tree."
+
+    # The step above cannot catch the one abuse that actually defeats this gate:
+    # regenerating the baseline so a NEW finding is recorded rather than fixed. That
+    # leaves baseline and tree perfectly in sync -- and the ratchet green. The only
+    # signal is that the baseline GREW, which is legitimate solely when the
+    # validator's own detection rules changed in the same PR.
+    - name: Baseline did not grow
+      if: github.event_name == 'pull_request'
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      run: |
+        BASELINE=scripts/validation/log_error_arg_order_baseline.txt
+        VALIDATOR=scripts/validation/log_error_arg_order_validator.py
+        total() { grep -v -e '^#' -e '^$' | awk -F'::' '{s+=$NF} END {print s+0}'; }
+
+        if ! git cat-file -e "$BASE_SHA:$BASELINE" 2>/dev/null; then
+          echo "No baseline on the base branch yet — nothing to compare."
+          exit 0
+        fi
+        if ! git diff --quiet "$BASE_SHA" HEAD -- "$VALIDATOR"; then
+          echo "Validator changed in this PR, so a different baseline count is expected."
+          echo "Review the added entries by hand — they are new DETECTIONS, not new code."
+          exit 0
+        fi
+
+        before=$(git show "$BASE_SHA:$BASELINE" | total)
+        after=$(total < "$BASELINE")
+        echo "baseline sites: base=$before  head=$after"
+        if [ "$after" -gt "$before" ]; then
+          echo "::error file=$BASELINE::Baseline grew from $before to $after without a validator change."
+          echo "A new swapped log_error site was recorded into the baseline instead of fixed."
+          echo "Either fix the call, or mark it deliberately:"
+          echo "    frappe.log_error(f\"...\", \"Title\")  # log-error-args-ok: false-positive"
+          exit 1
+        fi
+        echo "Baseline did not grow."
+
   # Same shape as the swallowed-exception ratchet above, and for the same reason:
   # the pre-commit hook can be skipped (`git commit -n`, `SKIP=`), and it only ever
   # sees the files in one change. That is how this rule died the first time -- 40

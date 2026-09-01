@@ -70,8 +70,8 @@ class SEPABatchProcessor:
             verification_result = self.verify_invoice_coverage(collection_date)
             if not verification_result["complete"]:
                 frappe.log_error(
-                    f"Invoice coverage verification failed: {verification_result['issues']}",
-                    "SEPA Batch - Invoice Coverage Issues",
+                    title="SEPA Batch - Invoice Coverage Issues",
+                    message=f"Invoice coverage verification failed: {verification_result['issues']}",
                 )
                 # Continue with batch creation but log the issues
 
@@ -296,7 +296,8 @@ class SEPABatchProcessor:
         mandate = self.get_active_mandate(schedule)
         if not mandate:
             frappe.log_error(
-                f"No active SEPA mandate found for schedule {schedule.name}", "SEPA Mandate Missing"
+                title="SEPA Mandate Missing",
+                message=f"No active SEPA mandate found for schedule {schedule.name}",
             )
             return
 
@@ -373,8 +374,8 @@ class SEPABatchProcessor:
         mandate_name = invoice_data["mandate_name"]
         if not mandate_name:
             frappe.log_error(
-                f"No active SEPA mandate found for invoice {invoice_data['name']}",
-                "SEPA Batch - Missing Mandate",
+                title="SEPA Batch - Missing Mandate",
+                message=f"No active SEPA mandate found for invoice {invoice_data['name']}",
             )
             return
 
@@ -436,8 +437,8 @@ class SEPABatchProcessor:
                 successful_count += 1
             except Exception as e:
                 frappe.log_error(
-                    f"Error adding invoice {invoice_name} to batch: {str(e)}",
-                    "SEPA Batch Processor - Batch Addition Error",
+                    title="SEPA Batch Processor - Batch Addition Error",
+                    message=f"Error adding invoice {invoice_name} to batch: {str(e)}",
                 )
                 continue
 
@@ -809,7 +810,8 @@ class SEPABatchProcessor:
 
         except Exception as e:
             frappe.log_error(
-                f"Error in invoice coverage verification: {str(e)}", "Invoice Coverage Verification Error"
+                title="Invoice Coverage Verification Error",
+                message=f"Error in invoice coverage verification: {str(e)}",
             )
             return {"complete": False, "error": str(e), "total_checked": total_checked, "issues": issues}
 
@@ -1180,7 +1182,8 @@ class SEPABatchProcessor:
                     critical_errors = frappe.parse_json(batch.validation_errors)
                 except (ValueError, TypeError) as e:
                     frappe.log_error(
-                        f"Failed to parse validation_errors: {e}", "SEPABatchProcessorValidation"
+                        title="SEPABatchProcessorValidation",
+                        message=f"Failed to parse validation_errors: {e}",
                     )
                     critical_errors = []
 
@@ -1189,7 +1192,8 @@ class SEPABatchProcessor:
                     warnings = frappe.parse_json(batch.validation_warnings)
                 except (ValueError, TypeError) as e:
                     frappe.log_error(
-                        f"Failed to parse validation_warnings: {e}", "SEPABatchProcessorValidation"
+                        title="SEPABatchProcessorValidation",
+                        message=f"Failed to parse validation_warnings: {e}",
                     )
                     warnings = []
 
@@ -1206,8 +1210,8 @@ class SEPABatchProcessor:
 
         except Exception as e:
             frappe.log_error(
-                f"Error handling automated batch validation for {batch.name}: {str(e)}",
-                "SEPA Batch Processor - Validation Handler Error",
+                title="SEPA Batch Processor - Validation Handler Error",
+                message=f"Error handling automated batch validation for {batch.name}: {str(e)}",
             )
 
 

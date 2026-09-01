@@ -76,7 +76,7 @@ def create_payment_entry(
     except Exception as e:
         error_msg = f"Payment creation failed for mutation {mutation_id}: {str(e)}"
         debug_info.append(f"ERROR: {error_msg}")
-        frappe.log_error(error_msg, "Payment Entry Creation")
+        frappe.log_error(title="Payment Entry Creation", message=error_msg)
         raise frappe.ValidationError(error_msg)
 
 

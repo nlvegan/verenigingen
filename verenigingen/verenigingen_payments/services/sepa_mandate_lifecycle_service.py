@@ -260,7 +260,9 @@ class SEPAMandateLifecycleService:
             return mandate_doc.status
 
         except Exception as e:
-            frappe.log_error(f"Error in set_status_based_on_dates: {str(e)}", "SEPA Mandate Lifecycle")
+            frappe.log_error(
+                title="SEPA Mandate Lifecycle", message=f"Error in set_status_based_on_dates: {str(e)}"
+            )
             return mandate_doc.status or "Draft"
 
     def sync_status_and_active_flag(self, mandate_doc) -> None:
@@ -278,7 +280,9 @@ class SEPAMandateLifecycleService:
                 mandate_doc.is_active = 0
 
         except Exception as e:
-            frappe.log_error(f"Error in sync_status_and_active_flag: {str(e)}", "SEPA Mandate Lifecycle")
+            frappe.log_error(
+                title="SEPA Mandate Lifecycle", message=f"Error in sync_status_and_active_flag: {str(e)}"
+            )
 
     def handle_status_transition(self, mandate_doc, old_status: Optional[str] = None) -> Dict[str, any]:
         """
@@ -327,7 +331,9 @@ class SEPAMandateLifecycleService:
             return transition_result
 
         except Exception as e:
-            frappe.log_error(f"Error in handle_status_transition: {str(e)}", "SEPA Mandate Lifecycle")
+            frappe.log_error(
+                title="SEPA Mandate Lifecycle", message=f"Error in handle_status_transition: {str(e)}"
+            )
             transition_result["errors"].append(f"Status transition error: {str(e)}")
             transition_result["success"] = False
             metrics.record_error("status_transition", str(e), mandate_doc.mandate_id)
@@ -381,7 +387,9 @@ class SEPAMandateLifecycleService:
             return cancellation_result
 
         except Exception as e:
-            frappe.log_error(f"Error in process_mandate_cancellation: {str(e)}", "SEPA Mandate Lifecycle")
+            frappe.log_error(
+                title="SEPA Mandate Lifecycle", message=f"Error in process_mandate_cancellation: {str(e)}"
+            )
             cancellation_result["errors"].append(f"Cancellation error: {str(e)}")
             cancellation_result["success"] = False
             return cancellation_result
@@ -502,7 +510,9 @@ class SEPAMandateLifecycleService:
 
         except Exception as e:
             metrics.record_error("member_mandate_update", str(e), mandate_doc.mandate_id)
-            frappe.log_error(f"Error updating member mandate status: {str(e)}", "SEPA Mandate Lifecycle")
+            frappe.log_error(
+                title="SEPA Mandate Lifecycle", message=f"Error updating member mandate status: {str(e)}"
+            )
 
     def handle_mandate_creation(self, mandate_doc) -> Dict[str, any]:
         """
@@ -544,7 +554,9 @@ class SEPAMandateLifecycleService:
             return event_result
 
         except Exception as e:
-            frappe.log_error(f"Error handling mandate creation: {str(e)}", "SEPA Mandate Lifecycle")
+            frappe.log_error(
+                title="SEPA Mandate Lifecycle", message=f"Error handling mandate creation: {str(e)}"
+            )
             event_result["errors"].append(str(e))
             event_result["success"] = False
             return event_result
@@ -609,7 +621,9 @@ class SEPAMandateLifecycleService:
             return event_result
 
         except Exception as e:
-            frappe.log_error(f"Error handling mandate update: {str(e)}", "SEPA Mandate Lifecycle")
+            frappe.log_error(
+                title="SEPA Mandate Lifecycle", message=f"Error handling mandate update: {str(e)}"
+            )
             event_result["errors"].append(str(e))
             event_result["success"] = False
             return event_result

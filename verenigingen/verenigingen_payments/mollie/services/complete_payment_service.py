@@ -99,7 +99,7 @@ class CompletePaymentService:
 
         except Exception as e:
             error_msg = f"Failed to create payment for donation {donation_doc.name}: {e}"
-            frappe.log_error(error_msg, "Payment Creation Error")
+            frappe.log_error(title="Payment Creation Error", message=error_msg)
             raise MolliePaymentError(error_msg, original_error=e)
 
     def create_recurring_donation_payment(
@@ -186,7 +186,7 @@ class CompletePaymentService:
 
         except Exception as e:
             error_msg = f"Failed to create recurring payment for donation {donation_doc.name}: {e}"
-            frappe.log_error(error_msg, "Recurring Payment Creation Error")
+            frappe.log_error(title="Recurring Payment Creation Error", message=error_msg)
             raise MolliePaymentError(error_msg, original_error=e)
 
     def create_customer_subscription(
@@ -234,7 +234,7 @@ class CompletePaymentService:
             raise
         except Exception as e:
             error_msg = f"Failed to create subscription: {e}"
-            frappe.log_error(error_msg, "Subscription Creation Error")
+            frappe.log_error(title="Subscription Creation Error", message=error_msg)
             raise MolliePaymentError(error_msg, original_error=e)
 
     def _create_owner_subscription(
@@ -309,10 +309,10 @@ class CompletePaymentService:
                 # subscription cannot be looked up. Surface it and provision
                 # a fresh one rather than billing against an unknown customer.
                 frappe.log_error(
-                    f"{owner_doctype} {owner_name} has mollie_subscription_id "
+                    title="Mollie Subscription Create",
+                    message=f"{owner_doctype} {owner_name} has mollie_subscription_id "
                     f"{stored_subscription_id} but no mollie_customer_id; "
                     f"provisioning a fresh subscription.",
-                    "Mollie Subscription Create",
                 )
 
             customer_id = self._resolve_customer_id_locked(stored_customer_id, customer_data)
@@ -345,7 +345,7 @@ class CompletePaymentService:
         except Exception as e:
             frappe.db.rollback()
             error_msg = f"Failed to create subscription: {e}"
-            frappe.log_error(error_msg, "Subscription Creation Error")
+            frappe.log_error(title="Subscription Creation Error", message=error_msg)
             raise MolliePaymentError(error_msg, original_error=e)
 
     def _create_unowned_subscription(
@@ -597,7 +597,7 @@ class CompletePaymentService:
 
         except Exception as e:
             error_msg = f"Failed to cancel subscription {subscription_id}: {e}"
-            frappe.log_error(error_msg, "Subscription Cancellation Error")
+            frappe.log_error(title="Subscription Cancellation Error", message=error_msg)
             raise MolliePaymentError(error_msg, original_error=e)
 
     def get_payment_status(self, payment_id: str) -> Dict[str, Any]:
@@ -627,7 +627,7 @@ class CompletePaymentService:
 
         except Exception as e:
             error_msg = f"Failed to get payment status for {payment_id}: {e}"
-            frappe.log_error(error_msg, "Payment Status Error")
+            frappe.log_error(title="Payment Status Error", message=error_msg)
             raise MolliePaymentError(error_msg, payment_id=payment_id, original_error=e)
 
     def _validate_donation_payment_data(self, donation_doc: Any, form_data: Dict[str, Any]) -> None:
@@ -794,7 +794,7 @@ class CompletePaymentService:
         except Exception as e:
             frappe.db.rollback()
             error_msg = f"Failed to create or get Mollie customer: {e}"
-            frappe.log_error(error_msg, "Mollie Customer Error")
+            frappe.log_error(title="Mollie Customer Error", message=error_msg)
             return create_error_response(error_msg)
 
     def _create_mollie_customer_only(self, customer_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -805,7 +805,7 @@ class CompletePaymentService:
             return {"status": "created", "customer_id": customer.id}
         except Exception as e:
             error_msg = f"Failed to create Mollie customer: {e}"
-            frappe.log_error(error_msg, "Mollie Customer Error")
+            frappe.log_error(title="Mollie Customer Error", message=error_msg)
             return create_error_response(error_msg)
 
     def _mollie_customer_payload(self, customer_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -881,9 +881,9 @@ class CompletePaymentService:
         # The Mollie-side cancel succeeded but no local record was updated -
         # surface it so the inconsistency can be reconciled.
         frappe.log_error(
-            f"Cancelled Mollie subscription {subscription_id} but found no owning "
+            title="Mollie Subscription Cancel",
+            message=f"Cancelled Mollie subscription {subscription_id} but found no owning "
             f"Member/Donor to update (reason: {reason})",
-            "Mollie Subscription Cancel",
         )
 
     def _update_owner_record(self, owner_doctype: str, owner_name: str, values: Dict[str, Any]) -> None:

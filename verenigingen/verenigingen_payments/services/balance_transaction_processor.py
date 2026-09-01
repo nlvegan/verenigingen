@@ -137,8 +137,8 @@ class BalanceTransactionProcessor:
 
         except Exception as e:
             frappe.log_error(
-                f"Error in balance transaction processing: {str(e)}",
-                "Balance Transaction Processing Error",
+                title="Balance Transaction Processing Error",
+                message=f"Error in balance transaction processing: {str(e)}",
             )
             result["error"] = str(e)
 
@@ -393,8 +393,8 @@ class BalanceTransactionProcessor:
             result["status"] = "error"
             result["error"] = str(e)
             frappe.log_error(
-                f"Error processing balance transaction {transaction.id}: {str(e)}",
-                "Balance Transaction Processing Error",
+                title="Balance Transaction Processing Error",
+                message=f"Error processing balance transaction {transaction.id}: {str(e)}",
             )
 
         return result
@@ -475,8 +475,8 @@ class BalanceTransactionProcessor:
                 # Log detailed validation errors
                 for error in validation_result["errors"]:
                     frappe.log_error(
-                        f"Mollie GL Account validation failed: {error}",
-                        "Balance Transaction Processing Configuration Error",
+                        title="Balance Transaction Processing Configuration Error",
+                        message=f"Mollie GL Account validation failed: {error}",
                     )
 
                 # Return first error for immediate feedback
@@ -601,8 +601,8 @@ class BalanceTransactionProcessor:
 
         except Exception as e:
             frappe.log_error(
-                f"Error in historical data processing: {str(e)}",
-                "Balance Historical Processing Error",
+                title="Balance Historical Processing Error",
+                message=f"Error in historical data processing: {str(e)}",
             )
             overall_result["error"] = str(e)
 

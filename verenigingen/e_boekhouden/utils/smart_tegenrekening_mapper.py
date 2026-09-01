@@ -238,8 +238,8 @@ class SmartTegenrekeningMapper:
                 # Log once and return None
                 if account_code not in self._logged_missing_ledgers:
                     frappe.log_error(
-                        f"Ledger ID {account_code} not found in mapping",  # noqa: E713
-                        "Tegenrekening Mapping",
+                        title="Tegenrekening Mapping",
+                        message=f"Ledger ID {account_code} not found in mapping",
                     )
                     self._logged_missing_ledgers.add(account_code)
                 self._account_cache[account_code] = None
@@ -270,8 +270,8 @@ class SmartTegenrekeningMapper:
         if not account:
             # Log missing account code for debugging
             frappe.log_error(
-                f"Account code {account_code} not found in company {self.company}",
-                "Tegenrekening Mapping",
+                title="Tegenrekening Mapping",
+                message=f"Account code {account_code} not found in company {self.company}",
             )
 
         self._account_cache[account_code] = account

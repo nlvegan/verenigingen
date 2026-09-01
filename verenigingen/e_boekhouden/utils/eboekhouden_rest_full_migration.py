@@ -2927,8 +2927,8 @@ def start_full_rest_import(migration_name, mutation_types=None):
         elif not isinstance(mutation_types, list):
             # If mutation_types is not a list, convert to list or use default
             frappe.log_error(
-                f"Invalid mutation_types parameter: {mutation_types}. Using default types.",
-                "eBoekhouden Import - Invalid Parameter",
+                title="eBoekhouden Import - Invalid Parameter",
+                message=f"Invalid mutation_types parameter: {mutation_types}. Using default types.",
             )
             mutation_types = [1, 2, 3, 4, 5, 6, 7]
         else:
@@ -2936,7 +2936,8 @@ def start_full_rest_import(migration_name, mutation_types=None):
             # Filter to valid types (0-10) and ensure unique
             mutation_types = sorted(list(set([t for t in mutation_types if 0 <= t <= 10])))
             frappe.log_error(
-                f"Using user-specified mutation types: {mutation_types}", "eBoekhouden Import - Custom Types"
+                title="eBoekhouden Import - Custom Types",
+                message=f"Using user-specified mutation types: {mutation_types}",
             )
 
         # Add opening balances (type 0) if not already included and this is a full migration
@@ -2957,8 +2958,8 @@ def start_full_rest_import(migration_name, mutation_types=None):
         if is_full_import and 0 not in mutation_types and mutation_types == [1, 2, 3, 4, 5, 6, 7]:
             mutation_types.insert(0, 0)  # Add type 0 at the beginning
             frappe.log_error(
-                f"Including opening balances (type 0) in migration. Date from: {date_from}",
-                "eBoekhouden Import",
+                title="eBoekhouden Import",
+                message=f"Including opening balances (type 0) in migration. Date from: {date_from}",
             )
         total_imported = 0
         total_failed = 0
@@ -3101,7 +3102,7 @@ def start_full_rest_import(migration_name, mutation_types=None):
         }
 
     except Exception as e:
-        frappe.log_error(f"Error in start_full_rest_import: {str(e)}", "E-Boekhouden Migration")
+        frappe.log_error(title="E-Boekhouden Migration", message=f"Error in start_full_rest_import: {str(e)}")
         return {"success": False, "error": str(e)}
 
 

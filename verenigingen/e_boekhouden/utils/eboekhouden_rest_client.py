@@ -252,7 +252,7 @@ class EBoekhoudenRESTClient(EBoekhoudenHTTPClientMixin):
                 }
 
         except Exception as e:
-            frappe.log_error(f"REST API error: {str(e)}", "E-Boekhouden REST")
+            frappe.log_error(title="E-Boekhouden REST", message=f"REST API error: {str(e)}")
             return {"success": False, "error": str(e)}
 
     def get_mutation_detail(self, mutation_id: int) -> Optional[Dict[str, Any]]:
@@ -282,13 +282,15 @@ class EBoekhoudenRESTClient(EBoekhoudenHTTPClientMixin):
                 return response.json()
             else:
                 frappe.log_error(
-                    f"Failed to get mutation detail for ID {mutation_id}: {response.status_code}",
-                    "E-Boekhouden REST",
+                    title="E-Boekhouden REST",
+                    message=f"Failed to get mutation detail for ID {mutation_id}: {response.status_code}",
                 )
                 return None
 
         except Exception as e:
-            frappe.log_error(f"Error fetching mutation {mutation_id}: {str(e)}", "E-Boekhouden REST")
+            frappe.log_error(
+                title="E-Boekhouden REST", message=f"Error fetching mutation {mutation_id}: {str(e)}"
+            )
             return None
 
     def get_all_mutations(self, date_from=None, date_to=None) -> Dict[str, Any]:

@@ -211,8 +211,7 @@ class MigrationProgressTracker:
         except Exception as e:
             # Don't fail migration if progress update fails
             frappe.log_error(
-                f"Failed to persist progress: {str(e)}",
-                "Migration Progress Update",
+                title="Migration Progress Update", message=f"Failed to persist progress: {str(e)}"
             )
 
 
@@ -247,7 +246,4 @@ def update_migration_progress(
             frappe.db.commit()
 
     except Exception as e:
-        frappe.log_error(
-            f"Failed to update progress: {str(e)}",
-            "Migration Progress",
-        )
+        frappe.log_error(title="Migration Progress", message=f"Failed to update progress: {str(e)}")

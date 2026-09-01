@@ -169,8 +169,8 @@ class EBoekhoudenPartyResolver:
                 else:
                     debug_info.append(f"WARNING: Relation {relation_id} has no name fields!")
                     frappe.log_error(
-                        f"Empty relation data for {relation_id}: {json.dumps(relation_data, indent=2)}",
-                        "E-Boekhouden Empty Relation",
+                        title="E-Boekhouden Empty Relation",
+                        message=f"Empty relation data for {relation_id}: {json.dumps(relation_data, indent=2)}",
                     )
 
                 return relation_data

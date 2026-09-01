@@ -405,8 +405,8 @@ class DonationJournalEntryCreator:
         except Exception as e:
             frappe.logger().error(f"Failed to create Journal Entry: {e}")
             frappe.log_error(
-                f"Journal Entry creation failed for donation {donation_name}: {e}",
-                "Donation Journal Entry Error",
+                title="Donation Journal Entry Error",
+                message=f"Journal Entry creation failed for donation {donation_name}: {e}",
             )
             return None
 

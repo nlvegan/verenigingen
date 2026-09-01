@@ -45,7 +45,7 @@ def get_payment_account_mappings(company):
             return get_default_payment_mappings(company)
 
     except Exception as e:
-        frappe.log_error(f"Error getting payment mappings: {str(e)}", "Payment Mapping Error")
+        frappe.log_error(title="Payment Mapping Error", message=f"Error getting payment mappings: {str(e)}")
         return get_default_payment_mappings(company)
 
     return mappings

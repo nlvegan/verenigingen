@@ -105,8 +105,7 @@ class RefundHandler:
         except Exception as e:
             frappe.logger().error(f"Error processing refunds for payment {payment_id}: {e}")
             frappe.log_error(
-                f"Refund processing error for payment {payment_id}: {e}",
-                "Refund Processing",
+                title="Refund Processing", message=f"Refund processing error for payment {payment_id}: {e}"
             )
             return {"refunds_processed": [], "error": str(e)}
 
@@ -130,8 +129,8 @@ class RefundHandler:
         except Exception as e:
             frappe.logger().warning(f"Could not fetch refunds for payment {payment_id}: {e}")
             frappe.log_error(
-                f"Could not fetch refunds for payment {payment_id}: {e}",
-                "Mollie Refund Fetch Failed",
+                title="Mollie Refund Fetch Failed",
+                message=f"Could not fetch refunds for payment {payment_id}: {e}",
             )
             return None
 

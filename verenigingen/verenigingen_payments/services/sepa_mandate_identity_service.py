@@ -85,8 +85,8 @@ class SEPAMandateIdentityService:
         # All retries exhausted or non-recoverable error
         if last_error:
             frappe.log_error(
-                f"Error in generate_mandate_id after {max_retries} attempts: {str(last_error)}",
-                "SEPA Mandate ID Generation",
+                title="SEPA Mandate ID Generation",
+                message=f"Error in generate_mandate_id after {max_retries} attempts: {str(last_error)}",
             )
 
         # Fallback to Frappe's autoname which has its own collision handling

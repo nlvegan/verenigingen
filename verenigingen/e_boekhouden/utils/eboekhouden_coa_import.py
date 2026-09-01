@@ -48,7 +48,7 @@ def coa_import_with_bank_accounts(migration_doc_name: str):
         return combined_result
 
     except Exception as e:
-        frappe.log_error(f"Enhanced CoA import error: {str(e)}", "E-Boekhouden Enhanced CoA")
+        frappe.log_error(title="E-Boekhouden Enhanced CoA", message=f"Enhanced CoA import error: {str(e)}")
         return {"success": False, "error": str(e)}
 
 
@@ -121,7 +121,7 @@ def create_bank_accounts_from_coa(migration_doc):
         }
 
     except Exception as e:
-        frappe.log_error(f"Bank account creation error: {str(e)}", "E-Boekhouden Bank Creation")
+        frappe.log_error(title="E-Boekhouden Bank Creation", message=f"Bank account creation error: {str(e)}")
         return {"success": False, "error": str(e)}
 
 
@@ -604,7 +604,7 @@ def create_bank_account_record(account, bank_name, bank_info, company):
         frappe.logger().error(error_msg)
 
         # Also log to error log for debugging
-        frappe.log_error(error_msg, "Bank Account Creation")
+        frappe.log_error(title="Bank Account Creation", message=error_msg)
 
         return None
 
@@ -775,7 +775,7 @@ def validate_bank_account_mappings(company=None):
         }
 
     except Exception as e:
-        frappe.log_error(f"Bank account validation error: {str(e)}", "Bank Account Validation")
+        frappe.log_error(title="Bank Account Validation", message=f"Bank account validation error: {str(e)}")
         return {"success": False, "error": str(e)}
 
 
@@ -845,7 +845,7 @@ def discover_missing_bank_accounts(company=None):
         }
 
     except Exception as e:
-        frappe.log_error(f"Bank account discovery error: {str(e)}", "Bank Account Discovery")
+        frappe.log_error(title="Bank Account Discovery", message=f"Bank account discovery error: {str(e)}")
         return {"success": False, "error": str(e)}
 
 
@@ -908,7 +908,9 @@ def create_missing_bank_accounts(company=None):
         }
 
     except Exception as e:
-        frappe.log_error(f"Missing bank account creation error: {str(e)}", "Missing Bank Account Creation")
+        frappe.log_error(
+            title="Missing Bank Account Creation", message=f"Missing bank account creation error: {str(e)}"
+        )
         return {"success": False, "error": str(e)}
 
 
@@ -987,7 +989,9 @@ def fix_bank_account_mappings(company=None):
         }
 
     except Exception as e:
-        frappe.log_error(f"Bank account mapping fix error: {str(e)}", "Bank Account Mapping Fix")
+        frappe.log_error(
+            title="Bank Account Mapping Fix", message=f"Bank account mapping fix error: {str(e)}"
+        )
         return {"success": False, "error": str(e)}
 
 
