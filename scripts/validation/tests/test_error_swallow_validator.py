@@ -1511,5 +1511,272 @@ class ShrinkExplanationTest(unittest.TestCase):
         self.assertEqual([(u.reason, u.lineno) for u in reported], [("unscanned", 4)])
 
 
+class AssignSwallowTest(unittest.TestCase):
+    """Condition (4)'s ASSIGN arm (#601): a handler that assigns a falsy value
+    instead of returning it is the same swallow, invisible to every arm above --
+    all of which are reached only from an `ast.Return` node.
+
+    The real defect this closes: `chapter_dashboard.get_chapter_key_metrics` zeroed
+    `member_stats` into a variable, sitting directly above `get_basic_expense_stats`,
+    whose byte-identical zero dict WAS caught because it returned it (#593). Only one
+    of the two was ever findable before this arm.
+    """
+
+    def test_the_601_shape_is_flagged(self):
+        """The real defect, reconstructed: a local variable zeroed on failure and
+        later folded into the function's real return value.
+
+        Confirmed as the RED case against the PRE-#601 validator (git HEAD before
+        this change): scanning this exact shape found only `get_basic_expense_stats`
+        -- `get_chapter_key_metrics` was invisible. This test is the GREEN half.
+        """
+        self.assertEqual(
+            len(
+                _flagged(
+                    "def get_chapter_key_metrics(chapter_name):\n"
+                    "    try:\n"
+                    "        members = compute(chapter_name)\n"
+                    "        member_stats = {'total_members': len(members), 'active_members': 3}\n"
+                    "    except Exception as e:\n"
+                    "        frappe.log_error(f'boom: {e}')\n"
+                    "        member_stats = {'total_members': 0, 'active_members': 0}\n"
+                    "\n"
+                    "    expense_stats = get_basic_expense_stats(chapter_name)\n"
+                    "    return {'members': member_stats, 'expenses': expense_stats}\n"
+                )
+            ),
+            1,
+        )
+
+    def test_empty_list_assign_is_flagged(self):
+        """The other container shape the census found: `= []`, not just `= {...}`."""
+        self.assertEqual(
+            len(
+                _flagged(
+                    "def f(x):\n"
+                    "    try:\n"
+                    "        recent_members = compute(x)\n"
+                    "    except Exception:\n"
+                    "        frappe.log_error('boom')\n"
+                    "        recent_members = []\n"
+                    "    return {'recent_members': recent_members}\n"
+                )
+            ),
+            1,
+        )
+
+    def test_the_volunteer_dashboard_shape_stays_clean_unmarked(self):
+        """The control (#601's whole point): a handler that ALSO sets an error flag
+        beside the falsy assign is a legitimate degrade, not a swallow, and must
+        NOT be flagged -- with no `# swallow-ok:` marker needed.
+
+        This is `volunteer/dashboard.py:66` verbatim in shape: `context.data_warning`
+        is what lets the template tell "no expenses" from "the query blew up".
+        """
+        self.assertEqual(
+            _flagged(
+                "def get_context(context):\n"
+                "    try:\n"
+                "        context.expense_summary = compute(context)\n"
+                "    except Exception as e:\n"
+                "        frappe.log_error(f'boom: {e}')\n"
+                "        context.expense_summary = {'total_submitted': 0, 'pending_count': 0}\n"
+                "        context.data_warning = _('Some data could not be loaded.')\n"
+                "    return context\n"
+            ),
+            [],
+        )
+
+    def test_a_falsy_scalar_assign_is_flagged_too(self):
+        """The heuristic is not restricted to containers: a lone falsy scalar
+        assign that sets nothing else is the same shape, one step smaller
+        (`stats['recent_count'] = 0`-style sites the census also found).
+        """
+        self.assertEqual(
+            len(
+                _flagged(
+                    "def f(x):\n"
+                    "    stats = compute_base(x)\n"
+                    "    try:\n"
+                    "        stats['recent_count'] = compute_recent(x)\n"
+                    "    except Exception:\n"
+                    "        frappe.log_error('boom')\n"
+                    "        stats['recent_count'] = 0\n"
+                    "    return stats\n"
+                )
+            ),
+            1,
+        )
+
+    def test_an_assign_carrying_the_cause_is_not_flagged(self):
+        """The same escape as the return arm: a non-falsy value anywhere among the
+        handler's assigns means the caller CAN learn something, so nothing is
+        flagged -- not just the falsy assign beside it.
+        """
+        self.assertEqual(
+            _flagged(
+                "def f(x):\n"
+                "    try:\n"
+                "        result = compute(x)\n"
+                "    except Exception as e:\n"
+                "        frappe.log_error('boom')\n"
+                "        result = {'total': 0}\n"
+                "        result_error = str(e)\n"
+                "    return {'result': result}\n"
+            ),
+            [],
+        )
+
+    def test_an_assign_only_handler_still_needs_a_real_return_elsewhere(self):
+        """Condition (5): a function that never returns anything meaningful cannot
+        have a load-bearing assign-swallow either -- fire-and-forget work stays
+        unflagged the same way it does for the return arm.
+        """
+        self.assertEqual(
+            _flagged(
+                "def invalidate(x):\n"
+                "    try:\n"
+                "        cache[x] = compute(x)\n"
+                "    except Exception:\n"
+                "        frappe.log_error('boom')\n"
+                "        cache[x] = None\n"
+            ),
+            [],
+        )
+
+    def test_an_assign_only_handler_still_needs_the_structural_disqualifiers(self):
+        """Conditions (1)-(3) apply to the assign arm exactly as they do to returns:
+        a `continue` here means nothing falsy actually reaches the caller."""
+        self.assertEqual(
+            _flagged(
+                "def f(rows):\n"
+                "    out = []\n"
+                "    for r in rows:\n"
+                "        stats = {}\n"
+                "        try:\n"
+                "            stats = compute(r)\n"
+                "        except Exception:\n"
+                "            frappe.log_error('boom')\n"
+                "            stats = {}\n"
+                "            continue\n"
+                "        out.append(stats)\n"
+                "    return out\n"
+            ),
+            [],
+        )
+
+    def test_an_assign_only_handler_with_no_logging_is_not_flagged(self):
+        """Out of scope for the DETECTOR (silent swallow is a different bug class),
+        same as the return arm -- but see `AssignShrinkExplanationTest` for why the
+        shrink explainer must still see it."""
+        self.assertEqual(
+            _flagged(
+                "def f(x):\n"
+                "    try:\n"
+                "        stats = compute(x)\n"
+                "    except Exception:\n"
+                "        stats = {}\n"
+                "    return stats\n"
+            ),
+            [],
+        )
+
+    def test_a_pragma_suppresses_an_assign_swallow(self):
+        findings, bad = _scan(
+            "def f(x):\n"
+            "    try:\n"
+            "        stats = compute(x)\n"
+            "    except Exception:  # swallow-ok: best-effort\n"
+            "        frappe.log_error('boom')\n"
+            "        stats = {}\n"
+            "    return stats\n"
+        )
+        self.assertEqual(findings, [])
+        self.assertEqual(bad, [])
+
+
+class AssignShrinkExplanationTest(unittest.TestCase):
+    """The shrink explainer must stay in step with the assign arm (#601), the same
+    'must not carry two copies of the ladder' hazard the module docstring already
+    names for the return arm.
+    """
+
+    def _shrink(self, src: str, baseline: dict, base_root=None):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp).resolve() / "head"
+            d.mkdir()
+            (d / "mod.py").write_text(src)
+            original = esv.REPO_ROOT
+            esv.REPO_ROOT = d
+            try:
+                return esv.explain_shrink(baseline, [str(d)], base_root=base_root)
+            finally:
+                esv.REPO_ROOT = original
+
+    def test_a_real_fix_explains_the_shrink(self):
+        """The assign now carries the cause: a real fix, reported as one."""
+        self.assertEqual(
+            self._shrink(
+                "def f(x):\n"
+                "    try:\n"
+                "        stats = compute(x)\n"
+                "    except Exception as e:\n"
+                "        frappe.log_error('boom')\n"
+                "        stats = {'total': 0, 'error': str(e)}\n"
+                "    return stats\n",
+                {"mod.py::f": 1},
+            ),
+            [],
+        )
+
+    def test_an_unrecognised_assign_shape_is_reported(self):
+        """The assign-side version of the #585 enum-member evasion: `stats =
+        State.NOT_FOUND` still swallows, but `_is_falsy_value` does not recognise an
+        `ast.Attribute` as falsy, so this must be reported rather than accepted
+        silently."""
+        unexplained = self._shrink(
+            "def f(x):\n"
+            "    try:\n"
+            "        stats = compute(x)\n"
+            "    except Exception:\n"
+            "        frappe.log_error('boom')\n"
+            "        stats = State.NOT_FOUND\n"
+            "    return stats\n",
+            {"mod.py::f": 1},
+        )
+        self.assertEqual([u.reason for u in unexplained], ["unrecognised"])
+
+    def test_deleting_the_logging_call_on_an_assign_swallow_is_reported_as_silent(self):
+        """#586's failure mode, on the assign arm: deleting the log takes the entry
+        out of the baseline while making the code worse, and needs a base tree to
+        tell that apart from a pre-existing silent sibling."""
+        head = (
+            "def f(x):\n"
+            "    try:\n"
+            "        stats = compute(x)\n"
+            "    except Exception:\n"
+            "        stats = {}\n"
+            "    return stats\n"
+        )
+        base = head.replace("        stats = {}\n", "        frappe.log_error('boom')\n        stats = {}\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            headdir, basedir = root / "head", root / "base"
+            headdir.mkdir()
+            basedir.mkdir()
+            (headdir / "mod.py").write_text(head)
+            (basedir / "mod.py").write_text(base)
+            original = esv.REPO_ROOT
+            esv.REPO_ROOT = headdir
+            try:
+                reported = esv.explain_shrink({"mod.py::f": 1}, [str(headdir)], base_root=basedir)
+            finally:
+                esv.REPO_ROOT = original
+        self.assertEqual([(u.reason, u.lineno) for u in reported], [("silent", 4)])
+
+    def test_a_deleted_function_explains_an_assign_shrink(self):
+        self.assertEqual(self._shrink("def g(x):\n    return x\n", {"mod.py::f": 1}), [])
+
+
 if __name__ == "__main__":
     unittest.main()

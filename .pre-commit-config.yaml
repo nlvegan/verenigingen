@@ -248,14 +248,16 @@ repos:
         name: 🕳️  Swallowed-Exception Guard (ratchet)
         description: >-
           Blocks NEW broad `except` handlers that only log and return a falsy value
-          from a function that elsewhere returns a real value. The caller then cannot
-          tell failure from "legitimately nothing", and on CI the real error dies with
-          the database. This repo has been bitten repeatedly: board members got
-          org-wide project access when a permission hook returned "" (read as
-          UNRESTRICTED, PR #191); a swallowed DB error in the volunteer duplicate guard
-          inserted SECOND Volunteers; and a CI failure in test_chapter_members_enhanced
-          was undiagnosable because the only copy of the cause died with the job.
-          Ratcheted against scripts/validation/error_swallow_baseline.txt (457 known
+          from a function that elsewhere returns a real value -- or ASSIGNS nothing
+          but falsy values instead of returning one (#601), when the handler sets
+          nothing else. The caller then cannot tell failure from "legitimately
+          nothing", and on CI the real error dies with the database. This repo has
+          been bitten repeatedly: board members got org-wide project access when a
+          permission hook returned "" (read as UNRESTRICTED, PR #191); a swallowed DB
+          error in the volunteer duplicate guard inserted SECOND Volunteers; and a CI
+          failure in test_chapter_members_enhanced was undiagnosable because the only
+          copy of the cause died with the job.
+          Ratcheted against scripts/validation/error_swallow_baseline.txt (480 known
           sites) so existing code does not block commits — the baseline should only
           ever shrink, and `--check-shrink` now makes each shrink say WHY it shrank.
           Mark deliberate cases `# swallow-ok: best-effort`.

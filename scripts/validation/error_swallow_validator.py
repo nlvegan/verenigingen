@@ -36,9 +36,11 @@ A handler is reported only when ALL of these hold, which is the load-bearing cas
    resume real work: no ``continue``/``break``, no nested ``def``/``class``, and
    no return of a real value on ANY branch;
 4. it hands the caller a falsy value -- either every return in it is a falsy
-   literal (``None``/``False``/``{}``/``[]``/``""``/``0``), or it has no return at
+   literal (``None``/``False``/``{}``/``[]``/``""``/``0``); or it has no return at
    all and the ``try`` is the LAST statement of the function, so falling off the
-   end of the handler is an implicit ``return None``; and
+   end of the handler is an implicit ``return None``; or it has no return at all
+   but ASSIGNS nothing but falsy values, the same swallow one step removed
+   (#601, below); and
 5. the ENCLOSING FUNCTION elsewhere returns a real value.
 
 On (4): the falsy test is "any falsy literal", not a list of blessed ones,
@@ -100,6 +102,44 @@ never returns anything meaningful (fire-and-forget cache invalidation, a
 best-effort notification) is not reported: its falsy return is not load-bearing,
 because no caller can branch on it. Measured on this repo, (5) is what makes the
 rule usable: conditions 1-4 alone match 937 sites, and (5) cuts that to 457.
+
+THE ASSIGN ARM (#601)
+----------------------
+Every arm above is reached only from an ``ast.Return`` node. A handler that
+ASSIGNS the same falsy value instead of returning it is the identical defect and
+was invisible to all of them: ``chapter_dashboard.get_chapter_key_metrics`` zeroed
+``member_stats`` into a variable on failure, and sat directly above
+``get_basic_expense_stats``, whose byte-identical zero dict WAS caught -- because
+that one returned it. Only one of the two was ever findable (#593 fixed both).
+
+Extending (4) to ``ast.Assign`` outright would immediately flag the one place in
+the tree this pattern is CORRECT: ``volunteer/dashboard.py`` zeroes
+``context.expense_summary`` on failure, but also sets ``context.data_warning``,
+which the template renders instead of silently pretending nothing happened. That
+site must stay clean with no marker -- a pragma on the one correct instance would
+teach readers to paper over the pattern instead of writing a handler for it. The
+narrower rule, and the one shipped: an assignment is flagged only when the handler
+sets NOTHING else at all (no error flag, no message, no re-raise) -- see
+``_falsy_only_assigns``.
+
+This is a new heuristic with its own false-positive surface, not the same shape as
+(4)'s literal test above. Measured over both ``SCAN_ROOTS``, tests excluded,
+restricted to handlers with no ``return`` at all: 43 sites. Two known false
+positives from that hand review, left open rather than chased because closing them
+needs more than syntax:
+
+* ``sepa_memory_optimizer.py``: ``results["success"] = False`` sits beside
+  ``results["errors"].append({"error": str(e), ...})`` in the SAME handler, which
+  genuinely carries the cause -- just not through an assignment, so
+  ``_falsy_only_assigns`` cannot see it.
+* ``chapter_dashboard.get_context``: ``has_data = False`` IS the informative
+  signal, not a value hiding one -- the caller branches on it two statements later
+  to set ``context.error_message``. The volunteer-dashboard exemption above only
+  catches this when the informative assignment is INSIDE the handler; here it is
+  one flag removed.
+
+Both stay in the baseline as known limits of a syntactic test, not because the
+class in general is safe to ignore.
 
 KNOWN FALSE NEGATIVES
 ---------------------
@@ -268,7 +308,15 @@ def _is_log_call(node: ast.AST) -> bool:
 def _is_falsy_return(node: ast.AST) -> bool:
     if not isinstance(node, ast.Return):
         return False
-    v = node.value
+    return _is_falsy_value(node.value)
+
+
+def _is_falsy_value(v: ast.AST | None) -> bool:
+    """The value-level test behind (4), shared by a falsy RETURN and a falsy
+    ASSIGN (#601). ``_is_falsy_return`` used to hold this body directly; it is
+    split out so an assignment can be tested the same way without wrapping it in
+    a fake ``ast.Return`` node.
+    """
     if v is None:
         return True
     # Any falsy literal, NOT just None/False: `return ""` is the flagship incident
@@ -345,6 +393,80 @@ def _is_falsy_return(node: ast.AST) -> bool:
         # never by relaxing the guard, which is what the 7-for-6 measurement above
         # forbids. 0 occurrences today (#589).
         return ast.unparse(v.func) in FALSY_EMPTY_CONSTRUCTORS
+    return False
+
+
+def _falsy_only_assigns(handler: ast.ExceptHandler) -> bool:
+    """The ASSIGN counterpart to (4) (#601): every own-scope assignment directly
+    in ``handler`` is a falsy value, and there is at least one.
+
+    ``chapter_dashboard.get_chapter_key_metrics`` zeroed ``member_stats`` into a
+    variable instead of returning it -- the exact defect (4) exists to catch, sitting
+    directly above ``get_basic_expense_stats``, whose identical zero dict WAS caught
+    because it returned it. `scan_file` only ever looks at RETURN nodes, so the
+    assignment was invisible.
+
+    The rule is deliberately narrower than "flag any falsy assignment": it fires
+    only when the handler sets NOTHING else. A handler that also sets an error flag
+    or message -- ``context.data_warning = ...`` beside ``context.expense_summary =
+    {...zeros}`` in ``volunteer/dashboard.py`` -- has somewhere for the caller to
+    learn something went wrong, and is the correct page-level degrade, not a
+    swallow. It must stay clean with no marker: a pragma on the one place this
+    pattern is RIGHT would teach readers to paper over it rather than write a
+    handler. Unlike the RETURN arm's implicit-``None`` case, this does not require
+    the ``try`` to be the LAST statement of the function -- an assignment resumes
+    execution either way, and what makes it load-bearing is condition (5) at the
+    function level, not where the ``try`` sits.
+
+    Measured over both ``SCAN_ROOTS``, tests excluded, restricted to handlers with
+    no ``return`` at all (a handler that also returns is judged by the RETURN arm
+    instead, to avoid scoring the same handler twice): 43 sites. Known limits of
+    this exact mechanical test, found during that hand review and left open rather
+    than chased -- see the module docstring's ASSIGN ARM section:
+
+    * a non-log call elsewhere in the handler can carry the cause without any
+      assignment being non-falsy at all -- ``results["errors"].append({"error":
+      str(e)})`` beside ``results["success"] = False`` in
+      ``sepa_memory_optimizer.py`` genuinely is not a swallow, and this test cannot
+      see it, because it only looks at ``ast.Assign`` nodes.
+    * a falsy value can BE the informative signal rather than hide one --
+      ``chapter_dashboard.get_context`` sets ``has_data = False`` in the handler and
+      branches on it two lines later to set ``context.error_message``, the same
+      shape as ``volunteer/dashboard.py``'s legitimate degrade one level removed
+      (through a flag rather than directly). Both read as "sets nothing else"
+      because the assign that matters is OUTSIDE the handler.
+    """
+    assigns = [n for n in _own_nodes(handler) if isinstance(n, ast.Assign)]
+    return bool(assigns) and all(_is_falsy_value(a.value) for a in assigns)
+
+
+def _assigns_the_cause(handler: ast.ExceptHandler) -> bool:
+    """Assign counterpart to ``_returns_the_cause`` (#601).
+
+    Used only by the shrink explainer: once an assign-based finding leaves the
+    count because ``_falsy_only_assigns`` no longer holds, this asks whether that
+    happened because the assignment now carries the bound exception (a real fix,
+    silent) or because it changed into some OTHER shape ``_is_falsy_value`` simply
+    does not recognise -- `member_stats = State.NOT_FOUND` is the assign-side
+    version of the enum-member evasion `_returns_the_cause` was written for
+    (`unrecognised`, reported).
+    """
+    if not handler.name:
+        return False
+    name = handler.name
+    for a in ast.walk(handler):
+        if not isinstance(a, ast.Assign):
+            continue
+        for n in ast.walk(a.value):
+            if isinstance(n, ast.Call) and (
+                any(_is_bound_name(x, name) for x in n.args)
+                or any(_is_bound_name(k.value, name) for k in n.keywords)
+            ):
+                return True
+            if isinstance(n, ast.Attribute) and _is_bound_name(n.value, name):
+                return True
+            if isinstance(n, ast.FormattedValue) and _is_bound_name(n.value, name):
+                return True
     return False
 
 
@@ -497,8 +619,12 @@ def scan_file(path: Path):
                 continue
 
             # (4) no return at all is an implicit `return None` only if falling off
-            # the handler ends the function.
-            if not rets and id(node) not in trailing:
+            # the handler ends the function -- OR the handler assigns nothing but
+            # falsy values instead of returning one (#601). The assign arm does not
+            # need the trailing check: an assignment resumes the function either
+            # way, and what makes it load-bearing is condition (5), not where the
+            # `try` sits.
+            if not rets and id(node) not in trailing and not _falsy_only_assigns(node):
                 continue
 
             ok, bad_reason = _suppressed(node, lines)
@@ -592,7 +718,7 @@ def _falsy_swallow_handlers(fn: ast.AST, lines: list[str]) -> list[ast.ExceptHan
         if _suppressed(node, lines)[0]:
             continue
         rets = [n for n in ast.walk(node) if isinstance(n, ast.Return)]
-        if not rets and id(node) not in trailing:
+        if not rets and id(node) not in trailing and not _falsy_only_assigns(node):
             continue  # falling off mid-function resumes it: never was a swallow
         if not all(_is_falsy_return(r) for r in rets):
             continue
@@ -614,7 +740,12 @@ def _handler_fingerprint(handler: ast.ExceptHandler) -> str:
         for n in ast.walk(handler)
         if isinstance(n, ast.Return)
     )
-    return f"{kind}|{'&'.join(rets)}"
+    # Own-scope assigns too (#601): a RETURN-less handler has no `rets` at all, so
+    # two DIFFERENT assign-only handlers in the same function (`x = {}` and
+    # `y = []`, say) would otherwise collide onto the identical fingerprint
+    # `kind|` and be indistinguishable to the base-tree comparison below.
+    assigns = tuple(ast.unparse(n) for n in _own_nodes(handler) if isinstance(n, ast.Assign))
+    return f"{kind}|{'&'.join(rets)}|{'&'.join(assigns)}"
 
 
 def _silent_handlers(fn: ast.AST, lines: list[str]) -> list[ast.ExceptHandler]:
@@ -699,10 +830,19 @@ def _shrink_causes(
         if not _returns_real_value(fn):
             continue  # (5) gone: the falsy return is no longer load-bearing
         rets = [n for n in ast.walk(node) if isinstance(n, ast.Return)]
-        if not rets:
+        if rets:
+            if _returns_the_cause(node):
+                continue  # the caller can learn WHY: a real fix
+            out.append((node, "unrecognised"))
             continue
-        if _returns_the_cause(node):
-            continue  # the caller can learn WHY: a real fix
+        # No return at all: an assign-based finding (#601) can leave the count the
+        # same way a return-based one can -- `member_stats = {...zeros}` changed to
+        # `member_stats = State.NOT_FOUND` is the assign-side version of the
+        # enum-member evasion `_returns_the_cause` exists to catch.
+        if not any(isinstance(n, ast.Assign) for n in _own_nodes(node)):
+            continue  # nothing assigned either: not this handler's doing
+        if _assigns_the_cause(node):
+            continue  # a real fix: the assignment now carries the cause
         out.append((node, "unrecognised"))
     return sorted(out, key=lambda pair: pair[0].lineno)
 
