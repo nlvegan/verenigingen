@@ -20,10 +20,10 @@ whether an exemption's stated reason is true, so the four exemptions in
 import frappe
 from frappe.utils import today
 
+from verenigingen.services.volunteer.status_derivation_service import CURRENT_ASSIGNMENT_STATUSES
 from verenigingen.utils import append_to_text_field
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
-from verenigingen.verenigingen.doctype.volunteer.volunteer import CURRENT_ASSIGNMENT_STATUSES
 
 # Machine-readable marker written into a Team Member row's `notes` when a
 # membership is soft-disabled by suspension. Restoration (unsuspension) only
