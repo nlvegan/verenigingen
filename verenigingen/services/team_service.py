@@ -332,6 +332,29 @@ class TeamValidationService(StatelessService):
 
         return True
 
+    def validate_team_member_rows(self, team_doc):
+        """Enforce the per-row rules `Team Member.validate()` stated but never ran.
+
+        Team Member is a child table (`"istable": 1`), so Frappe never calls its own
+        validate() -- see #596. `required volunteer` and `Team Role must exist` are
+        already covered by the field's own `reqd`/Link-field validation, which DOES
+        run for children regardless of custom validate(). Unique-role-per-team is
+        already covered by `TeamService.validate_unique_roles`, called from
+        `Team._validate_unique_roles()` in `Team.validate()`. Neither of those,
+        nor anything else, checked a per-row date range or is_active/status
+        consistency, so this is what's left to port.
+        """
+        for member in team_doc.team_members or []:
+            if member.to_date and member.from_date and member.to_date < member.from_date:
+                frappe.throw(_("Row {0}: End date cannot be before start date").format(member.idx))
+
+            if not member.is_active and member.status == "Active":
+                member.status = "Inactive"
+            elif member.is_active and member.status != "Active":
+                member.is_active = 0
+
+        return True
+
 
 def get_team_service() -> TeamService:
     """Get instance of TeamService."""
