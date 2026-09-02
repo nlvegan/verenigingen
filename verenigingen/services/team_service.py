@@ -7,6 +7,7 @@ extracted from the Team DocType controller to maintain clean architecture.
 
 import frappe
 from frappe import _
+from frappe.utils import getdate
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 
@@ -345,7 +346,14 @@ class TeamValidationService(StatelessService):
         consistency, so this is what's left to port.
         """
         for member in team_doc.team_members or []:
-            if member.to_date and member.from_date and member.to_date < member.from_date:
+            # getdate(), not a raw `<`: Frappe Date fields are not reliably typed --
+            # frappe.utils.today() (the idiomatic way to set one, used throughout this
+            # app, including by tests exercising this exact save path) returns a STRING,
+            # while a row freshly loaded from the DB already holds a datetime.date. A
+            # bare `member.to_date < member.from_date` raises TypeError the moment the
+            # two sides disagree, rather than validating anything. Measured: this exact
+            # line crashed 10 CI tests across 3 shards when this rule went live (#596).
+            if member.to_date and member.from_date and getdate(member.to_date) < getdate(member.from_date):
                 frappe.throw(_("Row {0}: End date cannot be before start date").format(member.idx))
 
             if not member.is_active and member.status == "Active":

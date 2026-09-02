@@ -48,12 +48,26 @@ class BoardMemberValidator(BaseValidator):
                 member.get("from_date"), member.get("to_date"), "Start Date", "End Date", result
             )
 
-        # Validate active member with past end date
+        # An active member with a past end date is a WARNING, not a blocking error.
+        # #596 re-wired this per-row check into Chapter.validate() (previously it lived
+        # only in ChapterBoardMember's dead, never-run validate()). Made it an error
+        # first; that broke test_advanced_segmentation.test_board_members_only_respects_
+        # is_active_and_term_end, whose whole premise is that "is_active=1 with an
+        # expired to_date" is real, tolerated data -- BoardManager.remove_board_member()
+        # sets both is_active and to_date together, but nothing stops a direct Desk edit
+        # to the child table from setting only one, and the "board_members_only" segment
+        # query exists specifically to filter that stale combination out rather than
+        # assume it can't occur. Blocking the SAVE on it would make correcting or even
+        # just touching an unrelated field on such a Chapter impossible.
         if member.get("is_active") and member.get("to_date"):
             try:
                 to_date = getdate(member.get("to_date"))
                 if to_date < getdate(today()):
-                    result.add_error(("Active board member {0} has end date in the past").format(member_name))
+                    result.add_warning(
+                        ("Board member {0} is marked active but has an end date in the past").format(
+                            member_name
+                        )
+                    )
             except (ValueError, TypeError):
                 pass  # Date validation will catch this
 

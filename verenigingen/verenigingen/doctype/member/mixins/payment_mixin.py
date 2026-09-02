@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import date_diff, today
+from frappe.utils import date_diff, getdate, today
 
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.secure_operations import secure_document_operation
@@ -330,7 +330,13 @@ class PaymentMixin:
         from verenigingen.utils.validation.iban_validator import derive_bic_from_iban
 
         for row in self.iban_history:
-            if row.to_date and row.from_date and row.to_date < row.from_date:
+            # getdate(), not a raw `<`: Frappe Date fields are not reliably typed --
+            # frappe.utils.today() (the idiomatic way to set one) returns a STRING,
+            # while a row loaded from the DB already holds a datetime.date. A bare
+            # `row.to_date < row.from_date` raises TypeError the moment the two sides
+            # disagree, rather than validating anything -- the same class of bug
+            # measured live in Team.validate_team_member_rows() (#596).
+            if row.to_date and row.from_date and getdate(row.to_date) < getdate(row.from_date):
                 frappe.throw(
                     _("IBAN History row {0}: Valid Until date cannot be before Valid From date").format(
                         row.idx

@@ -269,6 +269,35 @@ class TestTeam(EnhancedTestCase):
         self.assertEqual(team.team_members[0].status, "On Leave")
         self.assertFalse(team.team_members[0].is_active)
 
+    def test_ending_a_team_member_row_does_not_crash_on_mixed_date_types(self):
+        """Deactivating a Team Member by setting to_date = today() must not crash.
+
+        Regression for a real CI failure (10 tests across 3 shards, all the same
+        traceback): validate_team_member_rows() compared `member.to_date <
+        member.from_date` with a bare `<`. frappe.utils.today() -- the idiomatic,
+        everywhere-used way to set a date field, including in this exact pattern
+        in test_team_role_validation.py, test_volunteer_sync_service.py and
+        test_team_coverage.py -- returns a STRING. A row reloaded from the DB
+        already holds `from_date` as a datetime.date. Comparing the two raised
+        TypeError: '<' not supported between instances of 'str' and
+        'datetime.date', not a ValidationError -- the save crashed instead of
+        validating anything. See #596 follow-up.
+        """
+        team = self.create_test_team()
+        team.reload()  # from_date on the existing row is now a real datetime.date
+
+        for member in team.team_members:
+            member.is_active = 0
+            member.status = "Inactive"
+            member.to_date = today()  # a string, deliberately -- this is the crash
+
+        team.save()  # must not raise TypeError
+        team.reload()
+
+        for member in team.team_members:
+            self.assertFalse(member.is_active)
+            self.assertEqual(member.status, "Inactive")
+
     def test_team_creation(self):
         """Test creating a team"""
         if not self.test_members:
