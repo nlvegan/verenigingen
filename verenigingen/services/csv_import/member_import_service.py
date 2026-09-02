@@ -598,12 +598,20 @@ class MemberImportService(StatelessService):
 
             return "created", member.name
 
-        except frappe.DuplicateEntryError as e:
+        except (frappe.DuplicateEntryError, frappe.UniqueValidationError) as e:
+            # UniqueValidationError is the one that actually fires here:
+            # `member_id` is a unique FIELD, and frappe raises DuplicateEntryError
+            # only for a primary-key collision. The two are unrelated classes
+            # (DuplicateEntryError derives from NameError), so listing only the
+            # latter let a member_id collision fall through to the generic
+            # `except frappe.ValidationError` branch below and reported the
+            # operator a raw exception repr instead of the offending member_id
+            # (#699; the sibling importer had the same defect, fixed in #570).
             try:
                 frappe.db.sql(f"ROLLBACK TO SAVEPOINT {savepoint_name}")
             except Exception:
                 pass
-            self.logger.warning(f"Row {row_num}: Duplicate member - {str(e)[:100]}")
+            self.logger.warning(f"Row {row_num}: Duplicate member_id {row_data.get('member_id', '')}")
             return "skipped", None
 
         except frappe.ValidationError as e:

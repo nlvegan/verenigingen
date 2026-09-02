@@ -425,11 +425,36 @@ class SEPAUploadGuard(StatelessService):
                 message=_("Upload registered successfully."),
             )
 
-        except frappe.DuplicateEntryError:
-            # DB unique constraint caught the race condition - another worker won
+        except (frappe.DuplicateEntryError, frappe.UniqueValidationError):
+            # DB unique constraint caught the race condition - another worker won.
+            #
+            # `SEPA Batch Upload Log.validate_unique_hash()` also does an
+            # application-level check-then-throw (raising DuplicateEntryError
+            # explicitly), but that only catches a SEQUENTIAL duplicate --  one
+            # that already committed before this worker's SELECT ran. Two truly
+            # concurrent workers can both pass validate_unique_hash's SELECT
+            # (neither has committed yet), and the loser then collides on the
+            # real DB unique index on `file_hash`. Frappe classifies that as
+            # UniqueValidationError, not DuplicateEntryError (unrelated classes
+            # -- see #699), so listing only the latter let a genuinely concurrent
+            # upload fall past this TYPED handler.
+            #
+            # It was not previously uncaught: the generic `except Exception`
+            # below already rescued it, but only by string-matching the message
+            # (`"duplicate"/"integrity"/"unique" in str(e).lower()`), and
+            # str(UniqueValidationError) happens to contain "Duplicate". That
+            # heuristic is fragile against a driver, locale or wording change --
+            # nothing guarantees the word survives. So the improvement here is
+            # classifying the race by EXCEPTION TYPE instead of by substring,
+            # not catching a crash that previously escaped.
+            #
+            # The race itself is real, and was verified with a genuine
+            # two-connection probe rather than a single-connection simulation:
+            # both connections miss on the SELECT, the first commits, the second
+            # gets IntegrityError(1062) on the `file_hash` unique index.
             rollback_to_savepoint(savepoint)
             self.logger.warning(
-                f"DuplicateEntryError in check_and_register (race condition caught by DB): hash={file_hash[:16]}..."
+                f"Duplicate/unique collision in check_and_register (race condition caught by DB): hash={file_hash[:16]}..."
             )
 
             # Look up the winning entry to provide duplicate info

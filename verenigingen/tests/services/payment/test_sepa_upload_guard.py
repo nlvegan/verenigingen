@@ -540,6 +540,87 @@ class TestConcurrentUploadGuard(SEPAUploadGuardTestMixin, FrappeTestCase):
         self.assertEqual(result1.reason_code, UploadBlockReason.NONE)
         self.assertEqual(result2.reason_code, UploadBlockReason.NONE)
 
+    def _make_direct_debit_batch(self):
+        """A minimal, real Direct Debit Batch -- `batch_name` on SEPA Batch
+        Upload Log is a required Link to this doctype, so `check_and_register`
+        (unlike the SQL-fixture helpers above) needs one that actually exists."""
+        batch = frappe.new_doc("Direct Debit Batch")
+        batch.batch_date = frappe.utils.today()
+        batch.batch_description = f"Test batch {frappe.utils.random_string(8)}"
+        batch.batch_type = "CORE"
+        batch.currency = "EUR"
+        # An empty batch fails validate_invoices()'s "No invoices added to
+        # batch" check; this fixture only needs a real Link target for
+        # SEPA Batch Upload Log.batch_name, not a valid batch.
+        batch.flags.ignore_validate = True
+        batch.insert(ignore_permissions=True)
+        self.addCleanup(frappe.delete_doc, "Direct Debit Batch", batch.name, force=True)
+        return batch.name
+
+    def test_check_and_register_true_concurrent_race_is_caught(self):
+        """A TRULY concurrent race -- two workers whose validate()-time SELECTs
+        both miss because neither has committed yet -- must be caught, not
+        escape check_and_register uncaught (#699, skeptical review finding).
+
+        `SEPA Batch Upload Log.validate_unique_hash()` does an application-level
+        check-then-throw (explicit `frappe.throw(..., frappe.DuplicateEntryError)`),
+        which is what the ORIGINAL `except frappe.DuplicateEntryError:` here
+        handled. But that only catches a SEQUENTIAL duplicate -- one that
+        already committed before this worker's SELECT ran. Two genuinely
+        concurrent workers can both pass `validate_unique_hash`'s SELECT before
+        either commits; the loser then collides on the real DB unique index on
+        `file_hash`, which frappe classifies as `UniqueValidationError` (a
+        `ValidationError` subclass, unrelated to `DuplicateEntryError` --
+        confirmed via MRO). Before this fix it fell past the TYPED handler to the
+        generic `except Exception` below, which rescued it only by string-matching
+        (`"duplicate" in str(e).lower()`) -- it did NOT escape `check_and_register`,
+        and callers already got a graceful result. What this pins is that the race
+        is now classified by exception type rather than by a substring that a driver
+        or locale change could take away.
+
+        To force this deterministically (real concurrency is not reproducible
+        in a single-threaded test), this monkeypatches away BOTH checks that
+        would normally catch the collision before the DB constraint does:
+        the guard's own pre-check (`_find_existing_upload`) and the
+        Document's `validate_unique_hash`, for exactly one insert attempt --
+        simulating both sides of the race missing, same as two real workers
+        racing.
+        """
+        original_batch = self._make_direct_debit_batch()
+        new_batch = self._make_direct_debit_batch()
+        file_hash = self.guard._compute_file_hash(self.sample_xml)
+        self._register_upload_via_sql(file_hash, original_batch)
+
+        from verenigingen.verenigingen_payments.doctype.sepa_batch_upload_log.sepa_batch_upload_log import (
+            SEPABatchUploadLog,
+        )
+
+        original_validate_unique = SEPABatchUploadLog.validate_unique_hash
+        SEPABatchUploadLog.validate_unique_hash = lambda self: None
+        self.addCleanup(setattr, SEPABatchUploadLog, "validate_unique_hash", original_validate_unique)
+
+        # Miss only the FIRST pre-check call (the race window), so the except
+        # handler's own lookup -- used to name the winning batch in the result
+        # -- still works normally.
+        original_find = self.guard._find_existing_upload
+        calls = {"n": 0}
+
+        def _miss_once(h):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return None
+            return original_find(h)
+
+        self.guard._find_existing_upload = _miss_once
+        self.addCleanup(setattr, self.guard, "_find_existing_upload", original_find)
+
+        result = self.guard.check_and_register(self.sample_xml, new_batch)
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.reason_code, UploadBlockReason.INTEGRITY_ERROR)
+        self.assertEqual(result.duplicate_batch, original_batch)
+        self.assertIn("concurrent upload", result.message.lower())
+
     def test_db_unique_constraint_exists(self):
         """
         Test that the DB unique constraint on file_hash exists and prevents duplicates.

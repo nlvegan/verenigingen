@@ -12,12 +12,16 @@ Tests for the data integrity utilities module including:
 import unittest
 from unittest.mock import MagicMock, patch
 
+import frappe
+
 from verenigingen.e_boekhouden.utils.data_integrity import (
     _mask_value,
     _should_mask_field,
+    insert_with_duplicate_handling,
     mask_pii_in_mutation,
     normalize_date,
 )
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
 class TestNormalizeDate(unittest.TestCase):
@@ -370,6 +374,86 @@ class TestDuplicateHandling(unittest.TestCase):
         # Verify result
         self.assertEqual(result_doc, mock_existing)
         self.assertTrue(was_duplicate)
+
+
+class TestDuplicateHandlingRealUniqueFieldCollision(EnhancedTestCase):
+    """`insert_with_duplicate_handling` against a REAL unique-field collision (#699).
+
+    `eboekhouden_mutation_nr` is a custom field marked `unique: 1` on Journal
+    Entry (and Purchase/Sales Invoice, Payment Entry, Stock Reconciliation) --
+    it is not the doctype's autoname/primary key, which is a naming series
+    (``ACC-JV-...``). So a second insert with the same mutation number collides
+    on that unique FIELD and frappe raises `UniqueValidationError`, not
+    `DuplicateEntryError` (unrelated classes: the former derives from
+    ValidationError, the latter from NameError). The mocked tests above only
+    ever exercise `DuplicateEntryError`, so they could not catch this.
+
+    Before the #699 fix, `insert_with_duplicate_handling` caught only
+    `DuplicateEntryError`, so the intended "graceful duplicate handling for
+    race conditions" this function exists for did not fire at all for its own
+    documented example (Journal Entry / Payment Entry with
+    `eboekhouden_mutation_nr` set) -- the `UniqueValidationError` propagated
+    straight past the `except DuplicateEntryError` clause to the caller.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.company = "_Test Company"
+        # Pinned by account_type, not just root_type: `_Test Company` carries
+        # ~37 Asset accounts and the plain "newest" one under
+        # `frappe.db.get_value`'s creation-DESC ordering is fixture-order
+        # dependent across this shard (e.g. a Payable/Receivable account here
+        # would need a party_type/party and error the JE). Bank/Income Account
+        # types need neither.
+        cls.debit_account = frappe.db.get_value(
+            "Account",
+            {"company": cls.company, "is_group": 0, "account_type": "Bank"},
+            "name",
+        )
+        cls.credit_account = frappe.db.get_value(
+            "Account",
+            {"company": cls.company, "is_group": 0, "account_type": "Income Account"},
+            "name",
+        )
+        assert cls.debit_account and cls.credit_account, (
+            f"_Test Company is missing a Bank or Income Account account "
+            f"(debit={cls.debit_account!r}, credit={cls.credit_account!r})"
+        )
+
+    def _make_je(self, mutation_nr):
+        je = frappe.new_doc("Journal Entry")
+        je.company = self.company
+        je.posting_date = frappe.utils.today()
+        je.eboekhouden_mutation_nr = mutation_nr
+        je.append(
+            "accounts",
+            {"account": self.debit_account, "debit_in_account_currency": 10, "credit_in_account_currency": 0},
+        )
+        je.append(
+            "accounts",
+            {"account": self.credit_account, "debit_in_account_currency": 0, "credit_in_account_currency": 10},
+        )
+        return je
+
+    def test_unique_mutation_nr_collision_is_handled_gracefully(self):
+        """A second JE with the same mutation number must resolve to the first,
+        not raise an uncaught UniqueValidationError."""
+        mutation_nr = f"PROBE699-{frappe.generate_hash(length=8)}"
+
+        first_doc, first_was_duplicate = insert_with_duplicate_handling(self._make_je(mutation_nr))
+        self.track_doc("Journal Entry", first_doc.name)
+        self.assertFalse(first_was_duplicate)
+
+        second_doc, second_was_duplicate = insert_with_duplicate_handling(self._make_je(mutation_nr))
+
+        self.assertTrue(second_was_duplicate)
+        self.assertEqual(second_doc.name, first_doc.name)
+        # Exactly one Journal Entry carries this mutation number.
+        self.assertEqual(
+            frappe.db.count("Journal Entry", {"eboekhouden_mutation_nr": mutation_nr}),
+            1,
+        )
 
 
 class TestSafeLogMutationError(unittest.TestCase):
