@@ -458,7 +458,17 @@ def create_sepa_mandate_from_bank_details(
     already_linked = any(link.sepa_mandate == mandate.name for link in member_doc.sepa_mandates)
 
     if not already_linked:
-        member_doc.append("sepa_mandates", {"sepa_mandate": mandate.name, "is_current": 1})
+        member_doc.append(
+            "sepa_mandates",
+            {
+                # sepa_mandate is a Dynamic Link whose target doctype is read from
+                # sepa_mandate_doctype; it must be set explicitly or link
+                # validation throws "SEPA Mandate DocType must be set first" (#667).
+                "sepa_mandate_doctype": "SEPA Mandate",
+                "sepa_mandate": mandate.name,
+                "is_current": 1,
+            },
+        )
 
         # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
         member_result = secure_document_operation(
@@ -956,6 +966,10 @@ def create_and_link_mandate(
     member_doc.append(
         "sepa_mandates",
         {
+            # sepa_mandate is a Dynamic Link whose target doctype is read from
+            # sepa_mandate_doctype; it must be set explicitly or link validation
+            # throws "SEPA Mandate DocType must be set first" (#667).
+            "sepa_mandate_doctype": "SEPA Mandate",
             "sepa_mandate": mandate.name,
             "is_current": 1,
             "mandate_reference": mandate.mandate_id,

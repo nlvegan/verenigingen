@@ -725,6 +725,11 @@ class SEPAMandateManager(StatelessService):
                 member.append(
                     "sepa_mandates",
                     {
+                        # sepa_mandate is a Dynamic Link whose target doctype is
+                        # read from sepa_mandate_doctype; it must be set explicitly
+                        # or link validation throws "SEPA Mandate DocType must be
+                        # set first" (#667).
+                        "sepa_mandate_doctype": "SEPA Mandate",
                         "sepa_mandate": mandate_doc.name,
                         "mandate_reference": mandate_doc.mandate_id,
                         "status": mandate_doc.status,
@@ -821,6 +826,12 @@ class SEPAMandateManager(StatelessService):
                 member_doc.append(
                     "sepa_mandates",
                     {
+                        # sepa_mandate is a Dynamic Link whose target doctype is
+                        # read from sepa_mandate_doctype. update_child_table()
+                        # below calls db_update() directly -- no defaults, no link
+                        # validation at all -- so omitting this writes a silent
+                        # NULL and leaves the member un-saveable (#667).
+                        "sepa_mandate_doctype": "SEPA Mandate",
                         "sepa_mandate": mandate.name,
                         "mandate_reference": mandate.mandate_id,
                         "status": mandate.status,
