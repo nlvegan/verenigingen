@@ -612,6 +612,15 @@ def _process_single_row(row: Dict, import_doc: Document, stats: Dict) -> Dict[st
             except Exception:
                 pass  # Savepoint may already be released by rollback
 
+        # frappe.throw (e.g. AgeValidator._get_configurable_min_age's config-error
+        # throw, #673) appends to frappe.local.message_log before raising. This
+        # runs inside an enqueued background job (process_import_background), so
+        # there is no live request to leak that raw text into -- but the queue
+        # would otherwise keep growing for the life of the job across thousands
+        # of rows. Clear it per row, same reasoning as the sibling fix in
+        # bulk_volunteer_creation_service.py's _create_volunteer_for_member.
+        frappe.clear_messages()
+
         # Sanitize PII from row data before logging
         sanitized_row = {k: _sanitize_error_message(str(v)) if v else v for k, v in row.items()}
         frappe.log_error(

@@ -401,6 +401,17 @@ class BulkVolunteerCreationService(StatelessService):
                 error_message=str(e)[:200],
             )
         except frappe.ValidationError as e:
+            # frappe.throw appends to frappe.local.message_log BEFORE raising, and
+            # that queue is serialised into _server_messages on every response --
+            # including the raw "minimum_volunteer_age is not configured..." text
+            # from AgeValidator._get_configurable_min_age (#673), read by member
+            # from a caller (e.g. retry_failed_volunteer_creations, whitelisted and
+            # synchronous). This method's own contract is "never raises -- always
+            # returns a result object", so no caught ValidationError here should
+            # leak its raw message into the response either. Same reasoning as
+            # api/volunteer_application.py's guest-endpoint fix (#659), "measured,
+            # not assumed" there.
+            frappe.clear_messages()
             return VolunteerCreationResult(
                 member_name=member_name,
                 outcome=VolunteerCreationOutcome.VALIDATION_ERROR,

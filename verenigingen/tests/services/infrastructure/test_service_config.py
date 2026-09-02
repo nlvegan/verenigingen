@@ -266,6 +266,14 @@ class TestConfigurationManager(EnhancedTestCase):
         confirm member_services carries no `minimum_age` key at all -- age
         minimums for actual validation come solely from
         AgeValidator._get_configurable_min_age.
+
+        `get_service_config()` auto-creates an empty ServiceConfig for an unknown
+        service name, and `load_from_settings()`'s outer `except Exception` (this
+        module, `load_from_settings`) swallows a total loader failure silently --
+        so a bare "minimum_age is absent" assertion would also pass if the loader
+        never ran at all. Assert `id_length` alongside it: that key is set
+        unconditionally by `_load_member_service_settings` whenever it runs, so
+        its presence proves the loader actually executed rather than died upstream.
         """
         orig_age = frappe.db.get_single_value("Verenigingen Settings", "minimum_membership_age")
         try:
@@ -278,6 +286,10 @@ class TestConfigurationManager(EnhancedTestCase):
 
             member_cfg = mgr.get_service_config("member_services")
             self.assertIsNone(member_cfg.get("minimum_age"))
+            # Proves the loader actually ran (see docstring) rather than the
+            # negative assertion above passing because of a silently swallowed
+            # loader failure leaving member_cfg empty.
+            self.assertEqual(member_cfg.get("id_length"), 6)
         finally:
             frappe.db.set_single_value(
                 "Verenigingen Settings", "minimum_membership_age", orig_age, update_modified=False

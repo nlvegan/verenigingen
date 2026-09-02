@@ -552,7 +552,6 @@ verenigingen/verenigingen/doctype/team/team.py::Team._handle_team_member_changes
 verenigingen/verenigingen/doctype/team_role/team_role.py::TeamRole.cleanup_orphaned_references::2
 verenigingen/verenigingen/doctype/verenigingen_email_configuration/verenigingen_email_configuration.py::send_test_email::1
 verenigingen/verenigingen/doctype/vip_import/vip_import.py::_process_account_creation::2
-verenigingen/verenigingen/doctype/volunteer/volunteer.py::Volunteer.validate_volunteer_age::1
 verenigingen/verenigingen/doctype/volunteer/volunteer.py::_queue_volunteer_account_creation::1
 verenigingen/verenigingen/doctype/volunteer/volunteer.py::create_volunteer_from_member::1
 verenigingen/verenigingen/page/membership_analytics/membership_analytics.py::calculate_projected_revenue::1
