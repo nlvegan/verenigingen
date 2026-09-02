@@ -564,8 +564,16 @@ class DuesScheduleValidationService(StatelessService):
                 - reason (str): Validation outcome message
 
         Business Logic:
-            - Returns True if no member or membership type (will be caught elsewhere)
-            - Returns True if no active membership (eligibility check handles this)
+            - Returns True if no member or membership type (nothing to compare)
+            - Returns True if no active membership - defensive only: the sole
+              production caller, EligibilityChecker.check_eligibility(), already
+              checks for an active membership on the same (member, Active,
+              docstatus=1) criteria via check_active_membership() earlier in its
+              pipeline and returns before reaching this method, so this branch
+              is not reachable through that path today (barring a concurrent
+              membership status change between the two lookups). It stays
+              fail-open (not an error) in case a future caller invokes this
+              method without that upstream guard.
             - Returns False only if membership types mismatch
             - Gracefully handles validation errors (doesn't block generation)
 
@@ -587,7 +595,14 @@ class DuesScheduleValidationService(StatelessService):
             )
 
             if not current_membership:
-                # This will be caught by the member eligibility check
+                # Defensive fallback, not a live gap: the only production caller,
+                # EligibilityChecker.check_membership_type_consistency() (called
+                # from check_eligibility()), only reaches this method after
+                # check_active_membership() has already checked the same
+                # (member, Active, docstatus=1) criteria (via
+                # DocumentExistenceValidator.check_document_exists, a different
+                # call than the frappe.get_all() above but the same filter) and
+                # passed. See the Business Logic note above - #619.
                 return {
                     "valid": True,
                     "reason": "No active membership found - will be handled by eligibility check",

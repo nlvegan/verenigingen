@@ -18,7 +18,6 @@ scripts/validation/features/test_member_portal_fix.py::Volunteer Expense::3
 verenigingen/email/automated_campaigns.py::Campaign Execution Log::1
 verenigingen/email/simplified_email_manager.py::Newsletter::2
 verenigingen/fixes/eboekhouden_utils.py::E-Boekhouden Account Map::1
-verenigingen/hooks/doc_events.py::Verenigingen Volunteer::1
 verenigingen/tests/backend/components/test_termination_impact.py::Verenigingen Chapter Board Member::2
 verenigingen/tests/backend/comprehensive/test_chapter_membership_validation_edge_cases.py::Volunteer Expense::1
 verenigingen/tests/backend/comprehensive/test_dd_batch_edge_cases.py::DD Conflict Report::2
