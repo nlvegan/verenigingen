@@ -52,7 +52,7 @@ from contextlib import contextmanager
 import frappe
 from dateutil.relativedelta import relativedelta
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import get_system_timezone, getdate, now_datetime
+from frappe.utils import add_years, get_system_timezone, getdate, now_datetime
 
 from verenigingen.services.member.utils.member_age_service import calculate_member_age
 from verenigingen.utils.csv.procurios_mandate_validator import ProcuriosMandateValidator
@@ -215,7 +215,10 @@ class TestAgeCalculationUsesSiteToday(FrappeTestCase):
 
     def test_member_age_increments_on_the_site_birthday(self):
         with site_timezone_diverging_from_process() as site_today:
-            birth_date = site_today.replace(year=site_today.year - 30)
+            # add_years clamps 29 Feb to 28 Feb instead of raising ValueError on
+            # a non-leap target year (#696) - site_today.replace(year=...) does
+            # not, and the site day is whatever the lever installs above.
+            birth_date = add_years(site_today, -30)
             self.assertEqual(
                 calculate_member_age(birth_date.isoformat()),
                 30,
@@ -224,7 +227,7 @@ class TestAgeCalculationUsesSiteToday(FrappeTestCase):
 
     def test_membership_eligibility_accepts_someone_turning_sixteen_today(self):
         with site_timezone_diverging_from_process() as site_today:
-            birth_date = site_today.replace(year=site_today.year - 16)
+            birth_date = add_years(site_today, -16)
             errors = BusinessRuleValidator.validate_membership_eligibility(
                 {"birth_date": birth_date.isoformat()}
             )
