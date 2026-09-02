@@ -119,7 +119,14 @@ class SharedCustomerFixture(SepaBatchUITestBase):
         # test flaky through no fault of the production code.
         from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestDataFactory
 
-        grand_total = 25.0 + next(EnhancedTestDataFactory._global_unique_seq) / 100
+        # `round(..., 2)` is load-bearing, not tidiness: the bracket is an exact
+        # equality against the stored `outstanding_amount`, and `25.0 + n / 100` is
+        # not always representable in binary float. 32 of every 1000 sequence values
+        # (n = 201, 226, 251, ... every 25th) land just BELOW the cent the invoice
+        # actually stores, so `si.outstanding_amount <= amount_max` excludes the very
+        # row under test and the assertion sees 0 rows. n=301 did exactly that in CI.
+        # The value is deterministic per shard composition, so a re-run reproduces it.
+        grand_total = round(25.0 + next(EnhancedTestDataFactory._global_unique_seq) / 100, 2)
         chain = self._build_member_with_invoice(first_name=first_name, grand_total=grand_total)
         chain["grand_total"] = grand_total
         second_member = self.factory.create_test_member(first_name=f"{first_name}Sib")
@@ -161,7 +168,7 @@ class SharedCustomerFixture(SepaBatchUITestBase):
         if point_customer_at_sharer:
             from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestDataFactory
 
-            trapped_total = 25.0 + next(EnhancedTestDataFactory._global_unique_seq) / 100
+            trapped_total = round(25.0 + next(EnhancedTestDataFactory._global_unique_seq) / 100, 2)
             chain["fetch_trapped_invoice"] = self.factory.create_test_sales_invoice(
                 customer=chain["customer"],
                 member=chain["member"].name,
