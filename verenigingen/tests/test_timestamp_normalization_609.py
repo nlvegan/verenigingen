@@ -307,8 +307,9 @@ class TestWildcardHookEndToEndOnSubsequentSave(EnhancedTestCase):
         `db_update`, not `db_insert`, so mitigation #2's harness patch
         cannot mask this one the way it can `TestWildcardHookEndToEnd` above
         -- no need to uninstall it here."""
-        import frappe.model.document as fmd
         from unittest.mock import patch
+
+        import frappe.model.document as fmd
 
         doc = frappe.get_doc({"doctype": "ToDo", "description": "#729 repro insert"})
         doc.insert()

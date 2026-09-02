@@ -15,9 +15,8 @@ test_mollie_retry_policy_coverage_b3.py:236, test_member_scheduler_coverage.py:6
 and four in verenigingen_payments/doctype/mollie_settings/test_mollie_settings.py.
 """
 
-from freezegun import freeze_time
-
 import frappe
+from freezegun import freeze_time
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
