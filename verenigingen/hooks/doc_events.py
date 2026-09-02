@@ -61,6 +61,35 @@ directly (e.g. frappe.get_doc("Chapter Member", name).save()).
 
 doc_events = {
     # =========================================================================
+    # ALL DOCTYPES ("*" is Frappe's wildcard key, not a doctype name --
+    # frappe/model/document.py:1653, merged in frappe/__init__.py:945)
+    # =========================================================================
+    "*": {
+        # #609: a whole-second creation/modified timestamp makes check_if_latest
+        # / validate_set_only_once disagree with themselves on the very next
+        # save/submit of the same in-memory object. See
+        # verenigingen/utils/timestamp_normalization.py for the mechanism.
+        #
+        # on_change, NOT after_insert and NOT on_update: the whole-second
+        # now() that triggers this can land on ANY set_user_and_timestamp()
+        # call, not only the initial insert -- a live CI recurrence on an
+        # unrelated PR hit it on the FIRST of two submit() calls on the same
+        # in-memory Sales Invoice, which after_insert-only (this app's first
+        # attempt) does not cover (verified by reproduction). on_update is
+        # ALSO insufficient: run_post_save_methods() only calls it for
+        # _action in ("save", "submit") -- a save() on an already-submitted
+        # doc (_action == "update_after_submit"), a cancel(), and db_set()
+        # (which stamps `modified` via the same now() call, document.py:1533)
+        # all skip on_update entirely. on_change is unconditional in
+        # run_post_save_methods() AND is what db_set() itself calls
+        # (document.py:1566), so it is the only event that covers every path
+        # that can produce the whole-second value. Do NOT also register
+        # after_insert or on_update: on_change already fires on insert too,
+        # so either would just double-fire (a harmless no-op the second time,
+        # but pure waste).
+        "on_change": "verenigingen.utils.timestamp_normalization.normalize_whole_second_timestamps",
+    },
+    # =========================================================================
     # COMMUNICATION / EMAIL
     # =========================================================================
     "Email Template": {
