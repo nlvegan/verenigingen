@@ -97,11 +97,30 @@ the site clock (Asia/Kolkata, +5:30). The jobs ran 22:36–23:52 UTC, inside the
 **18:30–24:00 UTC** red window. This is #722, and **PR #724 already fixes that exact file and
 is unmerged.** Merging #724 removes this failure from every open PR.
 
-#730's *other* five shard failures are a different story and are **not** ambient — 11 errors
-concentrated in Chapter Board Member / Team Member / Volunteer territory, exactly where it
-turned dead validation back on. Sent back to its author with the instruction to decide, per
-test, whether the test encoded the old unenforced behaviour or the new rule is too strict —
-and not to blanket-update tests to match, which launders a regression into a green run.
+#730's *other* five shard failures were **not** ambient — 11 errors concentrated in Chapter
+Board Member / Team Member / Volunteer territory, exactly where it turned dead validation back
+on. Root-caused and fixed (`5147ba4b1`); they split cleanly in two, and both halves are worth
+knowing:
+
+**10 of 11 were a real `TypeError`, and it reveals a trap.** `Team.validate_team_member_rows()`
+and `Member.validate_iban_history_rows()` compared dates with a bare `<`. **`frappe.utils.today()`
+returns a `str`, while a DB-loaded row's Date field is a `datetime.date`** — so the idiomatic
+`row.to_date = today()` on an already-loaded row makes the comparison raise `TypeError`, not
+`ValidationError`. The save *crashes* instead of validating. This was latent in the dead code
+all along: it never ran, so it never crashed. Reviving it exposed it. Fixed by normalising
+through `getdate()` on both sides.
+
+**1 of 11 was a genuinely too-strict new rule.** `test_board_members_only_respects_is_active_and_term_end`
+deliberately saves a board row with `is_active=1` and a past `to_date`, because the segmentation
+feature's design assumes that stale combination occurs (a direct Desk edit sets one field without
+the other) and defends with date filtering rather than forbidding the state. The new
+`validate_single_board_member()` made that a blocking error, rendering the Chapter unsaveable in
+a state the rest of the codebase treats as ordinary. **The test was right and the rule was wrong** —
+downgraded `add_error()` → `add_warning()`, no test changed.
+
+That ratio is the lesson: when newly-live validation reddens a suite, most of it is usually the
+revived code's own latent bugs, not the tests being wrong. Blanket-updating the tests to match
+would have buried a real crash.
 
 ## Environment: this bench does not isolate agents
 
@@ -128,7 +147,7 @@ belongs in `apps/verenigingen/CLAUDE.md`.
 | #727 | #562 | 3 roots seeded via harness bases; gate conjunct moved off a forgeable row |
 | #728 | #582/#583 | zero commits added; converged on `get_eur_bank_account` |
 | #729 | #619 | comment-only, verified byte-identical |
-| #730 | #596 | **red, 11 errors, being fixed** — 6 rules moved to parents, 9 deleted, ratchet added |
+| #730 | #596 | 6 rules moved to parents, 9 deleted, ratchet added; 11 CI errors root-caused and fixed |
 | #732 | #602 | 152 sites swept, 774 baselined, validator + CI |
 | #734 | #601 | narrow heuristic; 35 sites classified, none fixed (per #589 precedent) |
 
