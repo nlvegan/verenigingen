@@ -25,17 +25,27 @@ Both functions were written for RQ 1.x:
   `remove_executions(job)`.
 
 These tests exercise the real Redis queue used by this bench (no mocking of RQ or
-Redis) end to end: they plant a job whose `started_at` is older than the configured
-stuck-job threshold, directly in the "long" queue's started-job registry, then call
-the whitelisted functions exactly as the admin UI and the daily scheduler task do.
+Redis) end to end: they plant a job/Execution pair directly in Redis -- exactly the
+state `Worker.perform_job` leaves behind (`rq/worker.py`: `prepare_job_execution` ->
+`Execution.create`) -- with an old `started_at`, then call the whitelisted functions
+exactly as the admin UI and the daily scheduler task do.
+
+Planting goes through `Job.create()` + `.save()`, never `queue.enqueue_call()`: this
+bench runs real RQ workers (via `bench start`), and pushing onto the live "long"
+queue would race a real worker for the job, which could execute or reap it before
+the test gets to it. `Job.create()` only builds Redis hash/registry state and never
+touches the queue's wait-list, so nothing but this test ever sees these job ids.
 """
 
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import frappe
 import redis
 from frappe.tests.utils import FrappeTestCase
 from rq import Queue
+from rq.executions import Execution
+from rq.job import Job
 
 from verenigingen.utils.bulk_queue_config import clear_stuck_jobs, get_bulk_queue_config, get_queue_status
 
@@ -44,27 +54,34 @@ def _redis_conn():
     return redis.from_url(frappe.conf.redis_queue or "redis://localhost:11000")
 
 
-def _plant_stuck_job(redis_conn, queue_name, started_minutes_ago):
-    """Create a real RQ job, mark it started `started_minutes_ago` minutes back,
-    and register a started Execution for it -- mirroring what a worker does in
-    `Worker.perform_job` (`rq/worker.py`), so the registry lookups used by
-    `clear_stuck_jobs` behave exactly as they would for a real stuck job."""
-    queue = Queue(queue_name, connection=redis_conn)
-    job = queue.enqueue_call(func="time.sleep", args=(0,))
+def _plant_job(redis_conn, queue_name, started_minutes_ago):
+    """Write a real RQ job + Execution directly into Redis, `started_minutes_ago`
+    minutes in the past, without ever enqueuing it for a real worker to pick up."""
+    job = Job.create(
+        func="time.sleep",
+        args=(0,),
+        connection=redis_conn,
+        origin=queue_name,
+        id=f"test-685-{uuid.uuid4().hex}",
+    )
     job.started_at = datetime.now(timezone.utc) - timedelta(minutes=started_minutes_ago)
     job._status = "started"
     job.save()
 
     with redis_conn.pipeline() as pipeline:
-        from rq.executions import Execution
-
         execution = Execution.create(job, ttl=3600, pipeline=pipeline)
         pipeline.execute()
 
     return job, execution
 
 
-def _delete_job_and_execution(redis_conn, job, execution):
+def _remove_job(redis_conn, queue_name, job, execution):
+    """Undo `_plant_job` precisely. `remove_executions` reads `job.get_executions()`
+    from Redis, so it must run before the job/execution hashes are deleted --
+    otherwise the `rq:wip:<queue>` sorted-set entry is orphaned forever (it has no
+    TTL shorter than the heartbeat ttl passed to `Execution.create`)."""
+    queue = Queue(queue_name, connection=redis_conn)
+    queue.started_job_registry.remove_executions(job)
     redis_conn.delete(job.key)
     redis_conn.delete(execution.key)
     redis_conn.delete(f"rq:executions:{job.id}")
@@ -103,7 +120,7 @@ class TestBulkQueueConfigRQCompat(FrappeTestCase):
         'no stuck jobs found'."""
         redis_conn = _redis_conn()
         threshold_minutes = get_bulk_queue_config()["stuck_job_timeout_minutes"]
-        job, execution = _plant_stuck_job(redis_conn, "long", threshold_minutes + 30)
+        job, execution = _plant_job(redis_conn, "long", threshold_minutes + 30)
 
         try:
             queue = Queue("long", connection=redis_conn)
@@ -133,13 +150,13 @@ class TestBulkQueueConfigRQCompat(FrappeTestCase):
                 "stuck job is still in the started registry after clear_stuck_jobs()",
             )
         finally:
-            _delete_job_and_execution(redis_conn, job, execution)
+            _remove_job(redis_conn, "long", job, execution)
 
     def test_clear_stuck_jobs_leaves_a_fresh_job_alone(self):
         """A job started moments ago must NOT be cleared -- guards against a
         fix that clears every started job regardless of age."""
         redis_conn = _redis_conn()
-        job, execution = _plant_stuck_job(redis_conn, "long", started_minutes_ago=0)
+        job, execution = _plant_job(redis_conn, "long", started_minutes_ago=0)
 
         try:
             result = clear_stuck_jobs()
@@ -154,4 +171,4 @@ class TestBulkQueueConfigRQCompat(FrappeTestCase):
                 "fresh job was removed from the started registry",
             )
         finally:
-            _delete_job_and_execution(redis_conn, job, execution)
+            _remove_job(redis_conn, "long", job, execution)

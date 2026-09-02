@@ -18,7 +18,6 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
-from verenigingen.utils.service_logger import get_service_logger
 
 
 def get_bulk_queue_config():
@@ -116,12 +115,11 @@ def get_queue_status():
         frappe.throw(_("Insufficient permissions to view queue status"))
 
     try:
-        import redis
+        from frappe.utils.background_jobs import get_redis_conn
         from rq import Queue
         from rq.worker import Worker
 
-        # Get Redis connection
-        redis_conn = redis.from_url(frappe.conf.redis_queue or "redis://localhost:11000")
+        redis_conn = get_redis_conn()
 
         queue_status = {}
         queue_names = ["bulk", "long", "default", "short"]
@@ -187,17 +185,15 @@ def clear_stuck_jobs():
     try:
         from datetime import datetime, timedelta, timezone
 
-        import redis
+        from frappe.utils.background_jobs import get_redis_conn
         from rq import Queue
 
         config = get_bulk_queue_config()
         stuck_threshold = timedelta(minutes=config["stuck_job_timeout_minutes"])
 
-        # Get Redis connection
-        redis_conn = redis.from_url(frappe.conf.redis_queue or "redis://localhost:11000")
+        redis_conn = get_redis_conn()
 
         cleared_jobs = []
-        job_logger = get_service_logger("verenigingen.bulk_queue_config")
 
         for queue_name in ["bulk", "long", "default"]:
             try:
@@ -208,7 +204,11 @@ def clear_stuck_jobs():
                 # too -- this is RQ's own clock, not the site's Asia/Kolkata clock.
                 now = datetime.now(timezone.utc)
 
-                for job_id in queue.started_job_registry.get_job_ids():
+                # A retried job can have more than one Execution, so its id can
+                # repeat in this list; de-dupe so it isn't double-reported below.
+                job_ids = dict.fromkeys(queue.started_job_registry.get_job_ids())
+
+                for job_id in job_ids:
                     try:
                         # Registries only expose `job_class` as a plain attribute
                         # (no `get_job_class()`), and the bare constructor never
@@ -233,11 +233,21 @@ def clear_stuck_jobs():
                             frappe.logger().warning(f"Cleared stuck job {job_id} from {queue_name} queue")
 
                     except Exception as job_error:
-                        job_logger.error("Error processing job %s: %s", job_id, job_error)
+                        # frappe.logger() defaults to ERROR level with no propagation
+                        # to a place a human or CI will see it (see CLAUDE.md); an
+                        # Error Log entry is queryable in the Desk regardless of
+                        # logger configuration.
+                        frappe.log_error(
+                            title="Bulk Queue: stuck-job processing failed",
+                            message=f"queue={queue_name} job_id={job_id}: {job_error}",
+                        )
                         continue
 
             except Exception as queue_error:
-                job_logger.error("Error processing queue %s: %s", queue_name, queue_error)
+                frappe.log_error(
+                    title="Bulk Queue: queue processing failed",
+                    message=f"queue={queue_name}: {queue_error}",
+                )
                 continue
 
         if cleared_jobs:
