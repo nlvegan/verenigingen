@@ -1,37 +1,39 @@
-"""The Mollie donation webhook's Member payment-history row (#465).
+"""The Mollie donation webhook's Member payment-history row (#465, #713).
 
-`UnifiedWebhookWrapperService._update_member_payment_history` builds the one row a
-member gets for a donation. Measured on `test_site_2` against the unmodified file,
-with the three-way control that decides the fix:
+#465 made `UnifiedWebhookWrapperService._update_member_payment_history`'s row
+well-formed (a real `invoice_doctype`, no fields that do not exist on `Member
+Payment History`). #465 explicitly deferred the modelling question its own fix
+raised: `PaymentHistoryService.load_payment_history_batched` clears and rebuilds
+`payment_history` from Sales Invoices only, so a donation row placed there does
+not survive the next full refresh. That is #713.
 
-    Member Payment History has 'invoice'            -> True
-    Member Payment History has 'mollie_payment_id'  -> False
-    Member Payment History has 'journal_entry'      -> False
-    Member Payment History has 'payment_type'       -> False
-    CONTROL 'CONTROL_definitely_not_a_field'        -> False
+#713's finding, converging from three independent angles:
 
-An unknown key is dropped on the way to the table -- `append()` sets it as a plain
-Python attribute, so `row.get("mollie_payment_id")` reads back in memory, but it is
-absent from `get_valid_dict()` and the column does not exist. Nothing raises.
+1. `_step_rebuild_payment_history` (`member_history_update_service.py`) documents
+   its own rebuild as "matching the invoice-only model the other writers already
+   enforce", and `patches/v2_2/clear_stale_membership_payment_history_links.py`
+   calls `payment_history` a "derived cache" outright. Both predate this fix.
+2. It is not only the full rebuild. `PaymentHistoryService.
+   _cleanup_broken_history_entries` (the "Refresh Financial History" button and
+   scheduled tasks) and `HistoryIntegrityManager._cleanup_payment_history_custom`
+   each check a row's `invoice` with `frappe.db.exists("Sales Invoice",
+   entry.invoice)`, blind to `invoice_doctype`. A donation-shaped row is pruned by
+   ANY of the three as a "Sales Invoice deleted from system" -- fixing only the
+   rebuild named in #713's title would leave the row to die on the very next
+   click of that button instead.
+3. Nothing is lost by not writing the row at all. A donation only reaches
+   `_update_member_payment_history` through `donation.donor` (`Donation.donor` is
+   `reqd` unless anonymous, and the member lookup runs only through
+   `Donor.member`), and that same donation is already recorded --
+   unconditionally of any member link -- on `Donor.donor_history` (Donation's own
+   `after_insert`/`on_update` hooks, `hooks/doc_events.py`) and on
+   `Donation.payments` (`_update_donation_payment_history_atomic`, same webhook
+   call, same values, including the Mollie payment id and Journal Entry this
+   method never carried).
 
-The `invoice` half is louder and is what this module is really about. `invoice` is a
-Dynamic Link keyed on `invoice_doctype`, and the builder set only the first. The write
-lands because `MemberFinancialHistoryManager` persists through `update_child_table()`,
-which does not run `_validate_links()` -- but the NEXT full save of the parent Member
-does, and `get_invalid_links()` throws on a Dynamic Link whose companion is empty:
-
-    invoice set, invoice_doctype EMPTY -> ValidationError: Invoice DocType must be set first
-    invoice set, invoice_doctype set   -> saves (CONTROL)
-    invoice_doctype set, bad name      -> LinkValidationError (CONTROL)
-
-So one donation to a member-linked donor made that Member unsavable by every
-full-document path -- the shape
-`patches/v2_2/clear_stale_membership_payment_history_links.py` exists to clean up,
-where 430 members could not be saved at all.
-
-Zero test coverage before this module: every donation-webhook test uses a donor with
-no `Donor.member`, so `_update_member_payment_history` returns at its guard and the
-builder never runs.
+So the decision (#713) is option 2: the donation writer stops writing to
+`payment_history`. `_update_member_payment_history` is now a permanent no-op --
+see its docstring in `webhook_wrapper_service_unified.py`.
 """
 
 import frappe
@@ -45,7 +47,8 @@ HISTORY_DOCTYPE = "Member Payment History"
 
 
 class TestMollieDonationMemberHistoryRow(EnhancedTestCase):
-    """One donation, one member-linked donor, one payment-history row."""
+    """A member-linked donation writes no `Member Payment History` row -- and
+    loses no information by not writing one."""
 
     def setUp(self):
         super().setUp()
@@ -58,16 +61,16 @@ class TestMollieDonationMemberHistoryRow(EnhancedTestCase):
         from unittest.mock import MagicMock
 
         self.svc = object.__new__(wws.UnifiedWebhookWrapperService)
-        self.svc.logger = wws.MollieLogger("test_i465_member_history_row")
+        self.svc.logger = wws.MollieLogger("test_i713_member_history_row")
         self.svc._debug_mode = False
         self.svc.idempotency_manager = MagicMock()
 
         self.member = self.create_test_member(first_name="MollieDonationHistory")
-        self.donor = self.create_test_donor(donor_name="I465 Donor", member=self.member.name)
+        self.donor = self.create_test_donor(donor_name="I713 Donor", member=self.member.name)
         self.donation = self.create_test_donation(donor=self.donor.name, amount=25.0)
 
         self.payment_data = {
-            "id": f"tr_i465_{frappe.generate_hash(length=8)}",
+            "id": f"tr_i713_{frappe.generate_hash(length=8)}",
             "amount": {"value": "25.00", "currency": "EUR"},
             # snake_case: PaymentDataExtractor.extract_payment_date reads
             # `paid_at`/`created_at`, not Mollie's raw camelCase.
@@ -76,122 +79,103 @@ class TestMollieDonationMemberHistoryRow(EnhancedTestCase):
         }
 
     # ------------------------------------------------------------------
-    def build_the_row(self):
-        """Run the production writer and return the persisted row."""
+    def test_a_member_linked_donation_writes_no_payment_history_row(self):
+        """The core decision: the writer reports success but appends nothing.
+
+        Before #713's fix this method built a row via
+        `MemberFinancialHistoryManager` -- this is the RED assertion that
+        distinguishes "no row, ever" (option 2) from "the rebuild forgot about
+        it" (option 1): the row must never exist in the first place, not merely
+        survive a rebuild.
+        """
         self.assertTrue(
             self.svc._update_member_payment_history(self.donation, self.payment_data),
-            "_update_member_payment_history reported failure",
+            "a no-op is not a failure",
         )
         member = frappe.get_doc("Member", self.member.name)
-        rows = [r for r in member.payment_history if r.invoice == self.donation.name]
-        self.assertEqual(len(rows), 1, "expected exactly one history row for the donation")
-        return rows[0]
+        self.assertEqual(
+            member.payment_history,
+            [],
+            "Member Payment History is invoice-only (#713); a donation must not appear",
+        )
 
-    # ------------------------------------------------------------------
-    def test_an_unlinked_donor_produces_no_row_at_all(self):
-        """Premise, asserted on the guard rather than on the fixture.
-
-        Every existing donation-webhook test uses a donor with no `Donor.member`, so
-        the writer returns True at its guard and the builder never runs -- which is
-        the coverage gap that let #465 sit, and the way this module could pass
-        vacuously. Re-reading `Donor.member` after setUp wrote it would prove nothing,
-        so this clears the link and asserts the True-with-zero-rows contract, then
-        restores it and asserts one row appears.
-        """
+    def test_an_unlinked_donor_also_writes_no_row(self):
+        """Same outcome whether or not a member is linked -- the method no
+        longer branches on it at all."""
         frappe.db.set_value("Donor", self.donor.name, "member", None, update_modified=False)
         self.donation.reload()
-        self.assertTrue(
-            self.svc._update_member_payment_history(self.donation, self.payment_data),
-            "an unlinked donor is not a failure -- it is nothing to do",
-        )
-        self.assertEqual(
-            frappe.get_doc("Member", self.member.name).payment_history,
-            [],
-            "no member is linked, so no row may be written",
+        self.assertTrue(self.svc._update_member_payment_history(self.donation, self.payment_data))
+        self.assertEqual(frappe.get_doc("Member", self.member.name).payment_history, [])
+
+    def test_the_donation_is_already_recorded_without_any_member_row(self):
+        """Control for "nothing is lost": `Donor.donor_history` already carries
+        this donation from the Donation's own `after_insert` hook -- written in
+        `setUp`, before `_update_member_payment_history` ever runs -- so the
+        member-side row this test suite used to require was always redundant
+        with data that exists unconditionally of any member link.
+        """
+        donor = frappe.get_doc("Donor", self.donor.name)
+        matches = [e for e in donor.donor_history if e.donation_reference == self.donation.name]
+        self.assertEqual(len(matches), 1, "Donation.after_insert must record it on donor_history")
+        self.assertEqual(matches[0].donation_amount, 25.0)
+
+        # Calling the (now no-op) member writer changes nothing about that record.
+        self.svc._update_member_payment_history(self.donation, self.payment_data)
+        donor.reload()
+        matches = [e for e in donor.donor_history if e.donation_reference == self.donation.name]
+        self.assertEqual(len(matches), 1)
+
+    def test_a_stale_donation_shaped_row_does_not_survive_a_full_rebuild(self):
+        """No repair patch is needed for rows a pre-#713 build already wrote.
+
+        Simulates one by appending a row shaped exactly like the old builder's
+        output directly to `payment_history`, then runs the SAME full rebuild
+        `PaymentHistoryService.load_payment_history_batched` that #713's issue
+        named -- unmodified by this fix, because the fix is in the writer, not
+        the rebuild. The row is invoice-shaped-only, so it was already discarded
+        by this path before #713; this pins that self-healing behaviour so a
+        future change to the rebuild cannot silently start preserving orphaned
+        donation rows instead of the two real homes.
+        """
+        from verenigingen.services.member.payment.payment_history_service import (
+            get_payment_history_service,
         )
 
-        # CONTROL: with the link restored, the same call writes exactly one row.
-        frappe.db.set_value(
-            "Donor", self.donor.name, "member", self.member.name, update_modified=False
-        )
-        self.build_the_row()
-
-    def test_the_row_names_the_donation_doctype_for_its_dynamic_link(self):
-        """`invoice` is a Dynamic Link; `invoice_doctype` is its companion."""
-        row = self.build_the_row()
-        self.assertEqual(row.invoice, self.donation.name)
-        self.assertEqual(row.invoice_doctype, "Donation")
-
-    def test_the_member_can_still_be_saved_afterwards(self):
-        """The consequence, not the field: an empty companion throws on every
-        later full save of the parent Member, whatever the caller was changing."""
-        self.build_the_row()
+        customer = self.factory.create_test_customer()
         member = frappe.get_doc("Member", self.member.name)
-        member.notes = "an unrelated edit"
-        member.save()  # must not raise
+        member.customer = customer.name
+        member.append(
+            "payment_history",
+            {
+                "invoice": self.donation.name,
+                "invoice_doctype": "Donation",
+                "transaction_type": "Donation",
+                "amount": 25.0,
+                "payment_method": "Mollie",
+                "status": "Completed",
+            },
+        )
+        member.save()
+        member.reload()
+        self.assertEqual(len(member.payment_history), 1, "the stale row must be present before the rebuild")
 
-    def test_the_row_records_that_it_is_a_donation(self):
-        """`transaction_type` is this doctype's classifier and its sibling Mollie
-        writers already set it ("Membership Payment"). A NULL here is
-        indistinguishable from an unclassified legacy row."""
-        row = self.build_the_row()
-        self.assertEqual(row.transaction_type, "Donation")
+        result = get_payment_history_service().load_payment_history_batched(member)
+        self.assertTrue(result.success)
 
-    def test_every_key_the_builder_writes_is_a_real_field(self):
-        """The class assertion: no key is silently dropped.
-
-        Reads the dict the builder actually produced rather than the persisted row,
-        because a dropped key leaves no trace in the row at all -- which is the whole
-        defect.
-        """
-        from verenigingen.utils import member_financial_history_manager as mfhm
-
-        captured = {}
-        manager_factory = mfhm.get_payment_history_manager
-
-        def capture(member_doc):
-            manager = manager_factory(member_doc)
-            original = manager.add_or_update_entry
-
-            def wrapper(entry_id, entry_builder, id_field_name="invoice"):
-                # Call the builder ONCE and replay the result: some builders in this
-                # app hit the DB (`bulk_invoice_generation_service.build_invoice_entry`
-                # does a retrying invoice read), so a capture idiom that invokes twice
-                # doubles that work wherever it gets copied.
-                captured.update(entry_builder())
-                return original(entry_id, lambda: dict(captured), id_field_name)
-
-            manager.add_or_update_entry = wrapper
-            return manager
-
-        # The writer imports the factory inside the method, so the patch has to
-        # land on the defining module rather than on the service module.
-        mfhm.get_payment_history_manager = capture
-        try:
-            self.build_the_row()
-        finally:
-            mfhm.get_payment_history_manager = manager_factory
-
-        self.assertTrue(captured, "the entry builder never ran")
-        known = {df.fieldname for df in frappe.get_meta(HISTORY_DOCTYPE).fields}
+        # load_payment_history_batched only mutates the in-memory doc; the
+        # production orchestrator (_step_save_history_changes) is what persists
+        # it. Do the same here rather than asserting on an unsaved document.
+        member.flags.ignore_version = True
+        member.flags.ignore_links = True
+        member.save()
+        member.reload()
         self.assertEqual(
-            sorted(k for k in captured if k not in known),
+            [r.invoice for r in member.payment_history],
             [],
-            f"builder wrote keys that are not fields of {HISTORY_DOCTYPE}",
+            "a full rebuild pulls Sales Invoices only, so the stale donation row must be gone",
         )
 
-    def test_the_row_carries_no_second_dynamic_link(self):
-        """Pins the decision NOT to re-home the Journal Entry into
-        `payment_entry`/`payment_entry_doctype`.
-
-        That pair is a Dynamic Link on a table whose only deletion-cleanup hook
-        (`sales_invoice_hooks.on_trash`) covers Sales Invoice, so pointing it at a
-        Journal Entry would re-create #465's own failure mode the first time such an
-        entry were deleted. The JE is already on `Donation Payment.journal_entry`.
-
-        A regression pin, not coverage of a live path: `_update_member_payment_history`
-        no longer takes a `journal_entry_name` at all.
-        """
-        row = self.build_the_row()
-        self.assertIsNone(row.payment_entry)
-        self.assertIsNone(row.payment_entry_doctype)
+        # The donation's real homes are untouched by a Member-side rebuild.
+        donor = frappe.get_doc("Donor", self.donor.name)
+        matches = [e for e in donor.donor_history if e.donation_reference == self.donation.name]
+        self.assertEqual(len(matches), 1)
