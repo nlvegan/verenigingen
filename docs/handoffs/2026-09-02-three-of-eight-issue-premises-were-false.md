@@ -122,6 +122,29 @@ That ratio is the lesson: when newly-live validation reddens a suite, most of it
 revived code's own latent bugs, not the tests being wrong. Blanket-updating the tests to match
 would have buried a real crash.
 
+**Correction, added on the merge pass: there was a twelfth failure, and the downgrade caused it.**
+`add_error()` → `add_warning()` was applied to the rule without grepping for who asserted its
+severity. `tests/chapter/test_board_member_validator.py` holds a direct unit test of
+`validate_single_board_member()` — pre-dating this branch — named
+`test_active_member_with_past_end_date_errors`, and it asserted `result.errors`. It is not in the
+five shards that were analysed, so "no test changed" was true of the round that was measured and
+false of the change as a whole. This is the class-not-instance rule failing in the smallest
+possible way: the downgrade came with a paragraph of reasoning, and *that paragraph was the search
+query*. Fixed by making the test assert the warning, the absence of the error, and `is_valid` —
+the last of which is the property the segmentation test actually needs, and the one an
+assert-not-an-error would have let a deletion of the check pass.
+
+Same shape on **#732**: it swept 152 `log_error` call sites and touched **zero** test files, and
+`test_mollie_refund_handler.test_fetch_failure_still_logs_error` was asserting the *swapped*
+Error Log shape — its own comment said so. Fixing the call broke the test that should have been
+confirming it. An AST sweep of every `Error Log` query under `verenigingen/tests` found exactly
+one other assertion built on the swapped shape, `test_page_manage_donations.py:295`, whose module
+is among the ~975 sites #602 baselines rather than fixes — so it is correct *today* and must flip
+when that site does.
+
+The generalisation: **a sweep that changes an output format must grep the tests for that format,
+not only the production callers.** Both PRs were reviewed twice and neither review looked there.
+
 ## Environment: this bench does not isolate agents
 
 Two agents independently hit this, and it is a real risk for any future multi-agent session:
@@ -147,7 +170,7 @@ belongs in `apps/verenigingen/CLAUDE.md`.
 | #727 | #562 | 3 roots seeded via harness bases; gate conjunct moved off a forgeable row |
 | #728 | #582/#583 | zero commits added; converged on `get_eur_bank_account` |
 | #729 | #619 | comment-only, verified byte-identical |
-| #730 | #596 | 6 rules moved to parents, 9 deleted, ratchet added; 11 CI errors root-caused and fixed |
+| #730 | #596 | 6 rules moved to parents, 9 deleted, ratchet added; 12 CI errors root-caused and fixed |
 | #732 | #602 | 152 sites swept, 774 baselined, validator + CI |
 | #734 | #601 | narrow heuristic; 35 sites classified, none fixed (per #589 precedent) |
 
@@ -160,3 +183,11 @@ how #589 handed off to #593; #619's class grep traced 7 of 66 — start any foll
 
 Merge order: **#730 and #734 both edit `.pre-commit-config.yaml`** (additive; second one rebases).
 Merge **#724 first** — it clears a failure currently red on four of these PRs.
+
+**Merge pass, 2026-09-02 05:00 UTC.** #724 merged (`5566eda72`); it was the only failure on #725,
+#727 and shard 4 of #729, all three of which now carry a develop merge and nothing else. The
+remaining three reds were each the branch's own and are fixed above plus one more: **#728**'s
+`Duplicate Helper Guard` was red because the branch *removed* two clone families
+(`_create_test_bank_account` 2 → 0, `_ensure_bank_account` 13 → 12) and the gate fails on any
+drift from the checked-in baseline, shrinkage included — regenerated. #729's shard 2 carried the
+#609 `TimestampMismatchError` described above, which is ambient and is what **#735** fixes.
