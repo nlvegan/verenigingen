@@ -7,33 +7,41 @@ raised: `PaymentHistoryService.load_payment_history_batched` clears and rebuilds
 `payment_history` from Sales Invoices only, so a donation row placed there does
 not survive the next full refresh. That is #713.
 
-#713's finding, converging from three independent angles:
+The decision (#713) is option 2: the donation writer stops writing to
+`payment_history` at all, rather than teaching the rebuild about donations.
+Full reasoning, verified per code path rather than assumed, lives on
+`_update_member_payment_history`'s docstring in
+`webhook_wrapper_service_unified.py` -- summarised:
 
-1. `_step_rebuild_payment_history` (`member_history_update_service.py`) documents
-   its own rebuild as "matching the invoice-only model the other writers already
-   enforce", and `patches/v2_2/clear_stale_membership_payment_history_links.py`
-   calls `payment_history` a "derived cache" outright. Both predate this fix.
-2. It is not only the full rebuild. `PaymentHistoryService.
-   _cleanup_broken_history_entries` (the "Refresh Financial History" button and
-   scheduled tasks) and `HistoryIntegrityManager._cleanup_payment_history_custom`
-   each check a row's `invoice` with `frappe.db.exists("Sales Invoice",
-   entry.invoice)`, blind to `invoice_doctype`. A donation-shaped row is pruned by
-   ANY of the three as a "Sales Invoice deleted from system" -- fixing only the
-   rebuild named in #713's title would leave the row to die on the very next
-   click of that button instead.
-3. Nothing is lost by not writing the row at all. A donation only reaches
-   `_update_member_payment_history` through `donation.donor` (`Donation.donor` is
-   `reqd` unless anonymous, and the member lookup runs only through
-   `Donor.member`), and that same donation is already recorded --
-   unconditionally of any member link -- on `Donor.donor_history` (Donation's own
-   `after_insert`/`on_update` hooks, `hooks/doc_events.py`) and on
-   `Donation.payments` (`_update_donation_payment_history_atomic`, same webhook
-   call, same values, including the Mollie payment id and Journal Entry this
-   method never carried).
-
-So the decision (#713) is option 2: the donation writer stops writing to
-`payment_history`. `_update_member_payment_history` is now a permanent no-op --
-see its docstring in `webhook_wrapper_service_unified.py`.
+1. `Member Payment History` is documented, by its own writers, as an
+   invoice-derived cache (`_step_rebuild_payment_history`'s "matching the
+   invoice-only model the other writers already enforce",
+   `clear_stale_membership_payment_history_links.py`'s "derived cache").
+2. Whether a stray donation-shaped row gets cleaned up varies by path and is
+   NOT a reliable sweep -- one path wipes the whole table but only for a
+   member with a `customer` set; another reports a removal but never
+   persists it; a third does persist a removal, but through an unrelated
+   branch, and only when a different history type also changed. That
+   inconsistency is itself part of the case for not writing the row: relying
+   on any of it to clean up after a bad write would be worse than not
+   writing at all.
+3. Nothing is lost by not writing the row. A donation only reaches
+   `_update_member_payment_history` through `donation.donor` (`Donation.donor`
+   is `reqd` unless anonymous, and the member lookup runs only through
+   `Donor.member` -- `Donation` has no `member` field of its own), and that
+   same donation is already recorded -- unconditionally of any member link --
+   on `Donor.donor_history` (Donation's own `after_insert`/`on_update` hooks,
+   `hooks/doc_events.py`) and on `Donation.payments`
+   (`_update_donation_payment_history_atomic`, same webhook call, same
+   values, including the Mollie payment id and Journal Entry this method
+   never carried). The idempotency manager reads `Donation.payments`, never
+   this table, so removing this write cannot affect webhook re-delivery.
+4. No repair patch for rows a pre-#713 build already wrote: not because they
+   self-heal (they may not -- see point 2), but because the precondition for
+   this method to have ever written one -- a Donor linked to a Member -- has
+   never occurred in production. Measured on veg11: 431 `Member Payment
+   History` rows, all `invoice_doctype = "Sales Invoice"`, zero Donors with a
+   linked Member.
 """
 
 import frappe
@@ -93,8 +101,9 @@ class TestMollieDonationMemberHistoryRow(EnhancedTestCase):
             "a no-op is not a failure",
         )
         member = frappe.get_doc("Member", self.member.name)
+        rows = [r for r in member.payment_history if r.invoice == self.donation.name]
         self.assertEqual(
-            member.payment_history,
+            rows,
             [],
             "Member Payment History is invoice-only (#713); a donation must not appear",
         )
@@ -125,17 +134,23 @@ class TestMollieDonationMemberHistoryRow(EnhancedTestCase):
         matches = [e for e in donor.donor_history if e.donation_reference == self.donation.name]
         self.assertEqual(len(matches), 1)
 
-    def test_a_stale_donation_shaped_row_does_not_survive_a_full_rebuild(self):
-        """No repair patch is needed for rows a pre-#713 build already wrote.
+    def test_a_stale_donation_shaped_row_is_swept_by_a_full_rebuild_when_reachable(self):
+        """Confirms the rebuild path DOES discard a stale donation row -- for the
+        one population it can reach: a member with `customer` set.
 
-        Simulates one by appending a row shaped exactly like the old builder's
-        output directly to `payment_history`, then runs the SAME full rebuild
-        `PaymentHistoryService.load_payment_history_batched` that #713's issue
-        named -- unmodified by this fix, because the fix is in the writer, not
-        the rebuild. The row is invoice-shaped-only, so it was already discarded
-        by this path before #713; this pins that self-healing behaviour so a
-        future change to the rebuild cannot silently start preserving orphaned
-        donation rows instead of the two real homes.
+        Simulates a pre-#713 row by appending one shaped exactly like the old
+        builder's output directly to `payment_history`, then runs the SAME full
+        rebuild `PaymentHistoryService.load_payment_history_batched` that #713's
+        issue named -- unmodified by this fix, because the fix is in the writer,
+        not the rebuild.
+
+        This is NOT the reason a repair patch is skipped (see the module
+        docstring and the sibling test below) -- `load_payment_history_batched`
+        returns before touching `payment_history` at all when `member.customer`
+        is unset, so this path is not a general-purpose sweep. It is recorded
+        here so a future change to the rebuild cannot silently start preserving
+        orphaned donation rows instead of the two real homes, for the members it
+        does reach.
         """
         from verenigingen.services.member.payment.payment_history_service import (
             get_payment_history_service,
@@ -179,3 +194,49 @@ class TestMollieDonationMemberHistoryRow(EnhancedTestCase):
         donor = frappe.get_doc("Donor", self.donor.name)
         matches = [e for e in donor.donor_history if e.donation_reference == self.donation.name]
         self.assertEqual(len(matches), 1)
+
+    def test_a_stale_donation_shaped_row_survives_indefinitely_without_a_customer(self):
+        """Pins the known limit of the rebuild-based sweep: it is unreachable for
+        a member with no `customer`, so a stale row there is NOT cleaned up by
+        `load_payment_history_batched` at all.
+
+        This is exactly why "no repair patch is needed" (#713's decision) rests
+        on the precondition never having occurred in production (veg11: zero
+        Donors linked to a Member), not on any sweep being reliable. If that
+        precondition ever stops holding, this test is where "the rebuild will
+        quietly fix it" would be caught as false.
+        """
+        from verenigingen.services.member.payment.payment_history_service import (
+            get_payment_history_service,
+        )
+
+        # create_test_member auto-creates and links a Customer; null it out so
+        # this test exercises the no-customer branch it is named for.
+        frappe.db.set_value("Member", self.member.name, "customer", None, update_modified=False)
+        member = frappe.get_doc("Member", self.member.name)
+        self.assertFalse(member.customer, "the precondition of this test: no customer linked")
+        member.append(
+            "payment_history",
+            {
+                "invoice": self.donation.name,
+                "invoice_doctype": "Donation",
+                "transaction_type": "Donation",
+                "amount": 25.0,
+                "payment_method": "Mollie",
+                "status": "Completed",
+            },
+        )
+        member.save()
+        member.reload()
+        self.assertEqual(len(member.payment_history), 1)
+
+        result = get_payment_history_service().load_payment_history_batched(member)
+        self.assertTrue(result.success)
+        self.assertTrue(result.data.get("skipped"), "no customer -> the rebuild must skip, not clear")
+
+        member.reload()
+        self.assertEqual(
+            [r.invoice for r in member.payment_history],
+            [self.donation.name],
+            "without a customer, the stale row is NOT swept -- it survives indefinitely",
+        )
