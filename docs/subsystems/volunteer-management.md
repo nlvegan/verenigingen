@@ -112,9 +112,12 @@ From `hooks/scheduler.py`:
 
 From `hooks/doc_events.py`:
 
-**Volunteer `on_update`:**
-- Volunteer role profile hooks (`on_volunteer_status_change`) — recalculates the user's
-  role profile when `Volunteer.status` crosses the Active/Onboarding boundary.
+**Volunteer `on_update`: there is none.** `on_volunteer_status_change` still exists in the
+tree but is deliberately **not** wired: restoring it under `"Volunteer"` was measured to
+strip board users of their `Verenigingen Chapter Board Member` role, because
+`sync_user_role_profile` REPLACES `User.role_profiles` and `populate_role_profile_roles()`
+then rebuilds `User.roles` from that profile on every save. Tracked as #720; see the notes
+in `hooks/doc_events.py`.
 
 Until #688 this block was keyed on `Verenigingen Volunteer`, a Role name rather than a
 DocType, so none of its four handlers ever fired. Three were retired rather than

@@ -1142,12 +1142,12 @@ class TestHookKeysAreDoctypes(unittest.TestCase):
         pairs = self._collect()
         # Guard against a silently empty sweep: if a hooks dict is renamed or moved,
         # _collect() returns a short list and the assertion below passes vacuously.
-        # A total floor alone is NOT enough -- measured on this branch the sweep is 59
-        # pairs (doc_events 23, permission_query_conditions 16, has_permission 15,
+        # A total floor alone is NOT enough -- measured on this branch the sweep is 58
+        # pairs (doc_events 22, permission_query_conditions 16, has_permission 15,
         # doctype_js 4, override_doctype_class 1), so the two smallest surfaces could
-        # drop out ENTIRELY and 58 or 55 would still clear any floor set below that.
+        # drop out ENTIRELY and 57 or 53 would still clear any floor set below that.
         # So require every declared surface to contribute, then keep the total floor
-        # for the large ones, set well below 59 so ordinary churn does not trip it.
+        # for the large ones, set well below 58 so ordinary churn does not trip it.
         # Named as a LITERAL, deliberately not derived from DOCTYPE_KEYED_HOOKS:
         # a set built from that list shrinks in step with it, so deleting an entry
         # would satisfy the comparison with itself. A renamed dict is already caught
