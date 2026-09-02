@@ -90,7 +90,12 @@ class TestBoardMemberValidator(VereningingenTestCase):
         )
         self.assertTrue(any("cannot be after" in e for e in result.errors))
 
-    def test_active_member_with_past_end_date_errors(self):
+    def test_active_member_with_past_end_date_warns_but_does_not_block(self):
+        # Deliberately a WARNING, not an error. #596 wired this per-row check into
+        # Chapter.validate(); as a blocking error it made a Chapter carrying the stale
+        # "is_active=1 with an expired to_date" combination unsaveable, which the
+        # board_members_only segment query treats as ordinary data it filters out
+        # rather than as an impossible state. See board_member_validator.py.
         vol = self._make_volunteer()
         role = self._make_role()
         result = self.v.validate_single_board_member(
@@ -103,7 +108,9 @@ class TestBoardMemberValidator(VereningingenTestCase):
                 "volunteer_name": "Past Person",
             }
         )
-        self.assertTrue(any("end date in the past" in e for e in result.errors))
+        self.assertTrue(any("end date in the past" in w for w in result.warnings))
+        self.assertFalse(any("end date in the past" in e for e in result.errors))
+        self.assertTrue(result.is_valid)
 
     def test_invalid_email_errors(self):
         vol = self._make_volunteer()
