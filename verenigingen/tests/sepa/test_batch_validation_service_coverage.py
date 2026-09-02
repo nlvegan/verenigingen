@@ -16,6 +16,14 @@ with real dicts rather than mocks. The DB-backed path is:
   _validate_batch_limits) directly to cover the invoice/date/limit branches.
 """
 
+# Read "today" off the SITE clock, the way the service does
+# (batch_validation_service.py:190 calls getdate()). A naive
+# datetime.now().date() is the PROCESS clock, and the two are a calendar day
+# apart whenever the site timezone has rolled over and the process one has not
+# (CI runs in UTC; this site is Asia/Kolkata, so from 18:30 UTC onward), which
+# makes "exactly 10 days out" measure 9 to the code under test.
+from frappe.utils import getdate
+
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.verenigingen_payments.services.batch_validation_service import (
@@ -155,9 +163,9 @@ class TestValidateCollectionDate(EnhancedTestCase):
         self.svc = BatchValidationService()
 
     def _date(self, days):
-        from datetime import datetime, timedelta
+        from datetime import timedelta
 
-        return (datetime.now().date() + timedelta(days=days)).strftime("%Y-%m-%d")
+        return (getdate() + timedelta(days=days)).strftime("%Y-%m-%d")
 
     def test_invalid_format_is_rejected(self):
         result = self.svc._validate_collection_date("31-12-2026")
@@ -183,10 +191,10 @@ class TestValidateCollectionDate(EnhancedTestCase):
         self.assertTrue(any(w["code"] == "DATE_FAR_FUTURE" for w in result.warnings))
 
     def test_weekend_adds_warning(self):
-        from datetime import datetime, timedelta
+        from datetime import timedelta
 
         # Find the first Saturday at least 2 days out (inside the notice window).
-        d = datetime.now().date() + timedelta(days=2)
+        d = getdate() + timedelta(days=2)
         while d.weekday() != 5:  # Saturday
             d += timedelta(days=1)
         result = self.svc._validate_collection_date(d.strftime("%Y-%m-%d"))
@@ -263,9 +271,7 @@ class TestValidateBatchCreationOrchestration(EnhancedTestCase):
         config = self.svc.config_service.validate_sepa_configuration()
         if not config["is_valid"]:
             self.skipTest("SEPA config invalid on this site; orchestrator short-circuits at config")
-        from datetime import datetime
-
-        today_str = datetime.now().date().strftime("%Y-%m-%d")  # 0 days notice -> too early
+        today_str = getdate().strftime("%Y-%m-%d")  # 0 days notice -> too early
         result = self.svc.validate_batch_creation(
             [_invoice(currency="USD")], collection_date=today_str
         )
@@ -307,9 +313,7 @@ class TestValidateBatchCreationOrchestration(EnhancedTestCase):
         svc = BatchValidationService()
         svc.config_service = _ValidConfig()
 
-        from datetime import datetime
-
-        today_str = datetime.now().date().strftime("%Y-%m-%d")  # 0 days notice -> too early
+        today_str = getdate().strftime("%Y-%m-%d")  # 0 days notice -> too early
         result = svc.validate_batch_creation([_invoice(currency="USD")], collection_date=today_str)
 
         # The fix: section errors must flip the aggregate result.is_valid False.
