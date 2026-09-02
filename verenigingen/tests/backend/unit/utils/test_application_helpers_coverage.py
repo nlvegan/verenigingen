@@ -32,8 +32,17 @@ class TestMapPaymentMethod(VereningingenTestCase):
     def test_display_value_passthrough(self):
         self.assertEqual(ah.map_payment_method("SEPA Direct Debit", validate=False), "SEPA Direct Debit")
 
-    def test_unknown_defaults_to_bank_transfer(self):
-        self.assertEqual(ah.map_payment_method("does_not_exist", validate=False), "Bank Transfer")
+    def test_unknown_nonempty_value_raises(self):
+        """A non-empty, unrecognized value is rejected rather than silently
+        rewritten to Bank Transfer (#427)."""
+        with self.assertRaises(frappe.ValidationError):
+            ah.map_payment_method("does_not_exist", validate=False)
+
+    def test_empty_value_defaults_to_bank_transfer(self):
+        """An absent/empty selection is a legitimate 'not provided' sentinel
+        (both production call sites use data.get('payment_method', '')),
+        distinct from an unrecognized value -- it keeps the Bank Transfer
+        default."""
         self.assertEqual(ah.map_payment_method("", validate=False), "Bank Transfer")
 
     def test_validate_existing_mode_returns_value(self):
