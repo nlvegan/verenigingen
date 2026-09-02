@@ -34,6 +34,9 @@ from dataclasses import dataclass
 from collections import defaultdict
 import importlib.util
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from bench_resolution import find_bench_root  # noqa: E402
+
 
 @dataclass
 class ImportViolation:
@@ -78,10 +81,18 @@ class ImportPathValidator:
         outside the bench tree entirely, and assuming the fixed depth there resolves to
         a directory with no apps/ or env/ under it, which strips the search paths down
         to whatever happens to be on sys.path.
+
+        A worktree created OUTSIDE the bench (e.g. under /tmp) has no bench ancestor for
+        the walk-up to find either, so `find_bench_root` also tries resolving the MAIN
+        checkout via `git rev-parse --git-common-dir` -- see bench_resolution.py (#752).
         """
-        for candidate in (app_path, *app_path.parents):
-            if (candidate / "sites" / "common_site_config.json").exists():
-                return candidate
+
+        def _has_site_config(candidate: Path) -> bool:
+            return (candidate / "sites" / "common_site_config.json").exists()
+
+        found = find_bench_root(app_path, marker=_has_site_config)
+        if found is not None:
+            return found
         return app_path.parent.parent  # Detached checkout; app_path still carries the app
 
     def _build_search_paths(self) -> List[Path]:

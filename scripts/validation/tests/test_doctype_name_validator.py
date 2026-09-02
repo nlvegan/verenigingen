@@ -12,9 +12,12 @@ everything and a detector that flags nothing both pass a one-sided test, and
 this repo has shipped both.
 """
 import importlib.util
+import os
+import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 _MOD_PATH = Path(__file__).resolve().parents[1] / "doctype_name_validator.py"
@@ -22,6 +25,12 @@ _spec = importlib.util.spec_from_file_location("doctype_name_validator", _MOD_PA
 dnv = importlib.util.module_from_spec(_spec)
 sys.modules[_spec.name] = dnv
 _spec.loader.exec_module(dnv)
+
+_BR_MOD_PATH = _MOD_PATH.with_name("bench_resolution.py")
+_br_spec = importlib.util.spec_from_file_location("bench_resolution", _BR_MOD_PATH)
+br = importlib.util.module_from_spec(_br_spec)
+sys.modules[_br_spec.name] = br
+_br_spec.loader.exec_module(br)
 
 
 def _names(source, known=("Member", "Chapter", "Chapter Board Member")):
@@ -167,9 +176,73 @@ class TestAuthority(unittest.TestCase):
         for real in ("Chapter Board Member", "Volunteer", "Chapter", "Team"):
             self.assertIn(real, known)
 
+    def test_bench_apps_env_override_wins(self):
+        """#752's escape hatch: an explicit BENCH_APPS always wins over resolution."""
+        with tempfile.TemporaryDirectory() as d:
+            override = Path(d) / "not-a-real-apps-dir"
+            with unittest.mock.patch.dict(os.environ, {"BENCH_APPS": str(override)}):
+                self.assertEqual(dnv._find_bench_apps(dnv.REPO_ROOT), override)
+
+    def test_bench_apps_resolves_via_git_from_a_worktree_with_no_bench_ancestor(self):
+        """#752's actual regression: a real linked worktree of THIS repo, placed
+        outside the bench, has no bench ancestor for a filesystem walk-up to
+        find -- so this only passes if the git-common-dir fallback is doing
+        the work. See test_bench_resolution.py for the full coverage of the
+        fallback itself; this pins it to _find_bench_apps specifically.
+
+        BENCH_APPS is popped from the environment for the duration of this
+        test: an ambient override would make `_find_bench_apps` return early
+        and this would pass without the git fallback ever running -- exactly
+        the vacuous shape a skeptical review caught here once already.
+        """
+        with tempfile.TemporaryDirectory() as d:
+            outside_worktree = Path(d) / "outside-worktree"
+            add = subprocess.run(
+                ["git", "worktree", "add", "--detach", str(outside_worktree), "HEAD"],
+                cwd=dnv.REPO_ROOT, capture_output=True, text=True,
+            )
+            self.assertEqual(add.returncode, 0, add.stderr)
+            try:
+                # Control: the plain walk-up finds nothing from here -- so any
+                # success below comes from the git-based fallback, not a
+                # filesystem coincidence.
+                self.assertIsNone(br._walk_up(outside_worktree, br.has_apps_and_sites))
+
+                with unittest.mock.patch.dict(os.environ):
+                    os.environ.pop("BENCH_APPS", None)
+                    found = dnv._find_bench_apps(outside_worktree)
+                self.assertEqual(found, dnv.BENCH_APPS)
+            finally:
+                subprocess.run(
+                    ["git", "worktree", "remove", "--force", str(outside_worktree)],
+                    cwd=dnv.REPO_ROOT, capture_output=True, text=True,
+                )
+
 
 class TestAuthorityGuard(unittest.TestCase):
     """A partial authority must refuse, not accuse."""
+
+    def test_refusal_names_the_remedy(self):
+        """#752: the refusal must say what to do, or the answer is --no-verify."""
+        known = {v: k for k, v in dnv.AUTHORITY_PROBES.items()}
+        del known["Expense Claim"]
+        with unittest.mock.patch.dict(os.environ):
+            os.environ.pop("BENCH_APPS", None)
+            problem = dnv.authority_problem(known)
+        self.assertIn("BENCH_APPS", problem)
+        self.assertIn("--no-verify", problem)
+        self.assertIn("walk-up", problem)
+
+    def test_refusal_blames_a_bad_override_rather_than_resolution(self):
+        """#752: when BENCH_APPS itself is the cause, neither strategy even ran --
+        the message must not claim they failed."""
+        known = {v: k for k, v in dnv.AUTHORITY_PROBES.items()}
+        del known["Expense Claim"]
+        with unittest.mock.patch.dict(os.environ, {"BENCH_APPS": "/not/a/real/apps/dir"}):
+            problem = dnv.authority_problem(known)
+        self.assertIn("BENCH_APPS is set to", problem)
+        self.assertIn("/not/a/real/apps/dir", problem)
+        self.assertNotIn("walk-up", problem)
 
     def test_a_missing_required_app_is_refused(self):
         known = {v: k for k, v in dnv.AUTHORITY_PROBES.items()}

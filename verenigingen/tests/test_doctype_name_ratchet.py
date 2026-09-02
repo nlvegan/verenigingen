@@ -19,9 +19,20 @@ Why a ratchet and not a gate: 93 unknown-doctype call sites already exist, mostl
 aspirational doctypes in tests. See the validator's docstring for the measured
 behaviour of each frappe API on a missing doctype, and #677 / #491 for what it
 cost.
+
+`TestOutOfBenchWorktreeRegression` below is a different concern: not the
+census, but whether the validator can find the bench AT ALL from a git
+worktree created outside it (#752). That needs the same full bench as the
+census above, so it lives here too rather than in
+scripts/validation/tests/test_bench_resolution.py, which is stdlib-only and
+runs in the Code Validation workflow where no bench exists.
 """
 
+import os
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -97,3 +108,52 @@ class TestDocTypeNameRatchet(unittest.TestCase):
             "unknown name is the point.\n"
             "Full census: python scripts/validation/doctype_name_validator.py --report"
         )
+
+
+class TestOutOfBenchWorktreeRegression(unittest.TestCase):
+    """#752: a git worktree created OUTSIDE the bench (routinely done under
+    /tmp in this project) has no `apps/`+`sites/` ancestor for a filesystem
+    walk-up to find, so BENCH_APPS used to resolve wrongly, zero doctypes
+    loaded, and the self-check correctly refused to run -- as a pre-commit
+    gate with no override, the practical effect was `--no-verify`, which
+    skips every hook, not just this one.
+
+    This copies the CURRENT scripts/validation/*.py files (not just the last
+    commit) into a real linked worktree placed outside the bench, so it also
+    catches an uncommitted regression -- `git worktree add` alone checks out
+    HEAD, which would miss a mutation to bench_resolution.py made but not yet
+    committed.
+    """
+
+    def test_self_check_resolves_from_a_worktree_outside_the_bench(self):
+        validation_dir = APP_ROOT / "scripts" / "validation"
+        env = dict(os.environ)
+        env.pop("BENCH_APPS", None)  # an ambient override would hide a real regression
+
+        with tempfile.TemporaryDirectory() as tmp:
+            outside_worktree = Path(tmp) / "outside-worktree"
+            add = subprocess.run(
+                ["git", "worktree", "add", "--detach", str(outside_worktree), "HEAD"],
+                cwd=APP_ROOT, capture_output=True, text=True,
+            )
+            self.assertEqual(add.returncode, 0, add.stderr)
+            try:
+                outside_validation = outside_worktree / "scripts" / "validation"
+                for py_file in validation_dir.glob("*.py"):
+                    shutil.copy2(py_file, outside_validation / py_file.name)
+
+                script = outside_validation / "doctype_name_validator.py"
+                check = subprocess.run(
+                    [sys.executable, str(script), "--self-check"],
+                    capture_output=True, text=True, timeout=60, env=env,
+                )
+                self.assertEqual(
+                    check.returncode, 0,
+                    f"self-check failed from an out-of-bench worktree:\n"
+                    f"{check.stdout}\n{check.stderr}",
+                )
+            finally:
+                subprocess.run(
+                    ["git", "worktree", "remove", "--force", str(outside_worktree)],
+                    cwd=APP_ROOT, capture_output=True, text=True,
+                )
