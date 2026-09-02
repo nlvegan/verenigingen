@@ -511,3 +511,45 @@ class TestDonation(EnhancedTestCase):
             donation.save()
         enqueued = [c for c in mock_enqueue.call_args_list if "send_payment_confirmation_email" in str(c)]
         self.assertTrue(enqueued, "Expected payment confirmation email to be enqueued on paid transition")
+
+    # ------------------------------------------------------------------
+    # validate() — Donation Payment rows (#596)
+    # ------------------------------------------------------------------
+    def test_mollie_payment_row_without_id_is_rejected(self):
+        """A `payments` row with payment_method "Mollie" must carry a mollie_payment_id.
+
+        Donation Payment's own validate() used to check this, but Frappe never
+        runs a child DocType's validate() when the row is saved via its parent
+        (append()+save()). Nothing else checked it on that path, so before #596
+        a Mollie payment row with a blank mollie_payment_id persisted silently.
+        See donation_payment.py for why the OTHER half of that dead method
+        (amount > 0) was deleted rather than ported: production deliberately
+        appends negative amounts for refunds.
+
+        Known gap NOT closed by this: `run_before_save_methods` does not call
+        `validate()` at all when `self._action == "update_after_submit"`
+        (frappe/model/document.py), and the real refund/reversal writer
+        (mollie/services/webhook_wrapper_service_unified.py) appends to
+        `payments` on an already-SUBMITTED Donation with
+        `ignore_validate_update_after_submit = True` -- so this check does not
+        run on that path either. It happens to be harmless there today because
+        that writer already sets both `payment_method` and `mollie_payment_id`
+        itself, but this test only proves the rule holds on the insert path.
+        """
+        donation = self._make_donation()
+        donation.append(
+            "payments",
+            {
+                "payment_date": frappe.utils.today(),
+                "amount": 10,
+                "payment_method": "Mollie",
+                "payment_status": "Pending",
+            },
+        )
+        with (
+            patch("frappe.sendmail"),
+            self.assertRaisesRegex(
+                frappe.ValidationError, "Mollie Payment ID is required for Mollie payments"
+            ),
+        ):
+            donation.insert()

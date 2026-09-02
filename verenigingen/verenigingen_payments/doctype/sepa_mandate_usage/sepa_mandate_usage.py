@@ -14,28 +14,20 @@ from verenigingen.utils.security.api_security_framework import OperationType, st
 
 
 class SEPAMandateUsage(Document):
-    def validate(self):
-        self.validate_mandate_status()
-        self.set_sequence_type()
-        self.validate_amount()
+    """Child table (istable: 1) of SEPA Mandate.usage_history.
 
-    def validate_mandate_status(self):
-        """Validate that the mandate is active and valid"""
-        if not self.get("parent"):  # Skip if this is not part of a SEPA Mandate
-            return
-
-        mandate = frappe.get_doc("SEPA Mandate", self.parent)
-        if mandate.status != "Active":
-            frappe.throw(f"Cannot use inactive mandate: {mandate.mandate_id}")
-
-        # Check mandate expiry
-        if mandate.expiry_date and getdate(mandate.expiry_date) < getdate(today()):
-            frappe.throw(f"Mandate {mandate.mandate_id} has expired")
-
-    def set_sequence_type(self):
-        """Auto-determine sequence type based on mandate history"""
-        if not self.sequence_type and self.get("parent"):
-            self.sequence_type = self.determine_sequence_type()
+    #596: this class used to define validate() (validate_mandate_status,
+    set_sequence_type, validate_amount). Frappe never runs it when this row is
+    saved via its parent (mandate.append(...); mandate.save()) -- there is no
+    d.run_method("validate") on that path. create_mandate_usage_record() below
+    already works around that for the mandate-active/not-expired check and for
+    sequence_type (see its docstring -- it has to, because validate() is skipped
+    in some save paths regardless, e.g. under frappe.flags.in_import). The
+    amount-vs-maximum_amount check had no other enforcement and now runs from
+    SEPAMandate.validate_usage_history_amounts()
+    (verenigingen_payments/doctype/sepa_mandate/sepa_mandate.py), iterating
+    self.usage_history from the parent, where Frappe actually calls validate().
+    """
 
     def determine_sequence_type(self):
         """
@@ -70,14 +62,9 @@ class SEPAMandateUsage(Document):
 
         return "RCUR"
 
-    def validate_amount(self):
-        """Validate amount against mandate limits"""
-        if not self.amount or not self.get("parent"):
-            return
-
-        mandate = frappe.get_doc("SEPA Mandate", self.parent)
-        if mandate.maximum_amount and self.amount > mandate.maximum_amount:
-            frappe.throw(f"Amount €{self.amount} exceeds mandate maximum of €{mandate.maximum_amount}")
+    # validate_amount() (amount vs mandate.maximum_amount) was removed along with
+    # validate() above -- it had no other caller, and its logic now lives on the
+    # parent (see the class docstring).
 
     # Note: SEPA Mandate Usage is a child table document ("istable": 1)
     # Child tables don't have on_submit() events - they're managed by the parent document
@@ -153,6 +140,16 @@ def create_mandate_usage_record(mandate_name, reference_doctype, reference_name,
         # or expired mandate.
         if mandate.status != "Active":
             frappe.throw(_("Cannot use inactive mandate: {0}").format(mandate.mandate_id))
+
+        # `status` is only recalculated on save (SEPAMandate.set_status_based_on_
+        # dates(), run from validate()) -- nothing re-evaluates it on a schedule.
+        # A mandate nobody has re-saved since its expiry_date passed can sit in
+        # the DB with a STALE status="Active" indefinitely, and the check above
+        # would miss it. Check expiry_date directly too, so this guard means what
+        # its own comment already claimed. This is what the ORIGINAL dead
+        # SEPAMandateUsage.validate_mandate_status() (#596) checked explicitly.
+        if mandate.expiry_date and getdate(mandate.expiry_date) < getdate(today()):
+            frappe.throw(_("Mandate {0} has expired").format(mandate.mandate_id))
 
         # Add usage record to the mandate's usage_history child table
         usage_row = mandate.append(

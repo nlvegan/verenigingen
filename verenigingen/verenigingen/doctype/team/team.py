@@ -37,6 +37,7 @@ class Team(Document):
         TeamValidationService().validate_dates(self)
         TeamValidationService().validate_team_members(self)
         TeamValidationService().validate_role_profile_configuration(self)
+        TeamValidationService().validate_team_member_rows(self)
         self._validate_unique_roles()
         self._update_team_lead()
 

@@ -2,10 +2,7 @@
 # For license information, please see license.txt
 
 import frappe
-from frappe import _
 from frappe.model.document import Document
-
-from verenigingen.utils.constants import Roles
 
 
 class ChapterMember(Document):
@@ -19,68 +16,17 @@ class ChapterMember(Document):
         self._send_chapter_farewell_notification()
         self._notify_board_of_member_left()
 
-    def validate(self):
-        """Validate chapter member operations and ensure proper history tracking"""
-        # Auto-default status. status is reqd=1 with JSON default "Active", but
-        # Frappe v16 only applies field defaults at the form layer, not for child
-        # rows appended via frappe.get_doc({...}) / parent.append({...}) without an
-        # explicit status. Child-row validate() runs before the parent's mandatory
-        # check, so set it here to avoid MandatoryError. "Active" is the correct
-        # initial state: a member added to a chapter roster is active by default.
-        if not self.status:
-            self.status = "Active"
-        self.validate_chapter_membership_tracking()
-
-    def validate_chapter_membership_tracking(self):
-        """Ensure chapter membership changes go through proper tracking"""
-        # Allow creation through Chapter Manager or specific whitelisted contexts
-        allowed_contexts = [
-            "Chapter.member_manager.add_member",
-            "ChapterMembershipManager",
-            "Data Import",  # Allow data imports
-            "Migration",  # Allow migrations
-            "Test",  # Allow test contexts
-        ]
-
-        # Check if we're in an allowed context by examining the call stack
-        import traceback
-
-        call_stack = traceback.format_stack()
-
-        # Look for allowed contexts in the call stack
-        is_allowed_context = any(context in "".join(call_stack) for context in allowed_contexts)
-
-        # Also allow if the change is being made by administrator or system user
-        current_user = frappe.session.user
-        is_admin_user = current_user in [
-            "Administrator",
-            "Guest",
-        ] or Roles.SYSTEM_MANAGER in frappe.get_roles(current_user)
-
-        # Allow if we're updating an existing record without changing key fields
-        if (
-            not self.is_new()
-            and not self.has_value_changed("member")
-            and not self.has_value_changed("parent")
-        ):
-            return
-
-        # For new records or key field changes, ensure proper tracking
-        if not (is_allowed_context or is_admin_user):
-            # Log the attempt for debugging
-            frappe.log_error(
-                f"Direct chapter member manipulation attempted by {current_user} for member {self.member} in chapter {self.parent}",
-                "Chapter Member Direct Manipulation",
-            )
-
-            # Provide helpful guidance
-            frappe.msgprint(
-                _(
-                    "Chapter membership changes should be made through the Chapter Management interface or using the ChapterMembershipManager utility for proper history tracking."
-                ),
-                title=_("Use Proper Chapter Management"),
-                indicator="yellow",
-            )
+    # #596: this class used to define validate() (default status to "Active", and
+    # a call-stack-introspection warning -- never a throw -- nudging toward using
+    # ChapterMembershipManager). Frappe never runs it -- there is no
+    # d.run_method("validate") for children anywhere in insert()/save(). Neither
+    # piece is moved to the parent: `status` is reqd=1 with a JSON `"default":
+    # "Active"`, and Frappe's own _set_defaults() already fills a missing default
+    # onto every new child row (via update_if_missing()) before the mandatory
+    # check runs, regardless of whether any validate() ever executes -- so the
+    # manual fallback was always redundant. The tracking nudge only ever
+    # msgprint()ed a warning and never blocked a save, so there is no rule to
+    # preserve.
 
     def on_update(self):
         """Handle updates to chapter membership"""

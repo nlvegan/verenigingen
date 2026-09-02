@@ -7,6 +7,7 @@ extracted from the Team DocType controller to maintain clean architecture.
 
 import frappe
 from frappe import _
+from frappe.utils import getdate
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 
@@ -329,6 +330,36 @@ class TeamValidationService(StatelessService):
         """Validate start and end dates"""
         if team_doc.end_date and team_doc.start_date and team_doc.end_date < team_doc.start_date:
             frappe.throw(_("End date cannot be before start date"))
+
+        return True
+
+    def validate_team_member_rows(self, team_doc):
+        """Enforce the per-row rules `Team Member.validate()` stated but never ran.
+
+        Team Member is a child table (`"istable": 1`), so Frappe never calls its own
+        validate() -- see #596. `required volunteer` and `Team Role must exist` are
+        already covered by the field's own `reqd`/Link-field validation, which DOES
+        run for children regardless of custom validate(). Unique-role-per-team is
+        already covered by `TeamService.validate_unique_roles`, called from
+        `Team._validate_unique_roles()` in `Team.validate()`. Neither of those,
+        nor anything else, checked a per-row date range or is_active/status
+        consistency, so this is what's left to port.
+        """
+        for member in team_doc.team_members or []:
+            # getdate(), not a raw `<`: Frappe Date fields are not reliably typed --
+            # frappe.utils.today() (the idiomatic way to set one, used throughout this
+            # app, including by tests exercising this exact save path) returns a STRING,
+            # while a row freshly loaded from the DB already holds a datetime.date. A
+            # bare `member.to_date < member.from_date` raises TypeError the moment the
+            # two sides disagree, rather than validating anything. Measured: this exact
+            # line crashed 10 CI tests across 3 shards when this rule went live (#596).
+            if member.to_date and member.from_date and getdate(member.to_date) < getdate(member.from_date):
+                frappe.throw(_("Row {0}: End date cannot be before start date").format(member.idx))
+
+            if not member.is_active and member.status == "Active":
+                member.status = "Inactive"
+            elif member.is_active and member.status != "Active":
+                member.is_active = 0
 
         return True
 

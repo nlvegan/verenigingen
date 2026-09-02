@@ -1,8 +1,9 @@
+import unittest
+
 import frappe
-from frappe.utils import today
+from frappe.utils import getdate, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-import unittest
 
 
 class TestMemberIBANHistory(EnhancedTestCase):
@@ -286,6 +287,100 @@ class TestMemberIBANHistory(EnhancedTestCase):
 
         # BIC should remain unchanged (derivation was skipped)
         self.assertEqual(member.bic, original_bic)
+
+
+class TestMemberIBANHistoryParentValidation(EnhancedTestCase):
+    """#596: Member IBAN History's own validate() never runs (it's a child
+    DocType -- Frappe only calls validate() on the parent). These rules were
+    only ever enforced there in the dead code; this proves they now run from
+    Member.validate() instead, which iterates member.iban_history.
+    """
+
+    def test_bic_is_backfilled_for_a_row_appended_without_one(self):
+        """Mirrors services/member/approval/member_approval_service.py's
+        create_member_iban_history(), which appends iban_history with no bic
+        key at all. Before #596 nothing ever derived one for that row."""
+        member = self.create_test_member(iban="NL91ABNA0417164300")
+        member.append(
+            "iban_history",
+            {
+                "iban": member.iban,
+                "bank_account_name": member.bank_account_name or "Approval Test",
+                "from_date": today(),
+                "is_active": 0,  # avoid colliding with the row create_test_member may set up
+                "change_reason": "Application Approval",
+            },
+        )
+        member.save()
+        member.reload()
+
+        appended = next(
+            r for r in member.iban_history if r.change_reason == "Application Approval"
+        )
+        self.assertEqual(appended.bic, "ABNANL2A")
+
+    def test_to_date_before_from_date_is_rejected(self):
+        member = self.create_test_member(iban="NL13TEST0123456789")
+        member.append(
+            "iban_history",
+            {
+                "iban": member.iban,
+                "bic": member.bic,
+                "bank_account_name": "Bad Dates",
+                "from_date": "2026-01-10",
+                "to_date": "2026-01-01",
+                "is_active": 0,
+                "change_reason": "Other",
+            },
+        )
+        with self.assertRaises(frappe.ValidationError):
+            member.save()
+
+    def test_active_row_with_a_to_date_is_rejected(self):
+        member = self.create_test_member(iban="NL13TEST0123456789")
+        member.append(
+            "iban_history",
+            {
+                "iban": member.iban,
+                "bic": member.bic,
+                "bank_account_name": "Active With End Date",
+                "from_date": today(),
+                "to_date": today(),
+                "is_active": 1,
+                "change_reason": "Other",
+            },
+        )
+        with self.assertRaises(frappe.ValidationError):
+            member.save()
+
+    def test_closing_an_iban_history_row_does_not_crash_on_mixed_date_types(self):
+        """Setting to_date = today() on an existing IBAN history row must not crash.
+
+        Regression, same class as the Team Member one: validate_iban_history_rows()
+        compared `row.to_date < row.from_date` with a bare `<`. frappe.utils.today()
+        -- the idiomatic way to set a date field, and exactly what
+        payment_mixin.track_iban_change() itself does two lines below this check --
+        returns a STRING, while a row reloaded from the DB holds from_date as a
+        datetime.date. The mismatch raised TypeError, not a ValidationError. See
+        #596 follow-up.
+        """
+        member = self.create_test_member(
+            iban="NL91ABNA0417164300", bank_account_name="Mixed Date Type Test"
+        )
+        member.iban = "NL69INGB0123456789"  # triggers track_iban_change -> appends a row
+        member.save()
+        member.reload()  # the new row's from_date is now a real datetime.date
+
+        active_row = next(r for r in member.iban_history if r.is_active)
+        active_row.is_active = 0
+        active_row.to_date = today()  # a string, deliberately -- this is the crash
+
+        member.save()  # must not raise TypeError
+        member.reload()
+
+        reloaded_row = next(r for r in member.iban_history if r.name == active_row.name)
+        self.assertFalse(reloaded_row.is_active)
+        self.assertEqual(getdate(reloaded_row.to_date), getdate(today()))
 
 
 def run_tests():

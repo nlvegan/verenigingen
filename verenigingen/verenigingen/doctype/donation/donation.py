@@ -101,6 +101,7 @@ class Donation(Document):
 
         # Validate payment method dependencies
         self.validate_payment_method()
+        self.validate_payment_rows()
 
         # Validate ANBI agreement requirements
         self.validate_anbi_agreement()
@@ -163,6 +164,20 @@ class Donation(Document):
                 frappe.msgprint(
                     _("Bank reference is recommended for tracking bank transfers"), indicator="yellow"
                 )
+
+    def validate_payment_rows(self):
+        """Enforce the rule `Donation Payment.validate()` stated but never ran.
+
+        Donation Payment is a child table (`"istable": 1`), so Frappe never calls
+        its own validate() -- see #596. Its `amount > 0` check is deliberately NOT
+        ported: production appends NEGATIVE amounts for refunds/reversals (see
+        donation_payment.py), and reviving it here would reject those. The
+        Mollie-requires-mollie_payment_id check had no other enforcement and is
+        not violated by anything today, but nothing guaranteed that either.
+        """
+        for row in self.payments or []:
+            if row.payment_method == "Mollie" and not row.mollie_payment_id:
+                frappe.throw(_("Row {0}: Mollie Payment ID is required for Mollie payments").format(row.idx))
 
     def validate_anbi_agreement(self):
         """Validate ANBI agreement fields"""

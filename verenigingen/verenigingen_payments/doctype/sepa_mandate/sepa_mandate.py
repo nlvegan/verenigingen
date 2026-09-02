@@ -38,6 +38,7 @@ class SEPAMandate(Document):
         self.validate_dates()
         self.validate_iban()
         self.set_status_based_on_dates()
+        self.validate_usage_history_amounts()
 
         # Also synchronize status and is_active flag during validation
         self.sync_status_is_active()
@@ -311,6 +312,30 @@ class SEPAMandate(Document):
         # Show warnings if any
         for warning in validation_result["warnings"]:
             frappe.msgprint(warning, alert=True)
+
+    def validate_usage_history_amounts(self):
+        """Enforce the amount limit `SEPA Mandate Usage.validate()` stated but never ran.
+
+        SEPA Mandate Usage is a child table (`"istable": 1`), so Frappe never calls
+        its own validate() -- see #596. `create_mandate_usage_record()`
+        (verenigingen_payments/doctype/sepa_mandate_usage/sepa_mandate_usage.py)
+        already works around the dead validate() for the active-status check, the
+        expiry-date check (added alongside this fix -- it only checked status, not
+        expiry_date directly, even though its own comment claimed to guard against
+        "a cancelled or expired mandate") and for sequence_type -- but it never
+        replicated the amount-vs-maximum_amount check, and neither does any other
+        caller. Checked here, from the parent, so it applies regardless of which
+        path added the row.
+        """
+        if not self.maximum_amount:
+            return
+        for row in self.usage_history or []:
+            if row.amount and row.amount > self.maximum_amount:
+                frappe.throw(
+                    _("Usage row {0}: amount {1} exceeds mandate maximum of {2}").format(
+                        row.idx, row.amount, self.maximum_amount
+                    )
+                )
 
     def after_insert(self):
         """Handle mandate creation using lifecycle service"""

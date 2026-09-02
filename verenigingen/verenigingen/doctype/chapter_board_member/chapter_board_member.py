@@ -95,70 +95,32 @@ class ChapterBoardMember(Document):
         """
         withdraw_board_member_role_if_unseated(self.volunteer, exclude_row=self.name)
 
-    def validate(self):
-        """Validate board member data and relationships"""
-        self.validate_required_fields()
-        self.validate_volunteer_exists()
-        self.validate_role_exists()
-        self.validate_date_range()
-        self.validate_active_status()
-        self.validate_email_format()
-        self.validate_user_account()
+    def validate(self):  # child-validate-ok: this row is loaded and saved DIRECTLY
+        # (not via chapter_doc.append()+chapter_doc.save()) by
+        # services/chapter/chapter_assignment_service.py's board-term-ending code
+        # (frappe.get_doc("Chapter Board Member", name); ...; .save()). Frappe's
+        # child-table skip ONLY applies to a row saved as part of its parent's
+        # save -- a standalone Document.save() runs the full normal lifecycle on
+        # self regardless of istable, so validate() DOES run here. #596 originally
+        # deleted this method entirely on the (incomplete) belief that a child
+        # DocType's validate() never runs anywhere; it does, on this path.
+        #
+        # required-field/Link-existence checks are NOT repeated here -- those are
+        # covered by Frappe's own mandatory + Link-field validation regardless of
+        # this method. Date range, active-status-vs-past-end-date and email format
+        # have no other enforcement and are what this delegates to, via the same
+        # validator ChapterValidator.validate_all() uses for the parent.append()+
+        # save() path (verenigingen/verenigingen/doctype/chapter/validators/
+        # board_member_validator.py) -- one rule, one implementation, two call sites.
+        from verenigingen.verenigingen.doctype.chapter.validators.board_member_validator import (
+            BoardMemberValidator,
+        )
 
-    def validate_required_fields(self):
-        """Validate required fields are present"""
-        if not self.volunteer:
-            frappe.throw("Volunteer is required for board member")
-        if not self.chapter_role:
-            frappe.throw("Chapter Role is required for board member")
-        if not self.from_date:
-            frappe.throw("Start Date (from_date) is required for board member")
-
-    def validate_volunteer_exists(self):
-        """Validate that the volunteer record exists"""
-        if self.volunteer and not frappe.db.exists("Volunteer", self.volunteer):
-            frappe.throw(f"Volunteer {self.volunteer} does not exist")
-
-    def validate_role_exists(self):
-        """Validate that the chapter role exists"""
-        if self.chapter_role and not frappe.db.exists("Chapter Role", self.chapter_role):
-            frappe.throw(f"Chapter Role {self.chapter_role} does not exist")
-
-    def validate_date_range(self):
-        """Validate start and end date logic"""
-        if self.from_date and self.to_date:
-            from_date = frappe.utils.getdate(self.from_date)
-            to_date = frappe.utils.getdate(self.to_date)
-            if to_date < from_date:
-                frappe.throw(f"End Date ({to_date}) cannot be before Start Date ({from_date})")
-
-    def validate_active_status(self):
-        """Validate active status consistency with dates"""
-        if self.is_active and self.to_date:
-            to_date = frappe.utils.getdate(self.to_date)
-            if to_date < frappe.utils.getdate(frappe.utils.today()):
-                frappe.throw(f"Board member cannot be active with an end date ({to_date}) in the past")
-
-    def validate_email_format(self):
-        """Validate email format if provided"""
-        if self.email:
-            import re
-
-            email_pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-            if not re.match(email_pattern, self.email):
-                frappe.throw(f"Invalid email format: {self.email}")
-
-    def validate_user_account(self):
-        """Ensure volunteer/member has a linked user account"""
-        if self.volunteer:
-            volunteer_doc = frappe.get_doc("Volunteer", self.volunteer)
-            if volunteer_doc.member:
-                user = frappe.db.get_value("Member", volunteer_doc.member, "user")
-                if not user:
-                    frappe.msgprint(
-                        f"Warning: Volunteer {self.volunteer} does not have a linked user account. Board member role cannot be assigned.",
-                        indicator="orange",
-                    )
+        result = BoardMemberValidator().validate_single_board_member(self.as_dict())
+        for warning in result.warnings:
+            frappe.msgprint(warning, indicator="orange", alert=True)
+        if not result.is_valid:
+            frappe.throw("; ".join(result.errors))
 
     def _send_board_added_notification(self):
         """Send notification when a volunteer is added to the board."""

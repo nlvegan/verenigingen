@@ -178,6 +178,126 @@ class TestTeam(EnhancedTestCase):
         self.test_team.insert()
         return self.test_team
 
+    def test_team_member_to_date_before_from_date_is_rejected(self):
+        """A Team Member row with to_date before from_date must be rejected.
+
+        Team Member's own validate() used to check this (validate_dates), but Frappe
+        never runs a child DocType's validate() -- Document.run_before_save_methods
+        calls run_method("validate") on the parent only, and Document._validate()
+        iterates children calling framework helpers exclusively (confirmed by reading
+        frappe/model/document.py this session). Team.validate() -> TeamValidationService
+        already checks the TEAM's own start_date/end_date and TeamService already
+        enforces unique-role-per-team, but neither checks a per-member date range, so an
+        inverted range on a Team Member row persists silently today. See #596.
+        """
+        team = self.create_test_team()
+
+        extra_member = frappe.get_doc(
+            {
+                "doctype": "Member",
+                "first_name": "DateRange",
+                "last_name": f"Test {self.test_id}",
+                "email": f"daterangemember{self.test_id}@example.com",
+            }
+        )
+        extra_member.insert()
+
+        extra_volunteer = frappe.get_doc(
+            {
+                "doctype": "Volunteer",
+                "volunteer_name": f"TeamTest DateRange {self.test_id}",
+                "email": f"teamtestdaterange{self.test_id}@example.org",
+                "member": extra_member.name,
+                "status": "Active",
+                "start_date": today(),
+            }
+        )
+        extra_volunteer.insert()
+
+        team.append(
+            "team_members",
+            {
+                "volunteer": extra_volunteer.name,
+                "volunteer_name": extra_volunteer.volunteer_name,
+                "team_role": "Team Member",
+                "from_date": today(),
+                "to_date": add_days(today(), -10),
+                "is_active": 1,
+                "status": "Active",
+            },
+        )
+
+        # assertRaisesRegex, not assertRaises: frappe.LinkValidationError is a
+        # subclass of ValidationError (frappe/exceptions.py), so a bare
+        # assertRaises(ValidationError) would also pass for an unrelated failure
+        # -- e.g. "Team Member" not existing as a valid Team Role -- and prove
+        # nothing about the date-range rule under test.
+        with self.assertRaisesRegex(frappe.ValidationError, "End date cannot be before start date"):
+            team.save()
+
+    def test_team_member_active_flag_and_status_are_kept_in_sync(self):
+        """is_active=0 with status still "Active" must be normalized on save.
+
+        Team Member's dead validate() (sync_status_and_active_flag) used to force
+        status to "Inactive" whenever is_active was cleared. Since that validate()
+        never actually ran, an inconsistent (is_active=0, status="Active") row has
+        never been corrected by anything. See #596.
+        """
+        team = self.create_test_team()
+        team.team_members[0].is_active = 0
+        team.save()
+        team.reload()
+
+        self.assertEqual(team.team_members[0].status, "Inactive")
+
+    def test_team_member_is_active_flag_is_cleared_when_status_is_not_active(self):
+        """The other direction of the same sync: is_active=1 with a non-"Active"
+        status must clear is_active, not touch status.
+
+        Ported verbatim from the dead TeamMember.sync_status_and_active_flag()
+        ("elif self.is_active and self.status != 'Active': self.is_active = 0")
+        -- asymmetric on purpose (it corrects is_active, not status, in this
+        branch) and untested before this: only the is_active=0 branch above had
+        coverage. See #596.
+        """
+        team = self.create_test_team()
+        team.team_members[0].is_active = 1
+        team.team_members[0].status = "On Leave"
+        team.save()
+        team.reload()
+
+        self.assertEqual(team.team_members[0].status, "On Leave")
+        self.assertFalse(team.team_members[0].is_active)
+
+    def test_ending_a_team_member_row_does_not_crash_on_mixed_date_types(self):
+        """Deactivating a Team Member by setting to_date = today() must not crash.
+
+        Regression for a real CI failure (10 tests across 3 shards, all the same
+        traceback): validate_team_member_rows() compared `member.to_date <
+        member.from_date` with a bare `<`. frappe.utils.today() -- the idiomatic,
+        everywhere-used way to set a date field, including in this exact pattern
+        in test_team_role_validation.py, test_volunteer_sync_service.py and
+        test_team_coverage.py -- returns a STRING. A row reloaded from the DB
+        already holds `from_date` as a datetime.date. Comparing the two raised
+        TypeError: '<' not supported between instances of 'str' and
+        'datetime.date', not a ValidationError -- the save crashed instead of
+        validating anything. See #596 follow-up.
+        """
+        team = self.create_test_team()
+        team.reload()  # from_date on the existing row is now a real datetime.date
+
+        for member in team.team_members:
+            member.is_active = 0
+            member.status = "Inactive"
+            member.to_date = today()  # a string, deliberately -- this is the crash
+
+        team.save()  # must not raise TypeError
+        team.reload()
+
+        for member in team.team_members:
+            self.assertFalse(member.is_active)
+            self.assertEqual(member.status, "Inactive")
+
     def test_team_creation(self):
         """Test creating a team"""
         if not self.test_members:

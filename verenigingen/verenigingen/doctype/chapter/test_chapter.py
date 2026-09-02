@@ -4,7 +4,7 @@
 import time
 
 import frappe
-from frappe.utils import getdate, today
+from frappe.utils import add_days, getdate, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
@@ -791,3 +791,145 @@ class TestChapter(EnhancedTestCase):
         # Test address handling
         self.assertIn("Test Street", chapter.address)
         self.assertIn("Test City", chapter.address)
+
+    def test_board_member_to_date_before_from_date_is_rejected(self):
+        """A Chapter Board Member row with to_date before from_date must be refused.
+
+        Chapter Board Member's own validate() used to check this
+        (validate_date_range), but Frappe never runs a child DocType's
+        validate() -- Document.run_before_save_methods calls
+        run_method("validate") on the parent only, and Document._validate()
+        iterates children calling framework helpers exclusively. Neither
+        BoardManager.add_board_member nor any generic Frappe field validation
+        caught an inverted date range, so before #596 it persisted silently.
+        The per-row check now runs from BoardMemberValidator.validate_single_board_member(),
+        wired into ChapterValidator.validate_all() -> Chapter.validate().
+
+        add_board_member() does not raise on a validation failure -- it catches
+        the exception inside _save_chapter_with_board_changes (via
+        secure_document_operation), logs it, and returns {"success": False, ...} --
+        so this asserts on the returned result, not a raised exception.
+        """
+        unique_id = self.get_unique_id()
+        chapter = frappe.get_doc(
+            {
+                "doctype": "Chapter",
+                "name": f"Test DateRange Chapter {unique_id}",
+                "region": self.test_region,
+                "status": "Active",
+                "introduction": "Test chapter for board member date range validation",
+            }
+        )
+        chapter.insert()  # EnhancedTestCase handles permissions
+
+        volunteer = frappe.get_doc(
+            {
+                "doctype": "Volunteer",
+                "volunteer_name": f"DateRange Test Volunteer {unique_id}",
+                "email": f"daterange{unique_id}@organization.org",
+                "member": self.test_member.name,
+                "status": "Active",
+                "start_date": today(),
+            }
+        )
+        volunteer.insert()  # EnhancedTestCase handles permissions
+
+        role_name = f"DateRange Test Role {unique_id}"
+        role = frappe.get_doc(
+            {
+                "doctype": "Chapter Role",
+                "role_name": role_name,
+                "permissions_level": "Basic",
+                "is_active": 1,
+            }
+        )
+        role.insert()  # EnhancedTestCase handles permissions
+
+        self.expectErrorLog("Board Manager Operation Failed", "Validation failed")
+        result = chapter.add_board_member(
+            volunteer=volunteer.name,
+            role=role_name,
+            from_date=today(),
+            to_date=add_days(today(), -10),
+        )
+
+        self.assertFalse(result.get("success"), f"Expected the add to be refused, got: {result}")
+
+        chapter.reload()
+        self.assertEqual(
+            len([r for r in chapter.board_members if r.volunteer == volunteer.name]),
+            0,
+            "The invalid-date-range board member row must not have been persisted",
+        )
+
+    def test_saving_an_unrelated_field_does_not_retroactively_validate_closed_board_terms(self):
+        """A historical (is_active=0) board member row with an invalid email must
+        NOT block a Chapter save that has nothing to do with that row.
+
+        ChapterValidator.validate_all() scopes the per-row checks (email format,
+        date range, active-status) added for #596 to ACTIVE rows only. Without
+        that scoping, this row -- created with a malformed email that nothing
+        ever validated (volunteer.email has no Email fieldtype constraint) --
+        would fail on every future save of this Chapter, including one that only
+        touches the introduction text, since Frappe never ran a per-row check
+        against it while it was open either.
+        """
+        unique_id = self.get_unique_id()
+        chapter = frappe.get_doc(
+            {
+                "doctype": "Chapter",
+                "name": f"Test Historical Board Chapter {unique_id}",
+                "region": self.test_region,
+                "status": "Active",
+                "introduction": "Original introduction",
+            }
+        )
+        chapter.insert()
+
+        volunteer = frappe.get_doc(
+            {
+                "doctype": "Volunteer",
+                "volunteer_name": f"Historical Test Volunteer {unique_id}",
+                "email": f"historical{unique_id}@organization.org",
+                "member": self.test_member.name,
+                "status": "Active",
+                "start_date": today(),
+            }
+        )
+        volunteer.insert()
+
+        role_name = f"Historical Test Role {unique_id}"
+        role = frappe.get_doc(
+            {
+                "doctype": "Chapter Role",
+                "role_name": role_name,
+                "permissions_level": "Basic",
+                "is_active": 1,
+            }
+        )
+        role.insert()
+
+        # A closed board term with data that would fail validate_single_board_member
+        # (malformed email) if it were checked -- but it is closed (is_active=0),
+        # so it should never be re-litigated.
+        chapter.append(
+            "board_members",
+            {
+                "volunteer": volunteer.name,
+                "volunteer_name": volunteer.volunteer_name,
+                "email": "not-a-valid-email",
+                "chapter_role": role_name,
+                "from_date": add_days(today(), -365),
+                "to_date": add_days(today(), -30),
+                "is_active": 0,
+            },
+        )
+        chapter.save()  # EnhancedTestCase handles permissions
+
+        # An unrelated later save must still succeed.
+        chapter.reload()
+        chapter.introduction = "Updated introduction, nothing to do with the board"
+        chapter.save()  # must not raise
+
+        chapter.reload()
+        self.assertEqual(chapter.introduction, "Updated introduction, nothing to do with the board")
