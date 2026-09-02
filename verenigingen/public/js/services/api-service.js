@@ -265,15 +265,28 @@ class APIService {
 					clearTimeout(timeoutId);
 
 					if (response.message !== undefined) {
-						// Handle OperationResult wrapper pattern
-						// OperationResult has: { success, data, message, timestamp }
+						// Handle OperationResult wrapper pattern.
+						// Success (nested schema -- the default; see operation_result.py):
+						//   { success: true, data, meta, timestamp }
+						// Failure has NO top-level `data` key -- it's nested under `error`:
+						//   { success: false, error: { message, errors, code, http_status }, meta, timestamp }
+						// Gating on 'data' in msg (as this used to) never matches a failure,
+						// so it fell through to the "legacy" branch below and RESOLVED the
+						// promise with the failure envelope as if it were success data --
+						// every OperationResult.fail() from every endpoint this service
+						// calls (all of api/membership_application.py) was reported to the
+						// caller as success (#427 review).
 						const msg = response.message;
-						if (msg && typeof msg === 'object' && 'success' in msg && 'data' in msg) {
-							// This is an OperationResult - unwrap it
+						if (msg && typeof msg === 'object' && 'success' in msg) {
 							if (msg.success) {
 								resolve(msg.data);
 							} else {
-								reject(new Error(msg.message || 'Operation failed'));
+								const errorMessage =
+									(msg.error && msg.error.message) ||
+									msg.error_message ||
+									msg.message ||
+									'Operation failed';
+								reject(new Error(errorMessage));
 							}
 						} else {
 							// Legacy response format - return as-is

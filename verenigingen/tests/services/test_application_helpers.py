@@ -47,6 +47,15 @@ class TestPaymentMethodMapping(EnhancedTestCase):
         self.assertEqual(helpers.map_payment_method("sepa_direct_debit"), "SEPA Direct Debit")
         self.assertEqual(helpers.map_payment_method("mollie"), "Mollie")
 
+    def test_ideal_and_paypal_map_to_their_own_mode_not_bank_transfer(self):
+        """#427: 'ideal' and 'paypal' are selectable Application Payment
+        Method options that used to be silently rewritten to Bank Transfer.
+        Pin the actual mapped value, not just that the key exists -- a map
+        with every key present but every value wrong would still pass
+        test_map_covers_every_declared_application_payment_method_option."""
+        self.assertEqual(helpers.map_payment_method("ideal", validate=False), "iDEAL")
+        self.assertEqual(helpers.map_payment_method("paypal", validate=False), "PayPal")
+
     def test_unknown_value_raises(self):
         """A non-empty value the map does not recognize is rejected, not
         silently rewritten to Bank Transfer (#427)."""
