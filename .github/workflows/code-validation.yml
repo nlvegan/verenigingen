@@ -78,6 +78,25 @@ jobs:
         echo "- Field validation: ~1s (764 Python files)" >> $GITHUB_STEP_SUMMARY
         echo "- Template validation: ~2s (62 templates)" >> $GITHUB_STEP_SUMMARY
 
+  # KNOWN, ACCEPTED GAP shared by every ratchet job below: a branch's own baseline
+  # is a statement about the tree its CI actually checked -- `actions/checkout` on
+  # a `pull_request` event checks out GitHub's auto-generated test-merge commit
+  # (the PR head merged into the base branch's CURRENT tip), so a PR's checks do
+  # reflect the freshest base AT THE TIME THEY RUN. What they cannot see is a
+  # second PR that lands on develop AFTER that run finished. This is exactly how
+  # #732 happened: its baseline was correct against the develop tip its own CI
+  # checked, but #719 and #730 each deleted a different baselined call site
+  # afterwards, and nothing re-validates an already-green, already-merged PR's
+  # baseline against what actually shipped alongside it.
+  #
+  # That race is generic to per-PR CI on a fast-moving trunk (a merge queue is the
+  # usual fix) and is not something a script in this directory or a job in this
+  # file can close by itself -- so this is documented, not patched. What IS in
+  # scope, and IS fixed (#750 / see baseline_shrink_gate.py), is bounding the
+  # damage: the resulting staleness is pure shrinkage, and now self-heals instead
+  # of reddening every unrelated branch cut from develop until someone notices
+  # and reruns `--update-baseline` by hand.
+  #
   # Unlike the advisory steps in `validation` above, this one is a HARD GATE.
   # It is a ratchet: it fails only on log-and-swallow sites that are not already
   # in scripts/validation/error_swallow_baseline.txt, so it cannot go red from
@@ -133,6 +152,13 @@ jobs:
     - name: Unit-test the shared bench-root resolver
       run: python -m unittest discover -s scripts/validation/tests -p 'test_bench_resolution.py' -v
 
+    # The shared "does the regenerated baseline match the tree" gate used by the
+    # four "Baseline is in sync with the tree" steps below (and by test_quality/
+    # duplicate_helper further down). Stdlib-only, no bench, no site -- same
+    # reason as its siblings above.
+    - name: Unit-test the shared baseline shrink gate
+      run: python -m unittest discover -s scripts/validation/tests -p 'test_baseline_shrink_gate.py' -v
+
     # Tests for the scripts/testing tools live outside the verenigingen package, and
     # get_all_tests() only walks apps/verenigingen/verenigingen, so the app suite never
     # sees them -- they were added green and unrun, and a location-dependent test in them
@@ -151,19 +177,25 @@ jobs:
     # A ratchet that never tightens is not a ratchet. If someone fixes a swallow
     # without regenerating, the baseline keeps a ceiling that is higher than the
     # tree, and the removed slot can be silently refilled later.
+    #
+    # baseline_shrink_gate.py distinguishes growth (new/higher sites -- a real
+    # failure) from pure shrinkage (a baselined site was deleted or fixed).
+    # See its docstring and #750: without this, deleting a baselined swallow
+    # site left the baseline stale and reddened every unrelated branch cut
+    # from develop afterwards. On `pull_request` this self-heals (the
+    # auto-merge checkout already reflects any prior shrinkage); on `push`
+    # (this commit already landed, nothing downstream to protect) it still
+    # fails with the exact entries, since that failure is the only thing
+    # left that forces the committed baseline to ever tighten.
     - name: Baseline is in sync with the tree
+      env:
+        FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' && '--fail-on-shrink' || '' }}
       run: |
         python scripts/validation/error_swallow_validator.py --update-baseline
-        if ! git diff --quiet -- scripts/validation/error_swallow_baseline.txt; then
-          echo "::error file=scripts/validation/error_swallow_baseline.txt::Baseline is out of sync with the tree."
-          echo "Regenerate it and commit the result:"
-          echo "    python scripts/validation/error_swallow_validator.py --update-baseline"
-          echo ""
-          echo "Drift (committed vs regenerated):"
-          git --no-pager diff -- scripts/validation/error_swallow_baseline.txt
-          exit 1
-        fi
-        echo "Baseline matches the tree."
+        python scripts/validation/baseline_shrink_gate.py \
+          scripts/validation/error_swallow_baseline.txt \
+          "python scripts/validation/error_swallow_validator.py --update-baseline" \
+          $FAIL_ON_SHRINK
 
     # The step above cannot catch the one abuse that actually defeats this gate:
     # regenerating the baseline so a NEW finding is recorded rather than fixed.
@@ -276,19 +308,24 @@ jobs:
     # A ratchet that never tightens is not a ratchet. If someone fixes a swap
     # without regenerating, the baseline keeps a ceiling higher than the tree, and
     # the removed slot can be silently refilled later.
+    #
+    # baseline_shrink_gate.py distinguishes growth (new/higher sites -- a real
+    # failure) from pure shrinkage (a baselined site was deleted or fixed).
+    # This is the exact defect #750 patched by hand: two sites deleted by
+    # #719/#730 left this baseline stale, and "every branch cut from that
+    # trunk inherited the failure" on a job that never touched logging. As
+    # with the swallow guard above, this self-heals on `pull_request` and
+    # fails (naming the exact entries) on `push`, where it is the only
+    # remaining forcing function that tightens the committed baseline.
     - name: Baseline is in sync with the tree
+      env:
+        FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' && '--fail-on-shrink' || '' }}
       run: |
         python scripts/validation/log_error_arg_order_validator.py --update-baseline
-        if ! git diff --quiet -- scripts/validation/log_error_arg_order_baseline.txt; then
-          echo "::error file=scripts/validation/log_error_arg_order_baseline.txt::Baseline is out of sync with the tree."
-          echo "Regenerate it and commit the result:"
-          echo "    python scripts/validation/log_error_arg_order_validator.py --update-baseline"
-          echo ""
-          echo "Drift (committed vs regenerated):"
-          git --no-pager diff -- scripts/validation/log_error_arg_order_baseline.txt
-          exit 1
-        fi
-        echo "Baseline matches the tree."
+        python scripts/validation/baseline_shrink_gate.py \
+          scripts/validation/log_error_arg_order_baseline.txt \
+          "python scripts/validation/log_error_arg_order_validator.py --update-baseline" \
+          $FAIL_ON_SHRINK
 
     # The step above cannot catch the one abuse that actually defeats this gate:
     # regenerating the baseline so a NEW finding is recorded rather than fixed. That
@@ -378,19 +415,29 @@ jobs:
     - name: Ratchet check (whole tree)
       run: python scripts/validation/test_quality_enforcer.py
 
+    # baseline_shrink_gate.py distinguishes growth (new/higher violations -- a
+    # real failure) from pure shrinkage (a baselined violation was fixed or its
+    # test deleted -- self-heals rather than failing); see #750. NOTE: unlike
+    # error_swallow / log_error_arg_order, this enforcer has no `--check-shrink`
+    # equivalent of its own, so a shrink caused by adding one of its existing
+    # `# Mock justified:` / `# External service` / `# Infrastructure` escape
+    # hatches to an already-baselined site (rather than fixing it) would also
+    # self-heal here undetected. That gap already existed (the escape hatches
+    # are unpoliced regardless of this gate -- see write_baseline()'s header),
+    # but wiring self-heal in here WIDENS it: before, adding such a pragma to
+    # an existing site still forced a regenerated (visibly smaller) baseline
+    # into the PR diff; now it produces no diff for a reviewer to notice at
+    # all. See baseline_shrink_gate.py's module docstring for the fuller
+    # argument and the commit that introduced this gate for the tradeoff.
     - name: Baseline is in sync with the tree
+      env:
+        FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' && '--fail-on-shrink' || '' }}
       run: |
         python scripts/validation/test_quality_enforcer.py --update-baseline
-        if ! git diff --quiet -- scripts/validation/test_quality_baseline.txt; then
-          echo "::error file=scripts/validation/test_quality_baseline.txt::Baseline is out of sync with the tree."
-          echo "Regenerate it and commit the result:"
-          echo "    python scripts/validation/test_quality_enforcer.py --update-baseline"
-          echo ""
-          echo "Drift (committed vs regenerated):"
-          git --no-pager diff -- scripts/validation/test_quality_baseline.txt
-          exit 1
-        fi
-        echo "Baseline matches the tree."
+        python scripts/validation/baseline_shrink_gate.py \
+          scripts/validation/test_quality_baseline.txt \
+          "python scripts/validation/test_quality_enforcer.py --update-baseline" \
+          $FAIL_ON_SHRINK
 
     # The step above cannot catch the abuse that actually defeats this gate:
     # regenerating the baseline so a NEW violation is recorded rather than fixed.
@@ -455,18 +502,20 @@ jobs:
     - name: Ratchet check (whole tree)
       run: python scripts/validation/duplicate_helper_validator.py
 
+    # baseline_shrink_gate.py distinguishes growth (a new/larger clone family --
+    # a real failure) from pure shrinkage (a copy was consolidated or deleted --
+    # self-heals rather than failing); see #750. This validator has no
+    # suppression-pragma escape hatch, so unlike test_quality above, a
+    # self-healed shrink here can only mean the duplicated code itself changed.
     - name: Baseline is in sync with the tree
+      env:
+        FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' && '--fail-on-shrink' || '' }}
       run: |
         python scripts/validation/duplicate_helper_validator.py --update-baseline
-        if ! git diff --quiet -- scripts/validation/duplicate_helper_baseline.txt; then
-          echo "::error file=scripts/validation/duplicate_helper_baseline.txt::Baseline is out of sync with the tree."
-          echo "Regenerate it and commit the result:"
-          echo "    python scripts/validation/duplicate_helper_validator.py --update-baseline"
-          echo ""
-          git --no-pager diff -- scripts/validation/duplicate_helper_baseline.txt
-          exit 1
-        fi
-        echo "Baseline matches the tree."
+        python scripts/validation/baseline_shrink_gate.py \
+          scripts/validation/duplicate_helper_baseline.txt \
+          "python scripts/validation/duplicate_helper_validator.py --update-baseline" \
+          $FAIL_ON_SHRINK
 
     # The step above cannot catch the abuse that defeats this gate: regenerating the
     # baseline so a new copy is recorded rather than removed. That leaves baseline
