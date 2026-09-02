@@ -126,6 +126,37 @@ def ensure_payment_modes_exist():
     return created
 
 
+# Form/API payment method values -> Member.payment_method (a Link to Mode of
+# Payment, so any name is technically possible; this bridges the vocabulary
+# the application form/API uses to the Mode of Payment names the codebase
+# actually creates -- see application_payments.get_payment_methods()).
+#
+# Must cover every option declared on Application Payment Method.payment_method
+# (a Select an admin can freely enable), or an enabled-but-unmapped option is
+# silently misrecorded as Bank Transfer (#427). Module level, not a local, so
+# test_map_covers_every_declared_application_payment_method_option can check
+# coverage directly against the DocType's declared options.
+PAYMENT_METHOD_MAP = {
+    "bank_transfer": "Bank Transfer",
+    "sepa_direct_debit": "SEPA Direct Debit",
+    "credit_card": "Credit Card",
+    "cash": "Cash",
+    "other": "Other",
+    "mollie": "Mollie",
+    "ideal": "iDEAL",
+    "paypal": "PayPal",
+    # Also handle case where we receive the display values directly
+    "Bank Transfer": "Bank Transfer",
+    "SEPA Direct Debit": "SEPA Direct Debit",
+    "Credit Card": "Credit Card",
+    "Cash": "Cash",
+    "Other": "Other",
+    "Mollie": "Mollie",
+    "iDEAL": "iDEAL",
+    "PayPal": "PayPal",
+}
+
+
 def map_payment_method(payment_method, validate: bool = True):
     """
     Map form payment method values to Member doctype values.
@@ -138,25 +169,32 @@ def map_payment_method(payment_method, validate: bool = True):
         The mapped Mode of Payment name (e.g., 'Bank Transfer')
 
     Raises:
-        frappe.ValidationError: If validate=True and the Mode of Payment doesn't exist
+        frappe.ValidationError: If validate=True and the Mode of Payment doesn't exist,
+            or if payment_method is a non-empty value this map does not recognize
+            (see #427 -- silently substituting Bank Transfer for an unmapped but
+            selectable Application Payment Method option misrecords the applicant's
+            actual choice).
     """
-    payment_method_map = {
-        "bank_transfer": "Bank Transfer",
-        "sepa_direct_debit": "SEPA Direct Debit",
-        "credit_card": "Credit Card",
-        "cash": "Cash",
-        "other": "Other",
-        "mollie": "Mollie",
-        # Also handle case where we receive the display values directly
-        "Bank Transfer": "Bank Transfer",
-        "SEPA Direct Debit": "SEPA Direct Debit",
-        "Credit Card": "Credit Card",
-        "Cash": "Cash",
-        "Other": "Other",
-        "Mollie": "Mollie",
-    }
-    # Default to Bank Transfer if no match found
-    mapped_value = payment_method_map.get(payment_method, "Bank Transfer")
+    if not payment_method:
+        # No selection recorded. Both call sites in this module pass
+        # data.get("payment_method", "") for a payload that never carried
+        # the field (pre-field applications, some test fixtures), so an
+        # empty value is a legitimate "not provided" sentinel -- keep the
+        # long-standing Bank Transfer default for it.
+        mapped_value = "Bank Transfer"
+    elif payment_method in PAYMENT_METHOD_MAP:
+        mapped_value = PAYMENT_METHOD_MAP[payment_method]
+    else:
+        # A non-empty value that matches nothing above is either a newly
+        # enabled Application Payment Method option this map hasn't been
+        # taught yet, or a forged/corrupted request. Silently rewriting it
+        # to Bank Transfer reproduces #420 one layer down (#427) -- fail
+        # loudly instead so the mismatch is visible and actionable.
+        frappe.throw(
+            _("'{0}' is not a recognized payment method.").format(payment_method),
+            title=_("Invalid Payment Method"),
+            exc=frappe.ValidationError,
+        )
 
     if validate and not validate_payment_method_exists(mapped_value):
         # Check what modes are missing and provide helpful error message
