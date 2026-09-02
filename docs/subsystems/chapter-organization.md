@@ -136,7 +136,11 @@ From `hooks/doc_events.py`:
 - `on_update`: Chapter role event handler
 
 **Member `on_update`:** Triggers `chapter_role_events.on_member_on_update`
-**Volunteer `on_update`:** Triggers `chapter_role_events.on_volunteer_on_update`
+
+There is no Volunteer-side board-role handler. `on_volunteer_on_update` was removed in
+#688: it had been registered under the non-existent doctype `Verenigingen Volunteer` and
+never fired, and `BoardManager.handle_board_member_additions/changes/deletions` owns board
+role assignment and withdrawal.
 
 ### Web Presence and Public Interface
 
