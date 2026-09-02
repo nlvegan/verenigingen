@@ -186,8 +186,8 @@ class SettlementBankTransactionProcessor:
         except Exception as e:
             error_msg = str(e)
             frappe.log_error(
-                f"Error processing settlement deposit: {error_msg}",
-                "Settlement Bank Transaction Processing Error",
+                title="Settlement Bank Transaction Processing Error",
+                message=f"Error processing settlement deposit: {error_msg}",
             )
             return {
                 "status": "error",
@@ -313,8 +313,8 @@ class SettlementBankTransactionProcessor:
                 # Log detailed validation errors
                 for error in validation_result["errors"]:
                     frappe.log_error(
-                        f"Mollie GL Account validation failed: {error}",
-                        "Settlement Processing Configuration Error",
+                        title="Settlement Processing Configuration Error",
+                        message=f"Mollie GL Account validation failed: {error}",
                     )
 
                 # Return first error for immediate feedback

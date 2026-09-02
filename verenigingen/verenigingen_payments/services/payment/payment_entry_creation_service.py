@@ -495,9 +495,9 @@ class PaymentEntryCreationService:
             if any(keyword in error_msg for keyword in setup_keywords):
                 # Log as configuration error for admin visibility
                 frappe.log_error(
-                    f"Payment entry configuration error for invoice {invoice_name}: {str(e)}\n"
+                    title="Payment Entry Configuration Error",
+                    message=f"Payment entry configuration error for invoice {invoice_name}: {str(e)}\n"
                     f"This may indicate missing account setup, currency mismatch, or party configuration issues.",
-                    "Payment Entry Configuration Error",
                 )
                 # Re-raise with additional context for admins
                 frappe.throw(

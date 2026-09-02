@@ -111,9 +111,9 @@ class SEPAXMLGenerationService:
         except Exception as e:
             error_msg = f"Error generating SEPA file: {str(e)}"
             frappe.log_error(
-                f"Error generating SEPA file for batch {batch_doc.name}: {str(e)}\n"
+                title="SEPA Direct Debit Batch Error",
+                message=f"Error generating SEPA file for batch {batch_doc.name}: {str(e)}\n"
                 f"Traceback: {frappe.get_traceback()}",
-                "SEPA Direct Debit Batch Error",
             )
             raise frappe.ValidationError(error_msg)
 

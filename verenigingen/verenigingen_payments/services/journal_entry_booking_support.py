@@ -65,7 +65,7 @@ def discard_unposted_journal_entry(journal_entry_name: str, subject: str, error_
         f"post to the ledger: {error_message}"
     )
     frappe.logger().error(message)
-    frappe.log_error(message, "Mollie Journal Entry Not Posted")
+    frappe.log_error(title="Mollie Journal Entry Not Posted", message=message)
 
     try:
         je = frappe.get_doc("Journal Entry", journal_entry_name)
@@ -83,10 +83,10 @@ def discard_unposted_journal_entry(journal_entry_name: str, subject: str, error_
     docstatus = frappe.db.get_value("Journal Entry", journal_entry_name, "docstatus")
     if docstatus != 2:
         frappe.log_error(
-            f"Unposted Journal Entry {journal_entry_name} is at docstatus={docstatus} and still "
+            title="Mollie Journal Entry Still Claims Its Key",
+            message=f"Unposted Journal Entry {journal_entry_name} is at docstatus={docstatus} and still "
             f"claims reference {frappe.db.get_value('Journal Entry', journal_entry_name, 'cheque_no')!r}. "
             f"Redeliveries will report it as already processed. Cancel it by hand.",
-            "Mollie Journal Entry Still Claims Its Key",
         )
     return None
 
@@ -142,7 +142,7 @@ def reconcile_bank_transaction_with_journal_entry(
         # surfaces (CLAUDE.md's logger trap).
         frappe.logger().error(f"Failed to reconcile Bank Transaction {bank_transaction_name}: {e}")
         frappe.log_error(
-            f"Journal Entry {journal_entry_name} posted but its Bank Transaction "
+            title="Mollie Bank Transaction Reconciliation Failed",
+            message=f"Journal Entry {journal_entry_name} posted but its Bank Transaction "
             f"{bank_transaction_name} could not be reconciled: {e}",
-            "Mollie Bank Transaction Reconciliation Failed",
         )

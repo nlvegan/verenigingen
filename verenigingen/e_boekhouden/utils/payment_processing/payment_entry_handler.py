@@ -111,8 +111,8 @@ class PaymentEntryHandler:
                 # Final attempt failed or non-retryable error
                 self._log(f"ERROR processing mutation {mutation_id}: {error_str}")
                 frappe.log_error(
-                    f"Payment mutation processing failed: {error_str}\\nMutation: {json.dumps(mutation, indent=2)}\\n\\nTraceback:\\n{frappe.get_traceback()}",
-                    "E-Boekhouden Payment Import",
+                    title="E-Boekhouden Payment Import",
+                    message=f"Payment mutation processing failed: {error_str}\\nMutation: {json.dumps(mutation, indent=2)}\\n\\nTraceback:\\n{frappe.get_traceback()}",
                 )
                 return None
 
@@ -1537,8 +1537,8 @@ class PaymentEntryHandler:
         except Exception as e:
             self._log(f"ERROR creating Bank Transaction: {str(e)}")
             frappe.log_error(
-                f"Failed to create Bank Transaction for mutation {mutation.get('id')}: {str(e)}",
-                "E-Boekhouden Bank Transaction Creation",
+                title="E-Boekhouden Bank Transaction Creation",
+                message=f"Failed to create Bank Transaction for mutation {mutation.get('id')}: {str(e)}",
             )
             return None
 
@@ -1646,8 +1646,8 @@ class PaymentEntryHandler:
         except Exception as e:
             self._log(f"ERROR: Failed to link Bank Transaction to Payment Entry: {str(e)}")
             frappe.log_error(
-                f"Bank Transaction linking failed: {str(e)}",
-                "E-Boekhouden Bank Transaction Linking",
+                title="E-Boekhouden Bank Transaction Linking",
+                message=f"Bank Transaction linking failed: {str(e)}",
             )
             # Re-raise to fail atomic transaction if linking fails
             raise frappe.ValidationError(

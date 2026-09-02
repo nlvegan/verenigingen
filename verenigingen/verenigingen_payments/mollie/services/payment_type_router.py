@@ -166,7 +166,9 @@ class PaymentTypeRouter:
 
         except Exception as e:
             frappe.logger().error(f"❌ Payment routing failed for {payment_id}: {e}")
-            frappe.log_error(f"Payment routing error: {e}\n{frappe.get_traceback()}", "Payment Router Error")
+            frappe.log_error(
+                title="Payment Router Error", message=f"Payment routing error: {e}\n{frappe.get_traceback()}"
+            )
 
             return {
                 "payment_id": payment_id,

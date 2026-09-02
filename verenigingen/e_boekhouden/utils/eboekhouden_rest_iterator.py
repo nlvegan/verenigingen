@@ -72,8 +72,8 @@ class EBoekhoudenRESTIterator(EBoekhoudenHTTPClientMixin):
             else:
                 if response.status_code != 404:  # Don't log 404s
                     frappe.log_error(
-                        f"Failed to fetch mutation {mutation_id}: {response.status_code}",
-                        "E-Boekhouden REST Iterator",
+                        title="E-Boekhouden REST Iterator",
+                        message=f"Failed to fetch mutation {mutation_id}: {response.status_code}",
                     )
                 return None
 
@@ -185,20 +185,22 @@ class EBoekhoudenRESTIterator(EBoekhoudenHTTPClientMixin):
 
                     else:
                         frappe.log_error(
-                            f"Unexpected response format for type {mutation_type}", "REST Iterator"
+                            title="REST Iterator",
+                            message=f"Unexpected response format for type {mutation_type}",
                         )
                         break
 
                 else:
                     frappe.log_error(
-                        f"Failed to fetch mutations of type {mutation_type}: {response.status_code}",
-                        "REST Iterator",
+                        title="REST Iterator",
+                        message=f"Failed to fetch mutations of type {mutation_type}: {response.status_code}",
                     )
                     break
 
             except Exception as e:
                 frappe.log_error(
-                    f"Error fetching mutations of type {mutation_type}: {str(e)}", "REST Iterator"
+                    title="REST Iterator",
+                    message=f"Error fetching mutations of type {mutation_type}: {str(e)}",
                 )
                 break
 

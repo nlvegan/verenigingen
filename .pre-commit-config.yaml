@@ -393,6 +393,30 @@ repos:
         verbose: true
         exclude: '^(scripts/validation/archived/|scripts/validation/tests/|verenigingen/tests/)'
 
+      - id: log-error-arg-order-validator
+        name: 🔄 log_error(message, title) Argument Order (ratchet)
+        description: >-
+          frappe.log_error is (title, message) -- frappe/utils/error.py:44. Calling
+          it the other way round positionally -- log_error(f"...{e}", "Some Title")
+          -- truncates the real cause into a 140-char title and NEVER records the
+          traceback: frappe's own swap-detection heuristic only fires when the
+          (wrongly positioned) title argument contains a newline, which a
+          single-line f-string never does. #602 measured roughly 1100 such sites
+          tree-wide. Ratcheted against
+          scripts/validation/log_error_arg_order_baseline.txt so existing code does
+          not block commits -- the baseline should only ever shrink. Prefer explicit
+          keyword arguments (log_error(title=..., message=...)) so a call can never
+          be re-inverted. Mark a deliberate exception
+          `# log-error-args-ok: false-positive`.
+          The exclude below must stay a SUBSET of SCAN_ROOTS in the validator --
+          anything scanned here but absent from the baseline fails on first edit.
+        entry: python scripts/validation/log_error_arg_order_validator.py
+        language: system
+        pass_filenames: true
+        files: '^(verenigingen|scripts)/.*\.py$'
+        stages: [pre-commit]
+        exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/validation/archived/|verenigingen/tests/)'
+
       - id: secure-operation-result-validator
         name: 🔐 Unchecked secure_document_operation Result
         description: >-

@@ -534,7 +534,9 @@ def update_dashboard_data_periodically():
             frappe.db.commit()
 
     except Exception as e:
-        frappe.log_error(f"Error in periodic dashboard update: {str(e)}", "E-Boekhouden Dashboard")
+        frappe.log_error(
+            title="E-Boekhouden Dashboard", message=f"Error in periodic dashboard update: {str(e)}"
+        )
 
 
 @frappe.whitelist()

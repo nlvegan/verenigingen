@@ -55,7 +55,7 @@ def create_payment_entry(mutation_detail, company, cost_center, debug_info):
     except Exception as e:
         error_msg = f"Enhanced payment creation failed: {str(e)}"
         debug_info.append(f"ERROR: {error_msg}")
-        frappe.log_error(error_msg, "Enhanced Payment Import")
+        frappe.log_error(title="Enhanced Payment Import", message=error_msg)
         return None
 
 

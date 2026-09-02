@@ -153,7 +153,9 @@ class EBoekhoudenPartyExtractor:
             return None
 
         except Exception as e:
-            frappe.log_error(f"Error extracting party from mutation: {str(e)}", "EBoekhoudenPartyExtractor")
+            frappe.log_error(
+                title="EBoekhoudenPartyExtractor", message=f"Error extracting party from mutation: {str(e)}"
+            )
             return None
 
     def resolve_party_for_journal_entry(
@@ -201,7 +203,8 @@ class EBoekhoudenPartyExtractor:
 
         except Exception as e:
             frappe.log_error(
-                f"Error resolving party for journal entry: {str(e)}", "EBoekhoudenPartyExtractor"
+                title="EBoekhoudenPartyExtractor",
+                message=f"Error resolving party for journal entry: {str(e)}",
             )
             return None
 
@@ -391,7 +394,8 @@ class EBoekhoudenPartyExtractor:
 
         except Exception as e:
             frappe.log_error(
-                f"Error resolving party by relation_id {relation_id}: {str(e)}", "EBoekhoudenPartyExtractor"
+                title="EBoekhoudenPartyExtractor",
+                message=f"Error resolving party by relation_id {relation_id}: {str(e)}",
             )
             return None
 
@@ -440,7 +444,7 @@ class EBoekhoudenPartyExtractor:
 
         except Exception as e:
             frappe.log_error(
-                f"Error resolving party by name '{party_name}': {str(e)}",
-                "EBoekhoudenPartyExtractor",
+                title="EBoekhoudenPartyExtractor",
+                message=f"Error resolving party by name '{party_name}': {str(e)}",
             )
             return None

@@ -67,10 +67,10 @@ def finalize_payment_plan_installment(intent_name: str, payment_reference: str, 
         )
         if installment_status == "Paid":
             frappe.log_error(
-                f"Duplicate payment-plan installment payment: intent {intent_name} for installment "
+                title="Payment Plan Payment Double Payment",
+                message=f"Duplicate payment-plan installment payment: intent {intent_name} for installment "
                 f"{row.installment_number} of {row.payment_plan}, which is already Paid. A real "
                 f"payment ({payment_reference}) was taken -> MANUAL REFUND REVIEW NEEDED.",
-                "Payment Plan Payment Double Payment",
             )
             frappe.db.set_value(
                 "Payment Plan Payment",
@@ -111,7 +111,7 @@ def finalize_payment_plan_installment(intent_name: str, payment_reference: str, 
     except Exception as e:
         frappe.db.rollback()
         frappe.log_error(
-            f"Payment plan payment finalize failed for intent {intent_name}: {e}",
-            "Payment Plan Payment Webhook",
+            title="Payment Plan Payment Webhook",
+            message=f"Payment plan payment finalize failed for intent {intent_name}: {e}",
         )
         return {"status": "error", "message": str(e)}

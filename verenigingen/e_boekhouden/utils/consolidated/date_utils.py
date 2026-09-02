@@ -152,8 +152,8 @@ def ensure_fiscal_year_exists(transaction_date, company, debug_info=None):
         error_msg = f"Failed to ensure fiscal year for {transaction_date}: {str(e)}"
         debug_info.append(error_msg)
         frappe.log_error(
-            f"{error_msg}\n\nTraceback:\n{frappe.get_traceback()}",
-            "Fiscal Year Auto-Creation Error",
+            title="Fiscal Year Auto-Creation Error",
+            message=f"{error_msg}\n\nTraceback:\n{frappe.get_traceback()}",
         )
         # Re-raise so caller knows creation failed
         raise

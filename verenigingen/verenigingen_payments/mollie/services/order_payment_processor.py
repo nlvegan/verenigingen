@@ -140,7 +140,8 @@ class OrderPaymentProcessor:
         except Exception as e:
             frappe.logger().error(f"❌ Failed to create Bank Transaction: {e}")
             frappe.log_error(
-                f"Bank Transaction creation failed for {payment.id}: {e}", "Order Payment Processing"
+                title="Order Payment Processing",
+                message=f"Bank Transaction creation failed for {payment.id}: {e}",
             )
             return None
 

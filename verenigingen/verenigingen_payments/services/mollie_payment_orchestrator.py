@@ -699,8 +699,8 @@ class MolliePaymentOrchestrator:
         config = self._get_bank_account_config()
         if config.get("error"):
             frappe.log_error(
-                f"Bank account config error: {config['error']}",
-                "Mollie Bank Account Config Error",
+                title="Mollie Bank Account Config Error",
+                message=f"Bank account config error: {config['error']}",
             )
             return None
 
@@ -811,8 +811,8 @@ class MolliePaymentOrchestrator:
         except Exception as fy_error:
             result.actions_taken.append(f"Cannot create invoice: missing fiscal year for {payment_date}")
             frappe.log_error(
-                f"Could not ensure fiscal year for {payment_date}: {fy_error}",
-                "Mollie Fiscal Year Error",
+                title="Mollie Fiscal Year Error",
+                message=f"Could not ensure fiscal year for {payment_date}: {fy_error}",
             )
             return None
 

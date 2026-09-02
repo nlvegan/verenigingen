@@ -214,8 +214,14 @@ class TestRefundLoggingDoesNotPolluteErrorLog(EnhancedTestCase):
 
     def test_fetch_failure_still_logs_error(self):
         # The genuine error sink in the _fetch_refunds except branch must remain:
-        # a Mollie API failure should still produce an Error Log row. (frappe.log_error
-        # here stores the title in `error` and the message in `method`.)
+        # a Mollie API failure should still produce an Error Log row.
+        #
+        # This assertion used to read the two fields the other way round, because the
+        # call site passed (message, title) positionally against frappe's (title,
+        # message) signature. #602 fixed the call to explicit keywords, so the title
+        # now lands in Error Log.method and the diagnostic message -- the part naming
+        # the payment -- in Error Log.error, which is the whole point of the fix: the
+        # swapped shape recorded the label where the cause belongs.
         self.expectErrorLog("Mollie Refund Fetch Failed")  # intentional sink; tolerate in tearDown
         handler = RefundHandler(mollie_client=_FakeSDK(raise_on_list=True))
         payment_id = f"tr_{frappe.generate_hash(length=8)}"
@@ -223,12 +229,13 @@ class TestRefundLoggingDoesNotPolluteErrorLog(EnhancedTestCase):
         self.assertIsNone(handler._fetch_refunds(payment_id))
         rows = frappe.get_all(
             "Error Log",
-            filters={"creation": [">=", marker], "error": "Mollie Refund Fetch Failed"},
-            fields=["method"],
+            filters={"creation": [">=", marker], "method": "Mollie Refund Fetch Failed"},
+            fields=["error"],
         )
         self.assertTrue(
-            any(payment_id in (r.method or "") for r in rows),
-            "Genuine fetch failure should still write a 'Mollie Refund Fetch Failed' Error Log",
+            any(payment_id in (r.error or "") for r in rows),
+            "Genuine fetch failure should still write a 'Mollie Refund Fetch Failed' Error Log "
+            "whose message names the payment",
         )
 
 

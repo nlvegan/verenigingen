@@ -800,8 +800,8 @@ class PaymentProcessor(BaseTransactionProcessor):
             error_msg = f"Failed to link Bank Transaction to Payment Entry: {str(e)}"
             self.debug_info.append(f"ERROR: {error_msg}")
             frappe.log_error(
-                f"Bank Transaction linking failed: {error_msg}",
-                "E-Boekhouden Bank Transaction Linking",
+                title="E-Boekhouden Bank Transaction Linking",
+                message=f"Bank Transaction linking failed: {error_msg}",
             )
             raise
 
@@ -1061,8 +1061,8 @@ class PaymentProcessor(BaseTransactionProcessor):
         except Exception as e:
             self.debug_info.append(f"ERROR creating Bank Transaction: {str(e)}")
             frappe.log_error(
-                f"Failed to create Bank Transaction for Type {mutation_type} mutation {mutation.get('id')}: {str(e)}",
-                "E-Boekhouden Journal Entry Bank Transaction Creation",
+                title="E-Boekhouden Journal Entry Bank Transaction Creation",
+                message=f"Failed to create Bank Transaction for Type {mutation_type} mutation {mutation.get('id')}: {str(e)}",
             )
             return None
 
@@ -1158,8 +1158,8 @@ class PaymentProcessor(BaseTransactionProcessor):
             error_msg = f"Failed to link Bank Transaction to Journal Entry: {str(e)}"
             self.debug_info.append(f"ERROR: {error_msg}")
             frappe.log_error(
-                f"Bank Transaction linking to JE failed: {error_msg}",
-                "E-Boekhouden Bank Transaction JE Linking",
+                title="E-Boekhouden Bank Transaction JE Linking",
+                message=f"Bank Transaction linking to JE failed: {error_msg}",
             )
             raise
 
@@ -1234,6 +1234,6 @@ class PaymentProcessor(BaseTransactionProcessor):
         except Exception as e:
             self.debug_info.append(f"ERROR updating Bank Transaction party: {str(e)}")
             frappe.log_error(
-                f"Failed to update Bank Transaction party: {str(e)}",
-                "E-Boekhouden Bank Transaction Party Update",
+                title="E-Boekhouden Bank Transaction Party Update",
+                message=f"Failed to update Bank Transaction party: {str(e)}",
             )

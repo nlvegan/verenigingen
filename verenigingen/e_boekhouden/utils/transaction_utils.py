@@ -59,8 +59,8 @@ def create_customer_impl(migration_doc, customer_data):
 
         if not result.success:
             frappe.log_error(
-                f"Failed to create customer from E-Boekhouden: {'; '.join(result.errors)}",
-                "E-Boekhouden Customer Security",
+                title="E-Boekhouden Customer Security",
+                message=f"Failed to create customer from E-Boekhouden: {'; '.join(result.errors)}",
             )
             return {"success": False, "error": f"Failed to create customer: {'; '.join(result.errors)}"}
 
@@ -116,8 +116,8 @@ def create_supplier_impl(migration_doc, supplier_data):
 
         if not result.success:
             frappe.log_error(
-                f"Failed to create supplier from E-Boekhouden: {'; '.join(result.errors)}",
-                "E-Boekhouden Supplier Security",
+                title="E-Boekhouden Supplier Security",
+                message=f"Failed to create supplier from E-Boekhouden: {'; '.join(result.errors)}",
             )
             return {"success": False, "error": f"Failed to create supplier: {'; '.join(result.errors)}"}
 
@@ -205,8 +205,8 @@ def create_journal_entry_impl(migration_doc, transaction_data):
 
         if not result.success:
             frappe.log_error(
-                "Failed to save journal entry from E-Boekhouden: " + "; ".join(result.errors),
-                "E-Boekhouden JE Security",
+                title="E-Boekhouden JE Security",
+                message="Failed to save journal entry from E-Boekhouden: " + "; ".join(result.errors),
             )
             return {"success": False, "error": f"Failed to save journal entry: {'; '.join(result.errors)}"}
 
@@ -324,8 +324,8 @@ def create_sales_invoice_impl(migration_doc, invoice_data):
 
         if not result.success:
             frappe.log_error(
-                "Failed to save sales invoice from E-Boekhouden: " + "; ".join(result.errors),
-                "E-Boekhouden SI Security",
+                title="E-Boekhouden SI Security",
+                message="Failed to save sales invoice from E-Boekhouden: " + "; ".join(result.errors),
             )
             return {"success": False, "error": f"Failed to save sales invoice: {'; '.join(result.errors)}"}
 
@@ -443,8 +443,8 @@ def create_purchase_invoice_impl(migration_doc, invoice_data):
 
         if not result.success:
             frappe.log_error(
-                "Failed to save purchase invoice from E-Boekhouden: " + "; ".join(result.errors),
-                "E-Boekhouden PI Security",
+                title="E-Boekhouden PI Security",
+                message="Failed to save purchase invoice from E-Boekhouden: " + "; ".join(result.errors),
             )
             return {"success": False, "error": f"Failed to save purchase invoice: {'; '.join(result.errors)}"}
 
@@ -529,8 +529,8 @@ def get_suspense_account_impl(migration_doc, company):
 
         if not result.success:
             frappe.log_error(
-                f"Failed to create E-Boekhouden suspense account: {'; '.join(result.errors)}",
-                "E-Boekhouden Account Security",
+                title="E-Boekhouden Account Security",
+                message=f"Failed to create E-Boekhouden suspense account: {'; '.join(result.errors)}",
             )
             frappe.throw(f"Failed to create suspense account: {'; '.join(result.errors)}")
 

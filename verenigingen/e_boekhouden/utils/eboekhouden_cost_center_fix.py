@@ -126,7 +126,7 @@ def migrate_cost_centers_with_hierarchy(settings):
         }
 
     except Exception as e:
-        frappe.log_error(f"Cost center migration error: {str(e)}", "E-Boekhouden")
+        frappe.log_error(title="E-Boekhouden", message=f"Cost center migration error: {str(e)}")
         return {"success": False, "error": str(e)}
 
 
@@ -277,7 +277,7 @@ def ensure_root_cost_center(company):
             else:
                 # Creation failed - log error and return None
                 error_msg = f"Failed to create root cost center: {'; '.join(result.errors)}"
-                frappe.log_error(error_msg, "Cost Center Creation Failed")
+                frappe.log_error(title="Cost Center Creation Failed", message=error_msg)
                 return None
         except frappe.DuplicateEntryError:
             # If duplicate, find the existing one
@@ -289,7 +289,7 @@ def ensure_root_cost_center(company):
             raise
 
     except Exception as e:
-        frappe.log_error(f"Could not create root cost center: {str(e)}", "E-Boekhouden")
+        frappe.log_error(title="E-Boekhouden", message=f"Could not create root cost center: {str(e)}")
 
         # As a last resort, try to find ANY group cost center for this company
         any_group = frappe.db.get_value(
@@ -369,7 +369,7 @@ def fix_cost_center_groups(company):
         }
 
     except Exception as e:
-        frappe.log_error(f"Error fixing cost center groups: {str(e)}", "E-Boekhouden")
+        frappe.log_error(title="E-Boekhouden", message=f"Error fixing cost center groups: {str(e)}")
         return {"success": False, "error": str(e)}
 
 
@@ -414,5 +414,5 @@ def cleanup_cost_centers(company):
         }
 
     except Exception as e:
-        frappe.log_error(f"Cost center cleanup error: {str(e)}", "E-Boekhouden")
+        frappe.log_error(title="E-Boekhouden", message=f"Cost center cleanup error: {str(e)}")
         return {"success": False, "error": str(e)}

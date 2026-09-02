@@ -56,8 +56,8 @@ class SEPAMandateMemberIntegrationService:
 
         except Exception as e:
             frappe.log_error(
-                f"Error updating member SEPA mandates table: {str(e)}",
-                "SEPA Mandate Member Integration Error",
+                title="SEPA Mandate Member Integration Error",
+                message=f"Error updating member SEPA mandates table: {str(e)}",
             )
             operation_result["errors"].append(str(e))
             operation_result["success"] = False
@@ -143,8 +143,8 @@ class SEPAMandateMemberIntegrationService:
 
         except Exception as e:
             frappe.log_error(
-                f"Field validation failed for Member SEPA Mandate Link: {str(e)}",
-                "SEPA Field Validation Error",
+                title="SEPA Field Validation Error",
+                message=f"Field validation failed for Member SEPA Mandate Link: {str(e)}",
             )
             raise
 
@@ -401,8 +401,8 @@ class SEPAMandateMemberIntegrationService:
             # Log audit creation errors but don't fail the main operation
             # SECURITY: Don't log full audit_data as it may contain sensitive information
             frappe.log_error(
-                f"Failed to create SEPA audit log for operation '{audit_data.get('operation')}': {str(e)[:200]}",
-                "SEPA Audit Log Creation Error",
+                title="SEPA Audit Log Creation Error",
+                message=f"Failed to create SEPA audit log for operation '{audit_data.get('operation')}': {str(e)[:200]}",
             )
 
     def bulk_update_member_mandates(self, member_names: list, operation_data: Dict) -> Dict[str, any]:
@@ -436,7 +436,7 @@ class SEPAMandateMemberIntegrationService:
             return bulk_result
 
         except Exception as e:
-            frappe.log_error(f"Bulk mandate update failed: {str(e)}", "SEPA Bulk Update Error")
+            frappe.log_error(title="SEPA Bulk Update Error", message=f"Bulk mandate update failed: {str(e)}")
             bulk_result["errors"].append(f"Bulk operation failed: {str(e)}")
             return bulk_result
 

@@ -142,7 +142,9 @@ class SettlementCache:
             frappe.logger().info(f"Settlement cache refreshed: {len(settlements)} settlements cached")
 
         except Exception as e:
-            frappe.log_error(f"Error refreshing settlement cache: {str(e)}", "Settlement Cache Error")
+            frappe.log_error(
+                title="Settlement Cache Error", message=f"Error refreshing settlement cache: {str(e)}"
+            )
             # Don't raise - allow system to continue with stale cache
 
     def _is_cache_stale(self) -> bool:

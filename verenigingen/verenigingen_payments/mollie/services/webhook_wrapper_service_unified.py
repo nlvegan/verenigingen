@@ -134,7 +134,7 @@ class UnifiedWebhookWrapperService:
                 f"guess which to reverse"
             )
             self.logger.error(message)
-            frappe.log_error(message, "Mollie Reversal Ambiguous Booking")
+            frappe.log_error(title="Mollie Reversal Ambiguous Booking", message=message)
             return [{"status": "error", "refund_id": "all", "message": message}]
         # No forward booking found: fall back to the donation path's own artefact, a
         # Journal Entry. This method is only ever called with a Donation in hand.
@@ -309,8 +309,8 @@ class UnifiedWebhookWrapperService:
             except Exception as hist_err:
                 self.logger.error(f"❌ Failed to batch update payment history: {hist_err}")
                 frappe.log_error(
-                    f"Payment history batch update failed for {donation.name}: {hist_err}",
-                    "Payment History Update Error",
+                    title="Payment History Update Error",
+                    message=f"Payment history batch update failed for {donation.name}: {hist_err}",
                 )
                 # Sibling of the swallow above, and of the forward path's #449. By
                 # the time this batch save runs every refund is already marked
@@ -410,7 +410,8 @@ class UnifiedWebhookWrapperService:
         except Exception as e:
             self.logger.error(f"❌ Failed to update missing payment history: {e}")
             frappe.log_error(
-                f"Payment history backfill failed for {donation.name}: {e}", "Payment History Backfill Error"
+                title="Payment History Backfill Error",
+                message=f"Payment history backfill failed for {donation.name}: {e}",
             )
             return 0
 
@@ -1305,7 +1306,7 @@ class UnifiedWebhookWrapperService:
                 f"Mollie configuration error: {config['error']}"
             )
             self.logger.error(f"❌ {message}")
-            frappe.log_error(message, "Mollie Reversal Booking Failed")
+            frappe.log_error(title="Mollie Reversal Booking Failed", message=message)
             return None
 
         party_type = party = bank_party_name = None
@@ -1514,7 +1515,7 @@ class UnifiedWebhookWrapperService:
                 f"Bank Transaction creation failed"
             )
             self.logger.error(f"❌ {message}")
-            frappe.log_error(message, "Mollie Reversal Booking Failed")
+            frappe.log_error(title="Mollie Reversal Booking Failed", message=message)
             return None
 
         journal_entry_name = book_journal_entry(bank_transaction_name)
@@ -1525,7 +1526,7 @@ class UnifiedWebhookWrapperService:
                 f"withdrawing the Bank Transaction"
             )
             self.logger.error(f"❌ {message}")
-            frappe.log_error(message, "Mollie Reversal Booking Failed")
+            frappe.log_error(title="Mollie Reversal Booking Failed", message=message)
             self._withdraw_bank_transaction(bank_transaction_name)
             return None
 
@@ -1563,7 +1564,7 @@ class UnifiedWebhookWrapperService:
                 f"be adopted by the next delivery of this reversal. Cancel it by hand."
             )
             self.logger.error(f"❌ {message}")
-            frappe.log_error(message, "Mollie Reversal Cleanup Failed")
+            frappe.log_error(title="Mollie Reversal Cleanup Failed", message=message)
 
     @staticmethod
     def _resolve_bank_currency(config: dict) -> Optional[str]:
@@ -1652,8 +1653,8 @@ class UnifiedWebhookWrapperService:
         except Exception as err:
             self.logger.error(f"❌ Could not repair {reversal_type} history row: {err}")
             frappe.log_error(
-                f"Reversal history repair failed for {payment_id} {reversal_id}: {err}",
-                "Reversal History Repair Failed",
+                title="Reversal History Repair Failed",
+                message=f"Reversal history repair failed for {payment_id} {reversal_id}: {err}",
             )
             return False, str(err)
 
@@ -1745,7 +1746,7 @@ class UnifiedWebhookWrapperService:
                     f"one artefact; refusing to guess which to reverse"
                 )
                 self.logger.error(message)
-                frappe.log_error(message, "Mollie Reversal Ambiguous Booking")
+                frappe.log_error(title="Mollie Reversal Ambiguous Booking", message=message)
                 return {
                     "status": "ignored",
                     "message": message,
@@ -1823,7 +1824,7 @@ class UnifiedWebhookWrapperService:
                         f"Donation could not be found"
                     )
                     self.logger.error(message)
-                    frappe.log_error(message, "Mollie Reversal Orphaned Booking")
+                    frappe.log_error(title="Mollie Reversal Orphaned Booking", message=message)
                     return standardized_webhook_response("ignored", message, payment_id=payment_id)
 
                 booking = self._book_donation_reversal(
@@ -1862,7 +1863,7 @@ class UnifiedWebhookWrapperService:
                     f"(payment {payment_id} booked as {booked_doctype} {booked_name})"
                 )
                 self.logger.error(message)
-                frappe.log_error(message, "Mollie Reversal Not Implemented")
+                frappe.log_error(title="Mollie Reversal Not Implemented", message=message)
                 return {
                     "status": "not_implemented",
                     "message": message,
@@ -1929,8 +1930,8 @@ class UnifiedWebhookWrapperService:
                     history_failure = str(hist_err)
                     self.logger.error(f"❌ Failed to update payment history for {reversal_type}: {hist_err}")
                     frappe.log_error(
-                        f"Payment history update failed for {donation_doc.name} {reversal_type}: {hist_err}",
-                        "Reversal Payment History Update Error",
+                        title="Reversal Payment History Update Error",
+                        message=f"Payment history update failed for {donation_doc.name} {reversal_type}: {hist_err}",
                     )
 
             # Create standardized result
@@ -2084,7 +2085,7 @@ class UnifiedWebhookWrapperService:
                 f"Mollie chargebacks list is not implemented on this route"
             )
             self.logger.error(message)
-            frappe.log_error(message, "Mollie Chargeback Id Missing")
+            frappe.log_error(title="Mollie Chargeback Id Missing", message=message)
             return standardized_webhook_response("not_implemented", message, payment_id=payment_id)
 
         chargeback_amount = safe_extract_amount(chargeback_data)
@@ -2311,9 +2312,9 @@ class UnifiedWebhookWrapperService:
             # nothing stores this result, so without logging here a failed
             # activation would be completely silent.
             frappe.log_error(
-                f"Subscription activation did not succeed for donation {donation.name} "
+                title="Mollie Donation Subscription Activation",
+                message=f"Subscription activation did not succeed for donation {donation.name} "
                 f"(payment {payment_data.get('id')}): {result}",
-                "Mollie Donation Subscription Activation",
             )
             # Only refusals we can NAME are permanent; anything else is retried.
             #
@@ -2365,11 +2366,11 @@ class UnifiedWebhookWrapperService:
             # was lost. Either way the donation stays queryable as an
             # unfulfilled recurring intent -- see _update_donation_status.
             frappe.log_error(
-                f"Error activating donation subscription for {donation.name} "
+                title="Mollie Donation Subscription Activation",
+                message=f"Error activating donation subscription for {donation.name} "
                 f"(payment {payment_data.get('id')}, "
                 f"subscription created at Mollie: {created_subscription_id}): {e}\n"
                 f"{frappe.get_traceback()}",
-                "Mollie Donation Subscription Activation",
             )
             return {
                 "status": "error",
@@ -2691,8 +2692,8 @@ class UnifiedWebhookWrapperService:
                 {"donation": donation.name, "traceback": tb[:2000]},
             )
             frappe.log_error(
-                f"Financial entry creation failed for donation {donation.name}\n\n{tb}",
-                "Donation Financial Entry Error",
+                title="Donation Financial Entry Error",
+                message=f"Financial entry creation failed for donation {donation.name}\n\n{tb}",
             )
             return None
 

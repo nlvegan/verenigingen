@@ -473,8 +473,8 @@ class BulkPaymentChecker:
         except Exception as e:
             result["error"] = str(e)
             frappe.log_error(
-                f"Error checking payments for customer {customer_id} (Member: {member_name}): {e}",
-                "Bulk Payment Checker Error",
+                title="Bulk Payment Checker Error",
+                message=f"Error checking payments for customer {customer_id} (Member: {member_name}): {e}",
             )
 
         return result
@@ -707,7 +707,7 @@ class BulkPaymentChecker:
 
         except Exception as e:
             result["error"] = str(e)
-            frappe.log_error(f"Error in bulk payment check: {e}", "Bulk Payment Checker Error")
+            frappe.log_error(title="Bulk Payment Checker Error", message=f"Error in bulk payment check: {e}")
 
         return result
 
@@ -1108,6 +1108,8 @@ class BulkPaymentChecker:
 
         except Exception as e:
             result["error"] = str(e)
-            frappe.log_error(f"Error in balance transaction check: {e}", "Bulk Payment Checker Error")
+            frappe.log_error(
+                title="Bulk Payment Checker Error", message=f"Error in balance transaction check: {e}"
+            )
 
         return result

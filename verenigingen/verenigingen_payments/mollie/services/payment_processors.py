@@ -183,12 +183,12 @@ class DonationPaymentProcessor(AbstractPaymentProcessor):
                     )
                     # Also create error log for monitoring
                     frappe.log_error(
-                        f"Bank Transaction creation failed for donation {donation.name}\n"
+                        title="Missing Bank Transaction - Donation Payment",
+                        message=f"Bank Transaction creation failed for donation {donation.name}\n"
                         f"Payment ID: {mollie_data['payment_id']}\n"
                         f"Donor: {donation.donor}\n"
                         f"Amount: {mollie_data.get('amount', 'N/A')}\n"
                         f"Requires manual Bank Transaction creation for reconciliation",
-                        "Missing Bank Transaction - Donation Payment",
                     )
             else:
                 self.logger.info(f"Bank Transaction already exists for {mollie_data['payment_id']}")
@@ -671,8 +671,8 @@ class DonationPaymentProcessor(AbstractPaymentProcessor):
         except Exception as e:
             self.logger.error(f"Failed to create Bank Transaction for donation {donation.name}: {e}")
             frappe.log_error(
-                f"Bank Transaction creation failed for donation {donation.name}: {str(e)}",
-                "Donation Payment Processing",
+                title="Donation Payment Processing",
+                message=f"Bank Transaction creation failed for donation {donation.name}: {str(e)}",
             )
             return None
 

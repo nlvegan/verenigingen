@@ -500,9 +500,9 @@ def get_or_create_item_group(group_name):
 
     # Log auto-creation for audit trail
     frappe.log_error(
-        f"Auto-creating item group '{group_name}' during eBoekhouden migration. "
+        title="eBoekhouden Migration Auto-Creation",
+        message=f"Auto-creating item group '{group_name}' during eBoekhouden migration. "
         "Consider pre-creating item groups for better data organization.",
-        "eBoekhouden Migration Auto-Creation",
     )
 
     # Find parent group with explicit validation
@@ -533,8 +533,8 @@ def get_or_create_item_group(group_name):
 
     except Exception as e:
         frappe.log_error(
-            f"Failed to create item group '{group_name}': {str(e)}",
-            "eBoekhouden Migration Item Group Creation Error",
+            title="eBoekhouden Migration Item Group Creation Error",
+            message=f"Failed to create item group '{group_name}': {str(e)}",
         )
 
         # Use fallback with explicit validation
