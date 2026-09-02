@@ -196,6 +196,23 @@ shim, not the shards.
   the overall run is still `in_progress`.
 - `main` **does not exist** — `develop` is the default branch. `CLAUDE.md` still instructs
   `codemap --diff` against main.
+- **Moving a branch ref from one worktree silently desyncs the worktree that has it checked
+  out — including the one serving veg11.** Caused here: merging #732 needed a local merge (the
+  token lacked `workflow` scope), so `git checkout -B develop origin/develop` ran in `wt-dev`.
+  `develop` is checked out in the MAIN tree at `apps/verenigingen`, which is what bench serves
+  veg11 from. The branch pointer moved; that tree's index and files did not. Result: HEAD at
+  `34fb9d5f2` while index and worktree were byte-identical to `8576ce9cf`, showing as **346
+  staged changes** — `26,241` deletions, including handoff docs that very much still exist.
+
+  It reads like catastrophic damage and is none: the old content was an ancestor of HEAD, no
+  untracked or unstaged work existed, and `git reset --hard HEAD` restored it. But a session
+  that sees a 26k-line staged deletion in the veg11 tree and reacts fast could do real harm.
+
+  **Check `git status` in the main tree after any operation that moves `develop`**, and prefer
+  a detached worktree (`git worktree add <dir> origin/develop`) over `checkout -B` for
+  trunk-side work. Related to [[a-git-pull-on-the-live-tree-is-inert-until-restart]]: gunicorn
+  runs `--preload`, so the files being stale or fresh changes nothing until a restart — which
+  is also why this can sit unnoticed.
 
 ## State
 
