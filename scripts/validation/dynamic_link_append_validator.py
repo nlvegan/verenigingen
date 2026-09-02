@@ -57,11 +57,21 @@ never flagged regardless of the companion: `_validate_links()`
 (`if not docname: continue`), so there is nothing for the companion to resolve.
 
 A row assembled across multiple statements -- `row = parent.append("sepa_mandates",
-{"sepa_mandate": x}); row.sepa_mandate_doctype = "SEPA Mandate"` -- is also invisible
-to this check: only the literal passed to `.append()` itself is read. This is the
-same class of blind spot as the `**spread` case above and is accepted for the same
-reason (a false negative, not a false positive), rather than attempting dataflow
-analysis across statements.
+{"sepa_mandate": x}); row.sepa_mandate_doctype = "SEPA Mandate"` -- is read only as
+far as the literal passed to `.append()` itself. **Unlike the `**spread` case above,
+this is a FALSE POSITIVE, not a false negative, and the two are opposite directions:**
+from the literal alone, correct code that sets the companion on the very next line is
+indistinguishable from code that never sets it, so BOTH are flagged. Measured: two
+files differing only in whether line 3 assigns `row.sepa_mandate_doctype` are reported
+identically, same line number, same exit status.
+
+Accepted rather than fixed with cross-statement dataflow because the census is zero,
+no code in the tree uses this shape, and the remedy is trivial -- move the companion
+into the same literal, which is what every fixed site now does. But it means this gate
+can BLOCK CORRECT CODE, so anyone hitting it should reach for that remedy, not for an
+exemption. (This paragraph previously claimed the opposite direction; it was wrong, and
+a gate that mis-states which way its own blind spot points is the thing the gate exists
+to prevent, one level up.)
 
 A HARD GATE, not a ratchet: the census on this branch is zero after fixing #667's
 four sites, so there is nothing to grandfather in. A new hit is a fresh instance
