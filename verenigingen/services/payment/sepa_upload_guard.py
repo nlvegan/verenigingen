@@ -425,11 +425,23 @@ class SEPAUploadGuard(StatelessService):
                 message=_("Upload registered successfully."),
             )
 
-        except frappe.DuplicateEntryError:
-            # DB unique constraint caught the race condition - another worker won
+        except (frappe.DuplicateEntryError, frappe.UniqueValidationError):
+            # DB unique constraint caught the race condition - another worker won.
+            #
+            # `SEPA Batch Upload Log.validate_unique_hash()` also does an
+            # application-level check-then-throw (raising DuplicateEntryError
+            # explicitly), but that only catches a SEQUENTIAL duplicate --  one
+            # that already committed before this worker's SELECT ran. Two truly
+            # concurrent workers can both pass validate_unique_hash's SELECT
+            # (neither has committed yet), and the loser then collides on the
+            # real DB unique index on `file_hash`. Frappe classifies that as
+            # UniqueValidationError, not DuplicateEntryError (unrelated classes
+            # -- see #699), so listing only the latter let a genuinely
+            # concurrent upload escape this handler uncaught. Verified via a
+            # real two-worker race probe (skeptical review of #699).
             rollback_to_savepoint(savepoint)
             self.logger.warning(
-                f"DuplicateEntryError in check_and_register (race condition caught by DB): hash={file_hash[:16]}..."
+                f"Duplicate/unique collision in check_and_register (race condition caught by DB): hash={file_hash[:16]}..."
             )
 
             # Look up the winning entry to provide duplicate info

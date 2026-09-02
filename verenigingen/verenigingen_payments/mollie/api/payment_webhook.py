@@ -586,8 +586,29 @@ def create_payment_entry_for_donation(donation, mollie_data):
             pe.submit()
             frappe.logger().info("✅ Created Payment Entry: %s", pe.name)
             return pe
-        except frappe.DuplicateEntryError:
-            # Race condition: another webhook created the PE between our check and insert
+        except (frappe.DuplicateEntryError, frappe.UniqueValidationError):
+            # Race condition: another webhook created the PE between our check and insert.
+            #
+            # patches/v2_1/add_mollie_payment_entry_unique_index.py is INTENDED
+            # to add a composite UNIQUE INDEX on (reference_no, payment_type,
+            # party) as this guard's DB-level backstop -- a multi-column unique
+            # isn't expressible via DocType `unique: 1`, so a collision on it
+            # would classify as UniqueValidationError, not DuplicateEntryError
+            # (unrelated classes -- see #699), which DuplicateEntryError alone
+            # would miss.
+            #
+            # That index is NOT currently present, on either veg11 or
+            # test_site_1 (checked via `SHOW INDEX`): the patch bails out
+            # without creating it whenever pre-existing duplicate Mollie
+            # references are found (it did, on both), and because the patch is
+            # recorded in Patch Log as already run, Frappe will not retry it.
+            # So today this whole `except` branch is unreachable in practice --
+            # Payment Entry's only real unique constraints are `PRIMARY` and
+            # `eboekhouden_mutation_nr`, and this code path sets neither. Kept
+            # anyway because it is correct once the index exists and harmless
+            # while it doesn't; see the follow-up issue for actually landing
+            # the index (clear the stale Patch Log entries, resolve the
+            # existing duplicate Payment Entries, re-run the patch).
             frappe.logger().info("⚠️ Duplicate Payment Entry detected, fetching existing")
             existing_pe = frappe.db.get_value(
                 "Payment Entry",
