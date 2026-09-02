@@ -458,7 +458,24 @@ def create_sepa_mandate_from_bank_details(
     already_linked = any(link.sepa_mandate == mandate.name for link in member_doc.sepa_mandates)
 
     if not already_linked:
-        member_doc.append("sepa_mandates", {"sepa_mandate": mandate.name, "is_current": 1})
+        member_doc.append(
+            "sepa_mandates",
+            {
+                # sepa_mandate is a Dynamic Link whose target doctype is read from
+                # sepa_mandate_doctype. That field carries a DocField-level
+                # default ("SEPA Mandate") that Document._set_defaults() copies
+                # onto a new row before _validate_links() runs on the .save()
+                # path this append feeds -- so leaving it unset happens not to
+                # throw here. But that self-heal is skipped under
+                # frappe.flags.in_import, and does not run at all on any path
+                # that bypasses _save()/_insert() (e.g. update_child_table()).
+                # Set it explicitly so this row does not depend on which
+                # persistence path is used (#667).
+                "sepa_mandate_doctype": "SEPA Mandate",
+                "sepa_mandate": mandate.name,
+                "is_current": 1,
+            },
+        )
 
         # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
         member_result = secure_document_operation(
@@ -956,6 +973,16 @@ def create_and_link_mandate(
     member_doc.append(
         "sepa_mandates",
         {
+            # sepa_mandate is a Dynamic Link whose target doctype is read from
+            # sepa_mandate_doctype. That field carries a DocField-level default
+            # ("SEPA Mandate") that Document._set_defaults() copies onto a new
+            # row before _validate_links() runs on the .save() path this append
+            # feeds -- so leaving it unset happens not to throw here. But that
+            # self-heal is skipped under frappe.flags.in_import, and does not
+            # run at all on any path that bypasses _save()/_insert() (e.g.
+            # update_child_table()). Set it explicitly so this row does not
+            # depend on which persistence path is used (#667).
+            "sepa_mandate_doctype": "SEPA Mandate",
             "sepa_mandate": mandate.name,
             "is_current": 1,
             "mandate_reference": mandate.mandate_id,
