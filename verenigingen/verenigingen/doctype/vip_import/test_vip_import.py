@@ -1328,6 +1328,41 @@ class TestVIPImportCreateAndProcess(FrappeTestCase):
             with self.assertRaises(frappe.ValidationError):
                 _create_volunteer({"volunteer_status": "Active"}, member)
 
+    def test_create_volunteer_refuses_when_minimum_volunteer_age_unconfigured(self):
+        """_validate_volunteer_age must FAIL CLOSED on an unset/zero
+        minimum_volunteer_age, not silently substitute 16 (#673).
+
+        ``AgeValidator._get_configurable_min_age`` deliberately throws on a
+        missing/zero setting: "a missing/zero setting is a configuration error,
+        not something to silently paper over." The old
+        ``settings.get("minimum_volunteer_age") or 16`` (plus a silent
+        ``except Exception: min_volunteer_age = 16``) disagreed with that policy
+        -- a config error the desk path (AgeValidator) refuses on still let a
+        bulk import proceed by substituting 16. Pin the setting to 0, the exact
+        state AgeValidator refuses on, and assert this path now refuses too for
+        an adult member who would pass under any real minimum.
+        """
+        from verenigingen.verenigingen.doctype.vip_import.vip_import import _create_volunteer
+
+        with pinned_setting("minimum_volunteer_age", 0):
+            uid = self._uid()
+            member = self._make_member(
+                first_name="Adult",
+                last_name="NoAgeConfig",
+                member_id=f"VIP-NOCFG-{uid}",
+                email=f"nocfg.{uid}@example.com",
+                status="Active",
+                # 40: well above any real minimum_volunteer_age, so only the
+                # unconfigured-setting refusal (not a genuine age check) can fail this.
+                birth_date=add_days(today(), -365 * 40),
+            )
+            frappe.db.commit()
+
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                _create_volunteer({"volunteer_status": "Active"}, member)
+            self.assertIn("minimum_volunteer_age", str(ctx.exception))
+        self.assertFalse(frappe.db.exists("Volunteer", {"member": member.name}))
+
 
 class TestVIPImportFinalStatusAndAccountCreation(FrappeTestCase):
     """Tests for _set_final_import_status (happy path) and _process_account_creation."""

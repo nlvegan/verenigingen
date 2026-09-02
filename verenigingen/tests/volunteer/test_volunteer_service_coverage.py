@@ -376,6 +376,36 @@ class TestBulkVolunteerCreationService(EnhancedTestCase):
         summary = svc.create_volunteers_for_members([member.name])
         self.assertEqual(summary.already_existed, 1)
 
+    def test_create_volunteer_refuses_when_minimum_volunteer_age_unconfigured(self):
+        """The `minimum_volunteer_age` property must not paper over an unset/zero
+        setting with a hardcoded 16 (#673) -- that disagreed with
+        `AgeValidator._get_configurable_min_age`, which deliberately throws on
+        the same input rather than silently substituting a number. Pin the
+        setting to 0 and assert the per-member outcome is VALIDATION_ERROR (fail
+        closed), not a silently-created volunteer, for an adult member (factory
+        default birth_date 1990) who would pass under any real minimum.
+        """
+        from verenigingen.services.volunteer.bulk_volunteer_creation_service import (
+            VolunteerCreationOutcome,
+        )
+        from verenigingen.tests.support.verenigingen_settings import pinned_setting
+
+        try:
+            member = self.create_test_member(first_name="BulkNoCfg", last_name="Test")
+        except Exception:
+            frappe.db.rollback()
+            self.skipTest("Member creation failed due to pre-existing customer handling bug")
+            return
+        frappe.db.set_value("Member", member.name, "status", "Active")
+
+        with pinned_setting("minimum_volunteer_age", 0):
+            svc = self._get_service()
+            summary = svc.create_volunteers_for_members([member.name])
+
+        self.assertEqual(summary.results[0].outcome, VolunteerCreationOutcome.VALIDATION_ERROR)
+        self.assertIn("minimum_volunteer_age", summary.results[0].error_message)
+        self.assertFalse(frappe.db.exists("Volunteer", {"member": member.name}))
+
     # -- _get_volunteer_display_name --
 
     def test_get_volunteer_display_name_full_name(self):

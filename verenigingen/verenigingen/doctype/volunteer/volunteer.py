@@ -74,7 +74,7 @@ from verenigingen.utils.member_utils import get_volunteer_for_member
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 from verenigingen.utils.select_options import coerce_select_option
-from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+from verenigingen.utils.validation_utilities import AgeValidator, DocumentExistenceValidator
 
 
 def safe_log_error(message: str, title: Optional[str] = None) -> None:
@@ -185,9 +185,13 @@ class Volunteer(Document):
                 # would raise TypeError against the minimum below.
                 return
 
-            # Get minimum volunteer age from Verenigingen Settings
-            settings = frappe.get_single("Verenigingen Settings")
-            min_volunteer_age = settings.get("minimum_volunteer_age") or 16
+            # Get minimum volunteer age from Verenigingen Settings, via the same
+            # gate AgeValidator uses. Deliberately no hardcoded fallback: a
+            # missing/zero setting is a configuration error, not something to
+            # silently paper over. A prior `settings.get(...) or 16` disagreed
+            # with that policy -- this insert used to succeed on the exact input
+            # the desk path refuses (#673).
+            min_volunteer_age = AgeValidator._get_configurable_min_age("volunteer")
 
             if age < min_volunteer_age:
                 frappe.throw(
@@ -202,10 +206,13 @@ class Volunteer(Document):
             # below caught it, so the Volunteer was created anyway -- the rule was
             # dead (#658). Same fix as 36bb501b9. Also propagates get_doc()'s
             # DoesNotExistError, which validate_member_link() already throws for.
+            # _get_configurable_min_age's config-error throw is also a
+            # frappe.ValidationError and must propagate the same way (#673).
             raise
         except Exception as e:
             frappe.log_error(
-                f"Error validating volunteer age for {self.name}: {str(e)}", "Volunteer Age Validation Error"
+                title="Volunteer Age Validation Error",
+                message=f"Error validating volunteer age for {self.name}: {str(e)}",
             )
 
     def validate_dates(self):
