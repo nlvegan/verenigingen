@@ -40,7 +40,15 @@ import frappe
 # on, reached independently at the other end of the pipeline. NOT imported from
 # there: this is a `utils` module and that is an `api` one, and here the set only
 # shapes a message, while there it decides whether rows may be removed.
-DISCRIMINATING_FIELDS = ("member", "member_name", "amount", "iban", "mandate_reference")
+#
+# `member_id` (#662): the two automated producers alias the Member's own name as
+# `member` in their result rows; `dd_batch_api.get_eligible_invoices` aliases it
+# `member_id` instead (its `member` key names something else entirely --
+# `get_batch_conflicts`'s conflict rows, a different function in the same
+# module), so `if field in row` silently dropped the Member's own name from that
+# endpoint's refusal message, leaving only `member_name` -- and two people can
+# share a name where they cannot share a Member ID.
+DISCRIMINATING_FIELDS = ("member", "member_id", "member_name", "amount", "iban", "mandate_reference")
 
 
 def refuse_invoices_with_more_than_one_row(rows, invoice_field: str, refusal_title: str):

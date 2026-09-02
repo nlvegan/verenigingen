@@ -582,9 +582,17 @@ class TestEachGuardIsPinnedWhereOnlyItCanAct(AmbiguousMandateFixture):
         Every join in both collection queries is now bounded, so there is no live
         input that fans out without the mandates being ambiguous -- which is exactly
         why this is a direct test of the helper rather than of a pipeline. Its job is
-        the NEXT unbounded join: #616 was one, #662 is an open one, and the
-        alternative to catching it here is `validate_no_duplicate_invoices` throwing
-        and taking the whole collection run down (#606/#627).
+        the NEXT unbounded join: #616 was one, `dd_batch_api.get_eligible_invoices`'s
+        `mem.customer` join (#662) was another -- and it needed its OWN bound after
+        all: a `si.member`-based bound looked plausible but that field is a
+        `fetch_from: customer.member` column Frappe silently overwrites, so it was
+        closed the same way as #616's join, through the invoice's own dues schedule
+        (`mds.member`, joined on its primary key) -- see
+        `test_member_customer_shared_fanout.py`. This guard remains what it always
+        was for that query: the backstop for two Active mandates on the ONE member
+        the schedule resolves to, and the alternative to catching that here is
+        `validate_no_duplicate_invoices` throwing and taking the whole collection
+        run down (#606/#627).
         """
         before = frappe.utils.now()
         keep = {"invoice": "SINV-KEEP", "member": "M1", "mandate_reference": "MND-1", "amount": 25.0}

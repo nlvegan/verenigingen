@@ -27,7 +27,7 @@ from typing import Dict, List, Optional
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, add_months, formatdate, get_datetime, now_datetime
+from frappe.utils import add_days, add_months, add_years, formatdate, get_datetime, now_datetime
 
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import (
@@ -166,8 +166,11 @@ class AutomatedCampaignManager:
                 year = now.year
             return datetime(year, next_quarter_month, 1, 9, 0, 0)
         elif campaign_def["frequency"] == "annual":
-            # Same date next year
-            return now.replace(year=now.year + 1, hour=9, minute=0, second=0, microsecond=0)
+            # Same date next year. now.replace(year=...) does not clamp, so an
+            # anchor of 29 Feb raised ValueError every non-leap target year
+            # (#696). add_years clamps to 28 Feb instead - the .replace() below
+            # only touches the time fields, which are always valid.
+            return add_years(now, 1).replace(hour=9, minute=0, second=0, microsecond=0)
         else:
             # Event-driven campaigns don't have scheduled runs
             return None

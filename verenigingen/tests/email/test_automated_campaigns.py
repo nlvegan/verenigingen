@@ -26,6 +26,7 @@ or started erroring again.
 import json
 import unittest
 from datetime import datetime
+from unittest.mock import patch
 
 import frappe
 from frappe.utils import add_days, add_months, now_datetime, today
@@ -282,6 +283,25 @@ class TestNextRunCalculation(EnhancedTestCase):
     def test_event_driven_campaigns_have_no_scheduled_run(self):
         """An event-driven campaign must never be picked up by a date sweep."""
         self.assertIsNone(self.manager._calculate_next_run({"frequency": "event_driven"}))
+
+    def test_annual_clamps_to_feb_28_on_a_leap_day_anchor(self):
+        """29 Feb has no 'same date next year' - #696.
+
+        `datetime.replace(year=...)` does not clamp, so an annual campaign
+        anchored on 29 Feb (next real occurrence: 2028-02-29) raised ValueError
+        computing its next run instead of scheduling one. The anchor is pinned
+        directly rather than waited for, since the next occurrence is two years
+        out - see test_site_timezone_today.py for the same manufactured-clock
+        rationale.
+        """
+        leap_day = datetime(2028, 2, 29, 14, 30, 0)
+        with patch("verenigingen.email.automated_campaigns.now_datetime", return_value=leap_day):
+            next_run = self.manager._calculate_next_run({"frequency": "annual"})
+
+        self.assertEqual((next_run.year, next_run.month, next_run.day), (2029, 2, 28))
+        self.assertEqual(
+            (next_run.hour, next_run.minute, next_run.second, next_run.microsecond), (9, 0, 0, 0)
+        )
 
 
 class TestCampaignContentGeneration(EnhancedTestCase):

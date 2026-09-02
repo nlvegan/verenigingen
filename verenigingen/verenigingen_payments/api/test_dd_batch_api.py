@@ -303,14 +303,24 @@ class TestDDBatchAPI(EnhancedTestCase):
         Regression: get_eligible_invoices previously joined Member with
         `ON si.customer = mem.name` (Customer name vs Member ID), so the join
         never matched and EVERY invoice was filtered out by `sm.mandate_id IS NOT
-        NULL`. The join is now `ON mem.customer = si.customer`.
+        NULL`. The join is now bound through the invoice's own dues schedule
+        (#662: `mem.customer = si.customer` alone matched several Members when a
+        Customer was shared, so this test's fixture now carries the schedule that
+        bound join requires -- `dd_batch_optimizer` and `sepa_mandate_service`
+        already required the same thing).
         """
         from frappe.utils import add_days
 
         member, customer, membership, mandate = self._make_member_with_mandate()
+        schedule = self.sepa_factory.create_test_membership_dues_schedule(
+            member=member.name, payment_terms_template="SEPA Direct Debit"
+        )
+        self._track_test_document("Membership Dues Schedule", schedule.name)
         invoice = self.sepa_factory.create_test_sales_invoice(
             customer=customer.name,
             member=member.name,
+            membership=membership.name,
+            membership_dues_schedule_display=schedule.name,
             status="Unpaid",
             grand_total=75.0,
             due_date=add_days(today(), -5),

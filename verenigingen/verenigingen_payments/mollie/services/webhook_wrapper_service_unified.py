@@ -844,7 +844,10 @@ class UnifiedWebhookWrapperService:
             if status_failure:
                 history_failures.append(f"donation status ({status_failure})")
 
-            # Steps 5-7: the three financial-history tables.
+            # Steps 5-7: the three financial-history tables. As of #713, the third
+            # (`_update_member_payment_history`) is a permanent no-op that always
+            # returns True -- see its docstring -- so only the first two can ever
+            # contribute to `history_failures` below.
             #
             # Their results are collected rather than discarded. Each of these
             # returns False -- it does not raise -- for a builder that returns None
@@ -882,6 +885,10 @@ class UnifiedWebhookWrapperService:
             if not self._update_donor_record(donation, payment_data):
                 history_failures.append("donor_history")
 
+            # #713: a permanent no-op (see its docstring). Still called, rather than
+            # deleted along with this line, because
+            # test_mollie_gap_unified_webhook_handlers.py:144/155 monkeypatches it and
+            # asserts it ran as part of this handler's sequence.
             if not self._update_member_payment_history(donation, payment_data):
                 history_failures.append("member payment history")
 
@@ -1116,21 +1123,22 @@ class UnifiedWebhookWrapperService:
                     results.append("Donation payment history update failed")
                     component_failures.append("donation payment history")
 
-                # Also update Donor and Member records. Both return False (they do not
-                # raise) for a real failure, and both were recorded on success only --
-                # so a failure here left `component_failures` empty and the handler
-                # reported success. Same class as the sibling writes above and as the
-                # forward path's #449; recorded the same way they are at :862/:865.
+                # Also update the Donor record. Returns False (it does not raise)
+                # for a real failure, and was recorded on success only -- so a
+                # failure here left `component_failures` empty and the handler
+                # reported success. Same class as the sibling write above and as the
+                # forward path's #449; recorded the same way at :862.
+                # (The Member-side write below this block is #713's permanent
+                # no-op and cannot fail, so it is no longer part of this class.)
                 if self._update_donor_record(donation, payment_data):
                     results.append("Donor record updated")
                 else:
                     results.append("Donor record update failed")
                     component_failures.append("donor_history")
-                if self._update_member_payment_history(donation, payment_data):
-                    results.append("Member payment history updated")
-                else:
-                    results.append("Member payment history update failed")
-                    component_failures.append("member payment history")
+                # #713: a permanent no-op (see its docstring) that always returns
+                # True, so no result string is appended here -- "Member payment
+                # history updated" would misreport that a row was written.
+                self._update_member_payment_history(donation, payment_data)
 
             # CRITICAL FIX: Also handle refund payment history backfill during partial processing
             # This ensures that when main payment history is missing, we also check for missing refund history
@@ -2823,125 +2831,89 @@ class UnifiedWebhookWrapperService:
 
     def _update_member_payment_history(self, donation, payment_data):
         """
-        Update Member payment history for ALL donations (not just subscriptions).
+        Deliberately a no-op as of #713 -- `Member Payment History` does not get a
+        donation row, ever.
 
-        Uses MemberFinancialHistoryManager for atomic child table updates
-        without full document save.
+        Used to build one via `MemberFinancialHistoryManager`. #465 made that row
+        well-formed; #713 is the modelling question #465 deferred: should a donation
+        be there at all.
 
-        Took a `journal_entry_name` until #465 and no longer does: the row does not
-        store the Journal Entry (see `build_entry` below for why), so keeping the
-        parameter would claim a dependency the method does not have. Its sibling
-        `_update_donation_payment_history_atomic` still takes one, and still needs
-        it -- `Donation Payment.journal_entry` is a real field.
+        `Member Payment History` is documented, by its own writers, as an
+        invoice-derived cache: `_step_rebuild_payment_history`
+        (`member_history_update_service.py`) rebuilds it "matching the invoice-only
+        model the other writers already enforce", and
+        `clear_stale_membership_payment_history_links.py` calls it a "derived cache"
+        outright -- and `PaymentHistoryEntryBuilder.build_from_query_row`
+        (`payment_history_builder.py`) only ever emits Sales-Invoice-shaped rows.
+
+        A donation-shaped row placed here is not reliably cleaned up, which is a
+        WORSE property than "guaranteed to be swept" -- it is accidental and
+        inconsistent, verified per path rather than assumed:
+          * `load_payment_history_batched` wipes and rebuilds `payment_history`
+            wholesale (no per-row check at all) -- but only when `member.customer`
+            is set; it returns early otherwise, so a customerless member's row
+            would never be touched by this path.
+          * `PaymentHistoryService._cleanup_broken_history_entries` (the "Refresh
+            Financial History" button and scheduled tasks) DOES check
+            `frappe.db.exists("Sales Invoice", entry.invoice)` per row, correctly
+            flagging a donation row as broken -- but only mutates the in-memory
+            document; `refresh_financial_history` never saves it, so the removal
+            is reported and never persisted. Measured on a live site: one
+            donation-shaped row, "removed_entries": 1 in the result, one row still
+            in the database afterwards.
+          * `HistoryIntegrityManager._cleanup_payment_history_custom` would
+            actually remove and persist a stale row, but through a different
+            branch than "missing Sales Invoice": the old builder never set
+            `posting_date`, so it is caught by "Invoice-based entry missing
+            posting_date or amount" before the invoice-existence check runs, and
+            it is only reachable via `refresh_fee_change_history`'s
+            `cleanup_member_history` call, itself gated on `fee_history` having
+            changes to save.
+        None of that is a mechanism worth relying on OR worth fixing to make
+        reliable -- see "why no repair patch" below.
+
+        Nothing is lost by not writing here. A donation only reaches this method
+        through `donation.donor` (`Donation.donor` is `reqd` unless anonymous, and
+        the member lookup used to live below ran only through `Donor.member` --
+        `Donation` has no `member` field of its own, so the `hasattr(donation,
+        "member")` branch that used to sit here was dead code). That same
+        donation is recorded, unconditionally of any member link, on
+        `Donor.donor_history` (Donation's own `after_insert`/`on_update` hooks)
+        and on `Donation.payments` (`_update_donation_payment_history_atomic`,
+        same webhook call, same values -- including the Mollie payment id and
+        Journal Entry this method never carried in the first place). The webhook
+        idempotency manager (`unified_idempotency_manager.py`,
+        `handlers/donation_lookup.py`) reads `Donation.payments`, never this
+        table, so removing this write cannot affect webhook re-delivery.
+
+        Why no repair patch for rows a pre-#713 build already wrote: NOT because
+        they self-heal -- the paths above are not a reliable sweep -- and NOT
+        because such a row is known not to exist. Whether one exists is UNKNOWN:
+        there is no production database reachable from this bench.
+
+        From code: the precondition is a Donor carrying a link to a Member, and
+        that link is optional, so the schema alone rules it neither in nor out.
+        On veg11 -- a test instance carrying a production data COPY, whose row
+        counts quantify nobody -- there are 431 `Member Payment History` rows,
+        all `invoice_doctype = "Sales Invoice"`, and zero Donors with a linked
+        Member. That illustrates the shape is uncommon in real-looking data; it
+        does not establish that it never occurs. Shipping no patch is therefore
+        a deliberate choice, not a measurement.
+
+        Kept as a method, rather than deleted along with its two call sites,
+        because `test_mollie_gap_unified_webhook_handlers.py` (:144, :155)
+        monkeypatches it and asserts it was called as part of the handler
+        sequence -- deleting the call sites would break that assertion, not
+        just move it.
 
         Args:
             donation: Donation document
             payment_data: Mollie payment data dict
 
         Returns:
-            bool: Success status
+            bool: always True -- there is nothing to fail.
         """
-        # Find linked member - either directly or through donor
-        member_name = None
-
-        # Check for direct member link on donation
-        if hasattr(donation, "member") and donation.member:
-            member_name = donation.member
-
-        # Check for member via donor
-        if not member_name and donation.donor:
-            member_name = frappe.db.get_value("Donor", donation.donor, "member")
-
-        if not member_name:
-            self.logger.info(f"No member linked to donation {donation.name}, skipping member update")
-            return True
-
-        try:
-            member = frappe.get_doc("Member", member_name)
-
-            # Use MemberFinancialHistoryManager for atomic updates
-            from verenigingen.utils.member_financial_history_manager import get_payment_history_manager
-
-            history_manager = get_payment_history_manager(member)
-
-            # Extract payment details using centralized extractor
-            extractor = get_payment_data_extractor()
-
-            def build_entry():
-                # Every key here must be a field of `Member Payment History`.
-                # Three were not (#465), and Frappe drops an unknown key silently:
-                # `append()` sets it as a plain Python attribute, it never reaches
-                # `get_valid_dict()`, and no column exists. `mollie_payment_id`,
-                # `journal_entry` and `payment_type` were all lost this way.
-                #
-                # `mollie_payment_id` and `journal_entry` are NOT re-homed here:
-                # both already live on the `Donation Payment` row that
-                # `_update_donation_payment_history_atomic` writes from the same
-                # webhook call with the same values, and that copy is the one the
-                # idempotency manager actually reads. This row links to the
-                # Donation, so both are one hop away.
-                #
-                # `payment_type` IS re-homed, to `transaction_type` -- this
-                # doctype's classifier, which the sibling Mollie writers already
-                # set ("Membership Payment"). It is the only place donation rows
-                # sit beside invoice rows, so a NULL there is indistinguishable
-                # from an unclassified legacy row.
-                #
-                # `invoice_doctype` is mandatory, not cosmetic: `invoice` is a
-                # Dynamic Link keyed on it, and `get_invalid_links()` throws
-                # "Invoice DocType must be set first" on every later full save of
-                # the parent Member. The write itself lands regardless because
-                # `update_child_table()` skips `_validate_links()`, so one donation
-                # left that Member unsavable by any full-document path.
-                #
-                # Cost of setting it, stated because it is the same objection used
-                # above against re-homing the JE: this makes `Donation` a dynamic-link
-                # target of `Member Payment History`, so `check_if_doc_is_dynamically_linked`
-                # will refuse to delete a referenced Donation, and there is no
-                # `Donation.on_trash` to clear the reference. Accepted here and not
-                # there because THIS link is what the row is: without it the row
-                # points at nothing and breaks its own parent. Nothing in production
-                # deletes a Donation today.
-                #
-                # `payment_status` is deliberately left unset. It is the Select every
-                # reader branches on (`financial_mixin.py:136`, `payment-utils.js:141`),
-                # and its vocabulary is invoice settlement -- stamping "Paid" would
-                # fold donations into the member's paid-INVOICE counts. `status`
-                # carries "Completed" as it did before. Whether a donation row
-                # belongs in those counts at all is the modelling question in #713
-                # (a full history rebuild discards these rows outright), not
-                # something to decide here.
-                return {
-                    "invoice": donation.name,  # the Donation is this row's document
-                    "invoice_doctype": "Donation",
-                    "transaction_type": "Donation",
-                    "amount": extractor.extract_amount(payment_data, allow_zero=True),
-                    "payment_date": extractor.extract_payment_date(payment_data),
-                    "payment_method": "Mollie",
-                    "status": "Completed",
-                }
-
-            success = history_manager.add_or_update_entry(
-                entry_id=donation.name,
-                entry_builder=build_entry,
-                id_field_name="invoice",
-            )
-
-            if success:
-                self.logger.info(
-                    f"✅ Updated Member {member_name} payment history for donation {donation.name}"
-                )
-            else:
-                # `.error`, not `.warning`, for the same reason as the donor path
-                # above: a bare frappe logger defaults to level ERROR under
-                # `bench run-tests`, so a warning here is discarded entirely.
-                self.logger.error(f"member payment history update returned False for {donation.name}")
-
-            return success
-
-        except Exception as e:
-            self.logger.error("Error updating Member payment history", error=e)
-            return False
+        return True
 
     def _update_donation_payment_history_atomic(self, donation, payment_data, journal_entry_name):
         """

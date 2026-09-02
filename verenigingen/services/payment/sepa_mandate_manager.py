@@ -725,6 +725,18 @@ class SEPAMandateManager(StatelessService):
                 member.append(
                     "sepa_mandates",
                     {
+                        # sepa_mandate is a Dynamic Link whose target doctype is
+                        # read from sepa_mandate_doctype. That field carries a
+                        # DocField-level default ("SEPA Mandate") that
+                        # Document._set_defaults() copies onto a new row before
+                        # _validate_links() runs on the .save() path this append
+                        # feeds -- so leaving it unset happens not to throw here.
+                        # But that self-heal is skipped under
+                        # frappe.flags.in_import, and does not run at all on any
+                        # path that bypasses _save()/_insert() (e.g.
+                        # update_child_table()). Set it explicitly so this row
+                        # does not depend on which persistence path is used (#667).
+                        "sepa_mandate_doctype": "SEPA Mandate",
                         "sepa_mandate": mandate_doc.name,
                         "mandate_reference": mandate_doc.mandate_id,
                         "status": mandate_doc.status,
@@ -821,6 +833,12 @@ class SEPAMandateManager(StatelessService):
                 member_doc.append(
                     "sepa_mandates",
                     {
+                        # sepa_mandate is a Dynamic Link whose target doctype is
+                        # read from sepa_mandate_doctype. update_child_table()
+                        # below calls db_update() directly -- no defaults, no link
+                        # validation at all -- so omitting this writes a silent
+                        # NULL and leaves the member un-saveable (#667).
+                        "sepa_mandate_doctype": "SEPA Mandate",
                         "sepa_mandate": mandate.name,
                         "mandate_reference": mandate.mandate_id,
                         "status": mandate.status,
