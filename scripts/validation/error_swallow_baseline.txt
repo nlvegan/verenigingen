@@ -16,11 +16,13 @@ scripts/analysis/eslint_analysis.py::ESLintAnalyzer.run_eslint_analysis::1
 scripts/debug/employee/debug_employee_creation.py::debug_employee_creation::1
 scripts/debug/employee/debug_employee_creation.py::test_volunteer_employee_creation::1
 scripts/debug/fix_expense_claim_accounts.py::run_expense_account_setup::1
+scripts/deployment/deploy_phase_1_final.py::deploy_phase_1_complete::1
 scripts/deployment/post_deploy_checks.py::PostDeploymentChecker.check_version_deployed::1
 scripts/field_rename_safety.py::FieldRenameSafety.perform_safe_field_rename::1
 scripts/fix_eboekhouden_workspace.py::install_eboekhouden_workspace::1
 scripts/install_sepa_schemas.py::download_sepa_xsd_schema::1
 scripts/maintenance/rename_roles_with_prefix.py::get_role_usage_count::1
+scripts/migration/create_missing_item_mappings.py::verify_mappings::1
 scripts/migration/migrate_amendment_data.py::cleanup_old_doctype::1
 scripts/migration/migrate_amendment_data.py::get_old_doctype_data::1
 scripts/migration/migrate_amendment_data.py::update_member_links::1
@@ -28,6 +30,7 @@ scripts/migration/migrate_to_native_expense_system.py::migrate_to_native_expense
 scripts/migration/migration_commands.py::migrate_data::1
 scripts/migration/remove_custom_amount_fields.py::update_membership_python_file::1
 scripts/monitoring/context_switching_performance_monitor.py::setup_monitoring_integration::1
+scripts/monitoring/zabbix_integration.py::get_dues_schedule_metrics::3
 scripts/n_plus_one_scanner.py::N1CodebaseScanner._scan_file::1
 scripts/performance/phase2_2_validation.py::run_phase22_validation::1
 scripts/rollback/phase2_2_rollback.py::run_phase22_rollback::1
@@ -42,10 +45,15 @@ scripts/setup/validate_role_profile_db_config.py::test_new_api_functionality::1
 scripts/testing/pytest_precommit_runner.py::run_pytest_for_precommit::1
 scripts/validate_fixtures.py::validate_single_fixture::1
 scripts/validation/doctype_loader.py::DocTypeLoader._load_doctype_from_file::1
+scripts/validation/features/validate_bank_details.py::main::1
+scripts/validation/features/validate_contact_request_implementation.py::check_doctype_structure::1
+scripts/validation/features/validate_member_portal.py::main::1
+scripts/validation/features/validate_personal_details.py::main::1
 scripts/validation/production/comprehensive_field_reference_validator.py::ContextAnalyzer.analyze_file_context::1
 scripts/validation/production/js_python_parameter_validator_enhanced.py::EnhancedJSPythonParameterValidator._create_python_function::1
 verenigingen/api/email_template_manager.py::send_template_email::1
 verenigingen/api/member/financial_api.py::get_current_dues_schedule_details::1
+verenigingen/api/member_management.py::_sanitize_member_filters::1
 verenigingen/api/member_management.py::can_assign_member_to_chapter::1
 verenigingen/api/member_management.py::extract_transaction_data_improved::1
 verenigingen/api/mollie_payment.py::_check_mandate_validity::1
@@ -54,8 +62,9 @@ verenigingen/api/payment_processing.py::send_payment_reminder_email::1
 verenigingen/api/security_monitoring_dashboard.py::_get_active_security_alerts::1
 verenigingen/api/security_monitoring_dashboard.py::_get_recent_security_events::1
 verenigingen/api/sepa_duplicate_prevention.py::_release_idempotency_lock::1
-verenigingen/api/sepa_duplicate_prevention.py::_release_redis_lock::1
+verenigingen/api/sepa_duplicate_prevention.py::_release_redis_lock::2
 verenigingen/api/sepa_duplicate_prevention.py::_try_redis_lock::1
+verenigingen/auth_hooks.py::get_default_home_page::2
 verenigingen/auth_hooks.py::has_member_role::1
 verenigingen/auth_hooks.py::has_system_access::1
 verenigingen/auth_hooks.py::has_volunteer_role::1
@@ -79,6 +88,7 @@ verenigingen/e_boekhouden/utils/eboekhouden_api.py::EBoekhoudenXMLParser.parse_m
 verenigingen/e_boekhouden/utils/eboekhouden_api.py::EBoekhoudenXMLParser.parse_relaties::1
 verenigingen/e_boekhouden/utils/eboekhouden_api.py::get_ledger_info_for_analysis::1
 verenigingen/e_boekhouden/utils/eboekhouden_coa_import.py::create_bank_account_record::1
+verenigingen/e_boekhouden/utils/eboekhouden_improved_item_naming.py::get_or_create_item_improved::2
 verenigingen/e_boekhouden/utils/eboekhouden_payment_import.py::create_payment_entry::1
 verenigingen/e_boekhouden/utils/eboekhouden_rest_client.py::EBoekhoudenRESTClient.get_mutation_detail::1
 verenigingen/e_boekhouden/utils/eboekhouden_rest_full_migration.py::ensure_account_type_is_correct::1
@@ -97,6 +107,8 @@ verenigingen/e_boekhouden/utils/processors/transaction_coordinator.py::Transacti
 verenigingen/e_boekhouden/utils/smart_tegenrekening_mapper.py::SmartTegenrekeningMapper._create_dynamic_item::1
 verenigingen/e_boekhouden/utils/transaction_utils.py::get_suspense_account_impl::1
 verenigingen/e_boekhouden/utils/uom_manager.py::UOMManager._create_custom_uom::1
+verenigingen/mijnrood_sync/services/document_reclassify_service.py::reclassify_documents.get_folder_tree::1
+verenigingen/mijnrood_sync/services/event_application/related_records_orchestrator.py::MijnRoodRelatedRecordsOrchestrator._assign_chapter_from_division::1
 verenigingen/mijnrood_sync/services/polling_service.py::MijnRoodPollingService._poll_division_contacts::1
 verenigingen/patches/v2_0/migrate_team_role_integration.py::validate_migration_prerequisites::2
 verenigingen/patches/v2_0/migrate_team_role_integration.py::validate_team_roles_exist::1
@@ -131,6 +143,8 @@ verenigingen/services/chapter/chapter_board_service.py::ChapterBoardService.upda
 verenigingen/services/chapter/chapter_provisioning_service.py::ensure_chapter::1
 verenigingen/services/chapter/chapter_reference_manager.py::ChapterReferenceManager.cleanup_invalid_chapter_references::2
 verenigingen/services/chapter/chapter_reference_manager.py::cleanup_member_chapter_references::1
+verenigingen/services/chapter/chapter_utils.py::get_user_board_positions::1
+verenigingen/services/chapter/optimized_chapter_lookup.py::OptimizedChapterLookup.is_chapter_management_enabled::1
 verenigingen/services/communication/compatibility.py::get_segment_recipients::1
 verenigingen/services/communication/email_configuration_service.py::EmailConfigurationService.get_notification_config::1
 verenigingen/services/communication/email_service.py::EmailService._create_communication_record::1
@@ -140,6 +154,7 @@ verenigingen/services/csv_import/membership_import_service.py::MembershipImportS
 verenigingen/services/customer_handling_service.py::CustomerHandlingService.update_member_customer_reference::1
 verenigingen/services/customer_handling_service.py::CustomerHandlingService.validate_configuration::1
 verenigingen/services/donation/donor_service.py::DonationDonorService.link_donor_to_customer::1
+verenigingen/services/infrastructure/service_integration.py::ServiceIntegrationManager.register_core_services::1
 verenigingen/services/member/account/base_role_profile_manager.py::safe_hook_execution::1
 verenigingen/services/member/account/member_role_service.py::MemberRoleService.add_member_roles_to_user::1
 verenigingen/services/member/account/user_role_profile_calculator.py::auto_sync_on_role_change::1
@@ -150,6 +165,7 @@ verenigingen/services/member/approval/application_helpers.py::activate_pending_c
 verenigingen/services/member/approval/application_helpers.py::create_active_chapter_membership::1
 verenigingen/services/member/approval/application_helpers.py::create_pending_chapter_membership::1
 verenigingen/services/member/approval/application_helpers.py::create_volunteer_record::1
+verenigingen/services/member/approval/application_helpers.py::get_form_data::1
 verenigingen/services/member/approval/application_helpers.py::remove_pending_chapter_membership::1
 verenigingen/services/member/approval/application_payments.py::create_contact_for_customer::1
 verenigingen/services/member/approval/membership_creation_service.py::MembershipCreationService._create_membership_invoice::1
@@ -188,6 +204,7 @@ verenigingen/services/termination/termination_integration.py::update_member_stat
 verenigingen/services/volunteer/native_expense_helpers.py::update_employee_approver::1
 verenigingen/services/volunteer/volunteer_expense_portal_utils.py::get_volunteer_expenses_from_claims::1
 verenigingen/services/volunteer/volunteer_expense_portal_utils.py::is_policy_covered_expense::1
+verenigingen/services/volunteer/volunteer_statistics.py::get_volunteer_expense_summary::1
 verenigingen/setup/__init__.py::create_default_verenigingen_settings::1
 verenigingen/setup/__init__.py::fix_btw_installation::1
 verenigingen/setup/__init__.py::install_missing_btw_fields::1
@@ -199,12 +216,16 @@ verenigingen/setup/simple_dd_workflow_setup.py::setup_simple_dd_workflow::1
 verenigingen/setup/workflow_setup.py::create_appeals_workflow_corrected::1
 verenigingen/setup/workflow_setup.py::create_termination_workflow_corrected::1
 verenigingen/setup/workflow_setup.py::setup_workflows_corrected::1
+verenigingen/templates/pages/chapter_dashboard.py::get_context::1
+verenigingen/templates/pages/chapter_dashboard.py::get_member_overview::2
 verenigingen/templates/pages/chapter_dashboard.py::get_members_without_payment_info_count::1
 verenigingen/templates/pages/chapter_dashboard.py::get_pending_expense_approvals::1
+verenigingen/templates/pages/chapter_dashboard.py::get_recent_activity::1
 verenigingen/templates/pages/manage_donations.py::get_recent_donations::1
 verenigingen/templates/pages/manage_donations.py::get_recurring_donations::1
 verenigingen/templates/pages/member_portal.py::_build_chapter_info::1
 verenigingen/templates/pages/member_portal.py::get_all_member_chapters::1
+verenigingen/templates/pages/member_portal.py::get_context::1
 verenigingen/templates/pages/member_portal.py::get_member_chapter_info::1
 verenigingen/templates/pages/member_portal.py::get_payment_status::1
 verenigingen/templates/pages/membership_adjustment.py::get_member_fee_history::1
@@ -243,6 +264,7 @@ verenigingen/utils/member_financial_history_manager.py::MemberFinancialHistoryMa
 verenigingen/utils/member_financial_history_manager.py::MemberFinancialHistoryManager.remove_entry::1
 verenigingen/utils/member_financial_history_manager.py::MemberFinancialHistoryManager.update_entry_field::1
 verenigingen/utils/member_history_integrity.py::HistoryIntegrityManager._batch_validate_references::1
+verenigingen/utils/member_portal_utils.py::setup_portal_context::1
 verenigingen/utils/member_utils.py::get_active_membership_for_member::1
 verenigingen/utils/member_utils.py::get_current_user_member_info::1
 verenigingen/utils/member_utils.py::get_dues_schedule_for_membership::1
@@ -265,6 +287,7 @@ verenigingen/utils/performance_cache.py::PerformanceCache.get::1
 verenigingen/utils/performance_cache.py::PerformanceCache.get_or_set::1
 verenigingen/utils/performance_cache.py::PerformanceCache.invalidate::1
 verenigingen/utils/performance_cache.py::PerformanceCache.set::1
+verenigingen/utils/performance_cache.py::PerformanceCache.warm_cache::1
 verenigingen/utils/performance_utils.py::get_user_chapter_memberships_optimized::1
 verenigingen/utils/performance_utils.py::get_user_volunteer_record_optimized::1
 verenigingen/utils/post_migration_hooks.py::quick_workspace_health_check::1
@@ -283,6 +306,7 @@ verenigingen/utils/security/audit_logging.py::SEPAAuditLogger._cleanup_api_logs:
 verenigingen/utils/security/audit_logging.py::SEPAAuditLogger._cleanup_sepa_logs::1
 verenigingen/utils/security/audit_logging.py::SEPAAuditLogger._search_api_audit_logs::1
 verenigingen/utils/security/audit_logging.py::SEPAAuditLogger._search_sepa_audit_logs::1
+verenigingen/utils/security/audit_logging.py::SEPAAuditLogger.log_event::1
 verenigingen/utils/security/audit_logging.py::SEPAAuditLogger.search_audit_logs::1
 verenigingen/utils/security/authorization.py::SEPAAuthorizationManager._check_batch_permissions::1
 verenigingen/utils/security/authorization.py::SEPAAuthorizationManager._check_business_hours::1
@@ -326,6 +350,7 @@ verenigingen/verenigingen/doctype/chapter/managers/communication_manager.py::Com
 verenigingen/verenigingen/doctype/chapter/managers/volunteer_integration_manager.py::VolunteerIntegrationManager.add_volunteer_assignment_history::1
 verenigingen/verenigingen/doctype/chapter/managers/volunteer_integration_manager.py::VolunteerIntegrationManager.get_volunteer_assignment_history::1
 verenigingen/verenigingen/doctype/chapter/managers/volunteer_integration_manager.py::VolunteerIntegrationManager.update_volunteer_assignment_history::1
+verenigingen/verenigingen/doctype/chapter/validators/board_member_validator.py::BoardMemberValidator._get_unique_roles::1
 verenigingen/verenigingen/doctype/chapter_join_request/chapter_join_request.py::get_chapter_join_requests::1
 verenigingen/verenigingen/doctype/chapter_join_request/chapter_join_request.py::get_member_chapter_join_requests::1
 verenigingen/verenigingen/doctype/donation/donation.py::send_donation_confirmation_email::1
@@ -338,6 +363,7 @@ verenigingen/verenigingen/doctype/member/mixins/expense_mixin.py::ExpenseMixin.u
 verenigingen/verenigingen/doctype/member/mixins/financial_mixin.py::FinancialMixin.get_financial_summary::1
 verenigingen/verenigingen/doctype/member_contact_request/contact_request_automation.py::get_contact_request_analytics::1
 verenigingen/verenigingen/doctype/membership_dues_schedule/membership_dues_schedule.py::MembershipDuesSchedule.validate_member_eligibility_for_invoice::1
+verenigingen/verenigingen/doctype/membership_goal/membership_goal.py::MembershipGoal.calculate_chapter_expansion::1
 verenigingen/verenigingen/doctype/membership_termination_request/membership_termination_request.py::send_disciplinary_notification::1
 verenigingen/verenigingen/doctype/mt940_import/mt940_import.py::MT940Import.get_transaction_date_range::1
 verenigingen/verenigingen/doctype/region/region.py::Region.get_region_chapters::1
@@ -364,6 +390,8 @@ verenigingen/verenigingen_payments/clients/bulk_transaction_importer.py::BulkTra
 verenigingen/verenigingen_payments/clients/bulk_transaction_importer.py::BulkTransactionImporter._validate_duplicate_transaction::1
 verenigingen/verenigingen_payments/core/security/mollie_security_manager.py::MollieSecurityManager._test_api_connectivity::1
 verenigingen/verenigingen_payments/core/security/mollie_security_manager.py::MollieSecurityManager._validate_webhook_timestamp::1
+verenigingen/verenigingen_payments/dashboards/financial_dashboard.py::FinancialDashboard._get_payments_data::1
+verenigingen/verenigingen_payments/dashboards/financial_dashboard.py::FinancialDashboard._get_settlements_data::1
 verenigingen/verenigingen_payments/doctype/mollie_settings/mollie_settings.py::MollieSettings.get_subscription::1
 verenigingen/verenigingen_payments/doctype/payment_plan/payment_plan.py::process_overdue_installments::1
 verenigingen/verenigingen_payments/doctype/ponto_settings/ponto_settings.py::PontoSettings._fix_bank_account_currency::1
@@ -427,6 +455,7 @@ verenigingen/verenigingen_payments/utils/payment_utils.py::get_unreconciled_paym
 verenigingen/verenigingen_payments/utils/sepa_alerting_system.py::SEPAAlertingSystem._convert_security_incident_to_alert::1
 verenigingen/verenigingen_payments/utils/sepa_alerting_system.py::SEPAAlertingSystem.check_security_incidents::1
 verenigingen/verenigingen_payments/utils/sepa_config_manager.py::SEPAConfigManager.update_setting::1
+verenigingen/verenigingen_payments/utils/sepa_memory_optimizer.py::SEPAStreamProcessor.stream_process_invoices::1
 verenigingen/verenigingen_payments/utils/sepa_race_condition_manager.py::SEPADistributedLock.force_release_lock::1
 verenigingen/verenigingen_payments/utils/sepa_return_parser.py::SEPAReturnParser._parse_transaction_status::1
 verenigingen/verenigingen_payments/utils/sepa_rollback_manager.py::SEPARollbackManager._create_compensation_transaction::1

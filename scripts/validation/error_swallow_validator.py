@@ -36,9 +36,11 @@ A handler is reported only when ALL of these hold, which is the load-bearing cas
    resume real work: no ``continue``/``break``, no nested ``def``/``class``, and
    no return of a real value on ANY branch;
 4. it hands the caller a falsy value -- either every return in it is a falsy
-   literal (``None``/``False``/``{}``/``[]``/``""``/``0``), or it has no return at
+   literal (``None``/``False``/``{}``/``[]``/``""``/``0``); or it has no return at
    all and the ``try`` is the LAST statement of the function, so falling off the
-   end of the handler is an implicit ``return None``; and
+   end of the handler is an implicit ``return None``; or it has no return at all
+   but ASSIGNS nothing but falsy values, the same swallow one step removed
+   (#601, below); and
 5. the ENCLOSING FUNCTION elsewhere returns a real value.
 
 On (4): the falsy test is "any falsy literal", not a list of blessed ones,
@@ -101,6 +103,60 @@ best-effort notification) is not reported: its falsy return is not load-bearing,
 because no caller can branch on it. Measured on this repo, (5) is what makes the
 rule usable: conditions 1-4 alone match 937 sites, and (5) cuts that to 457.
 
+THE ASSIGN ARM (#601)
+----------------------
+Every arm above is reached only from an ``ast.Return`` node. A handler that
+ASSIGNS the same falsy value instead of returning it is the identical defect and
+was invisible to all of them: ``chapter_dashboard.get_chapter_key_metrics`` zeroed
+``member_stats`` into a variable on failure, and sat directly above
+``get_basic_expense_stats``, whose byte-identical zero dict WAS caught -- because
+that one returned it. Only one of the two was ever findable (#593 fixed both).
+
+Extending (4) to ``ast.Assign`` outright would immediately flag the one place in
+the tree this pattern is CORRECT: ``volunteer/dashboard.py`` zeroes
+``context.expense_summary`` on failure, but also sets ``context.data_warning``,
+which the template renders instead of silently pretending nothing happened. That
+site must stay clean with no marker -- a pragma on the one correct instance would
+teach readers to paper over the pattern instead of writing a handler for it. The
+narrower rule, and the one shipped: an assignment is flagged only when the handler
+sets NOTHING else at all (no error flag, no message, no re-raise) -- see
+``_falsy_only_assigns``.
+
+This is a new heuristic with its own false-positive surface, not the same shape as
+(4)'s literal test above. Measured over both ``SCAN_ROOTS``, tests excluded,
+restricted to handlers with no ``return`` at all: 35 sites (one entry per
+handler, so a function with several qualifying handlers -- e.g.
+``get_dues_schedule_metrics``, 3 -- counts more than once). Two known false
+positives from that hand review, left open rather than chased because closing
+them needs more than syntax:
+
+* ``sepa_memory_optimizer.py``: ``results["success"] = False`` sits beside
+  ``results["errors"].append({"error": str(e), ...})`` in the SAME handler, which
+  genuinely carries the cause -- just not through an assignment, so
+  ``_falsy_only_assigns`` cannot see it.
+* ``chapter_dashboard.get_context``: ``has_data = False`` alongside
+  ``dashboard_data = None`` -- ``has_data`` IS the informative signal, not a
+  value hiding one; the caller branches on it two statements later, OUTSIDE the
+  handler, to set ``context.error_message``. This is NOT missed for the reason
+  the volunteer-dashboard exemption tests -- ``has_data = False`` is falsy, so
+  ``_falsy_only_assigns`` never sees it as "something else" in the first place.
+  It is the SAME mechanism as the class below, one assign short of it.
+
+A third, wider class is not a pair of one-off false positives but a recurring
+shape: 11 of the 35 sites are a handler whose ONLY assign is the literal
+``False`` -- the "set a failure flag" idiom (``all_valid = False``,
+``released = False``, a per-item ``registration_results[name] = False``). A
+falsy BOOLEAN is exactly as capable of being the caller's signal as
+``has_data`` above; this syntactic test cannot tell "the flag correctly says it
+failed" from "the flag is false because the check that would have set it never
+ran". Left in the baseline rather than exempted by name, because unlike the two
+false positives above, most of these genuinely cannot be told apart from a
+swallow without reading what the caller does with the flag -- exempting the
+whole shape would also exempt a real one.
+
+All three stay in the baseline as known limits of a syntactic test, not because
+the class in general is safe to ignore.
+
 KNOWN FALSE NEGATIVES
 ---------------------
 A handler that returns a falsy value INDIRECTLY (``result = None`` ...
@@ -111,12 +167,23 @@ is therefore not proof of absence.
 Handlers that log nothing at all are also out of scope. That is a different and
 worse bug class -- a silent swallow -- and reporting it here would bury this one.
 
+The ASSIGN arm (#601) adds its own gap in the same family: a handler with a REAL
+return on one branch and a falsy assign on another is invisible to BOTH arms --
+``except Exception: stats = {}; if urgent: return backup()`` is neither a falsy
+RETURN (there's a real one) nor an assign-only swallow (there's a return at all),
+so `scan_file` skips it entirely. Confirmed: ``stats = {}`` here reaches the
+caller on every path where ``urgent`` is false, exactly as swallowed as if the
+``if`` were not there. ``_falsy_only_assigns`` also cannot see ``ast.AnnAssign``
+or ``ast.AugAssign`` at all -- see its own docstring for the measurement.
+
 RATCHET, NOT BIG-BANG
 ---------------------
-There are 457 such sites today, across ``verenigingen/`` and ``scripts/``.
-Failing on all of them would block every commit, and pragma-ing 457 sites in one
-diff would be unreviewable. So this validator fails only on sites NOT already
-recorded in the baseline.
+There are 480 such sites today, across ``verenigingen/`` and ``scripts/`` (this
+number moves with every widening -- 457 when this paragraph was first written,
+before #589's dict arm and #601's assign arm; check ``--stats`` rather than
+trusting it). Failing on all of them would block every commit, and pragma-ing
+480 sites in one diff would be unreviewable. So this validator fails only on
+sites NOT already recorded in the baseline.
 
 Run over the whole tree by the ``Code Validation`` workflow, so ``git commit -n``
 does not bypass it, and as a pre-commit hook on touched files for fast feedback.
@@ -268,7 +335,15 @@ def _is_log_call(node: ast.AST) -> bool:
 def _is_falsy_return(node: ast.AST) -> bool:
     if not isinstance(node, ast.Return):
         return False
-    v = node.value
+    return _is_falsy_value(node.value)
+
+
+def _is_falsy_value(v: ast.AST | None) -> bool:
+    """The value-level test behind (4), shared by a falsy RETURN and a falsy
+    ASSIGN (#601). ``_is_falsy_return`` used to hold this body directly; it is
+    split out so an assignment can be tested the same way without wrapping it in
+    a fake ``ast.Return`` node.
+    """
     if v is None:
         return True
     # Any falsy literal, NOT just None/False: `return ""` is the flagship incident
@@ -345,6 +420,91 @@ def _is_falsy_return(node: ast.AST) -> bool:
         # never by relaxing the guard, which is what the 7-for-6 measurement above
         # forbids. 0 occurrences today (#589).
         return ast.unparse(v.func) in FALSY_EMPTY_CONSTRUCTORS
+    return False
+
+
+def _falsy_only_assigns(handler: ast.ExceptHandler) -> bool:
+    """The ASSIGN counterpart to (4) (#601): every own-scope assignment in
+    ``handler`` -- not only ones directly in its body, but any reached by
+    ``_own_nodes`` without crossing into a nested scope, so an assign on only ONE
+    branch of an ``if`` inside the handler still qualifies the whole handler -- is
+    a falsy value, and there is at least one.
+
+    ``chapter_dashboard.get_chapter_key_metrics`` zeroed ``member_stats`` into a
+    variable instead of returning it -- the exact defect (4) exists to catch, sitting
+    directly above ``get_basic_expense_stats``, whose identical zero dict WAS caught
+    because it returned it. `scan_file` only ever looks at RETURN nodes, so the
+    assignment was invisible.
+
+    The rule is deliberately narrower than "flag any falsy assignment": it fires
+    only when the handler sets NOTHING else. A handler that also sets an error flag
+    or message -- ``context.data_warning = ...`` beside ``context.expense_summary =
+    {...zeros}`` in ``volunteer/dashboard.py`` -- has somewhere for the caller to
+    learn something went wrong, and is the correct page-level degrade, not a
+    swallow. It must stay clean with no marker: a pragma on the one place this
+    pattern is RIGHT would teach readers to paper over it rather than write a
+    handler. Unlike the RETURN arm's implicit-``None`` case, this does not require
+    the ``try`` to be the LAST statement of the function -- an assignment resumes
+    execution either way, and what makes it load-bearing is condition (5) at the
+    function level, not where the ``try`` sits.
+
+    Measured over both ``SCAN_ROOTS``, tests excluded, restricted to handlers with
+    no ``return`` at all (a handler that also returns is judged by the RETURN arm
+    instead, to avoid scoring the same handler twice): 35 sites. Known limits of
+    this exact mechanical test, found during that hand review and left open rather
+    than chased -- see the module docstring's ASSIGN ARM section for the full
+    accounting:
+
+    * a non-log call elsewhere in the handler can carry the cause without any
+      assignment being non-falsy at all -- ``results["errors"].append({"error":
+      str(e)})`` beside ``results["success"] = False`` in
+      ``sepa_memory_optimizer.py`` genuinely is not a swallow, and this test cannot
+      see it, because it only looks at ``ast.Assign`` nodes.
+    * a falsy value can BE the informative signal rather than hide one, the same
+      way an 11-site class below is -- ``chapter_dashboard.get_context`` sets
+      ``has_data = False`` alongside ``dashboard_data = None``; ``has_data`` is
+      itself falsy, so this test never sees it as "something else" to disqualify
+      the handler with, even though the caller branches on it two lines later
+      (OUTSIDE the handler) to set ``context.error_message``.
+    * ``ast.AnnAssign``/``ast.AugAssign`` are invisible to this test entirely --
+      ``msg: str = str(e)`` or ``count += 1`` inside an otherwise falsy-only
+      handler would not stop it being flagged, or would not be RECOGNISED as
+      carrying the cause by ``_assigns_the_cause``. 0 live sites today (114
+      ``AnnAssign``/``AugAssign`` nodes inside a broad handler tree-wide, none of
+      them landing in a handler this test currently recognises as falsy-only), so
+      this is exposure rather than debt.
+    """
+    assigns = [n for n in _own_nodes(handler) if isinstance(n, ast.Assign)]
+    return bool(assigns) and all(_is_falsy_value(a.value) for a in assigns)
+
+
+def _assigns_the_cause(handler: ast.ExceptHandler) -> bool:
+    """Assign counterpart to ``_returns_the_cause`` (#601).
+
+    Used only by the shrink explainer: once an assign-based finding leaves the
+    count because ``_falsy_only_assigns`` no longer holds, this asks whether that
+    happened because the assignment now carries the bound exception (a real fix,
+    silent) or because it changed into some OTHER shape ``_is_falsy_value`` simply
+    does not recognise -- `member_stats = State.NOT_FOUND` is the assign-side
+    version of the enum-member evasion `_returns_the_cause` was written for
+    (`unrecognised`, reported).
+    """
+    if not handler.name:
+        return False
+    name = handler.name
+    for a in ast.walk(handler):
+        if not isinstance(a, ast.Assign):
+            continue
+        for n in ast.walk(a.value):
+            if isinstance(n, ast.Call) and (
+                any(_is_bound_name(x, name) for x in n.args)
+                or any(_is_bound_name(k.value, name) for k in n.keywords)
+            ):
+                return True
+            if isinstance(n, ast.Attribute) and _is_bound_name(n.value, name):
+                return True
+            if isinstance(n, ast.FormattedValue) and _is_bound_name(n.value, name):
+                return True
     return False
 
 
@@ -497,8 +657,12 @@ def scan_file(path: Path):
                 continue
 
             # (4) no return at all is an implicit `return None` only if falling off
-            # the handler ends the function.
-            if not rets and id(node) not in trailing:
+            # the handler ends the function -- OR the handler assigns nothing but
+            # falsy values instead of returning one (#601). The assign arm does not
+            # need the trailing check: an assignment resumes the function either
+            # way, and what makes it load-bearing is condition (5), not where the
+            # `try` sits.
+            if not rets and id(node) not in trailing and not _falsy_only_assigns(node):
                 continue
 
             ok, bad_reason = _suppressed(node, lines)
@@ -592,7 +756,7 @@ def _falsy_swallow_handlers(fn: ast.AST, lines: list[str]) -> list[ast.ExceptHan
         if _suppressed(node, lines)[0]:
             continue
         rets = [n for n in ast.walk(node) if isinstance(n, ast.Return)]
-        if not rets and id(node) not in trailing:
+        if not rets and id(node) not in trailing and not _falsy_only_assigns(node):
             continue  # falling off mid-function resumes it: never was a swallow
         if not all(_is_falsy_return(r) for r in rets):
             continue
@@ -614,7 +778,21 @@ def _handler_fingerprint(handler: ast.ExceptHandler) -> str:
         for n in ast.walk(handler)
         if isinstance(n, ast.Return)
     )
-    return f"{kind}|{'&'.join(rets)}"
+    # Own-scope assigns too (#601): a RETURN-less handler has no `rets` at all, so
+    # two DIFFERENT assign-only handlers in the same function (`x = {}` and
+    # `y = []`, say) would otherwise collide onto the identical fingerprint
+    # `kind|` and be indistinguishable to the base-tree comparison below.
+    #
+    # Only the assigned VALUES go in, sorted, not the whole statement in source
+    # order: fingerprinting `ast.unparse(n)` (target included) made a pure
+    # variable RENAME of a behaviourally-unchanged handler read as a brand-new
+    # fingerprint, so a pre-existing silent sibling got reported as "the logging
+    # call was deleted" the moment an unrelated rename landed beside it. Matching
+    # on the value only, order-independent, mirrors the granularity already
+    # documented above for `rets`: "return the same expression are
+    # interchangeable" -- a rename is not a behavioural change here either.
+    assigns = tuple(sorted(ast.unparse(n.value) for n in _own_nodes(handler) if isinstance(n, ast.Assign)))
+    return f"{kind}|{'&'.join(rets)}|{'&'.join(assigns)}"
 
 
 def _silent_handlers(fn: ast.AST, lines: list[str]) -> list[ast.ExceptHandler]:
@@ -699,10 +877,34 @@ def _shrink_causes(
         if not _returns_real_value(fn):
             continue  # (5) gone: the falsy return is no longer load-bearing
         rets = [n for n in ast.walk(node) if isinstance(n, ast.Return)]
-        if not rets:
+        if rets:
+            if _returns_the_cause(node):
+                continue  # the caller can learn WHY: a real fix
+            out.append((node, "unrecognised"))
             continue
-        if _returns_the_cause(node):
-            continue  # the caller can learn WHY: a real fix
+        # No return at all: an assign-based finding (#601) can leave the count the
+        # same way a return-based one can -- `member_stats = {...zeros}` changed to
+        # `member_stats = State.NOT_FOUND` is the assign-side version of the
+        # enum-member evasion `_returns_the_cause` exists to catch.
+        assigns = [n for n in _own_nodes(node) if isinstance(n, ast.Assign)]
+        if len(assigns) != 1:
+            # A handler is only accused here if it looks like the ONE assign a
+            # baselined `_falsy_only_assigns` finding would have had. Measured: a
+            # handler with a SECOND own-scope assign is not a plausible descendant
+            # of one -- `_falsy_only_assigns` counts a handler ONLY when every
+            # assign in it is falsy, so growing from one assign to two (adding
+            # `context.data_warning = ...` beside an unchanged falsy
+            # `context.expense_summary = {...}`) is `volunteer/dashboard.py`'s
+            # legitimate degrade shape, not a shrink of anything -- it was NEVER
+            # counted. Without this gate, fixing ONE handler in a function
+            # accused this untouched, always-legitimate sibling of `unrecognised`
+            # purely because the function's total count dropped and this handler
+            # is not currently falsy-only. Proved both ways: a handler that grows
+            # a second assign is exempt (no report); a lone assign that changes
+            # shape without carrying the cause still is (below).
+            continue
+        if _assigns_the_cause(node):
+            continue  # a real fix: the assignment now carries the cause
         out.append((node, "unrecognised"))
     return sorted(out, key=lambda pair: pair[0].lineno)
 
