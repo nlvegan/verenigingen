@@ -27,8 +27,13 @@ from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
 
+# Read "today" off the SITE clock. The Currency Exchange fixture below is keyed
+# on frappe.utils.today(), and ERPNext looks the rate up by the Payment Entry's
+# posting_date; the naive process clock lands on a different calendar day from
+# 18:30 UTC (site tz Asia/Kolkata, CI in UTC), the rate lookup misses, and the
+# USD leg values at the fallback rate instead of the fixture's 1.25.
 import frappe
-from frappe.utils import flt
+from frappe.utils import flt, getdate
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.services.payment.payment_entry_creation_service import (
@@ -80,8 +85,8 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         # cost centers, income accounts, and other ERPNext requirements
         invoice = self.create_test_sales_invoice(
             customer=self.test_customer.name,
-            posting_date=date.today(),
-            due_date=date.today(),
+            posting_date=getdate(),
+            due_date=getdate(),
             items=[{"item_code": self.test_item_code, "qty": 1, "rate": float(amount)}],
         )
         if status == "Submitted":
@@ -98,9 +103,9 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         payment_entry = payment_entry_service.create_payment_entry_from_invoice(
             invoice_name=invoice.name,
             amount=Decimal("50.00"),
-            posting_date=date.today(),
+            posting_date=getdate(),
             reference_no="TEST-REF-001",
-            reference_date=date.today(),
+            reference_date=getdate(),
             mode_of_payment="SEPA Direct Debit",
         )
 
@@ -131,9 +136,9 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
             payment_entry_service.create_payment_entry_from_invoice(
                 invoice_name=invoice.name,
                 amount=Decimal("-50.00"),  # Negative amount
-                posting_date=date.today(),
+                posting_date=getdate(),
                 reference_no="TEST-REF-002",
-                reference_date=date.today(),
+                reference_date=getdate(),
                 mode_of_payment="SEPA Direct Debit",
             )
 
@@ -150,9 +155,9 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
             payment_entry_service.create_payment_entry_from_invoice(
                 invoice_name=invoice.name,
                 amount=Decimal("0.00"),  # Zero amount
-                posting_date=date.today(),
+                posting_date=getdate(),
                 reference_no="TEST-REF-003",
-                reference_date=date.today(),
+                reference_date=getdate(),
                 mode_of_payment="SEPA Direct Debit",
             )
 
@@ -165,9 +170,9 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
             payment_entry_service.create_payment_entry_from_invoice(
                 invoice_name="INVALID-INV-999",
                 amount=Decimal("50.00"),
-                posting_date=date.today(),
+                posting_date=getdate(),
                 reference_no="TEST-REF-004",
-                reference_date=date.today(),
+                reference_date=getdate(),
                 mode_of_payment="SEPA Direct Debit",
             )
 
@@ -188,9 +193,9 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         payment_entry = payment_entry_service.create_payment_entry_from_invoice(
             invoice_name=invoice.name,
             amount=pay_amount,  # Decimal input
-            posting_date=date.today(),
+            posting_date=getdate(),
             reference_no="TEST-REF-005",
-            reference_date=date.today(),
+            reference_date=getdate(),
             mode_of_payment="SEPA Direct Debit",
         )
 
@@ -318,9 +323,9 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
             payment_entry_service.create_payment_entry_from_invoice(
                 invoice_name=invoice.name,
                 amount=Decimal("40.00"),
-                posting_date=date.today(),
+                posting_date=getdate(),
                 reference_no="PERM-CREATE",
-                reference_date=date.today(),
+                reference_date=getdate(),
                 mode_of_payment="SEPA Direct Debit",
             )
         # Exact literal from :138 — distinguishes the CREATE gate from the SUBMIT gate.
@@ -344,9 +349,9 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
                 payment_entry_service.create_payment_entry_from_invoice(
                     invoice_name=invoice.name,
                     amount=Decimal("45.00"),
-                    posting_date=date.today(),
+                    posting_date=getdate(),
                     reference_no="PERM-SUBMIT",
-                    reference_date=date.today(),
+                    reference_date=getdate(),
                     mode_of_payment="SEPA Direct Debit",
                     allow_draft_on_permission_failure=False,  # strict mode
                 )
@@ -392,18 +397,18 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         payment1 = payment_entry_service.create_payment_entry_from_invoice(
             invoice_name=invoice.name,
             amount=Decimal("60.00"),
-            posting_date=date.today(),
+            posting_date=getdate(),
             reference_no="PARTIAL-1",
-            reference_date=date.today(),
+            reference_date=getdate(),
             mode_of_payment="SEPA Direct Debit",
         )
 
         payment2 = payment_entry_service.create_payment_entry_from_invoice(
             invoice_name=invoice.name,
             amount=Decimal("40.00"),
-            posting_date=date.today(),
+            posting_date=getdate(),
             reference_no="PARTIAL-2",
-            reference_date=date.today(),
+            reference_date=getdate(),
             mode_of_payment="SEPA Direct Debit",
         )
 
@@ -444,9 +449,9 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
                 payment_entry_service.create_payment_entry_from_invoice(
                     invoice_name=invoice.name,
                     amount=Decimal("50.00"),
-                    posting_date=date.today(),
+                    posting_date=getdate(),
                     reference_no="TEST-REF-LOG",
-                    reference_date=date.today(),
+                    reference_date=getdate(),
                     mode_of_payment="SEPA Direct Debit",
                 )
 
@@ -475,9 +480,9 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         payment_entry = payment_entry_service.create_payment_entry_from_invoice(
             invoice_name=invoice.name,
             amount=Decimal("150.00"),
-            posting_date=date.today(),
+            posting_date=getdate(),
             reference_no="RECEIVE-TEST",
-            reference_date=date.today(),
+            reference_date=getdate(),
             mode_of_payment="Cash",
             payment_type="Receive",
         )
@@ -549,9 +554,9 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         payment_entry = payment_entry_service.create_payment_entry_from_invoice(
             invoice_name=invoice.name,
             amount=Decimal("60.00"),
-            posting_date=date.today(),
+            posting_date=getdate(),
             reference_no="GATEWAY-BANK",
-            reference_date=date.today(),
+            reference_date=getdate(),
             mode_of_payment="Bank Transfer",
             bank_account=clearing,
         )
@@ -571,9 +576,9 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         payment_entry = payment_entry_service.create_payment_entry_from_invoice(
             invoice_name=invoice.name,
             amount=Decimal("60.00"),
-            posting_date=date.today(),
+            posting_date=getdate(),
             reference_no="GATEWAY-REMARKS",
-            reference_date=date.today(),
+            reference_date=getdate(),
             mode_of_payment="Bank Transfer",
             remarks=remarks,
         )
@@ -670,8 +675,8 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         # have to be in place before submission (they are not editable after).
         invoice = self.create_test_sales_invoice(
             customer=self.test_customer.name,
-            posting_date=date.today(),
-            due_date=date.today(),
+            posting_date=getdate(),
+            due_date=getdate(),
             items=[{"item_code": self.test_item_code, "qty": 1, "rate": 100.0}],
             status="Draft",
         )
@@ -682,9 +687,9 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         payment_entry = payment_entry_service.create_payment_entry_from_invoice(
             invoice_name=invoice.name,
             amount=Decimal("100.00"),
-            posting_date=date.today(),
+            posting_date=getdate(),
             reference_no="DISCOUNT-REF-001",
-            reference_date=date.today(),
+            reference_date=getdate(),
             mode_of_payment="Bank Transfer",
         )
 
@@ -722,8 +727,8 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         """
         invoice = self.create_test_sales_invoice(
             customer=self.test_customer.name,
-            posting_date=date.today(),
-            due_date=date.today(),
+            posting_date=getdate(),
+            due_date=getdate(),
             items=[{"item_code": self.test_item_code, "qty": 1, "rate": 100.0}],
             status="Draft",
         )
@@ -734,9 +739,9 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         payment_entry = payment_entry_service.create_payment_entry_from_invoice(
             invoice_name=invoice.name,
             amount=Decimal("40.00"),
-            posting_date=date.today(),
+            posting_date=getdate(),
             reference_no="DISCOUNT-PARTIAL-001",
-            reference_date=date.today(),
+            reference_date=getdate(),
             mode_of_payment="Bank Transfer",
         )
 
@@ -818,9 +823,9 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         payment_entry = payment_entry_service.create_payment_entry_from_invoice(
             invoice_name=invoice.name,
             amount=Decimal("40.00"),
-            posting_date=date.today(),
+            posting_date=getdate(),
             reference_no="BANKTRANS-REF-001",
-            reference_date=date.today(),
+            reference_date=getdate(),
             mode_of_payment="Bank Transfer",
             bank_transaction_name=bank_transaction.name,
         )
@@ -850,9 +855,9 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
             invoice_name=invoice.name,
             amount=Decimal("30.00"),
             cash_received=Decimal("100.00"),
-            posting_date=date.today(),
+            posting_date=getdate(),
             reference_no="OVERPAY-REF-001",
-            reference_date=date.today(),
+            reference_date=getdate(),
             mode_of_payment="Bank Transfer",
         )
 
@@ -893,9 +898,9 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         payment_entry = payment_entry_service.create_payment_entry_from_invoice(
             invoice_name=invoice.name,
             amount=Decimal("45.00"),
-            posting_date=date.today(),
+            posting_date=getdate(),
             reference_no="NOCASH-REF-001",
-            reference_date=date.today(),
+            reference_date=getdate(),
             mode_of_payment="Bank Transfer",
         )
 
@@ -913,9 +918,9 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
                 invoice_name=invoice.name,
                 amount=Decimal("50.00"),
                 cash_received=Decimal("20.00"),
-                posting_date=date.today(),
+                posting_date=getdate(),
                 reference_no="UNDERCASH-REF-001",
-                reference_date=date.today(),
+                reference_date=getdate(),
                 mode_of_payment="Bank Transfer",
             )
 
@@ -953,9 +958,9 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
             invoice_name=invoice.name,
             amount=Decimal("30.00"),
             cash_received=Decimal("80.00"),
-            posting_date=date.today(),
+            posting_date=getdate(),
             reference_no="NODISCOUNT-REF-001",
-            reference_date=date.today(),
+            reference_date=getdate(),
             mode_of_payment="Bank Transfer",
         )
 
@@ -1069,7 +1074,7 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
             party_amount=float(invoice.outstanding_amount),
             bank_account=clearing,
             payment_type="Receive",
-            reference_date=date.today(),
+            reference_date=getdate(),
         )
         self.assertNotEqual(
             probe.paid_from_account_currency,
@@ -1106,9 +1111,9 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
                 invoice_name=invoice.name,
                 amount=Decimal("30.00"),
                 cash_received=Decimal("100.00"),
-                posting_date=date.today(),
+                posting_date=getdate(),
                 reference_no="FX-OVERPAY-001",
-                reference_date=date.today(),
+                reference_date=getdate(),
                 mode_of_payment="Bank Transfer",
                 bank_account=clearing,
             )
@@ -1148,9 +1153,9 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
                 invoice_name=invoice.name,
                 amount=Decimal("30.00"),
                 cash_received=Decimal("100.00"),
-                posting_date=date.today(),
+                posting_date=getdate(),
                 reference_no="FX-SWAP-001",
-                reference_date=date.today(),
+                reference_date=getdate(),
                 mode_of_payment="Bank Transfer",
                 bank_account=clearing,
             )
@@ -1181,9 +1186,9 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         payment_entry = payment_entry_service.create_payment_entry_from_invoice(
             invoice_name=invoice.name,
             amount=Decimal("30.00"),
-            posting_date=date.today(),
+            posting_date=getdate(),
             reference_no="FX-ORDINARY-001",
-            reference_date=date.today(),
+            reference_date=getdate(),
             mode_of_payment="Bank Transfer",
             bank_account=clearing,
         )
@@ -1212,9 +1217,9 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
             payment_entry_service.create_payment_entry_from_invoice(
                 invoice_name=invoice.name,
                 amount=Decimal("25.00"),
-                posting_date=date.today(),
+                posting_date=getdate(),
                 reference_no="BADFIELD-REF-001",
-                reference_date=date.today(),
+                reference_date=getdate(),
                 mode_of_payment="Bank Transfer",
                 custom_fields={"custom_field_that_does_not_exist": "x"},
             )
