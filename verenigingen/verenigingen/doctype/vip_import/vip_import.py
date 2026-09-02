@@ -28,6 +28,7 @@ from verenigingen.utils.csv_import_processor import CSVImportBackgroundProcessor
 from verenigingen.utils.error_handling import sanitize_error_for_audit
 from verenigingen.utils.queue_management import has_queue_capacity, wait_for_queue_capacity
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.validation_utilities import AgeValidator
 
 if TYPE_CHECKING:
     from verenigingen.services.volunteer.bulk_volunteer_creation_service import (
@@ -306,30 +307,34 @@ def _validate_volunteer_age(member: Document) -> Optional[str]:
     """
     Validate that member meets minimum volunteer age requirement.
 
-    Uses the minimum_volunteer_age setting from Verenigingen Settings.
+    Uses the minimum_volunteer_age setting from Verenigingen Settings, via the
+    same AgeValidator._get_configurable_min_age gate the desk path uses. There
+    is deliberately no hardcoded fallback here: a missing/zero setting is a
+    configuration error and must refuse the row (surfaced via the per-row
+    error handling in _process_single_row), not silently substitute a number.
+    A prior `settings.get("minimum_volunteer_age") or 16` (with a silent
+    `except Exception: min_volunteer_age = 16`) disagreed with that policy --
+    a bulk import proceeded on the exact input the desk path refuses (#673).
 
     Args:
         member: Member document to validate
 
     Returns:
         Error message if validation fails, None if valid
+
+    Raises:
+        frappe.ValidationError: if minimum_volunteer_age is not configured.
     """
     from verenigingen.services.member.utils.member_age_service import calculate_member_age
 
     if not member.get("birth_date"):
         return None  # Can't validate without birth date
 
-    try:
-        settings = frappe.get_cached_doc("Verenigingen Settings")
-        min_volunteer_age = settings.get("minimum_volunteer_age") or 16
-    except Exception:
-        min_volunteer_age = 16
+    min_volunteer_age = AgeValidator._get_configurable_min_age("volunteer")
 
     # Completed calendar years, not date_diff/365.25: that float dips ~0.002 below
     # the integer on the member's own birthday, so at any threshold not divisible
     # by 4 this path rejected people the desk path accepted the same day (#657).
-    # The arithmetic now agrees; the `or 16` fallback above can still make the two
-    # disagree, because _get_configurable_min_age refuses where this substitutes 16.
     age_in_years = calculate_member_age(member.birth_date)
     if age_in_years is None:
         return None  # Unparseable birth date - nothing to validate against
@@ -606,6 +611,15 @@ def _process_single_row(row: Dict, import_doc: Document, stats: Dict) -> Dict[st
                 frappe.db.sql(f"RELEASE SAVEPOINT {savepoint_name}")
             except Exception:
                 pass  # Savepoint may already be released by rollback
+
+        # frappe.throw (e.g. AgeValidator._get_configurable_min_age's config-error
+        # throw, #673) appends to frappe.local.message_log before raising. This
+        # runs inside an enqueued background job (process_import_background), so
+        # there is no live request to leak that raw text into -- but the queue
+        # would otherwise keep growing for the life of the job across thousands
+        # of rows. Clear it per row, same reasoning as the sibling fix in
+        # bulk_volunteer_creation_service.py's _create_volunteer_for_member.
+        frappe.clear_messages()
 
         # Sanitize PII from row data before logging
         sanitized_row = {k: _sanitize_error_message(str(v)) if v else v for k, v in row.items()}

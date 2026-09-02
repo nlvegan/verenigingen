@@ -374,14 +374,21 @@ class ConfigurationManager:
         # previously referenced stale/renamed names which never matched, so the
         # configured values silently fell through to the hardcoded defaults):
         #   member_id_start_number -> member_id_start
-        #   minimum_member_age     -> minimum_membership_age
         #
         # `id_length` and `default_status` have NO corresponding field on the
         # current Verenigingen Settings doctype, so they keep their hardcoded
         # defaults (no field mapping) instead of referencing a phantom field.
+        #
+        # A `minimum_membership_age -> minimum_age` mapping used to live here,
+        # with a hardcoded default of 16 and min_val=0 -- silently accepting the
+        # exact missing/zero setting that AgeValidator._get_configurable_min_age
+        # deliberately refuses on. No consumer of member_config.get("minimum_age")
+        # ever existed (grepped: only this line and its own test read it), so the
+        # contradiction was reachable by nothing. Removed rather than reconciled
+        # with the policy it never enforced (#673); age minimums for actual
+        # validation are sourced solely from AgeValidator._get_configurable_min_age.
         field_mappings = [
             ("member_id_start", "id_start_number", 1000, int, 1, 999999),
-            ("minimum_membership_age", "minimum_age", 16, int, 0, 120),
         ]
 
         # Config keys with no backing settings field: seed their defaults so

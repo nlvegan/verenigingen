@@ -90,11 +90,16 @@ class ConfigManager:
         "email_retry_attempts": 3,
         "email_retry_delay_minutes": 5,
         # Membership settings (legacy - now configurable via Verenigingen Settings)
-        "min_membership_age": 16,
+        # min_membership_age removed (#673): this key's `hasattr(settings, "min_membership_age")`
+        # lookup in get() below can never match the real doctype field
+        # (minimum_membership_age), so it always returned this hardcoded 16 --
+        # unreachable-from-settings, and no code read it anyway (get_membership_config,
+        # its only reader, had zero callers). The authoritative source is
+        # AgeValidator._get_configurable_min_age, which deliberately has no fallback.
         "max_membership_types": 20,
         "default_membership_type": "Individual",
         # Volunteer settings (legacy - now configurable via Verenigingen Settings)
-        "min_volunteer_age": 16,
+        # min_volunteer_age removed (#673): same shape as min_membership_age above.
         "max_team_assignments": 5,
         "volunteer_inactive_months": 12,
         "expense_approval_threshold": 100.00,
@@ -276,8 +281,9 @@ def get_performance_config() -> Dict[str, Any]:
 
 def get_membership_config() -> Dict[str, Any]:
     """Get membership-related configuration"""
+    # No "min_age" key (#673): use AgeValidator._get_configurable_min_age("membership")
+    # instead -- the sole authoritative, no-fallback source for that policy.
     return {
-        "min_age": ConfigManager.get("min_membership_age", 16),
         "max_types": ConfigManager.get("max_membership_types", 20),
         "default_type": ConfigManager.get("default_membership_type", "Individual"),
         "grace_period_days": ConfigManager.get("payment_grace_period_days", 30),
@@ -286,8 +292,9 @@ def get_membership_config() -> Dict[str, Any]:
 
 def get_volunteer_config() -> Dict[str, Any]:
     """Get volunteer-related configuration"""
+    # No "min_age" key (#673): use AgeValidator._get_configurable_min_age("volunteer")
+    # instead -- the sole authoritative, no-fallback source for that policy.
     return {
-        "min_age": ConfigManager.get("min_volunteer_age", 16),
         "max_team_assignments": ConfigManager.get("max_team_assignments", 5),
         "inactive_months": ConfigManager.get("volunteer_inactive_months", 12),
         "expense_approval_threshold": ConfigManager.get("expense_approval_threshold", 100.00),
@@ -319,9 +326,12 @@ def validate_config() -> Dict[str, Any]:
     config = ConfigManager.get_all()
 
     # Check for logical inconsistencies
-    if config.get("min_membership_age", 0) < 0:
-        issues.append("Minimum membership age cannot be negative")
-
+    # A "min_membership_age cannot be negative" check used to live here, on a
+    # key removed from _default_config in #673 (see get_membership_config /
+    # get_volunteer_config above): it was a permanent no-op even before that --
+    # config.get("min_membership_age", 0) never dropped below the hardcoded
+    # default of 16, and this function itself has zero callers. Removed rather
+    # than left referencing a deleted key.
     if config.get("max_page_size", 0) < config.get("default_page_size", 0):
         issues.append("Maximum page size cannot be less than default page size")
 

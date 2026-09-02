@@ -27,6 +27,7 @@ from frappe import _
 from frappe.utils import getdate, today
 
 from verenigingen.services.infrastructure.base_service import StatelessService
+from verenigingen.utils.validation_utilities import AgeValidator
 
 
 class VolunteerCreationOutcome(Enum):
@@ -174,8 +175,18 @@ class BulkVolunteerCreationService(StatelessService):
 
     @property
     def minimum_volunteer_age(self) -> int:
-        """Get minimum volunteer age from settings"""
-        return self.settings.get("minimum_volunteer_age") or 16
+        """Get minimum volunteer age from settings.
+
+        Sourced via AgeValidator._get_configurable_min_age, the same gate the
+        desk path uses. There is deliberately no hardcoded fallback: a prior
+        `self.settings.get("minimum_volunteer_age") or 16` silently accepted
+        the exact missing/zero setting that gate refuses on, so an unattended
+        bulk import could apply a threshold the interactive path considers a
+        configuration error (#673). Raises frappe.ValidationError when unset,
+        which _create_volunteer_for_member's own except frappe.ValidationError
+        turns into a VALIDATION_ERROR outcome for that member.
+        """
+        return AgeValidator._get_configurable_min_age("volunteer")
 
     def create_volunteers_for_members(
         self,
@@ -390,6 +401,17 @@ class BulkVolunteerCreationService(StatelessService):
                 error_message=str(e)[:200],
             )
         except frappe.ValidationError as e:
+            # frappe.throw appends to frappe.local.message_log BEFORE raising, and
+            # that queue is serialised into _server_messages on every response --
+            # including the raw "minimum_volunteer_age is not configured..." text
+            # from AgeValidator._get_configurable_min_age (#673), read by member
+            # from a caller (e.g. retry_failed_volunteer_creations, whitelisted and
+            # synchronous). This method's own contract is "never raises -- always
+            # returns a result object", so no caught ValidationError here should
+            # leak its raw message into the response either. Same reasoning as
+            # api/volunteer_application.py's guest-endpoint fix (#659), "measured,
+            # not assumed" there.
+            frappe.clear_messages()
             return VolunteerCreationResult(
                 member_name=member_name,
                 outcome=VolunteerCreationOutcome.VALIDATION_ERROR,

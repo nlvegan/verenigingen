@@ -180,6 +180,27 @@ class TestVolunteerControllerCoverage(EnhancedTestCase):
         # Linked member is well over the minimum age -> volunteer created.
         self.assertTrue(frappe.db.exists("Volunteer", doc.name))
 
+    def test_validate_age_refuses_when_minimum_volunteer_age_unconfigured(self):
+        """validate_volunteer_age must FAIL CLOSED on an unset/zero
+        minimum_volunteer_age, not silently substitute 16 (#673).
+
+        `AgeValidator._get_configurable_min_age` deliberately throws on a
+        missing/zero setting -- a config error, not something to paper over.
+        The old `settings.get("minimum_volunteer_age") or 16` disagreed: the
+        desk path (AgeValidator) refuses on the same input this insert used to
+        silently accept. Pin the setting to 0 and assert the save is blocked
+        for an adult member (factory default birth_date 1990) who would pass
+        under any real minimum.
+        """
+        from verenigingen.tests.support.verenigingen_settings import pinned_setting
+
+        with pinned_setting("minimum_volunteer_age", 0):
+            doc = self._build_volunteer_doc(member_name=self.test_member.name)
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                doc.insert()
+        self.assertIn("minimum_volunteer_age", str(ctx.exception))
+        self.assertFalse(frappe.db.exists("Volunteer", {"member": self.test_member.name}))
+
     def test_validate_age_skipped_when_member_has_no_birth_date(self):
         """No birth_date on member -> age validation is skipped (volunteer created)."""
         member = self.create_test_member()

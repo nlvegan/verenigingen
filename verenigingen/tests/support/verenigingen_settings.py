@@ -169,9 +169,11 @@ def pinned_setting(field: str, value):
     Cost to weigh before reaching for this: the pin's commit defeats the per-test
     rollback for anything inserted BEFORE the `with` block, so take the pin first.
 
-    `clear_document_cache` matters too: the readers are split between
-    `frappe.db.get_single_value` (AgeValidator._get_configurable_min_age) and
-    `frappe.get_cached_doc` (vip_import._validate_volunteer_age).
+    `clear_document_cache` matters too: `frappe.db.get_single_value` (the sole
+    production reader as of #673 -- vip_import, BulkVolunteerCreationService and
+    Volunteer all resolve through AgeValidator._get_configurable_min_age now)
+    keeps its own `frappe.db.value_cache`, which `clear_document_cache` is what
+    actually pops.
 
     Lives here rather than in each test class because two modules now pin an age
     threshold, and near-identical private copies are exactly what the

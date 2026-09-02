@@ -13,8 +13,11 @@ These are pure-logic infra modules; the only DB touch point is
 ConfigurationManager.load_from_settings() which reads the real
 "Verenigingen Settings" Single. We exercise that against the real doctype and
 derive expectations from its actual fields. load_from_settings maps the REAL
-fields (member_id_start, minimum_membership_age) onto the member_services
-config - see test_load_from_settings_reads_real_member_fields.
+field (member_id_start) onto the member_services config - see
+test_load_from_settings_reads_real_member_fields. A minimum_membership_age ->
+minimum_age mapping used to live there too; removed in #673 (dead, no
+consumer, and it silently accepted the exact missing/zero setting
+AgeValidator._get_configurable_min_age deliberately refuses on).
 """
 
 import json
@@ -220,37 +223,31 @@ class TestConfigurationManager(EnhancedTestCase):
         self.assertEqual(mgr.get_global_config("absent", "dflt"), "dflt")
 
     def test_load_from_settings_reads_real_member_fields(self):
-        """load_from_settings maps the REAL Verenigingen Settings fields onto the
+        """load_from_settings maps the REAL Verenigingen Settings field onto the
         member_services config:
 
-            member_id_start        -> id_start_number
-            minimum_membership_age -> minimum_age
+            member_id_start -> id_start_number
 
-        Previously these referenced stale names (member_id_start_number,
-        minimum_member_age) that never matched, so configured values silently
-        fell through to the hardcoded defaults. Here we set non-default values
-        (non-committed, rolled back) and assert they flow into the config.
+        Previously this referenced a stale name (member_id_start_number) that
+        never matched, so the configured value silently fell through to the
+        hardcoded default. Here we set a non-default value (non-committed,
+        rolled back) and assert it flows into the config.
 
         `id_length` and `default_status` have NO backing field on the doctype, so
         they keep their hardcoded defaults.
         """
         orig_start = frappe.db.get_single_value("Verenigingen Settings", "member_id_start")
-        orig_age = frappe.db.get_single_value("Verenigingen Settings", "minimum_membership_age")
         try:
             frappe.db.set_single_value(
                 "Verenigingen Settings", "member_id_start", 5000, update_modified=False
-            )
-            frappe.db.set_single_value(
-                "Verenigingen Settings", "minimum_membership_age", 21, update_modified=False
             )
 
             mgr = ConfigurationManager()
             mgr.load_from_settings()  # real Single read; must not raise
 
             member_cfg = mgr.get_service_config("member_services")
-            # Real configured values flow through (NOT the 1000/16 defaults):
+            # Real configured value flows through (NOT the 1000 default):
             self.assertEqual(member_cfg.get("id_start_number"), 5000)
-            self.assertEqual(member_cfg.get("minimum_age"), 21)
             # No backing field -> hardcoded defaults retained:
             self.assertEqual(member_cfg.get("id_length"), 6)
             self.assertEqual(member_cfg.get("default_status"), "Active")
@@ -258,6 +255,42 @@ class TestConfigurationManager(EnhancedTestCase):
             frappe.db.set_single_value(
                 "Verenigingen Settings", "member_id_start", orig_start, update_modified=False
             )
+
+    def test_load_from_settings_no_longer_maps_a_minimum_age(self):
+        """A `minimum_membership_age -> minimum_age` mapping used to live in
+        `_load_member_service_settings`, with a hardcoded default of 16 and
+        min_val=0 -- silently accepting the exact missing/zero setting
+        `AgeValidator._get_configurable_min_age` deliberately refuses on (#673).
+        It had no consumer, so it is removed rather than reconciled with a
+        policy it never enforced. Pin the setting to that refused value (0) and
+        confirm member_services carries no `minimum_age` key at all -- age
+        minimums for actual validation come solely from
+        AgeValidator._get_configurable_min_age.
+
+        `get_service_config()` auto-creates an empty ServiceConfig for an unknown
+        service name, and `load_from_settings()`'s outer `except Exception` (this
+        module, `load_from_settings`) swallows a total loader failure silently --
+        so a bare "minimum_age is absent" assertion would also pass if the loader
+        never ran at all. Assert `id_length` alongside it: that key is set
+        unconditionally by `_load_member_service_settings` whenever it runs, so
+        its presence proves the loader actually executed rather than died upstream.
+        """
+        orig_age = frappe.db.get_single_value("Verenigingen Settings", "minimum_membership_age")
+        try:
+            frappe.db.set_single_value(
+                "Verenigingen Settings", "minimum_membership_age", 0, update_modified=False
+            )
+
+            mgr = ConfigurationManager()
+            mgr.load_from_settings()  # real Single read; must not raise
+
+            member_cfg = mgr.get_service_config("member_services")
+            self.assertIsNone(member_cfg.get("minimum_age"))
+            # Proves the loader actually ran (see docstring) rather than the
+            # negative assertion above passing because of a silently swallowed
+            # loader failure leaving member_cfg empty.
+            self.assertEqual(member_cfg.get("id_length"), 6)
+        finally:
             frappe.db.set_single_value(
                 "Verenigingen Settings", "minimum_membership_age", orig_age, update_modified=False
             )
