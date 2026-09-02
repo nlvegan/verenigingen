@@ -31,7 +31,7 @@ from unittest.mock import patch
 
 import frappe
 from frappe.core.doctype.user.user import User
-from frappe.utils import add_days, flt, getdate, now_datetime, today
+from frappe.utils import add_days, add_years, flt, getdate, now_datetime, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.test_data_factory import ensure_membership_type_exists
@@ -346,7 +346,9 @@ class TestDutchAgeValidation(EnhancedTestCase):
     def _member_at_age(self, age):
         """Build (unsaved) Member aged exactly `age` with unique name/email."""
         today_date = getdate()
-        birth_date = today_date.replace(year=today_date.year - age)
+        # add_years clamps 29 Feb to 28 Feb instead of raising ValueError on a
+        # non-leap target year (#696) - today_date.replace(year=...) does not.
+        birth_date = add_years(today_date, -age)
         h = frappe.generate_hash(length=6)
         member = frappe.new_doc("Member")
         member.first_name = f"Age{age}"
