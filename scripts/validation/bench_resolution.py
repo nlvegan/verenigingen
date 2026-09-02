@@ -42,15 +42,19 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from typing import Callable
+
+Marker = Callable[[Path], bool]
 
 
-def _has_bench_markers(candidate: Path) -> bool:
+def has_apps_and_sites(candidate: Path) -> bool:
+    """The default bench marker: a directory holding both ``apps/`` and ``sites/``."""
     return (candidate / "apps").is_dir() and (candidate / "sites").is_dir()
 
 
-def _walk_up_for_bench(start: Path) -> Path | None:
+def _walk_up(start: Path, marker: Marker) -> Path | None:
     for candidate in (start, *start.parents):
-        if _has_bench_markers(candidate):
+        if marker(candidate):
             return candidate
     return None
 
@@ -83,15 +87,20 @@ def _git_common_dir(start: Path) -> Path | None:
     return git_dir.resolve()
 
 
-def find_bench_root(start: Path) -> Path | None:
+def find_bench_root(start: Path, marker: Marker = has_apps_and_sites) -> Path | None:
     """The frappe-bench root reachable from ``start``, or None.
 
     Tries a plain filesystem walk-up first -- cheap, no subprocess, and
     correct for the common in-bench-worktree case -- then falls back to
     resolving the main checkout via git and walking up from there, which is
     what a worktree outside the bench needs.
+
+    ``marker`` lets a caller use a stricter bench signal than "has apps/ and
+    sites/ directories" (``import_path_validator.py`` requires
+    ``sites/common_site_config.json`` to actually exist); both walks use the
+    same marker so the git fallback stays consistent with the plain one.
     """
-    found = _walk_up_for_bench(start)
+    found = _walk_up(start, marker)
     if found is not None:
         return found
 
@@ -100,7 +109,7 @@ def find_bench_root(start: Path) -> Path | None:
         # git_dir is `.../<main-checkout>/.git`; its parent is the checkout
         # itself (e.g. `<bench>/apps/verenigingen`), which DOES have a bench
         # ancestor even when `start` -- the worktree -- does not.
-        found = _walk_up_for_bench(git_dir.parent)
+        found = _walk_up(git_dir.parent, marker)
         if found is not None:
             return found
 

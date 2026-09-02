@@ -12,9 +12,12 @@ everything and a detector that flags nothing both pass a one-sided test, and
 this repo has shipped both.
 """
 import importlib.util
+import os
+import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 _MOD_PATH = Path(__file__).resolve().parents[1] / "doctype_name_validator.py"
@@ -167,9 +170,46 @@ class TestAuthority(unittest.TestCase):
         for real in ("Chapter Board Member", "Volunteer", "Chapter", "Team"):
             self.assertIn(real, known)
 
+    def test_bench_apps_env_override_wins(self):
+        """#752's escape hatch: an explicit BENCH_APPS always wins over resolution."""
+        with tempfile.TemporaryDirectory() as d:
+            override = Path(d) / "not-a-real-apps-dir"
+            with unittest.mock.patch.dict(os.environ, {"BENCH_APPS": str(override)}):
+                self.assertEqual(dnv._find_bench_apps(dnv.REPO_ROOT), override)
+
+    def test_bench_apps_resolves_via_git_from_a_worktree_with_no_bench_ancestor(self):
+        """#752's actual regression: a real linked worktree of THIS repo, placed
+        outside the bench, has no bench ancestor for a filesystem walk-up to
+        find -- so this only passes if the git-common-dir fallback is doing
+        the work. See test_bench_resolution.py for the full coverage of the
+        fallback itself; this pins it to _find_bench_apps specifically."""
+        with tempfile.TemporaryDirectory() as d:
+            outside_worktree = Path(d) / "outside-worktree"
+            add = subprocess.run(
+                ["git", "worktree", "add", "--detach", str(outside_worktree), "HEAD"],
+                cwd=dnv.REPO_ROOT, capture_output=True, text=True,
+            )
+            self.assertEqual(add.returncode, 0, add.stderr)
+            try:
+                found = dnv._find_bench_apps(outside_worktree)
+                self.assertEqual(found, dnv.BENCH_APPS)
+            finally:
+                subprocess.run(
+                    ["git", "worktree", "remove", "--force", str(outside_worktree)],
+                    cwd=dnv.REPO_ROOT, capture_output=True, text=True,
+                )
+
 
 class TestAuthorityGuard(unittest.TestCase):
     """A partial authority must refuse, not accuse."""
+
+    def test_refusal_names_the_remedy(self):
+        """#752: the refusal must say what to do, or the answer is --no-verify."""
+        known = {v: k for k, v in dnv.AUTHORITY_PROBES.items()}
+        del known["Expense Claim"]
+        problem = dnv.authority_problem(known)
+        self.assertIn("BENCH_APPS", problem)
+        self.assertIn("--no-verify", problem)
 
     def test_a_missing_required_app_is_refused(self):
         known = {v: k for k, v in dnv.AUTHORITY_PROBES.items()}

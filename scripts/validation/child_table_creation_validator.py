@@ -18,11 +18,15 @@ Created: 2025-08-24
 
 import ast
 import re
+import sys
 import argparse
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Tuple, Union
 from dataclasses import dataclass
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from doctype_loader import DocTypeLoader, DocTypeMetadata, FieldMetadata
+from bench_resolution import find_bench_root
 
 @dataclass
 class ChildTableIssue:
@@ -396,15 +400,18 @@ def main():
         target_paths = [Path('.').resolve()]
     
     bench_path = Path(args.bench_path).resolve()
-    
-    # Auto-detect bench path if we're in a Frappe app directory
-    current_path = Path('.').resolve()
-    if 'apps' in current_path.parts:
-        # Try to find bench root
-        for parent in current_path.parents:
-            if (parent / 'apps').exists() and (parent / 'sites').exists():
-                bench_path = parent
-                break
+
+    # Auto-detect the bench root when --bench-path was not given explicitly.
+    # Not just when cwd's own path happens to contain "apps" (the old check):
+    # a git worktree created outside the bench -- routinely under /tmp in this
+    # project -- has no bench ancestor for a filesystem walk-up to find either
+    # way, so this needs find_bench_root's git-based fallback (#752). Without
+    # it, DocTypeLoader silently loads zero doctypes and this gate reports "no
+    # issues found" no matter what the file actually contains.
+    if args.bench_path == '.':
+        detected = find_bench_root(Path('.').resolve())
+        if detected is not None:
+            bench_path = detected
     
     # Create validator
     validator = ChildTableCreationValidator(bench_path)
