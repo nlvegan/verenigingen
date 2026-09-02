@@ -128,14 +128,27 @@ def ensure_payment_modes_exist():
 
 # Form/API payment method values -> Member.payment_method (a Link to Mode of
 # Payment, so any name is technically possible; this bridges the vocabulary
-# the application form/API uses to the Mode of Payment names the codebase
-# actually creates -- see application_payments.get_payment_methods()).
+# the application form/API uses to Mode of Payment names).
 #
 # Must cover every option declared on Application Payment Method.payment_method
 # (a Select an admin can freely enable), or an enabled-but-unmapped option is
 # silently misrecorded as Bank Transfer (#427). Module level, not a local, so
 # test_map_covers_every_declared_application_payment_method_option can check
 # coverage directly against the DocType's declared options.
+#
+# 'iDEAL'/'PayPal' are not provisioned by get_missing_payment_modes() /
+# ensure_payment_modes_exist() below (same as 'Credit Card' already wasn't) --
+# an admin enabling either without first creating the matching Mode of Payment
+# record gets the same "not configured" throw Credit Card already produces,
+# not a silent misrecording.
+#
+# Application Payment Method.payment_method is the only ingress this map is
+# checked against. application_payments.get_payment_methods() separately
+# returns every ENABLED Mode of Payment name verbatim (Bank Draft, Cheque,
+# Wire Transfer, ...) for a second form path -- currently dead
+# (get_form_data() never emits the payment_methods list that path renders
+# from) but if that ever gets wired up, values outside this map would need
+# the same coverage.
 PAYMENT_METHOD_MAP = {
     "bank_transfer": "Bank Transfer",
     "sepa_direct_debit": "SEPA Direct Debit",
