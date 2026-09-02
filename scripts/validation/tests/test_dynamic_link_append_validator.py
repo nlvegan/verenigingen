@@ -54,6 +54,24 @@ SPREAD_SOURCE = (
     "    parent.append('widgets', {'widget': widget_name, **extra})\n"
 )
 
+COMPANION_LITERAL_NONE_SOURCE = (
+    "def link(parent, widget_name):\n"
+    "    parent.append(\n"
+    "        'widgets',\n"
+    "        {'widget': widget_name, 'widget_doctype': None, 'is_current': 1},\n"
+    "    )\n"
+)
+
+DYNLINK_LITERAL_NONE_SOURCE = (
+    "def link(parent):\n"
+    "    parent.append('widgets', {'widget': None, 'is_current': 1})\n"
+)
+
+DYNLINK_ABSENT_SOURCE = (
+    "def link(parent):\n"
+    "    parent.append('widgets', {'is_current': 1})\n"
+)
+
 NON_DICT_SOURCE = (
     "def link(parent, entry):\n"
     "    parent.append('widgets', entry)\n"
@@ -129,6 +147,20 @@ class TestFindOffendingAppends(unittest.TestCase):
             py_path.write_text(OFFENDING_SOURCE)
             findings = validator.find_offending_appends(py_path, table_fields, self.dynlink_fields)
         self.assertEqual(findings, [])
+
+    def test_flags_companion_set_to_literal_none(self):
+        # A companion explicitly set to None persists as SQL NULL exactly like
+        # an absent key -- both must be caught.
+        findings = self._findings(COMPANION_LITERAL_NONE_SOURCE)
+        self.assertEqual(len(findings), 1)
+
+    def test_does_not_flag_dynamic_link_set_to_literal_none(self):
+        # _validate_links() skips a falsy Dynamic Link value entirely, so a
+        # missing companion is irrelevant when the link itself is None.
+        self.assertEqual(self._findings(DYNLINK_LITERAL_NONE_SOURCE), [])
+
+    def test_does_not_flag_dynamic_link_field_absent(self):
+        self.assertEqual(self._findings(DYNLINK_ABSENT_SOURCE), [])
 
 
 class TestIsTestPath(unittest.TestCase):

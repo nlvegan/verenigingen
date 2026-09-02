@@ -48,6 +48,21 @@ DocType, with different child DocTypes) is skipped for the same reason. Test cod
 filename) is excluded: a test deliberately constructing a broken/incomplete row to
 exercise error handling is not this bug.
 
+A companion field set to a literal `None` is treated the same as a companion key
+that is missing entirely -- `{"sepa_mandate": x, "sepa_mandate_doctype": None}`
+is flagged, not just an absent key, since both persist as SQL NULL. Symmetrically,
+a Dynamic Link field itself set to a literal `None` (or left out of the dict) is
+never flagged regardless of the companion: `_validate_links()`
+(`frappe/model/base_document.py`) skips a falsy Dynamic Link value entirely
+(`if not docname: continue`), so there is nothing for the companion to resolve.
+
+A row assembled across multiple statements -- `row = parent.append("sepa_mandates",
+{"sepa_mandate": x}); row.sepa_mandate_doctype = "SEPA Mandate"` -- is also invisible
+to this check: only the literal passed to `.append()` itself is read. This is the
+same class of blind spot as the `**spread` case above and is accepted for the same
+reason (a false negative, not a false positive), rather than attempting dataflow
+analysis across statements.
+
 A HARD GATE, not a ratchet: the census on this branch is zero after fixing #667's
 four sites, so there is nothing to grandfather in. A new hit is a fresh instance
 of the same class of bug.
@@ -166,17 +181,22 @@ def build_schema_maps(root: Path) -> tuple[dict[str, set[str]], dict[str, list[t
     return table_fields, dynlink_fields
 
 
-def _dict_literal_keys(node: ast.Dict) -> set[str] | None:
-    """String keys of a literal dict with no `**spread` and no non-literal keys,
-    or None if the dict cannot be read statically (spread, computed key, ...)."""
-    keys = set()
-    for key in node.keys:
+def _dict_literal_pairs(node: ast.Dict) -> dict[str, ast.expr] | None:
+    """{key: value node, ...} for a literal dict with no `**spread` and no
+    non-literal keys, or None if the dict cannot be read statically (spread,
+    computed key, ...)."""
+    pairs: dict[str, ast.expr] = {}
+    for key, value in zip(node.keys, node.values):
         if key is None:  # a `**spread` entry
             return None
         if not isinstance(key, ast.Constant) or not isinstance(key.value, str):
             return None
-        keys.add(key.value)
-    return keys
+        pairs[key.value] = value
+    return pairs
+
+
+def _is_none_literal(node: ast.expr) -> bool:
+    return isinstance(node, ast.Constant) and node.value is None
 
 
 def find_offending_appends(
@@ -186,7 +206,9 @@ def find_offending_appends(
 ) -> list[tuple[int, str, str, str]]:
     """[(lineno, child_doctype, dynlink_field, companion_field), ...] for each
     `.append("<table_field>", {...})` call in `py_path` that sets a Dynamic Link
-    field's value without its companion doctype field, in the same literal dict."""
+    field's value (to something other than a literal `None`) without also
+    setting its companion doctype field to something other than a literal
+    `None`, in the same literal dict."""
     try:
         source = py_path.read_text()
         tree = ast.parse(source, filename=str(py_path))
@@ -217,12 +239,18 @@ def find_offending_appends(
         if not pairs:
             continue
 
-        literal_keys = _dict_literal_keys(dict_arg)
-        if literal_keys is None:
+        literal_pairs = _dict_literal_pairs(dict_arg)
+        if literal_pairs is None:
             continue  # spread or computed key: cannot verify statically
 
         for dynlink_field, companion_field in pairs:
-            if dynlink_field in literal_keys and companion_field not in literal_keys:
+            dynlink_value = literal_pairs.get(dynlink_field)
+            if dynlink_value is None or _is_none_literal(dynlink_value):
+                continue  # unset (or explicitly None): _validate_links never
+                # inspects this field's companion, since it skips a falsy
+                # Dynamic Link value entirely
+            companion_value = literal_pairs.get(companion_field)
+            if companion_value is None or _is_none_literal(companion_value):
                 findings.append((node.lineno, child_doctype, dynlink_field, companion_field))
 
     return findings

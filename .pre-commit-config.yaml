@@ -350,7 +350,10 @@ repos:
         entry: python scripts/validation/dynamic_link_append_validator.py
         language: system
         pass_filenames: true
-        files: '\.py$'
+        # Scoped to match SCAN_ROOT in the validator (verenigingen/ only) -- a
+        # file outside that root scanned here but not covered by a no-args
+        # "whole tree" run would report clean locally with no way to reproduce.
+        files: '^verenigingen/.*\.py$'
         stages: [pre-commit]
         exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/validation/archived/)'
 
