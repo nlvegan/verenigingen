@@ -571,8 +571,12 @@ class TestConcurrentUploadGuard(SEPAUploadGuardTestMixin, FrappeTestCase):
         either commits; the loser then collides on the real DB unique index on
         `file_hash`, which frappe classifies as `UniqueValidationError` (a
         `ValidationError` subclass, unrelated to `DuplicateEntryError` --
-        confirmed via MRO). Before this fix that escaped `check_and_register`
-        entirely instead of returning the graceful duplicate-detected result.
+        confirmed via MRO). Before this fix it fell past the TYPED handler to the
+        generic `except Exception` below, which rescued it only by string-matching
+        (`"duplicate" in str(e).lower()`) -- it did NOT escape `check_and_register`,
+        and callers already got a graceful result. What this pins is that the race
+        is now classified by exception type rather than by a substring that a driver
+        or locale change could take away.
 
         To force this deterministically (real concurrency is not reproducible
         in a single-threaded test), this monkeypatches away BOTH checks that
