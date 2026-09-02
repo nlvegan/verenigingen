@@ -1303,10 +1303,19 @@ def terminate_volunteer_records_safe(member_name, termination_type, termination_
                 # the termination. Closing the rows first makes the derived value and
                 # the value set here agree, which is why no carve-out is needed.
                 #
-                # EndBoardPositionsOperation and SuspendTeamMembershipsOperation run
-                # earlier in the operation list, so the Chapter Board Member and Team
-                # Member rows the derivation also consults are already deactivated by
-                # the time this runs.
+                # EndBoardPositionsOperation and SuspendTeamMembershipsOperation do run
+                # earlier in the operation list (termination_execution_service.py), but
+                # neither is GUARANTEED to have cleared the seat by the time this runs:
+                # end_board_positions is a user-facing checkbox, and
+                # end_board_positions_safe() swallows a failure on any single position
+                # into a logger call (see its except Exception below). So a Chapter Board
+                # Member row can still read is_active=1 here.
+                #
+                # That does not matter, and the reason is structural rather than
+                # incidental: update_status() -- which the save below invokes -- never
+                # promotes a volunteer OUT of Inactive, whatever the board/team rows say.
+                # See status_derivation_service.py. Do not weaken that rule on the
+                # assumption that the earlier operations have already run cleanly.
                 for assignment in volunteer_doc.assignment_history or []:
                     if assignment.status in CURRENT_ASSIGNMENT_STATUSES:
                         assignment.status = "Completed"
