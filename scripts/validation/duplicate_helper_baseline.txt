@@ -328,7 +328,7 @@ _make_import_doc_from_content::2  # clone family, 100% of pairs near-identical
 _make_individual_donor::2
 _make_internal_transfer_pe::2
 _make_invoice::7
-_make_je::2
+_make_je::3
 _make_leaf_account::3
 _make_ledger_map::8  # clone family, 32% of pairs near-identical
 _make_ledger_mapping::4

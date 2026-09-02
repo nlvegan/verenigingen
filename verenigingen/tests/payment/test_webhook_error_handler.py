@@ -119,6 +119,52 @@ class TestWebhookErrorHandler(VereningingenTestCase):
         self.assertEqual(result["status"], "validation_error")
         self.assertIn("validate step", result["message"])
 
+    def test_wrap_routes_duplicate_entry_to_business(self):
+        handler = WebhookErrorHandler()
+
+        def op():
+            raise frappe.DuplicateEntryError("dup")
+
+        result = handler.wrap_with_error_handling("insert step", op)
+        self.assertEqual(result["status"], "business_error")
+        self.assertIn("Duplicate entry", result["message"])
+
+    def test_wrap_routes_unique_field_collision_to_business_not_generic_validation(self):
+        """A unique-FIELD collision (UniqueValidationError) must route the same
+        way as a primary-key collision (DuplicateEntryError), not fall into the
+        generic ValidationError branch (#699).
+
+        UniqueValidationError IS a ValidationError (MRO:
+        UniqueValidationError -> ValidationError -> Exception), so before this
+        fix it matched the `except frappe.ValidationError` branch below the
+        DuplicateEntryError one and got `handle_validation_error`'s treatment:
+        a generic "{operation} validation failed" message AND the raw
+        exception repr embedded verbatim in `details["validation_error"]`
+        (frappe's own args for a real UniqueValidationError are a
+        doctype/name/IntegrityError tuple, which stringifies to something like
+        "('Member', 'X', IntegrityError(1062, \"Duplicate entry ... for key
+        'member_id'\"))" -- not fit for an API response).
+        """
+        handler = WebhookErrorHandler()
+
+        # A standalone class (not a mutation of the shared Exception type)
+        # named IntegrityError, so str(inner) reads "IntegrityError(...)" --
+        # mirroring the real shape frappe raises: UniqueValidationError's args
+        # are (doctype, name, wrapped IntegrityError).
+        class IntegrityError(Exception):
+            pass
+
+        inner = IntegrityError(1062, "Duplicate entry 'X' for key 'member_id'")
+
+        def op():
+            raise frappe.UniqueValidationError("Member", "X", inner)
+
+        result = handler.wrap_with_error_handling("insert step", op)
+        self.assertEqual(result["status"], "business_error")
+        self.assertIn("Duplicate entry", result["message"])
+        # Must not leak the raw exception repr into the response.
+        self.assertNotIn("IntegrityError", str(result))
+
     def test_wrap_routes_permission_error_to_business(self):
         handler = WebhookErrorHandler()
 

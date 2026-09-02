@@ -418,6 +418,75 @@ class TestMemberImportService(FrappeTestCase):
         self.assertEqual(result, "updated")
         self.assertEqual(member_name, member.name)
 
+    def test_create_member_id_collision_reports_clean_message_not_raw_repr(self):
+        """A member_id unique-constraint collision must be reported as a clean
+        'skipped' status, not the raw exception repr (#699).
+
+        `member_id` is a unique FIELD; frappe raises `UniqueValidationError` for
+        it, never `DuplicateEntryError` (that one is reserved for a primary-key
+        collision, and the two share no MRO relationship apart from Exception --
+        verified empirically: `UniqueValidationError.__mro__` is
+        `(UniqueValidationError, ValidationError, Exception, ...)`,
+        `DuplicateEntryError.__mro__` is `(DuplicateEntryError, NameError,
+        Exception, ...)`).
+
+        Before this fix, `_create_new_member` caught only `DuplicateEntryError`,
+        so a member_id collision fell into the generic `except
+        frappe.ValidationError` branch a few lines below and returned
+        `_failure_status(e)`, which stringifies the exception's raw args:
+        `"failed: ('Member', 'Assoc-Member-...', IntegrityError(1062, \"Duplicate
+        entry '...' for key 'member_id'\"))"` -- exactly the shape measured on
+        veg11's real import history in #570/#699.
+
+        The pre-insert lookup (`find_member_with_strategy`) normally intercepts a
+        member_id match before `_create_new_member` is ever reached, routing the
+        row to an UPDATE instead. To reach the actual insert-time collision this
+        test monkeypatches the lookup to miss, simulating the TOCTOU window the
+        advisory lock exists to close (or a genuine lookup miss ahead of it) --
+        the same scenario a concurrent import can hit for real.
+        """
+        from verenigingen.services.csv_import.member_import_service import get_member_import_service
+        from verenigingen.services.member.member_lookup_service import get_member_lookup_service
+        from verenigingen.utils.csv_import_processor import bulk_member_operations
+
+        member_id = f"PROBE699-{frappe.generate_hash(length=6)}"
+        self._create_member(
+            first_name="Existing",
+            last_name="Holder",
+            email=f"holder-{member_id}@example.com".lower(),
+            member_id=member_id,
+        )
+
+        lookup = get_member_lookup_service()
+        original_lookup = lookup.find_member_with_strategy
+        lookup.find_member_with_strategy = lambda row_data, strategies=None: (None, None)
+        self.addCleanup(setattr, lookup, "find_member_with_strategy", original_lookup)
+
+        service = get_member_import_service()
+        row_data = {
+            "row_number": 2,
+            "first_name": "New",
+            "last_name": "Colliding",
+            "email": f"colliding-{member_id}@example.com".lower(),
+            "member_id": member_id,
+            "membership_type": "lid",
+        }
+
+        with bulk_member_operations("TEST-IMPORT-699"):
+            result, member_name = service.create_or_update_member(
+                row_data=row_data,
+                import_doc_name="TEST-IMPORT-699",
+                create_volunteer_records=False,
+            )
+
+        self.assertEqual(result, "skipped")
+        self.assertIsNone(member_name)
+        self.assertEqual(
+            frappe.db.count("Member", {"member_id": member_id}),
+            1,
+            "the rejected row must not leave a second Member with this member_id",
+        )
+
     def test_update_validation_error_surfaces_reason_and_logs(self):
         """A ValidationError on the update path must not be reduced to bare 'failed'.
 

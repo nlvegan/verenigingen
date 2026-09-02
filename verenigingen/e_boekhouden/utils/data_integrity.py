@@ -12,7 +12,7 @@ import re
 from typing import Any, Dict, Optional, Tuple
 
 import frappe
-from frappe.exceptions import DuplicateEntryError
+from frappe.exceptions import DuplicateEntryError, UniqueValidationError
 
 
 def insert_with_duplicate_handling(
@@ -24,8 +24,13 @@ def insert_with_duplicate_handling(
 
     When two concurrent processes check for duplicates simultaneously, both may
     see "not exists" and attempt to insert. The DB unique constraint will cause
-    one insert to fail with DuplicateEntryError. This function handles that
-    gracefully by fetching and returning the existing document.
+    one insert to fail. `mutation_id_field` is a unique FIELD (not the
+    doctype's autoname/primary key) on every doctype this is called with
+    (Journal Entry, Payment Entry, Purchase/Sales Invoice, Stock
+    Reconciliation), so frappe raises `UniqueValidationError` for the
+    collision, not `DuplicateEntryError` -- the two share no MRO relationship
+    apart from Exception. This function handles that gracefully by fetching
+    and returning the existing document (#699).
 
     Args:
         doc: The document to insert
@@ -37,7 +42,7 @@ def insert_with_duplicate_handling(
         - was_duplicate: True if an existing document was found, False if newly inserted
 
     Raises:
-        DuplicateEntryError: Re-raised if the duplicate can't be found (shouldn't happen)
+        UniqueValidationError: Re-raised if the duplicate can't be found (shouldn't happen)
         Other exceptions: Propagated from doc.insert()
 
     Example:
@@ -51,14 +56,14 @@ def insert_with_duplicate_handling(
     try:
         doc.insert()
         return doc, False
-    except DuplicateEntryError:
+    except (DuplicateEntryError, UniqueValidationError):
         # Race condition: another process inserted first
         mutation_id = getattr(doc, mutation_id_field, None)
 
         if not mutation_id:
             frappe.log_error(
                 title="Duplicate Handling Failed",
-                message=f"DuplicateEntryError caught but {mutation_id_field} is empty on {doc.doctype}",
+                message=f"Duplicate/unique collision caught but {mutation_id_field} is empty on {doc.doctype}",
             )
             raise
 
@@ -80,7 +85,7 @@ def insert_with_duplicate_handling(
         # Couldn't find the duplicate - this is unexpected
         frappe.log_error(
             title="Duplicate Handling Failed",
-            message=f"DuplicateEntryError caught but couldn't find existing "
+            message=f"Duplicate/unique collision caught but couldn't find existing "
             f"{doc.doctype} with {mutation_id_field}={mutation_id}",
         )
         raise

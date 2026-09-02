@@ -332,6 +332,31 @@ repos:
         stages: [pre-commit]
         exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/validation/archived/)'
 
+      - id: dynamic-link-append-validator
+        name: 🔗 Dynamic Link Append Guard (hard gate)
+        description: >-
+          Blocks a literal `.append("<child_table>", {...})` dict that sets a
+          Dynamic Link field's value without also setting that field's companion
+          doctype field in the same literal. `update_child_table()` (and this
+          app's `safe_child_table_update()` wrapper around it) persists a child
+          row via `db_update()` directly -- no defaults, no `_validate_links()`,
+          no controller hooks at all -- so the companion field is written as a
+          silent NULL with no exception of any kind, and the parent becomes
+          un-saveable on its next ordinary save(). #667:
+          `sync_member_mandates()` did exactly this to `Member SEPA Mandate
+          Link.sepa_mandate_doctype`. A hard gate, not a ratchet -- the census on
+          this branch is zero after fixing #667's four sites, so there is
+          nothing pre-existing to grandfather in.
+        entry: python scripts/validation/dynamic_link_append_validator.py
+        language: system
+        pass_filenames: true
+        # Scoped to match SCAN_ROOT in the validator (verenigingen/ only) -- a
+        # file outside that root scanned here but not covered by a no-args
+        # "whole tree" run would report clean locally with no way to reproduce.
+        files: '^verenigingen/.*\.py$'
+        stages: [pre-commit]
+        exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/validation/archived/)'
+
       - id: duplicate-helper-validator
         name: 👯 Duplicate Helper Guard (ratchet)
         description: >-

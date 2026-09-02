@@ -93,6 +93,29 @@ class TestSEPAMandateManagerExtended(EnhancedTestCase):
         self.assertTrue(result.valid)
         self.assertEqual(result.data["mandates_count"], 0)
 
+    def test_sync_member_mandates_sets_dynamic_link_doctype(self):
+        """#667: sync_member_mandates persists sepa_mandates via update_child_table(),
+        which runs no defaults and no link validation at all. Appending a row
+        without sepa_mandate_doctype silently wrote NULL there and left the member
+        unable to save at all -- the very next ordinary Member.save() threw "SEPA
+        Mandate DocType must be set first"."""
+        mandate = self._active_mandate(self.valid_iban)
+
+        result = self.manager.sync_member_mandates(self.member.name)
+        self.assertTrue(result.valid)
+
+        persisted_doctype = frappe.db.get_value(
+            "Member SEPA Mandate Link",
+            {"parent": self.member.name, "sepa_mandate": mandate.name},
+            "sepa_mandate_doctype",
+        )
+        self.assertEqual(persisted_doctype, "SEPA Mandate")
+
+        # The member must remain saveable after the sync -- a NULL companion
+        # field here makes the next ordinary save() throw.
+        self.member.reload()
+        self.member.save(ignore_permissions=True)
+
     # ========== check_discrepancies ==========
 
     def test_check_discrepancies_reports_missing_mandate(self):

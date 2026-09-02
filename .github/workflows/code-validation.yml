@@ -565,6 +565,36 @@ jobs:
     - name: Whole-tree check
       run: python scripts/validation/child_doctype_validate_guard.py
 
+  # A literal .append("<child_table>", {...}) dict that sets a Dynamic Link
+  # field's value without its companion doctype field persists a silent NULL
+  # and no exception at all when written through anything that bypasses
+  # Document._save() (update_child_table(), and this app's own
+  # safe_child_table_update() wrapper around it) -- see #667. Same reasoning
+  # as the guard above: the pre-commit hook can be skipped, and only ever
+  # sees the files in one commit. HARD GATE, not a ratchet -- the census on
+  # this branch is zero after fixing #667's four sites.
+  dynamic-link-append-validator:
+    name: 🔗 Dynamic Link Append Guard (hard gate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    # Stdlib-only (ast, json, argparse, pathlib) by design: no bench, no site,
+    # no dependency install.
+    - name: Unit-test the guard itself
+      run: python -m unittest discover -s scripts/validation/tests -p 'test_dynamic_link_append_validator.py' -v
+
+    - name: Whole-tree check
+      run: python scripts/validation/dynamic_link_append_validator.py
+
   # The former `integration-test` job was deleted in PR #53.
   # It invoked scripts/testing/runners/validation_test_runner.py, which was
   # removed on 2026-03-03 by the test-suite Phase 1 dead-code sweep (commit

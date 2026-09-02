@@ -101,7 +101,20 @@ describe('APIService', () => {
 		});
 
 		test('rejects a failed OperationResult with its message', async () => {
-			respondWith({ message: { success: false, data: null, message: 'Validation failed' } });
+			// This is the REAL wire shape (operation_result.py's nested schema, the
+			// default used by every endpoint this service calls): failure has no
+			// top-level `data` key, and the message is nested under `error`. A
+			// fixture with `data: null` and a flat `message` field (the previous
+			// version of this test) doesn't occur in practice and hid a bug where
+			// the failure fell through to the "legacy" branch and RESOLVED instead
+			// of rejecting (#427 review) -- every OperationResult.fail() from every
+			// endpoint this service calls was reported to the caller as success.
+			respondWith({
+				message: {
+					success: false,
+					error: { message: 'Validation failed', errors: ['Validation failed'], code: 'VALIDATION_ERROR' }
+				}
+			});
 			await expect(api.call('some.method')).rejects.toThrow('Validation failed');
 		});
 

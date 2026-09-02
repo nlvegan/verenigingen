@@ -25,6 +25,7 @@ from frappe.utils import today
 
 from verenigingen.services.member.approval import application_helpers as helpers
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.utils.select_options import get_select_options
 
 
 def _make_membership_type(factory, amount=24.0):
@@ -46,9 +47,42 @@ class TestPaymentMethodMapping(EnhancedTestCase):
         self.assertEqual(helpers.map_payment_method("sepa_direct_debit"), "SEPA Direct Debit")
         self.assertEqual(helpers.map_payment_method("mollie"), "Mollie")
 
-    def test_unknown_value_defaults_to_bank_transfer(self):
-        """Unknown form values fall back to Bank Transfer."""
-        self.assertEqual(helpers.map_payment_method("totally_unknown"), "Bank Transfer")
+    def test_ideal_and_paypal_map_to_their_own_mode_not_bank_transfer(self):
+        """#427: 'ideal' and 'paypal' are selectable Application Payment
+        Method options that used to be silently rewritten to Bank Transfer.
+        Pin the actual mapped value, not just that the key exists -- a map
+        with every key present but every value wrong would still pass
+        test_map_covers_every_declared_application_payment_method_option."""
+        self.assertEqual(helpers.map_payment_method("ideal", validate=False), "iDEAL")
+        self.assertEqual(helpers.map_payment_method("paypal", validate=False), "PayPal")
+
+    def test_unknown_value_raises(self):
+        """A non-empty value the map does not recognize is rejected, not
+        silently rewritten to Bank Transfer (#427)."""
+        with self.assertRaises(frappe.ValidationError):
+            helpers.map_payment_method("totally_unknown")
+
+    def test_empty_value_defaults_to_bank_transfer(self):
+        """An absent/empty selection (data.get('payment_method', '')) is a
+        legitimate 'not provided' sentinel, not an unknown value -- it keeps
+        the long-standing Bank Transfer default."""
+        self.assertEqual(helpers.map_payment_method(""), "Bank Transfer")
+
+    def test_map_covers_every_declared_application_payment_method_option(self):
+        """PAYMENT_METHOD_MAP must have a key for every option the
+        Application Payment Method Select declares.
+
+        This is the regression test for #427: an admin can enable any of
+        these options for the application form, and one this map doesn't
+        know about used to silently fall through to a Bank Transfer default
+        instead of mapping correctly or failing loudly. Reads the options
+        from the DocType at runtime so a newly added option is caught
+        automatically, rather than drifting alongside a literal list.
+        """
+        options = set(get_select_options("Application Payment Method", "payment_method"))
+        self.assertTrue(options, "Application Payment Method.payment_method has no declared options")
+        missing = options - set(helpers.PAYMENT_METHOD_MAP)
+        self.assertFalse(missing, f"PAYMENT_METHOD_MAP is missing option(s): {missing}")
 
     def test_display_value_passes_through(self):
         """Already-mapped display values map to themselves."""

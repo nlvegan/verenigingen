@@ -145,14 +145,19 @@ class WebhookErrorHandler:
         # so it must precede ValidationError too; otherwise the 404 path
         # is silently routed to the generic validation handler.
         # DuplicateEntryError extends NameError (not ValidationError), so
-        # its position relative to ValidationError doesn't matter.
+        # its position relative to ValidationError doesn't matter -- but
+        # UniqueValidationError (a unique-FIELD collision) DOES extend
+        # ValidationError, so it must precede that branch too (#699), or a
+        # unique-field collision gets the generic "validation failed"
+        # treatment and leaks the raw exception repr into the response's
+        # `details` instead of the clean "Duplicate entry" message.
         except frappe.PermissionError as e:
             return self.handle_business_logic_error(f"Permission denied during {operation_name}", e)
 
         except frappe.DoesNotExistError as e:
             return self.handle_business_logic_error(f"Required record not found during {operation_name}", e)
 
-        except frappe.DuplicateEntryError as e:
+        except (frappe.DuplicateEntryError, frappe.UniqueValidationError) as e:
             return self.handle_business_logic_error(f"Duplicate entry during {operation_name}", e)
 
         except frappe.ValidationError as e:
