@@ -130,10 +130,14 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import os
 import sys
 import warnings
 from collections import Counter, defaultdict
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from bench_resolution import find_bench_root  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -147,10 +151,23 @@ def _find_bench_apps(start: Path = REPO_ROOT) -> Path:
     erpnext / hrms doctype would read as unknown -- a validator that fires on
     ``frappe.get_doc("User", ...)``. Walk up to the bench instead, and let
     ``self_check`` prove a core-framework doctype was actually loaded.
+
+    An explicit ``BENCH_APPS`` environment variable always wins -- the escape
+    hatch for the case neither resolution strategy below can cover (#752).
+
+    A worktree created OUTSIDE the bench entirely (routinely done under
+    ``/tmp`` in this project) has no bench ancestor for a plain filesystem
+    walk-up to find, so ``find_bench_root`` also tries resolving the MAIN
+    checkout via ``git rev-parse --git-common-dir`` -- which finds the bench
+    regardless of where a linked worktree lives on disk. See
+    ``bench_resolution.py`` for the measurement behind this.
     """
-    for candidate in [start, *start.parents]:
-        if (candidate / "apps").is_dir() and (candidate / "sites").is_dir():
-            return candidate / "apps"
+    override = os.environ.get("BENCH_APPS")
+    if override:
+        return Path(override)
+    bench_root = find_bench_root(start)
+    if bench_root is not None:
+        return bench_root / "apps"
     return start.parent
 
 
@@ -506,7 +523,11 @@ def authority_problem(known: dict[str, str]) -> str | None:
                 f"({len(known)} doctypes loaded from {BENCH_APPS}). Either BENCH_APPS "
                 f"did not resolve to the bench's apps/ directory, or {app_name} is not "
                 f"installed -- and this census would then be about a different tree "
-                f"than the baseline."
+                f"than the baseline. Fix: run this from inside the bench (or a worktree "
+                f"under it), or set BENCH_APPS=<bench>/apps explicitly -- both a plain "
+                f"filesystem walk-up AND `git rev-parse --git-common-dir` failed to find "
+                f"a bench from here, which --no-verify will not fix and will also skip "
+                f"every other hook."
             )
     # Nothing from an app OUTSIDE the required set may leak in: that is what made
     # the gate machine-dependent (owl_theme on this dev bench, absent in CI).
