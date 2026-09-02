@@ -226,3 +226,134 @@ donation history), #743 (#427 payment method + the api-service fix), #748 (#699 
 
 Every open PR has had at least two skeptical reviews, and the second round changed the outcome
 on four of them. #749 needed three.
+
+---
+
+# Later the same day: two CI reds that were nobody's PR
+
+Continuation session. All seven PRs above landed. The two failures that followed are both
+worth keeping, because **neither was caused by the branch it reddened**, and each needed a
+different kind of proof.
+
+## A green suite is not evidence when the fixture draws a random number
+
+#749 passed all 12 shards, then went red on shard 3 **after nothing but a develop merge** —
+in its own new test. The amount its fixture mints to scope a query,
+
+```python
+grand_total = 25.0 + next(EnhancedTestDataFactory._global_unique_seq) / 100
+```
+
+is bracketed back with `amount_min == amount_max == grand_total`, and the production
+predicate is `si.outstanding_amount <= %s` against the **stored cent**. `25.0 + 301/100` is
+`28.009999999999998`; the invoice stores `28.01`; `<=` excludes the very row under test.
+
+**32 of every 1000 sequence values do this** — n = 201, 226, 251, … every 25th. The merge did
+not cause it, it shifted the counter onto a bad value. The earlier 12/12 green was a lucky
+draw, and re-running would not have cleared it: the sequence is deterministic for a given
+shard composition.
+
+Fixed by rounding at the mint site. **Both** mint sites, not just the one that failed — the
+second (`trapped_total`) was proved vulnerable by pinning it to n=326, which reddens two
+*different* tests. Verified by pinning rather than waiting: unfixed, n=301 reddens 3 tests and
+n=326 reddens 2 others; fixed, both pinned values and the natural sequence pass.
+
+**The generalisation:** a fixture that mints a value from a counter is a *sampler*. Green means
+the sample was fine, not that the space is. When a test brackets a computed float against a
+column the database rounds, the two must be rounded the same way at the same place.
+
+## A failure timestamped 0.56 seconds past midnight
+
+The next red was shard 10, a different module, erroring in `setUp`:
+
+```
+frappe.exceptions.ValidationError: Due Date cannot be before Posting Date
+```
+
+with the defaults dict recording **both** dates as `2026-09-02`. That contradiction is the
+whole diagnosis. `create_test_sales_invoice` (`tests/utils/base.py:1568`) reads
+`frappe.utils.today()` twice and left `set_posting_time` off unless the caller passed
+`posting_date`; ERPNext's `TransactionBase.validate_posting_time`
+(`utilities/transaction_base.py:34-38`) then overwrites `posting_date` with `now_datetime()`
+during validate, and `AccountsController.validate_due_date` compares the **caller-supplied**
+`due_date` against it without recomputing.
+
+The proof is the clock:
+
+```
+2026-09-02T18:30:00.5645782Z  ✖ test_automated_processing_flag
+```
+
+The site is Asia/Kolkata (UTC+5:30), so `18:30:00.000Z` **is** `00:00:00 IST`. The test died
+0.56 s into the new day, with `due_date` stamped in the old one.
+
+**This is where re-running is legitimate.** CLAUDE.md's rule that a re-run proves nothing is
+about *order* dependence, which reproduces deterministically. A wall-clock race does not, so
+the re-run is the discriminator — and it passed, from a third direction after the timestamp
+and the deterministic reproduction.
+
+Fixed in **#754** by setting `set_posting_time: 1` unconditionally. **The repo had already
+solved this and `base.py` was the straggler** — of four sales-invoice helpers, it was the only
+one both lacking that flag and defaulting `due_date` to `today()` with zero slack:
+
+| helper | `due_date` default | `set_posting_time` |
+|---|---|---|
+| `tests/utils/base.py` | `today()` — zero slack | only if `posting_date` in kwargs |
+| `fixtures/enhanced_test_factory.py:4730` | `today()+30` | **always 1**, comment documents this exact behaviour |
+| `fixtures/test_data_factory.py:551` | `today()+30` | — (30 days slack) |
+| `fixtures/sepa_test_factory.py:203` | `today()+14` | clamps posting_date to due_date |
+
+A sub-second window is not something to wait for. Backdating the helper's own clock one day
+puts it behind the server's exactly as it is after midnight: **9/9 tests error with the exact
+CI message; with the fix, 0 do.** 64 modules call this helper, so any of them could have drawn
+it on any run crossing a site-clock midnight.
+
+**Upstream:** searched `frappe/erpnext` — 21 issues match the error string, none concerns a
+clock rollover, and a control query confirms the search works. Not filed: the honest claim is
+narrow enough ("a server-recomputed `posting_date` validated against a client-supplied
+`due_date`") that upstream would reasonably answer "pass `set_posting_time`", which is the fix.
+
+## Two traps found while fixing, both filed
+
+- **#752 — a validator that cannot run from a worktree outside the bench.** The Unknown DocType
+  Name Guard resolves its authority by walking up for a directory holding both `apps/` and
+  `sites/`. A worktree under `/tmp` has no such ancestor, so it loads **0 doctypes** and
+  refuses. The refusal is correct; the danger is the escape hatch, because the obvious way past
+  a blocked commit is `--no-verify`, which disables *every* hook over a location detail. There
+  is no `BENCH_APPS` env override — it is a computed module constant.
+  **Operational rule: agent worktrees must live under the bench**, not in `/tmp`.
+- **#753 — the shipped Simple DD Workflow contradicts the DocType it binds to.**
+  `setup/simple_dd_workflow_setup.py` binds a Workflow to `Direct Debit Batch.approval_status`,
+  but its states (Draft, **Pending**, Approved, Rejected, Submitted, Completed) and that field's
+  Select options (**Pending Approval**, Pending Senior Approval, Approved, Rejected) share only
+  two values, and `dd_batch_workflow_controller.py:42,253` targets `"Pending Approval"` — a
+  state the workflow has no transition to. Latent, not live: the setup is `@frappe.whitelist()`
+  but is in neither `hooks.py` nor `patches.txt`, and **veg11 has no Workflow row for that
+  doctype at all**. `test_site_2` does, which is why 4 tests in
+  `test_collection_run_not_lost_silently` fail there — identically on develop, verified against
+  a detached `origin/develop` worktree.
+
+  That last point nearly cost a misdiagnosis: the first run of the #754 fix on `test_site_2`
+  still showed 5 errors and looked like a partial fix. They were `WorkflowPermissionError`, not
+  the date error — a different exception from pre-existing site dirt. **Read the exception
+  type, not the failure count.**
+
+## Method notes
+
+- **Both reds were "the branch's fault" on first appearance and neither was.** The tell in each
+  case was cheap: for #749, the traceback printed the offending float; for shard 10, the
+  timestamp. Read what the failure actually says before running anything.
+- **The class rule paid twice.** #749's fix covers two mint sites because the second was tested,
+  not assumed. #754's covers the helper's defaults because the three sibling helpers were read
+  first — which is also what supplied the fix.
+- A grep for the class must run **in the tree that has the code**. The first class-grep here ran
+  in the main checkout on `develop`, which does not contain #749's new file, and found nothing.
+  `pwd` alongside any grep you are about to argue from — the same lesson recorded above.
+
+## State, end of session
+
+**Merged:** the twelve above, plus **#749**.
+
+**Open:** **#754** (posting_date midnight race), this handoff.
+
+**Filed:** the seven above, plus **#752**, **#753**.
