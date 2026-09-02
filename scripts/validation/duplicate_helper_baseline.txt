@@ -119,7 +119,6 @@ _create_sepa_mandate::2
 _create_temp_csv::2  # clone family, 100% of pairs near-identical
 _create_termination_request::2
 _create_test_account::3
-_create_test_bank_account::2
 _create_test_batch_with_invoices::2
 _create_test_chapter::2
 _create_test_invoice::8
@@ -156,7 +155,7 @@ _enable_notifications::3
 _ensure_account::4
 _ensure_accounts::10  # clone family, 31% of pairs near-identical
 _ensure_active_membership::2
-_ensure_bank_account::13
+_ensure_bank_account::12
 _ensure_bank_account_master::2
 _ensure_chapter_role::16
 _ensure_clearing_account::3  # clone family, 33% of pairs near-identical

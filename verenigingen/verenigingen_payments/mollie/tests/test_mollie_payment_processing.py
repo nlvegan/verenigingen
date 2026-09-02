@@ -195,9 +195,11 @@ def _bank_account_currency(bank_account):
 
 def _ensure_bank_account(test_case):
     company = _get_test_company()
-    existing = frappe.db.get_value("Bank Account", {"company": company}, "name") or frappe.db.get_value(
-        "Bank Account", {}, "name"
-    )
+    # Company-scoped only: the unscoped `or frappe.db.get_value("Bank Account", {},
+    # "name")` fallback this replaced could return ANY Bank Account on the site --
+    # cross-company, by recency -- instead of falling through to the create branch
+    # below (#583).
+    existing = frappe.db.get_value("Bank Account", {"company": company}, "name")
     if existing:
         return existing
 

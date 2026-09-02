@@ -22,6 +22,7 @@ from unittest.mock import patch
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.sepa_test_company import get_eur_bank_account, get_eur_test_company
 from verenigingen.verenigingen_payments.mollie.tests.mollie_test_helper import (
     ensure_mollie_reversal_accounts,
 )
@@ -36,19 +37,6 @@ from verenigingen.verenigingen_payments.utils.payment_services.refund_utility im
 REFUND_MODULE = "verenigingen.verenigingen_payments.utils.payment_services.refund_utility"
 
 
-def _bank_company():
-    """Return a company that actually has a Bank account.
-
-    create_test_payment_entry defaults company to the first Company in the list,
-    which under cross-shard pollution can be one with no Bank account (e.g. the
-    ERPNext '_Test'/'Wind Power LLC' companies) -> a 'Pay'-type Payment Entry
-    then fails with 'No Bank account found'. Pinning a bank-equipped company makes
-    these tests independent of the ambient default company.
-    """
-    company = frappe.db.get_value("Account", {"account_type": "Bank", "is_group": 0}, "company")
-    return company or frappe.get_list("Company", limit=1)[0].name
-
-
 def _make_supplier(test_case):
     """Create a real Supplier party for Pay-type reversal Payment Entries."""
     supplier = frappe.new_doc("Supplier")
@@ -61,6 +49,23 @@ def _make_supplier(test_case):
 
 class TestRefundUtilityValidation(EnhancedTestCase):
     """Validation-helper and early-return branches that need no Mollie API."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # Resolved once in setUpClass, before any test body runs. Both owning
+        # helpers commit (sepa_test_company.py:126, :361, and conditionally
+        # :409); calling them from a test body instead -- the previous version
+        # of this fixture did, memoized at module scope, which only reduces
+        # exposure to "whichever test body runs first in the process" rather
+        # than eliminating it -- prematurely commits that test's other
+        # in-flight, not-yet-tracked fixtures (the #581 review's exact
+        # TEST-LEAK finding). `get_eur_test_company` + `get_eur_bank_account`
+        # own both the company and its Bank Account by name rather than the
+        # previous `frappe.db.get_value("Account", {"account_type": "Bank",
+        # "is_group": 0}, "company")` recency borrow (#583).
+        cls._bank_company = get_eur_test_company()
+        get_eur_bank_account(cls._bank_company)
 
     def test_missing_payment_entry_name(self):
         result = initiate_refund(payment_entry_name="")
@@ -89,7 +94,7 @@ class TestRefundUtilityValidation(EnhancedTestCase):
         # A "Pay" type payment cannot be refunded
         pe = self.create_test_payment_entry(
             payment_type="Pay",
-            company=_bank_company(),
+            company=self._bank_company,
             paid_amount=50.0,
             reference_no="tr_some_payment",
             party_type="Supplier",
@@ -123,6 +128,15 @@ class TestRefundUtilityValidation(EnhancedTestCase):
 
 class TestRefundUtilityInitiation(EnhancedTestCase):
     """Branches reaching (or guarding against) the Mollie create_refund call."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # Resolved once here, before `setUp` builds `self.pe` -- see
+        # TestRefundUtilityValidation.setUpClass for why this cannot be a
+        # test-body (or `setUp`-body) call.
+        cls._bank_company = get_eur_test_company()
+        get_eur_bank_account(cls._bank_company)
 
     def setUp(self):
         super().setUp()
@@ -171,7 +185,7 @@ class TestRefundUtilityInitiation(EnhancedTestCase):
         # Create a submitted Pay-type reversal consuming 70 of the 100
         self.create_test_payment_entry(
             payment_type="Pay",
-            company=_bank_company(),
+            company=self._bank_company,
             paid_amount=70.0,
             reference_no="re_existing_70",
             party_type="Supplier",
@@ -210,7 +224,7 @@ class TestRefundUtilityInitiation(EnhancedTestCase):
     def test_over_refund_logs_concurrent_refund_detected(self):
         self.create_test_payment_entry(
             payment_type="Pay",
-            company=_bank_company(),
+            company=self._bank_company,
             paid_amount=70.0,
             reference_no="re_existing_70b",
             party_type="Supplier",
@@ -233,6 +247,15 @@ class TestRefundUtilityInitiation(EnhancedTestCase):
 
 
 class TestPaymentRefundInfo(EnhancedTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # See TestRefundUtilityValidation.setUpClass -- resolved once here,
+        # before any test body (e.g. test_refund_info_aggregation, which builds
+        # a Payment Entry before reaching this company) can trigger the commit.
+        cls._bank_company = get_eur_test_company()
+        get_eur_bank_account(cls._bank_company)
+
     def test_payment_not_found(self):
         result = get_payment_refund_info("PE-MISSING-9999")
         self.assertEqual(result["error_code"], "PAYMENT_ENTRY_NOT_FOUND")
@@ -249,7 +272,7 @@ class TestPaymentRefundInfo(EnhancedTestCase):
         )
         self.create_test_payment_entry(
             payment_type="Pay",
-            company=_bank_company(),
+            company=self._bank_company,
             paid_amount=20.0,
             reference_no="re_info_1",
             party_type="Supplier",

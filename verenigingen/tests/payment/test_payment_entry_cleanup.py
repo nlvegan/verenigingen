@@ -47,9 +47,6 @@ class CleanupBase(EnhancedTestCase):
     def setUpClass(cls):
         super().setUpClass()
         cls._company = get_eur_test_company()
-        cls._bank_account = frappe.db.get_value(
-            "Bank Account", {"is_company_account": 1}, "name"
-        ) or frappe.db.get_value("Bank Account", {}, "name")
         frappe.db.commit()
 
     def setUp(self):

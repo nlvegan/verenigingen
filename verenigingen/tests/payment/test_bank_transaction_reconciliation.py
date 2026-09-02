@@ -204,11 +204,11 @@ class BTRBase(EnhancedTestCase):
         bt.deposit = deposit
         bt.withdrawal = withdrawal
         bt.reference_number = reference_number or frappe.generate_hash(length=10)
-        ba = (
-            bank_account
-            or frappe.db.get_value("Bank Account", {"is_company_account": 1}, "name")
-            or frappe.db.get_value("Bank Account", {}, "name")
-        )
+        # Default to the class's owned EUR Bank Account (setUpClass:88) rather than
+        # borrowing "any Bank Account, is_company_account preferred" by recency --
+        # that borrow is cross-company and returns whichever module created a Bank
+        # Account most recently (#583).
+        ba = bank_account or self._eur_bank_account
         if ba:
             bt.bank_account = ba
             # Pin currency to the bank account's currency. frappe.new_doc applies

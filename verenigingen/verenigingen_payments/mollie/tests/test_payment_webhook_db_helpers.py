@@ -198,14 +198,39 @@ class TestCreatePaymentEntryForDonation(EnhancedTestCase):
         donation, donor = _make_unsubmitted_donation(self, donor_name="NoBank Donor", amount=10.0)
         self._persist_donor_customer_link(donor, self._persist_customer("NoBank Customer").name)
 
-        # Ensure the bank lookups all fail: no default_bank_account, no 'Mollie'
-        # account. (Settings.mollie_bank_account is not a real field -> .get None.)
-        frappe.db.set_value("Company", company, "default_bank_account", None)
         if frappe.db.exists("Account", {"company": company, "account_name": "Mollie"}):
             self.skipTest("Site has a 'Mollie' account; bank-missing branch not reproducible")
 
-        result = create_payment_entry_for_donation(donation, {"payment_id": "tr_nobank", "method": "ideal"})
-        self.assertIsNone(result)
+        # Ensure the bank lookups all fail: no default_bank_account, no 'Mollie'
+        # account. (Settings.mollie_bank_account is not a real field -> .get None.)
+        # Unset only within this test, with the Company document cache cleared so
+        # erpnext's get_cached_value re-reads it, and restored in `finally` --
+        # mirroring test_sepa_reconciliation.py:1608-1637's pattern for the same
+        # field, which relies on tearDown's rollback alone and does NOT commit
+        # here. #582 established `create_payment_entry_for_donation` commits on
+        # NO reachable path today, so there is nothing an explicit commit would be
+        # protecting against yet -- and unlike the shard-wide memoized value
+        # `sepa_test_company.py:404-410` guards (idempotent, same result on every
+        # call), `original_default` is a per-test snapshot of ambient site config:
+        # whether "this company already has a real default" is true depends on
+        # what an unrelated earlier test in the shard happened to stamp, which is
+        # exactly the order-dependent failure class #581/#582/#583 exist to
+        # eliminate -- a commit here would fire on some sites/orderings and not
+        # others, for no benefit today. Both the null-write and the restore are
+        # inside `try`/`finally` so a raise between them still restores. If a
+        # future change adds a commit inside `create_payment_entry_for_donation`,
+        # revisit this with the actual commit boundary in view.
+        original_default = frappe.db.get_value("Company", company, "default_bank_account")
+        try:
+            frappe.db.set_value("Company", company, "default_bank_account", None)
+            frappe.clear_document_cache("Company", company)
+            result = create_payment_entry_for_donation(
+                donation, {"payment_id": "tr_nobank", "method": "ideal"}
+            )
+            self.assertIsNone(result)
+        finally:
+            frappe.db.set_value("Company", company, "default_bank_account", original_default)
+            frappe.clear_document_cache("Company", company)
 
     def test_idempotent_returns_existing_payment_entry(self):
         """When a Payment Entry already exists for (reference_no, party), the

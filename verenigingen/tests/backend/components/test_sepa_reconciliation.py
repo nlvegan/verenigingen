@@ -3,7 +3,7 @@ import unittest
 import frappe
 from frappe.utils import today
 
-from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+from verenigingen.tests.support.sepa_test_company import ensure_default_gl_bank_account, get_eur_test_company
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation import (
     PaymentReconciliationManager,
@@ -75,11 +75,13 @@ class TestSEPAReconciliation(VereningingenTestCase):
         # Scope the GL account to the EUR test company. A Bank account picked from an
         # arbitrary company could be non-EUR under parallel load, which would then
         # clash with the EUR Bank Transactions the tests create ("Transaction currency
-        # cannot be different from Bank Account currency").
+        # cannot be different from Bank Account currency"). `ensure_default_gl_bank_account`
+        # owns this by NAME rather than borrowing "any Bank-type leaf of this company" by
+        # recency -- the `or` fallback this replaced dropped the company scope entirely
+        # on a site with none yet, which is the exact failure the comment above warns
+        # about (#583).
         eur_company = get_eur_test_company()
-        bank_gl_account = frappe.db.get_value(
-            "Account", {"account_type": "Bank", "is_group": 0, "company": eur_company}, "name"
-        ) or frappe.db.get_value("Account", {"account_type": "Bank", "is_group": 0}, "name")
+        bank_gl_account = ensure_default_gl_bank_account(eur_company)
 
         # Create test bank account
         if not frappe.db.exists("Bank Account", "TEST-RECON-BANK"):

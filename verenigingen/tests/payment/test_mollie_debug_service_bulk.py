@@ -51,7 +51,7 @@ import frappe
 from frappe.utils import add_days, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+from verenigingen.tests.support.sepa_test_company import get_eur_bank_account, get_eur_test_company
 
 # ---------------------------------------------------------------------------
 # Patch seam (proven; identical to test_mollie_debug_service.py).
@@ -777,6 +777,15 @@ class TestPaymentModeRouting(_BulkServiceTest):
 # _submit_processed_documents (orchestrator faked)
 # ===========================================================================
 class TestBulkProcessMemberPayments(_BulkServiceTest):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # Resolved once per class rather than once per test body: get_eur_bank_account
+        # commits (sepa_test_company.py:361, and conditionally :409), and calling it
+        # from a test body instead of setUpClass prematurely commits that test's other
+        # in-flight, not-yet-tracked fixtures (the #581 review's TEST-LEAK finding).
+        cls._eur_bank_account_name = get_eur_bank_account(get_eur_test_company())
+
     def test_counters_partition_by_status(self):
         pid_ok = self._unique_pid()
         pid_skip = self._unique_pid()
@@ -878,15 +887,14 @@ class TestBulkProcessMemberPayments(_BulkServiceTest):
 
     # --- fixtures ---------------------------------------------------------
     def _ensure_eur_bank_account(self):
-        company = get_eur_test_company()
-        for filters in ({"is_company_account": 1, "company": company}, {"is_company_account": 1}, {}):
-            for ba in frappe.get_all("Bank Account", filters=filters, pluck="name"):
-                account = frappe.db.get_value("Bank Account", ba, "account")
-                if account and frappe.db.get_value("Account", account, "account_currency") == "EUR":
-                    return ba
-        return frappe.db.get_value("Bank Account", {"is_company_account": 1}, "name") or frappe.db.get_value(
-            "Bank Account", {}, "name"
-        )
+        """The EUR test company's owned Bank Account, resolved once in setUpClass.
+
+        The previous version searched progressively wider filters ending in `{}`
+        -- any Bank Account on the site at all, by recency -- which could return a
+        non-EUR, cross-company row instead of failing loudly (#583).
+        `get_eur_bank_account` owns the account by name rather than borrowing.
+        """
+        return self._eur_bank_account_name
 
     def _make_draft_bank_transaction(self, bank_account):
         bt = frappe.new_doc("Bank Transaction")
