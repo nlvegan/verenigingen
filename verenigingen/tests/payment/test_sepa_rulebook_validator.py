@@ -12,9 +12,18 @@ calls -- no business logic is mocked.
 Target: verenigingen/verenigingen_payments/utils/sepa_rulebook_validator.py
 """
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 from frappe.tests.utils import FrappeTestCase
+
+# Read "now" off the SITE clock, the way the validator does -- getdate() at
+# sepa_rulebook_validator.py:680 and now_datetime() at :455. A naive
+# getdate()/now_datetime() is the PROCESS clock, and the two are a calendar
+# day apart whenever the site timezone has rolled over and the process one has
+# not (CI runs in UTC; this site is Asia/Kolkata, so from 18:30 UTC onward).
+# The boundary cases below -- "exactly 36 months old", "exactly 10 days out" --
+# then measure from a different day than the code under test and fail by one.
+from frappe.utils import getdate, now_datetime
 
 from verenigingen.verenigingen_payments.utils.sepa_rulebook_validator import (
     SEPARulebookValidator,
@@ -54,16 +63,16 @@ def _build_xml(
     transaction is created. nb_of_txs / ctrl_sum default to the actual values.
     """
     if cre_dt_tm is None:
-        cre_dt_tm = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S")
+        cre_dt_tm = (now_datetime() - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S")
     if collection_date is None:
-        collection_date = (date.today() + timedelta(days=10)).isoformat()
+        collection_date = (getdate() + timedelta(days=10)).isoformat()
     if transactions is None:
         transactions = [
             {
                 "e2e_id": "E2E-0001",
                 "amount": "25.00",
                 "mandate_id": "MANDATE-0001",
-                "mandate_sign_date": (date.today() - timedelta(days=30)).isoformat(),
+                "mandate_sign_date": (getdate() - timedelta(days=30)).isoformat(),
                 "debtor_iban": VALID_DEBTOR_IBAN,
                 "debtor_name": "Jan de Tester",
             }
@@ -176,7 +185,7 @@ class TestValidateSepaXmlHappyPath(FrappeTestCase):
         # Use a collection date that is guaranteed to be a weekday: otherwise the
         # NL002 "weekend" info rule fires whenever today()+10 lands on a Sat/Sun,
         # dropping compliance_score to 99 (a calendar-dependent flake on CI).
-        collection_date = date.today() + timedelta(days=10)
+        collection_date = getdate() + timedelta(days=10)
         while collection_date.weekday() >= 5:  # 5=Sat, 6=Sun
             collection_date += timedelta(days=1)
         result = self.validator.validate_sepa_xml(_build_xml(collection_date=collection_date.isoformat()))
@@ -239,7 +248,7 @@ class TestMessageLevelRules(FrappeTestCase):
         self.assertEqual(self._run("MSG002", _build_xml()), [])
 
     def test_creation_datetime_future_rejected(self):
-        future = (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%S")
+        future = (now_datetime() + timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%S")
         issues = self._run("MSG002", _build_xml(cre_dt_tm=future))
         self.assertTrue(any("future" in i.message for i in issues))
 
@@ -290,26 +299,26 @@ class TestPaymentInfoRules(FrappeTestCase):
 
     # PMT001 -- collection date timing
     def test_collection_date_sufficient_lead_core(self):
-        col = (date.today() + timedelta(days=10)).isoformat()
-        cre = (datetime.now()).strftime("%Y-%m-%dT%H:%M:%S")
+        col = (getdate() + timedelta(days=10)).isoformat()
+        cre = (now_datetime()).strftime("%Y-%m-%dT%H:%M:%S")
         self.assertEqual(self._run("PMT001", _build_xml(collection_date=col, cre_dt_tm=cre)), [])
 
     def test_collection_date_too_early_core(self):
-        cre = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-        col = (date.today() + timedelta(days=2)).isoformat()  # < 5 days
+        cre = now_datetime().strftime("%Y-%m-%dT%H:%M:%S")
+        col = (getdate() + timedelta(days=2)).isoformat()  # < 5 days
         issues = self._run("PMT001", _build_xml(collection_date=col, cre_dt_tm=cre, local_instr="CORE"))
         self.assertTrue(any("too early" in i.message for i in issues))
 
     def test_collection_date_b2b_one_day_lead_ok(self):
-        cre = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-        col = (date.today() + timedelta(days=2)).isoformat()
+        cre = now_datetime().strftime("%Y-%m-%dT%H:%M:%S")
+        col = (getdate() + timedelta(days=2)).isoformat()
         self.assertEqual(
             self._run("PMT001", _build_xml(collection_date=col, cre_dt_tm=cre, local_instr="B2B")), []
         )
 
     def test_collection_date_cor1_one_day_lead_ok(self):
-        cre = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-        col = (date.today() + timedelta(days=1)).isoformat()
+        cre = now_datetime().strftime("%Y-%m-%dT%H:%M:%S")
+        col = (getdate() + timedelta(days=1)).isoformat()
         self.assertEqual(
             self._run("PMT001", _build_xml(collection_date=col, cre_dt_tm=cre, local_instr="COR1")), []
         )
@@ -365,7 +374,7 @@ class TestMandateRules(FrappeTestCase):
             "e2e_id": "E2E-0001",
             "amount": "25.00",
             "mandate_id": "MANDATE-0001",
-            "mandate_sign_date": (date.today() - timedelta(days=30)).isoformat(),
+            "mandate_sign_date": (getdate() - timedelta(days=30)).isoformat(),
             "debtor_iban": VALID_DEBTOR_IBAN,
             "debtor_name": "Jan de Tester",
         }
@@ -428,12 +437,12 @@ class TestMandateRules(FrappeTestCase):
     # MND005 mandate age
     def test_mandate_age_recent_ok(self):
         xml = _build_xml(
-            transactions=[self._txn(mandate_sign_date=(date.today() - timedelta(days=60)).isoformat())]
+            transactions=[self._txn(mandate_sign_date=(getdate() - timedelta(days=60)).isoformat())]
         )
         self.assertEqual(self._run("MND005", xml), [])
 
     def test_mandate_age_too_old(self):
-        old = date(date.today().year - 4, date.today().month, 1).isoformat()
+        old = date(getdate().year - 4, getdate().month, 1).isoformat()
         xml = _build_xml(transactions=[self._txn(mandate_sign_date=old)])
         issues = self._run("MND005", xml)
         self.assertTrue(any("months old" in i.message for i in issues))
@@ -446,7 +455,7 @@ class TestMandateRules(FrappeTestCase):
 
     def test_mandate_age_boundary_36_months_ok(self):
         # Exactly 36 months should NOT be flagged (> 36 triggers).
-        today = date.today()
+        today = getdate()
         y, m = today.year, today.month - 36
         while m <= 0:
             m += 12
@@ -469,7 +478,7 @@ class TestTransactionRules(FrappeTestCase):
             "e2e_id": "E2E-0001",
             "amount": "25.00",
             "mandate_id": "MANDATE-0001",
-            "mandate_sign_date": (date.today() - timedelta(days=30)).isoformat(),
+            "mandate_sign_date": (getdate() - timedelta(days=30)).isoformat(),
             "debtor_iban": VALID_DEBTOR_IBAN,
             "debtor_name": "Jan de Tester",
         }
@@ -557,7 +566,7 @@ class TestNetherlandsRules(FrappeTestCase):
             "e2e_id": "E2E-0001",
             "amount": "25.00",
             "mandate_id": "MANDATE-0001",
-            "mandate_sign_date": (date.today() - timedelta(days=30)).isoformat(),
+            "mandate_sign_date": (getdate() - timedelta(days=30)).isoformat(),
             "debtor_iban": VALID_DEBTOR_IBAN,
             "debtor_name": "Jan de Tester",
         }
@@ -582,7 +591,7 @@ class TestNetherlandsRules(FrappeTestCase):
     # NL002 dutch business days
     def test_collection_on_weekend_flagged(self):
         # Find next Saturday from today.
-        d = date.today()
+        d = getdate()
         while d.weekday() != 5:
             d += timedelta(days=1)
         xml = _build_xml(collection_date=d.isoformat())
@@ -591,7 +600,7 @@ class TestNetherlandsRules(FrappeTestCase):
 
     def test_collection_on_weekday_ok(self):
         # Find next Tuesday (not in the 2025 holiday list path for arbitrary years).
-        d = date.today()
+        d = getdate()
         while d.weekday() != 1:
             d += timedelta(days=1)
         xml = _build_xml(collection_date=d.isoformat())
@@ -724,7 +733,7 @@ class TestParityAfterRefactor(FrappeTestCase):
         # Collection date guaranteed to be a weekday to avoid the NL002 weekend flake.
         from datetime import timedelta
 
-        collection_date = date.today() + timedelta(days=10)
+        collection_date = getdate() + timedelta(days=10)
         while collection_date.weekday() >= 5:
             collection_date += timedelta(days=1)
         return _build_xml(namespace=namespace, collection_date=collection_date.isoformat())
@@ -781,8 +790,8 @@ class TestParityAfterRefactor(FrappeTestCase):
         """get_element_text: CORE local instrument still triggers the 5-day lead-time rule."""
         from datetime import timedelta
 
-        cre = (date.today()).strftime("%Y-%m-%dT%H:%M:%S")
-        col = (date.today() + timedelta(days=2)).isoformat()  # < 5 days
+        cre = (getdate()).strftime("%Y-%m-%dT%H:%M:%S")
+        col = (getdate() + timedelta(days=2)).isoformat()  # < 5 days
         result = self.validator.validate_sepa_xml(
             _build_xml(cre_dt_tm=cre, collection_date=col, local_instr="CORE")
         )
@@ -794,8 +803,8 @@ class TestParityAfterRefactor(FrappeTestCase):
         # Build XML without a LclInstrm element.
         from datetime import timedelta
 
-        cre = date.today().strftime("%Y-%m-%dT%H:%M:%S")
-        col = (date.today() + timedelta(days=2)).isoformat()
+        cre = getdate().strftime("%Y-%m-%dT%H:%M:%S")
+        col = (getdate() + timedelta(days=2)).isoformat()
         # Build raw XML with LclInstrm stripped out.
         xml = _build_xml(cre_dt_tm=cre, collection_date=col, local_instr="CORE").replace(
             "<LclInstrm><Cd>CORE</Cd></LclInstrm>", ""
