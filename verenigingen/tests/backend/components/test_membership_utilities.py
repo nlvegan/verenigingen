@@ -6,7 +6,18 @@ from frappe.utils import add_days, add_months, add_years, today
 
 
 class MembershipTestUtilities:
-    """Utilities for creating proper membership types and related data for testing"""
+    """Utilities for creating proper membership types and related data for testing
+
+    Not test-shaped (no `unittest.TestCase` in reach, no `test*` methods), so
+    `test_harness_erpnext_group_roots.GroupRootConsumersOutsideTheHarnessAreGuardedTest`'s
+    source guard cannot see this class or its `_create_membership_item`'s Item
+    Group write below (#562) -- that guard only globs `test_*.py` files for a
+    `TestCase`-shaped class. Safety today rests on every caller (grepped by
+    hand: `test_membership_type_minimum_period.py`, `test_membership_controller.py`,
+    `test_application_submission_validation.py`) reaching `EnhancedTestCase` or
+    `VereningingenTestCase`. A new caller that does not is invisible to any
+    guard -- verify by hand.
+    """
 
     @staticmethod
     def create_membership_type_with_dues_schedule(

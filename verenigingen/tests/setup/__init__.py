@@ -380,9 +380,10 @@ def _erpnext_base_masters_present():
 
     Deliberately NOT ``exists("Territory", "All Territories")`` alone. That row
     used to be a sound proxy for the whole set -- ``get_preset_records("India")``
-    creates "All Territories", "All Customer Groups", "All Item Groups" and
-    "All Supplier Groups" in one batch (``erpnext/setup/setup_wizard/operations/
-    install_fixtures.py``), so any one of them implied the batch had run.
+    creates "All Territories", "All Customer Groups", "All Item Groups",
+    "All Supplier Groups" and ``Warehouse Type`` "Transit" in one batch
+    (``erpnext/setup/setup_wizard/operations/install_fixtures.py``), so any one
+    of them implied the batch had run.
 
     ``ensure_root_territory`` broke that: it creates the root on its own, from
     three call sites that never reach this function
@@ -399,10 +400,29 @@ def _erpnext_base_masters_present():
     Fixing the raise is what made the sentinel forgeable, which is why the gate
     moves here in the same change.
 
-    "All Supplier Groups" is the half that cannot be forged: this app creates no
-    ``Supplier Group`` anywhere (25 references, all reads). The root Territory is
-    kept in the conjunction because it is the row every Customer defaults to, so
-    its absence must open the gate even on a site that somehow has the rest.
+    The second conjunct used to be ``Supplier Group`` "All Supplier Groups" --
+    "the half that cannot be forged", per this docstring before #562 -- on the
+    strength of this app writing no ``Supplier Group`` anywhere. #562 broke THAT
+    invariant too: ``ensure_root_supplier_group()`` now creates exactly that row
+    from both harness bases, the same shape that made the Territory-only gate
+    forgeable in the first place (MEASURED: with only the Territory root seeded,
+    the old two-doctype gate read closed). ``Warehouse Type`` "Transit" replaces
+    it as the sentinel this app genuinely never writes (0 occurrences outside
+    comments, verified) -- Company creation depends on it
+    (``create_default_warehouses`` -> "Could not find Warehouse Type: Transit"),
+    so nothing here can create a plausible reason to write it defensively either.
+    The root Territory is kept in the conjunction because it is the row every
+    Customer defaults to, so its absence must open the gate even on a site that
+    somehow has the rest.
+
+    Caveat on "genuinely never writes": that holds for how CI actually
+    provisions a site (``reinstall`` + ``install-app``, which marks patches
+    complete without executing them -- ``set_all_patches_as_completed()``).
+    erpnext's ``v13_0/stock_entry_enhancements`` patch creates this exact row
+    directly, outside ``get_preset_records``, when it actually RUNS -- which
+    would only happen on a site restored from a pre-that-patch snapshot and
+    then migrated forward. If this app ever provisions test sites that way,
+    this sentinel silently stops detecting an unseeded site.
 
     Residual, deliberately NOT handled here: ``BootStrapTestData()`` runs on
     IMPORT, once per process. If a rollback removes its rows after that import,
@@ -411,7 +431,7 @@ def _erpnext_base_masters_present():
     still strictly better than closing on a row a neighbour forged.
     """
     return frappe.db.exists("Territory", "All Territories") and frappe.db.exists(
-        "Supplier Group", "All Supplier Groups"
+        "Warehouse Type", "Transit"
     )
 
 
@@ -593,6 +613,95 @@ def ensure_root_department():
         raise RuntimeError(
             "Root Department 'All Departments' still does not exist after creating it; "
             "Chapter.after_insert() -> _sync_department() will fail for every chapter."
+        )
+
+
+def ensure_root_item_group():
+    """Guarantee the root ``All Item Groups`` exists, named exactly that. Idempotent.
+
+    Same gap as ``ensure_root_territory`` above, for a different root (#562).
+    ``erpnext.tests.utils.BootStrapTestData()`` creates it in the same batch as
+    "All Territories" and "All Customer Groups" (``get_preset_records("India")``
+    -- see ``_erpnext_base_masters_present``'s docstring), but that batch only
+    runs from ``ensure_erpnext_base_masters()``, which neither harness base
+    calls directly: both call ``ensure_netherlands_territory()`` (hence
+    ``ensure_root_territory`` existing at all), never
+    ``ensure_erpnext_base_masters()`` itself. So a fresh site whose first test
+    is harness-based got the Territory root and NOT this one -- MEASURED:
+    deleting both trees and calling ``ensure_prerequisites()`` (which happens
+    to self-heal "All Customer Groups") left "All Item Groups" absent, and
+    ``tests/backend/components/test_membership_utilities.py``'s
+    ``_create_membership_item`` -- used by every ``EnhancedTestCase`` that calls
+    ``MembershipTestUtilities.create_membership_type_with_dues_schedule`` with
+    the default ``create_item=True`` -- raised ``LinkValidationError: Could not
+    find Parent Item Group: All Item Groups``.
+
+    Same shape as ``ensure_root_territory``: hardcoded name, ``db.exists``-gated,
+    untracked (shared with production Item records, so per-test drains must not
+    delete it), and deliberately does NOT commit -- both harness bases call this
+    from setup that runs before the captured-insert hook is installed.
+
+    Residual, shared with ``ensure_root_territory``/``ensure_root_department``
+    and not newly introduced here: ERPNext's own preset creates this row as
+    ``_("All Item Groups")``, so on a non-English site language this and the
+    real one would coexist and ``NestedSet.validate_one_root`` would raise
+    ``NestedSetMultipleRootsError``. This app hardcodes English test data
+    throughout; not fixed here.
+    """
+    if frappe.db.exists("Item Group", "All Item Groups"):
+        return
+
+    frappe.get_doc(
+        {"doctype": "Item Group", "item_group_name": "All Item Groups", "is_group": 1}
+    ).insert(ignore_permissions=True)
+
+    if not frappe.db.exists("Item Group", "All Item Groups"):
+        raise RuntimeError(
+            "Root Item Group 'All Item Groups' still does not exist after creating it; "
+            "every child Item Group insert and every Item.item_group='All Item Groups' "
+            "assignment will fail."
+        )
+
+
+def ensure_root_customer_group():
+    """Guarantee the root ``All Customer Groups`` exists, named exactly that.
+
+    Same reasoning as ``ensure_root_item_group`` above, for the Customer Group
+    tree (#562). Idempotent, untracked, does not commit -- see that function's
+    docstring for why.
+    """
+    if frappe.db.exists("Customer Group", "All Customer Groups"):
+        return
+
+    frappe.get_doc(
+        {"doctype": "Customer Group", "customer_group_name": "All Customer Groups", "is_group": 1}
+    ).insert(ignore_permissions=True)
+
+    if not frappe.db.exists("Customer Group", "All Customer Groups"):
+        raise RuntimeError(
+            "Root Customer Group 'All Customer Groups' still does not exist after "
+            "creating it; every Customer creation that defaults to it will fail."
+        )
+
+
+def ensure_root_supplier_group():
+    """Guarantee the root ``All Supplier Groups`` exists, named exactly that.
+
+    Same reasoning as ``ensure_root_item_group`` above, for the Supplier Group
+    tree (#562). Idempotent, untracked, does not commit -- see that function's
+    docstring for why.
+    """
+    if frappe.db.exists("Supplier Group", "All Supplier Groups"):
+        return
+
+    frappe.get_doc(
+        {"doctype": "Supplier Group", "supplier_group_name": "All Supplier Groups", "is_group": 1}
+    ).insert(ignore_permissions=True)
+
+    if not frappe.db.exists("Supplier Group", "All Supplier Groups"):
+        raise RuntimeError(
+            "Root Supplier Group 'All Supplier Groups' still does not exist after "
+            "creating it; every Supplier creation that defaults to it will fail."
         )
 
 

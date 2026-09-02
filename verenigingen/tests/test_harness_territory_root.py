@@ -23,21 +23,15 @@ shape it enforces.
 """
 
 import ast
-import contextlib
 import unittest
 
 import frappe
 
 from verenigingen.tests.utils.paths import APP_ROOT
+from verenigingen.tests.utils.root_probes import non_harness_test_classes, rows_deleted
 from verenigingen.tests.utils.source_probes import called_names
 
 ROOT = "All Territories"
-
-# Bases whose setUp/setUpClass reaches `ensure_netherlands_territory()` and
-# therefore, after this fix, the root. `BaseTestCase` is an alias for both
-# `VereningingenTestCase` and an `EnhancedTestCase` subclass depending on the
-# importing module; either way it is covered.
-_HARNESS_BASES = {"VereningingenTestCase", "EnhancedTestCase", "BaseTestCase"}
 
 # Callables that guarantee the root before it is used.
 _ROOT_SEEDERS = (
@@ -53,64 +47,17 @@ _NO_DATABASE_WRITE = {
     # Asserts on a MagicMock's attribute; `frappe` itself is patched out, so no
     # Territory row is read or written.
     "verenigingen/tests/e_boekhouden/test_party_resolver.py",
+    # Names "All Territories" only in its module docstring, listing it alongside
+    # the other four hardcoded ERPNext tree roots for context (#562). Its own
+    # classes write and assert only the Item Group / Customer Group / Supplier
+    # Group roots, never Territory.
+    "verenigingen/tests/test_harness_erpnext_group_roots.py",
 }
 
 
-@contextlib.contextmanager
-def _rows_deleted(doctype, *names):
-    """Take the named rows away for the block, then put them back.
-
-    Raw SQL rather than `frappe.delete_doc`: on any warm site the root has
-    children and NestedSet refuses to delete it. A savepoint rollback undoes
-    both the delete and whatever the code under test inserted, so the tree is
-    identical afterwards -- measured on test_site_1: 9 rows before, 9 after,
-    same names.
-
-    The row count is checked rather than assumed, because the savepoint is one
-    `commit()` away from being gone. `ensure_erpnext_base_masters()` -- listed in
-    this module's own `_ROOT_SEEDERS` -- commits, and measured on test_site_1: a
-    `frappe.db.commit()` inside a savepoint makes `rollback(save_point=...)` raise
-    `OperationalError (1305, 'SAVEPOINT ... does not exist')` and leaves the write
-    standing. Wire such a seeder into the chain below and this raw DELETE becomes
-    PERMANENT, taking the Territory tree away from every later class in the shard.
-    Nothing on the current path commits; the check is here so that if one ever
-    does, the damage is reported where it happened rather than as a link error in
-    an unrelated module.
-    """
-    before = frappe.db.count(doctype)
-    # A UNIQUE savepoint name per invocation, not a shared constant. MariaDB lets
-    # a second SAVEPOINT of the SAME name replace the first, so two nested blocks
-    # sharing one name make the inner `ROLLBACK TO` land on the inner point and
-    # the OUTER delete stand -- measured: nesting two of these on test_site_1
-    # deleted `All Supplier Groups` permanently and the guard below is what
-    # reported it. The guard caught it; the unique name is why it cannot recur.
-    save_point = f"row_probe_{frappe.generate_hash(length=8)}"
-    frappe.db.savepoint(save_point)
-    try:
-        for name in names:
-            frappe.db.sql(f"DELETE FROM `tab{doctype}` WHERE name = %s", name)
-        yield
-    finally:
-        # Nested `finally`: when the savepoint has been released the rollback
-        # itself raises, so the count has to be taken in a handler that runs
-        # anyway -- otherwise the only signal is a bare `OperationalError 1305`
-        # naming a savepoint, which says nothing about the tree being gone.
-        try:
-            frappe.db.rollback(save_point=save_point)
-        finally:
-            after = frappe.db.count(doctype)
-            if after != before:
-                raise AssertionError(
-                    f"this probe did not restore tab{doctype}: {before} rows before, "
-                    f"{after} after. Something inside the block committed, which released "
-                    "the savepoint and made the raw DELETE permanent. See this helper's "
-                    "docstring."
-                )
-
-
 def _territories_deleted(*names):
-    """Territory-shaped `_rows_deleted`, which is what every caller below wants."""
-    return _rows_deleted("Territory", *names)
+    """Territory-shaped `rows_deleted`, which is what every caller below wants."""
+    return rows_deleted("Territory", *names)
 
 
 def _root_deleted():
@@ -195,41 +142,13 @@ class TerritoryRootIsSeededTest(unittest.TestCase):
         self.assertEqual(1, frappe.db.count("Territory", {"name": ROOT}))
 
 
-def _looks_like_a_test_class(node: ast.ClassDef, base_names: set) -> bool:
-    """A base ending in `TestCase`, or test methods regardless of the base name.
-
-    The base-name half alone skips a class that inherits an imported harness
-    subclass under some other name (`class X(ReconBase)`), which is exactly the
-    class this guard exists to find. Test methods are the property that does not
-    depend on what the author called the base.
-    """
-    if any(name.endswith("TestCase") for name in base_names):
-        return True
-    return any(
-        isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and (child.name.startswith("test") or child.name == "runTest")
-        for child in node.body
-    )
-
-
-def _non_harness_test_classes(tree: ast.Module) -> list:
-    """Names of test classes in `tree` that reach neither harness base."""
-    offenders = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.ClassDef):
-            continue
-        base_names = {
-            base.attr if isinstance(base, ast.Attribute) else getattr(base, "id", "") for base in node.bases
-        }
-        if not _looks_like_a_test_class(node, base_names):
-            continue
-        if base_names & _HARNESS_BASES:
-            continue
-        offenders.append(node.name)
-    return offenders
-
-
-BASE_MASTER_SENTINEL = ("Supplier Group", "All Supplier Groups")
+BASE_MASTER_SENTINEL = ("Warehouse Type", "Transit")
+#: Was `("Supplier Group", "All Supplier Groups")` until #562: that root is no
+#: longer forge-proof once `ensure_root_supplier_group()` exists (both harness
+#: bases now create it directly, same shape that made the Territory-only gate
+#: forgeable in the first place -- see `_erpnext_base_masters_present`'s
+#: docstring). `Warehouse Type` "Transit" replaces it: same
+#: `get_preset_records("India")` batch, zero writes anywhere in this app.
 
 
 class SeedingTheRootMustNotCloseTheBaseMasterGateTest(unittest.TestCase):
@@ -265,7 +184,7 @@ class SeedingTheRootMustNotCloseTheBaseMasterGateTest(unittest.TestCase):
         had the sentinel, saying nothing about the gate."""
         doctype, name = BASE_MASTER_SENTINEL
         self.assertTrue(frappe.db.exists(doctype, name), f"site has no {name} to remove")
-        with _rows_deleted(doctype, name):
+        with rows_deleted(doctype, name):
             self.assertFalse(frappe.db.exists(doctype, name))
         self.assertTrue(frappe.db.exists(doctype, name), "the probe must restore the sentinel")
 
@@ -284,7 +203,7 @@ class SeedingTheRootMustNotCloseTheBaseMasterGateTest(unittest.TestCase):
         from verenigingen.tests.setup import _erpnext_base_masters_present, ensure_root_territory
 
         doctype, name = BASE_MASTER_SENTINEL
-        with _rows_deleted(doctype, name):
+        with rows_deleted(doctype, name):
             ensure_root_territory()
 
             self.assertTrue(
@@ -298,13 +217,49 @@ class SeedingTheRootMustNotCloseTheBaseMasterGateTest(unittest.TestCase):
                 "no Customer Groups, no Chart of Accounts, no set_defaults_for_tests()",
             )
 
+    def test_the_full_harness_seeding_path_does_not_close_the_gate(self):
+        """The pin #562 needed and did not have: the ACTUAL harness call chain
+        (Territory, then Item Group, Customer Group, Supplier Group -- what
+        `VereningingenTestCase.setUpClass` and `EnhancedTestCase.setUp` both run)
+        must not forge the sentinel between them. A pin scoped to
+        `ensure_root_territory` alone stayed green while
+        `ensure_root_supplier_group()` (added in the same change) broke this
+        exact property for a different doctype -- MEASURED during #562's review.
+        """
+        from verenigingen.tests.setup import (
+            _erpnext_base_masters_present,
+            ensure_netherlands_territory,
+            ensure_root_customer_group,
+            ensure_root_item_group,
+            ensure_root_supplier_group,
+        )
+
+        doctype, name = BASE_MASTER_SENTINEL
+        with rows_deleted(doctype, name):
+            ensure_netherlands_territory()
+            ensure_root_item_group()
+            ensure_root_customer_group()
+            ensure_root_supplier_group()
+
+            self.assertFalse(
+                frappe.db.exists(doctype, name),
+                f"precondition: {doctype} {name} must still be absent",
+            )
+            self.assertFalse(
+                _erpnext_base_masters_present(),
+                "the full harness seeding path closed the base-master gate without "
+                "Warehouse Type 'Transit' present, so ensure_erpnext_base_masters() "
+                "will early-return and seed nothing for every module that calls "
+                "ensure_member_test_masters() afterwards",
+            )
+
     def test_the_root_seeder_writes_nothing_that_could_forge_the_sentinel(self):
         """Scope statement, kept honest by measurement rather than by reading:
         `ensure_root_territory` must touch no doctype the gate depends on."""
         from verenigingen.tests.setup import ensure_root_territory
 
         doctype, name = BASE_MASTER_SENTINEL
-        with _rows_deleted(doctype, name):
+        with rows_deleted(doctype, name):
             with _root_deleted():
                 ensure_root_territory()
                 self.assertFalse(
@@ -380,7 +335,7 @@ class TerritoryConsumersOutsideTheHarnessAreGuardedTest(unittest.TestCase):
             # for the site this consequently cannot see.
             if called_names(tree) & set(_ROOT_SEEDERS):
                 continue
-            unguarded = _non_harness_test_classes(tree)
+            unguarded = non_harness_test_classes(tree)
             if unguarded:
                 offenders.append(f"{rel}: {', '.join(unguarded)}")
 
