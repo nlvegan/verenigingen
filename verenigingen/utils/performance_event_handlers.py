@@ -14,7 +14,6 @@ import frappe
 
 from verenigingen.utils.optimized_queries import (
     OptimizedSEPAQueries,
-    OptimizedVolunteerQueries,
     validate_member_names,
 )
 from verenigingen.utils.security.api_security_framework import (
@@ -31,46 +30,14 @@ class PerformanceEventHandlers:
     instead of monkey patching existing methods.
     """
 
-    @staticmethod
-    def on_volunteer_assignment_change(doc, method=None):
-        """
-        Optimized volunteer assignment loading triggered by document events
-
-        This handler can be called from Volunteer, Team Member, and Board Member
-        document hooks to trigger optimized assignment loading.
-
-        Args:
-            doc: The document that triggered the event
-            method: The event method name
-        """
-        try:
-            volunteer_names = []
-
-            # Determine volunteers that need assignment updates
-            if doc.doctype == "Verenigingen Volunteer":
-                volunteer_names.append(doc.name)
-
-            elif doc.doctype == "Team Member":
-                if doc.volunteer:
-                    volunteer_names.append(doc.volunteer)
-
-            elif doc.doctype == "Verenigingen Chapter Board Member":
-                if doc.volunteer:
-                    volunteer_names.append(doc.volunteer)
-
-            # Preload assignments for affected volunteers
-            if volunteer_names:
-                validate_member_names(volunteer_names)
-                OptimizedVolunteerQueries.get_volunteer_assignments_bulk(volunteer_names)
-
-                frappe.logger().info(f"Preloaded assignments for volunteers: {volunteer_names}")
-
-        except Exception as e:
-            # Don't let performance optimization errors block document operations
-            frappe.log_error(
-                f"Performance optimization error in on_volunteer_assignment_change: {str(e)}",
-                "Performance Event Handler Error",
-            )
+    # REMOVED: on_volunteer_assignment_change (#688). Its only registration was
+    # under the non-existent doctype "Verenigingen Volunteer", so it never ran, and
+    # its body branched on that same string plus "Verenigingen Chapter Board Member"
+    # -- neither is a DocType -- so a correctly-registered Volunteer save would have
+    # fallen through every branch and done nothing. Measured on test_site_1: 0
+    # bulk-loader calls for doctype "Volunteer", 1 for the string the body tested.
+    # It was a speculative assignment-cache warm; if that preload is ever wanted,
+    # call OptimizedVolunteerQueries directly rather than reviving this.
 
     @staticmethod
     def on_sepa_mandate_change(doc, method=None):
@@ -106,11 +73,6 @@ class PerformanceEventHandlers:
 
 
 # Module-level functions for hooks (required by Frappe hooks validator)
-def on_volunteer_assignment_change(doc, method=None):
-    """Module-level wrapper for PerformanceEventHandlers.on_volunteer_assignment_change"""
-    return PerformanceEventHandlers.on_volunteer_assignment_change(doc, method)
-
-
 def on_sepa_mandate_change(doc, method=None):
     """Module-level wrapper for PerformanceEventHandlers.on_sepa_mandate_change"""
     return PerformanceEventHandlers.on_sepa_mandate_change(doc, method)
