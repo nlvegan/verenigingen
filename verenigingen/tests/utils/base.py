@@ -1569,17 +1569,20 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         defaults = {
             "posting_date": frappe.utils.today(),
             "due_date": frappe.utils.today(),
+            # Honour the posting_date above. Without this, ERPNext's
+            # TransactionBase.validate_posting_time() overwrites posting_date with
+            # now_datetime() during validate, while due_date keeps the value read a
+            # moment earlier -- so a save that crosses the site clock's midnight
+            # leaves due_date one day behind posting_date and validate_due_date
+            # throws "Due Date cannot be before Posting Date". Matches the
+            # unconditional set_posting_time in enhanced_test_factory, whose comment
+            # documents the same ERPNext behaviour.
+            "set_posting_time": 1,
             "is_membership_invoice": 1,
             "company": frappe.defaults.get_user_default("Company")
             or frappe.get_all("Company", limit=1, pluck="name")[0],
         }
         defaults.update(kwargs)
-
-        # ERPNext resets posting_date to today during validate unless set_posting_time
-        # is enabled; without it a back/forward-dated posting_date is ignored and a
-        # custom due_date can end up "before" today's posting date.
-        if "posting_date" in kwargs:
-            defaults.setdefault("set_posting_time", 1)
 
         invoice = frappe.new_doc("Sales Invoice")
         for key, value in defaults.items():
