@@ -36,6 +36,14 @@ from a worktree under ``/tmp``: the plain filesystem walk-up finds nothing,
 ``.../frappe-bench/apps/verenigingen/.git``, and walking up from its parent
 reaches ``/home/frappeuser/frappe-bench``, which has both ``apps/`` and
 ``sites/``.
+
+This closes the "a bench exists somewhere, but not as an ancestor of this
+checkout" case. It does NOT create a bench where none exists: the
+Code Validation workflow (``.github/workflows/code-validation.yml``) checks
+out this app standalone, with no ``apps/``/``sites/`` anywhere and no git
+connection to one either, so ``child_table_creation_validator.py`` still
+correctly loads zero doctypes there -- that job was never testing child-table
+patterns, and this module does not change that.
 """
 
 from __future__ import annotations
