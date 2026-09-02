@@ -503,7 +503,7 @@ _sanitize_filename::2
 _sched_stub::3
 _schedule::2
 _sdk_payment::2
-_seat::4
+_seat::5
 _seat_board_member::2
 _seat_on_board::3
 _seed::2
@@ -540,6 +540,7 @@ _stage_6_create_volunteer::2
 _stage_7_member_activities::2
 _stage_8_membership_renewal::2
 _stage_9_suspension_reactivation::2
+_status::2
 _stub_client::2
 _submitted_batch::2  # clone family, 100% of pairs near-identical
 _submitted_invoice::2
@@ -584,6 +585,7 @@ _validate_unique_roles::2
 _validate_volunteer_created::2  # clone family, 100% of pairs near-identical
 _validator::5
 _verify::2
+_volunteer::2
 _with_admin_user::2  # clone family, 100% of pairs near-identical
 _with_user::4  # clone family, 100% of pairs near-identical
 _write::3

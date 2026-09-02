@@ -66,6 +66,9 @@ from frappe.model.document import Document
 from frappe.utils import getdate, today
 
 from verenigingen.services.member.utils.member_age_service import calculate_member_age
+from verenigingen.services.volunteer.status_derivation_service import (
+    get_volunteer_status_derivation_service,
+)
 from verenigingen.utils.dutch_name_utils import format_dutch_full_name, is_dutch_installation
 from verenigingen.utils.member_utils import get_volunteer_for_member
 from verenigingen.utils.secure_operations import secure_document_operation
@@ -112,6 +115,7 @@ class Volunteer(Document):
         self.validate_unique_member_link()
         self.validate_volunteer_age()
         self.validate_dates()
+        self.validate_retired_has_no_current_assignment()
 
     def validate_required_fields(self):
         """Check if required fields are filled"""
@@ -279,38 +283,25 @@ class Volunteer(Document):
                 f"No email provided for volunteer {self.name} - skipping account creation"
             )
 
+    def validate_retired_has_no_current_assignment(self):
+        """Refuse a Retired status that contradicts a held role (#705)."""
+        get_volunteer_status_derivation_service().validate_retired_has_no_current_assignment(self)
+
     def update_status(self):
-        """Update volunteer status based on assignments"""
-        if not self.status or self.status == "New":
-            # Use cheaper existence checks instead of full aggregation query
-            has_assignments = self._has_any_assignment()
-            if has_assignments:
-                self.status = "Active"
-            else:
-                self.status = "New"
+        """Derive status from assignments on an ordinary save (#705)."""
+        get_volunteer_status_derivation_service().update_status(self)
+
+    def apply_assignment_derivation(self):
+        """Full derivation, for use right after an assignment row changed (#705)."""
+        get_volunteer_status_derivation_service().apply_assignment_derivation(self)
+
+    def _has_current_assignment(self):
+        """Does this volunteer hold a role right now? (Active, Paused or On Hold.)"""
+        return get_volunteer_status_derivation_service().has_current_assignment(self)
 
     def _has_any_assignment(self):
-        """
-        Check if volunteer has any active assignments using cheap existence queries.
-
-        Returns True if volunteer has assignments in any of:
-        - Chapter Board Member
-        - Team Member
-        - Assignment history child table
-        """
-        # Check assignment_history child table first (in-memory, no DB query)
-        if self.assignment_history and len(self.assignment_history) > 0:
-            return True
-
-        # Check Chapter Board Member (single indexed query)
-        if frappe.db.exists("Chapter Board Member", {"volunteer": self.name}):
-            return True
-
-        # Check Team Member (single indexed query)
-        if frappe.db.exists("Team Member", {"volunteer": self.name}):
-            return True
-
-        return False
+        """Does this volunteer have any assignment at all, current or closed?"""
+        return get_volunteer_status_derivation_service().has_any_assignment(self)
 
     def _check_auto_activation(self, old_status):
         """
