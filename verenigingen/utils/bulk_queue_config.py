@@ -18,6 +18,7 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+from verenigingen.utils.service_logger import get_service_logger
 
 
 def get_bulk_queue_config():
@@ -116,7 +117,8 @@ def get_queue_status():
 
     try:
         import redis
-        from rq import Connection, Queue
+        from rq import Queue
+        from rq.worker import Worker
 
         # Get Redis connection
         redis_conn = redis.from_url(frappe.conf.redis_queue or "redis://localhost:11000")
@@ -124,45 +126,44 @@ def get_queue_status():
         queue_status = {}
         queue_names = ["bulk", "long", "default", "short"]
 
-        with Connection(redis_conn):
-            for queue_name in queue_names:
-                try:
-                    queue = Queue(queue_name)
+        for queue_name in queue_names:
+            try:
+                queue = Queue(queue_name, connection=redis_conn)
 
-                    queue_status[queue_name] = {
-                        "name": queue_name,
-                        "length": len(queue),
-                        "failed_count": queue.failed_job_registry.count,
-                        "started_count": queue.started_job_registry.count,
-                        "deferred_count": queue.deferred_job_registry.count,
-                        "scheduled_count": (
-                            queue.scheduled_job_registry.count
-                            if hasattr(queue, "scheduled_job_registry")
-                            else 0
-                        ),
-                        "workers": len(queue.workers),
-                        "is_empty": queue.is_empty(),
+                queue_status[queue_name] = {
+                    "name": queue_name,
+                    "length": len(queue),
+                    "failed_count": queue.failed_job_registry.count,
+                    "started_count": queue.started_job_registry.count,
+                    "deferred_count": queue.deferred_job_registry.count,
+                    "scheduled_count": (
+                        queue.scheduled_job_registry.count if hasattr(queue, "scheduled_job_registry") else 0
+                    ),
+                    # RQ 2.x dropped `Queue.workers`; workers for a queue are now
+                    # looked up via `Worker.all(queue=...)`.
+                    "workers": len(Worker.all(queue=queue)),
+                    "is_empty": queue.is_empty(),
+                }
+
+                # Get sample of recent jobs
+                jobs = queue.get_jobs()[:5]  # Last 5 jobs
+                queue_status[queue_name]["recent_jobs"] = [
+                    {
+                        "id": job.id,
+                        "function": job.func_name,
+                        "status": job.get_status(),
+                        "created_at": job.created_at.isoformat() if job.created_at else None,
+                        "started_at": job.started_at.isoformat() if job.started_at else None,
                     }
+                    for job in jobs
+                ]
 
-                    # Get sample of recent jobs
-                    jobs = queue.get_jobs()[:5]  # Last 5 jobs
-                    queue_status[queue_name]["recent_jobs"] = [
-                        {
-                            "id": job.id,
-                            "function": job.func_name,
-                            "status": job.get_status(),
-                            "created_at": job.created_at.isoformat() if job.created_at else None,
-                            "started_at": job.started_at.isoformat() if job.started_at else None,
-                        }
-                        for job in jobs
-                    ]
-
-                except Exception as queue_error:
-                    queue_status[queue_name] = {
-                        "name": queue_name,
-                        "error": str(queue_error),
-                        "available": False,
-                    }
+            except Exception as queue_error:
+                queue_status[queue_name] = {
+                    "name": queue_name,
+                    "error": str(queue_error),
+                    "available": False,
+                }
 
         return queue_status
 
@@ -184,10 +185,10 @@ def clear_stuck_jobs():
         frappe.throw(_("Insufficient permissions to manage queues"))
 
     try:
-        from datetime import datetime, timedelta
+        from datetime import datetime, timedelta, timezone
 
         import redis
-        from rq import Connection, Queue
+        from rq import Queue
 
         config = get_bulk_queue_config()
         stuck_threshold = timedelta(minutes=config["stuck_job_timeout_minutes"])
@@ -196,40 +197,48 @@ def clear_stuck_jobs():
         redis_conn = redis.from_url(frappe.conf.redis_queue or "redis://localhost:11000")
 
         cleared_jobs = []
+        job_logger = get_service_logger("verenigingen.bulk_queue_config")
 
-        with Connection(redis_conn):
-            for queue_name in ["bulk", "long", "default"]:
-                try:
-                    queue = Queue(queue_name)
+        for queue_name in ["bulk", "long", "default"]:
+            try:
+                queue = Queue(queue_name, connection=redis_conn)
 
-                    # Check started job registry for stuck jobs
-                    for job_id in queue.started_job_registry.get_job_ids():
-                        try:
-                            job = queue.started_job_registry.get_job_class()(job_id, connection=redis_conn)
+                # Check started job registry for stuck jobs. RQ's started_at is
+                # timezone-aware UTC (rq.utils.now()/utcparse()), so `now` must be
+                # too -- this is RQ's own clock, not the site's Asia/Kolkata clock.
+                now = datetime.now(timezone.utc)
 
-                            if job.started_at and (datetime.now() - job.started_at) > stuck_threshold:
-                                # Job is stuck - remove it
-                                queue.started_job_registry.remove(job_id)
-                                cleared_jobs.append(
-                                    {
-                                        "job_id": job_id,
-                                        "queue": queue_name,
-                                        "function": job.func_name,
-                                        "started_at": job.started_at.isoformat(),
-                                        "duration_minutes": (datetime.now() - job.started_at).total_seconds()
-                                        / 60,
-                                    }
-                                )
+                for job_id in queue.started_job_registry.get_job_ids():
+                    try:
+                        # Registries only expose `job_class` as a plain attribute
+                        # (no `get_job_class()`), and the bare constructor never
+                        # loads data from Redis -- `.fetch()` is required.
+                        job = queue.started_job_registry.job_class.fetch(job_id, connection=redis_conn)
 
-                                frappe.logger().warning(f"Cleared stuck job {job_id} from {queue_name} queue")
+                        if job.started_at and (now - job.started_at) > stuck_threshold:
+                            # Job is stuck - remove it. RQ 2.x tracks "started"
+                            # jobs as executions; the registry's own add()/remove()
+                            # are stubs that raise NotImplementedError.
+                            queue.started_job_registry.remove_executions(job)
+                            cleared_jobs.append(
+                                {
+                                    "job_id": job_id,
+                                    "queue": queue_name,
+                                    "function": job.func_name,
+                                    "started_at": job.started_at.isoformat(),
+                                    "duration_minutes": (now - job.started_at).total_seconds() / 60,
+                                }
+                            )
 
-                        except Exception as job_error:
-                            frappe.logger().error(f"Error processing job {job_id}: {str(job_error)}")
-                            continue
+                            frappe.logger().warning(f"Cleared stuck job {job_id} from {queue_name} queue")
 
-                except Exception as queue_error:
-                    frappe.logger().error(f"Error processing queue {queue_name}: {str(queue_error)}")
-                    continue
+                    except Exception as job_error:
+                        job_logger.error("Error processing job %s: %s", job_id, job_error)
+                        continue
+
+            except Exception as queue_error:
+                job_logger.error("Error processing queue %s: %s", queue_name, queue_error)
+                continue
 
         if cleared_jobs:
             frappe.msgprint(_(f"Cleared {len(cleared_jobs)} stuck jobs"))
