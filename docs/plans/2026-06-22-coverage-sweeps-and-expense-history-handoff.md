@@ -91,9 +91,14 @@ restored and the **history-manager logic repointed to track the HRMS Expense Cla
   Expense Claim → history-entry field mapping). **First locate the current tracker** — owner
   said "the history tracker is somewhere else".
 - **Surgical, not wholesale:** `financial_history_batch_processor` also handles live
-  payment-history — do not delete it. The live HRMS handlers (`expense_handlers.*`,
-  `native_expense_helpers.update_employee_approver` on Expense Claim doc_events) are separate
-  and working — leave them.
+  payment-history — do not delete it. The live HRMS handlers (`expense_handlers.*` on Expense
+  Claim doc_events) are separate and working — leave them.
+  - *Correction (#688, 2026-08-31):* this line also named
+    `native_expense_helpers.update_employee_approver` as an Expense Claim doc_event. It never
+    was one. Its only registration was under the non-existent doctype `Verenigingen
+    Volunteer`, and it takes a Volunteer doc, so on an Expense Claim it would have thrown
+    into its own `except`. `Employee.expense_approver` is kept current by the daily
+    `refresh_all_expense_approvers` job instead.
 - The no-op characterization tests for this chain were intentionally NOT shipped (they'd lock
   in to-be-fixed behavior). Once restored, write real tests asserting history rows populate
   from HRMS Expense Claim.

@@ -189,8 +189,17 @@ def join_chapter(chapter_name: str, introduction) -> OperationResult[Dict[str, A
             }
         )
 
-        # Save and submit the request
+        # Save and submit the request.
+        # reload() guards against #609 (whole-second creation/modified timestamp
+        # -> TimestampMismatchError / CannotChangeConstantError on submit()):
+        # frappe#38219 precedent. Belt-and-braces alongside the doc_events["*"]
+        # on_change normaliser (verenigingen/utils/timestamp_normalization.py)
+        # -- that already fixes the in-memory string, so this reload() re-reads
+        # the same, already-consistent row and is a deliberate no-op most of
+        # the time, kept here as a second, independent guard on a money-moving
+        # path per #609's scope decision.
         join_request.insert()
+        join_request.reload()
         join_request.submit()
 
         data = {

@@ -20,6 +20,7 @@ import importlib.util
 import inspect
 import sys
 import unittest
+from collections import Counter
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -1071,6 +1072,148 @@ class TestDocEventNamesAreDispatched(unittest.TestCase):
             "after_save",
             post_save_source,
             "run_post_save_methods() now references after_save — re-verify the gate.",
+        )
+
+
+class TestHookKeysAreDoctypes(unittest.TestCase):
+    """Regression: every doctype-keyed hook this app owns must name a real DocType (#688).
+
+    The sibling gate above pins the event NAME. This one pins the KEY, which is the
+    other half of the same silence. Frappe indexes these dicts by doctype name and
+    looks up only the doctype in hand, so a key naming nothing is never consulted:
+    the handler strings still resolve, the app still boots, nothing errors — the code
+    just never runs.
+
+    The trap is a `Verenigingen `-prefixed name, because this app has a Role, a Role
+    Profile and a DocType whose names differ only by that prefix. Four Volunteer
+    handlers sat under the Role name "Verenigingen Volunteer" for nine months, from
+    the very commit that created volunteer.json.
+
+    ALL FIVE doctype-keyed surfaces are swept, not just doc_events. A gate scoped to
+    the one instance that happened to be broken would be the same mistake one level
+    up — and `permission_query_conditions` is the surface where it would matter most,
+    since a scope that never loads reads as no scope at all.
+
+    Scope: dicts this app defines. `*` is frappe's wildcard, and other installed apps
+    legitimately register doctypes absent from a given site (hrms registers `Loan`,
+    which needs the separate lending app), so `frappe.get_hooks()` is deliberately
+    NOT used here — it merges every app.
+    """
+
+    # (hooks submodule, dict attribute). override_doctype_class lives in the package
+    # __init__ rather than a submodule, so it is added separately below.
+    DOCTYPE_KEYED_HOOKS = [
+        ("doc_events", "doc_events"),
+        ("permissions", "permission_query_conditions"),
+        ("permissions", "has_permission"),
+        ("doctypes", "doctype_js"),
+    ]
+
+    def _collect(self):
+        """Every (surface, key) pair this app registers against a doctype."""
+        pairs = []
+        for submodule, attr in self.DOCTYPE_KEYED_HOOKS:
+            registry = getattr(load_hooks_submodule(submodule), attr)
+            pairs += [(attr, key) for key in registry]
+
+        import verenigingen.hooks as app_hooks
+
+        pairs += [
+            ("override_doctype_class", key) for key in getattr(app_hooks, "override_doctype_class", {})
+        ]
+        return pairs
+
+    def test_every_doctype_keyed_hook_names_a_real_doctype(self):
+        import frappe
+
+        # CONTROL: a "does this doctype exist" probe that answers the same way for
+        # both inputs cannot fail this test for the right reason. Prove it
+        # discriminates before trusting the sweep below.
+        self.assertTrue(
+            frappe.db.exists("DocType", "Volunteer"),
+            "control failed: the real DocType 'Volunteer' was not found",
+        )
+        self.assertFalse(
+            frappe.db.exists("DocType", "Verenigingen Volunteer"),
+            "control failed: 'Verenigingen Volunteer' is a Role, not a DocType — if it "
+            "now resolves, this gate has stopped meaning anything",
+        )
+
+        pairs = self._collect()
+        # Guard against a silently empty sweep: if a hooks dict is renamed or moved,
+        # _collect() returns a short list and the assertion below passes vacuously.
+        # A total floor alone is NOT enough -- measured on this branch the sweep is 58
+        # pairs (doc_events 22, permission_query_conditions 16, has_permission 15,
+        # doctype_js 4, override_doctype_class 1), so the two smallest surfaces could
+        # drop out ENTIRELY and 57 or 53 would still clear any floor set below that.
+        # So require every declared surface to contribute, then keep the total floor
+        # for the large ones, set well below 58 so ordinary churn does not trip it.
+        # Named as a LITERAL, deliberately not derived from DOCTYPE_KEYED_HOOKS:
+        # a set built from that list shrinks in step with it, so deleting an entry
+        # would satisfy the comparison with itself. A renamed dict is already caught
+        # by getattr() in _collect(); this catches the two quieter cases, a surface
+        # dropped from the list and a surface that collects nothing.
+        expected_surfaces = {
+            "doc_events",
+            "permission_query_conditions",
+            "has_permission",
+            "doctype_js",
+            "override_doctype_class",
+        }
+        surfaces = Counter(surface for surface, _ in pairs)
+        self.assertEqual(
+            expected_surfaces,
+            set(surfaces),
+            "A doctype-keyed hooks surface contributed nothing to the sweep, so it is "
+            f"no longer being checked at all. Got: {dict(surfaces)}",
+        )
+        self.assertGreater(len(pairs), 50, f"the sweep collected only {len(pairs)} keys")
+
+        not_doctypes = [
+            f"{surface}[{key!r}]"
+            for surface, key in pairs
+            if key != "*" and not frappe.db.exists("DocType", key)
+        ]
+
+        self.assertEqual(
+            [],
+            not_doctypes,
+            "These hook keys name no DocType, so everything registered under them is "
+            "silently inert. Check for a Role or Role Profile name that differs from "
+            "the DocType only by a 'Verenigingen ' prefix:\n  " + "\n  ".join(not_doctypes),
+        )
+
+    def test_no_volunteer_handler_is_registered_under_either_name(self):
+        """All four Volunteer handlers are retired, and neither key dispatches (#688).
+
+        Reads the framework's own dispatch map rather than our dict, because our dict
+        having (or lacking) a key proves nothing about what Document.run_method()
+        actually consults -- that gap is the whole bug.
+
+        "Verenigingen Volunteer" is a Role name and must never appear again. But
+        "Volunteer" is asserted empty too, and that half is load-bearing: wiring
+        `volunteer_role_profile_hooks.on_volunteer_status_change` here was MEASURED
+        to strip board users of their Chapter Board Member role
+        (test_permissions_doc_checks_coverage: 31 OK on develop, 5 FAILED with it
+        wired), because sync_user_role_profile replaces User.role_profiles and
+        populate_role_profile_roles then resets User.roles from the profile. If a
+        future change adds a Volunteer on_update, re-read that measurement first --
+        the role-profile staleness it was meant to fix is real, but this is not the
+        place it can be fixed.
+        """
+        import frappe
+
+        doc_hooks = frappe.get_doc_hooks()
+
+        self.assertIsNone(
+            doc_hooks.get("Verenigingen Volunteer"),
+            "'Verenigingen Volunteer' is a Role name. Handlers registered under it "
+            "never fire (#688).",
+        )
+        self.assertIsNone(
+            doc_hooks.get("Volunteer"),
+            "A Volunteer doc_event was added. See this test's docstring: the last "
+            "attempt removed board roles from live users.",
         )
 
 

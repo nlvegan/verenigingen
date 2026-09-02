@@ -371,6 +371,12 @@ def _create_payment_entry(payment_data: Dict) -> Dict:
     """Internal function to create payment entry"""
     payment_entry = frappe.get_doc(payment_data)
     payment_entry.insert()
+    # reload() guards against #609 (whole-second creation/modified timestamp ->
+    # TimestampMismatchError / CannotChangeConstantError on submit(), frappe#38219
+    # precedent). Belt-and-braces alongside the doc_events["*"] on_change
+    # normaliser -- see verenigingen/api/chapter_join.py's matching call for the
+    # full rationale.
+    payment_entry.reload()
     payment_entry.submit()
 
     return {"success": True, "payment_entry": payment_entry.name, "amount": payment_entry.paid_amount}
