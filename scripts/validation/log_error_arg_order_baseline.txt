@@ -429,7 +429,6 @@ verenigingen/utils/payment_history_builder.py::build_payment_history_entry_from_
 verenigingen/utils/payment_history_validator.py::validate_and_repair_payment_history::2
 verenigingen/utils/payment_history_validator.py::validate_payment_history_integrity::1
 verenigingen/utils/performance_event_handlers.py::PerformanceEventHandlers.on_sepa_mandate_change::1
-verenigingen/utils/performance_event_handlers.py::PerformanceEventHandlers.on_volunteer_assignment_change::1
 verenigingen/utils/post_migration_hooks.py::cleanup_orphaned_workspace_links::1
 verenigingen/utils/post_migration_hooks.py::quick_workspace_health_check::1
 verenigingen/utils/post_migration_hooks.py::run_post_migration_workspace_health::2
@@ -479,7 +478,6 @@ verenigingen/verenigingen/doctype/brand_settings/brand_settings.py::sync_brand_s
 verenigingen/verenigingen/doctype/chapter/chapter.py::Chapter._emit_chapter_change_events::1
 verenigingen/verenigingen/doctype/chapter/chapter.py::Chapter.after_rename::1
 verenigingen/verenigingen/doctype/chapter/managers/board_manager.py::BoardManager._save_chapter_with_board_changes::1
-verenigingen/verenigingen/doctype/chapter_member/chapter_member.py::ChapterMember.validate_chapter_membership_tracking::1
 verenigingen/verenigingen/doctype/contribution_amendment_request/contribution_amendment_request.py::ContributionAmendmentRequest.handle_mollie_sync_failure::2
 verenigingen/verenigingen/doctype/donation/donation.py::send_donation_confirmation_email::2
 verenigingen/verenigingen/doctype/donation/donation.py::send_payment_confirmation_email::1
