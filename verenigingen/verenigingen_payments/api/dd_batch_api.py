@@ -452,7 +452,39 @@ def get_eligible_invoices(filters: dict | None = None):
             sm.iban,
             sm.status as mandate_status
         FROM `tabSales Invoice` si
-        LEFT JOIN `tabMember` mem ON mem.customer = si.customer
+        -- `mem.customer = si.customer` alone is one-to-many: `Member.customer`
+        -- carries no unique constraint, so two Members sharing one Customer fan
+        -- out into two rows for one invoice (#662).
+        --
+        -- `si.member` is NOT a fix for this -- it looked like one (a Link
+        -- column named after the right thing), but it is a `fetch_from:
+        -- customer.member` field with `fetch_if_empty: 0` (see
+        -- `verenigingen/fixtures/custom_field.json`), so Frappe overwrites it
+        -- from `Customer.member` -- a single Link -- on every save, regardless
+        -- of what a billing service explicitly set. Joining on it silently
+        -- attributes EVERY invoice against a shared Customer to whichever ONE
+        -- Member that Customer's backlink names -- a wrong-account debit for
+        -- the other member's own invoice, not merely an unresolved ambiguity.
+        -- Measured on test_site_2: a real dues invoice created with
+        -- `member=B` (as `invoice_generator.py` does) was stored with
+        -- `member=A` once `Customer.member` named A, and was then offered
+        -- under A's mandate and IBAN.
+        --
+        -- The bound that actually names the invoice's own member is the one
+        -- the other two collection queries already use (#616,
+        -- `dd_batch_optimizer.get_eligible_invoices_for_batching`; also
+        -- `sepa_mandate_service.get_sepa_invoices_with_mandates`): the
+        -- invoice's OWN dues schedule, joined on its PRIMARY KEY, which is not
+        -- subject to `fetch_from` and is the only thing that actually knows
+        -- which member an invoice was raised for. `mds.member` is `reqd` for
+        -- any non-template schedule, so this JOIN (not LEFT JOIN) only drops
+        -- an invoice that was never billed through a dues schedule at all --
+        -- outside what this membership-dues endpoint should ever offer, and
+        -- measured on veg11 (a copy of production data) to be none of the
+        -- reachable population (431/431 have a resolvable schedule).
+        JOIN `tabMembership Dues Schedule` mds
+            ON mds.name = si.membership_dues_schedule_display
+        JOIN `tabMember` mem ON mem.name = mds.member
         -- Purpose filter (#597). Without it this join produced one row PER
         -- Active mandate, so a member with a membership mandate and a donation
         -- mandate yielded TWO rows for ONE invoice -- and `sm.mandate_id`/`sm.iban`
@@ -471,15 +503,24 @@ def get_eligible_invoices(filters: dict | None = None):
     eligible_invoices = frappe.db.sql(query, values, as_dict=True)
 
     # The THIRD copy of the join #627 bounded in the two automated producers, and the
-    # one #662 explicitly cleared -- it examined `mem.customer` (non-unique, still
-    # open) and recorded the mandate join as already bounded by #604's purpose filter.
-    # It is not: that filter separates a membership mandate from a donation mandate,
-    # not two Active mandates SHARING the membership purpose, which
+    # one #662 explicitly cleared -- it examined `mem.customer` (non-unique) and
+    # recorded the mandate join as already bounded by #604's purpose filter. It is
+    # not: that filter separates a membership mandate from a donation mandate, not
+    # two Active mandates SHARING the membership purpose, which
     # `patches/v2_2/report_members_with_multiple_active_mandates` exists precisely
     # because installs carry. Either way one invoice comes back twice here, and both
     # `sm.mandate_id` and `sm.iban` go into the Direct Debit Batch child row -- so the
     # operator is offered the same invoice twice and `validate_no_duplicate_invoices`
     # (#606) then refuses the batch they built from it.
+    #
+    # `mem.customer`'s OWN fan-out (#662) is now bound at the join above through
+    # `mds.member` -- `mem` is a PK-joined single row now, not a one-to-many
+    # match on the non-unique `Member.customer`, so there is nothing left for a
+    # per-Member filter like `member_type` to resolve ahead of this call. This
+    # call remains what it was for the mandate class: two Active
+    # `used_for_memberships` mandates on that one now-unique member still
+    # produce two rows here, and this is what refuses that pair -- see
+    # `test_member_customer_shared_fanout.py`.
     #
     # Refused, not de-duplicated, for the same reason as everywhere else in this file:
     # the duplicate pair disagrees about `DEBIT_DECIDING_FIELDS`, and keeping either

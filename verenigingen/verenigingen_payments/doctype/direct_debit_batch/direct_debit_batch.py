@@ -132,9 +132,17 @@ class DirectDebitBatch(Document):
         queries that feed this document (the daily optimizer, the monthly service and
         `dd_batch_api.get_eligible_invoices`), and each now refuses a duplicated
         invoice rather than passing it on. So reaching this throw takes a route none
-        of them has. (#662 is about a DIFFERENT unbounded join in that third query --
-        `mem.customer`, which is not unique -- and is still open; it explicitly
-        cleared the mandate join, which #627 disproved.)
+        of them has. (#662 was about a DIFFERENT unbounded join in that third query --
+        `mem.customer`, which is not unique; it explicitly cleared the mandate join,
+        which #627 disproved. Closed the same way #616 bounds the identical join in
+        the daily optimizer: through the invoice's OWN dues schedule
+        (`mds.member`, joined on its primary key), not through `Sales
+        Invoice.member` -- that field is a `fetch_from: customer.member` column
+        Frappe silently overwrites on every save, so binding to it would have
+        attributed a shared Customer's invoice to whichever ONE member the
+        Customer record names, not to the member it was actually raised for. The
+        row guard remains what it is for the other two queries: the backstop for
+        two Active mandates on the one member the schedule resolves to.)
 
         SCOPE. This is a WITHIN-batch check. Two batches each listing the invoice
         once are still two debits, and the guard cannot see that;
