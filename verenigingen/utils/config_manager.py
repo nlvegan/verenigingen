@@ -326,9 +326,12 @@ def validate_config() -> Dict[str, Any]:
     config = ConfigManager.get_all()
 
     # Check for logical inconsistencies
-    if config.get("min_membership_age", 0) < 0:
-        issues.append("Minimum membership age cannot be negative")
-
+    # A "min_membership_age cannot be negative" check used to live here, on a
+    # key removed from _default_config in #673 (see get_membership_config /
+    # get_volunteer_config above): it was a permanent no-op even before that --
+    # config.get("min_membership_age", 0) never dropped below the hardcoded
+    # default of 16, and this function itself has zero callers. Removed rather
+    # than left referencing a deleted key.
     if config.get("max_page_size", 0) < config.get("default_page_size", 0):
         issues.append("Maximum page size cannot be less than default page size")
 

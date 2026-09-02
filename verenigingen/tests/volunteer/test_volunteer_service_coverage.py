@@ -376,14 +376,49 @@ class TestBulkVolunteerCreationService(EnhancedTestCase):
         summary = svc.create_volunteers_for_members([member.name])
         self.assertEqual(summary.already_existed, 1)
 
-    def test_create_volunteer_refuses_when_minimum_volunteer_age_unconfigured(self):
-        """The `minimum_volunteer_age` property must not paper over an unset/zero
-        setting with a hardcoded 16 (#673) -- that disagreed with
-        `AgeValidator._get_configurable_min_age`, which deliberately throws on
-        the same input rather than silently substituting a number. Pin the
-        setting to 0 and assert the per-member outcome is VALIDATION_ERROR (fail
-        closed), not a silently-created volunteer, for an adult member (factory
-        default birth_date 1990) who would pass under any real minimum.
+    def test_minimum_volunteer_age_property_refuses_when_unconfigured(self):
+        """The `minimum_volunteer_age` property itself, in isolation, must not
+        paper over an unset/zero setting with a hardcoded 16 (#673) -- that
+        disagreed with `AgeValidator._get_configurable_min_age`, which
+        deliberately throws on the same input rather than silently
+        substituting a number.
+
+        A prior version of this test drove the full
+        `create_volunteers_for_members` pipeline (member -> real
+        `Volunteer.insert()`). That masked a regression in THIS property
+        specifically: `.insert()` triggers `Volunteer.validate_volunteer_age`,
+        which independently calls the same `_get_configurable_min_age` and
+        raises on its own -- so reverting only this property back to `or 16`
+        left that version of this test green (found by a second skeptical
+        review of #673's PR). Access the property directly instead -- no
+        Volunteer is ever constructed, so the downstream gate cannot mask this
+        site's own regression.
+        """
+        from verenigingen.tests.support.verenigingen_settings import pinned_setting
+
+        svc = self._get_service()
+        with pinned_setting("minimum_volunteer_age", 0):
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                _ = svc.minimum_volunteer_age
+        self.assertIn("minimum_volunteer_age", str(ctx.exception))
+
+    def test_create_volunteer_refuses_and_clears_messages_when_minimum_volunteer_age_unconfigured(self):
+        """`_create_volunteer_for_member`'s `except frappe.ValidationError` must
+        catch the config-error ValidationError (fail closed, VALIDATION_ERROR
+        outcome, no Volunteer created) AND clear frappe.local.message_log
+        (#673's answering-round fix).
+
+        frappe.throw appends to message_log BEFORE raising, and that queue is
+        serialised into every response's _server_messages regardless of
+        whether the exception is caught -- so an uncleared catch here would
+        leak the raw "minimum_volunteer_age is not configured..." text to a
+        caller such as the whitelisted, synchronous
+        MijnRoodCSVImport.retry_failed_volunteer_creations, once per member.
+        Deleting the frappe.clear_messages() call this asserts against does
+        not fail any other test (found by the same second skeptical review),
+        so this test exists specifically to cover that line. Uses an adult
+        member (factory default birth_date 1990) who would pass under any
+        real minimum, so only the config refusal can produce this outcome.
         """
         from verenigingen.services.volunteer.bulk_volunteer_creation_service import (
             VolunteerCreationOutcome,
@@ -399,8 +434,10 @@ class TestBulkVolunteerCreationService(EnhancedTestCase):
         frappe.db.set_value("Member", member.name, "status", "Active")
 
         with pinned_setting("minimum_volunteer_age", 0):
+            frappe.clear_messages()
             svc = self._get_service()
             summary = svc.create_volunteers_for_members([member.name])
+            self.assertEqual(list(frappe.local.message_log), [])
 
         self.assertEqual(summary.results[0].outcome, VolunteerCreationOutcome.VALIDATION_ERROR)
         self.assertIn("minimum_volunteer_age", summary.results[0].error_message)

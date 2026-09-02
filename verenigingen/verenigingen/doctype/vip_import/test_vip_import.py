@@ -1328,39 +1328,90 @@ class TestVIPImportCreateAndProcess(FrappeTestCase):
             with self.assertRaises(frappe.ValidationError):
                 _create_volunteer({"volunteer_status": "Active"}, member)
 
-    def test_create_volunteer_refuses_when_minimum_volunteer_age_unconfigured(self):
-        """_validate_volunteer_age must FAIL CLOSED on an unset/zero
-        minimum_volunteer_age, not silently substitute 16 (#673).
+    def test_validate_volunteer_age_refuses_when_minimum_volunteer_age_unconfigured(self):
+        """_validate_volunteer_age itself, in isolation, must FAIL CLOSED on an
+        unset/zero minimum_volunteer_age, not silently substitute 16 (#673).
 
         ``AgeValidator._get_configurable_min_age`` deliberately throws on a
         missing/zero setting: "a missing/zero setting is a configuration error,
         not something to silently paper over." The old
         ``settings.get("minimum_volunteer_age") or 16`` (plus a silent
-        ``except Exception: min_volunteer_age = 16``) disagreed with that policy
-        -- a config error the desk path (AgeValidator) refuses on still let a
-        bulk import proceed by substituting 16. Pin the setting to 0, the exact
-        state AgeValidator refuses on, and assert this path now refuses too for
-        an adult member who would pass under any real minimum.
+        ``except Exception: min_volunteer_age = 16``) disagreed with that policy.
+
+        A prior version of this test drove ``_create_volunteer`` end to end
+        (member insert -> ``.insert()`` a real Volunteer). That masked a
+        regression in THIS function specifically: ``.insert()`` triggers
+        ``Volunteer.validate_volunteer_age``, which independently calls the same
+        ``AgeValidator._get_configurable_min_age`` and raises on its own -- so
+        reverting only ``_validate_volunteer_age`` back to ``or 16`` left that
+        version of this test green (found by a second skeptical review of
+        #673's PR). Call ``_validate_volunteer_age`` directly instead -- no
+        Volunteer is ever constructed, so the downstream gate cannot mask this
+        site's own regression.
         """
-        from verenigingen.verenigingen.doctype.vip_import.vip_import import _create_volunteer
+        from verenigingen.verenigingen.doctype.vip_import.vip_import import _validate_volunteer_age
+
+        member = MagicMock()
+        member.get = lambda x: "1985-01-01" if x == "birth_date" else None
+        member.birth_date = "1985-01-01"  # adult; only the config refusal can fail this
 
         with pinned_setting("minimum_volunteer_age", 0):
-            uid = self._uid()
-            member = self._make_member(
-                first_name="Adult",
-                last_name="NoAgeConfig",
-                member_id=f"VIP-NOCFG-{uid}",
-                email=f"nocfg.{uid}@example.com",
-                status="Active",
-                # 40: well above any real minimum_volunteer_age, so only the
-                # unconfigured-setting refusal (not a genuine age check) can fail this.
-                birth_date=add_days(today(), -365 * 40),
-            )
-            frappe.db.commit()
-
             with self.assertRaises(frappe.ValidationError) as ctx:
-                _create_volunteer({"volunteer_status": "Active"}, member)
-            self.assertIn("minimum_volunteer_age", str(ctx.exception))
+                _validate_volunteer_age(member)
+        self.assertIn("minimum_volunteer_age", str(ctx.exception))
+
+    def test_process_single_row_refuses_and_clears_messages_when_minimum_volunteer_age_unconfigured(self):
+        """_process_single_row's per-row except must catch the config-error
+        ValidationError (fail closed, error status) AND clear frappe.local.
+        message_log (#673's answering-round fix).
+
+        frappe.throw appends to message_log BEFORE raising, and that queue is
+        serialised into every response's _server_messages regardless of
+        whether the exception is caught -- so an uncleared catch here would
+        leak the raw "minimum_volunteer_age is not configured..." text for
+        every row of a background import. Deleting the frappe.clear_messages()
+        call this asserts against does not fail any other test (found by the
+        same second skeptical review), so this test exists specifically to
+        cover that line.
+        """
+        from verenigingen.verenigingen.doctype.vip_import.vip_import import _process_single_row
+
+        uid = self._uid()
+        member = self._make_member(
+            first_name="Adult",
+            last_name="NoAgeConfigRow",
+            member_id=f"VIP-NOCFG-ROW-{uid}",
+            email=f"nocfgrow.{uid}@example.com",
+            status="Active",
+            # 40: well above any real minimum_volunteer_age, so only the
+            # unconfigured-setting refusal (not a genuine age check) can fail this.
+            birth_date=add_days(today(), -365 * 40),
+        )
+        frappe.db.commit()
+
+        import_doc = MagicMock()
+        import_doc.create_members_if_missing = False
+        import_doc.duplicate_handling = "Skip existing"
+        import_doc.name = None
+        row = {
+            "row_number": 7,
+            "member_id": member.member_id,
+            "volunteer_status": "Active",
+        }
+        stats = {
+            "volunteers_created": 0,
+            "volunteers_updated": 0,
+            "volunteers_skipped": 0,
+            "members_not_found": 0,
+            "members_created": 0,
+        }
+
+        with pinned_setting("minimum_volunteer_age", 0):
+            frappe.clear_messages()
+            result = _process_single_row(row, import_doc, stats)
+            self.assertEqual(result["status"], "error")
+            self.assertIn("minimum_volunteer_age", result["error"])
+            self.assertEqual(list(frappe.local.message_log), [])
         self.assertFalse(frappe.db.exists("Volunteer", {"member": member.name}))
 
 
