@@ -894,10 +894,6 @@ def create_and_link_mandate(
     if not account_holder_name:
         account_holder_name = member_doc.full_name
 
-    existing_mandates = frappe.get_all(
-        "SEPA Mandate", filters={"member": member, "status": "Active", "is_active": 1}, fields=["name"]
-    )
-
     # Supersede only the Active mandates this call's purposes OVERLAP. The comment
     # here used to say the opposite -- "supersede EVERY Active mandate" -- which was
     # written in 0d8695f87 when the call really was purpose-blind, and was left

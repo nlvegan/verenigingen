@@ -256,32 +256,49 @@ class TestSEPAMandateCreation(VereningingenTestCase):
         # Cleanup handled automatically by VereningingenTestCase
 
     def test_create_and_link_mandate_enhanced_replace_existing(self):
-        """Test mandate creation with replacement of existing mandate"""
+        """A member's existing Active membership mandate is superseded, not left
+        active alongside the new one.
+
+        Previously this test imported `create_and_link_mandate_enhanced`, never
+        called it, and asserted nothing -- it could not fail regardless of what
+        the function did, and was the only test in the repo carrying the
+        `replace_existing` name for a parameter that turned out to be dead code
+        (#624 item 2: the parameter was accepted and never read; supersession is
+        decided entirely by `cancel_active_mandates(purposes=...)`).
+        """
         from verenigingen.verenigingen.doctype.member.member import create_and_link_mandate_enhanced
 
-        # Use unique mandate_ids for test isolation
         old_mandate_id = f"OLD-MAND-{random_string(8)}"
-
-        # Create existing mandate and link to member
         existing_mandate = self.create_test_sepa_mandate(
             member=self.member.name,
-            iban="NL13TEST0123456789",  # Using test IBAN
+            iban="NL13TEST0123456789",
             mandate_id=old_mandate_id,
-            status="Active"
+            status="Active",
         )
 
-        # Link to member
-        member_doc = frappe.get_doc("Member", self.member.name)
-        member_doc.append(
-            "sepa_mandates",
-            {
-                "sepa_mandate": existing_mandate.name,
-                "mandate_reference": old_mandate_id,
-                "is_current": 1,
-                "status": "Active",
-                "valid_from": today()},
+        new_mandate_id = f"NEW-MAND-{random_string(8)}"
+        result = create_and_link_mandate_enhanced(
+            member=self.member.name,
+            mandate_id=new_mandate_id,
+            iban="NL13TEST0123456789",
+            account_holder_name=self.member.full_name,
+            used_for_memberships=1,
+            used_for_donations=0,
         )
-        member_doc.save()
+
+        self.assertTrue(result.get("success"), f"Expected success=True, got: {result}")
+
+        existing_mandate.reload()
+        self.assertEqual(existing_mandate.status, "Cancelled")
+
+        new_mandate = frappe.get_doc("SEPA Mandate", result["mandate_name"])
+        self.assertEqual(new_mandate.status, "Active")
+
+        # Exactly one Active mandate remains for this member.
+        active = frappe.get_all(
+            "SEPA Mandate", filters={"member": self.member.name, "status": "Active"}, fields=["name"]
+        )
+        self.assertEqual(active, [{"name": new_mandate.name}])
 
         # Cleanup handled automatically by VereningingenTestCase
 
