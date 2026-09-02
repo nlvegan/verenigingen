@@ -158,14 +158,78 @@ doc_events = {
     # =========================================================================
     # VOLUNTEER SYSTEM
     # =========================================================================
-    "Verenigingen Volunteer": {
-        "on_update": [
-            "verenigingen.services.volunteer.native_expense_helpers.update_employee_approver",
-            "verenigingen.services.chapter.chapter_role_events.on_volunteer_on_update",
-            "verenigingen.utils.performance_event_handlers.on_volunteer_assignment_change",
-            "verenigingen.services.volunteer.volunteer_role_profile_hooks.on_volunteer_status_change",
-        ],
-    },
+    # The DocType is "Volunteer". Four handlers sat under the key "Verenigingen
+    # Volunteer" -- a Role name, not a DocType -- from the commit that created
+    # volunteer.json (2dbea04eb, 2025-11-20), so none of them ever ran.
+    # get_doc_hooks() keys on doctype name and never looks a stray key up: no
+    # error, no log. ALL FOUR are retired; Volunteer dispatches no doc_events (#688).
+    #
+    # volunteer_role_profile_hooks.on_volunteer_status_change was going to be
+    # RESTORED under "Volunteer" -- Volunteer.status really is an input to
+    # calculate_user_role_profile() via is_active_volunteer(), and nothing else live
+    # recalculates on a status change, so the profile goes stale. Restoring it was
+    # MEASURED to be destructive and was withdrawn:
+    #
+    #   origin/develop  tests/security/test_permissions_doc_checks_coverage  31 OK
+    #   with the handler wired under "Volunteer"                             5 FAILED
+    #
+    # It loses board users their role. sync_user_role_profile() REPLACES
+    # User.role_profiles, and User.populate_role_profile_roles() then resets
+    # User.roles from that profile -- so the directly-assigned "Verenigingen Chapter
+    # Board Member" role is stripped and _users_with_chapter_board_role() returns
+    # ['Administrator']. That is the same ordering hazard
+    # BoardManager.flush_pending_board_profile_syncs documents (apply the profile
+    # FIRST, then the role, because a later profile sync undoes a role granted before
+    # it): the handler is a second writer of the role profile, firing at an
+    # uncontrolled time.
+    #
+    # #688's blast-radius measurement said 0 of 15 board users would lose the role.
+    # That number was real but did not discriminate: 14 of the 15 were protected by
+    # an early return (no Member record), not by the logic. Fixtures DO have Member
+    # records and take the real path.
+    #
+    # The staleness gap is therefore still open and is tracked separately -- closing
+    # it means changing how sync_user_role_profile and directly-assigned roles
+    # interact, which is not a doc_events change. The function is deliberately left
+    # in place for that work rather than deleted.
+    #
+    # The other three, and why none of them is a gap:
+    #
+    # chapter_role_events.on_volunteer_on_update. It called
+    # permissions.assign_chapter_board_role(), whose else-branch raw-deletes the
+    # Has Role row. BoardManager.handle_board_member_additions/changes/deletions
+    # already owns that decision and orders it deliberately: role profile first,
+    # then role withdrawal, because User.populate_role_profile_roles() resets
+    # User.roles from the assigned profile on every save and would undo a removal
+    # performed before it. A Volunteer-side second writer does only the removal,
+    # so its effect is undone by the next User save. The function was deleted
+    # along with this registration; it had no other caller. The defect itself is
+    # still live in on_member_on_update ("Member") and on_chapter_role_on_update
+    # ("Chapter Role"), which call the same function -- #702, which also carries the
+    # Volunteer.member re-link case BoardManager cannot see.
+    #
+    # performance_event_handlers.on_volunteer_assignment_change. Inert even when
+    # registered correctly: its body branches on doc.doctype == "Verenigingen
+    # Volunteer", so a real Volunteer save falls through every branch. Measured
+    # on test_site_1 (2026-08-31): 0 bulk-loader calls for doctype "Volunteer",
+    # 1 for the string the body tests. A speculative cache warm, same shape as
+    # the SEPA Mandate preload declined below. The function was deleted with the
+    # registration -- it had none left anywhere, and leaving a body that still
+    # names two non-DocTypes would invite exactly the "just fix the key" revival
+    # this block argues against.
+    #
+    # native_expense_helpers.update_employee_approver. The daily scheduled
+    # refresh_all_expense_approvers (hooks/scheduler.py) already recomputes
+    # Employee.expense_approver for every volunteer with an employee_id, through
+    # this same function. A Volunteer on_update is the wrong trigger regardless:
+    # the value derives from Chapter Board Member / Chapter Member / Team Member
+    # rows and Verenigingen Settings, none of which touch the Volunteer doc.
+    # Nothing writes Volunteer.employee_id through the ORM either: the ACR pipeline
+    # uses frappe.db.set_value (account_creation_manager.py:341), which dispatches no
+    # document event at all -- that is true of set_value generally, not of the
+    # update_modified=False flag, which only suppresses the timestamp. So this
+    # handler would have run on saves that cannot change the approver and missed
+    # every change that can.
     # =========================================================================
     # FINANCIAL SYSTEM - PAYMENTS
     # =========================================================================
