@@ -56,6 +56,7 @@ from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
     _retry_transient_failures,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.non_resumable_errors import connection_lost, deadlock
 
 ABBR = "EBPC"
 COMPANY = "TEST-EB-Party-Company"
@@ -668,3 +669,40 @@ class TestRetryTransientFailures(EnhancedTestCase):
         self.assertEqual(result["failed"], 1)
         self.assertEqual(len(result["errors"]), 1)
         self.assertIn("Failed: 1", result["retry_summary"])
+
+    def test_retry_raises_non_resumable_db_error_propagates(self):
+        """#726: if import_single_mutation raises a genuine QueryDeadlockError/
+        QueryTimeoutError during a retry, it must propagate instead of being
+        counted as an ordinary retry failure -- retrying the REMAINING ids
+        against a transaction the server has discarded or half-applied is not a
+        state any caller here is written to reason about (#572's reasoning,
+        applied one call frame further out).
+
+        NOTE: import_single_mutation's OWN bare `except Exception` normally
+        converts an in-flight deadlock into a {"success": False} result rather
+        than raising one (verified empirically -- see #726's premise
+        correction), so this test drives the guard directly via side_effect
+        rather than reproducing that internal swallow.
+        """
+        errors = ["mutation 9: Deadlock found when trying to get lock"]
+        with patch(
+            "verenigingen.e_boekhouden.doctype.e_boekhouden_migration."
+            "e_boekhouden_migration.import_single_mutation",
+            side_effect=deadlock(),
+        ):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                _retry_transient_failures("MIG-X", errors, 1, 4, [])
+
+    def test_retry_raises_connection_lost_propagates(self):
+        """#731/#726: a lost connection (2006) during a retry must also
+        propagate -- it is not a NON_RESUMABLE_DB_ERRORS class, so it needs its
+        own check alongside the guard above."""
+        errors = ["mutation 10: Lost connection to MySQL server"]
+        with patch(
+            "verenigingen.e_boekhouden.doctype.e_boekhouden_migration."
+            "e_boekhouden_migration.import_single_mutation",
+            side_effect=connection_lost(),
+        ):
+            with self.assertRaises(Exception) as ctx:
+                _retry_transient_failures("MIG-X", errors, 1, 4, [])
+        self.assertIn("MySQL server has gone away", str(ctx.exception))

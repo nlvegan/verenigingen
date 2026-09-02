@@ -604,6 +604,15 @@ class TestStartImportAbortsOnNonResumableError(_StartImportBase):
         self.assertTrue(result.get("success"), msg=f"unexpected failure: {result}")
 
         migration.reload()
+        # Guard against the count assertions below going vacuously true: if `ok_id`
+        # never actually imported (e.g. a ledger-id collision with a sibling suite
+        # sharing this site -- see the module-level ledger constants), it would
+        # already have been counted as failed BEFORE the deadlock, and imported==0/
+        # failed==2 would hold for the wrong reason.
+        self.assertTrue(
+            frappe.db.exists("Journal Entry", {"eboekhouden_mutation_nr": str(ok_id)}),
+            "test precondition: the mutation before the deadlock must have imported",
+        )
         self.assertIn(
             "ABORT",
             migration.current_operation or "",
@@ -615,6 +624,138 @@ class TestStartImportAbortsOnNonResumableError(_StartImportBase):
         # overclaim #572 was opened to stop.
         self.assertEqual(migration.imported_records, 0)
         self.assertEqual(migration.failed_records, 2)
+
+
+class _ConnectionLostOnDetailIterator(_FakeIterator):
+    """Like _DeadlockOnDetailIterator, but raises a lost-connection
+    OperationalError (2006) instead of a real frappe.QueryDeadlockError -- #731:
+    this error shape is NOT a member of NON_RESUMABLE_DB_ERRORS (it is not
+    wrapped into QueryDeadlockError/QueryTimeoutError by either driver backend),
+    so it needs its own check at this per-type level too, alongside the
+    isinstance-matched one _DeadlockOnDetailIterator exercises."""
+
+    def __init__(self, per_type, lost_id):
+        super().__init__(per_type=per_type)
+        self._lost_id = lost_id
+
+    def fetch_mutation_detail(self, mutation_id):
+        if str(mutation_id) == str(self._lost_id):
+            return _raise_connection_lost()
+        return super().fetch_mutation_detail(mutation_id)
+
+
+def _raise_connection_lost():
+    from verenigingen.tests.support.non_resumable_errors import connection_lost
+
+    raise connection_lost()
+
+
+class TestStartImportAbortsOnConnectionLoss(_StartImportBase):
+    def test_connection_lost_mid_batch_is_reported_on_the_migration_doc(self):
+        """Mirrors test_deadlock_mid_batch_is_reported_on_the_migration_doc:
+        before this fix, a connection-lost error at this level would fall
+        through the widened-but-still-class-matched ABORTED handler into the
+        generic `except Exception` -- losing the partial counts and leaving
+        migration_doc silent about what happened, exactly like an ordinary
+        error. This asserts the ABORTED branch is reached for connection-lost
+        too."""
+        migration = self._make_migration()
+        ok_id = self._unique_mutation_id()
+        lost_id = self._unique_mutation_id()
+        ok_mutation = self._type7_memorial(ok_id)
+        lost_mutation = {"id": lost_id, "type": 7, "date": nowdate()}
+
+        fake = _ConnectionLostOnDetailIterator(per_type={7: [ok_mutation, lost_mutation]}, lost_id=lost_id)
+
+        orig_flag = frappe.conf.get("eboekhouden_use_new_processors")
+        frappe.conf["eboekhouden_use_new_processors"] = False
+        try:
+            with patch(ITERATOR_TARGET, new=fake):
+                result = start_full_rest_import(migration.name, mutation_types=[7])
+        finally:
+            if orig_flag is None:
+                frappe.conf.pop("eboekhouden_use_new_processors", None)
+            else:
+                frappe.conf["eboekhouden_use_new_processors"] = orig_flag
+
+        self.assertTrue(result.get("success"), msg=f"unexpected failure: {result}")
+
+        migration.reload()
+        self.assertTrue(
+            frappe.db.exists("Journal Entry", {"eboekhouden_mutation_nr": str(ok_id)}),
+            "test precondition: the mutation before the connection loss must have imported",
+        )
+        self.assertIn(
+            "ABORT",
+            migration.current_operation or "",
+            "an operator viewing the migration document must see the abort, not just Error Log",
+        )
+        self.assertEqual(migration.imported_records, 0)
+        self.assertEqual(migration.failed_records, 2)
+
+
+class _ConnectionLostOnFetchIterator(_FakeIterator):
+    """Like _FakeIterator, but raises a lost-connection error from
+    ``fetch_mutations_by_type`` itself (BEFORE the per-type loop assigns
+    ``mutations``), for one specific type -- reproducing the exact window a
+    connection loss could hit that a real 1213/1205 never could (raised
+    Python-side from inside `_import_rest_mutations_batch_enhanced`, always
+    AFTER `mutations` was already assigned in the caller)."""
+
+    def __init__(self, per_type, lost_type):
+        super().__init__(per_type=per_type)
+        self._lost_type = lost_type
+
+    def fetch_mutations_by_type(self, mutation_type, limit=500):
+        self.requested_types.append(mutation_type)
+        if mutation_type == self._lost_type:
+            from verenigingen.tests.support.non_resumable_errors import connection_lost
+
+            raise connection_lost()
+        return super().fetch_mutations_by_type(mutation_type, limit=limit)
+
+
+class TestStartImportConnectionLossBeforeMutationsAssigned(_StartImportBase):
+    def test_connection_lost_on_fetch_does_not_borrow_previous_type_count(self):
+        """A connection-lost error raised from fetch_mutations_by_type itself hits
+        the per-type ABORTED handler before `mutations` is (re)assigned for THIS
+        type. Before the fix, the handler's `len(mutations) if mutations else 1`
+        fallback either raised UnboundLocalError (first type) or silently reused
+        the PREVIOUS type's list (a later type) -- this pins both are impossible:
+        the failure count for the lost type must be exactly 1, not borrowed from
+        the 1 real mutation the first type imported.
+        """
+        migration = self._make_migration()
+        ok_id = self._unique_mutation_id()
+        ok_mutation = self._type7_memorial(ok_id)
+
+        fake = _ConnectionLostOnFetchIterator(per_type={7: [ok_mutation]}, lost_type=1)
+
+        orig_flag = frappe.conf.get("eboekhouden_use_new_processors")
+        frappe.conf["eboekhouden_use_new_processors"] = False
+        try:
+            with patch(ITERATOR_TARGET, new=fake):
+                result = start_full_rest_import(migration.name, mutation_types=[7, 1])
+        finally:
+            if orig_flag is None:
+                frappe.conf.pop("eboekhouden_use_new_processors", None)
+            else:
+                frappe.conf["eboekhouden_use_new_processors"] = orig_flag
+
+        self.assertTrue(result.get("success"), msg=f"unexpected failure: {result}")
+        self.assertTrue(
+            frappe.db.exists("Journal Entry", {"eboekhouden_mutation_nr": str(ok_id)}),
+            "test precondition: type 7's mutation must have imported before type 1's fetch failed",
+        )
+
+        migration.reload()
+        self.assertIn("ABORT", migration.current_operation or "")
+        # Type 7 imported its one real mutation; type 1's lost-connection abort must
+        # count as exactly ONE failure (the "we don't know how many" fallback), NOT
+        # borrow type 7's count of 1 for a different, coincidental reason, and NOT
+        # crash with UnboundLocalError.
+        self.assertEqual(migration.imported_records, 1)
+        self.assertEqual(migration.failed_records, 1)
 
 
 # ---------------------------------------------------------------------------
