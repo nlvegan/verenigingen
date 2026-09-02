@@ -1104,3 +1104,26 @@ def secure_user_context(target_user: str, operation_description: str):
 
     with secure_user_context_with_validation(target_user, operation_description) as result:
         yield result
+
+
+def save_as_system_user(doc, operation: str, operation_context: str, description: str):
+    """Save/insert/submit a document as the configured system user.
+
+    PUBLIC-FORM FLOW: Guest (and other unprivileged) callers cannot use
+    secure_document_operation(allow_system_user=True) — that path requires the
+    ACTING session user to hold a role in ESCALATION_ALLOWED_ROLES
+    (see can_request_system_escalation() above), which Guest never does. This
+    switches to the configured system user via secure_user_context() instead,
+    the pattern already used by the public donation/donor/chapter-join flows.
+
+    Args:
+        doc: Document to operate on (already populated, not yet saved)
+        operation: Document method to call, e.g. "insert", "save", "submit"
+        operation_context: Passed to get_system_user_for_operation() to resolve
+            which configured system user performs the write
+        description: Human-readable justification recorded by secure_user_context
+    """
+    system_user = get_system_user_for_operation(operation_context)
+    with secure_user_context(system_user, description):
+        getattr(doc, operation)()
+        frappe.db.commit()
