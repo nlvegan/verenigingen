@@ -518,16 +518,25 @@ def authority_problem(known: dict[str, str]) -> str | None:
     """
     for app_name, probe in AUTHORITY_PROBES.items():
         if probe not in known:
+            override = os.environ.get("BENCH_APPS")
+            if override:
+                # The override itself is the suspect -- neither resolution
+                # strategy even ran, so blaming them here would send someone
+                # looking in the wrong place.
+                cause = f"BENCH_APPS is set to {override!r}, which is not the bench's apps/ directory"
+                fix = "correct or unset the BENCH_APPS environment variable"
+            else:
+                cause = (
+                    "neither a plain filesystem walk-up nor `git rev-parse --git-common-dir` "
+                    "found a bench from here"
+                )
+                fix = "run this from inside the bench (or a worktree under it), or set BENCH_APPS=<bench>/apps explicitly"
             return (
                 f"the authority does not know {probe!r} from {app_name!r} "
-                f"({len(known)} doctypes loaded from {BENCH_APPS}). Either BENCH_APPS "
-                f"did not resolve to the bench's apps/ directory, or {app_name} is not "
+                f"({len(known)} doctypes loaded from {BENCH_APPS}). {cause}, or {app_name} is not "
                 f"installed -- and this census would then be about a different tree "
-                f"than the baseline. Fix: run this from inside the bench (or a worktree "
-                f"under it), or set BENCH_APPS=<bench>/apps explicitly -- both a plain "
-                f"filesystem walk-up AND `git rev-parse --git-common-dir` failed to find "
-                f"a bench from here, which --no-verify will not fix and will also skip "
-                f"every other hook."
+                f"than the baseline. Fix: {fix} -- this will not be fixed by --no-verify, "
+                f"which will also skip every other hook."
             )
     # Nothing from an app OUTSIDE the required set may leak in: that is what made
     # the gate machine-dependent (owl_theme on this dev bench, absent in CI).

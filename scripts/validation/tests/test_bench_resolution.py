@@ -2,7 +2,9 @@
 """Unit tests for scripts/validation/bench_resolution.py.
 
 Pure-Python plus a handful of real `git` invocations against throwaway temp
-repos -- no bench or site needed. Run with:
+repos -- no bench or site needed, which is why this file runs in the
+Code Validation workflow's stdlib-only job alongside its siblings
+(error_swallow, failed_write, harness_logger). Run with:
     python -m unittest scripts.validation.tests.test_bench_resolution
 or plain:
     python scripts/validation/tests/test_bench_resolution.py
@@ -10,6 +12,13 @@ or plain:
 Every positive case here pairs with a control: a walk-up that finds nothing
 and a git resolution that finds nothing are both exercised, not just the
 happy path.
+
+The end-to-end regression guard -- running doctype_name_validator.py's own
+--self-check from a worktree outside the bench, the precise reproduction in
+#752 -- needs the REAL bench (frappe/erpnext/hrms/payments installed) to pass
+even on correct code, so it does not belong in this stdlib-only file. It
+lives in verenigingen/tests/test_doctype_name_ratchet.py instead, which runs
+in the bench-based CI shards where that authority actually exists.
 """
 import importlib.util
 import subprocess
@@ -23,8 +32,6 @@ _spec = importlib.util.spec_from_file_location("bench_resolution", _MOD_PATH)
 br = importlib.util.module_from_spec(_spec)
 sys.modules[_spec.name] = br
 _spec.loader.exec_module(br)
-
-_DNV_PATH = Path(__file__).resolve().parents[1] / "doctype_name_validator.py"
 
 
 def _git(*args, cwd):
@@ -119,34 +126,6 @@ class TestGitFallback(unittest.TestCase):
 
             (bench / "sites" / "common_site_config.json").write_text("{}\n")
             self.assertEqual(br.find_bench_root(outside_worktree, marker=marker), bench)
-
-
-class TestDoctypeNameValidatorIntegration(unittest.TestCase):
-    """End-to-end: the actual validator script, run as a subprocess from a
-    worktree outside the bench -- the precise reproduction in #752."""
-
-    def test_self_check_resolves_from_a_worktree_outside_the_bench(self):
-        repo_root = Path(__file__).resolve().parents[3]  # the checkout under test
-        with tempfile.TemporaryDirectory() as tmp:
-            outside_worktree = Path(tmp) / "outside-worktree"
-            add = _git(
-                "worktree", "add", "--detach", str(outside_worktree), "HEAD",
-                cwd=repo_root,
-            )
-            self.assertEqual(add.returncode, 0, add.stderr)
-            try:
-                script = outside_worktree / "scripts" / "validation" / "doctype_name_validator.py"
-                check = subprocess.run(
-                    [sys.executable, str(script), "--self-check"],
-                    capture_output=True, text=True, timeout=60,
-                )
-                self.assertEqual(
-                    check.returncode, 0,
-                    f"self-check failed from an out-of-bench worktree:\n"
-                    f"{check.stdout}\n{check.stderr}",
-                )
-            finally:
-                _git("worktree", "remove", "--force", str(outside_worktree), cwd=repo_root)
 
 
 if __name__ == "__main__":
