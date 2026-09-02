@@ -2887,11 +2887,18 @@ class UnifiedWebhookWrapperService:
         table, so removing this write cannot affect webhook re-delivery.
 
         Why no repair patch for rows a pre-#713 build already wrote: NOT because
-        they self-heal (the paths above are not a reliable sweep), but because
-        the precondition for this method to have ever written one -- a Donor
-        linked to a Member -- has never occurred in production. Measured on
-        veg11: 431 `Member Payment History` rows, all `invoice_doctype = "Sales
-        Invoice"`, zero Donors with a linked Member.
+        they self-heal -- the paths above are not a reliable sweep -- and NOT
+        because such a row is known not to exist. Whether one exists is UNKNOWN:
+        there is no production database reachable from this bench.
+
+        From code: the precondition is a Donor carrying a link to a Member, and
+        that link is optional, so the schema alone rules it neither in nor out.
+        On veg11 -- a test instance carrying a production data COPY, whose row
+        counts quantify nobody -- there are 431 `Member Payment History` rows,
+        all `invoice_doctype = "Sales Invoice"`, and zero Donors with a linked
+        Member. That illustrates the shape is uncommon in real-looking data; it
+        does not establish that it never occurs. Shipping no patch is therefore
+        a deliberate choice, not a measurement.
 
         Kept as a method, rather than deleted along with its two call sites,
         because `test_mollie_gap_unified_webhook_handlers.py` (:144, :155)

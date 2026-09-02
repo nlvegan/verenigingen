@@ -37,11 +37,14 @@ Full reasoning, verified per code path rather than assumed, lives on
    never carried). The idempotency manager reads `Donation.payments`, never
    this table, so removing this write cannot affect webhook re-delivery.
 4. No repair patch for rows a pre-#713 build already wrote: not because they
-   self-heal (they may not -- see point 2), but because the precondition for
-   this method to have ever written one -- a Donor linked to a Member -- has
-   never occurred in production. Measured on veg11: 431 `Member Payment
-   History` rows, all `invoice_doctype = "Sales Invoice"`, zero Donors with a
-   linked Member.
+   self-heal (they may not -- see point 2), and not because such a row is
+   known not to exist. Whether one exists is UNKNOWN -- no production database
+   is reachable from this bench. From code, the precondition (a Donor linked to
+   a Member) is optional, so it cannot be ruled out from the schema. On veg11 --
+   a test instance carrying a production data COPY, which quantifies nobody --
+   there are 431 `Member Payment History` rows, all `invoice_doctype = "Sales
+   Invoice"`, and zero Donors with a linked Member: the shape is uncommon in
+   real-looking data, which is not the same as absent.
 """
 
 import frappe
@@ -200,11 +203,12 @@ class TestMollieDonationMemberHistoryRow(EnhancedTestCase):
         a member with no `customer`, so a stale row there is NOT cleaned up by
         `load_payment_history_batched` at all.
 
-        This is exactly why "no repair patch is needed" (#713's decision) rests
-        on the precondition never having occurred in production (veg11: zero
-        Donors linked to a Member), not on any sweep being reliable. If that
-        precondition ever stops holding, this test is where "the rebuild will
-        quietly fix it" would be caught as false.
+        This is why shipping no repair patch is a deliberate CHOICE rather than
+        a measurement: it cannot rest on the sweep being reliable, because this
+        test proves it is not. Nor does it rest on the precondition being known
+        absent -- that is unknown from this bench. If a stale row ever turns up,
+        this test is where "the rebuild will quietly fix it" is already recorded
+        as false.
         """
         from verenigingen.services.member.payment.payment_history_service import (
             get_payment_history_service,
