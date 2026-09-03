@@ -819,6 +819,90 @@ class TestMijnroodCSVImportRealIntegration(EnhancedTestCase):
         # No Member should have been created for the invalid row.
         self.assertFalse(frappe.db.exists("Member", {"email": email}))
 
+    def test_process_single_member_deadlock_is_not_swallowed_as_skipped(self):
+        """A 1213/1205 from the member-creation service must propagate out of
+        `_process_single_member` rather than being reported as a skipped row
+        (#700's class): before this fix, `_process_single_member`'s catch-all
+        had no `except NON_RESUMABLE_DB_ERRORS: raise` above it, so this importer
+        -- one of the four routed through `CSVImportBackgroundProcessor.
+        process_import` -- could swallow a deadlock into "skipped" and let the
+        engine's row loop carry on against a discarded transaction.
+        """
+        from verenigingen.services.csv_import.member_import_service import MemberImportService
+        from verenigingen.tests.support.non_resumable_errors import deadlock
+
+        doc = self._make_import_doc(
+            [{"Voornaam": "Dead", "Achternaam": "Lock", "E-mailadres": "d@example.com"}],
+            create_volunteer_records=0,
+        )
+        row = {
+            "row_number": 3,
+            "first_name": "Dead",
+            "last_name": "Lock",
+            "email": _unique_email(),
+        }
+
+        original = MemberImportService.create_or_update_member
+
+        def _boom(self, *args, **kwargs):
+            raise deadlock()
+
+        MemberImportService.create_or_update_member = _boom
+        self.addCleanup(setattr, MemberImportService, "create_or_update_member", original)
+
+        with self.assertRaises(frappe.QueryDeadlockError):
+            doc._process_single_member(row, [])
+
+    def test_process_single_member_deadlock_in_related_records_is_not_swallowed_either(self):
+        """The same class, one call deeper: `_create_related_records_via_services`
+        runs AFTER the Member itself is created, and each of its six operations
+        (address, mollie, termination, volunteer, chapter, membership) had its
+        own bare `except Exception` with no NON_RESUMABLE guard -- so even with
+        `_process_single_member`'s own guard in place, a deadlock raised from
+        inside the membership-creation call was caught right there, recorded as
+        one more "failed operation", and the row was reported CREATED (worse
+        than "skipped": the engine's #700 guard never even sees it).
+
+        `create_membership_from_csv` itself now re-raises a NON_RESUMABLE error
+        (see `membership_import_service.py`) -- this test proves that re-raise
+        actually reaches the caller instead of being caught one frame up.
+        """
+        from verenigingen.services.csv_import.membership_import_service import (
+            MembershipImportService,
+        )
+        from verenigingen.tests.support.non_resumable_errors import deadlock
+
+        doc = self._make_import_doc(
+            [{"Voornaam": "Real", "Achternaam": "Member", "E-mailadres": "r@example.com"}],
+            create_volunteer_records=0,
+        )
+        row = {
+            "row_number": 4,
+            "first_name": "Real",
+            "last_name": "Member",
+            "email": _unique_email(),
+            # `_should_create_membership` requires an Active member (the
+            # default status for a freshly-created one) and a `dues_rate` key.
+            "dues_rate": 25.0,
+        }
+
+        original = MembershipImportService.create_membership_from_csv
+
+        def _boom(self, *args, **kwargs):
+            raise deadlock()
+
+        MembershipImportService.create_membership_from_csv = _boom
+        self.addCleanup(setattr, MembershipImportService, "create_membership_from_csv", original)
+
+        with self.assertRaises(frappe.QueryDeadlockError):
+            doc._process_single_member(row, [])
+
+        # The Member itself (created before the related-records step ran) is a
+        # real, separate concern from #700 -- not asserted away here.
+        member_name = frappe.db.get_value("Member", {"email": row["email"]}, "name")
+        if member_name:
+            self._created_members.append(member_name)
+
     # --- Pure helpers exercised on a real controller instance --------------
 
     def test_helper_clean_value_and_converters(self):
