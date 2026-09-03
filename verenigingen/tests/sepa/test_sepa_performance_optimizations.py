@@ -171,6 +171,100 @@ class TestBatchPerformanceOptimizer(EnhancedTestCase):
             self.assertIsNotNone(mandate_data)
             self.assertEqual(mandate_data["status"], "Active")
     
+    def _active_membership_mandate(self, iban):
+        """An Active, `used_for_memberships` SEPA Mandate, bypassing `validate`.
+
+        `SEPAMandate.validate_single_active_mandate_per_purpose` (#584) blocks a
+        second Active mandate for the same purpose reached through `save()`, so the
+        ambiguous state this test needs is built the same way
+        `test_mandate_candidates.py` builds it: insert as Draft, then
+        `frappe.db.set_value` the status to Active directly. That bypass is not a
+        trick to make the test pass -- it is the exact route (or a relaxed guard)
+        that keeps two Active mandates reachable in production, which is why the
+        resolver has to refuse rather than trust the guard.
+        """
+        mandate = frappe.get_doc(
+            {
+                "doctype": "SEPA Mandate",
+                "mandate_id": f"AMBIG-{frappe.generate_hash(length=8)}",
+                "member": self.member.name,
+                "account_holder_name": self.member.full_name,
+                "iban": iban,
+                "sign_date": today(),
+                "status": "Draft",
+                "is_active": 0,
+                "mandate_type": "RCUR",
+                "scheme": "SEPA",
+                "used_for_memberships": 1,
+            }
+        )
+        mandate.insert()
+        frappe.db.set_value(
+            "SEPA Mandate", mandate.name, {"status": "Active", "is_active": 1}, update_modified=False
+        )
+        mandate.reload()
+        return mandate
+
+    def test_bulk_lookup_refuses_ambiguous_mandate_instead_of_guessing(self):
+        """#708: two Active membership mandates must not pick an arbitrary IBAN.
+
+        The bulk query's LEFT JOIN carries a purpose filter (#597) but no ORDER BY,
+        so a member holding two Active `used_for_memberships` mandates used to get
+        whichever duplicate row MariaDB returned last as `mandate_data` -- silently,
+        with no refusal and no log. The fix must make this member's mandate_data
+        None (the same "no usable mandate" signal `process_batch_invoices_optimized`
+        already skips on) rather than debit either account, and it must log the
+        conflict so an operator can act on it.
+        """
+        refusal_title = "Bulk mandate lookup: ambiguous membership mandate"
+        self.member = self.create_test_member(first_name="Ambig", last_name="MandateTest")
+        first = self._active_membership_mandate("NL91ABNA0417164300")
+        second = self._active_membership_mandate("NL39RABO0300065264")
+        # Control: without this, "mandate_data is None" is also what a member with
+        # ZERO Active membership mandates looks like, and the assertion below would
+        # stay green even if the fixture above stopped producing an ambiguous state.
+        self.assertEqual(
+            frappe.db.count(
+                "SEPA Mandate",
+                {"member": self.member.name, "status": "Active", "used_for_memberships": 1},
+            ),
+            2,
+            "fixture did not create two Active membership mandates -- the test below "
+            "would prove nothing",
+        )
+        self.expectErrorLog(refusal_title)
+        before = frappe.db.count("Error Log", {"method": refusal_title})
+
+        bulk_data = self.optimizer.get_members_with_mandates_bulk([self.member.name])
+
+        mandate_data = bulk_data[self.member.name]["mandate_data"]
+        self.assertIsNone(
+            mandate_data,
+            f"an arbitrary IBAN was chosen between {first.iban} and {second.iban} "
+            "for a member with two Active membership mandates",
+        )
+        # `active_sepa_mandate` comes from the same last-wins loop as `mandate_data`
+        # (#708 finding A) -- it must not hand the arbitrary pick back under a
+        # different key.
+        self.assertIsNone(bulk_data[self.member.name]["member_data"]["active_sepa_mandate"])
+        # The refusal must reach an operator, not just suppress the pick.
+        self.assertEqual(
+            frappe.db.count("Error Log", {"method": refusal_title}),
+            before + 1,
+            "the refusal did not reach the Error Log under its own title",
+        )
+        logs = frappe.get_all(
+            "Error Log",
+            filters={"method": refusal_title},
+            fields=["error"],
+            order_by="creation desc",
+            limit=1,
+        )
+        message = logs[0].error
+        self.assertIn(first.mandate_id, message)
+        self.assertIn(second.mandate_id, message)
+        self.assertIn(self.member.name, message)
+
     def test_bulk_invoice_processing_optimization(self):
         """Test optimized invoice processing with bulk operations"""
         # Create test members with invoices
