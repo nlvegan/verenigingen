@@ -245,7 +245,14 @@ def validate_email(email: str) -> OperationResult[Dict[str, Any]]:
             str(e), errors=["validation_error"], context={"type": "validation_error", "valid": False}
         )
     except Exception as e:
-        log_error(f"Email validation error: {str(e)}\n{traceback.format_exc()}", "Email Validation Error")
+        # `context` is a dict, not a title -- a string here raises AttributeError
+        # inside this handler, replacing the clean OperationResult.fail below with
+        # an unhandled error.
+        log_error(
+            e,
+            context={"operation": "validate_email"},
+            module="verenigingen.api.membership_application",
+        )
         return OperationResult.fail(
             _("Validation service error"),
             errors=[str(e)],
