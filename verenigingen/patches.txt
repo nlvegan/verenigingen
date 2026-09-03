@@ -84,3 +84,7 @@ verenigingen.patches.v2_2.remove_membership_application_workflow
 verenigingen.patches.v2_2.report_members_with_multiple_active_mandates
 verenigingen.patches.v2_2.remove_dead_simple_dd_workflow_critical_operation_rules
 verenigingen.patches.v2_2.seed_enable_dutch_name_fields
+# Retries add_mollie_payment_entry_unique_index / add_bank_transaction_reference_unique_index
+# on sites where the pre-fix version already ran, bailed on duplicates, and got recorded as
+# executed anyway -- see #746.
+verenigingen.patches.v2_2.retry_mollie_and_bank_transaction_unique_indexes
