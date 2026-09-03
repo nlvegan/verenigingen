@@ -117,12 +117,20 @@ class BatchPerformanceOptimizer:
         # Active mandates gets -- while `members_with_ambiguous_mandate` logs the
         # conflict so an operator can see and resolve it, instead of the batch
         # silently debiting an arbitrary account.
+        #
+        # `member_data["active_sepa_mandate"]` is nulled too: it comes from the
+        # SAME last-wins loop above (`row["mandate_name"]`), so leaving it alone
+        # would hand the arbitrarily-chosen mandate's name back to any future
+        # caller under a different key -- no production code reads it today, but
+        # that is exactly the "sibling field, same defect" shape this app has
+        # already been bitten by more than once.
         ambiguous_members = members_with_ambiguous_mandate(
             member_names, "Bulk mandate lookup: ambiguous membership mandate"
         )
         for member_name in ambiguous_members:
             if member_name in result:
                 result[member_name]["mandate_data"] = None
+                result[member_name]["member_data"]["active_sepa_mandate"] = None
 
         # Update performance stats
         execution_time = (time.time() - start_time) * 1000

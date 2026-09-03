@@ -216,10 +216,24 @@ class TestBatchPerformanceOptimizer(EnhancedTestCase):
         already skips on) rather than debit either account, and it must log the
         conflict so an operator can act on it.
         """
+        refusal_title = "Bulk mandate lookup: ambiguous membership mandate"
         self.member = self.create_test_member(first_name="Ambig", last_name="MandateTest")
         first = self._active_membership_mandate("NL91ABNA0417164300")
         second = self._active_membership_mandate("NL39RABO0300065264")
-        self.expectErrorLog("Bulk mandate lookup: ambiguous membership mandate")
+        # Control: without this, "mandate_data is None" is also what a member with
+        # ZERO Active membership mandates looks like, and the assertion below would
+        # stay green even if the fixture above stopped producing an ambiguous state.
+        self.assertEqual(
+            frappe.db.count(
+                "SEPA Mandate",
+                {"member": self.member.name, "status": "Active", "used_for_memberships": 1},
+            ),
+            2,
+            "fixture did not create two Active membership mandates -- the test below "
+            "would prove nothing",
+        )
+        self.expectErrorLog(refusal_title)
+        before = frappe.db.count("Error Log", {"method": refusal_title})
 
         bulk_data = self.optimizer.get_members_with_mandates_bulk([self.member.name])
 
@@ -229,6 +243,27 @@ class TestBatchPerformanceOptimizer(EnhancedTestCase):
             f"an arbitrary IBAN was chosen between {first.iban} and {second.iban} "
             "for a member with two Active membership mandates",
         )
+        # `active_sepa_mandate` comes from the same last-wins loop as `mandate_data`
+        # (#708 finding A) -- it must not hand the arbitrary pick back under a
+        # different key.
+        self.assertIsNone(bulk_data[self.member.name]["member_data"]["active_sepa_mandate"])
+        # The refusal must reach an operator, not just suppress the pick.
+        self.assertEqual(
+            frappe.db.count("Error Log", {"method": refusal_title}),
+            before + 1,
+            "the refusal did not reach the Error Log under its own title",
+        )
+        logs = frappe.get_all(
+            "Error Log",
+            filters={"method": refusal_title},
+            fields=["error"],
+            order_by="creation desc",
+            limit=1,
+        )
+        message = logs[0].error
+        self.assertIn(first.mandate_id, message)
+        self.assertIn(second.mandate_id, message)
+        self.assertIn(self.member.name, message)
 
     def test_bulk_invoice_processing_optimization(self):
         """Test optimized invoice processing with bulk operations"""
