@@ -171,15 +171,8 @@ def process_agreement_form(data):
         if form_data.get("bsn_for_agreement") and form_data.get("bsn_consent"):
             update_donor_bsn(donor, form_data.get("bsn_for_agreement"))
 
-        # Create SEPA mandate if needed
-        sepa_mandate = None
-        if form_data.get("payment_method") == "SEPA Direct Debit":
-            sepa_mandate = create_sepa_mandate_for_agreement(
-                donor, form_data.get("sepa_iban"), form_data.get("sepa_account_holder")
-            )
-
         # Create agreement
-        agreement = create_agreement_from_form(donor, form_data, sepa_mandate)
+        agreement = create_agreement_from_form(donor, form_data)
 
         # Handle document upload
         if form_data.get("agreement_document"):
@@ -229,10 +222,34 @@ def validate_agreement_form_data(data):
     if not data.get("accept_five_year_term") or not data.get("accept_terms"):
         frappe.throw(_("Please accept all terms and conditions"))
 
-    # Validate SEPA fields if SEPA selected
+    # Reject an unrecognized payment_method here too (#744), before any
+    # donor/agreement side effects run below in process_agreement_form --
+    # the actual mapping happens again in create_agreement_from_form, this
+    # call is for its throw-only validation. Without this, a bad value would
+    # only be caught later, after get_or_create_donor_for_user() and
+    # update_donor_bsn() had already run.
+    from verenigingen.api.periodic_donation_operations import map_periodic_agreement_payment_method
+
+    map_periodic_agreement_payment_method(data.get("payment_method"))
+
+    # SEPA Direct Debit is not currently supported through this form (#762):
+    # the SEPA mandate this form used to create linked a Donor name into the
+    # Member-only "member" field, used an invalid status, and set a
+    # nonexistent field -- and even a spec-compliant, memberless mandate
+    # would never be picked up by the SEPA collection pipeline, which
+    # resolves every mandate by Member (see verenigingen_payments/utils/
+    # mandate_candidates.py and services/sepa_batch_processor.py). Refusing
+    # loudly up front -- before any donor/agreement side effects run -- beats
+    # creating an agreement whose direct debit will never actually collect.
     if data.get("payment_method") == "SEPA Direct Debit":
-        if not data.get("sepa_iban") or not data.get("sepa_account_holder"):
-            frappe.throw(_("IBAN and Account Holder Name are required for SEPA Direct Debit"))
+        frappe.throw(
+            _(
+                "SEPA Direct Debit is not currently available for periodic donation "
+                "agreements submitted through this form. Please choose Bank Transfer "
+                "or Other, or contact us to arrange a direct debit mandate."
+            ),
+            title=_("Payment Method Not Available"),
+        )
 
 
 def update_donor_bsn(donor_name, bsn):
@@ -251,58 +268,10 @@ def update_donor_bsn(donor_name, bsn):
         frappe.log_error(f"Failed to update BSN: {result.get('message')}", "BSN Update Error")
 
 
-def create_sepa_mandate_for_agreement(donor, iban, account_holder):
-    """Create SEPA mandate for the agreement"""
-    # Check if mandate already exists
-    existing = frappe.db.get_value(
-        "SEPA Mandate", {"member": donor, "iban": iban, "status": "Active"}, "name"
-    )
-
-    if existing:
-        return existing
-
-    # Create new mandate
-    mandate = frappe.new_doc("SEPA Mandate")
-    mandate.member = donor
-    mandate.iban = iban
-    mandate.account_holder_name = account_holder
-    mandate.mandate_type = "RCUR"  # Recurring
-    mandate.status = "Pending"  # Will be activated with agreement
-    mandate.valid_from = frappe.utils.today()
-
-    # Auto-generate mandate ID
-    mandate.mandate_id = generate_mandate_id()
-
-    # Derive BIC if possible
-    if iban.startswith("NL"):
-        from verenigingen.utils.validation.iban_validator import derive_bic_from_iban
-
-        mandate.bic = derive_bic_from_iban(iban)
-
-    # SECURITY JUSTIFICATION: ignore_permissions=True is acceptable here because:
-    # 1. User is authenticated (enforced by @frappe.whitelist without allow_guest)
-    # 2. Donor ownership verified (derived from authenticated user in process_agreement_form)
-    # 3. SEPA mandate is linked to user's own donor record
-    # 4. Rate limiting prevents abuse
-    mandate.insert(ignore_permissions=True)
-
-    return mandate.name
-
-
-def generate_mandate_id():
-    """Generate unique SEPA mandate ID"""
-    import secrets
-    import string
-
-    prefix = "MNDT"
-    timestamp = frappe.utils.now_datetime().strftime("%Y%m%d%H%M%S")
-    random_suffix = "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(4))
-
-    return f"{prefix}-{timestamp}-{random_suffix}"
-
-
-def create_agreement_from_form(donor, form_data, sepa_mandate=None):
+def create_agreement_from_form(donor, form_data):
     """Create periodic donation agreement from form data"""
+    from verenigingen.api.periodic_donation_operations import map_periodic_agreement_payment_method
+
     agreement = frappe.new_doc("Periodic Donation Agreement")
 
     agreement.donor = donor
@@ -310,11 +279,8 @@ def create_agreement_from_form(donor, form_data, sepa_mandate=None):
     agreement.start_date = form_data.get("start_date")
     agreement.annual_amount = flt(form_data.get("annual_amount"))
     agreement.payment_frequency = form_data.get("payment_frequency")
-    agreement.payment_method = form_data.get("payment_method")
+    agreement.payment_method = map_periodic_agreement_payment_method(form_data.get("payment_method"))
     agreement.status = "Draft"  # Will be activated after verification
-
-    if sepa_mandate:
-        agreement.sepa_mandate = sepa_mandate
 
     # Auto-calculate end date and payment amount
     agreement.calculate_end_date()
