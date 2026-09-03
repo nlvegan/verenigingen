@@ -41,17 +41,26 @@ APP_ROOT = Path(__file__).resolve().parents[3]
 SCAN_ROOTS = (APP_ROOT / "templates" / "pages", APP_ROOT / "www")
 BASELINE = Path(__file__).with_name("shipped_broken_api_calls.txt")
 
-# A dotted Python path used as a frappe.call `method`, either as a literal
-# /api/method/ URL fragment or as the `method:` value passed to frappe.call().
+# A dotted Python path used as a frappe.call `method`, in any of three shapes
+# seen in this app's shipped pages:
+#   - a literal /api/method/ URL fragment, optionally with a query string
+#     (donate.html's retry link: `/api/method/...retry_payment?donation_id=...`)
+#   - the `method:` value passed to frappe.call() -- a bare key, as JS object
+#     literals normally write it
+#   - the same, but as a quoted JSON key -- admin_tools.py declares its entire
+#     button catalogue as `"method": "dotted.path"` (41 distinct paths across
+#     53 sites), which a bare `method:` match misses entirely
 # Requires a full trailing segment (so `method: 'GET'` and a namespace built up
 # via string concatenation, e.g. `verenigingen.api.foo.` + action, don't match)
-# and a trailing quote right after the last segment, so a truncated prefix isn't
-# mistaken for a real leaf method -- dues-invoice-debugger.html does exactly
-# this: `'/api/method/verenigingen.api.dues_invoice_workflow.' + method`, where
-# without the quote check the regex would otherwise happily match the namespace
-# up to (but not including) that trailing dot as if it were a complete path.
+# and a quote/`?`/`&` boundary right after the last segment, so a truncated
+# prefix isn't mistaken for a real leaf method -- dues-invoice-debugger.html
+# does exactly this: `'/api/method/verenigingen.api.dues_invoice_workflow.' +
+# method`, where without that boundary check the regex would otherwise happily
+# match the namespace up to (but not including) the trailing dot as if it were
+# a complete path.
 DOTTED_METHOD = re.compile(
-    r"""(?:/api/method/|method:\s*["'])([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+)["']"""
+    r"""(?:/api/method/|["']?method["']?\s*:\s*["'])"""
+    r"""([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+)(?=["'?&])"""
 )
 
 # frappe/erpnext core methods the pages call directly -- not this app's to fix.
@@ -78,7 +87,13 @@ def classify(dotted_path):
     module_path, _, func_name = dotted_path.rpartition(".")
     try:
         module = importlib.import_module(module_path)
-    except ImportError as e:
+    except Exception as e:
+        # Catches more than ImportError deliberately: this scan imports ~150+
+        # arbitrary modules by dotted path, and a SyntaxError, AttributeError, or
+        # Frappe exception raised at import time is just as much "this call is
+        # broken" as a plain missing module -- narrowing to ImportError would
+        # turn any of those into a hard test-collection error instead of a
+        # reported MISSING finding.
         return "MISSING", f"module: {e}"
 
     func = getattr(module, func_name, None)
@@ -97,6 +112,11 @@ def load_baseline():
         line = line.split("#", 1)[0].strip()
         if not line:
             continue
+        if "\t" not in line:
+            raise AssertionError(
+                f"{BASELINE.name} line {line!r} has no tab between path and status -- "
+                "the format is '<dotted.path>\\t<STATUS>'"
+            )
         path, _, status = line.partition("\t")
         entries[path.strip()] = status.strip()
     return entries
@@ -109,9 +129,18 @@ class TestShippedApiCallsAreWhitelisted(EnhancedTestCase):
         self.baseline = load_baseline()
 
     def test_the_scan_finds_known_shipped_calls(self):
-        """Control. A regex that matches nothing would pass every other test here."""
-        self.assertGreaterEqual(len(self.calls), 100, "no /api/method/ calls parsed from shipped pages")
+        """Control. A regex that matches nothing would pass every other test here --
+        and one that only matches the plain `method: 'x'` shape did exactly that
+        while missing 42 calls in the other two shapes below, undetected."""
+        self.assertGreaterEqual(len(self.calls), 140, "no /api/method/ calls parsed from shipped pages")
+        # `method: 'x.y.z'` -- a bare JS object key.
         self.assertIn("verenigingen.api.chapter_join.join_chapter", self.calls)
+        # `"method": "x.y.z"` -- admin_tools.py's JSON-style button catalogue.
+        self.assertIn(
+            "verenigingen.services.billing.invoice_management.cleanup_orphaned_schedules", self.calls
+        )
+        # `/api/method/x.y.z?param=...` -- a literal URL with a query string.
+        self.assertIn("verenigingen.templates.pages.donate.retry_payment", self.calls)
 
     def test_the_control_catches_a_broken_call(self):
         """Control in the other direction: classify() must actually flag a bad path,

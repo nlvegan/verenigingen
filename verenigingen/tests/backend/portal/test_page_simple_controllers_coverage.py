@@ -118,15 +118,38 @@ class TestSimplePortalControllers(EnhancedTestCase):
             with self.assertRaises(frappe.PermissionError):
                 schedule_maintenance.get_context(frappe._dict())
 
-    # generate_test_data and eboekhouden_item_mapping were removed (#430): both
-    # pages' core buttons posted to backend methods that never existed
-    # (verenigingen.api.generate_test_members.*, verenigingen.api.eboekhouden_item_mapping_tool.*),
-    # so -- like /membership_application before them -- a passing get_context()
-    # test here read as coverage for a page that could not do its job.
+    # generate_test_data was removed (#430): its core buttons posted to
+    # verenigingen.api.generate_test_members.*, a module that never existed, so --
+    # like /membership_application before it -- a passing get_context() test here
+    # read as coverage for a page that could not do its job.
+    #
+    # eboekhouden_item_mapping was NOT removed, despite an earlier pass in this
+    # same PR wrongly deleting it: its two calls were pointed at
+    # verenigingen.api.eboekhouden_item_mapping_tool, but the module actually lives
+    # at verenigingen.e_boekhouden.api.eboekhouden_item_mapping_tool -- the same
+    # kind of stale-path bug the DD batch optimizer repoint two commits earlier
+    # fixed correctly. Repointed instead; its tests stay below.
 
     # ------------------------------------------------------------------ #
     # eBoekhouden tool pages (permission-gated, build dropdown context)
     # ------------------------------------------------------------------ #
+    def test_eboekhouden_item_mapping_admin_allowed(self):
+        from verenigingen.templates.pages import eboekhouden_item_mapping
+
+        context = frappe._dict()
+        with self.assertNoErrorLog():
+            eboekhouden_item_mapping.get_context(context)
+        self.assertEqual(context.title, "E-Boekhouden Item Mapping Tool")
+        # NOTE: "items" shadows dict.items, so read via subscript not attribute.
+        self.assertIsInstance(context["items"], list)
+
+    def test_eboekhouden_item_mapping_guest_denied(self):
+        from verenigingen.templates.pages import eboekhouden_item_mapping
+
+        with self.as_user("Guest"):
+            with self.assertRaises(frappe.PermissionError):
+                eboekhouden_item_mapping.get_context(frappe._dict())
+
     def test_eboekhouden_mapping_review_admin_allowed(self):
         from verenigingen.templates.pages import eboekhouden_mapping_review
 

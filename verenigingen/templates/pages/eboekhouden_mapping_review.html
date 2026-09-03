@@ -560,7 +560,7 @@ frappe.ready(function() {
     // New transaction type mapping functionality
     $('#show-type-mapping').click(function() {
         frappe.call({
-            method: 'verenigingen.e_boekhouden.utils_transaction_type_mapper.get_transaction_type_mapping',
+            method: 'verenigingen.e_boekhouden.utils.eboekhouden_transaction_type_mapper.get_transaction_type_mapping',
             callback: function(r) {
                 if (r.message) {
                     const tbody = $('#type-mapping-table');

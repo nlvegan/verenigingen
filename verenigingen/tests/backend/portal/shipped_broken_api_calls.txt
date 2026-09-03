@@ -11,11 +11,16 @@
 # "still broken, ignore it"). Do not add a line to silence a new finding -- point
 # the call at the method that exists, implement it, or delete it.
 #
-# Origin: #430 found 22 of these across nine pages. 13 were fixed in the same PR
-# that added this guard (SEPA reconciliation decorator order; payment_dashboard's
-# export/save endpoints; the campaign donation, DD batch optimizer, and email
-# group sync calls; two whole dev-tool pages deleted). These 9 remain, in two
-# pages:
+# Origin: #430 found 22 of these across nine pages. 14 were fixed or repointed in
+# the same PR that added this guard: SEPA reconciliation decorator order;
+# payment_dashboard's export/save endpoints; the campaign donation, DD batch
+# optimizer, and email group sync calls; eboekhouden_item_mapping's two calls
+# (repointed, not deleted -- an earlier pass in this PR wrongly deleted that page
+# before realizing its module had just moved, same shape as the DD batch
+# optimizer fix); eboekhouden_mapping_review's get_transaction_type_mapping
+# (likewise a rename, to utils.eboekhouden_transaction_type_mapper); and one
+# whole dev-tool page (generate_test_data) deleted outright, since its module
+# never existed anywhere. These 8 remain, in two pages:
 #
 # /mt940_import (templates/pages/mt940_import.html) -- three "debug" buttons
 # layered on an otherwise-working MT940 bank-statement import page. The page's
@@ -28,7 +33,8 @@
 # verenigingen/e_boekhouden/doctype/e_boekhouden_migration/e_boekhouden_migration.js,
 # both outside this fix's owned territory (templates/, www/, api/, and
 # verenigingen_payments/api/sepa_reconciliation.py) -- left for a follow-up that
-# can review those callers too.
+# can review those callers too. Its remaining four calls are genuinely absent
+# (not renames): verified by grepping the whole tree for each function name.
 
 verenigingen.api.member_management_debug.debug_mt940_import	MISSING
 verenigingen.api.member_management_debug.debug_mt940_import_detailed	MISSING
@@ -37,5 +43,4 @@ verenigingen.api.member_management_debug.test_mt940_extraction	MISSING
 verenigingen.e_boekhouden.utils_account_analyzer.bulk_create_mappings	MISSING
 verenigingen.e_boekhouden.utils_account_analyzer.create_default_range_mappings	MISSING
 verenigingen.e_boekhouden.utils_account_analyzer.create_mapping_from_suggestion	MISSING
-verenigingen.e_boekhouden.utils_transaction_type_mapper.get_transaction_type_mapping	MISSING
 verenigingen.e_boekhouden.utils_transaction_type_mapper.test_transaction_type_detection	MISSING
