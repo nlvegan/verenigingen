@@ -553,7 +553,14 @@ class TestQualityEnforcer:
             return False
         if path.name == "conftest.py":
             return False
-        if "_factory" in path.name or path.name.startswith("factory_"):
+        # A file whose SUBJECT is a factory (e.g. `test_payment_entry_factory.py`)
+        # is a real test module by this repo's `test_`-prefix convention, not a
+        # fixture helper -- #798. Only a name that does NOT start with `test_`
+        # (`enhanced_test_factory.py`, `factory_helper.py`, `sepa_test_factory.py`)
+        # is the helper shape this rule exists to skip.
+        if not path.name.startswith("test_") and (
+            "_factory" in path.name or path.name.startswith("factory_")
+        ):
             return False
 
         # Check for test file patterns
