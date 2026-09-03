@@ -697,7 +697,11 @@ class SEPABatchRaceConditionManager:
 
                 if same_date_batches:
                     for existing_batch in same_date_batches:
-                        if existing_batch.status in ["Draft", "Generated"]:
+                        # #774: 'Partially Collected' is unsubmitted the same
+                        # way 'Draft'/'Generated' are -- it must still warn
+                        # about a same-date collision instead of silently
+                        # dropping out of view.
+                        if existing_batch.status in ["Draft", "Generated", "Partially Collected"]:
                             result["warnings"].append(
                                 f"Another batch exists for date {batch_date}: "
                                 f"{existing_batch.name} (status: {existing_batch.status})"

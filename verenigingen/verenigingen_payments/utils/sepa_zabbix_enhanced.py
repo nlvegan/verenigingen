@@ -388,8 +388,13 @@ class SEPAZabbixIntegration:
         collect("sepa.batch.success_rate", lambda: self._batch_success_rate(last_24h))
         collect(
             "sepa.batch.stuck_count",
+            # #774: 'Partially Collected' (collected fewer invoices than
+            # requested, still unsubmitted) must count here the same as 'Draft'
+            # -- otherwise a shortfall batch silently drops out of the
+            # "SEPA Stuck Batches Detected" Zabbix trigger this metric feeds.
             lambda: frappe.db.count(
-                "Direct Debit Batch", {"status": "Draft", "creation": ["<", stuck_threshold]}
+                "Direct Debit Batch",
+                {"status": ["in", ["Draft", "Partially Collected"]], "creation": ["<", stuck_threshold]},
             ),
         )
 

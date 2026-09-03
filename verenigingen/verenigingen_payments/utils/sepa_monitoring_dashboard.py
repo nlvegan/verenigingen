@@ -537,12 +537,16 @@ class SEPAMonitoringDashboard:
             )
 
         # Check for stuck batches
+        # #774: 'Partially Collected' (a batch that collected fewer invoices than
+        # requested, still unsubmitted) is unsubmitted the same way 'Draft' is --
+        # it needs an operator's attention at least as urgently, so it must not
+        # silently drop out of this alert just because it isn't literally 'Draft'.
         stuck_batches = (
             frappe.db.sql(
                 """
             SELECT COUNT(*) as count
             FROM `tabDirect Debit Batch`
-            WHERE status = 'Draft'
+            WHERE status IN ('Draft', 'Partially Collected')
             AND creation < DATE_SUB(NOW(), INTERVAL 2 HOUR)
         """
             )[0][0]
@@ -554,7 +558,7 @@ class SEPAMonitoringDashboard:
                 {
                     "type": "stuck_batches",
                     "severity": "warning",
-                    "message": f"{stuck_batches} batches stuck in Draft status for >2 hours",
+                    "message": f"{stuck_batches} batches stuck unsubmitted (Draft/Partially Collected) for >2 hours",
                     "timestamp": get_datetime().isoformat(),
                     "details": {"stuck_batch_count": stuck_batches},
                 }

@@ -184,7 +184,12 @@ class SEPAConflictDetector:
                 recent_assignment = assignments[0]
 
                 # Determine conflict severity based on batch status
-                if recent_assignment.batch_status in ["Draft", "Generated"]:
+                # #774: 'Partially Collected' is unsubmitted the same way
+                # 'Draft'/'Generated' are -- an invoice sitting in one of those
+                # batches is exactly as removable/reassignable, so it must get
+                # the same CRITICAL treatment rather than silently falling
+                # through to the generic WARNING branch below.
+                if recent_assignment.batch_status in ["Draft", "Generated", "Partially Collected"]:
                     severity = ConflictSeverity.CRITICAL
                     action = f"Remove invoice from batch {recent_assignment.batch_name} or cancel that batch"
                 elif recent_assignment.batch_status in ["Submitted", "Processing"]:
@@ -391,7 +396,10 @@ class SEPAConflictDetector:
             )
 
             for existing_batch in existing_batches:
-                if existing_batch.status in ["Draft", "Generated"]:
+                # #774: same reasoning as the cross-batch check above -- a
+                # 'Partially Collected' batch is unsubmitted the same way
+                # 'Draft'/'Generated' are.
+                if existing_batch.status in ["Draft", "Generated", "Partially Collected"]:
                     conflicts.append(
                         ConflictResult(
                             severity=ConflictSeverity.WARNING,

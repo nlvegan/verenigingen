@@ -433,15 +433,19 @@ def get_batches_pending_approval():
         # Determine which batches user can approve
         filters = {"docstatus": 0}
 
+        # #774: 'Partially Collected' (collected fewer invoices than requested,
+        # still unsubmitted) needs approval-queue eyes at least as much as a
+        # plain 'Draft' batch does -- it must not silently drop out of this
+        # list just because it isn't literally 'Draft'.
         if Roles.SYSTEM_MANAGER in user_roles:
             # System Manager can see all draft batches (equivalent to pending approval)
-            filters["status"] = ["in", ["Draft", "Generated"]]
+            filters["status"] = ["in", ["Draft", "Generated", "Partially Collected"]]
         elif Roles.FINANCIAL_MANAGER in user_roles:
             # Verenigingen Financial Manager can see all draft batches
-            filters["status"] = ["in", ["Draft", "Generated"]]
+            filters["status"] = ["in", ["Draft", "Generated", "Partially Collected"]]
         elif Roles.VERENIGINGEN_STAFF in user_roles:
             # Verenigingen Staff can only see draft batches
-            filters["status"] = "Draft"
+            filters["status"] = ["in", ["Draft", "Partially Collected"]]
         else:
             # No approval permissions
             return {"success": True, "batches": []}

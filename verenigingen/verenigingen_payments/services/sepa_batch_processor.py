@@ -181,6 +181,12 @@ class SEPABatchProcessor:
             sequence_types = self.mandate_service.get_sequence_types_batch(mandate_invoice_pairs)
 
             # Add invoices to batch with optimized data
+            # #774: cap this defensive branch's detail writes the same way
+            # process_batch_invoices_optimized caps its own (see the comment
+            # there) -- unreachable today, but a future change to that
+            # invariant must not turn into unbounded Error Log rows either.
+            MAX_DETAIL_LOGS = 10
+            incomplete_names = []
             successful_count = 0
             for processed in processed_invoices:
                 mandate_data = processed.get("mandate_data")
@@ -188,9 +194,22 @@ class SEPABatchProcessor:
                 member_data = processed.get("member_data")
 
                 if not mandate_data or not invoice_data or not member_data:
-                    frappe.logger().warning(
-                        f"Skipping invoice {processed.get('invoice_name')} - incomplete data"
-                    )
+                    # process_batch_invoices_optimized() only ever returns rows with
+                    # all three present, so this should be unreachable -- but if that
+                    # invariant is ever broken, the fallback must not be another
+                    # silent frappe.logger().warning() (#774).
+                    incomplete_names.append(processed.get("invoice_name"))
+                    if len(incomplete_names) <= MAX_DETAIL_LOGS:
+                        frappe.log_error(
+                            title="SEPA Batch - Unexpected Incomplete Processed Invoice",
+                            message=(
+                                f"add_invoices_to_batch_optimized: skipped invoice "
+                                f"{processed.get('invoice_name')} for batch {batch.name} - incomplete data "
+                                f"(mandate_data={'present' if mandate_data else 'MISSING'}, "
+                                f"invoice_data={'present' if invoice_data else 'MISSING'}, "
+                                f"member_data={'present' if member_data else 'MISSING'})."
+                            ),
+                        )
                     continue
 
                 # Get sequence type from batch lookup
@@ -218,6 +237,116 @@ class SEPABatchProcessor:
             frappe.logger().info(
                 f"Performance-optimized batch addition: {successful_count}/{len(invoice_names)} invoices processed"
             )
+
+            # #774: the line above is the only place this count ever existed, and
+            # frappe.logger().info() never reaches anywhere an operator or CI can
+            # see -- a bare logger's effective level is ERROR. A batch that
+            # collects fewer invoices than requested must leave a durable, visible
+            # record of that fact, not just look identical to a fully successful
+            # run. Record it twice: on the batch document itself (found by anyone
+            # who opens this specific batch) and in the Error Log (found by anyone
+            # scanning for anomalies without knowing which batch to look at).
+            if successful_count < len(invoice_names):
+                from verenigingen.verenigingen_payments.utils.sepa_utilities import BatchLoggingUtilities
+
+                shortfall = len(invoice_names) - successful_count
+                message = (
+                    f"Batch {batch.name}: requested {len(invoice_names)} invoices, "
+                    f"added {successful_count} ({shortfall} not collected this run). "
+                    f"See individual 'SEPA Batch - Invoice Not Found', 'SEPA Batch - Invoice "
+                    f"Skipped (Missing Member/Mandate Data)' and 'SEPA Batch Processor - Batch "
+                    f"Addition Error' Error Log entries around this time for the per-invoice reasons."
+                )
+                BatchLoggingUtilities.add_to_document_batch_log(batch, message)
+                frappe.log_error(title="SEPA Batch - Invoice Shortfall", message=message)
+
+                # #774 review round 3: a blob in batch_log/Error Log is findable
+                # but not QUERYABLE -- nothing programmatic (the scheduler entry
+                # point, a report, a dashboard) reads either. This is a NEW,
+                # distinct status ("Partially Collected"), not the existing
+                # "Partially Failed" (process_batch_returns, ~line 575, for
+                # bounced payments POST-submission, asserted by
+                # test_sepa_batch_processor_returns_coverage.py:131) -- that
+                # string already means something different (the bank rejected a
+                # payment after the batch was submitted) and there is also a
+                # third, distinct "Partially Processed"
+                # (_update_batch_status_after_processing). Reusing "Partially
+                # Failed" here would give an operator no way to tell "the
+                # collection undershot" from "the bank bounced a payment" without
+                # opening the batch and reading batch_log. Verified before adding
+                # the option: no Workflow is attached to Direct Debit Batch
+                # (grepped every workflow fixture in the app); the status
+                # Select's options list is not enumerated anywhere that would
+                # need updating (the form's status_colors map and the "SEPA
+                # Payment Status" dashboard chart's group-by are both
+                # value-agnostic, falling back to 'gray'/an extra donut slice for
+                # any unrecognised string -- the same as "Partially Failed"
+                # already does in status_colors today).
+                #
+                # Also verified this does not block anything downstream:
+                # on_submit() only checks sepa_file_generated, and no production
+                # code gates validation, submission, or XML generation on
+                # status == "Draft".
+                #
+                # Grepped every "Draft"/"Generated" reader that treats those as
+                # "still needs attention" and updated each so a shortfall batch
+                # does not silently drop out of view (the actual #774 review-2
+                # regression): sepa_monitoring_dashboard.get_system_alerts's
+                # stuck-batch check, sepa_zabbix_enhanced's
+                # sepa.batch.stuck_count metric (feeds a live Zabbix trigger
+                # prototype), dd_batch_workflow_controller.
+                # get_batches_pending_approval, and the two same-shape
+                # same-date-conflict warnings in sepa_race_condition_manager and
+                # sepa_conflict_detector. NOT changed:
+                # authorization.py::_check_batch_permissions's
+                # status in ["Draft", "Validated"] gate -- that is an ACCESS
+                # decision (can a PROCESS-level non-owner/non-admin user act on
+                # this batch via a decorated API), not a visibility one; every
+                # non-Draft/Validated status already excludes it today
+                # (including the pre-existing "Partially Failed" and "Partially
+                # Processed"), so this is existing, narrower behaviour rather
+                # than something this change newly breaks, and tightening who
+                # may act on a just-flagged batch is arguably the safer default
+                # rather than a regression.
+                #
+                # One caveat this does NOT fix, disclosed rather than glossed
+                # over: this status survives only until the batch is
+                # SUBMITTED. on_submit() unconditionally calls
+                # generate_sepa_xml() whenever sepa_file_generated is falsy, and
+                # generate_sepa_xml_for_batch() does
+                # db_set("status", "Generated") with no read of the prior value
+                # -- so EVERY submitted batch loses this status, not only
+                # auto-submitted ones; auto-submit just shrinks the observation
+                # window to milliseconds inside one job. The Error Log entry
+                # above is unaffected by that and remains the durable signal
+                # regardless of submission.
+                #
+                # DEPLOYMENT REQUIREMENT, and why this is guarded rather than
+                # a bare assignment: "Partially Collected" is a NEW Select
+                # option added to direct_debit_batch.json. Frappe validates
+                # Select values against the DocField's CACHED options on save
+                # (`_validate_selects`, base_document.py) -- a JSON edit alone
+                # does not refresh that cache. Reproduced on an un-migrated
+                # site (installed doctype at origin/develop, never reloaded):
+                # cached options were still the pre-#774 list, and a real
+                # `batch.insert()` with status="Partially Collected" raised
+                # ValidationError. In the window where this code is live but
+                # `bench migrate` / `bench reload-doctype "Direct Debit Batch"`
+                # has not yet run on a site, an UNGUARDED assignment would turn
+                # "collected fewer invoices than requested" into "the entire
+                # monthly collection run throws and collects nothing" --
+                # strictly worse than the bug #774 set out to fix, on a money
+                # path. So check the option actually exists in this site's
+                # cached meta before writing it; same shape as the has_field()
+                # guard elsewhere in this app for the identical
+                # deployed-ahead-of-migrate window (e.g. #780). If the option
+                # isn't there yet, leave `status` alone -- the shortfall is
+                # still fully recorded above via batch_log and the aggregate
+                # Error Log, so nothing is lost, only the structured/queryable
+                # signal is delayed until the site is migrated.
+                status_field = frappe.get_meta("Direct Debit Batch").get_field("status")
+                if "Partially Collected" in (status_field.options or "").split("\n"):
+                    batch.status = "Partially Collected"
 
             # Log performance statistics
             stats = self.performance_optimizer.get_performance_stats()

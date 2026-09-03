@@ -259,6 +259,13 @@ class BatchLoggingUtilities:
         """
         Add timestamped message to document batch log field.
 
+        This only mutates `doc.batch_log` IN MEMORY -- it does not save the
+        document. Persistence depends entirely on the caller saving `doc`
+        afterward (every current call site does: from inside `validate()`
+        before the enclosing `.save()` completes, or immediately before an
+        explicit `.save()`). A future caller that does not save loses the
+        entry silently.
+
         Args:
             doc: Document with batch_log field
             message: Log message to add
