@@ -101,10 +101,10 @@ from verenigingen.verenigingen_payments.utils.invoice_candidates import (
 # ========================
 
 
+@frappe.whitelist()
 @handle_api_error
 @standard_api(operation_type=OperationType.FINANCIAL)
 @require_sepa_permission(SEPAPermissionLevel.READ, SEPAOperation.BATCH_VALIDATE)
-@frappe.whitelist()
 def identify_sepa_transactions():
     """
     Identify bank transactions that are potentially from SEPA direct debit batches.
@@ -1224,11 +1224,11 @@ def find_original_sepa_batch_for_return(return_transaction):
 # ========================
 
 
+@frappe.whitelist()
 @handle_api_error
 @performance_monitor()
 @standard_api(operation_type=OperationType.FINANCIAL)
 @require_sepa_permission(SEPAPermissionLevel.READ, SEPAOperation.BATCH_VALIDATE)
-@frappe.whitelist()
 def get_sepa_reconciliation_dashboard():
     """Get dashboard data for SEPA reconciliation status"""
     try:
