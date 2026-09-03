@@ -118,42 +118,15 @@ class TestSimplePortalControllers(EnhancedTestCase):
             with self.assertRaises(frappe.PermissionError):
                 schedule_maintenance.get_context(frappe._dict())
 
-    def test_generate_test_data_admin_allowed(self):
-        from verenigingen.templates.pages import generate_test_data
-
-        context = frappe._dict()
-        with self.assertNoErrorLog():
-            generate_test_data.get_context(context)
-        self.assertEqual(context.title, "Generate Test Data")
-        self.assertTrue(context.description)
-
-    def test_generate_test_data_guest_denied(self):
-        from verenigingen.templates.pages import generate_test_data
-
-        with self.as_user("Guest"):
-            with self.assertRaises(frappe.PermissionError):
-                generate_test_data.get_context(frappe._dict())
+    # generate_test_data and eboekhouden_item_mapping were removed (#430): both
+    # pages' core buttons posted to backend methods that never existed
+    # (verenigingen.api.generate_test_members.*, verenigingen.api.eboekhouden_item_mapping_tool.*),
+    # so -- like /membership_application before them -- a passing get_context()
+    # test here read as coverage for a page that could not do its job.
 
     # ------------------------------------------------------------------ #
     # eBoekhouden tool pages (permission-gated, build dropdown context)
     # ------------------------------------------------------------------ #
-    def test_eboekhouden_item_mapping_admin_allowed(self):
-        from verenigingen.templates.pages import eboekhouden_item_mapping
-
-        context = frappe._dict()
-        with self.assertNoErrorLog():
-            eboekhouden_item_mapping.get_context(context)
-        self.assertEqual(context.title, "E-Boekhouden Item Mapping Tool")
-        # NOTE: "items" shadows dict.items, so read via subscript not attribute.
-        self.assertIsInstance(context["items"], list)
-
-    def test_eboekhouden_item_mapping_guest_denied(self):
-        from verenigingen.templates.pages import eboekhouden_item_mapping
-
-        with self.as_user("Guest"):
-            with self.assertRaises(frappe.PermissionError):
-                eboekhouden_item_mapping.get_context(frappe._dict())
-
     def test_eboekhouden_mapping_review_admin_allowed(self):
         from verenigingen.templates.pages import eboekhouden_mapping_review
 
