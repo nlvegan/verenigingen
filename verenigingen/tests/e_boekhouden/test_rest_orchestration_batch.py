@@ -50,7 +50,7 @@ from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
     _import_rest_mutations_batch_enhanced,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.tests.support.non_resumable_errors import deadlock
+from verenigingen.tests.support.non_resumable_errors import connection_lost, deadlock
 
 ABBR = "EBBA"
 COMPANY = "TEST-EB-Batch-Company"
@@ -628,4 +628,103 @@ class TestImportRestMutationsBatchEnhancedAbortsOnNonResumableError(_BatchCluste
             str(ok_id),
             abort_logs[0].error,
             "the report must name the last mutation the batch processed before the error",
+        )
+
+
+class TestImportRestMutationsBatchEnhancedAbortsOnConnectionLoss(_BatchClusterBase):
+    """#731: a lost connection (2006/2013) raised mid-batch must get the SAME
+    "ABORTED" treatment as a 1213/1205 (#572) -- stop feeding the remaining
+    mutations into a connection the server may have silently replaced
+    mid-transaction, AND report how far the batch got, instead of letting the
+    per-type loop above fold the whole type into one opaque `total_failed += 1`
+    (verified by tracing the call chain: `_process_mutation_with_coordinator`'s
+    guards re-raise it, the batch loop's guard re-raises it again, and both the
+    batch-level and type-level `except NON_RESUMABLE_DB_ERRORS as abort_error`
+    handlers now also match on `_is_connection_lost` -- a lost connection is
+    NOT a NON_RESUMABLE_DB_ERRORS class, so it needed its own check at each of
+    those sites; widening the shared, isinstance-matched tuple itself stays out
+    of scope, per #731's issue body).
+
+    Mirrors test_deadlock_mid_batch_aborts_and_reports_last_imported_mutation
+    exactly, substituting a connection-lost error for the deadlock.
+    """
+
+    def test_connection_lost_mid_batch_aborts_and_reports_last_imported_mutation(self):
+        ok_id, lost_id, unreached_id = 970500, 970501, 970502
+        ok_mutation = self._memorial_mutation(ok_id)
+        unreached_mutation = self._memorial_mutation(unreached_id)
+        mutations = [ok_mutation, {"id": lost_id, "type": 7}, unreached_mutation]
+
+        for mutation_id in (ok_id, lost_id, unreached_id):
+            self.assertFalse(
+                frappe.db.exists("Journal Entry", {"eboekhouden_mutation_nr": str(mutation_id)})
+            )
+
+        self.expectErrorLog("ABORTED")
+        before = frappe.utils.now_datetime()
+
+        orig_flag = frappe.conf.get("eboekhouden_use_new_processors")
+        frappe.conf["eboekhouden_use_new_processors"] = False
+        try:
+            with patch(
+                "verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator.EBoekhoudenRESTIterator",
+                new=_PartialFailureIterator([ok_mutation, unreached_mutation], lost_id, connection_lost),
+            ):
+                with self.assertRaises(Exception) as ctx:
+                    _import_rest_mutations_batch_enhanced(
+                        "MIG-CONNLOST", mutations, self.settings, mutation_type=7
+                    )
+        finally:
+            if orig_flag is None:
+                frappe.conf.pop("eboekhouden_use_new_processors", None)
+            else:
+                frappe.conf["eboekhouden_use_new_processors"] = orig_flag
+
+        self.assertIn("MySQL server has gone away", str(ctx.exception))
+
+        # The mutation processed BEFORE the connection was lost is still visible in
+        # THIS test's (uncommitted) DB transaction -- the abort path does not itself
+        # undo it (control-flow assertion, matching the deadlock test above).
+        self.assertTrue(
+            frappe.db.exists("Journal Entry", {"eboekhouden_mutation_nr": str(ok_id)}),
+            "the mutation processed before the connection loss must not be touched",
+        )
+        # The mutation AFTER the lost-connection mutation must never be attempted.
+        self.assertFalse(
+            frappe.db.exists("Journal Entry", {"eboekhouden_mutation_nr": str(unreached_id)}),
+            "a mutation after the connection loss must never be attempted",
+        )
+
+        # And an operator-visible report exists, naming how far the batch got --
+        # scoped to rows written by THIS call (Error Log is MyISAM and survives
+        # rollback, so an unscoped query could pass against a stale row).
+        abort_logs = frappe.get_all(
+            "Error Log",
+            filters={"method": ["like", "%ABORTED%"], "creation": [">=", before]},
+            fields=["name", "method", "error"],
+            order_by="creation desc",
+            limit=1,
+        )
+        self.assertTrue(abort_logs, "expected an ABORTED Error Log entry to be written")
+        self.assertIn("Memorial Bookings", abort_logs[0].method)
+        self.assertIn(
+            str(ok_id),
+            abort_logs[0].error,
+            "the report must name the last mutation the batch processed before the error",
+        )
+        # A lost connection is at least as destructive as a deadlock (the whole
+        # SESSION is gone, not just the current transaction) -- it must get the
+        # deadlock's "nothing survives, re-run the whole type" persistence note,
+        # NOT the 1205 lock-wait-timeout note's "earlier mutations remain queued
+        # and will be committed" claim, which would tell an operator the OPPOSITE
+        # of what actually happened.
+        self.assertIn(
+            "LOST CONNECTION",
+            abort_logs[0].error,
+            "a lost connection must get its own persistence note, not the 1205 one",
+        )
+        self.assertNotIn(
+            "LOCK-WAIT TIMEOUT",
+            abort_logs[0].error,
+            "a lost connection must not be reported as a 1205 (partial survival)",
         )

@@ -47,6 +47,7 @@ from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
     _process_mutation_with_coordinator,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.non_resumable_errors import connection_lost
 
 ITERATOR_TARGET = "verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator.EBoekhoudenRESTIterator"
 
@@ -107,6 +108,19 @@ class _RaisingIterator:
 
     def fetch_mutation_detail(self, mutation_id):
         raise RuntimeError(self.TAG)
+
+
+class _ConnectionLostIterator:
+    """Stub for EBoekhoudenRESTIterator that constructs cleanly but raises a
+    connection-lost error (2006) from ``fetch_mutation_detail``, simulating a
+    real driver-level connection loss surfacing from the legacy detail-fetch
+    call (#731)."""
+
+    def __call__(self):
+        return self
+
+    def fetch_mutation_detail(self, mutation_id):
+        raise connection_lost()
 
 
 class _CoordClusterBase(EnhancedTestCase):
@@ -459,3 +473,68 @@ class TestProcessMutationWithCoordinator(_CoordClusterBase):
         )
         # The error must be the one WE induced, not a stray failure.
         self.assertIn(_RaisingIterator.TAG, result["error_msg"])
+
+    # ---- #731: a lost connection must propagate, not fold into an "error" result ----
+
+    def test_coordinator_raises_connection_lost_propagates(self):
+        """A connection-lost error from coordinator.process_mutation() must
+        propagate (aborting the mutation), not be treated as an ordinary
+        "new processor failed, fall back to legacy" case: falling back would run
+        the legacy path against a connection the server may have silently
+        replaced mid-transaction (#731, mirrors #572's deadlock/timeout guard).
+
+        CAVEAT: this exercises the GUARD via a test double that raises, not the
+        real collaborator. The REAL TransactionCoordinator.process_mutation
+        (verenigingen/e_boekhouden/utils/processors/transaction_coordinator.py,
+        ~line 176) has its own bare `except Exception` that already swallows
+        everything -- 1213/2006 included -- into a logged Error Log row and
+        `return None`, which this module's caller then reads as "fall back to
+        legacy" rather than ever seeing an exception here. That swallow is a
+        separate, already-baselined finding (scripts/validation/
+        error_swallow_baseline.txt) and out of scope for this fix -- this test
+        only proves the guard added here works FOR AN EXCEPTION THAT REACHES
+        IT, which on the current default (`eboekhouden_use_new_processors`
+        True) production path it structurally cannot: the coordinator's own
+        swallow intercepts it first.
+        """
+        mutation_id = 970098
+        coordinator = _FakeCoordinator(
+            raises=connection_lost(),
+            debug_info=["partial work before the connection was lost"],
+        )
+        debug_info = []
+        with self.assertRaises(Exception) as ctx:
+            _process_mutation_with_coordinator(
+                {"id": mutation_id, "type": 7, "description": "connection lost mid new-processor"},
+                mutation_id,
+                7,
+                coordinator,
+                COMPANY,
+                self.cost_center,
+                debug_info,
+            )
+        self.assertIn("MySQL server has gone away", str(ctx.exception))
+        # And it must NOT have fallen back to legacy processing.
+        self.assertFalse(
+            any("using legacy" in line for line in debug_info),
+            f"must not have attempted legacy fallback, debug_info={debug_info}",
+        )
+
+    def test_legacy_raises_connection_lost_propagates(self):
+        """A connection-lost error raised from the LEGACY path (no coordinator)
+        must propagate out of the outer catch-all instead of being folded into
+        an ordinary {"action": "error", ...} result (#731)."""
+        mutation_id = 970097  # deliberately NOT pre-imported
+        debug_info = []
+        with patch(ITERATOR_TARGET, new=_ConnectionLostIterator()):
+            with self.assertRaises(Exception) as ctx:
+                _process_mutation_with_coordinator(
+                    {"id": mutation_id, "type": 7, "description": "legacy detail-fetch loses connection"},
+                    mutation_id,
+                    7,
+                    None,
+                    COMPANY,
+                    self.cost_center,
+                    debug_info,
+                )
+        self.assertIn("MySQL server has gone away", str(ctx.exception))
