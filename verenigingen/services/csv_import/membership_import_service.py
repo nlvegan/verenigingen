@@ -20,6 +20,7 @@ from verenigingen.utils.csv.data_transformers import (
     determine_membership_type_for_csv_import,
     get_dues_schedule_template_from_payment_period,
 )
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 class MembershipImportService(StatelessService):
@@ -95,6 +96,12 @@ class MembershipImportService(StatelessService):
 
             return membership_name
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213/1205: the transaction is already gone (or half-applied). Swallowing
+            # this into a `return None` -- the caller then raises its own
+            # ValidationError, which every guard keyed on the original error's TYPE
+            # (including #700's row-loop guard) cannot see through. Let it propagate.
+            raise
         except Exception as e:
             frappe.log_error(
                 f"ERROR in create_membership_from_csv for {member_doc.name}: {str(e)}\n"

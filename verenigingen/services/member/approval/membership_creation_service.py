@@ -40,6 +40,7 @@ from frappe.utils import date_diff, getdate, today
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.service_error_handler import create_service_result, handle_service_error
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 class MembershipCreationService(StatelessService):
@@ -206,6 +207,13 @@ class MembershipCreationService(StatelessService):
                 f"MembershipCreationService: permission denied for {member_doc.name} "
                 f"as {frappe.session.user}"
             )
+            raise
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213/1205: the transaction is already gone (or half-applied).
+            # `frappe.throw` below would convert it to a ValidationError, which
+            # defeats every guard keyed on the original error's TYPE -- including
+            # #700's CSV-import row-loop guard, which needs this to still look
+            # like a deadlock by the time it gets there.
             raise
         except Exception as e:
             self.logger.error(f"MembershipCreationService: Error for {member_doc.name}: {str(e)}")
@@ -559,6 +567,12 @@ class MembershipCreationService(StatelessService):
                 f"MembershipCreationService: Created dues schedule {schedule_name} for {member_doc.name}"
                 + (f" with custom amount €{custom_amount}" if custom_amount else "")
             )
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213/1205: the transaction is already gone (or half-applied). This is
+            # the worst of the three swallow points for a CSV-import caller -- the
+            # msgprint-and-continue below would report the row as if it succeeded
+            # (a warning, not a failure), on a transaction the server has discarded.
+            raise
         except Exception as e:
             self.logger.error(f"MembershipCreationService: Failed to create dues schedule: {str(e)}")
             frappe.log_error(

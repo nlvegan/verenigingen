@@ -33,6 +33,11 @@ from verenigingen.utils.csv.procurios_mandate_validator import (
 )
 from verenigingen.utils.error_handling import sanitize_error_for_audit
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.transaction_errors import (
+    NON_RESUMABLE_DB_ERRORS,
+    release_savepoint_if_present,
+    rollback_to_savepoint,
+)
 
 
 @dataclass
@@ -278,6 +283,12 @@ class ProcuriosMandateImport(BaseCSVImport):
             # 4. Create
             return self._create_mandate(row, member_name, caches)
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213/1205: the server has already thrown the transaction away (or
+            # left it half-applied). Let it propagate -- #700 makes the batch
+            # loop abandon the import on this rather than counting it as one
+            # bad row; catching it here as a bare Exception would defeat that.
+            raise
         except Exception as e:
             skip_counters["error"] += 1
             sanitized = sanitize_error_for_audit(str(e))
@@ -290,42 +301,69 @@ class ProcuriosMandateImport(BaseCSVImport):
         member_name: str,
         caches: _Caches,
     ) -> Tuple[str, str]:
-        """Insert a new SEPA Mandate and update caches."""
-        mandate = frappe.get_doc(
-            {
-                "doctype": "SEPA Mandate",
-                "mandate_id": row.mandate_id,
+        """Insert a new SEPA Mandate and update caches.
+
+        One savepointed unit of work (#698): without it, any failure between
+        ``mandate.insert()`` and the return -- the cache-bookkeeping writes
+        below, or anything added here later -- left the mandate committed by
+        the batch loop's ``frappe.db.commit()`` while ``_process_single_row``'s
+        catch-all reported the row "skipped". Same divergence #570 fixed for
+        Member Import.
+        """
+        savepoint = f"procurios_mandate_create_{frappe.generate_hash(length=8)}"
+        frappe.db.savepoint(savepoint)
+        try:
+            mandate = frappe.get_doc(
+                {
+                    "doctype": "SEPA Mandate",
+                    "mandate_id": row.mandate_id,
+                    "member": member_name,
+                    "account_holder_name": row.account_holder_name,
+                    "iban": row.iban,
+                    "sign_date": row.sign_date,
+                    "cancelled_date": row.cancelled_date,  # blank for active, set for cancelled
+                    "status": "Cancelled" if row.is_cancelled else "Active",
+                    "mandate_type": row.mandate_type,
+                    "scheme": "SEPA",
+                    "used_for_memberships": 1,
+                    "notes": row.notes,
+                }
+            )
+            # Security: Background bulk import driven by an admin-submitted, validated
+            # CSV. The import DocType itself is restricted to System Manager /
+            # Verenigingen Administrator; per-row mandate inserts run with elevated
+            # rights to avoid re-checking the admin role for every one of potentially
+            # thousands of rows.
+            mandate.flags.ignore_permissions = True
+            mandate.insert()
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213 has already rolled the ENTIRE transaction back, savepoints
+            # included; rolling back to this one would raise 1305 on top of the
+            # real error and hide it (#561). Nothing left to undo -- propagate.
+            raise
+        except Exception:
+            rollback_to_savepoint(savepoint)
+            raise
+        else:
+            release_savepoint_if_present(savepoint)
+            # Cache updates so subsequent rows see the new state. Deliberately
+            # AFTER the release, not inside the try: a failure between insert()
+            # and here rolls the DB back, and a cache update made before that
+            # point would survive the rollback -- stale state a later row in
+            # this same batch could act on (e.g. treating a rolled-back mandate
+            # as the member's active one).
+            caches.existing_mandate_by_id[row.mandate_id] = {
+                "name": mandate.name,
+                "status": mandate.status,
+                "cancelled_date": mandate.cancelled_date,
                 "member": member_name,
-                "account_holder_name": row.account_holder_name,
-                "iban": row.iban,
-                "sign_date": row.sign_date,
-                "cancelled_date": row.cancelled_date,  # blank for active, set for cancelled
-                "status": "Cancelled" if row.is_cancelled else "Active",
-                "mandate_type": row.mandate_type,
-                "scheme": "SEPA",
-                "used_for_memberships": 1,
-                "notes": row.notes,
             }
-        )
-        # Security: Background bulk import driven by an admin-submitted, validated CSV.
-        # The import DocType itself is restricted to System Manager / Verenigingen
-        # Administrator; per-row mandate inserts run with elevated rights to avoid
-        # re-checking the admin role for every one of potentially thousands of rows.
-        mandate.flags.ignore_permissions = True
-        mandate.insert()
-
-        # Cache updates so subsequent rows see the new state.
-        caches.existing_mandate_by_id[row.mandate_id] = {
-            "name": mandate.name,
-            "status": mandate.status,
-            "cancelled_date": mandate.cancelled_date,
-            "member": member_name,
-        }
-        if mandate.status == "Active":
-            caches.members_with_active_mandate.add(member_name)
-            caches.member_to_active_count[member_name] = caches.member_to_active_count.get(member_name, 0) + 1
-
-        return ("created", mandate.name)
+            if mandate.status == "Active":
+                caches.members_with_active_mandate.add(member_name)
+                caches.member_to_active_count[member_name] = (
+                    caches.member_to_active_count.get(member_name, 0) + 1
+                )
+            return ("created", mandate.name)
 
     def _update_cancellation(
         self,
@@ -338,6 +376,11 @@ class ProcuriosMandateImport(BaseCSVImport):
         Uses frappe.get_doc + save so the lifecycle service flips status
         to Cancelled. ignore_permissions because the bulk import runs in
         a background job.
+
+        One savepointed unit of work (#698), for the same reason as
+        `_create_mandate`: any failure between `mandate.save()` and the return
+        -- the cache-refresh writes below -- previously left the cancellation
+        committed while the row was reported "skipped".
         """
         # Only decrement the active-count if the existing mandate was active
         # before this update; cancelling an already-cancelled mandate is a
@@ -352,28 +395,39 @@ class ProcuriosMandateImport(BaseCSVImport):
         # error rather than as the conflict it is.
         was_active = existing.get("status") == "Active" and existing.get("used_for_memberships")
 
-        mandate = frappe.get_doc("SEPA Mandate", existing["name"])
-        mandate.cancelled_date = row.cancelled_date
-        mandate.status = "Cancelled"
-        # Security: see _create_mandate — admin-submitted CSV, bulk background job.
-        mandate.flags.ignore_permissions = True
-        mandate.save()
+        savepoint = f"procurios_mandate_cancel_{frappe.generate_hash(length=8)}"
+        frappe.db.savepoint(savepoint)
+        try:
+            mandate = frappe.get_doc("SEPA Mandate", existing["name"])
+            mandate.cancelled_date = row.cancelled_date
+            mandate.status = "Cancelled"
+            # Security: see _create_mandate — admin-submitted CSV, bulk background job.
+            mandate.flags.ignore_permissions = True
+            mandate.save()
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
+        except Exception:
+            rollback_to_savepoint(savepoint)
+            raise
+        else:
+            release_savepoint_if_present(savepoint)
+            # Cache refresh AFTER the release, not before: the DB rollback above
+            # cannot undo a Python dict write, so a cache mutation made before
+            # the save() was confirmed durable would survive a rollback and go
+            # stale -- a later row in this batch could then treat a mandate that
+            # is still Active in the DB as already cancelled, or vice versa.
+            member = existing.get("member")
+            if was_active and member:
+                remaining = caches.member_to_active_count.get(member, 0) - 1
+                if remaining <= 0:
+                    caches.member_to_active_count.pop(member, None)
+                    caches.members_with_active_mandate.discard(member)
+                else:
+                    caches.member_to_active_count[member] = remaining
 
-        # Cache refresh via the in-memory active-count, so the per-row loop
-        # stays free of DB queries on the update path.
-        member = existing.get("member")
-        if was_active and member:
-            remaining = caches.member_to_active_count.get(member, 0) - 1
-            if remaining <= 0:
-                caches.member_to_active_count.pop(member, None)
-                caches.members_with_active_mandate.discard(member)
-            else:
-                caches.member_to_active_count[member] = remaining
-
-        existing["status"] = mandate.status
-        existing["cancelled_date"] = mandate.cancelled_date
-
-        return ("updated", mandate.name)
+            existing["status"] = mandate.status
+            existing["cancelled_date"] = mandate.cancelled_date
+            return ("updated", mandate.name)
 
     # ---- finalize -----------------------------------------------------
 

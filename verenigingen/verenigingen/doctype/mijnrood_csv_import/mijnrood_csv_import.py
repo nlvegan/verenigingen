@@ -41,6 +41,7 @@ from verenigingen.utils.security.api_security_framework import (
     critical_api,
     high_security_api,
 )
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 try:
     import pandas as pd
@@ -332,6 +333,13 @@ class MijnroodCSVImport(Document):
                 self._append_to_error_log(f"Row {row.get('row_number', '?')}: {result}")
 
             return result, member_name
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213/1205: the server has already thrown the transaction away (or
+            # left it half-applied). Let it propagate -- #700 makes
+            # `CSVImportBackgroundProcessor.process_import`'s row loop abandon
+            # the import on this rather than counting it as one bad row;
+            # catching it here as a bare Exception would defeat that.
+            raise
         except frappe.ValidationError as ve:
             # Enhanced error message with row number and field values for debugging
             row_num = row.get("row_number", "?")
@@ -1211,6 +1219,16 @@ class MijnroodCSVImport(Document):
                         address_name,
                         update_modified=False,
                     )
+            except NON_RESUMABLE_DB_ERRORS:
+                # 1213/1205: the transaction is already gone (or half-applied).
+                # Recording this as one more "failed operation" and moving on to
+                # the next one -- exactly like an ordinary validation error --
+                # would report the row created while running every subsequent
+                # operation, and this method's own return value, against a
+                # transaction the server has discarded. Let it propagate so
+                # `_process_single_member`'s guard (and #700's engine loop) can
+                # see it for what it is.
+                raise
             except Exception as e:
                 failed_operations.append("address")
                 frappe.log_error(
@@ -1230,6 +1248,8 @@ class MijnroodCSVImport(Document):
                     ),
                 }
                 mollie_service.sync_mollie_data(member_doc, mollie_data)
+            except NON_RESUMABLE_DB_ERRORS:
+                raise
             except Exception as e:
                 failed_operations.append("mollie_data")
                 frappe.log_error(
@@ -1256,6 +1276,8 @@ class MijnroodCSVImport(Document):
                     "termination_reason": self._get_termination_reason(membership_type),
                 }
                 self._create_termination_record(member_doc, termination_data)
+            except NON_RESUMABLE_DB_ERRORS:
+                raise
             except Exception as e:
                 failed_operations.append("termination")
                 frappe.log_error(
@@ -1267,6 +1289,8 @@ class MijnroodCSVImport(Document):
         if self.create_volunteer_records and member_doc.status == "Active":
             try:
                 self._create_volunteer_for_member(member_doc)
+            except NON_RESUMABLE_DB_ERRORS:
+                raise
             except Exception as e:
                 failed_operations.append("volunteer")
                 frappe.log_error(
@@ -1281,6 +1305,8 @@ class MijnroodCSVImport(Document):
             if chapter_name:
                 try:
                     self._assign_member_to_chapter(member_doc, chapter_name)
+                except NON_RESUMABLE_DB_ERRORS:
+                    raise
                 except Exception as e:
                     failed_operations.append("chapter")
                     frappe.log_error(
@@ -1299,6 +1325,13 @@ class MijnroodCSVImport(Document):
             try:
                 membership_service = get_membership_import_service()
                 membership_service.create_membership_from_csv(member_doc, row_data)
+            except NON_RESUMABLE_DB_ERRORS:
+                # create_membership_from_csv now re-raises this class instead of
+                # swallowing it (see membership_import_service.py) precisely so
+                # a deadlock is not reported as one failed operation among many
+                # -- catching it as a bare Exception here would put it right
+                # back to where that fix removed it from.
+                raise
             except Exception as e:
                 failed_operations.append("membership")
                 frappe.log_error(

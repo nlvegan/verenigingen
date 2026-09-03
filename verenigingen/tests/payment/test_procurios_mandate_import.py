@@ -16,7 +16,7 @@ from verenigingen.tests.fixtures.procurios_csv_fixtures import (
     create_csv_file_attachment,
     create_raw_csv_attachment,
 )
-
+from verenigingen.tests.support.procurios_import_stubs import _create_stub_import_doc
 
 CSV_HEADERS = [
     "Incasso-afspraak ID",
@@ -144,26 +144,6 @@ def _create_active_sepa_mandate(member_name: str, mandate_id: str, iban: str, **
     return mandate
 
 
-def _create_stub_import_doc():
-    """Test fixture: an import doc with a placeholder file (file content unused)."""
-    file_doc = frappe.get_doc({
-        "doctype": "File",
-        "file_name": "stub.csv",
-        "is_private": 1,
-        "content": b"stub",
-    })
-    file_doc.flags.ignore_permissions = True
-    file_doc.insert()
-
-    doc = frappe.get_doc({
-        "doctype": "Procurios Mandate Import",
-        "csv_file": file_doc.file_url,
-    })
-    doc.flags.ignore_permissions = True
-    doc.insert()
-    return doc
-
-
 def _make_mandate_row(**kw):
     """Build a ProcuriosMandateRow for tests (pure-Python; no DB)."""
     from verenigingen.utils.csv.procurios_mandate_validator import ProcuriosMandateRow
@@ -211,7 +191,7 @@ class TestProcuriosMandateImportProcessRow(EnhancedTestCase):
 
     def test_creates_mandate_when_member_exists(self):
         member = _create_member_with_procurios_id(self, "PROC-1")
-        doc = _create_stub_import_doc()
+        doc = _create_stub_import_doc("Procurios Mandate Import")
         caches = doc._build_caches()
         counters = _empty_skip_counters()
         errors = []
@@ -230,7 +210,7 @@ class TestProcuriosMandateImportProcessRow(EnhancedTestCase):
         self.assertIn(member.name, caches.members_with_active_mandate)
 
     def test_skips_when_no_member_match(self):
-        doc = _create_stub_import_doc()
+        doc = _create_stub_import_doc("Procurios Mandate Import")
         caches = doc._build_caches()
         counters = _empty_skip_counters()
         errors = []
@@ -244,7 +224,7 @@ class TestProcuriosMandateImportProcessRow(EnhancedTestCase):
     def test_skips_duplicate_active(self):
         member = _create_member_with_procurios_id(self, "PROC-2")
         _create_active_sepa_mandate(member.name, "M-DUP", "NL91ABNA0417164300")
-        doc = _create_stub_import_doc()
+        doc = _create_stub_import_doc("Procurios Mandate Import")
         caches = doc._build_caches()
         counters = _empty_skip_counters()
         errors = []
@@ -257,7 +237,7 @@ class TestProcuriosMandateImportProcessRow(EnhancedTestCase):
     def test_updates_existing_when_csv_cancelled(self):
         member = _create_member_with_procurios_id(self, "PROC-3")
         existing = _create_active_sepa_mandate(member.name, "M-UPD", "NL91ABNA0417164300")
-        doc = _create_stub_import_doc()
+        doc = _create_stub_import_doc("Procurios Mandate Import")
         caches = doc._build_caches()
         counters = _empty_skip_counters()
         errors = []
@@ -278,7 +258,7 @@ class TestProcuriosMandateImportProcessRow(EnhancedTestCase):
     def test_skips_conflict_when_member_has_other_active(self):
         member = _create_member_with_procurios_id(self, "PROC-4")
         _create_active_sepa_mandate(member.name, "M-EXISTING", "NL91ABNA0417164300")
-        doc = _create_stub_import_doc()
+        doc = _create_stub_import_doc("Procurios Mandate Import")
         caches = doc._build_caches()
         counters = _empty_skip_counters()
         errors = []
@@ -310,7 +290,7 @@ class TestProcuriosMandateImportProcessRow(EnhancedTestCase):
             used_for_memberships=0,
             used_for_donations=1,
         )
-        doc = _create_stub_import_doc()
+        doc = _create_stub_import_doc("Procurios Mandate Import")
         caches = doc._build_caches()
         counters = _empty_skip_counters()
         errors = []
@@ -345,7 +325,7 @@ class TestProcuriosMandateImportProcessRow(EnhancedTestCase):
             used_for_memberships=0,
             used_for_donations=1,
         )
-        doc = _create_stub_import_doc()
+        doc = _create_stub_import_doc("Procurios Mandate Import")
         caches = doc._build_caches()
         counters = _empty_skip_counters()
         errors = []
@@ -378,7 +358,7 @@ class TestProcuriosMandateImportProcessRow(EnhancedTestCase):
             "Member", {"procurios_id": "PROC-5"}, "name"
         )
         _create_active_sepa_mandate(member_doc, "M-ACTIVE", "NL91ABNA0417164300")
-        doc = _create_stub_import_doc()
+        doc = _create_stub_import_doc("Procurios Mandate Import")
         caches = doc._build_caches()
         counters = _empty_skip_counters()
         errors = []
@@ -394,7 +374,7 @@ class TestProcuriosMandateImportProcessRow(EnhancedTestCase):
 
     def test_two_active_rows_same_member_second_conflicts(self):
         _create_member_with_procurios_id(self, "PROC-6")
-        doc = _create_stub_import_doc()
+        doc = _create_stub_import_doc("Procurios Mandate Import")
         caches = doc._build_caches()  # member has no active mandate yet
         counters = _empty_skip_counters()
         errors = []
@@ -413,7 +393,7 @@ class TestProcuriosMandateImportProcessRow(EnhancedTestCase):
 
     def test_invalid_iban_logs_error_and_skips(self):
         _create_member_with_procurios_id(self, "PROC-7")
-        doc = _create_stub_import_doc()
+        doc = _create_stub_import_doc("Procurios Mandate Import")
         caches = doc._build_caches()
         counters = _empty_skip_counters()
         errors = []
@@ -502,7 +482,7 @@ class TestProcuriosMandateImportAmbiguousMember(EnhancedTestCase):
         m2 = _create_member_with_procurios_id(self, "DUP-ID", last_name="AmbigB")
         self.assertNotEqual(m1.name, m2.name)
 
-        doc = _create_stub_import_doc()
+        doc = _create_stub_import_doc("Procurios Mandate Import")
         caches = doc._build_caches()
         self.assertIn("DUP-ID", caches.ambiguous_procurios_ids)
         self.assertNotIn("DUP-ID", caches.procurios_id_to_member)
@@ -573,7 +553,7 @@ class TestProcuriosMandateImportPermissions(EnhancedTestCase):
 
         # Create the import doc as Administrator so the test isn't blocked at
         # setup; then re-run the whitelisted entry point as a plain user.
-        doc = _create_stub_import_doc()
+        doc = _create_stub_import_doc("Procurios Mandate Import")
 
         original_user = frappe.session.user
         try:
@@ -588,7 +568,7 @@ class TestProcuriosMandateImportPermissions(EnhancedTestCase):
             process_import_background,
         )
 
-        doc = _create_stub_import_doc()
+        doc = _create_stub_import_doc("Procurios Mandate Import")
 
         original_user = frappe.session.user
         try:
@@ -606,7 +586,7 @@ class TestProcuriosMandateImportPermissions(EnhancedTestCase):
             validate_import_file,
         )
 
-        doc = _create_stub_import_doc()
+        doc = _create_stub_import_doc("Procurios Mandate Import")
         # frappe.session.user is Administrator inside EnhancedTestCase by
         # default, which is in System Manager. Just call directly.
         result = validate_import_file(doc.name)
@@ -662,7 +642,7 @@ class TestPropertyCacheHits(EnhancedTestCase):
     """
 
     def test_mandate_import_validator_is_cached(self):
-        doc = _create_stub_import_doc()
+        doc = _create_stub_import_doc("Procurios Mandate Import")
         # First access initialises the cache; second returns the same object.
         first = doc._validator
         self.assertIs(first, doc._validator)
@@ -673,7 +653,7 @@ class TestPropertyCacheHits(EnhancedTestCase):
         self.assertIn("_validator_instance", doc.__dict__)
 
     def test_mandate_import_parser_is_cached(self):
-        doc = _create_stub_import_doc()
+        doc = _create_stub_import_doc("Procurios Mandate Import")
         first = doc._parser
         self.assertIs(first, doc._parser)
         # See comment above — pin the cache-slot name, not just identity.
