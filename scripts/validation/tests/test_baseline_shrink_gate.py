@@ -491,6 +491,59 @@ class TestRequireMarker(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("_row::6 -> _row::7", result.stdout)
 
+    def test_marker_matching_nothing_on_either_side_is_refused(self):
+        """A skeptical review of #769 found this exact hole: if the marker
+        string drifts out of sync with what actually gets written (renamed in
+        the validator, not updated in the caller of this gate), filtering
+        finds NOTHING on either side, and the naive fast-path would report a
+        clean "matches the tree" even though real, unfiltered growth exists in
+        a file this run was supposed to be scoped to -- a scan that silently
+        found nothing, wearing the "SCOPING TO A SUBSET OF LINES" hat instead
+        of the whole-census one. Must refuse, not self-heal.
+        """
+        self._commit("_persist::2  # OLD-MARKER-TEXT, 100% of pairs near-identical\n")
+        # Real growth (2 -> 9) that --require-marker was supposed to catch,
+        # but under a marker string the flag below no longer matches.
+        self.baseline.write_text(
+            "_persist::9  # OLD-MARKER-TEXT, 100% of pairs near-identical\n", encoding="utf-8"
+        )
+        result = self._run_gate("--require-marker", "# clone family")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertNotIn("matches the tree", result.stdout)
+        self.assertIn("matched no line", result.stdout)
+
+    def test_marker_matching_nothing_on_a_genuinely_empty_baseline_still_passes(self):
+        """Control for the refusal above: an empty baseline on both sides (no
+        data lines at all -- nothing to scope in the first place) must still
+        pass. The refusal is keyed on "real content exists but none of it
+        matched", not on "the filtered result happens to be empty"."""
+        self._commit("# just a header comment, no data lines\n")
+        self.baseline.write_text("# just a header comment, no data lines\n", encoding="utf-8")
+        result = self._run_gate("--require-marker", "# clone family")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("matches the tree", result.stdout)
+
+    def test_marked_header_comment_drift_does_not_leak_into_the_filtered_compare(self):
+        """The filter must scope to DATA lines containing the marker, not to
+        `.splitlines()` -- duplicate_helper_baseline.txt's own header contains
+        the literal `# clone family` in prose (see its `write_baseline()`
+        comment), so a naive `splitlines()` filter would let a header-only
+        edit into the compared text and fail with a confusing "no key changed"
+        message instead of self-healing/passing on real data being unchanged.
+        """
+        self._commit(
+            "# A change fails only if it adds a copy of a name marked `# clone family`\n"
+            "_persist::2  # clone family, 100% of pairs near-identical\n"
+        )
+        self.baseline.write_text(
+            "# A change fails only if it adds a copy of a name marked `# clone family` NOW\n"
+            "_persist::2  # clone family, 100% of pairs near-identical\n",
+            encoding="utf-8",
+        )
+        result = self._run_gate("--require-marker", "# clone family")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("matches the tree", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

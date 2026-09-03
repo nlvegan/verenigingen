@@ -430,6 +430,33 @@ class KnownGapTest(unittest.TestCase):
         self.assertNotIn("make_stub", census)
 
 
+class MarkerLiteralTest(unittest.TestCase):
+    """A skeptical review of #769 found that CLONE_MARK is hardcoded, as a bare
+    string literal, in TWO places outside this module: the `--require-marker`
+    argument `code-validation.yml` passes to `baseline_shrink_gate.py`, and
+    the `grep -e '# clone family'` in that same job's "Clone-family copies did
+    not grow" step. Neither can `import duplicate_helper_validator` (one is a
+    subprocess argument, the other a shell pipeline), so nothing stops CLONE_MARK
+    being renamed here without updating them. `baseline_shrink_gate.py` refuses
+    to self-heal if the marker matches nothing on either side of a comparison
+    (see its "SCOPING TO A SUBSET OF LINES" docstring section) -- but that is a
+    CI-time refusal, days after the rename. This pins the literal here instead,
+    so a plain unit test reddens the moment it drifts.
+    """
+
+    def test_clone_mark_matches_the_hardcoded_ci_wiring(self):
+        workflow = dhv.REPO_ROOT / ".github" / "workflows" / "code-validation.yml"
+        text = workflow.read_text(encoding="utf-8")
+        self.assertIn(
+            dhv.CLONE_MARK,
+            text,
+            f"CLONE_MARK is {dhv.CLONE_MARK!r} but code-validation.yml no longer "
+            "contains that literal -- update its --require-marker argument (the "
+            "'Baseline is in sync with the tree' step) and the grep in "
+            "'Clone-family copies did not grow' to match.",
+        )
+
+
 class WholeTreeTest(unittest.TestCase):
     """Pinned totals. Without a hard number, every test above is satisfied by a
     census that finds nothing."""

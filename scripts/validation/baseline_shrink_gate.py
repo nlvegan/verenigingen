@@ -130,6 +130,25 @@ is the one class of growth this ratchet exists to catch. The other three
 callers of this gate have no such split in their baselines and pass nothing
 for this flag, so their behaviour is unchanged.
 
+The filtering happens BEFORE the parse-coverage guard too (see "A related
+failure shape" above), which is why that guard stays correct rather than
+misleading once scoped: it re-runs ``data_lines()`` on text that has already
+been reduced to marked lines, so every line it sees was already known to
+parse (the marker is stripped during parsing, not during this filter) --
+an unmarked line failing to parse is out of scope by design and cannot hide
+behind this flag, because a MARKED line's format changing (gaining or losing
+the marker) is still caught, either by keeping the marker and tripping this
+guard, or by losing it and falling into "the regenerated census is EMPTY"
+below.
+
+The filter is keyed on a bare substring, not a parsed field, and this gate
+cannot import ``duplicate_helper_validator.CLONE_MARK`` to stay in sync with
+it (one caller is a shell grep, the other a subprocess argument) -- see the
+zero-matched-lines refusal in ``main()`` for what happens if that string
+drifts out of sync with what the validator actually writes, and
+``test_duplicate_helper_validator.py``'s ``MarkerLiteralTest`` for where the
+literal is pinned at its source instead.
+
 WHAT THIS DOES NOT COVER
 --------------------------
 Whether a shrink was a GENUINE fix, as opposed to a suppression pragma
@@ -316,8 +335,41 @@ def main(argv: list[str]) -> int:
         # function: without filtering up front, an advisory-only change would
         # reach that branch (still "text differs") and fail there instead,
         # under a more confusing message, defeating the whole point.
-        old_text = "\n".join(line for line in data_lines(old_text) if args.require_marker in line)
-        new_text = "\n".join(line for line in data_lines(new_text) if args.require_marker in line)
+        old_lines = data_lines(old_text)
+        new_lines = data_lines(new_text)
+        old_marked = "\n".join(line for line in old_lines if args.require_marker in line)
+        new_marked = "\n".join(line for line in new_lines if args.require_marker in line)
+
+        # A skeptical review of this change caught the shape "THE ONE CASE
+        # THAT MUST NOT SELF-HEAL" was written for, wearing a different hat:
+        # if the marker string itself drifts out of sync with what the
+        # validator actually writes (CLONE_MARK renamed here without the
+        # hardcoded --require-marker literal in code-validation.yml being
+        # updated to match), filtering finds NOTHING on either side, the
+        # fast-path equality check below sees "" == "" and reports a clean
+        # match -- even though real, unfiltered growth exists in the file
+        # that this run was supposed to be scoped to. That is a scan that
+        # silently found nothing, not a genuine zero-clone-family census, and
+        # must be refused rather than trusted, exactly like the whole-census
+        # empty case below. A baseline with no data lines AT ALL on either
+        # side is unaffected -- there is genuinely nothing to check.
+        if not old_marked and not new_marked and (old_lines or new_lines):
+            print(
+                f"::error file={args.baseline}::--require-marker {args.require_marker!r} "
+                f"matched no line in the committed baseline ({len(old_lines)} data line(s)) "
+                f"or the regenerated one ({len(new_lines)} data line(s))."
+            )
+            print(
+                "That is far more likely a stale marker string (renamed in the validator "
+                "that writes this baseline, not updated in the caller of this gate) than "
+                "every marked entry disappearing in the same change. Confirm the marker "
+                "still matches what the validator actually writes, then regenerate by hand "
+                "if it checks out:"
+            )
+            print(f"    {args.regenerate_cmd}")
+            return 1
+
+        old_text, new_text = old_marked, new_marked
         scope_note = f" (lines containing {args.require_marker!r} only)"
 
     if old_text == new_text:
