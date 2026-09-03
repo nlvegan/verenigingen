@@ -364,6 +364,18 @@ class BatchPerformanceOptimizer:
         addresses_data = self.get_member_addresses_bulk(member_names)
 
         # Step 4: Combine all data efficiently
+        #
+        # #774: each skip below writes an Error Log entry so it is findable --
+        # but a systemic cause (a bank forcing mandate re-signing, cancelling
+        # hundreds of mandates at once) must not turn into hundreds of permanent
+        # `tabError Log` rows (MyISAM -- they survive rollback) every time this
+        # runs. Cap the per-invoice detail at MAX_DETAIL_LOGS, matching the
+        # convention `batch_processing_service.validate_batch_invoices_optimized`
+        # already uses (`errors[:10]`), and always write one aggregate entry
+        # carrying the FULL count so nothing is lost even past the cap.
+        MAX_DETAIL_LOGS = 10
+        not_found_names = []
+        missing_data_names = []
         processed_invoices = []
         for invoice_name in invoice_names:
             invoice_data = invoices_data.get(invoice_name)
@@ -373,13 +385,15 @@ class BatchPerformanceOptimizer:
                 # be a bare `continue` with no log call at all -- the caller (and any
                 # aggregate shortfall count) had no way to learn even that this
                 # happened, let alone which invoice (#774).
-                frappe.log_error(
-                    title="SEPA Batch - Invoice Not Found",
-                    message=(
-                        f"process_batch_invoices_optimized: requested invoice "
-                        f"{invoice_name} has no matching Sales Invoice row. Skipped."
-                    ),
-                )
+                not_found_names.append(invoice_name)
+                if len(not_found_names) <= MAX_DETAIL_LOGS:
+                    frappe.log_error(
+                        title="SEPA Batch - Invoice Not Found",
+                        message=(
+                            f"process_batch_invoices_optimized: requested invoice "
+                            f"{invoice_name} has no matching Sales Invoice row. Skipped."
+                        ),
+                    )
                 continue
 
             member_name = invoice_data["member"]
@@ -393,15 +407,17 @@ class BatchPerformanceOptimizer:
                 # dropped -- a bare logger's effective level is ERROR, so .warning()
                 # never reaches even the rotating file handler. Use log_error so an
                 # operator can find out an invoice was skipped and why.
-                frappe.log_error(
-                    title="SEPA Batch - Invoice Skipped (Missing Member/Mandate Data)",
-                    message=(
-                        f"process_batch_invoices_optimized: skipped invoice {invoice_name} "
-                        f"for member {member_name} - "
-                        f"member_data={'present' if member_data else 'MISSING'}, "
-                        f"mandate_data={'present' if mandate_data else 'MISSING'}."
-                    ),
-                )
+                missing_data_names.append(invoice_name)
+                if len(missing_data_names) <= MAX_DETAIL_LOGS:
+                    frappe.log_error(
+                        title="SEPA Batch - Invoice Skipped (Missing Member/Mandate Data)",
+                        message=(
+                            f"process_batch_invoices_optimized: skipped invoice {invoice_name} "
+                            f"for member {member_name} - "
+                            f"member_data={'present' if member_data else 'MISSING'}, "
+                            f"mandate_data={'present' if mandate_data else 'MISSING'}."
+                        ),
+                    )
                 continue
 
             # Combine into optimized structure
@@ -415,6 +431,24 @@ class BatchPerformanceOptimizer:
             }
 
             processed_invoices.append(processed_invoice)
+
+        total_skipped = len(not_found_names) + len(missing_data_names)
+        if total_skipped:
+            frappe.log_error(
+                title="SEPA Batch - Invoice Processing Shortfall (Optimizer)",
+                message=(
+                    f"process_batch_invoices_optimized: requested {len(invoice_names)} invoices, "
+                    f"skipped {total_skipped} total "
+                    f"({len(not_found_names)} not found, {len(missing_data_names)} missing "
+                    f"member/mandate data). Per-invoice detail entries above are capped at "
+                    f"{MAX_DETAIL_LOGS} per reason -- this entry carries the full count. "
+                    f"Not-found invoices: {', '.join(not_found_names[:MAX_DETAIL_LOGS]) or 'none'}"
+                    f"{' (+more)' if len(not_found_names) > MAX_DETAIL_LOGS else ''}. "
+                    f"Missing member/mandate data: "
+                    f"{', '.join(missing_data_names[:MAX_DETAIL_LOGS]) or 'none'}"
+                    f"{' (+more)' if len(missing_data_names) > MAX_DETAIL_LOGS else ''}."
+                ),
+            )
 
         total_time = (time.time() - start_time) * 1000
         frappe.logger().info(

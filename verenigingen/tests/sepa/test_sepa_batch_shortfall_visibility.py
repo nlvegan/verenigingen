@@ -52,7 +52,10 @@ class TestSEPABatchShortfallVisibility(EnhancedTestCase):
         invoice_names = [inv.name for inv in scenario["invoices"]]
         requested = invoice_names + ["NONEXISTENT-INVOICE-774"]
 
-        self.expectErrorLog("SEPA Batch - Invoice Not Found")
+        self.expectErrorLog(
+            "SEPA Batch - Invoice Not Found",
+            "SEPA Batch - Invoice Processing Shortfall (Optimizer)",
+        )
         before = frappe.db.count("Error Log")
         processed = self.optimizer.process_batch_invoices_optimized(requested)
 
@@ -84,7 +87,10 @@ class TestSEPABatchShortfallVisibility(EnhancedTestCase):
         victim_mandate = scenario["mandates"][0]
         frappe.db.set_value("SEPA Mandate", victim_mandate.name, "status", "Cancelled")
 
-        self.expectErrorLog("SEPA Batch - Invoice Skipped (Missing Member/Mandate Data)")
+        self.expectErrorLog(
+            "SEPA Batch - Invoice Skipped (Missing Member/Mandate Data)",
+            "SEPA Batch - Invoice Processing Shortfall (Optimizer)",
+        )
         before = frappe.db.count("Error Log")
         processed = self.optimizer.process_batch_invoices_optimized(invoice_names)
 
@@ -121,6 +127,7 @@ class TestSEPABatchShortfallVisibility(EnhancedTestCase):
         processor = SEPABatchProcessor()
         self.expectErrorLog(
             "SEPA Batch - Invoice Not Found",
+            "SEPA Batch - Invoice Processing Shortfall (Optimizer)",
             "SEPA Batch - Invoice Shortfall",
         )
         before = frappe.db.count("Error Log", {"method": "SEPA Batch - Invoice Shortfall"})
@@ -137,9 +144,79 @@ class TestSEPABatchShortfallVisibility(EnhancedTestCase):
             "the batch's own batch_log field has no record of the shortfall",
         )
 
+        # Review round 2 (#774): the shortfall must be a structured, queryable
+        # fact on the batch, not just a message someone has to go looking for.
+        self.assertEqual(
+            batch.status,
+            "Partially Failed",
+            "a batch that collected fewer invoices than requested must be "
+            "flagged Partially Failed, not left looking identical to a full success",
+        )
+
         after = frappe.db.count("Error Log", {"method": "SEPA Batch - Invoice Shortfall"})
         self.assertGreater(
             after,
             before,
             "no Error Log entry under a stable, findable title records the batch-level shortfall",
+        )
+
+    def test_full_success_does_not_mark_batch_partially_failed(self):
+        """Control for the status assertion above: a batch that collects every
+        requested invoice must NOT be flagged Partially Failed."""
+        scenario = self.sepa_factory.create_sepa_test_scenario(
+            scenario_name="shortfall_control_full_success", member_count=2
+        )
+        invoices = [{"name": inv.name} for inv in scenario["invoices"]]
+
+        batch = frappe.new_doc("Direct Debit Batch")
+        batch.batch_date = today()
+        batch.batch_type = "CORE"
+        batch.status = "Draft"
+
+        processor = SEPABatchProcessor()
+        processor.add_invoices_to_batch_optimized(batch, invoices)
+
+        self.assertEqual(len(batch.invoices), len(invoices))
+        self.assertEqual(
+            batch.status,
+            "Draft",
+            "a fully successful batch must not be marked Partially Failed",
+        )
+
+    def test_many_missing_invoices_cap_detail_logs_but_keep_full_count(self):
+        """#774 review round 2: 300 nonexistent invoice names must NOT produce
+        300 permanent Error Log rows (tabError Log is MyISAM -- they survive
+        rollback). Detail is capped; one aggregate entry must still carry the
+        full count."""
+        requested = [f"NONEXISTENT-INVOICE-774-CAP-{i}" for i in range(300)]
+
+        self.expectErrorLog(
+            "SEPA Batch - Invoice Not Found",
+            "SEPA Batch - Invoice Processing Shortfall (Optimizer)",
+        )
+        before = frappe.db.count("Error Log", {"method": "SEPA Batch - Invoice Not Found"})
+
+        processed = self.optimizer.process_batch_invoices_optimized(requested)
+
+        self.assertEqual(processed, [])
+
+        detail_rows = frappe.db.count("Error Log", {"method": "SEPA Batch - Invoice Not Found"}) - before
+        self.assertLessEqual(
+            detail_rows,
+            10,
+            f"expected at most 10 per-invoice detail rows, got {detail_rows} for 300 missing invoices",
+        )
+
+        aggregate = frappe.get_all(
+            "Error Log",
+            filters={"method": "SEPA Batch - Invoice Processing Shortfall (Optimizer)"},
+            fields=["error"],
+            order_by="creation desc",
+            limit=1,
+        )
+        self.assertTrue(aggregate, "no aggregate shortfall entry was written")
+        self.assertIn(
+            "skipped 300 total",
+            aggregate[0].error,
+            "the aggregate entry must carry the FULL count, not just the capped detail count",
         )

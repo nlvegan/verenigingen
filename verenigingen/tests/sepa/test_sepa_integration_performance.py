@@ -116,7 +116,10 @@ class TestSEPAIntegrationPerformance(EnhancedTestCase):
 
         # #774: the skip for a not-found invoice now records a findable Error Log
         # entry instead of silently vanishing.
-        self.expectErrorLog("SEPA Batch - Invoice Not Found")
+        self.expectErrorLog(
+            "SEPA Batch - Invoice Not Found",
+            "SEPA Batch - Invoice Processing Shortfall (Optimizer)",
+        )
 
         with monitor_sepa_operation("error_handling_test", batch_size=len(invoice_names)):
             # Process with error handling enabled

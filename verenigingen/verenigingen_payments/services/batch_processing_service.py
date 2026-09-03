@@ -233,9 +233,18 @@ class BatchProcessingService:
                 error_summary = f"Found {len(validation_errors)} validation errors in batch"
                 BatchLoggingUtilities.add_to_document_batch_log(batch_doc, error_summary)
 
-                # Log details but don't fail the entire process for minor issues
-                for error in validation_errors[:10]:  # Log first 10 errors
-                    frappe.logger().warning(f"Batch {batch_doc.name} validation: {error}")
+                # #774: this ran on the SAME automated create_dues_collection_batch
+                # path the rest of #774 fixes -- DirectDebitBatch.validate() (the
+                # standard Frappe validate hook, unconditional on every .save())
+                # calls validate_invoices() -> validate_batch_invoices_optimized()
+                # with no _automated_processing gate. `error_summary` above was
+                # already visible (batch_log), but WHICH invoice and WHY was not:
+                # frappe.logger().warning() is dropped the same way every other
+                # skip in this issue was. Write the same capped detail to
+                # batch_log instead, so opening the batch shows both the count
+                # and the specific reasons.
+                for error in validation_errors[:10]:  # Same cap as `errors` below
+                    BatchLoggingUtilities.add_to_document_batch_log(batch_doc, f"Validation: {error}")
 
                 if valid_count == 0:
                     frappe.throw(_("No valid invoices found in batch"))

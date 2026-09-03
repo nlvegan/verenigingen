@@ -181,6 +181,12 @@ class SEPABatchProcessor:
             sequence_types = self.mandate_service.get_sequence_types_batch(mandate_invoice_pairs)
 
             # Add invoices to batch with optimized data
+            # #774: cap this defensive branch's detail writes the same way
+            # process_batch_invoices_optimized caps its own (see the comment
+            # there) -- unreachable today, but a future change to that
+            # invariant must not turn into unbounded Error Log rows either.
+            MAX_DETAIL_LOGS = 10
+            incomplete_names = []
             successful_count = 0
             for processed in processed_invoices:
                 mandate_data = processed.get("mandate_data")
@@ -192,16 +198,18 @@ class SEPABatchProcessor:
                     # all three present, so this should be unreachable -- but if that
                     # invariant is ever broken, the fallback must not be another
                     # silent frappe.logger().warning() (#774).
-                    frappe.log_error(
-                        title="SEPA Batch - Unexpected Incomplete Processed Invoice",
-                        message=(
-                            f"add_invoices_to_batch_optimized: skipped invoice "
-                            f"{processed.get('invoice_name')} for batch {batch.name} - incomplete data "
-                            f"(mandate_data={'present' if mandate_data else 'MISSING'}, "
-                            f"invoice_data={'present' if invoice_data else 'MISSING'}, "
-                            f"member_data={'present' if member_data else 'MISSING'})."
-                        ),
-                    )
+                    incomplete_names.append(processed.get("invoice_name"))
+                    if len(incomplete_names) <= MAX_DETAIL_LOGS:
+                        frappe.log_error(
+                            title="SEPA Batch - Unexpected Incomplete Processed Invoice",
+                            message=(
+                                f"add_invoices_to_batch_optimized: skipped invoice "
+                                f"{processed.get('invoice_name')} for batch {batch.name} - incomplete data "
+                                f"(mandate_data={'present' if mandate_data else 'MISSING'}, "
+                                f"invoice_data={'present' if invoice_data else 'MISSING'}, "
+                                f"member_data={'present' if member_data else 'MISSING'})."
+                            ),
+                        )
                     continue
 
                 # Get sequence type from batch lookup
@@ -251,6 +259,30 @@ class SEPABatchProcessor:
                 )
                 BatchLoggingUtilities.add_to_document_batch_log(batch, message)
                 frappe.log_error(title="SEPA Batch - Invoice Shortfall", message=message)
+
+                # #774 review: a blob in batch_log/Error Log is findable but not
+                # QUERYABLE -- nothing programmatic (the scheduler entry point,
+                # a report, a dashboard) reads either. "Partially Failed" already
+                # exists as a Direct Debit Batch status (used today only
+                # post-submission, in process_sepa_returns, for bounced payments)
+                # so this makes the shortfall a structured, queryable fact instead
+                # of a message someone has to go looking for. Verified this does
+                # not block anything downstream: on_submit() only checks
+                # sepa_file_generated, and no production code gates validation,
+                # submission, or XML generation on status == "Draft". The one
+                # caveat that does NOT get fixed here: if
+                # `auto_submit_sepa_batches` is enabled, `generate_sepa_xml()`
+                # runs in the same job seconds later and unconditionally
+                # `db_set`s status to "Generated"
+                # (sepa_xml_generation_service.py), overwriting this value before
+                # a human sees it. That collision is pre-existing (the same
+                # unconditional overwrite already clobbers the post-return
+                # "Partially Failed" the first time a return-processed batch's
+                # XML is regenerated) and changing it would alter status
+                # semantics for the manual-submission flow too, which is out of
+                # scope for #774. The Error Log entry above is unaffected by
+                # that collision and remains the durable signal either way.
+                batch.status = "Partially Failed"
 
             # Log performance statistics
             stats = self.performance_optimizer.get_performance_stats()
