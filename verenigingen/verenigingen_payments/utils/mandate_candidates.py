@@ -187,11 +187,17 @@ def members_with_ambiguous_mandate(members, refusal_title: str, purpose: str = "
     That looseness is the POINT, not a defect. The account a monthly child row is
     debited on does not come from that query at all --
     `batch_performance_optimizer.get_members_with_mandates_bulk` re-resolves the
-    mandate filtering only on member + status + purpose, and assigns it in a last-wins
-    loop with no ORDER BY (#708). Measured: 2 candidates on 2 accounts in, one
-    arbitrarily chosen IBAN out, no refusal and no log. So a pair the collection query
-    can tell apart is still a pair the resolver cannot, and tightening this filter to
-    match the query would hand it an arbitrary IBAN.
+    mandate filtering only on member + status + purpose, and used to assign it in a
+    last-wins loop with no ORDER BY (#708, fixed). Measured before the fix: 2
+    candidates on 2 accounts in, one arbitrarily chosen IBAN out, no refusal and no
+    log. So a pair the collection query can tell apart was still a pair the resolver
+    could not, and tightening this filter to match the query would have handed it an
+    arbitrary IBAN. `get_members_with_mandates_bulk` now calls THIS function itself
+    (on the members it was asked for, independent of whatever filtered the caller's
+    invoice list) and nulls out `mandate_data` for anyone it names, so a caller that
+    reaches the bulk resolver by any route other than
+    `get_sepa_invoices_with_mandates` -- direct or future -- gets the same refusal
+    rather than relying on this exclusion having already run upstream.
 
     NOT used by the daily producer, deliberately. There, the row's `iban` comes from
     `mem`, `sm.mandate_id IS NOT NULL` is in the WHERE, and `get_mandate_for_batch_row`
