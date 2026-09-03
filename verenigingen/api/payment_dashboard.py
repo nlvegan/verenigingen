@@ -6,6 +6,7 @@ from frappe import _
 from frappe.utils import add_months, flt, getdate, today
 
 from verenigingen.services.payment.sepa_mandate_manager import get_sepa_mandate_manager
+from verenigingen.utils.boolean_utils import cbool
 from verenigingen.utils.constants import Limits, Membership, PaymentStatus
 from verenigingen.utils.error_handling import cache_with_ttl
 from verenigingen.utils.member_utils import get_member_name_for_user
@@ -713,7 +714,12 @@ def export_all_financial_data() -> OperationResult[Dict[str, Any]]:
         if not member:
             return OperationResult.fail(_("No member found for current user"))
 
-        success, history, raw = _unwrap_internal_result(get_payment_history(member))
+        # "All" financial data means all of it: get_payment_history's own default
+        # (Limits.DEFAULT_PAGE_SIZE * 5 = 100) would otherwise truncate the CSV
+        # silently while the mandate history below carries every row.
+        success, history, raw = _unwrap_internal_result(
+            get_payment_history(member, limit=Limits.MAX_PAGE_SIZE)
+        )
         if not success:
             return raw
 
@@ -771,7 +777,7 @@ def export_all_financial_data() -> OperationResult[Dict[str, Any]]:
 _NOTIFICATION_SETTING_KEYS = {"email_notifications", "reminder_notifications", "failure_notifications"}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 def save_notification_settings(settings) -> OperationResult[Dict[str, Any]]:
     """Persist the payment dashboard's notification-preference toggles.
@@ -779,6 +785,16 @@ def save_notification_settings(settings) -> OperationResult[Dict[str, Any]]:
     Always writes to the current session's own member (like export_payment_history_csv,
     ignores any ``member`` argument a caller sends) -- this is a write endpoint, so
     resolving an explicit member id here would let one user edit another's settings.
+
+    @high_security_api, not @critical_api: this is ordinary self-service (any member
+    manages their own toggles), and @critical_api's authorization rules only grant
+    access to admin-tier role profiles -- switching to it locked out the plain
+    "Verenigingen Member" role this endpoint exists for (measured: a plain-member
+    test call 403'd with "No authorization rule grants critical access"). POST-only
+    is enforced at the Frappe dispatch layer instead, via @frappe.whitelist's own
+    ``methods=`` (frappe/handler.py checks this before the function -- or its
+    security decorator -- ever runs), independent of and unaffected by which
+    security tier the app-level framework assigns.
     """
     try:
         member = get_member_from_user()
@@ -788,7 +804,9 @@ def save_notification_settings(settings) -> OperationResult[Dict[str, Any]]:
         if isinstance(settings, str):
             settings = frappe.parse_json(settings)
 
-        preferences = {k: bool(v) for k, v in (settings or {}).items() if k in _NOTIFICATION_SETTING_KEYS}
+        # cbool, not bool(): bool("false") is True, and a JS boolean posted through
+        # frappe.call can arrive here as the string "false".
+        preferences = {k: cbool(v) for k, v in (settings or {}).items() if k in _NOTIFICATION_SETTING_KEYS}
 
         # db_set bypasses the read-only/hidden field to write this internal blob;
         # see CLAUDE.md's "Pattern 1: Explicit Commit After db_set()".

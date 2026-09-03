@@ -390,20 +390,33 @@ class TestPaymentDashboardAPI(EnhancedTestCase):
     # Data" button called a method that did not exist)
     # ------------------------------------------------------------------
     def test_export_all_financial_data_sets_response_file(self):
+        # Both section headers are unconditional writer.writerow() calls, so
+        # asserting only their presence would pass even with zero rows in either
+        # loop -- seed a real invoice and mandate so the row-writing code paths
+        # actually run.
+        customer = self._ensure_customer()
+        invoice = self.create_test_sales_invoice(customer=customer)
+        invoice.submit()
+        mandate = self.create_test_sepa_mandate(member=self.member.name, status="Active")
+
         user_email = self._admin_user_linked_to_member()
         with self.set_user(user_email):
             result = export_all_financial_data()
+
         self.assertTrue(result["success"], msg=result)
         self.assertTrue(result["data"]["filename"].endswith(".csv"))
         self.assertEqual(frappe.local.response.type, "csv")
         self.assertIn("Payment History", frappe.local.response.filecontent)
         self.assertIn("SEPA Mandate History", frappe.local.response.filecontent)
+        self.assertIn(invoice.name, frappe.local.response.filecontent)
+        self.assertIn(mandate.mandate_id, frappe.local.response.filecontent)
 
     def test_export_all_financial_data_no_member_for_user(self):
         with self.set_user("Administrator"):
             self._clear_member_user_cache()
             result = export_all_financial_data()
         self.assertFalse(result["success"], msg=result)
+        self.assertEqual(result["error"]["message"], "No member found for current user")
 
     # ------------------------------------------------------------------
     # save_notification_settings (#430 -- also never defined; the dashboard's
@@ -425,7 +438,8 @@ class TestPaymentDashboardAPI(EnhancedTestCase):
         )
         self.assertEqual(
             stored,
-            {"email_notifications": True, "reminder_notifications": False},
+            # cbool (not bool()) normalizes to 0/1 -- see save_notification_settings.
+            {"email_notifications": 1, "reminder_notifications": 0},
         )
 
     def test_save_notification_settings_ignores_member_override(self):

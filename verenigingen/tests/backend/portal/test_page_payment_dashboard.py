@@ -150,3 +150,35 @@ class TestPagePaymentDashboard(EnhancedTestCase):
         self.assertTrue(settings["email_enabled"])
         self.assertTrue(settings["reminders_enabled"])
         self.assertTrue(settings["failure_enabled"])
+
+    def test_notification_settings_reflect_what_save_notification_settings_wrote(self):
+        """#430 review: save_notification_settings persisted to a field this page's
+        own get_notification_settings never read, so the settings tab always showed
+        every toggle checked regardless of what was saved. Round-trip through the
+        real save endpoint, not a direct db_set, so a future rename of either side's
+        keys breaks this test instead of shipping silently mismatched again.
+
+        save_notification_settings is @high_security_api, same as every other
+        endpoint in payment_dashboard.py -- per authorization_policy.py's Rule 5
+        cap, a bare "Verenigingen Member" role tops out at MEDIUM, so HIGH needs an
+        assigned Role Profile (see test_payment_dashboard_api.py's
+        _admin_user_linked_to_member for the same requirement on a sibling
+        endpoint)."""
+        from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
+
+        from verenigingen.api.payment_dashboard import save_notification_settings
+
+        member = self._member_with_user(
+            "dash.notif.round-trip@example.com", roles=("Verenigingen Administrator",)
+        )
+        grant_matching_role_profiles(member.user, "Verenigingen Administrator")
+        with self.set_user(member.user):
+            result = save_notification_settings(
+                {"email_notifications": False, "reminder_notifications": True, "failure_notifications": False}
+            )
+        self.assertTrue(result["success"], msg=result)
+
+        settings = payment_dashboard.get_notification_settings(member.name)
+        self.assertFalse(settings["email_enabled"])
+        self.assertTrue(settings["reminders_enabled"])
+        self.assertFalse(settings["failure_enabled"])
