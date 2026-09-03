@@ -146,8 +146,8 @@ def can_assign_member_to_chapter(member_name, chapter_name):
     return False
 
 
-@handle_api_error
 @frappe.whitelist()
+@handle_api_error
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_members_without_chapter(**kwargs) -> OperationResult[Dict[str, Any]]:
     """Get list of members without chapter assignment"""
