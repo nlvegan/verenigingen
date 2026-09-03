@@ -743,6 +743,32 @@ ERROR_HANDLING_CONFIG = {
 }
 
 
+def _cache_session_segment() -> str:
+    """The session-user component of a cache key, safe on an unbound context.
+
+    Read through ``frappe.local``, NOT ``frappe.session``. ``frappe.session`` is a
+    module-level ``LocalProxy`` that always exists as an attribute, and attribute
+    access on it raises ``RuntimeError("object is not bound")`` when no context is
+    bound -- which ``getattr(obj, name, default)`` does not swallow, because it
+    only catches ``AttributeError``. So the obvious spelling,
+    ``getattr(getattr(frappe, "session", None), "user", None) or "..."``, does not
+    degrade to its default: it raises, from inside the cache wrapper.
+
+    Measured with no ``frappe.init()``:
+
+        getattr(frappe, "session", ...)       -> RuntimeError: object is not bound
+        getattr(frappe.local, "session", ...) -> falls back cleanly
+
+    ``frappe.local`` is a plain ``Local``, which raises ``AttributeError`` on an
+    unbound context, so ``getattr`` handles it. Every current call site runs under
+    an initialised context (HTTP request, RQ job, scheduler, console), so this path
+    is unreachable today -- but a bare script or thread would otherwise crash here
+    rather than fall back.
+    """
+    session = getattr(frappe.local, "session", None)
+    return getattr(session, "user", None) or "__no_session__"
+
+
 def cache_with_ttl(ttl=300, per_user=True):
     """
     Decorator to cache function results with time-to-live
@@ -783,8 +809,7 @@ def cache_with_ttl(ttl=300, per_user=True):
             # session user. Without the user, every no-argument call collides on one
             # key -- see this decorator's docstring and #782.
             if per_user:
-                session = getattr(frappe, "session", None)
-                user = getattr(session, "user", None) or "__no_session__"
+                user = _cache_session_segment()
             else:
                 user = "__shared__"
             cache_key = f"{func.__name__}:{user}:{hash(str(args) + str(sorted(kwargs.items())))}"

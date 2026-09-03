@@ -20,7 +20,7 @@ import unittest
 
 import frappe
 
-from verenigingen.utils.error_handling import cache_with_ttl
+from verenigingen.utils.error_handling import _cache_session_segment, cache_with_ttl
 
 
 class TestCacheWithTTLIsPerUser(unittest.TestCase):
@@ -107,6 +107,35 @@ class TestCacheWithTTLIsPerUser(unittest.TestCase):
         frappe.session.user = "bob@example.com"
         self.assertEqual(shared_reference_list(), ["skill-a", "skill-b"])
         self.assertEqual(calls, ["alice@example.com"], "per_user=False should share one entry")
+
+
+class TestCacheKeySessionSegment(unittest.TestCase):
+    """The key's session component must degrade, not raise, off a bound context."""
+
+    def test_it_returns_the_current_user_when_a_session_is_bound(self):
+        self.assertEqual(_cache_session_segment(), frappe.session.user)
+
+    def test_it_falls_back_when_no_session_is_bound(self):
+        """`frappe.session` is a LocalProxy: attribute access on an unbound context
+        raises RuntimeError, which `getattr(..., default)` does NOT swallow. Reading
+        through `frappe.local` raises AttributeError instead, which it does.
+
+        Simulated by swapping `frappe.local` for an object carrying no `session`,
+        which is the state a bare script or thread is in.
+        """
+
+        class _Unbound:
+            pass
+
+        original = frappe.local
+        try:
+            frappe.local = _Unbound()
+            self.assertEqual(_cache_session_segment(), "__no_session__")
+        finally:
+            frappe.local = original
+
+        # Control: the swap is what produced the fallback, and it was undone.
+        self.assertEqual(_cache_session_segment(), frappe.session.user)
 
 
 if __name__ == "__main__":
