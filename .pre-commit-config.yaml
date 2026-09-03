@@ -428,7 +428,7 @@ repos:
           from any page, hook, or bundle -- shipped, broken, unused. Scoped to
           verenigingen/public/js only; templates/www/api endpoint resolution is
           a separate guard's territory (#430). Ratcheted against
-          scripts/validation/public_js_endpoint_baseline.txt (18 known dead
+          scripts/validation/public_js_endpoint_baseline.txt (16 known dead
           targets, tracked for follow-up) so existing code does not block
           commits -- the baseline should only ever shrink. ADVISORY while that
           inventory is triaged: it prints and exits 0; add --strict to the
