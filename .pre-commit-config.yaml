@@ -61,18 +61,6 @@ repos:
 
   - repo: local
     hooks:
-      # INAPPROPRIATE MOCK PREVENTION (PHASE 4 WEEK 3 ADDITION)
-      - id: block-inappropriate-mocks
-        name: 🚫 Block Inappropriate Mocks (Phase 4 Week 3)
-        description: Prevent inappropriate business logic mocks based on systematic elimination strategy
-        entry: python scripts/validation/archived/block_inappropriate_mocks.py
-        language: system
-        files: '^.*test.*\.py$|^.*/tests/.*\.py$'
-        pass_filenames: true
-        stages: [pre-commit, pre-push]
-        verbose: true
-        fail_fast: true
-
       # TEST QUALITY ENFORCEMENT (CRITICAL - MUST BE FIRST)
       - id: test-quality-enforcer
         name: 🚨 Test Quality Enforcer (CRITICAL)

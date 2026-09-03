@@ -251,7 +251,7 @@ frappe.db.sql("UPDATE tabDocType SET ...")
 frappe.db.sql("DELETE FROM tabDocType ...")
 ```
 
-The `test-quality-enforcer` and `block-inappropriate-mocks` pre-commit hooks will reject:
+The `test-quality-enforcer` pre-commit hook will reject:
 - Inappropriate business logic mocking
 - Mock abuse patterns
 - Tests that bypass validation
