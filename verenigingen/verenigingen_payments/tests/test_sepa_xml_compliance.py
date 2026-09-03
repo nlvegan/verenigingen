@@ -34,7 +34,6 @@ from verenigingen.tests.support.sepa_test_configuration import (
     apply_sepa_test_configuration,
     verify_sepa_configuration,
 )
-from verenigingen.verenigingen_payments.services.sepa_configuration_service import sepa_config_service
 from verenigingen.verenigingen_payments.services.sepa_xml_generation_service import sepa_xml_service
 from verenigingen.verenigingen_payments.utils.sepa_utilities import SEPAUtilities, SEPAXMLValidator
 
@@ -319,6 +318,36 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
             # Log but don't fail if configuration is incomplete
             frappe.logger().warning(f"pain.008.001.08 structure test skipped: {str(e)}")
 
+    def test_get_xml_content_from_batch_returns_the_generated_xml(self):
+        """#529: _get_xml_content_from_batch called sepa_xml_service._create_sepa_xml_structure,
+        which exists nowhere on SEPAXMLGenerationService -- the AttributeError was swallowed by
+        this method's own `except Exception`, so it silently returned None and every `if
+        xml_content:` guard in this module was unconditionally False, regardless of whether
+        generation itself succeeded.
+
+        This calls the extractor directly (skipping the outer try/except that the real test
+        bodies wrap it in, which would also swallow the AttributeError and hide the bug) after a
+        real, successful generation, so a regression to the fictional method name fails here for
+        the actual reason, not via a masked exception.
+        """
+        batch_doc = self._create_comprehensive_test_batch()
+
+        sepa_xml_service.generate_sepa_xml_for_batch(batch_doc)
+        self.assertTrue(batch_doc.sepa_file, "generation must have attached a SEPA file")
+
+        xml_content = self._get_xml_content_from_batch(batch_doc)
+
+        self.assertIsNotNone(
+            xml_content, "extractor returned None -- the guarded assertions never ran"
+        )
+        root = ET.fromstring(xml_content)
+        # ET reports the default-namespace-qualified tag here, not the bare local
+        # name. `_validate_pain_008_structure` and `test_xml_namespace_compliance`
+        # made this same wrong assumption (against a bare "Document"/an absent
+        # "xmlns" attribute); both were fixed alongside this test once fixing this
+        # extractor made them reachable for the first time.
+        self.assertEqual(root.tag, "{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}Document")
+
     def test_sepa_core_direct_debit_compliance(self):
         """Test SEPA Core Direct Debit scheme compliance"""
         batch_doc = self._create_comprehensive_test_batch()
@@ -523,9 +552,15 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
             if xml_content:
                 root = ET.fromstring(xml_content)
 
-                # Check namespace declaration
+                # Check namespace declaration. ElementTree consumes a default
+                # `xmlns=` declaration into the tag's own namespace and does not
+                # retain it in .attrib, so root.get("xmlns") is always None for a
+                # default-namespaced document; derive it from the tag instead
+                # (#529 review).
                 expected_namespace = "urn:iso:std:iso:20022:tech:xsd:pain.008.001.08"
-                self.assertEqual(root.get("xmlns"), expected_namespace)
+                self.assertTrue(root.tag.startswith("{"), f"unexpected unqualified tag: {root.tag}")
+                actual_namespace = root.tag[1 : root.tag.index("}")]
+                self.assertEqual(actual_namespace, expected_namespace)
 
                 # Check schema location
                 schema_location = root.get("{http://www.w3.org/2001/XMLSchema-instance}schemaLocation")
@@ -740,22 +775,22 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
         try:
             if hasattr(batch_doc, "sepa_file") and batch_doc.sepa_file:
                 # In a real implementation, you would read the file content
-                # For testing, we'll generate the XML again
-                return sepa_xml_service._create_sepa_xml_structure(
+                # For testing, we'll generate the XML again. #529:
+                # `sepa_xml_service._create_sepa_xml_structure` never existed --
+                # SEPAXMLGenerationService only exposes `generate_sepa_xml_for_batch`
+                # (which writes a File and returns its URL, not the XML text) and
+                # `_save_xml_file`. The raw XML string is produced by its adapter,
+                # `xml_adapter.generate_xml_for_batch`, which is what
+                # `generate_sepa_xml_for_batch` itself calls internally. Settings
+                # are not a parameter -- the adapter fetches them itself via
+                # `sepa_config_service.get_sepa_settings()`.
+                return sepa_xml_service.xml_adapter.generate_xml_for_batch(
                     batch_doc,
                     batch_doc.sepa_message_id or "TEST-MSG-ID",
                     batch_doc.sepa_payment_info_id or "TEST-PMT-ID",
-                    sepa_config_service.get_sepa_settings(),
                 )
             return None
         except Exception as e:
-            # NOT the record of the nine vacuous tests, though it reads like it.
-            # Measured on test_site_4: this method is never entered -- 0 occurrences of
-            # this message in a full run -- because generate_sepa_xml_for_batch() throws
-            # first and the nine test bodies swallow that. Their own handlers are what
-            # would have to be converted, and they are still bare frappe.logger()
-            # (#485, #490). Converted anyway because it is the right sink; claiming
-            # nothing about how often it fires.
             get_harness_logger("sepa-xml-compliance").warning("Could not extract XML content: %s", e)
             return None
 
@@ -764,7 +799,10 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
         root = ET.fromstring(xml_content)
 
         # Check root element
-        self.assertEqual(root.tag, "Document")
+        # ET reports the default-namespace-qualified tag, not the bare local
+        # name -- see the new test above (#529) for the same assumption made
+        # correctly.
+        self.assertEqual(root.tag, "{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}Document")
 
         # Check main structure elements
         cstmr_drct_dbt_initn = root.find(
