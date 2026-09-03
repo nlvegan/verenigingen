@@ -279,49 +279,60 @@ class TestPaymentProcessingAPI(EnhancedTestCase):
 
         # EnhancedTestCase handles user reset in tearDown
 
-    # Mock justified: External Service - SMTP delivery, not business logic
-    @patch("frappe.sendmail")  # Mock only email infrastructure, not business logic
-    def test_send_overdue_payment_reminders_partial_failure_real_logic(self, mock_sendmail):
-        """Test payment reminders with failures using REAL business logic and REAL data (NO MOCKS)"""
-        
-        # Create second overdue member to test multiple members scenario
-        second_overdue_member = self.create_test_member(
-            first_name="Second",
-            last_name="Overdue", 
-            email="second.overdue@example.com"
-        )
-        
-        # Create real overdue invoices that get_data will find
-        first_overdue = self.create_test_invoice(
-            customer=self.overdue_member.customer,
-            posting_date=add_days(today(), -45),
-            due_date=add_days(today(), -15),
-            grand_total=150.00,
-            status="Overdue",
-            custom_is_membership_dues=1,
-            custom_member=self.overdue_member.name
-        )
-        
-        second_overdue = self.create_test_invoice(
-            customer=second_overdue_member.customer,
-            posting_date=add_days(today(), -30),
-            due_date=add_days(today(), -10),
-            grand_total=75.00,
-            status="Overdue",
-            custom_is_membership_dues=1,
-            custom_member=second_overdue_member.name
-        )
-        
-        # Set proper permissions for API execution
-        # EnhancedTestCase handles permissions appropriately
-        # Test REAL business logic with multiple overdue members - NO MOCKS
+    # Mock justified: (1) frappe.sendmail is external-service infrastructure,
+    # same as every other test in this file; (2) the report's data source is
+    # imported LOCALLY inside the API on every call, so patching it here is
+    # the same technique test_api_optimization.py already uses for this
+    # endpoint (test_performance_monitoring_decorators) -- it makes the
+    # scenario deterministic regardless of what other tests in this shard
+    # have left in the database. send_payment_reminder_email itself is NOT
+    # mocked -- real business logic runs for both members.
+    @patch("frappe.sendmail")
+    @patch(
+        "verenigingen.verenigingen.report.overdue_member_payments.overdue_member_payments.get_data"
+    )
+    def test_send_overdue_payment_reminders_partial_failure_real_logic(self, mock_get_data, mock_sendmail):
+        """One member's send failure must not abort the whole run (#783, #779).
+
+        #779 fixed a bug where the per-member `except` handler called
+        `log_error(e, "<string>")` instead of `log_error(e, context={...})`.
+        `log_error` does `(context or {}).get("trace_id")`, so a string there
+        raised AttributeError *inside the except handler itself*, and the
+        `continue` right after it was never reached -- one member's failed
+        send silently aborted the entire run instead of skipping to the next
+        member. Before this fix, no failure was ever injected here (the
+        `frappe.sendmail` mock had no `side_effect`), so the test only ever
+        exercised the all-succeeds path. This test forces exactly that
+        failure scenario using a REAL failure: the first "member" does not
+        exist, so send_payment_reminder_email's own
+        `frappe.get_doc("Member", ...)` call raises
+        frappe.DoesNotExistError *before* that function's internal
+        try/except (which only wraps the actual send), and the exception
+        reaches the per-member `except` in send_overdue_payment_reminders
+        that #779 fixed. The second member is real and must still be
+        processed.
+        """
+        mock_sendmail.return_value = None  # sendmail returns an Email Queue doc or None, never a bool
+
+        mock_get_data.return_value = [
+            {"member_name": "NONEXISTENT-MEMBER-XYZ"},
+            {"member_name": self.overdue_member.name, **self.sample_payment_info},
+        ]
+
         result = send_overdue_payment_reminders()
 
-        # Verify real business logic processing. Email is queued via the unified
-        # EmailService (Email Queue); assert on the real observable outcome.
-        self.assertTrue(result.get("success"), f"Reminder run should succeed: {result}")
-        self.assertGreaterEqual(result.get("count", 0), 1, "Should process our test overdue invoices")
-        print(f"✅ Real business logic processed {result.get('count', 0)} overdue payments including our test data")
+        # (a) no exception escapes -- the run as a whole still succeeds
+        self.assertTrue(
+            result.get("success"), f"A per-member failure must not abort the whole run: {result}"
+        )
+        # (b) subsequent members are still processed. With only these two
+        #     mocked rows, count can only be 0 or 1, so this single equality
+        #     check is the property the #779 bug actually violated: count == 0
+        #     here would mean the loop aborted on the first failure instead of
+        #     continuing to the second member; count == 1 means the failed
+        #     member was skipped (not counted) and the second member sent.
+        self.assertEqual(result.get("count"), 1, f"The second member should still be processed: {result}")
+        print(f"✅ Real business logic processed {result.get('count', 0)} overdue payments after a simulated failure")
 
         # EnhancedTestCase handles user reset in tearDown
 
