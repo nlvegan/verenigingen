@@ -2356,22 +2356,6 @@ class PaymentReconciliationManager:
             if account:
                 return account
 
-        # Fallback: create or find expense account
-        expense_accounts = frappe.get_all(
-            "Account",
-            filters={"account_type": "Expense", "is_group": 0},
-            fields=["name", "account_name"],
-            limit=1,
-        )
-
-        if expense_accounts:
-            _log_error_with_traceback(
-                "Mollie Fee Account Fallback",
-                f"Using fallback expense account {expense_accounts[0]['name']} for Mollie fees. "
-                "Please configure payment_processing_fees_account in Mollie Settings.",
-            )
-            return expense_accounts[0]["name"]
-
         frappe.throw(
             _(
                 "No suitable account found for payment processing fees. Please configure payment_processing_fees_account in Mollie Settings."
