@@ -743,12 +743,30 @@ ERROR_HANDLING_CONFIG = {
 }
 
 
-def cache_with_ttl(ttl=300):
+def cache_with_ttl(ttl=300, per_user=True):
     """
     Decorator to cache function results with time-to-live
 
+    The cache key includes ``frappe.session.user`` unless ``per_user=False``.
+
+    That default is not a performance choice, it is a correctness one. The key is
+    otherwise derived from the arguments alone, so a function that reads the
+    session -- or performs a permission check -- inside its own body would serve
+    the FIRST caller's result to everyone else for the whole TTL, and a cache hit
+    returns before the body runs, so any check inside it is skipped entirely.
+    Three of this decorator's four call sites were in exactly that shape (#782):
+    ``get_member_from_user`` resolved one member's dashboard to another member
+    (measured on production-copy data), while ``get_chapter_dashboard_data`` and
+    ``format_member_address`` each carry their access check INSIDE the cached
+    function.
+
+    Pass ``per_user=False`` only when the result genuinely depends on nothing but
+    the arguments -- a reference list, a lookup table -- and say why at the call
+    site.
+
     Args:
         ttl: Time to live in seconds (default: 5 minutes)
+        per_user: Include the session user in the cache key (default: True)
 
     Usage:
         @cache_with_ttl(ttl=600)
@@ -761,8 +779,15 @@ def cache_with_ttl(ttl=300):
 
         @wraps(func)
         def wrapper(*args, **kwargs):
-            # Create cache key from function name and arguments
-            cache_key = f"{func.__name__}:{hash(str(args) + str(sorted(kwargs.items())))}"
+            # Create cache key from function name, arguments and (by default) the
+            # session user. Without the user, every no-argument call collides on one
+            # key -- see this decorator's docstring and #782.
+            if per_user:
+                session = getattr(frappe, "session", None)
+                user = getattr(session, "user", None) or "__no_session__"
+            else:
+                user = "__shared__"
+            cache_key = f"{func.__name__}:{user}:{hash(str(args) + str(sorted(kwargs.items())))}"
             current_time = time.time()
 
             # Check if we have a cached result that's still valid
