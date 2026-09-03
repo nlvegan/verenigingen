@@ -163,7 +163,7 @@ Separate from the main test suite, with its own fixtures:
 
 ### Test Quality Enforcement
 
-The pre-commit hook `test-quality-enforcer` blocks mock abuse and enforces real integration testing. The `block-inappropriate-mocks` hook prevents mocking of business logic.
+The pre-commit hook `test-quality-enforcer` blocks mock abuse and enforces real integration testing, and is the **sole** owner of mock policy: it is tier-aware (Tier 1 unit tests may mock, Tier 2 blocks database and business-workflow mocks, Tier 3 blocks all) and finds mock targets structurally, so a Black-wrapped decorator or `patch.object` cannot slip past. A second hook, `block-inappropriate-mocks`, was deleted in #793 after being measured to detect 1 of 225 prohibited-target mocks app-wide while disagreeing with this one about policy.
 
 ## Running Tests
 

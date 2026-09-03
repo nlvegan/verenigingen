@@ -187,6 +187,125 @@ def _protected_spans(content: str) -> Dict[int, List[Tuple[int, int]]]:
     return spans
 
 
+def _patch_alias_names(tree) -> set:
+    """Local names bound to unittest.mock.patch, including aliased imports."""
+    names = {"patch"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module in ("unittest.mock", "mock"):
+            for a in node.names:
+                if a.name == "patch":
+                    names.add(a.asname or a.name)
+    return names
+
+
+def _target_of(node) -> str:
+    """The patched target as a string, or "" if it cannot be resolved statically.
+
+    An f-string yields only its LITERAL segments joined, e.g.
+    f"{MODULE}.frappe.get_doc" -> ".frappe.get_doc". That is enough for the
+    suffix-anchored rules, and it is why those rules must stay suffix-anchored.
+    """
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.JoinedStr):
+        # Only when the string ENDS in a literal. Every rule here is
+        # suffix-anchored, so a trailing {placeholder} means the real target
+        # continues past what is visible and the anchor would match the wrong
+        # thing: f"frappe.get_doc{suffix}" would otherwise resolve to exactly
+        # "frappe.get_doc" and be flagged, even though at runtime it may be
+        # frappe.get_doc_helper. Refusing to resolve it is a false negative;
+        # resolving it is a false positive that fails an innocent PR.
+        if not (node.values and isinstance(node.values[-1], ast.Constant)
+                and isinstance(node.values[-1].value, str)):
+            return ""
+        return "".join(
+            v.value for v in node.values
+            if isinstance(v, ast.Constant) and isinstance(v.value, str)
+        )
+    return ""
+
+
+def _patch_targets(content: str) -> List[Tuple[int, str]]:
+    """Every statically-resolvable mock target, as (line of the call, target).
+
+    This is the ONLY way mock targets are found. The rules used to be line
+    regexes anchored on `patch(` immediately followed by a quote, which missed a
+    Black-wrapped decorator, `patch.object`, and an f-string target. Measured
+    before that changed: 225 mocks in the app named a prohibited target, the line
+    regexes saw 167, and the hook nominally responsible for blocking them --
+    scripts/validation/archived/block_inappropriate_mocks.py, since deleted --
+    reported 1.
+
+    Keeping BOTH mechanisms was itself a defect: the line loop reports only the
+    first pattern that matches a line, so `with patch("frappe.get_doc"),
+    patch("frappe.get_all"):` recorded one finding and suppressed the other.
+    Two detectors to reconcile is the same dual-maintenance hazard that produced
+    #793, so there is now one.
+
+    Deliberately NOT resolved, because the target is not statically knowable or
+    the call is not a target-and-attribute patch:
+      * a target built from a variable  -- patch(some_module_path)
+      * a target built by concatenation -- patch("a." + "b")  (ast.BinOp)
+      * an f-string ending in a placeholder -- see _target_of
+      * `patch.multiple(...)`           -- attributes arrive as kwargs
+      * `patch.dict(...)`               -- patches a mapping, not an attribute
+    An f-string IS resolved, via its literal segments (see _target_of).
+    """
+    out: List[Tuple[int, str]] = []
+    try:
+        tree = ast.parse(content)
+    except (SyntaxError, ValueError):
+        return out
+
+    aliases = _patch_alias_names(tree)
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        is_object = False
+        if isinstance(func, ast.Name):
+            if func.id not in aliases:
+                continue
+        elif isinstance(func, ast.Attribute):
+            if func.attr == "object":
+                base = func.value
+                base_name = (
+                    base.attr if isinstance(base, ast.Attribute)
+                    else base.id if isinstance(base, ast.Name) else None
+                )
+                if base_name not in aliases:
+                    continue
+                is_object = True
+            elif func.attr in aliases:
+                pass  # mock.patch(...) / unittest.mock.patch(...)
+            else:
+                continue
+        else:
+            continue
+
+        if is_object:
+            # patch.object(SomeClass, "attr") -> "SomeClass.attr", so a rule keyed
+            # on the attribute still matches.
+            parts = []
+            if node.args:
+                first = node.args[0]
+                parts.append(
+                    first.id if isinstance(first, ast.Name)
+                    else first.attr if isinstance(first, ast.Attribute) else ""
+                )
+            if len(node.args) > 1:
+                parts.append(_target_of(node.args[1]))
+            target = ".".join(x for x in parts if x)
+        else:
+            target = _target_of(node.args[0]) if node.args else ""
+
+        if target:
+            out.append((node.lineno, target))
+
+    return out
+
+
 def counts_of(findings) -> Dict[str, int]:
     """Collapse findings to the baseline's `path::qualname::kind` -> count."""
     return Counter(f"{f.path}::{f.qualname}::{f.kind}" for f in findings)
@@ -260,18 +379,6 @@ class TestQualityEnforcer:
         self._scopes: List[Tuple[str, int, int]] = []
         self._protected: Dict[int, List[Tuple[int, int]]] = {}
 
-        # Database operation mock patterns (blocked in Tier 2+)
-        self.database_mocks = [
-            r"patch\s*\(\s*['\"]frappe\.get_doc['\"]",
-            r"patch\s*\(\s*['\"]frappe\.get_all['\"]",
-            r"patch\s*\(\s*['\"]frappe\.db\.exists['\"]",
-            r"patch\s*\(\s*['\"]frappe\.db\.set_value['\"]",
-            r"patch\s*\(\s*['\"]frappe\.db\.sql['\"]",
-            r"patch\s*\(\s*['\"]frappe\.db\.get_list['\"]",
-            r"patch\s*\(\s*['\"]frappe\.db\.count['\"]",
-            r"patch\s*\(\s*['\"]frappe\.db\.get_value['\"]",
-            r"patch\s*\(\s*['\"]frappe\.new_doc['\"]",
-        ]
 
         # Configuration access patterns (always allowed - external service config)
         self.allowed_config_mocks = [
@@ -296,12 +403,33 @@ class TestQualityEnforcer:
             r"patch\s*\(\s*['\"]frappe\.publish_realtime['\"]"  # WebSocket
         ]
         
-        # Business logic mocks that should NEVER be allowed
-        self.never_mock_patterns = [
-            r"patch\s*\(\s*['\"].*validate_.*['\"]",     # Validation functions
-            r"patch\s*\(\s*['\"].*business_rule.*['\"]", # Business rules
-            r"patch\s*\(\s*['\"].*process_.*['\"]"       # Process functions  
+
+        self.business_workflow_mock_targets = [
+            r"send_payment_reminder_email", r"create_membership_invoice",
+            r"suspend_member", r"get_member_suspension_status",
+            r"(?:^|\.)frappe\.render_template$",
         ]
+
+        # The same rules keyed on the TARGET STRING alone, for the AST pass in
+        # _matching_ast_targets(). The patterns above need `patch(` and the quoted
+        # target on ONE line, which is exactly the blind spot #793 is about.
+        # SUFFIX-anchored, not exact. The line patterns above require the quote
+        # immediately before `frappe`, so they only ever match a bare
+        # patch("frappe.db.sql") -- while the idiomatic form patches where the name
+        # is looked up: patch("verenigingen.<...>.donation_summary.frappe.db.sql").
+        # That module-qualified shape was the ONE finding the deleted
+        # block_inappropriate_mocks.py still reported (its patterns carried a
+        # `[^'\"]*` prefix), so anchoring these to the start would have dropped it
+        # along with the hook. Anchoring to the END keeps `my_frappe.get_doc_helper`
+        # from matching while catching every module path. #793
+        self.database_mock_targets = [
+            r"(?:^|\.)frappe\.get_doc$", r"(?:^|\.)frappe\.get_all$",
+            r"(?:^|\.)frappe\.db\.exists$", r"(?:^|\.)frappe\.db\.set_value$",
+            r"(?:^|\.)frappe\.db\.sql$", r"(?:^|\.)frappe\.db\.get_list$",
+            r"(?:^|\.)frappe\.db\.count$", r"(?:^|\.)frappe\.db\.get_value$",
+            r"(?:^|\.)frappe\.new_doc$",
+        ]
+        self.never_mock_targets = [r"validate_", r"business_rule", r"process_"]
         
         # Permission bypass patterns (including hidden bypasses)
         self.permission_bypasses = [
@@ -383,6 +511,7 @@ class TestQualityEnforcer:
             elif tier == TestTier.INTEGRATION:
                 # Tier 2: Block database mocks, allow external service mocks
                 file_valid &= self._check_database_mocks(file_path, content)
+                file_valid &= self._check_business_workflow_mocks(file_path, content)
                 file_valid &= self._check_mock_justifications(file_path, content)
             # Tier 1 (Unit): All mocks allowed - no mock checks
 
@@ -504,36 +633,58 @@ class TestQualityEnforcer:
             )
         )
 
+    def _matching_ast_targets(self, content, target_patterns):
+        """Mock targets matching `target_patterns`, found structurally.
+
+        The single source of mock findings. See _patch_targets for what is and is
+        not statically resolvable, and why keeping a second line-regex detector
+        alongside this was itself a defect.
+        """
+        return [
+            (lineno, target)
+            for lineno, target in _patch_targets(content)
+            if any(re.search(pat, target) for pat in target_patterns)
+        ]
     def _check_database_mocks(self, file_path: str, content: str) -> bool:
-        """Check for database operation mocks (blocked in Tier 2 integration tests)"""
+        """Database operation mocks (blocked in Tier 2 integration tests)."""
         valid = True
-        lines = content.split("\n")
-
-        for line_num, line in enumerate(lines, 1):
-            for pattern in self.database_mocks:
-                if self._search(pattern, line, line_num):
-                    # Check if this is an allowed configuration access pattern
-                    is_allowed = any(
-                        re.search(allowed_pattern, line, re.IGNORECASE)
-                        for allowed_pattern in self.allowed_config_mocks
-                    )
-
-                    if not is_allowed:
-                        self._record(
-                            file_path,
-                            line_num,
-                            "DATABASE MOCK",
-                            f"{file_path}:{line_num}: DATABASE MOCK in integration test: {line.strip()}\n"
-                            f"  -> Database operations must not be mocked in integration tests\n"
-                            f"  -> Use real database operations with Enhanced Test Factory\n"
-                            f"  -> Move to tests/unit/ if testing isolated service logic\n"
-                            f"  -> See docs/test_remediation_plan/TESTING_STANDARDS.md",
-                        )
-                        valid = False
-                        break
-
+        for line_num, target in self._matching_ast_targets(
+            content, self.database_mock_targets
+        ):
+            if any(re.search(a, target, re.IGNORECASE) for a in self.allowed_config_mocks):
+                continue
+            self._record(
+                file_path,
+                line_num,
+                "DATABASE MOCK",
+                f"{file_path}:{line_num}: DATABASE MOCK in integration test: "
+                f'patch("{target}")\n'
+                f"  -> Database operations must not be mocked in integration tests\n"
+                f"  -> Use real database operations with Enhanced Test Factory\n"
+                f"  -> Move to tests/unit/ if testing isolated service logic\n"
+                f"  -> See docs/test_remediation_plan/TESTING_STANDARDS.md",
+            )
+            valid = False
         return valid
-
+    def _check_business_workflow_mocks(self, file_path: str, content: str) -> bool:
+        """Business workflow mocks (Tier 2; Tier 1 may mock, Tier 3 blocks all)."""
+        valid = True
+        for line_num, target in self._matching_ast_targets(
+            content, self.business_workflow_mock_targets
+        ):
+            self._record(
+                file_path,
+                line_num,
+                "BUSINESS WORKFLOW MOCK",
+                f"{file_path}:{line_num}: BUSINESS WORKFLOW MOCK in integration test: "
+                f'patch("{target}")\n'
+                f"  -> This builds a document or drives a workflow; mocking it\n"
+                f"     removes the thing under test\n"
+                f"  -> Mock only the external boundary (e.g. frappe.sendmail)\n"
+                f"  -> Move to tests/unit/ if testing isolated service logic",
+            )
+            valid = False
+        return valid
     def _check_all_mocks_blocked(self, file_path: str, content: str) -> bool:
         """Check that the security-sensitive boundary isn't mocked (Tier 3).
 
@@ -655,28 +806,24 @@ class TestQualityEnforcer:
         return valid
 
     def _check_never_mock_patterns(self, file_path: str, content: str) -> bool:
-        """Check for business logic mocks that should never be allowed"""
+        """Business logic mocks that should never be allowed, in any tier."""
         valid = True
-        lines = content.split('\n')
-
-        for line_num, line in enumerate(lines, 1):
-            for pattern in self.never_mock_patterns:
-                if self._search(pattern, line, line_num):
-                    self._record(
-                        file_path,
-                        line_num,
-                        "BUSINESS LOGIC MOCK PROHIBITED",
-                        f"{file_path}:{line_num}: BUSINESS LOGIC MOCK PROHIBITED: {line.strip()}\n"
-                        f"  -> Business logic and validation functions must NEVER be mocked\n"
-                        f"  -> This defeats the purpose of integration testing\n"
-                        f"  -> Use real business logic to catch actual bugs\n"
-                        f"  -> See docs/testing/TESTING_STANDARDS.md for correct patterns",
-                    )
-                    valid = False
-                    break
-
+        for line_num, target in self._matching_ast_targets(
+            content, self.never_mock_targets
+        ):
+            self._record(
+                file_path,
+                line_num,
+                "BUSINESS LOGIC MOCK PROHIBITED",
+                f"{file_path}:{line_num}: BUSINESS LOGIC MOCK PROHIBITED: "
+                f'patch("{target}")\n'
+                f"  -> Business logic and validation functions must NEVER be mocked\n"
+                f"  -> This defeats the purpose of integration testing\n"
+                f"  -> Use real business logic to catch actual bugs\n"
+                f"  -> See docs/testing/TESTING_STANDARDS.md for correct patterns",
+            )
+            valid = False
         return valid
-
     def _check_permission_bypasses(self, file_path: str, content: str) -> bool:
         """Check for permission bypasses in test files"""
         valid = True

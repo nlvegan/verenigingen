@@ -445,7 +445,6 @@ pre-commit run comprehensive-validation --all-files
 
 **Test Quality:**
 - `test-quality-enforcer` -- Blocks mock abuse, enforces real integration testing
-- `block-inappropriate-mocks` -- Prevents business logic mocking
 
 **Other:**
 - `import-path-validator` -- Validates Python import paths exist
