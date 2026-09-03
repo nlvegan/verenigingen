@@ -13,6 +13,11 @@ from typing import Any, Callable, List, Optional
 import frappe
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.transaction_errors import (
+    NON_RESUMABLE_DB_ERRORS,
+    release_savepoint_if_present,
+    rollback_to_savepoint,
+)
 
 # Migration system user - should have appropriate roles assigned
 MIGRATION_SYSTEM_USER = "Administrator"
@@ -420,40 +425,71 @@ def migration_transaction(
             f"in {stats['duration']:.2f}s ({operation_type})"
         )
 
+    except NON_RESUMABLE_DB_ERRORS:
+        # 1213/1205: the server has already discarded the whole transaction,
+        # savepoint included. rollback_to_savepoint()/release_savepoint_if_present()
+        # below tolerate a savepoint that is merely MISSING (1305), but there is
+        # nothing left here to roll back to at all -- re-raise directly rather
+        # than call them and risk a second, unrelated failure on top of this one.
+        raise
     except Exception as e:
         # Rollback on error
         error_msg = f"Migration transaction failed: {str(e)}"
         frappe.logger().error(error_msg)
 
-        try:
-            if transaction_state["rollback_savepoint"]:
-                frappe.db.sql("ROLLBACK TO SAVEPOINT migration_start")
+        if transaction_state["rollback_savepoint"]:
+            if rollback_to_savepoint(transaction_state["rollback_savepoint"]):
                 frappe.logger().info("Successfully rolled back to savepoint")
             else:
-                frappe.db.rollback()
-                frappe.logger().info("Successfully rolled back transaction")
+                frappe.logger().info(
+                    "Savepoint was already gone (a nested commit clears it); nothing left to roll back to"
+                )
+        else:
+            frappe.db.rollback()
+            frappe.logger().info("Successfully rolled back transaction")
 
-            # Log rollback details
-            stats = {
-                "operations_attempted": transaction_state["operations_count"],
-                "operations_rolled_back": len(transaction_state["pending_operations"]),
-                "operations_preserved": len(transaction_state["committed_operations"]),
-            }
-            frappe.logger().info(f"Rollback stats: {stats}")
-
-        except Exception as rollback_error:
-            frappe.logger().error(f"Rollback failed: {str(rollback_error)}")
+        # Log rollback details
+        stats = {
+            "operations_attempted": transaction_state["operations_count"],
+            "operations_rolled_back": len(transaction_state["pending_operations"]),
+            "operations_preserved": len(transaction_state["committed_operations"]),
+        }
+        frappe.logger().info(f"Rollback stats: {stats}")
 
         # Re-raise original error
         raise
 
     finally:
-        # Cleanup
-        try:
-            if transaction_state["rollback_savepoint"]:
-                frappe.db.sql("RELEASE SAVEPOINT migration_start")
-        except Exception:
-            pass
+        # Cleanup. A `finally:` clobbers a propagating exception with a new one
+        # from inside it EXACTLY the same way an `except:` block does -- Python's
+        # exception-replacement mechanics do not differ by block type. What
+        # actually differs is exposure: this `finally:` runs on EVERY exit path,
+        # including the SUCCESS path, where nothing is propagating at all. An
+        # unhandled failure here would not just replace an already-failing
+        # outcome (the accepted, documented tradeoff every other caller of these
+        # helpers relies on -- see utils/transaction_errors.py, and
+        # atomic_migration_operation's unguarded release_savepoint_if_present
+        # call below, which only ever runs from inside an `except` already
+        # handling a real failure); it would turn a SUCCESSFUL migration
+        # transaction into a reported failure. That additional failure mode is
+        # unique to running from `finally:`, so this call keeps a protective
+        # wrapper the `except`-block sites do not need -- and records what it
+        # swallows, per #701 review, since a silent `except Exception: pass`
+        # here was invisible to both the AST ratchet and error_swallow_validator.
+        if transaction_state["rollback_savepoint"]:
+            try:
+                release_savepoint_if_present(transaction_state["rollback_savepoint"])
+            except Exception as cleanup_error:  # non-resumable-ok: logged, not silent (#701)
+                frappe.log_error(
+                    title="Migration transaction cleanup failed",
+                    message=(
+                        "release_savepoint_if_present raised an unexpected error while "
+                        f"finishing migration_transaction ({operation_type}): {cleanup_error}. "
+                        "Any original error from the transaction body already propagated "
+                        "past this point; this is recorded so the cleanup failure itself "
+                        "is not silently lost."
+                    ),
+                )
 
         # Restore original user
         frappe.set_user(current_user)
@@ -509,18 +545,43 @@ def atomic_migration_operation(operation_type: str = "general"):
 
         frappe.logger().info(f"Atomic migration operation completed: {operation_type}")
 
+    except NON_RESUMABLE_DB_ERRORS:
+        # 1213/1205 already discarded the whole transaction, savepoint included --
+        # there is nothing left for rollback_to_savepoint to roll back to, and a
+        # full frappe.db.rollback() below would be undoing a transaction the
+        # server has already thrown away. Re-raise directly.
+        raise
     except Exception as e:
         # Rollback on any error
         frappe.logger().error(f"Atomic migration operation failed ({operation_type}): {str(e)}")
 
         if savepoint_created:
-            try:
-                frappe.db.sql("ROLLBACK TO SAVEPOINT atomic_migration")
-                frappe.db.sql("RELEASE SAVEPOINT atomic_migration")
+            # Left unwrapped deliberately, unlike migration_transaction's finally:
+            # block above. This call only ever runs from inside an `except`
+            # already handling a real failure, so the worst case is replacing
+            # one error with another -- the same accepted, documented tradeoff
+            # every other caller of these helpers relies on (see
+            # utils/transaction_errors.py). It cannot turn a SUCCESSFUL
+            # operation into a reported failure the way a `finally:`-sited call
+            # can, because there is no success path through this handler.
+            if rollback_to_savepoint("atomic_migration"):
+                release_savepoint_if_present("atomic_migration")
                 frappe.logger().info(f"Successfully rolled back atomic operation: {operation_type}")
-            except Exception as rollback_error:
-                frappe.logger().error(f"Rollback failed for atomic operation: {str(rollback_error)}")
-                frappe.db.rollback()  # Full rollback as fallback
+            else:
+                # Savepoint already gone (a nested commit cleared it, the one
+                # documented cause rollback_to_savepoint tolerates) -- the
+                # per-operation rollback has nothing left to undo, so fall back
+                # to a full rollback the same way the no-savepoint branch below
+                # does. Anything OTHER than a missing savepoint still propagates
+                # from rollback_to_savepoint and replaces `e` here -- the same
+                # tradeoff every other caller of the canonical helper accepts
+                # (see utils/transaction_errors.py), not a new risk introduced
+                # by converging onto it.
+                frappe.db.rollback()
+                frappe.logger().info(
+                    f"Rolled back atomic operation ({operation_type}): savepoint was already gone, "
+                    "used full rollback instead"
+                )
         else:
             # No savepoint, use full rollback
             frappe.db.rollback()

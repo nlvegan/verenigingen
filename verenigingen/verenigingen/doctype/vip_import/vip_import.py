@@ -28,6 +28,11 @@ from verenigingen.utils.csv_import_processor import CSVImportBackgroundProcessor
 from verenigingen.utils.error_handling import sanitize_error_for_audit
 from verenigingen.utils.queue_management import has_queue_capacity, wait_for_queue_capacity
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.transaction_errors import (
+    NON_RESUMABLE_DB_ERRORS,
+    release_savepoint_if_present,
+    rollback_to_savepoint,
+)
 from verenigingen.utils.validation_utilities import AgeValidator
 
 if TYPE_CHECKING:
@@ -549,7 +554,7 @@ def _process_single_row(row: Dict, import_doc: Document, stats: Dict) -> Dict[st
 
     try:
         # Create savepoint before any modifications
-        frappe.db.sql(f"SAVEPOINT {savepoint_name}")
+        frappe.db.savepoint(savepoint_name)
 
         # Find existing Member
         member = _find_member(row)
@@ -600,17 +605,22 @@ def _process_single_row(row: Dict, import_doc: Document, stats: Dict) -> Dict[st
                 "volunteer": volunteer.name,
             }
 
+    except NON_RESUMABLE_DB_ERRORS:
+        # 1213/1205: the server has already discarded the transaction, savepoints
+        # included. Rolling back here would raise 1305 on top of the real error and
+        # REPLACE it (#561) -- and process_import_background's row loop would then
+        # carry on to the next row against a transaction that no longer exists,
+        # instead of abandoning the import the way member_import.py's row loop now
+        # does (#700). Re-raising lets the outer `except Exception` there report
+        # the real deadlock and stop the batch.
+        raise
     except Exception as e:
-        # Rollback to savepoint on any error
-        try:
-            frappe.db.sql(f"ROLLBACK TO SAVEPOINT {savepoint_name}")
-        except Exception as cleanup_error:
-            frappe.logger().warning(f"Savepoint rollback failed for {savepoint_name}: {cleanup_error}")
-        finally:
-            try:
-                frappe.db.sql(f"RELEASE SAVEPOINT {savepoint_name}")
-            except Exception:
-                pass  # Savepoint may already be released by rollback
+        # Rollback to savepoint on any error. rollback_to_savepoint tolerates a
+        # savepoint a nested commit already cleared (returns False rather than
+        # letting a 1305 replace `e`); release_savepoint_if_present does the same
+        # for the mirror case where the rollback itself already cleared it.
+        rollback_to_savepoint(savepoint_name)
+        release_savepoint_if_present(savepoint_name)
 
         # frappe.throw (e.g. AgeValidator._get_configurable_min_age's config-error
         # throw, #673) appends to frappe.local.message_log before raising. This

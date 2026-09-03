@@ -34,6 +34,7 @@ from verenigingen.services.member.member_lookup_service import get_member_lookup
 from verenigingen.utils.csv.data_transformers import clean_phone_number
 from verenigingen.utils.csv_import_processor import ensure_bulk_import_members_set
 from verenigingen.utils.safe_member_optimizer import safe_member_optimizer
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 
 # Advisory lock configuration defaults (can be overridden via site_config)
 # To override, add to site_config.json:
@@ -377,7 +378,7 @@ class MemberImportService(StatelessService):
         savepoint_name = f"member_update_{safe_row}_{int(time.time() * 1000)}"
 
         try:
-            frappe.db.sql(f"SAVEPOINT {savepoint_name}")
+            frappe.db.savepoint(savepoint_name)
 
             member = frappe.get_doc("Member", member_name)
 
@@ -395,8 +396,15 @@ class MemberImportService(StatelessService):
 
             return "updated", member.name
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213/1205: the server has already discarded the transaction,
+            # savepoints included. `rollback_to_savepoint` below would raise 1305
+            # on top of the real error and REPLACE it (#561) -- re-raising lets
+            # the csv import batch loop learn the transaction is gone and abandon
+            # the import instead of counting this as one more failed row.
+            raise
         except frappe.ValidationError as e:
-            frappe.db.sql(f"ROLLBACK TO SAVEPOINT {savepoint_name}")
+            rollback_to_savepoint(savepoint_name)
             self.logger.error(f"Row {row_num}: Update validation error for {member_name} - {str(e)[:200]}")
             # A ValidationError here is frequently about something other than the
             # fields being imported (e.g. a pre-existing broken link elsewhere on
@@ -406,10 +414,7 @@ class MemberImportService(StatelessService):
             return _failure_status(e), member_name
 
         except Exception as e:
-            try:
-                frappe.db.sql(f"ROLLBACK TO SAVEPOINT {savepoint_name}")
-            except Exception:
-                pass
+            rollback_to_savepoint(savepoint_name)
             self.logger.error(f"Row {row_num}: Update failed for {member_name} - {str(e)[:200]}")
             frappe.log_error(frappe.get_traceback(), f"CSV Import Update Error Row {row_num}")
             return _failure_status(e), member_name
@@ -562,7 +567,7 @@ class MemberImportService(StatelessService):
                 return "skipped", existing_after_lock.name
 
             # Create savepoint for atomic creation
-            frappe.db.sql(f"SAVEPOINT {savepoint_name}")
+            frappe.db.savepoint(savepoint_name)
 
             member = frappe.new_doc("Member")
             self.update_member_fields(member, row_data, import_doc_name, create_volunteer_records)
@@ -598,6 +603,13 @@ class MemberImportService(StatelessService):
 
             return "created", member.name
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213/1205: the server has already discarded the transaction,
+            # savepoints included. `rollback_to_savepoint` below would raise 1305
+            # on top of the real error and REPLACE it (#561) -- re-raising lets
+            # the csv import batch loop learn the transaction is gone and abandon
+            # the import instead of counting this as one more failed row.
+            raise
         except (frappe.DuplicateEntryError, frappe.UniqueValidationError) as e:
             # UniqueValidationError is the one that actually fires here:
             # `member_id` is a unique FIELD, and frappe raises DuplicateEntryError
@@ -607,27 +619,18 @@ class MemberImportService(StatelessService):
             # `except frappe.ValidationError` branch below and reported the
             # operator a raw exception repr instead of the offending member_id
             # (#699; the sibling importer had the same defect, fixed in #570).
-            try:
-                frappe.db.sql(f"ROLLBACK TO SAVEPOINT {savepoint_name}")
-            except Exception:
-                pass
+            rollback_to_savepoint(savepoint_name)
             self.logger.warning(f"Row {row_num}: Duplicate member_id {row_data.get('member_id', '')}")
             return "skipped", None
 
         except frappe.ValidationError as e:
-            try:
-                frappe.db.sql(f"ROLLBACK TO SAVEPOINT {savepoint_name}")
-            except Exception:
-                pass
+            rollback_to_savepoint(savepoint_name)
             self.logger.error(f"Row {row_num}: Validation error - {str(e)[:200]}")
             frappe.log_error(frappe.get_traceback(), f"CSV Import Validation Error Row {row_num}")
             return _failure_status(e), None
 
         except Exception as e:
-            try:
-                frappe.db.sql(f"ROLLBACK TO SAVEPOINT {savepoint_name}")
-            except Exception:
-                pass
+            rollback_to_savepoint(savepoint_name)
             self.logger.error(f"Row {row_num}: Creation failed - {str(e)[:200]}")
             frappe.log_error(frappe.get_traceback(), f"CSV Import Error Row {row_num}")
             return _failure_status(e), None
