@@ -1975,7 +1975,7 @@ def get_account_type_recommendations(company: str, show_all: bool = False):
                 WHERE a.company = %s
                 AND a.eboekhouden_grootboek_nummer IS NOT NULL
                 AND a.eboekhouden_grootboek_nummer != ''
-                AND (a.account_type IS NULL OR a.account_type = '' OR a.account_type = 'Not Set')
+                AND (a.account_type IS NULL OR a.account_type = '')
                 ORDER BY a.eboekhouden_grootboek_nummer
             """,
                 company,

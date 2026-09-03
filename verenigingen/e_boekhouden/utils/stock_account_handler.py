@@ -181,13 +181,15 @@ class StockAccountHandler:
 
         except Exception as e:
             self.debug_info.append(f"Failed to create temporary asset account: {str(e)}")
-            # Try with Asset account type as fallback
+            # Retry without pinning account_type. "Asset" is not a valid
+            # Account.account_type option (see #788) -- leaving it unset is
+            # valid and matches what ERPNext's own standard chart does for
+            # many leaf accounts; root_type="Asset" already classifies it.
             try:
                 account = frappe.new_doc("Account")
                 account.account_name = "Stock Value (Opening Balance)"
                 account.parent_account = parent_account
                 account.company = self.company
-                account.account_type = "Asset"  # Fallback to Asset type
                 account.root_type = "Asset"
                 account.is_group = 0
                 account.insert()
@@ -197,6 +199,15 @@ class StockAccountHandler:
 
             except Exception as e2:
                 self.debug_info.append(f"Failed to create fallback asset account: {str(e2)}")
+                frappe.log_error(
+                    title="Stock Account Fallback Failed",
+                    message=(
+                        "Failed to create the fallback 'Stock Value (Opening Balance)' account "
+                        f"for company {self.company}: the primary Temporary-typed attempt raised "
+                        f"{e!r}, and the fallback attempt also raised {e2!r}. Falling back to an "
+                        "existing temporary/equity account instead."
+                    ),
+                )
                 # Final fallback to existing account
                 return self.get_existing_temporary_account()
 

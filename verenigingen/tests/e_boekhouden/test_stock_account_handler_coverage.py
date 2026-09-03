@@ -29,6 +29,8 @@ Run with:
         --module verenigingen.tests.e_boekhouden.test_stock_account_handler_coverage
 """
 
+from unittest.mock import patch
+
 import frappe
 
 from verenigingen.e_boekhouden.utils.stock_account_handler import StockAccountHandler
@@ -162,9 +164,11 @@ class TestAssetAccountCreation(_StockHandlerBase):
             first = self.handler.get_or_create_generic_asset_account()
         self.assertEqual(first, expected_name)
         self.assertTrue(frappe.db.exists("Account", expected_name))
-        # account_type must be a non-stock type so a JE can post to it.
+        # account_type must be a non-stock type so a JE can post to it. The
+        # primary attempt always uses "Temporary"; the fallback (#788) leaves
+        # account_type unset rather than the invalid "Asset" it used to set.
         acct_type = frappe.db.get_value("Account", expected_name, "account_type")
-        self.assertIn(acct_type, ("Temporary", "Asset"))
+        self.assertIn(acct_type, ("Temporary", ""))
         # Second call returns the same account without creating a duplicate.
         with self.assertNoErrorLog():
             second = self.handler.get_or_create_generic_asset_account()
@@ -190,6 +194,52 @@ class TestAssetAccountCreation(_StockHandlerBase):
         self.assertIn(stock_acct, mappings)
         # Every stock account maps to the single generic asset account.
         self.assertEqual(set(mappings.values()), {self.handler.get_or_create_generic_asset_account()})
+
+
+class TestAssetAccountCreationFallback(_StockHandlerBase):
+    """#788: get_or_create_generic_asset_account's fallback branch set
+    account_type="Asset", which is not a valid Account.account_type option
+    (valid asset-ish values include "Fixed Asset", "Current Asset", ...).  So
+    whenever the primary (account_type="Temporary") attempt failed for any
+    unrelated reason, the fallback's own insert() always raised ValidationError
+    too, and that raise was swallowed by `except Exception as e2`, silently
+    discarding the intended account and falling through to an unrelated
+    equity/temporary account instead.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.handler = StockAccountHandler(self.company, [])
+        self.expected_name = f"Stock Value (Opening Balance) - {self.abbr}"
+        # Defensive: an earlier failed run may have left this behind.
+        if frappe.db.exists("Account", self.expected_name):
+            frappe.delete_doc("Account", self.expected_name, force=True, ignore_permissions=True)
+
+    def test_fallback_creates_the_intended_account_when_primary_attempt_fails(self):
+        """Simulate the primary (Temporary-typed) attempt failing for a reason
+        unrelated to account_type -- e.g. a transient error during the
+        eBoekhouden import. The fallback should then actually create the
+        intended account, not silently discard it because its own account_type
+        value is invalid.
+        """
+        from frappe.model.document import Document
+
+        original_insert = Document.insert
+
+        def fake_insert(self_doc, *args, **kwargs):
+            if (
+                self_doc.doctype == "Account"
+                and self_doc.account_name == "Stock Value (Opening Balance)"
+                and self_doc.account_type == "Temporary"
+            ):
+                raise Exception("Simulated primary-attempt failure")
+            return original_insert(self_doc, *args, **kwargs)
+
+        with patch.object(Document, "insert", fake_insert):
+            result = self.handler.get_or_create_generic_asset_account()
+
+        self.assertEqual(result, self.expected_name)
+        self.assertTrue(frappe.db.exists("Account", self.expected_name))
 
 
 class TestStaticHelpers(_StockHandlerBase):
