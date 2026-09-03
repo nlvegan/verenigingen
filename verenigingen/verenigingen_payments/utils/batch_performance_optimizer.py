@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import frappe
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+from verenigingen.verenigingen_payments.utils.mandate_candidates import members_with_ambiguous_mandate
 
 
 class BatchPerformanceOptimizer:
@@ -102,6 +103,26 @@ class BatchPerformanceOptimizer:
                     else None
                 ),
             }
+
+        # Refuse rather than guess for a member holding more than one Active
+        # `used_for_memberships` mandate (#708). The LEFT JOIN above is purpose-
+        # filtered (#597) but carries no ORDER BY, so it fans out into one row per
+        # mandate and the loop above is last-wins with no ORDER BY: whichever
+        # duplicate row MariaDB returned last silently became `mandate_data`, and
+        # that value is written straight into the Direct Debit Batch child row's
+        # `iban`/`mandate_id` (`add_processed_invoice_to_batch`), debiting whichever
+        # account happened to win. Overriding `mandate_data` to None here reuses the
+        # existing "no usable mandate" signal `process_batch_invoices_optimized`
+        # already checks for and skips on -- the same treatment a member with zero
+        # Active mandates gets -- while `members_with_ambiguous_mandate` logs the
+        # conflict so an operator can see and resolve it, instead of the batch
+        # silently debiting an arbitrary account.
+        ambiguous_members = members_with_ambiguous_mandate(
+            member_names, "Bulk mandate lookup: ambiguous membership mandate"
+        )
+        for member_name in ambiguous_members:
+            if member_name in result:
+                result[member_name]["mandate_data"] = None
 
         # Update performance stats
         execution_time = (time.time() - start_time) * 1000
