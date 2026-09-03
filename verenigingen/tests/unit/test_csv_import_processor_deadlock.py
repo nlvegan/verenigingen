@@ -40,7 +40,7 @@ class _DeadlockRowLoopBase(EnhancedTestCase):
         self.import_doc = _create_stub_member_import_doc()
         self.calls = []
 
-    def _run_import(self, rows, callback, batch_size=1):
+    def _run_engine_import(self, rows, callback, batch_size=1):
         processor = CSVImportBackgroundProcessor(self.import_doc.name, "Member Import")
         processor.load_import_doc()
         return processor.process_import(
@@ -50,7 +50,7 @@ class _DeadlockRowLoopBase(EnhancedTestCase):
             batch_commit=True,
         )
 
-    def _row(self, n):
+    def _engine_row(self, n):
         return {"row_number": n}
 
 
@@ -71,7 +71,8 @@ class TestRowLoopAbandonsOnNonResumableError(_DeadlockRowLoopBase):
                 raise deadlock()
             raise AssertionError("row 3 must never be reached")
 
-        result = self._run_import([self._row(1), self._row(2), self._row(3)], callback)
+        rows = [self._engine_row(1), self._engine_row(2), self._engine_row(3)]
+        result = self._run_engine_import(rows, callback)
 
         self.assertEqual(self.calls, [1, 2], "row 3 must not be attempted after the deadlock")
         self.assertFalse(result["success"], result)
@@ -87,7 +88,8 @@ class TestRowLoopAbandonsOnNonResumableError(_DeadlockRowLoopBase):
                 raise lock_wait_timeout()
             raise AssertionError("row 2 must never be reached")
 
-        result = self._run_import([self._row(1), self._row(2)], callback)
+        rows = [self._engine_row(1), self._engine_row(2)]
+        result = self._run_engine_import(rows, callback)
 
         self.assertEqual(self.calls, [1])
         self.assertFalse(result["success"], result)
@@ -105,7 +107,8 @@ class TestRowLoopAbandonsOnNonResumableError(_DeadlockRowLoopBase):
                 raise ValueError("one bad row")
             return ("created", f"REC-{row['row_number']}")
 
-        result = self._run_import([self._row(1), self._row(2), self._row(3)], callback)
+        rows = [self._engine_row(1), self._engine_row(2), self._engine_row(3)]
+        result = self._run_engine_import(rows, callback)
 
         self.assertEqual(self.calls, [1, 2, 3], "an ordinary exception must not abandon the batch")
         self.assertTrue(result["success"], result)
