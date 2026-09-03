@@ -1,10 +1,12 @@
-# Handoff — 2026-09-03b: the green was borrowed
+# Handoff — 2026-09-03c: the green was borrowed
 
-Continues [2026-09-03](2026-09-03-three-ways-to-pass-without-checking-anything.md). Five
-issues went to parallel agents, then every resulting PR got a pre-merge skeptical review.
-**3 PRs merged, 3 awaiting CI, 1 red, 1 held; 5 issues closed, 7 filed — including a live
-cross-member data leak that no PR introduced and that the test suite was structurally
-unable to see.**
+Continues [2026-09-03b](2026-09-03b-the-checks-that-were-checking-me.md), whose PR (#770)
+was still open when this session began — that document's eight-agent run produced several of
+the issues picked up here. Five issues went to parallel agents, then every resulting PR got a
+pre-merge skeptical review.
+
+**6 PRs merged, 1 red, 1 held; 5 issues closed, 7 filed — including a live cross-member data
+leak that no PR introduced and that the test suite was structurally unable to see.**
 
 The title is the pattern. Four separate times, something was green **because of state that
 did not belong to it** — and each time I read the green as evidence about the code:
@@ -117,21 +119,21 @@ Every one of these produced a confident wrong answer before being caught:
 
 ## State
 
-**Merged:** #775 (duplicate-helper sync gate scoped to real clone families), #786 (trunk
-fix, above), #784 (the cache leak, closes #782).
-
-**Open, reviewed, awaiting queued CI:** #771 (deletes the unreachable DD batch UI, adds a
-`public/js` endpoint guard), #773 (SEPA mandate ambiguity refused rather than guessed),
-#779 (three `log_error` calls that raise inside their own `except` handler).
+**Merged:** #775 (duplicate-helper sync gate scoped to real clone families), #786 (trunk fix,
+above), #784 (the cache leak, closes #782), #771 (deletes the unreachable DD batch UI, adds a
+`public/js` endpoint guard), #773 (SEPA mandate ambiguity refused rather than guessed), #779
+(three `log_error` calls that raise inside their own `except` handler). The last three were
+merged only after being re-run against a `develop` carrying the trunk fix — their earlier reds
+were #780, not their own code.
 
 **Open, red:** #776 (periodic donation agreement). Its own new test errors in CI with
-`PermissionError: No member record found for user`. **Not** caused by #784 — that resolver
-is uncached and separate. Likely the #780 shape again: the test's member is created with
-`email=` and resolution leans on an email fallback that works here and not in CI.
+`PermissionError: No member record found for user`. **Not** caused by #784 — that resolver is
+uncached and separate. Likely the #780 shape again: the test's member is created with `email=`
+and resolution leans on an email fallback that works here and not in CI.
 
 **Held:** #777 (six shipped pages calling endpoints that do not exist). Needs its own
-`anonymous` form-data key fix — a real regression its CI caught — and it adds two call sites
-to the resolver #784 just fixed. Merge after both.
+`anonymous` form-data key fix — a real regression its CI caught — and it adds two call sites to
+the resolver #784 just fixed. Merge after both.
 
 **Filed:** #772 (16 more dead `public/js` endpoints, each one's real home already resolved),
 #774 (the optimized SEPA batch silently collects fewer invoices than asked; the shortfall is
