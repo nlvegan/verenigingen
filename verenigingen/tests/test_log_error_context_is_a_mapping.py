@@ -100,8 +100,16 @@ class TestLogErrorContextIsAMapping(unittest.TestCase):
         self.assertEqual(len(found), 1, "the scan no longer recognises the shape it exists to find")
 
     def test_a_string_context_really_does_raise(self):
-        """Why the scan matters -- the failure is an exception, not a bad log line."""
-        with self.assertRaises(AttributeError):
+        """Why the scan matters -- the failure is an exception, not a bad log line.
+
+        Deliberately `Exception`, not `AttributeError`. Today the failure is an
+        `AttributeError` from `(context or {}).get(...)`, but that type is an
+        artefact of where the bug happens to land, not a contract. If `log_error`
+        is later hardened to reject a non-mapping context up front (a `TypeError`
+        would be the natural choice), that is the fix -- and pinning the current
+        exception class here would make it read as a regression.
+        """
+        with self.assertRaises(Exception):
             log_error(ValueError("boom"), "Some Title")
 
         # Control: the documented shape is fine, so the assertion above is about
