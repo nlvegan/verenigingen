@@ -131,24 +131,42 @@ class TestDuesScheduleAutoCreator(EnhancedTestCase):
         self._committed_docs.append(("Member", member.name))
         return member
 
-    def _make_membership_without_schedule(self, member, membership_type):
+    def _make_membership_without_schedule(self, member, membership_type, allow_multiple=False):
         """Create + submit a Membership but SKIP the auto dues-schedule creation,
-        producing exactly the "missing schedule" state the auto-creator fixes."""
-        membership = frappe.new_doc("Membership")
-        membership.member = member.name
-        membership.membership_type = membership_type.name
-        membership.start_date = today()
-        membership.status = "Active"
-        membership.flags.skip_dues_schedule_creation = True
-        membership.insert(ignore_permissions=True)
-        self._committed_docs.append(("Membership", membership.name))
-        membership.flags.skip_dues_schedule_creation = True
-        membership.submit()
+        producing exactly the "missing schedule" state the auto-creator fixes.
+
+        allow_multiple=True bypasses Membership.validate_existing_memberships()
+        the same way the whitelisted `allow_multiple_memberships` server action
+        does, for building the two-Active-memberships fixture #663 is about.
+        """
+        original_flag = frappe.flags.get("allow_multiple_memberships")
+        frappe.flags.allow_multiple_memberships = allow_multiple
+        try:
+            membership = frappe.new_doc("Membership")
+            membership.member = member.name
+            membership.membership_type = membership_type.name
+            membership.start_date = today()
+            membership.status = "Active"
+            membership.flags.skip_dues_schedule_creation = True
+            membership.insert(ignore_permissions=True)
+            self._committed_docs.append(("Membership", membership.name))
+            membership.flags.skip_dues_schedule_creation = True
+            membership.submit()
+        finally:
+            frappe.flags.allow_multiple_memberships = original_flag
         # Defensive: cancel any schedule that may have slipped through so the
         # member is genuinely "missing" an active schedule.
         self._deactivate_schedules(member.name)
         frappe.db.commit()
         return membership
+
+    def _make_second_active_membership_without_schedule(self, member, membership_type):
+        """Give `member` a SECOND Active, submitted Membership (no dues schedule
+        creation). See _make_membership_without_schedule(allow_multiple=True) --
+        this reproduces the exact row-grain hazard #663 is about: two Active
+        `tabMembership` rows for one member, neither carrying a dues schedule.
+        """
+        return self._make_membership_without_schedule(member, membership_type, allow_multiple=True)
 
     def _deactivate_schedules(self, member_name):
         for name in frappe.get_all(
@@ -312,6 +330,143 @@ class TestDuesScheduleAutoCreator(EnhancedTestCase):
         for r in rows:
             for key in ("membership_name", "member_name", "membership_type", "full_name"):
                 self.assertIn(key, r)
+
+    # ==================================================================
+    # Row grain (#663): a member with TWO Active memberships must be
+    # processed/listed ONCE, not once per Active Membership row.
+    # ==================================================================
+    def _assert_two_active_memberships(self, member):
+        """Precondition guard for the fixtures below: the hazard #663 is about
+        only exists if the member genuinely holds two Active, submitted
+        Memberships. Without this, a future change that leaves the second
+        membership at some OTHER status would make every test below pass
+        while covering nothing."""
+        self.assertEqual(
+            frappe.db.count("Membership", {"member": member.name, "status": "Active", "docstatus": 1}),
+            2,
+            "fixture must produce exactly two Active, submitted Memberships",
+        )
+
+    def test_enhanced_preview_lists_member_with_two_active_memberships_once(self):
+        mt = self._make_membership_type(minimum_amount=30.0)
+        member = self._make_member()
+        self._make_membership_without_schedule(member, mt)
+        self._make_second_active_membership_without_schedule(member, mt)
+        self._assert_two_active_memberships(member)
+
+        self._as_admin()
+        result = dsac.auto_create_missing_dues_schedules_enhanced(preview_mode=True, send_emails=False)
+        mine = [s for s in result["created_schedules"] if s["member"] == member.name]
+        self.assertEqual(
+            len(mine),
+            1,
+            "member has two Active memberships but no dues schedule; the "
+            "preview must list them once, not once per Active membership",
+        )
+
+    def test_enhanced_creation_with_two_active_memberships_creates_one_schedule(self):
+        mt = self._make_membership_type(minimum_amount=30.0)
+        member = self._make_member()
+        self._make_membership_without_schedule(member, mt)
+        self._make_second_active_membership_without_schedule(member, mt)
+        self._assert_two_active_memberships(member)
+
+        self._as_admin()
+        result = dsac.auto_create_missing_dues_schedules_enhanced(preview_mode=False, send_emails=False)
+        self._track_created_schedules_for(member.name)
+
+        created_for_member = [s for s in result["created_schedules"] if s["member"] == member.name]
+        self.assertEqual(len(created_for_member), 1)
+        # The regression guard: a second insert attempt against the same member
+        # must NOT surface an "already has an active dues schedule" error --
+        # that error is the symptom of the pre-fix row-grain bug (one row per
+        # Active Membership feeding the create loop twice for one member).
+        self.assertFalse(
+            any(member.name in e for e in result["errors"]),
+            f"unexpected error for {member.name}: {result['errors']}",
+        )
+        # Belt-and-braces DB-state check against duplicate billing: even if the
+        # loop above were reintroduced, only one Active schedule may exist.
+        active = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member.name, "is_template": 0, "status": "Active"},
+        )
+        self.assertEqual(len(active), 1)
+
+    def test_get_members_without_schedules_lists_member_with_two_active_memberships_once(self):
+        mt = self._make_membership_type(minimum_amount=30.0)
+        member = self._make_member()
+        self._make_membership_without_schedule(member, mt)
+        self._make_second_active_membership_without_schedule(member, mt)
+        self._assert_two_active_memberships(member)
+
+        self._as_admin()
+        rows = dsac.get_members_without_dues_schedules()
+        mine = [r for r in rows if r["name"] == member.name]
+        self.assertEqual(
+            len(mine),
+            1,
+            "member has two Active memberships but no dues schedule; the report "
+            "must list them once, not once per Active membership",
+        )
+
+    def test_preview_missing_dues_schedules_never_repeats_a_member(self):
+        """`preview_missing_dues_schedules` (the LIMIT-10 admin-page preview, a
+        DIFFERENT function/query than auto_create_missing_dues_schedules_enhanced
+        above) has its own copy of the #663 row-grain fix. The LIMIT makes "our
+        member is in the slice" non-deterministic in general, but the query now
+        orders by creation DESC, so a member created just now should surface
+        near the top -- and the invariant this asserts (no member repeated) must
+        hold regardless of which members made the cut."""
+        mt = self._make_membership_type(minimum_amount=30.0)
+        member = self._make_member()
+        self._make_membership_without_schedule(member, mt)
+        self._make_second_active_membership_without_schedule(member, mt)
+        self._assert_two_active_memberships(member)
+
+        self._as_admin()
+        rows = dsac.preview_missing_dues_schedules()
+        names = [r["member_name"] for r in rows]
+        self.assertEqual(
+            len(names),
+            len(set(names)),
+            "preview_missing_dues_schedules must return at most one row per member",
+        )
+        # The ORDER BY creation DESC means our just-created member should be at
+        # or near the front of the LIMIT-10 slice, so this also has a real
+        # chance of catching a regression directly rather than only via the
+        # general no-duplicates invariant above.
+        mine = [n for n in names if n == member.name]
+        self.assertLessEqual(len(mine), 1)
+
+    def test_enhanced_warns_when_active_memberships_have_different_types(self):
+        """A member's two Active memberships may carry DIFFERENT membership
+        types; the ranked query silently picks one (the most recently created),
+        so the discarded alternative's different type/rate must be surfaced as
+        a warning rather than disappearing without a trace."""
+        mt_a = self._make_membership_type(minimum_amount=20.0)
+        mt_b = self._make_membership_type(minimum_amount=45.0)
+        member = self._make_member()
+        self._make_membership_without_schedule(member, mt_a)
+        self._make_membership_without_schedule(member, mt_b, allow_multiple=True)
+        self._assert_two_active_memberships(member)
+
+        self._as_admin()
+        result = dsac.auto_create_missing_dues_schedules_enhanced(preview_mode=False, send_emails=False)
+        self._track_created_schedules_for(member.name)
+
+        warnings = result.get("warnings", [])
+        self.assertTrue(
+            any(member.name in w for w in warnings),
+            f"expected an ambiguous-membership-type warning for {member.name}, got: {warnings}",
+        )
+        # Still exactly one schedule created -- the warning is informational,
+        # not a refusal to create.
+        active = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member.name, "is_template": 0, "status": "Active"},
+        )
+        self.assertEqual(len(active), 1)
 
     # ==================================================================
     # get_members_without_dues_schedules (whitelisted, returns list)
