@@ -1,0 +1,41 @@
+# Dotted /api/method/ paths that shipped templates/www pages call which are
+# either not defined (MISSING) or defined but not registered with Frappe's
+# whitelist (NOT_WHITELISTED). Baseline for test_shipped_api_calls_are_whitelisted.py.
+#
+# Format: <dotted.path>\t<STATUS>
+#
+# This file should only ever SHRINK. The test fails three ways: a broken call
+# that isn't listed here, a listed call that now resolves and is whitelisted, and
+# a listed call whose STATUS no longer matches what the tree actually does (e.g.
+# a MISSING module reappearing with a decorator-order bug is a different fix, not
+# "still broken, ignore it"). Do not add a line to silence a new finding -- point
+# the call at the method that exists, implement it, or delete it.
+#
+# Origin: #430 found 22 of these across nine pages. 13 were fixed in the same PR
+# that added this guard (SEPA reconciliation decorator order; payment_dashboard's
+# export/save endpoints; the campaign donation, DD batch optimizer, and email
+# group sync calls; two whole dev-tool pages deleted). These 9 remain, in two
+# pages:
+#
+# /mt940_import (templates/pages/mt940_import.html) -- three "debug" buttons
+# layered on an otherwise-working MT940 bank-statement import page. The page's
+# actual import flow (submit_import, create_mollie_bulk_import,
+# import_mt940_improved, etc.) all resolve and are whitelisted; only the
+# diagnostic buttons call a module that was never shipped.
+#
+# /eboekhouden_mapping_review (templates/pages/eboekhouden_mapping_review.html)
+# -- also linked from verenigingen/public/js/eboekhouden_migration_config.js and
+# verenigingen/e_boekhouden/doctype/e_boekhouden_migration/e_boekhouden_migration.js,
+# both outside this fix's owned territory (templates/, www/, api/, and
+# verenigingen_payments/api/sepa_reconciliation.py) -- left for a follow-up that
+# can review those callers too.
+
+verenigingen.api.member_management_debug.debug_mt940_import	MISSING
+verenigingen.api.member_management_debug.debug_mt940_import_detailed	MISSING
+verenigingen.api.member_management_debug.debug_mt940_import_improved	MISSING
+verenigingen.api.member_management_debug.test_mt940_extraction	MISSING
+verenigingen.e_boekhouden.utils_account_analyzer.bulk_create_mappings	MISSING
+verenigingen.e_boekhouden.utils_account_analyzer.create_default_range_mappings	MISSING
+verenigingen.e_boekhouden.utils_account_analyzer.create_mapping_from_suggestion	MISSING
+verenigingen.e_boekhouden.utils_transaction_type_mapper.get_transaction_type_mapping	MISSING
+verenigingen.e_boekhouden.utils_transaction_type_mapper.test_transaction_type_detection	MISSING
