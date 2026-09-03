@@ -348,5 +348,149 @@ class TestGateEndToEnd(unittest.TestCase):
         self.assertNotIn("self-healing", result.stdout)
 
 
+class TestRequireMarker(unittest.TestCase):
+    """#769: duplicate_helper_baseline.txt mixes marked (`# clone family`,
+    genuinely near-identical) and unmarked (name collision only, advisory)
+    entries. Before `--require-marker`, this gate diffed the whole file, so an
+    unmarked count going up looked exactly like a marked one and failed the
+    build the same way -- forcing a rename to dodge the diff, even though the
+    validator's own `--report` called the collision a coincidence. Every
+    positive case here pairs with a control that a REAL clone-family growth
+    still fails with the flag active, so a change that widened the exemption
+    too far would be caught here too.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.repo = Path(self._tmp.name)
+        _git("init", "-q", cwd=self.repo)
+        _git("config", "user.email", "t@example.com", cwd=self.repo)
+        _git("config", "user.name", "t", cwd=self.repo)
+        self.baseline = self.repo / "some_baseline.txt"
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _commit(self, text: str):
+        self.baseline.write_text(text, encoding="utf-8")
+        _git("add", "some_baseline.txt", cwd=self.repo)
+        r = _git("commit", "-q", "-m", "baseline", cwd=self.repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def _run_gate(self, *extra_args):
+        return subprocess.run(
+            [sys.executable, str(_MOD_PATH), str(self.baseline), "regen-cmd --update-baseline", *extra_args],
+            cwd=str(self.repo),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+    def test_unmarked_count_growth_is_ignored(self):
+        """The #769 shape exactly: `_row::6 -> _row::7`, no marker."""
+        self._commit("_row::6\n_persist::2  # clone family, 100% of pairs near-identical\n")
+        self.baseline.write_text(
+            "_row::7\n_persist::2  # clone family, 100% of pairs near-identical\n",
+            encoding="utf-8",
+        )
+        result = self._run_gate("--require-marker", "# clone family")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("matches the tree", result.stdout)
+
+    def test_marked_count_growth_still_fails(self):
+        """Control: a real clone-family copy landing alongside the unmarked
+        growth above must still redden the build, and the message must name
+        only the marked entry -- not the unmarked one riding along with it."""
+        self._commit("_row::6\n_persist::2  # clone family, 100% of pairs near-identical\n")
+        self.baseline.write_text(
+            "_row::7\n_persist::3  # clone family, 100% of pairs near-identical\n",
+            encoding="utf-8",
+        )
+        result = self._run_gate("--require-marker", "# clone family")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("_persist", result.stdout)
+        self.assertNotIn("_row", result.stdout)
+
+    def test_new_unmarked_key_is_ignored(self):
+        self._commit("_persist::2  # clone family, 100% of pairs near-identical\n")
+        self.baseline.write_text(
+            "_persist::2  # clone family, 100% of pairs near-identical\n_new_collision::2\n",
+            encoding="utf-8",
+        )
+        result = self._run_gate("--require-marker", "# clone family")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_new_marked_key_still_fails(self):
+        """Control for the case above: a brand-new MARKED family must still fail."""
+        self._commit("_persist::2  # clone family, 100% of pairs near-identical\n")
+        self.baseline.write_text(
+            "_persist::2  # clone family, 100% of pairs near-identical\n"
+            "_new_clone::2  # clone family, 100% of pairs near-identical\n",
+            encoding="utf-8",
+        )
+        result = self._run_gate("--require-marker", "# clone family")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("_new_clone", result.stdout)
+
+    def test_percentage_only_change_on_a_marked_line_still_fails(self):
+        """Drift WITHIN the marked subset (the existing S2 shape) must not be
+        widened into a false pass just because scoping was added."""
+        self._commit("_account::3  # clone family, 33% of pairs near-identical\n")
+        self.baseline.write_text(
+            "_account::3  # clone family, 67% of pairs near-identical\n", encoding="utf-8"
+        )
+        result = self._run_gate("--require-marker", "# clone family")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertNotIn("self-healing", result.stdout)
+
+    def test_marked_shrink_self_heals_while_unmarked_growth_is_ignored(self):
+        """A mixed change: a clone family consolidated away (marked, shrunk),
+        a DIFFERENT clone family untouched (marked, unchanged -- keeps the
+        filtered census non-empty so this does not trip the separate "scan
+        found nothing" guard tested elsewhere), and a coincidental name
+        collision growing a lot (unmarked). Only the marked shrink may appear
+        in the outcome."""
+        self._commit(
+            "_account::3  # clone family, 33% of pairs near-identical\n"
+            "_other::2  # clone family, 100% of pairs near-identical\n"
+            "_row::6\n"
+        )
+        self.baseline.write_text(
+            "_other::2  # clone family, 100% of pairs near-identical\n_row::99\n",
+            encoding="utf-8",
+        )
+        result = self._run_gate("--require-marker", "# clone family")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("self-healing", result.stdout)
+        self.assertIn("_account", result.stdout)
+        self.assertNotIn("_row", result.stdout)
+
+    def test_fail_on_shrink_flag_still_applies_within_the_marked_scope(self):
+        self._commit(
+            "_account::3  # clone family, 33% of pairs near-identical\n"
+            "_other::2  # clone family, 100% of pairs near-identical\n"
+            "_row::6\n"
+        )
+        self.baseline.write_text(
+            "_other::2  # clone family, 100% of pairs near-identical\n_row::99\n",
+            encoding="utf-8",
+        )
+        result = self._run_gate("--require-marker", "# clone family", "--fail-on-shrink")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertNotIn("self-healing", result.stdout)
+        self.assertIn("_account", result.stdout)
+        self.assertNotIn("_row", result.stdout)
+
+    def test_without_the_flag_unmarked_growth_still_fails_as_before(self):
+        """Confirms the flag is opt-in: the other three callers of this gate
+        pass nothing for it, and must keep failing on ANY growth exactly as
+        they did before this change."""
+        self._commit("_row::6\n")
+        self.baseline.write_text("_row::7\n", encoding="utf-8")
+        result = self._run_gate()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("_row::6 -> _row::7", result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

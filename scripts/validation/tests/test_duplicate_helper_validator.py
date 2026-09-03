@@ -389,6 +389,47 @@ class BaselineIOTest(unittest.TestCase):
             self.assertEqual({"_thing": 4}, dhv.load_baseline(p))
 
 
+class KnownGapTest(unittest.TestCase):
+    """A gap #769 documents rather than fixes.
+
+    #769's other case: `test_member_import.py::_create_stub_member_import_doc`
+    is a genuine near-identical copy of a stub helper two OTHER files already
+    extracted into a shared support module -- under a PUBLIC name, since a
+    shared module exports its helpers without a leading underscore. census()
+    groups strictly by name and never counts public names at all (see
+    `WhatCountsTest.test_public_names_are_ignored` -- that exclusion exists so
+    Frappe's required `execute`/`get_context`/`run_tests` don't bury the real
+    signal), so a private helper left behind under its old name is compared
+    against nothing: it is the only file with that name, `census()` requires
+    more than one, and the byte-identical body two other files already share
+    (now under a different, public name) is invisible.
+
+    #769 chose Option 1 -- teach the CI gate to trust the near-identity
+    verdict `main()` already computes, rather than rekey the whole census on
+    a body fingerprint (Option 2). Option 1 does not touch `census()`/
+    `_by_name()` at all, so this gap is unchanged by that fix. Closing it
+    needs a fingerprint that spans BOTH private and public definitions, which
+    would also rebaseline every line in duplicate_helper_baseline.txt --
+    deliberately left for a follow-up, not bundled into a CI-gate fix.
+    """
+
+    _BODY = "\n".join(f"    x{i} = {i}" for i in range(10))
+
+    def test_a_private_copy_of_an_already_extracted_public_helper_is_invisible(self):
+        census = _census(
+            {
+                # The extracted, shared, PUBLIC copy -- excluded from the
+                # census outright, by name alone, regardless of body.
+                "tests/support/stubs.py": f"def make_stub():\n{self._BODY}\n",
+                # A third, unextracted copy: byte-identical body, but kept
+                # under its old PRIVATE name -- the one file with that name.
+                "tests/test_member_import.py": f"def _make_stub():\n{self._BODY}\n",
+            }
+        )
+        self.assertNotIn("_make_stub", census)
+        self.assertNotIn("make_stub", census)
+
+
 class WholeTreeTest(unittest.TestCase):
     """Pinned totals. Without a hard number, every test above is satisfied by a
     census that finds nothing."""

@@ -105,6 +105,31 @@ mistake). Left unchecked this would make `old`/`new` look identical --
 whether the tree actually grew -- so `main()` refuses to proceed unless it
 can account for every non-comment, non-blank line on both sides.
 
+SCOPING TO A SUBSET OF LINES (``--require-marker``)
+------------------------------------------------------
+``duplicate_helper_validator.py``'s baseline records TWO kinds of entry: a
+name marked ``# clone family`` (near-identical copies -- what the ratchet
+actually blocks on) and an unmarked name collision (same name, unrelated
+bodies -- reported, never blocked; see that validator's own module
+docstring). Comparing the WHOLE file, as every other caller of this gate
+does, cannot tell those apart: an unmarked count going up looks exactly like
+a marked one going up, so this step failed on it regardless -- issue #769,
+where two test-double builders happened to share a name with six and two
+unrelated helpers, and the validator's own ``--report`` called the shared
+name "very likely a coincidence rather than a copy-paste". The only way to
+turn this step green was to rename the new helpers, teaching contributors
+that private test-helper names are effectively global, which is exactly the
+"only exit is renaming" the validator was written to stop imposing.
+
+``--require-marker TEXT`` fixes that by restricting BOTH sides to data lines
+containing ``TEXT`` before anything else runs -- including the fast-path
+equality check, so an unmarked-only change never even reaches ``classify()``.
+A marked entry's count still changing is unaffected: it is still a hard
+failure (or self-heals on pure shrinkage, per the flag above), because that
+is the one class of growth this ratchet exists to catch. The other three
+callers of this gate have no such split in their baselines and pass nothing
+for this flag, so their behaviour is unchanged.
+
 WHAT THIS DOES NOT COVER
 --------------------------
 Whether a shrink was a GENUINE fix, as opposed to a suppression pragma
@@ -256,6 +281,19 @@ def main(argv: list[str]) -> int:
             "SELF-HEALING' above."
         ),
     )
+    ap.add_argument(
+        "--require-marker",
+        default=None,
+        help=(
+            "Scope the whole comparison to data lines containing this substring "
+            "(e.g. duplicate_helper_baseline.txt's '# clone family' marker) -- a "
+            "line missing it never counts as grown, appeared, or shrunk, on "
+            "EITHER side. See 'SCOPING TO A SUBSET OF LINES' above: without this, "
+            "a baseline that also records non-blocking entries (a name collision "
+            "the validator itself reports as advisory) forces a sync commit for "
+            "those too, which is where issue #769 came from."
+        ),
+    )
     args = ap.parse_args(argv[1:])
 
     new_text = args.baseline.read_text(encoding="utf-8") if args.baseline.exists() else ""
@@ -268,8 +306,22 @@ def main(argv: list[str]) -> int:
         print(f"No committed copy of {args.baseline} to compare against -- nothing to check.")
         return 0
 
+    scope_note = ""
+    if args.require_marker:
+        # Filter BEFORE any comparison, including the fast-path equality check
+        # below, so a change confined to non-matching lines (e.g. a growing
+        # advisory-only count) is invisible to every later step -- not just
+        # reclassified once it reaches `classify()`. That matters for the
+        # "text differs but no key changed" fallback near the end of this
+        # function: without filtering up front, an advisory-only change would
+        # reach that branch (still "text differs") and fail there instead,
+        # under a more confusing message, defeating the whole point.
+        old_text = "\n".join(line for line in data_lines(old_text) if args.require_marker in line)
+        new_text = "\n".join(line for line in data_lines(new_text) if args.require_marker in line)
+        scope_note = f" (lines containing {args.require_marker!r} only)"
+
     if old_text == new_text:
-        print(f"{args.baseline}: matches the tree.")
+        print(f"{args.baseline}: matches the tree{scope_note}.")
         return 0
 
     old = parse_baseline(old_text)
