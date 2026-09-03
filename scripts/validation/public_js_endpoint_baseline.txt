@@ -1,0 +1,27 @@
+# Known dead public/js endpoint targets -- the ratchet baseline for
+# scripts/validation/public_js_endpoint_resolver.py. Format:
+#     <js file>::<dotted target>
+#
+# A finding is a (file, target) pair whose dotted Python path resolves to
+# nothing in the tree -- see the module docstring for how each entry here
+# was found and why it is not yet fixed. This baseline should only shrink;
+# a fix removes its line here rather than needing an update.
+#
+verenigingen/public/js/eboekhouden_migration_config.js::verenigingen.e_boekhouden.api.add_account_mapping
+verenigingen/public/js/eboekhouden_migration_config.js::verenigingen.e_boekhouden.api.apply_suggested_mappings
+verenigingen/public/js/eboekhouden_migration_config.js::verenigingen.e_boekhouden.api.bulk_update_mappings
+verenigingen/public/js/eboekhouden_migration_config.js::verenigingen.e_boekhouden.api.clear_all_mappings
+verenigingen/public/js/eboekhouden_migration_config.js::verenigingen.e_boekhouden.api.export_migration_config
+verenigingen/public/js/eboekhouden_migration_config.js::verenigingen.e_boekhouden.api.get_migration_config_status
+verenigingen/public/js/eboekhouden_migration_config.js::verenigingen.e_boekhouden.api.get_staged_data_summary
+verenigingen/public/js/eboekhouden_migration_config.js::verenigingen.e_boekhouden.api.import_migration_config
+verenigingen/public/js/eboekhouden_migration_config.js::verenigingen.e_boekhouden.api.preview_migration_impact
+verenigingen/public/js/eboekhouden_migration_config.js::verenigingen.e_boekhouden.api.remove_account_mapping
+verenigingen/public/js/eboekhouden_migration_config.js::verenigingen.e_boekhouden.api.stage_eboekhouden_data
+verenigingen/public/js/eboekhouden_migration_config.js::verenigingen.e_boekhouden.api.start_configured_migration
+verenigingen/public/js/eboekhouden_migration_config.js::verenigingen.e_boekhouden.api.suggest_account_mappings
+verenigingen/public/js/eboekhouden_migration_config.js::verenigingen.e_boekhouden.api.update_account_mapping
+verenigingen/public/js/expense_claim_form.vue::verenigingen.api.volunteer.expenses.get_volunteer_expense_context
+verenigingen/public/js/expense_claim_form.vue::verenigingen.api.volunteer.expenses.submit_multiple_expenses
+verenigingen/public/js/member/js_modules/payment-utils.js::verenigingen.verenigingen.doctype.member.member.get_current_dues_schedule_details
+verenigingen/public/js/member/js_modules/payment-utils.js::verenigingen.verenigingen.doctype.member.member.refresh_fee_change_history

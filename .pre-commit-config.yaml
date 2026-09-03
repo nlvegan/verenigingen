@@ -418,6 +418,28 @@ repos:
         verbose: true
         exclude: '^(scripts/validation/archived/|scripts/validation/tests/|verenigingen/tests/)'
 
+      - id: public-js-endpoint-resolver
+        name: 🔌 public/js Endpoint Resolver (ratchet)
+        description: >-
+          A `frappe.call`/`frappe.xcall` in public/js naming a `verenigingen.*`
+          dotted path that resolves to no `def` in the tree: a renamed/moved
+          module, or JS written against a server contract that was never built.
+          #679 found six such calls in a file that turned out to be unreachable
+          from any page, hook, or bundle -- shipped, broken, unused. Scoped to
+          verenigingen/public/js only; templates/www/api endpoint resolution is
+          a separate guard's territory (#430). Ratcheted against
+          scripts/validation/public_js_endpoint_baseline.txt (18 known dead
+          targets, tracked for follow-up) so existing code does not block
+          commits -- the baseline should only ever shrink. ADVISORY while that
+          inventory is triaged: it prints and exits 0; add --strict to the
+          entry below to make a new dead target fail the commit.
+        entry: python scripts/validation/public_js_endpoint_resolver.py
+        language: system
+        pass_filenames: false
+        files: '^verenigingen/public/js/.*\.(js|vue)$'
+        stages: [pre-commit]
+        verbose: true
+
       - id: log-error-arg-order-validator
         name: 🔄 log_error(message, title) Argument Order (ratchet)
         description: >-
