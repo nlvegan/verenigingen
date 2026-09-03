@@ -144,10 +144,13 @@ class TestVolunteerBoardFinancePersona(VereningingenTestCase):
         if not frappe.db.exists("Expense Category", "Travel"):
             # Get default expense account (ERPNext infrastructure dependency)
             company = frappe.defaults.get_user_default("Company") or frappe.db.get_value("Company", {}, "name")
+            # (#461: "Expense" is not a valid Account.account_type -- that filter
+            # matched zero rows on every site. Scope by root_type instead.)
             expense_account = frappe.db.get_value(
                 "Account",
                 {
-                    "account_type": "Expense",
+                    "root_type": "Expense",
+                    "is_group": 0,
                     "company": company
                 },
                 "name"
@@ -366,10 +369,11 @@ class TestVolunteerBoardFinancePersona(VereningingenTestCase):
         self.track_doc("Volunteer", other_volunteer.name)
 
         # Create Materials expense category if it doesn't exist (skip if no expense account)
+        # (#461: "Expense" is not a valid Account.account_type -- see the Phase 5 fix above.)
         company = frappe.defaults.get_user_default("Company") or frappe.db.get_value("Company", {}, "name")
         expense_account = frappe.db.get_value(
             "Account",
-            {"account_type": "Expense", "company": company},
+            {"root_type": "Expense", "is_group": 0, "company": company},
             "name"
         )
 

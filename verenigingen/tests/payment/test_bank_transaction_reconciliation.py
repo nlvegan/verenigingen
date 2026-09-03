@@ -1019,13 +1019,15 @@ class TestFeesAccount(BTRBase):
         self.assertIn("Payment Processing Fees", frappe.db.get_value("Account", resolved, "account_name"))
 
     def test_throws_when_no_account_available(self):
-        # No fees account configured, no pattern-named account, and this site has
-        # no account_type=="Expense" leaf account -> the method throws.
+        # No fees account configured and no pattern-named account -> the method
+        # throws. (#461: the method used to also fall back to any leaf Account
+        # with account_type=="Expense" -- not a valid Account.account_type value,
+        # so that branch could never resolve on any site and has been removed;
+        # the throw is now unconditional once the remaining check below and the
+        # patched config accessor are satisfied.)
         #
         # Determinism: patch the config accessor (env/config boundary) so the
         # configured-fees-account short-circuit never fires, regardless of site.
-        if frappe.db.count("Account", {"account_type": "Expense", "is_group": 0}):
-            self.skipTest("Site has Expense-typed accounts; throw branch not reachable")
         if frappe.db.get_value("Account", {"account_name": ["like", "%Payment Processing Fees%"]}, "name"):
             self.skipTest("A pattern-named fees account already exists on this site")
         with patch.object(self.mgr.config, "get_fees_account_optional", return_value=None):

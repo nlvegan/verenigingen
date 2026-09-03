@@ -50,12 +50,13 @@ required a live Mollie SettlementsClient and so was never exercised by tests):
      run inserted another full set. Fixed by refusing the settlement up front, before
      any insert. See TestSettlementSubmitPermission.
 
-DEAD CODE flagged (not seeded): _get_payment_processing_fees_account's final
-fallback queries Account with filters={"account_type": "Expense", ...}, but
-"Expense" is not a valid ERPNext account_type (the options are "Expense Account",
-"Direct Expense", "Indirect Expense", ...). That query can never match, so the
-fallback always falls through to the frappe.throw. Lines ~1124-1138 are effectively
-unreachable; left uncovered and reported rather than seeded.
+DEAD CODE removed (#461): _get_payment_processing_fees_account's final fallback
+queried Account with filters={"account_type": "Expense", ...}, but "Expense" is
+not a valid ERPNext account_type (the options are "Expense Account",
+"Direct Expense", "Indirect Expense", ...). That query could never match, so the
+fallback always fell through to the frappe.throw. Since the fallback could never
+resolve on any site, deleting it is behaviour-preserving; the method now throws
+directly once the pattern-name search is exhausted.
 """
 
 import contextlib
