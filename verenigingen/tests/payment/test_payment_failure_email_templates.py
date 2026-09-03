@@ -23,6 +23,7 @@ import frappe
 from frappe.utils import getdate, now_datetime
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.utils.operation_result import OperationResult
 
 
 class TestPaymentFailureEmailTemplates(EnhancedTestCase):
@@ -116,7 +117,7 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
 
         # Mock email service
         mock_email_service = Mock()
-        mock_email_service.send_templated_email.return_value = {"status": "success"}
+        mock_email_service.send_templated_email.return_value = OperationResult.ok({}, message="sent")
         mock_get_service.return_value = mock_email_service
 
         # Mock payment object
@@ -159,7 +160,7 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
 
         # Mock email service
         mock_email_service = Mock()
-        mock_email_service.send_templated_email.return_value = {"status": "success"}
+        mock_email_service.send_templated_email.return_value = OperationResult.ok({}, message="sent")
         mock_get_service.return_value = mock_email_service
 
         # Mock payment
@@ -198,7 +199,7 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
 
         # Mock email service
         mock_email_service = Mock()
-        mock_email_service.send_templated_email.return_value = {"status": "success"}
+        mock_email_service.send_templated_email.return_value = OperationResult.ok({}, message="sent")
         mock_get_service.return_value = mock_email_service
 
         # Create only the generic email template in the database (real data, not mocked)
@@ -321,7 +322,19 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
             self.fail(f"Should handle email service errors gracefully: {e}")
 
     def test_subscription_status_change_notification_templates(self):
-        """Test subscription status change notification templates"""
+        """Test subscription status change notification templates
+
+        REGRESSION: send_templated_email() (services/communication/email_service.py)
+        returns a real OperationResult dataclass, not a dict -- the mock here must
+        return the same shape the production EmailService actually returns.
+        _notify_subscription_status_change() previously read
+        result.get("status") == "success", which raises AttributeError on a real
+        OperationResult on every call. That AttributeError was itself swallowed by
+        the function's own outer try/except (so the call still "succeeds" from the
+        caller's point of view), which is exactly why a bare
+        "does it raise" test cannot catch this class of bug -- the assertion below
+        inspects the logger calls the two branches actually make, which do differ.
+        """
         from verenigingen.verenigingen_payments.mollie.api.sync import _notify_subscription_status_change
 
         # Mock subscription status data. Mollie's status value is "canceled"
@@ -336,10 +349,15 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
         # (This tests the template selection logic)
         try:
             # This would normally send an email, but we're testing template selection
-            with patch('verenigingen.services.communication.email_service.get_email_service') as mock_get_service:
+            with patch('verenigingen.services.communication.email_service.get_email_service') as mock_get_service, \
+                 patch('verenigingen.verenigingen_payments.mollie.api.sync.frappe.logger') as mock_logger:
                 mock_email_service = Mock()
-                mock_email_service.send_templated_email.return_value = {"status": "success"}
+                mock_email_service.send_templated_email.return_value = OperationResult.ok(
+                    {}, message="sent"
+                )
                 mock_get_service.return_value = mock_email_service
+                mock_log = Mock()
+                mock_logger.return_value = mock_log
 
                 _notify_subscription_status_change(
                     self.test_member,
@@ -351,6 +369,13 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
                 # Verify correct template was selected
                 call_kwargs = mock_email_service.send_templated_email.call_args[1]
                 self.assertEqual(call_kwargs["template_name"], "subscription_cancelled")
+
+                # A successful OperationResult must be read via .success, not
+                # .get("status") -- the buggy version raised AttributeError here,
+                # was swallowed by the outer except, and logged via .error(...)
+                # instead of the success .info(...) line below.
+                mock_log.info.assert_called_once()
+                mock_log.error.assert_not_called()
 
         except Exception as e:
             self.fail(f"Subscription status change notification failed: {e}")
@@ -380,7 +405,7 @@ class TestEmailTemplatePerformance(EnhancedTestCase):
 
         # Mock email service
         mock_email_service = Mock()
-        mock_email_service.send_templated_email.return_value = {"status": "success"}
+        mock_email_service.send_templated_email.return_value = OperationResult.ok({}, message="sent")
         mock_get_service.return_value = mock_email_service
 
         # Mock payment

@@ -29,6 +29,7 @@ from frappe.test_runner import make_test_records
 from frappe.utils import getdate, now_datetime
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.utils.operation_result import OperationResult
 
 
 class TestWebhookIntegrationComprehensive(EnhancedTestCase):
@@ -164,7 +165,9 @@ class TestWebhookIntegrationComprehensive(EnhancedTestCase):
                         "verenigingen.services.communication.email_service.get_email_service"
                     ) as mock_email:
                         mock_email_service = Mock()
-                        mock_email_service.send_templated_email.return_value = {"status": "success"}
+                        mock_email_service.send_templated_email.return_value = (
+                            OperationResult.ok({}, message="sent")
+                        )
                         mock_email.return_value = mock_email_service
 
                         # Process webhook
