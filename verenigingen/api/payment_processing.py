@@ -204,35 +204,14 @@ def send_overdue_payment_reminders(
                                  - amount_max: Maximum overdue amount
 
     Returns:
-        dict: Comprehensive reminder processing results:
-            {
-                'success': True,
-                'reminders_sent': 25,
-                'members_processed': 30,
-                'chapters_notified': 5,
-                'processing_summary': {
-                    'total_overdue_amount': 1250.00,
-                    'average_days_overdue': 45,
-                    'successful_deliveries': 23,
-                    'failed_deliveries': 2,
-                    'processing_time_ms': 1850
-                },
-                'chapter_breakdown': [
-                    {
-                        'chapter_name': 'Amsterdam',
-                        'overdue_members': 12,
-                        'total_amount': 600.00,
-                        'reminders_sent': 10
-                    }
-                ],
-                'failed_deliveries': [
-                    {
-                        'member_name': 'MEM-2024-001',
-                        'email': 'invalid@example.com',
-                        'reason': 'Invalid email address'
-                    }
-                ]
-            }
+        OperationResult: ``ok`` with ``data={"count": <reminders sent>}``, or
+            ``ok`` with ``data={"count": 0}`` and a "No overdue payments found"
+            message when the report returns nothing.
+
+            The per-member failures counted in that loop are logged and skipped,
+            not reported to the caller -- so ``count`` is what succeeded, and the
+            shortfall against the number of overdue members is not returned. See
+            the note on the send loop below.
 
     Raises:
         frappe.PermissionError: If user lacks required financial operation permissions
@@ -253,8 +232,6 @@ def send_overdue_payment_reminders(
 
     Business Logic:
         - Identifies overdue invoices based on due dates
-        - Respects member communication preferences
-        - Tracks reminder history to prevent spam
         - Supports chapter-specific processing
         - Generates payment links for convenience
 
@@ -342,9 +319,19 @@ def send_overdue_payment_reminders(
                     sent_count += 1
 
                 except Exception as e:
+                    # log_error's second parameter is `context: dict`, not a title
+                    # string: it does `(context or {}).get("trace_id")`, so a string
+                    # here raises AttributeError *inside this handler* and the
+                    # `continue` below is never reached -- one member's failed send
+                    # aborted the whole run.
                     log_error(
-                        f"Failed to send reminder to {payment_info.get('member_name')}: {str(e)}",
-                        "Payment Reminder Error",
+                        e,
+                        context={
+                            "member": payment_info.get("member_name"),
+                            "operation": "send_overdue_payment_reminders",
+                            "reminder_type": reminder_type,
+                        },
+                        module="verenigingen.api.payment_processing",
                     )
                     continue
 
@@ -531,9 +518,17 @@ def execute_bulk_payment_action(
                 processed_count += 1
 
             except Exception as e:
+                # See the note in send_overdue_payment_reminders: a string second
+                # argument makes this handler raise, so the `continue` never runs
+                # and a bulk action stops partway with its progress unreported.
                 log_error(
-                    f"Bulk action failed for {payment_info.get('member_name')}: {str(e)}",
-                    "Bulk Payment Action Error",
+                    e,
+                    context={
+                        "member": payment_info.get("member_name"),
+                        "operation": "bulk_payment_action",
+                        "action": action,
+                    },
+                    module="verenigingen.api.payment_processing",
                 )
                 continue
 
