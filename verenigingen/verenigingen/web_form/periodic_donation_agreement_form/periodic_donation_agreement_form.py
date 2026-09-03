@@ -19,6 +19,7 @@ from verenigingen.utils.security.api_security_framework import (
     self_service_api,
     utility_api,
 )
+from verenigingen.utils.select_options import coerce_select_option
 
 # Rate limiting configuration
 RATE_LIMIT_SUBMISSIONS_PER_HOUR = 5
@@ -310,7 +311,12 @@ def create_agreement_from_form(donor, form_data, sepa_mandate=None):
     agreement.start_date = form_data.get("start_date")
     agreement.annual_amount = flt(form_data.get("annual_amount"))
     agreement.payment_frequency = form_data.get("payment_frequency")
-    agreement.payment_method = form_data.get("payment_method")
+    # #744: this whitelisted endpoint is reachable with an arbitrary payload,
+    # not only via this form's own (already-matching) payment_method Select --
+    # coerce defensively rather than let _validate_selects() reject the insert.
+    agreement.payment_method = coerce_select_option(
+        "Periodic Donation Agreement", "payment_method", form_data.get("payment_method"), fallback="Other"
+    )
     agreement.status = "Draft"  # Will be activated after verification
 
     if sepa_mandate:

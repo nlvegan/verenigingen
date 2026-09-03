@@ -208,6 +208,50 @@ class TestDonationWebFormPeriodicAgreementNesting(EnhancedTestCase):
         self.assertEqual(agreement.donor, donor.name)
         self.track_doc("Periodic Donation Agreement", agreement.name)
 
+    def test_donation_form_only_payment_method_does_not_fail_agreement_creation(self):
+        """REGRESSION (#744): create_periodic_agreement_from_donation resolves
+        payment_method=data.get("mode_of_payment") or data.get("payment_method").
+        The Donation Form's own field is named "payment_method", not
+        "mode_of_payment" (verified against donation_form.json), so
+        "mode_of_payment" is always absent from real form submissions and this
+        always evaluates to the Donation Form's payment_method value.
+
+        That Select offers "Mollie"/"Cash"/"Check" in addition to "Bank
+        Transfer"/"SEPA Direct Debit" (donation_form.json), but Periodic
+        Donation Agreement.payment_method only declares "SEPA Direct
+        Debit"/"Bank Transfer"/"Other" (periodic_donation_agreement.json). A
+        donor who picks "Mollie" on the Donation Form and opts into a periodic
+        agreement -- an entirely ordinary, unremarkable selection, no
+        tampering involved -- must not have their agreement creation fail.
+        """
+        from verenigingen.verenigingen.web_form.donation_form.donation_form import (
+            create_periodic_agreement_from_donation,
+        )
+
+        donor = self.create_test_donor(donor_type="Individual", anbi_consent=1)
+        data = {
+            "amount": "25.00",
+            "recurring_frequency": "Monthly",
+            # No "mode_of_payment" key -- exactly what a real Donation Form
+            # submission looks like. "payment_method" is the Donation Form's
+            # own field, carrying one of ITS five options.
+            "payment_method": "Mollie",
+        }
+
+        with patch(
+            "verenigingen.verenigingen.web_form.donation_form.donation_form.send_periodic_agreement_info"
+        ):
+            create_periodic_agreement_from_donation(donor.name, data)
+
+        agreements = frappe.get_all(
+            "Periodic Donation Agreement", filters={"donor": donor.name}, fields=["name", "payment_method"]
+        )
+        self.assertEqual(len(agreements), 1, "Mollie must not prevent agreement creation")
+        self.track_doc("Periodic Donation Agreement", agreements[0].name)
+        # The persisted value must be one of PDA's own declared options --
+        # never the raw, out-of-vocabulary Donation Form value "Mollie".
+        self.assertIn(agreements[0].payment_method, ("SEPA Direct Debit", "Bank Transfer", "Other"))
+
     def test_send_periodic_agreement_info_swallows_email_failure(self):
         """send_periodic_agreement_info wraps its email send in its own
         try/except so a broken email service cannot take down agreement

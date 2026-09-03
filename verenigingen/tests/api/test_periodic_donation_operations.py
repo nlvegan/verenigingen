@@ -194,6 +194,43 @@ class TestPeriodicDonationOperations(VereningingenTestCase):
         # Nothing should have been persisted.
         self.assertFalse(frappe.db.exists("Periodic Donation Agreement", {"donor": donor.name}))
 
+    def test_create_agreement_accepts_donation_form_only_payment_methods(self):
+        """#744: the Donation Form's payment_method Select offers "Mollie", "Cash"
+        and "Check" (donation_form.json), none of which are declared options of
+        Periodic Donation Agreement.payment_method ("SEPA Direct Debit", "Bank
+        Transfer", "Other" -- periodic_donation_agreement.json). The Donation
+        Form's own "Create Periodic Donation Agreement" checkbox drives exactly
+        this value, unmapped, into create_periodic_agreement()
+        (verenigingen/web_form/donation_form/donation_form.py,
+        create_periodic_agreement_from_donation()).
+
+        Before the fix, Frappe's _validate_selects() rejects the out-of-range
+        value on insert() and the whole agreement creation fails for a donor who
+        made an entirely ordinary form selection. The API must accept these
+        values by mapping them onto a declared option rather than failing.
+        """
+        donor = self._make_donor(anbi_consent=1)
+
+        for donation_form_value in ("Mollie", "Cash", "Check"):
+            result = create_periodic_agreement(
+                donor=donor.name,
+                annual_amount=1200,
+                payment_frequency="Monthly",
+                payment_method=donation_form_value,
+            )
+            self.assertTrue(
+                self._ok(result),
+                f"payment_method={donation_form_value!r} should not fail agreement "
+                f"creation: {self._errors(result)}",
+            )
+            agreement_name = self._data(result)["agreement"]
+            self.track_doc("Periodic Donation Agreement", agreement_name)
+
+            agreement = frappe.get_doc("Periodic Donation Agreement", agreement_name)
+            # The persisted value must be one of PDA's own declared options --
+            # never the raw, out-of-vocabulary Donation Form value.
+            self.assertIn(agreement.payment_method, ("SEPA Direct Debit", "Bank Transfer", "Other"))
+
     def test_create_agreement_invalid_amount_fails_gracefully(self):
         """Zero annual amount violates validate_annual_amount; API returns failure."""
         donor = self._make_donor(anbi_consent=1)

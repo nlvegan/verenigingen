@@ -22,6 +22,7 @@ from verenigingen.utils.security.api_security_framework import (
     high_security_api,
     standard_api,
 )
+from verenigingen.utils.select_options import coerce_select_option
 
 
 @frappe.whitelist()
@@ -67,7 +68,16 @@ def create_periodic_agreement(
         agreement.donor = donor
         agreement.annual_amount = flt(annual_amount)
         agreement.payment_frequency = payment_frequency
-        agreement.payment_method = payment_method
+        # #744: callers include the Donation Form, whose payment_method Select
+        # ("Bank Transfer"/"SEPA Direct Debit"/"Mollie"/"Cash"/"Check") is a wider
+        # vocabulary than this doctype's own ("SEPA Direct Debit"/"Bank
+        # Transfer"/"Other") -- an unmapped value would otherwise fail
+        # _validate_selects() on insert() below. Map anything outside this
+        # doctype's options onto "Other" rather than reject an ordinary form
+        # submission.
+        agreement.payment_method = coerce_select_option(
+            "Periodic Donation Agreement", "payment_method", payment_method, fallback="Other"
+        )
         agreement.start_date = start_date or today()
         agreement.agreement_type = agreement_type
         agreement.status = "Draft"
