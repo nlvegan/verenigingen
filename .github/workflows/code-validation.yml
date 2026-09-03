@@ -507,6 +507,15 @@ jobs:
     # self-heals rather than failing); see #750. This validator has no
     # suppression-pragma escape hatch, so unlike test_quality above, a
     # self-healed shrink here can only mean the duplicated code itself changed.
+    #
+    # --require-marker scopes this to lines marked `# clone family` -- #769: an
+    # unmarked line (a name collision the validator's own report calls "very
+    # likely a coincidence") growing must not force a sync commit any more than
+    # it fails the ratchet check above. Without this flag, this step diffed the
+    # WHOLE file and failed identically for either kind of growth, and the only
+    # way contributors found to dodge that diff was renaming the new helper --
+    # see duplicate_helper_baseline.txt's own header and baseline_shrink_gate.py's
+    # "SCOPING TO A SUBSET OF LINES" section.
     - name: Baseline is in sync with the tree
       env:
         FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' && '--fail-on-shrink' || '' }}
@@ -515,6 +524,7 @@ jobs:
         python scripts/validation/baseline_shrink_gate.py \
           scripts/validation/duplicate_helper_baseline.txt \
           "python scripts/validation/duplicate_helper_validator.py --update-baseline" \
+          --require-marker "# clone family" \
           $FAIL_ON_SHRINK
 
     # The step above cannot catch the abuse that defeats this gate: regenerating the
