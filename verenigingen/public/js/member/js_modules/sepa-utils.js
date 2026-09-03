@@ -297,8 +297,6 @@ function create_sepa_mandate_with_dialog(frm, message = null) {
 }
 
 function create_mandate_with_values(frm, values, dialog) {
-	const additionalArgs = {};
-
 	// Get server-side validation data
 	frappe.call({
 		method: 'verenigingen.api.member.sepa_api.validate_mandate_creation',
@@ -317,7 +315,6 @@ function create_mandate_with_values(frm, values, dialog) {
 			const serverData = unwrapOperationResult(validation_response.message);
 
 			if (serverData && serverData.existing_mandate) {
-				additionalArgs.replace_existing = serverData.existing_mandate;
 				frappe.show_alert(
 					{
 						message: __('Existing mandate {0} will be replaced', [serverData.existing_mandate]),
@@ -339,8 +336,7 @@ function create_mandate_with_values(frm, values, dialog) {
 					sign_date: values.sign_date,
 					used_for_memberships: values.used_for_memberships,
 					used_for_donations: values.used_for_donations,
-					notes: values.notes,
-					...additionalArgs
+					notes: values.notes
 				},
 				callback(r) {
 					// Handle OperationResult format
