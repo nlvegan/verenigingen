@@ -368,6 +368,18 @@ class BatchPerformanceOptimizer:
         for invoice_name in invoice_names:
             invoice_data = invoices_data.get(invoice_name)
             if not invoice_data:
+                # No Sales Invoice row matched this name (stale reference, already
+                # deleted/amended, or a straight typo from the caller). This used to
+                # be a bare `continue` with no log call at all -- the caller (and any
+                # aggregate shortfall count) had no way to learn even that this
+                # happened, let alone which invoice (#774).
+                frappe.log_error(
+                    title="SEPA Batch - Invoice Not Found",
+                    message=(
+                        f"process_batch_invoices_optimized: requested invoice "
+                        f"{invoice_name} has no matching Sales Invoice row. Skipped."
+                    ),
+                )
                 continue
 
             member_name = invoice_data["member"]
@@ -377,7 +389,19 @@ class BatchPerformanceOptimizer:
             address_data = addresses_data.get(member_name)
 
             if not member_data or not mandate_data:
-                frappe.logger().warning(f"Skipping invoice {invoice_name} - missing member or mandate data")
+                # #774: this was frappe.logger().warning(), which is silently
+                # dropped -- a bare logger's effective level is ERROR, so .warning()
+                # never reaches even the rotating file handler. Use log_error so an
+                # operator can find out an invoice was skipped and why.
+                frappe.log_error(
+                    title="SEPA Batch - Invoice Skipped (Missing Member/Mandate Data)",
+                    message=(
+                        f"process_batch_invoices_optimized: skipped invoice {invoice_name} "
+                        f"for member {member_name} - "
+                        f"member_data={'present' if member_data else 'MISSING'}, "
+                        f"mandate_data={'present' if mandate_data else 'MISSING'}."
+                    ),
+                )
                 continue
 
             # Combine into optimized structure

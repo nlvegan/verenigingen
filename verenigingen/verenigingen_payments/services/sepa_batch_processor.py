@@ -188,8 +188,19 @@ class SEPABatchProcessor:
                 member_data = processed.get("member_data")
 
                 if not mandate_data or not invoice_data or not member_data:
-                    frappe.logger().warning(
-                        f"Skipping invoice {processed.get('invoice_name')} - incomplete data"
+                    # process_batch_invoices_optimized() only ever returns rows with
+                    # all three present, so this should be unreachable -- but if that
+                    # invariant is ever broken, the fallback must not be another
+                    # silent frappe.logger().warning() (#774).
+                    frappe.log_error(
+                        title="SEPA Batch - Unexpected Incomplete Processed Invoice",
+                        message=(
+                            f"add_invoices_to_batch_optimized: skipped invoice "
+                            f"{processed.get('invoice_name')} for batch {batch.name} - incomplete data "
+                            f"(mandate_data={'present' if mandate_data else 'MISSING'}, "
+                            f"invoice_data={'present' if invoice_data else 'MISSING'}, "
+                            f"member_data={'present' if member_data else 'MISSING'})."
+                        ),
                     )
                     continue
 
@@ -218,6 +229,28 @@ class SEPABatchProcessor:
             frappe.logger().info(
                 f"Performance-optimized batch addition: {successful_count}/{len(invoice_names)} invoices processed"
             )
+
+            # #774: the line above is the only place this count ever existed, and
+            # frappe.logger().info() never reaches anywhere an operator or CI can
+            # see -- a bare logger's effective level is ERROR. A batch that
+            # collects fewer invoices than requested must leave a durable, visible
+            # record of that fact, not just look identical to a fully successful
+            # run. Record it twice: on the batch document itself (found by anyone
+            # who opens this specific batch) and in the Error Log (found by anyone
+            # scanning for anomalies without knowing which batch to look at).
+            if successful_count < len(invoice_names):
+                from verenigingen.verenigingen_payments.utils.sepa_utilities import BatchLoggingUtilities
+
+                shortfall = len(invoice_names) - successful_count
+                message = (
+                    f"Batch {batch.name}: requested {len(invoice_names)} invoices, "
+                    f"added {successful_count} ({shortfall} not collected this run). "
+                    f"See individual 'SEPA Batch - Invoice Not Found', 'SEPA Batch - Invoice "
+                    f"Skipped (Missing Member/Mandate Data)' and 'SEPA Batch Processor - Batch "
+                    f"Addition Error' Error Log entries around this time for the per-invoice reasons."
+                )
+                BatchLoggingUtilities.add_to_document_batch_log(batch, message)
+                frappe.log_error(title="SEPA Batch - Invoice Shortfall", message=message)
 
             # Log performance statistics
             stats = self.performance_optimizer.get_performance_stats()

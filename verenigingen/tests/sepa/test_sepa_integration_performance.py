@@ -114,6 +114,10 @@ class TestSEPAIntegrationPerformance(EnhancedTestCase):
         # Add an invalid invoice name to trigger error handling
         invoice_names.append("INVALID-INVOICE-999")
 
+        # #774: the skip for a not-found invoice now records a findable Error Log
+        # entry instead of silently vanishing.
+        self.expectErrorLog("SEPA Batch - Invoice Not Found")
+
         with monitor_sepa_operation("error_handling_test", batch_size=len(invoice_names)):
             # Process with error handling enabled
             processed = self.performance_optimizer.process_batch_invoices_optimized(invoice_names)
