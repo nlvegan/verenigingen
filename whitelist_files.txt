@@ -534,9 +534,9 @@
 ./verenigingen/verenigingen/report/members_without_active_memberships/members_without_active_memberships.py
 ./verenigingen/verenigingen/report/members_without_dues_schedule/members_without_dues_schedule.py
 ./verenigingen/verenigingen/report/termination_audit_report/termination_audit_report.py
+./verenigingen/verenigingen/web_form/donation_form/donation_form.py
 ./verenigingen/verenigingen/web_form/membership_application.py
-./verenigingen/web_form/donation_form/donation_form.py
-./verenigingen/web_form/periodic_donation_agreement_form/periodic_donation_agreement_form.py
+./verenigingen/verenigingen/web_form/periodic_donation_agreement_form/periodic_donation_agreement_form.py
 ./verenigingen/www/e-boekhouden-dashboard.py
 ./verenigingen/www/monitoring_dashboard.py
 ./verenigingen/verenigingen/doctype/member_import/member_import.py

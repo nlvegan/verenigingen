@@ -566,6 +566,11 @@ verenigingen/verenigingen/report/membership_dues_coverage_analysis/membership_du
 verenigingen/verenigingen/report/membership_dues_coverage_analysis/membership_dues_coverage_analysis.py::get_expected_billing_frequency::1
 verenigingen/verenigingen/report/mollie_balance_report/mollie_balance_report.py::get_data::1
 verenigingen/verenigingen/report/users_by_team/users_by_team.py::get_data::1
+verenigingen/verenigingen/web_form/periodic_donation_agreement_form/periodic_donation_agreement_form.py::attach_document_to_agreement::1
+verenigingen/verenigingen/web_form/periodic_donation_agreement_form/periodic_donation_agreement_form.py::check_rate_limit::1
+verenigingen/verenigingen/web_form/periodic_donation_agreement_form/periodic_donation_agreement_form.py::process_agreement_form::2
+verenigingen/verenigingen/web_form/periodic_donation_agreement_form/periodic_donation_agreement_form.py::send_agreement_submission_confirmation::1
+verenigingen/verenigingen/web_form/periodic_donation_agreement_form/periodic_donation_agreement_form.py::update_donor_bsn::1
 verenigingen/verenigingen_payments/api/balance_transaction_processing.py::check_transaction_status::1
 verenigingen/verenigingen_payments/api/balance_transaction_processing.py::fetch_recent_transactions_for_search::1
 verenigingen/verenigingen_payments/api/balance_transaction_processing.py::get_primary_balance_info::1
@@ -754,14 +759,6 @@ verenigingen/verenigingen_payments/utils/webhook_rate_limiter.py::WebhookRateLim
 verenigingen/verenigingen_payments/utils/webhook_security.py::log_webhook_security_event::1
 verenigingen/verenigingen_payments/workflows/reconciliation_engine.py::ReconciliationEngine._save_reconciliation_record::2
 verenigingen/verenigingen_payments/workflows/reconciliation_engine.py::ReconciliationEngine._validate_bulk_imports::1
-verenigingen/web_form/donation_form/donation_form.py::process_donation_form::1
-verenigingen/web_form/donation_form/donation_form.py::send_donation_confirmation::1
-verenigingen/web_form/donation_form/donation_form.py::send_periodic_agreement_info::1
-verenigingen/web_form/periodic_donation_agreement_form/periodic_donation_agreement_form.py::attach_document_to_agreement::1
-verenigingen/web_form/periodic_donation_agreement_form/periodic_donation_agreement_form.py::check_rate_limit::1
-verenigingen/web_form/periodic_donation_agreement_form/periodic_donation_agreement_form.py::process_agreement_form::2
-verenigingen/web_form/periodic_donation_agreement_form/periodic_donation_agreement_form.py::send_agreement_submission_confirmation::1
-verenigingen/web_form/periodic_donation_agreement_form/periodic_donation_agreement_form.py::update_donor_bsn::1
 verenigingen/www/dues_coverage_manager.py::get_coverage_data::1
 verenigingen/www/e_boekhouden_dashboard.py::get_live_dashboard_data::1
 verenigingen/www/mollie_member_reconciliation.py::get_member_reconciliation_data::1
