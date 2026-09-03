@@ -51,6 +51,20 @@ def create_periodic_agreement(
         OperationResult: Success status and agreement details
     """
     try:
+        # SEPA Direct Debit requires an existing, valid mandate: the collection
+        # pipeline (mandate_candidates.py, sepa_batch_processor.py) resolves
+        # mandates by Member only, and this API has no way to mint a usable one
+        # for a Donor (see #762). Without this guard the agreement is created
+        # anyway with no mandate attached — an inert, uncollectable commitment
+        # that looks successful to the caller (#781).
+        if payment_method == "SEPA Direct Debit" and not sepa_mandate:
+            frappe.throw(
+                _(
+                    "SEPA Direct Debit requires an existing SEPA mandate. "
+                    "Please provide sepa_mandate or choose a different payment method."
+                )
+            )
+
         # Validate donor has ANBI consent
         donor_doc = frappe.get_doc("Donor", donor)
 

@@ -221,6 +221,56 @@ class TestPeriodicDonationOperations(VereningingenTestCase):
         self.assertFalse(self._ok(result))
         self.assertTrue(self._errors(result))
 
+    def test_create_agreement_sepa_without_mandate_is_refused(self):
+        """#781: SEPA Direct Debit with no sepa_mandate must not mint an inert
+        agreement. The collection pipeline resolves mandates by Member only, and
+        this API has no way to create a usable one for a Donor (#762) — an
+        agreement created this way would carry the SEPA payment method forever
+        with nothing that could ever collect it.
+        """
+        donor = self._make_donor(anbi_consent=1)
+
+        result = create_periodic_agreement(
+            donor=donor.name,
+            annual_amount=1200,
+            payment_frequency="Monthly",
+            payment_method="SEPA Direct Debit",
+            agreement_type="Private Written",
+        )
+
+        self.assertFalse(self._ok(result), "SEPA Direct Debit without a mandate must be refused")
+        self.assertTrue(self._errors(result))
+        self.assertIn("SEPA", " ".join(self._errors(result)))
+        self.assertFalse(
+            frappe.db.exists("Periodic Donation Agreement", {"donor": donor.name}),
+            "A refused SEPA creation must not leave an inert agreement behind",
+        )
+
+    def test_create_agreement_sepa_with_existing_mandate_still_works(self):
+        """The sepa_mandate parameter remains usable for a caller that already
+        holds a valid mandate — the guard added for #781 must refuse only the
+        mandate-less case, not SEPA Direct Debit outright.
+        """
+        donor = self._make_donor(anbi_consent=1)
+        mandate = self.create_test_sepa_mandate()
+
+        result = create_periodic_agreement(
+            donor=donor.name,
+            annual_amount=1200,
+            payment_frequency="Monthly",
+            payment_method="SEPA Direct Debit",
+            agreement_type="Private Written",
+            sepa_mandate=mandate.name,
+        )
+
+        self.assertTrue(self._ok(result), f"creation failed: {self._errors(result)}")
+        agreement_name = self._data(result)["agreement"]
+        self.track_doc("Periodic Donation Agreement", agreement_name)
+
+        agreement = frappe.get_doc("Periodic Donation Agreement", agreement_name)
+        self.assertEqual(agreement.payment_method, "SEPA Direct Debit")
+        self.assertEqual(agreement.sepa_mandate, mandate.name)
+
     # ================================================================== #
     # link_donation_to_agreement
     #   NOTE: this whitelisted API has NO production callers (verified via
