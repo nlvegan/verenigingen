@@ -144,13 +144,17 @@ class TestSEPABatchShortfallVisibility(EnhancedTestCase):
             "the batch's own batch_log field has no record of the shortfall",
         )
 
-        # Review round 2 (#774): the shortfall must be a structured, queryable
+        # Review round 2/3 (#774): the shortfall must be a structured, queryable
         # fact on the batch, not just a message someone has to go looking for.
+        # A DISTINCT status ("Partially Collected"), not the existing
+        # "Partially Failed" -- that string already means "the bank bounced a
+        # payment post-submission" (process_batch_returns), asserted by
+        # test_sepa_batch_processor_returns_coverage.py:131.
         self.assertEqual(
             batch.status,
-            "Partially Failed",
+            "Partially Collected",
             "a batch that collected fewer invoices than requested must be "
-            "flagged Partially Failed, not left looking identical to a full success",
+            "flagged Partially Collected, not left looking identical to a full success",
         )
 
         after = frappe.db.count("Error Log", {"method": "SEPA Batch - Invoice Shortfall"})
@@ -160,9 +164,9 @@ class TestSEPABatchShortfallVisibility(EnhancedTestCase):
             "no Error Log entry under a stable, findable title records the batch-level shortfall",
         )
 
-    def test_full_success_does_not_mark_batch_partially_failed(self):
+    def test_full_success_does_not_mark_batch_partially_collected(self):
         """Control for the status assertion above: a batch that collects every
-        requested invoice must NOT be flagged Partially Failed."""
+        requested invoice must NOT be flagged Partially Collected."""
         scenario = self.sepa_factory.create_sepa_test_scenario(
             scenario_name="shortfall_control_full_success", member_count=2
         )
@@ -180,7 +184,7 @@ class TestSEPABatchShortfallVisibility(EnhancedTestCase):
         self.assertEqual(
             batch.status,
             "Draft",
-            "a fully successful batch must not be marked Partially Failed",
+            "a fully successful batch must not be marked Partially Collected",
         )
 
     def test_many_missing_invoices_cap_detail_logs_but_keep_full_count(self):
@@ -219,4 +223,52 @@ class TestSEPABatchShortfallVisibility(EnhancedTestCase):
             "skipped 300 total",
             aggregate[0].error,
             "the aggregate entry must carry the FULL count, not just the capped detail count",
+        )
+
+    def test_partially_collected_status_survives_a_real_save(self):
+        """#774 review round 3: setting `batch.status` to a brand-new Select
+        option is not enough on its own -- Frappe's `_validate_selects()`
+        (base_document.py) throws on `.save()`/`.insert()` if a value is not
+        among the DocField's options AS CACHED ON THIS SITE, and a JSON edit
+        alone does not refresh that cache. This is the exact trap the
+        `_validate_links()`-vs-`validate()` ordering note (see the sibling
+        test in test_dd_batch_pipeline_coverage.py) is about, one layer up:
+        an in-memory assertion on an unsaved doc cannot prove the real
+        `create_dues_collection_batch` path (which DOES call `batch.save()`
+        right after `add_invoices_to_batch_optimized`) will not crash.
+        `bench reload-doctype "Direct Debit Batch"` (or `migrate`) must run on
+        a site before this status can ever be saved there -- documented as a
+        deployment requirement, not assumed away here."""
+        scenario = self.sepa_factory.create_sepa_test_scenario(
+            scenario_name="shortfall_real_save", member_count=2
+        )
+        invoices = [{"name": inv.name} for inv in scenario["invoices"]]
+        invoices.append({"name": "NONEXISTENT-INVOICE-774-REALSAVE"})
+
+        batch = frappe.new_doc("Direct Debit Batch")
+        batch.batch_date = today()
+        batch.batch_description = "Test #774 real-save shortfall"
+        batch.batch_type = "CORE"
+        batch.sequence_type = "RCUR"
+        batch.currency = "EUR"
+
+        processor = SEPABatchProcessor()
+        self.expectErrorLog(
+            "SEPA Batch - Invoice Not Found",
+            "SEPA Batch - Invoice Processing Shortfall (Optimizer)",
+            "SEPA Batch - Invoice Shortfall",
+        )
+        processor.add_invoices_to_batch_optimized(batch, invoices)
+        self.assertEqual(batch.status, "Partially Collected")
+
+        # Mirrors create_dues_collection_batch's own sequence exactly.
+        batch.calculate_totals()
+        batch.insert()  # Must NOT raise frappe.ValidationError from _validate_selects()
+        self.addCleanup(lambda: frappe.delete_doc("Direct Debit Batch", batch.name, force=True))
+
+        batch.reload()
+        self.assertEqual(
+            batch.status,
+            "Partially Collected",
+            "the status must round-trip through a real save, not just live in memory",
         )

@@ -97,7 +97,12 @@ frappe.ui.form.on('Direct Debit Batch', {
 				Processed: 'green',
 				Failed: 'red',
 				Cancelled: 'gray',
-				'Partially Processed': 'yellow'
+				'Partially Processed': 'yellow',
+				// #774: collection-time shortfall (add_invoices_to_batch_optimized)
+				// -- distinct from "Partially Failed" (a bounced payment found in a
+				// bank return file, post-submission).
+				'Partially Collected': 'yellow',
+				'Partially Failed': 'yellow'
 			};
 			frm.page.set_indicator(__(frm.doc.status), status_colors[frm.doc.status] || 'gray');
 		}

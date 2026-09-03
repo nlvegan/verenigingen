@@ -272,6 +272,46 @@ class TestBatchProcessingServiceValidation(_BatchPipelineBase):
         self.assertTrue(result["has_warnings"])
         self.assertTrue(any("not found" in e for e in result["errors"]))
 
+    def test_validate_invoices_writes_capped_detail_to_batch_log(self):
+        """#774 review round 2/3: validate_batch_invoices_optimized's aggregate
+        error count was already visible on batch_log; the per-invoice detail
+        (WHICH invoice, WHY) used to go only to frappe.logger().warning() --
+        dropped the same way every other skip in #774 was. This must reach
+        batch_log too.
+
+        This has to go through a REAL batch.insert(), not a call on an unsaved
+        doc: Frappe's `_validate_links()` runs BEFORE `validate()`
+        (frappe/model/document.py:591 vs :1409), so a literally nonexistent
+        invoice name (as the sibling test above uses, on an unsaved batch)
+        can never reach this code through a real save -- link validation
+        throws first. A real, LINKED Sales Invoice that fails SEPA validation
+        on its own fields is the only way to reach this branch for real, hence
+        the db_set(outstanding_amount=0) below instead of a fake invoice name.
+        """
+        member = self._member_with_membership()
+        mandate = self._sepa.create_test_sepa_mandate(member=member.name, status="Active")
+        _good_invoice, good_row = self._invoice_row(member, mandate, 25.0)
+
+        member2 = self._member_with_membership("1994-04-04")
+        mandate2 = self._sepa.create_test_sepa_mandate(member=member2.name, status="Active")
+        bad_invoice, bad_row = self._invoice_row(member2, mandate2, 30.0)
+        # Real field mutation, not a nonexistent name: InvoiceManagementUtilities.
+        # validate_invoice_for_sepa rejects outstanding_amount <= 0.
+        bad_invoice.db_set("outstanding_amount", 0)
+
+        batch = self._persisted_batch([good_row, bad_row])
+
+        self.assertIn(
+            f"Invoice {bad_invoice.name}",
+            batch.batch_log or "",
+            "the specific invoice must reach batch_log, not just the aggregate count",
+        )
+        self.assertIn(
+            "Outstanding amount must be greater than zero",
+            batch.batch_log or "",
+            "the specific validation REASON must reach batch_log",
+        )
+
     def test_validate_invoices_all_invalid_throws_no_valid(self):
         """When EVERY batch row fails validation (here: a single row pointing at a
         non-existent invoice), valid_count stays 0 and the service throws

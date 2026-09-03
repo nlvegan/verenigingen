@@ -260,29 +260,85 @@ class SEPABatchProcessor:
                 BatchLoggingUtilities.add_to_document_batch_log(batch, message)
                 frappe.log_error(title="SEPA Batch - Invoice Shortfall", message=message)
 
-                # #774 review: a blob in batch_log/Error Log is findable but not
-                # QUERYABLE -- nothing programmatic (the scheduler entry point,
-                # a report, a dashboard) reads either. "Partially Failed" already
-                # exists as a Direct Debit Batch status (used today only
-                # post-submission, in process_sepa_returns, for bounced payments)
-                # so this makes the shortfall a structured, queryable fact instead
-                # of a message someone has to go looking for. Verified this does
-                # not block anything downstream: on_submit() only checks
-                # sepa_file_generated, and no production code gates validation,
-                # submission, or XML generation on status == "Draft". The one
-                # caveat that does NOT get fixed here: if
-                # `auto_submit_sepa_batches` is enabled, `generate_sepa_xml()`
-                # runs in the same job seconds later and unconditionally
-                # `db_set`s status to "Generated"
-                # (sepa_xml_generation_service.py), overwriting this value before
-                # a human sees it. That collision is pre-existing (the same
-                # unconditional overwrite already clobbers the post-return
-                # "Partially Failed" the first time a return-processed batch's
-                # XML is regenerated) and changing it would alter status
-                # semantics for the manual-submission flow too, which is out of
-                # scope for #774. The Error Log entry above is unaffected by
-                # that collision and remains the durable signal either way.
-                batch.status = "Partially Failed"
+                # #774 review round 3: a blob in batch_log/Error Log is findable
+                # but not QUERYABLE -- nothing programmatic (the scheduler entry
+                # point, a report, a dashboard) reads either. This is a NEW,
+                # distinct status ("Partially Collected"), not the existing
+                # "Partially Failed" (process_batch_returns, ~line 575, for
+                # bounced payments POST-submission, asserted by
+                # test_sepa_batch_processor_returns_coverage.py:131) -- that
+                # string already means something different (the bank rejected a
+                # payment after the batch was submitted) and there is also a
+                # third, distinct "Partially Processed"
+                # (_update_batch_status_after_processing). Reusing "Partially
+                # Failed" here would give an operator no way to tell "the
+                # collection undershot" from "the bank bounced a payment" without
+                # opening the batch and reading batch_log. Verified before adding
+                # the option: no Workflow is attached to Direct Debit Batch
+                # (grepped every workflow fixture in the app); the status
+                # Select's options list is not enumerated anywhere that would
+                # need updating (the form's status_colors map and the "SEPA
+                # Payment Status" dashboard chart's group-by are both
+                # value-agnostic, falling back to 'gray'/an extra donut slice for
+                # any unrecognised string -- the same as "Partially Failed"
+                # already does in status_colors today).
+                #
+                # Also verified this does not block anything downstream:
+                # on_submit() only checks sepa_file_generated, and no production
+                # code gates validation, submission, or XML generation on
+                # status == "Draft".
+                #
+                # Grepped every "Draft"/"Generated" reader that treats those as
+                # "still needs attention" and updated each so a shortfall batch
+                # does not silently drop out of view (the actual #774 review-2
+                # regression): sepa_monitoring_dashboard.get_system_alerts's
+                # stuck-batch check, sepa_zabbix_enhanced's
+                # sepa.batch.stuck_count metric (feeds a live Zabbix trigger
+                # prototype), dd_batch_workflow_controller.
+                # get_batches_pending_approval, and the two same-shape
+                # same-date-conflict warnings in sepa_race_condition_manager and
+                # sepa_conflict_detector. NOT changed:
+                # authorization.py::_check_batch_permissions's
+                # status in ["Draft", "Validated"] gate -- that is an ACCESS
+                # decision (can a PROCESS-level non-owner/non-admin user act on
+                # this batch via a decorated API), not a visibility one; every
+                # non-Draft/Validated status already excludes it today
+                # (including the pre-existing "Partially Failed" and "Partially
+                # Processed"), so this is existing, narrower behaviour rather
+                # than something this change newly breaks, and tightening who
+                # may act on a just-flagged batch is arguably the safer default
+                # rather than a regression.
+                #
+                # One caveat this does NOT fix, disclosed rather than glossed
+                # over: this status survives only until the batch is
+                # SUBMITTED. on_submit() unconditionally calls
+                # generate_sepa_xml() whenever sepa_file_generated is falsy, and
+                # generate_sepa_xml_for_batch() does
+                # db_set("status", "Generated") with no read of the prior value
+                # -- so EVERY submitted batch loses this status, not only
+                # auto-submitted ones; auto-submit just shrinks the observation
+                # window to milliseconds inside one job. The Error Log entry
+                # above is unaffected by that and remains the durable signal
+                # regardless of submission.
+                #
+                # DEPLOYMENT REQUIREMENT: "Partially Collected" is a NEW Select
+                # option added to direct_debit_batch.json. Frappe validates
+                # Select values against the DocField's CACHED options on save
+                # (`_validate_selects`, base_document.py) -- a JSON edit alone
+                # does not refresh that cache. Measured on test_site_5: before
+                # `bench reload-doctype "Direct Debit Batch"`,
+                # `frappe.get_meta(...).get_field("status").options` still read
+                # the pre-#774 list with no "Partially Collected"; the SAME
+                # site, same code, only differing by that one command, then
+                # let a real `batch.insert()` with this status succeed. Any
+                # site this ships to needs `bench migrate` (which reloads every
+                # changed doctype) or `bench reload-doctype "Direct Debit
+                # Batch"` run BEFORE the next scheduled
+                # create_dues_collection_batch call, or the very first
+                # shortfall batch will raise a ValidationError out of
+                # batch.save() instead of merely being under-collected --
+                # turning this fix into a harder failure on an unmigrated site.
+                batch.status = "Partially Collected"
 
             # Log performance statistics
             stats = self.performance_optimizer.get_performance_stats()
