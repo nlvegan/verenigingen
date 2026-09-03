@@ -69,7 +69,7 @@ from verenigingen.services.member.utils.member_age_service import calculate_memb
 from verenigingen.services.volunteer.status_derivation_service import (
     get_volunteer_status_derivation_service,
 )
-from verenigingen.utils.dutch_name_utils import format_dutch_full_name, is_dutch_installation
+from verenigingen.utils.dutch_name_utils import format_dutch_full_name
 from verenigingen.utils.member_utils import get_volunteer_for_member
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
@@ -755,7 +755,7 @@ def create_volunteer_from_member(
         if not volunteer_name:
             if member.full_name:
                 volunteer_name = member.full_name
-            elif is_dutch_installation() and hasattr(member, "tussenvoegsel") and member.tussenvoegsel:
+            elif getattr(member, "tussenvoegsel", None):  # the record answers it (#780)
                 volunteer_name = format_dutch_full_name(
                     member.first_name, None, member.tussenvoegsel, member.last_name
                 )
