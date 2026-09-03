@@ -411,46 +411,14 @@ class TestMemberLifecycleWorkflows(EnhancedTestCase):
             }
         ]
 
-        # update_member_full_name() only uses the tussenvoegsel field when
-        # is_dutch_installation() is True, which needs BOTH a Company whose country
-        # is "Netherlands" AND a Redis cache (1h TTL) that is not stale. This test
-        # used to assume both, and neither holds on a fresh site:
-        #   - the cached answer can predate this shard's fixtures entirely;
-        #   - _get_test_company() adopts the FIRST existing Company whatever its
-        #     country (frappe.get_all("Company", limit=1)), so on a CI site it takes
-        #     ERPNext's India-based "_Test Company" and the factory's Netherlands
-        #     company is never created.
-        # Without one, update_member_full_name() silently falls back to the legacy
-        # middle_name branch and produces "Jan Berg" instead of "Jan van der Berg".
-        # It passed locally only because test_site_1 has accumulated ~30 Netherlands
-        # companies over months of runs -- i.e. for the wrong reason.
-        #
-        # So arrange the condition rather than detecting it, unconditionally, so
-        # this runs the same path locally as in CI. The write is rolled back by the
-        # harness; the Redis cache is not, hence the explicit cleanup.
-        from verenigingen.utils.dutch_name_utils import is_dutch_installation
-
-        # is_dutch_installation() reads the DEFAULT company first and only reaches
-        # its scan-all-companies fallback if that lookup does not raise, so flip the
-        # company it will actually consult.
-        dutch_company = frappe.defaults.get_defaults().get("company")
-        if not dutch_company or not frappe.db.exists("Company", dutch_company):
-            dutch_company = frappe.get_all("Company", limit=1, pluck="name")[0]
-        original_country = frappe.db.get_value("Company", dutch_company, "country")
-
-        frappe.cache().delete_value("is_dutch_installation")
-        self.addCleanup(frappe.cache().delete_value, "is_dutch_installation")
-        self.addCleanup(
-            frappe.db.set_value, "Company", dutch_company, "country", original_country
-        )
-        frappe.db.set_value("Company", dutch_company, "country", "Netherlands")
-        frappe.cache().delete_value("is_dutch_installation")
-
-        self.assertTrue(
-            is_dutch_installation(),
-            f"Arranged {dutch_company} as a Netherlands company but is_dutch_installation() "
-            "is still False, so update_member_full_name() would ignore tussenvoegsel entirely.",
-        )
+        # Nothing to arrange: update_member_full_name() reads the record, not the
+        # site (#780, fixed in #786). A populated tussenvoegsel IS the declaration,
+        # so this runs the same path here and on a fresh CI site -- which is what
+        # this test previously needed thirty lines of Company-country flipping and
+        # Redis-cache clearing to fake, and it passed locally only because this
+        # bench had accumulated Netherlands companies. The declared setting that
+        # replaced that scan governs only whether forms OFFER the field; it cannot
+        # change a stored name, which is why there is no setting to set here.
 
         for name_data in dutch_names:
             with self.subTest(name=name_data["tussenvoegsel"] + " " + name_data["last_name"]):

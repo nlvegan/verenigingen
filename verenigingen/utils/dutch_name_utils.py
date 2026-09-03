@@ -4,6 +4,7 @@ Handles Dutch naming conventions including tussenvoegsels
 """
 
 import frappe
+from frappe.utils import cint
 
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import (
@@ -14,40 +15,37 @@ from verenigingen.utils.security.api_security_framework import (
     standard_api,
 )
 
+SETTINGS_DOCTYPE = "Verenigingen Settings"
+DUTCH_NAME_FIELDS_FIELD = "enable_dutch_name_fields"
+
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.UTILITY)
 def is_dutch_installation():
-    """Check if this is a Dutch installation based on company country (cached for performance)"""
-    # Use cache to avoid repeated database queries
-    cache_key = "is_dutch_installation"
-    cached_result = frappe.cache().get_value(cache_key)
+    """Whether to OFFER the tussenvoegsel field on forms and provision it on User.
 
-    if cached_result is not None:
-        return cached_result
+    This decides *display and provisioning only*. Nothing that writes a stored name
+    consults it any more (#780/#786): a populated tussenvoegsel is itself the
+    declaration, and `update_member_full_name` honours it per record. So a member
+    with "van" in their name keeps it whatever this setting says.
 
-    try:
-        result = False
+    It used to answer from a Redis-cached scan for any Company row with country
+    "Netherlands" -- memoized for an hour by whichever caller ran first, and cached
+    as False for five minutes after any exception. That made a site-wide display
+    decision depend on which request or test ran first, and it silently turned
+    itself off for five minutes after any transient database error.
 
-        # Check default company
-        company = frappe.defaults.get_defaults().get("company")
-        if company:
-            company_doc = frappe.get_doc("Company", company)
-            result = company_doc.country == "Netherlands"
+    Reading the setting has no such staleness: `get_single_value` caches in the
+    per-request `frappe.local.value_cache`, which `set_single_value` and an ordinary
+    save both invalidate.
+    """
+    if not frappe.get_meta(SETTINGS_DOCTYPE).has_field(DUTCH_NAME_FIELDS_FIELD):
+        # Code deployed ahead of `bench migrate`. Offer the field rather than
+        # silently hiding it: a visible empty input is recoverable, a missing one
+        # loses a name particle at the only moment it can be captured.
+        return True
 
-        if not result:
-            # Fallback: check all companies
-            companies = frappe.get_all("Company", fields=["country"])
-            result = any(c.country == "Netherlands" for c in companies)
-
-        # Cache result for 1 hour - this rarely changes
-        frappe.cache().set_value(cache_key, result, expires_in_sec=3600)
-        return result
-
-    except Exception:
-        # Cache False result for shorter time in case of errors
-        frappe.cache().set_value(cache_key, False, expires_in_sec=300)  # 5 minutes
-        return False
+    return bool(cint(frappe.db.get_single_value(SETTINGS_DOCTYPE, DUTCH_NAME_FIELDS_FIELD)))
 
 
 def get_full_last_name(last_name, tussenvoegsel=None):
@@ -148,7 +146,16 @@ def setup_dutch_name_fields():
             "description": "Dutch name particles (van, de, van der, etc.)",
             "insert_after": "middle_name",
             "translatable": 0,
-            "depends_on": 'eval:frappe.defaults.get_defaults().company && frappe.get_doc("Company", frappe.defaults.get_defaults().company).country === "Netherlands"',
+            # Deliberately no depends_on. The previous one re-implemented the very
+            # Company-country scan this flag stopped using (#780) -- client-side, where
+            # it could not see the setting -- and it could never have worked anyway:
+            # `frappe.defaults.get_defaults` does not exist in frappe's client JS (it
+            # exposes get_default / get_user_default / get_global_default), so the eval
+            # threw a TypeError, which form/layout.js turns into an "Invalid depends_on
+            # expression" dialog on every User form load. Whether this field exists is
+            # already decided above by is_dutch_installation(); if the setting is later
+            # turned off, the field stays visible and empty, which is the recoverable
+            # direction.
         }
     )
 
