@@ -23,5 +23,3 @@ verenigingen/public/js/eboekhouden_migration_config.js::verenigingen.e_boekhoude
 verenigingen/public/js/eboekhouden_migration_config.js::verenigingen.e_boekhouden.api.update_account_mapping
 verenigingen/public/js/expense_claim_form.vue::verenigingen.api.volunteer.expenses.get_volunteer_expense_context
 verenigingen/public/js/expense_claim_form.vue::verenigingen.api.volunteer.expenses.submit_multiple_expenses
-verenigingen/public/js/member/js_modules/payment-utils.js::verenigingen.verenigingen.doctype.member.member.get_current_dues_schedule_details
-verenigingen/public/js/member/js_modules/payment-utils.js::verenigingen.verenigingen.doctype.member.member.refresh_fee_change_history
