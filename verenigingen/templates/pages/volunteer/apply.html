@@ -406,7 +406,7 @@ document.getElementById('volunteer-application-form').addEventListener('submit',
             `;
             e.target.reset();
         } else {
-            throw new Error((result.message && result.message.message) || '{{ _("Submission failed") }}');
+            throw new Error(getErrorMessage(result.message, '{{ _("Submission failed") }}'));
         }
     } catch (error) {
         messageContainer.innerHTML = `

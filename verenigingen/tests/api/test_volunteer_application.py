@@ -19,6 +19,8 @@ Whitelisted functions in the target module:
   All other functions in the module are private helpers (no @frappe.whitelist).
 """
 
+from unittest.mock import patch
+
 import frappe
 
 from verenigingen.api.volunteer_application import (
@@ -611,6 +613,52 @@ class TestVolunteerApplication(VereningingenTestCase):
         self.assertIn("You must be at least 21 years old to volunteer", rendered)
         self.assertIn("const minimumAge = 21;", rendered)
         self.assertNotIn("at least 16 years old to volunteer", rendered)
+
+    def test_unhandled_exception_does_not_leak_technical_details_to_guest(self):
+        """
+        The `except Exception` branch used to return `technical_details=str(e)`
+        as OperationResult metadata (#674, "Related, same file, same posture").
+        `OperationResult.to_dict(scrub_sensitive=True)` -- what the @public_api
+        decorator actually returns on the wire -- does NOT redact a
+        "technical_details" key (verified: `scrub_metadata`'s key patterns only
+        match names like token/secret/password/apikey/..., not this one), so
+        any internal exception text reached an unauthenticated guest verbatim.
+
+        The trade this fix makes is "log it, don't return it" -- so this also
+        confirms the other half: the detail must still land in the Error Log
+        for an operator, not just disappear.
+
+        The sentinel is per-test-run (self._uniq), not a hardcoded literal:
+        `tabError Log` is MyISAM (non-transactional) and this test's own write
+        to it survives the harness rollback, so a fixed sentinel string would
+        let a stale row from an EARLIER run satisfy the "was it logged"
+        assertion below even with the logging call deleted -- caught by
+        mutation-testing this exact assertion.
+        """
+        sentinel = f"SENTINEL_INTERNAL_DB_DETAIL_{self._uniq}"
+        payload = self._valid_payload()
+        real_get_doc = frappe.get_doc
+
+        def blow_up(*args, **kwargs):
+            if args and isinstance(args[0], dict) and args[0].get("doctype") == "Volunteer":
+                raise Exception(sentinel)
+            return real_get_doc(*args, **kwargs)
+
+        with pinned_setting("minimum_volunteer_age", 21), patch(
+            "verenigingen.api.volunteer_application.frappe.get_doc", side_effect=blow_up
+        ):
+            result = self._submit_as_guest(payload)
+
+        self.assertFalse(self._ok(result))
+        self.assertEqual(self._error_code(result), "APPLICATION_SUBMISSION_ERROR")
+        self.assertNotIn(sentinel, str(result))
+
+        logged = frappe.get_all("Error Log", filters={"error": ["like", f"%{sentinel}%"]}, fields=["name"])
+        self.assertTrue(logged, "the exception detail must still reach the Error Log for an operator")
+        # MyISAM survives the harness rollback -- clean up explicitly so repeat
+        # runs don't accumulate rows (harmless, but noisy).
+        for row in logged:
+            frappe.db.delete("Error Log", {"name": row.name})
 
     def test_time_commitment_mapping(self):
         self.assertEqual(_map_time_commitment("1-5"), "Occasional")

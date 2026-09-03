@@ -2,7 +2,12 @@
  * OperationResult Helper Utilities
  *
  * Centralized utilities for handling OperationResult API responses.
- * APIs migrated to OperationResult pattern return: {success, data, message, timestamp}
+ * OperationResult.to_dict() (the real, empirically-verified wire shape -- see
+ * #674) is nested: {success, data, meta} on success, {success, error: {message,
+ * errors, code, http_status}, meta} on failure. There is NO top-level "data" on
+ * failure and no top-level "message" at all -- the failure text lives at
+ * `error.message`. A legacy flat schema (`to_dict(nested=False)`) instead puts
+ * a plain string directly under "error".
  *
  * These helpers provide:
  * - XSS-safe HTML escaping
@@ -39,15 +44,27 @@ verenigingen.utils.escapeHtml = function (str) {
  * @returns {*} The data payload if success, null if failed, or original value if not OperationResult
  */
 verenigingen.utils.unwrapOperationResult = function (message) {
-	if (message && typeof message === 'object' && 'success' in message && 'data' in message) {
-		return message.success ? message.data : null;
+	if (message && typeof message === 'object' && 'success' in message) {
+		// OperationResult.to_dict()'s nested schema (the default) puts a failure's
+		// details under "error", not "data" -- there is no top-level "data" key at
+		// all on failure. Checking 'data' in message here used to make every
+		// failure fall through to `return message` below (the whole envelope,
+		// which is truthy), so callers doing `if (unwrapOperationResult(...))`
+		// read every failure as a success (#674).
+		if (!message.success) {
+			return null;
+		}
+		if ('data' in message) {
+			return message.data;
+		}
 	}
 	return message;
 };
 
 /**
  * Get error message from OperationResult or plain response
- * Handles multiple error formats: error_message, errors[], message
+ * Handles multiple error formats: error (nested object or string), error_message,
+ * errors[], message
  * @param {*} message - Response from frappe.call (r.message)
  * @param {string} defaultMsg - Default message if none found
  * @returns {string} Error message
@@ -55,6 +72,21 @@ verenigingen.utils.unwrapOperationResult = function (message) {
 verenigingen.utils.getErrorMessage = function (message, defaultMsg) {
 	if (message && typeof message === 'object') {
 		if ('success' in message && !message.success) {
+			// OperationResult.to_dict()'s nested schema puts the failure text
+			// under "error" as an object {message, errors, code, http_status}
+			// (#674). Checked first because it is the one shape a real
+			// OperationResult failure actually produces, but only inside the
+			// success===false guard: a success-flagged response that happens to
+			// carry an unrelated `error` field (e.g. a validation sub-result)
+			// must not have that field mined for the top-level message.
+			if (message.error && typeof message.error === 'object') {
+				if (message.error.message) {
+					return message.error.message;
+				}
+				if (Array.isArray(message.error.errors) && message.error.errors.length > 0) {
+					return message.error.errors.join('; ');
+				}
+			}
 			// Check for error_message (common in OperationResult)
 			if (message.error_message) {
 				return message.error_message;
@@ -63,8 +95,11 @@ verenigingen.utils.getErrorMessage = function (message, defaultMsg) {
 			if (message.errors && Array.isArray(message.errors) && message.errors.length > 0) {
 				return message.errors.join('; ');
 			}
-			// Fall back to generic message field
-			return message.message || defaultMsg;
+			// Fall back to the generic message field, then to a string `error`
+			// (the legacy flat schema, to_dict(nested=False)) -- `error` is
+			// ambiguous between a human message and a machine code, so it is
+			// the last resort, after the fields more likely to hold prose.
+			return message.message || (typeof message.error === 'string' ? message.error : defaultMsg);
 		}
 		// Check individual fields even without success flag
 		if (message.error_message) {
