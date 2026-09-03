@@ -182,12 +182,25 @@ class TestPaymentProcessingAPIReal(EnhancedTestCase):
         # Create real overdue invoice in database (no mocks)
         real_overdue_invoice = self.create_real_test_invoice(
             member=self.overdue_member,
-            status="Overdue", 
+            status="Overdue",
             amount=50.0,
             custom_is_membership_dues=1,
             custom_member=self.overdue_member.name
         )
-        
+
+        # #792: an explicit SECOND overdue member is the control -- without it,
+        # `assertEqual(count, 1)` below would pass even with the member filter
+        # completely ignored, on any run where this happens to be the only
+        # overdue invoice around. With this second member present, an
+        # unscoped query would return 2.
+        self.create_real_test_invoice(
+            member=self.test_member,
+            status="Overdue",
+            amount=50.0,
+            custom_is_membership_dues=1,
+            custom_member=self.test_member.name,
+        )
+
         # Test with real business logic and real data, filtered to our member.
         result = send_overdue_payment_reminders(
             filters=json.dumps({"member": self.overdue_member.name})
@@ -196,7 +209,12 @@ class TestPaymentProcessingAPIReal(EnhancedTestCase):
         # Verify real business logic worked. Email is queued via the unified
         # EmailService (Email Queue), so assert on the real observable outcome.
         self.assertTrue(result.get("success", False), "Real business logic should succeed with real data")
-        self.assertGreater(result.get("count", 0), 0, "Should process real overdue members")
+        # #792: the member filter must scope to exactly this member's one
+        # overdue row -- a > 0 assertion would pass even if the filter were
+        # silently ignored and every overdue member in the shard came back.
+        self.assertEqual(
+            result.get("count", 0), 1, "member filter should scope to exactly one member"
+        )
 
     # Mock justified: External Service - SMTP delivery, not business logic
     @patch("frappe.sendmail")  # Mock only email infrastructure, not business logic
@@ -213,6 +231,19 @@ class TestPaymentProcessingAPIReal(EnhancedTestCase):
             custom_member=self.overdue_member.name
         )
 
+        # #792: an explicit SECOND overdue member is the control -- without
+        # it, `assertEqual(count, 1)` below would pass even with the member
+        # filter completely ignored, on any run where this happens to be the
+        # only overdue invoice around. With this second member present, an
+        # unscoped query would return 2.
+        self.create_real_test_invoice(
+            member=self.test_member,
+            status="Overdue",
+            amount=75.0,
+            custom_is_membership_dues=1,
+            custom_member=self.test_member.name,
+        )
+
         # #783: `chapter_name`, `notify_chapter` and `dry_run` do not exist on
         # this function's signature -- the real kwarg is `send_to_chapters`.
         # The stale kwargs raised a TypeError that @handle_api_error turns
@@ -225,7 +256,11 @@ class TestPaymentProcessingAPIReal(EnhancedTestCase):
 
         # Verify real business logic with chapter notification
         self.assertTrue(result.get("success"), f"Reminder run should succeed: {result}")
-        self.assertGreater(result.get("count", 0), 0, "Should process real overdue members")
+        # #792: scope to exactly this member's one overdue row -- see the
+        # comment on the equivalent assertion above.
+        self.assertEqual(
+            result.get("count", 0), 1, "member filter should scope to exactly one member"
+        )
 
     # Mock justified: (1) frappe.sendmail is external-service infrastructure,
     # same as every other test in this file; (2) the report's data source is

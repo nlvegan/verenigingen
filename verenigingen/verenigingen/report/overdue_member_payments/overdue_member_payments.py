@@ -147,6 +147,22 @@ def get_data(filters):
 
     # Apply date filters
     if filters:
+        # A member filter scopes to that member's own overdue invoices via the
+        # `customer` field the invoice query actually uses (#792: previously
+        # accepted and silently discarded -- every member's rows came back
+        # regardless). A member with no Customer has no invoices to find, so
+        # resolve that explicitly to an empty result rather than falling
+        # through to "no filter".
+        if filters.get("member"):
+            # Not verenigingen.utils.member_utils.get_member_customer(): that
+            # helper swallows DB errors and returns None, which here would be
+            # indistinguishable from "member has no customer" and silently
+            # return []. Let a DB error propagate to execute()'s own handler.
+            member_customer = frappe.db.get_value("Member", filters.get("member"), "customer")
+            if not member_customer:
+                return []
+            invoice_filters["customer"] = member_customer
+
         if filters.get("from_date"):
             invoice_filters["posting_date"] = [">=", filters.get("from_date")]
         if filters.get("to_date"):

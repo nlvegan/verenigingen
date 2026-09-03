@@ -358,6 +358,21 @@ class TestPaymentProcessingAPI(EnhancedTestCase):
             custom_member=self.overdue_member.name,
         )
 
+        # #792: an explicit SECOND overdue member is the control -- without it,
+        # `assertEqual(count, 1)` below would pass even with the member filter
+        # completely ignored, on any run where this happens to be the only
+        # overdue invoice around (e.g. a fresh site, or an isolated test run).
+        # With this second member present, an unscoped query would return 2.
+        self.create_test_invoice(
+            customer=self.test_member.customer,
+            posting_date=add_days(today(), -45),
+            due_date=add_days(today(), -15),
+            grand_total=150.00,
+            status="Overdue",
+            custom_is_membership_dues=1,
+            custom_member=self.test_member.name,
+        )
+
         # Do NOT mock builtins.open. The export creates a File document whose before_insert
         # calls mimetypes.guess_type(); under a global open() mock, mimetypes.readfp() loops
         # forever on a truthy MagicMock, ballooning memory until the CI runner is killed
@@ -368,7 +383,13 @@ class TestPaymentProcessingAPI(EnhancedTestCase):
 
         # Verify successful export with real data
         if result.get("success"):
-            self.assertGreaterEqual(result["count"], 1)  # Should find our test member
+            # #792: the `member` filter must scope the export to exactly this
+            # member's own overdue row, not "at least one" -- a >= assertion
+            # here would pass even if the filter were silently ignored and
+            # every overdue member's row came back.
+            self.assertEqual(
+                result["count"], 1, "member filter should scope export to exactly one member"
+            )
             self.assertIn("Export completed", result["message"])
             self.assertIn("file_url", result)
         else:
@@ -470,6 +491,21 @@ class TestPaymentProcessingAPI(EnhancedTestCase):
             custom_member=self.overdue_member.name,
         )
 
+        # #792: an explicit SECOND overdue member is the control -- without it,
+        # `assertEqual(count, 1)` below would pass even with the member filter
+        # completely ignored, on any run where this happens to be the only
+        # overdue invoice around. With this second member present, an
+        # unscoped query would return 2.
+        self.create_test_invoice(
+            customer=self.test_member.customer,
+            posting_date=add_days(today(), -45),
+            due_date=add_days(today(), -15),
+            grand_total=150.00,
+            status="Overdue",
+            custom_is_membership_dues=1,
+            custom_member=self.test_member.name,
+        )
+
         # Use REAL overdue payment data from our test setup
         result = execute_bulk_payment_action(
             action="Send Payment Reminders",
@@ -479,7 +515,11 @@ class TestPaymentProcessingAPI(EnhancedTestCase):
 
         # Verify successful bulk action with real data
         if result.get("success"):
-            self.assertGreaterEqual(result["count"], 1)  # Should find our test member
+            # #792: scope to exactly this member's row, not "at least one" --
+            # a >= assertion would pass even with the member filter ignored.
+            self.assertEqual(
+                result["count"], 1, "member filter should scope bulk action to exactly one member"
+            )
         else:
             # Real business logic may return various error formats
             message = result.get("message", result.get("error", {}).get("message", ""))
