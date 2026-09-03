@@ -321,24 +321,32 @@ class SEPABatchProcessor:
                 # above is unaffected by that and remains the durable signal
                 # regardless of submission.
                 #
-                # DEPLOYMENT REQUIREMENT: "Partially Collected" is a NEW Select
+                # DEPLOYMENT REQUIREMENT, and why this is guarded rather than
+                # a bare assignment: "Partially Collected" is a NEW Select
                 # option added to direct_debit_batch.json. Frappe validates
                 # Select values against the DocField's CACHED options on save
                 # (`_validate_selects`, base_document.py) -- a JSON edit alone
-                # does not refresh that cache. Measured on test_site_5: before
-                # `bench reload-doctype "Direct Debit Batch"`,
-                # `frappe.get_meta(...).get_field("status").options` still read
-                # the pre-#774 list with no "Partially Collected"; the SAME
-                # site, same code, only differing by that one command, then
-                # let a real `batch.insert()` with this status succeed. Any
-                # site this ships to needs `bench migrate` (which reloads every
-                # changed doctype) or `bench reload-doctype "Direct Debit
-                # Batch"` run BEFORE the next scheduled
-                # create_dues_collection_batch call, or the very first
-                # shortfall batch will raise a ValidationError out of
-                # batch.save() instead of merely being under-collected --
-                # turning this fix into a harder failure on an unmigrated site.
-                batch.status = "Partially Collected"
+                # does not refresh that cache. Reproduced on an un-migrated
+                # site (installed doctype at origin/develop, never reloaded):
+                # cached options were still the pre-#774 list, and a real
+                # `batch.insert()` with status="Partially Collected" raised
+                # ValidationError. In the window where this code is live but
+                # `bench migrate` / `bench reload-doctype "Direct Debit Batch"`
+                # has not yet run on a site, an UNGUARDED assignment would turn
+                # "collected fewer invoices than requested" into "the entire
+                # monthly collection run throws and collects nothing" --
+                # strictly worse than the bug #774 set out to fix, on a money
+                # path. So check the option actually exists in this site's
+                # cached meta before writing it; same shape as the has_field()
+                # guard elsewhere in this app for the identical
+                # deployed-ahead-of-migrate window (e.g. #780). If the option
+                # isn't there yet, leave `status` alone -- the shortfall is
+                # still fully recorded above via batch_log and the aggregate
+                # Error Log, so nothing is lost, only the structured/queryable
+                # signal is delayed until the site is migrated.
+                status_field = frappe.get_meta("Direct Debit Batch").get_field("status")
+                if "Partially Collected" in (status_field.options or "").split("\n"):
+                    batch.status = "Partially Collected"
 
             # Log performance statistics
             stats = self.performance_optimizer.get_performance_stats()
