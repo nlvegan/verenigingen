@@ -26,6 +26,7 @@ from frappe import _
 from frappe.utils import get_datetime, now
 
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 def coerce_test_mode(value) -> bool:
@@ -209,6 +210,16 @@ class CSVImportBackgroundProcessor:
                                 if record_name:
                                     skipped_records.append(record_name)
 
+                        except NON_RESUMABLE_DB_ERRORS:
+                            # A 1213 has already rolled the ENTIRE transaction back,
+                            # savepoints included, and a 1205 leaves it half-applied.
+                            # Neither is a row-level failure to tally and move past --
+                            # every row after this one would run against state the
+                            # server has already thrown away, and so would the
+                            # `frappe.db.commit()` below. Abandon the import here, at
+                            # the transaction boundary this loop owns (#700); the
+                            # outer handler marks the import Failed.
+                            raise
                         except Exception as e:
                             skipped_count += 1
                             error_msg = f"Row {row.get('row_number', '?')}: {str(e)}"

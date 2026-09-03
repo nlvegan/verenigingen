@@ -19,7 +19,7 @@ from verenigingen.utils.service_error_handler import handle_service_error, safe_
 
 # Safe imports with fallbacks for Dutch utilities
 try:
-    from verenigingen.utils.dutch_name_utils import format_dutch_full_name, is_dutch_installation
+    from verenigingen.utils.dutch_name_utils import format_dutch_full_name
 except ImportError as e:
     handle_service_error(
         e,
@@ -35,10 +35,6 @@ except ImportError as e:
         """Fallback Dutch name formatter"""
         parts = [p for p in [first_name, tussenvoegsel, last_name] if p]
         return " ".join(parts)
-
-    def is_dutch_installation():
-        """Fallback Dutch installation check"""
-        return False
 
 
 def validate_member_name_fields(member_doc):
@@ -92,8 +88,11 @@ def update_member_full_name(member_doc):
     Args:
         member_doc: Member document instance to update
     """
-    # For Dutch installations, prioritize tussenvoegsel field over middle_name
-    if is_dutch_installation() and hasattr(member_doc, "tussenvoegsel") and member_doc.tussenvoegsel:
+    # A populated tussenvoegsel IS the declaration that this is a Dutch name --
+    # the record answers the question, so there is no site-wide flag to consult
+    # (#780). Gating this on "is this a Dutch installation?" silently stripped the
+    # particle from anyone whose org was not detected as Dutch.
+    if getattr(member_doc, "tussenvoegsel", None):
         full_name = format_dutch_full_name(
             member_doc.first_name,
             None,  # Don't use middle_name for Dutch names when tussenvoegsel is available
@@ -236,7 +235,11 @@ def get_dutch_full_name_parts(member_doc):
     Returns:
         dict: Dictionary with first_name, tussenvoegsel, last_name parts
     """
-    if is_dutch_installation() and hasattr(member_doc, "tussenvoegsel"):
+    # Truthiness, not hasattr (#780): every Member HAS the field, so the old
+    # condition took this branch even when it was empty -- returning a blank
+    # tussenvoegsel and skipping the middle_name particle parsing below, which is
+    # the only thing that could have recovered it.
+    if getattr(member_doc, "tussenvoegsel", None):
         return {
             "first_name": getattr(member_doc, "first_name", ""),
             "tussenvoegsel": getattr(member_doc, "tussenvoegsel", ""),

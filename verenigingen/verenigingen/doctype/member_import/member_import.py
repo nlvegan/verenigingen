@@ -198,10 +198,9 @@ class MemberImport(BaseCSVImport):
             # because it is less than it looks: it stops `rollback_to_savepoint`
             # running against a savepoint that no longer exists, whose 1305 would
             # REPLACE the deadlock and defeat every guard keyed on the error's
-            # type (#561). It does NOT abort the import -- `process_import`'s own
-            # row loop catches this re-raise, counts it as one skipped row and
-            # carries on against a dead transaction. That fix belongs at the loop,
-            # not here: #700.
+            # type (#561). `process_import`'s row loop (#700, fixed) now abandons
+            # the import on this re-raise instead of counting it as one skipped
+            # row and carrying on against a dead transaction.
             raise
         except (frappe.DuplicateEntryError, frappe.UniqueValidationError):
             # UniqueValidationError is the one that actually fires here: `member_id`

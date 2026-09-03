@@ -51,7 +51,7 @@ from frappe import _
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.services.member.account.member_role_service import get_member_role_service
-from verenigingen.utils.dutch_name_utils import get_full_last_name, is_dutch_installation
+from verenigingen.utils.dutch_name_utils import get_full_last_name
 from verenigingen.utils.member_utils import get_volunteer_for_member
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.secure_operations import secure_document_operation
@@ -291,7 +291,7 @@ class MemberUserAccountService(StatelessService):
         user.first_name = member_doc.first_name
 
         # Handle Dutch naming conventions for User creation
-        if is_dutch_installation() and hasattr(member_doc, "tussenvoegsel") and member_doc.tussenvoegsel:
+        if getattr(member_doc, "tussenvoegsel", None):  # the record answers it (#780)
             # For Dutch installations, use combined last name with tussenvoegsel
             user.last_name = get_full_last_name(member_doc.last_name, member_doc.tussenvoegsel)
             # Don't use middle_name for User when we have tussenvoegsel

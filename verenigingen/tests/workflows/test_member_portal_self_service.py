@@ -175,6 +175,39 @@ class TestMemberPortalSelfService(PortalSelfServiceTestMixin, EnhancedTestCase):
             # And a direct permission check on the owner's mandate is denied.
             self.assertFalse(frappe.has_permission("SEPA Mandate", "read", mandate))
 
+    def test_member_sepa_setup_is_idempotent_for_the_same_iban(self):
+        """Calling setup_sepa_direct_debit twice with the SAME IBAN must recognise
+        the existing mandate rather than cancel and recreate it (#624 item 1).
+
+        The existing-mandate guard filtered `SEPA Mandate.iban` against the
+        cleaned (unspaced, uppercase) input IBAN, but `SEPAMandate.validate_iban`
+        reformats the stored value WITH spaces before saving -- so the filter
+        could never match and every repeat call cancelled the mandate it had
+        just created and minted a fresh mandate_id for no reason.
+        """
+        member, user = self._member_with_membership()
+        iban = generate_test_iban("TEST")
+
+        with self._as_user(user.name):
+            first = sepa_api.setup_sepa_direct_debit(iban=iban, account_holder_name="Test Holder")
+            second = sepa_api.setup_sepa_direct_debit(iban=iban, account_holder_name="Test Holder")
+
+        self.assertTrue(first.get("success"), msg=first)
+        self.assertTrue(second.get("success"), msg=second)
+        self.assertEqual(first.get("mandate_id"), second.get("mandate_id"))
+        # Pin the "existing mandate" branch by its redirect flag, not by the
+        # (translated) message text: the two branches use distinct redirects
+        # (`bank_details_updated` vs `sepa_mandate_created`).
+        self.assertEqual(second.get("redirect"), "/payment_dashboard?success=bank_details_updated")
+
+        active = frappe.get_all(
+            "SEPA Mandate",
+            filters={"member": member.name, "status": "Active", "is_active": 1},
+            fields=["name"],
+        )
+        self.assertEqual(len(active), 1, msg=active)
+        self.assertFalse(frappe.db.exists("SEPA Mandate", {"member": member.name, "status": "Cancelled"}))
+
     def test_member_sepa_iban_change_replaces_old_mandate(self):
         """Changing IBAN cancels the previous mandate and leaves exactly one active.
 

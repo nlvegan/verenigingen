@@ -11,9 +11,9 @@ with secure_user_context() via the _save_donation_as_system_user() helper.
 """
 
 import frappe
-from frappe.utils import now_datetime
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.donation_form_data import make_donation_form_data
 
 
 class TestGuestDonationFlow(EnhancedTestCase):
@@ -30,17 +30,7 @@ class TestGuestDonationFlow(EnhancedTestCase):
 
     def _make_form_data(self, **overrides):
         """Build minimal valid form data for submit_donation."""
-        ts = now_datetime().strftime("%H%M%S%f")
-        data = {
-            "donor_name": f"Guest Donor {ts}",
-            "donor_email": f"guest.donor.{ts}@example.com",
-            "donor_type": "Individual",
-            "amount": "25.00",
-            "payment_method": "Bank Transfer",
-            "donation_purpose_type": "General",
-        }
-        data.update(overrides)
-        return data
+        return make_donation_form_data(label="Guest Donor", payment_key="payment_method", **overrides)
 
     def _create_guest_donation(self, payment_method="Bank Transfer"):
         """Create a donor and donation as Guest, returning (donor, donation)."""

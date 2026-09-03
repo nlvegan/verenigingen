@@ -12,7 +12,9 @@ from frappe.query_builder import DocType
 from verenigingen.utils.error_handling import cache_with_ttl
 
 
-@cache_with_ttl(ttl=3600)  # Cache for 1 hour - skills change infrequently
+@cache_with_ttl(ttl=3600, per_user=False)  # 1 hour; a site-wide reference list,
+# identical for every caller and carrying no permission check -- see #782 for why
+# the per-user default exists and when opting out is legitimate.
 def get_all_skills_list_cached():
     """Get all skills using modern Query Builder for better type safety"""
     from frappe.query_builder.functions import Avg, Cast, Count

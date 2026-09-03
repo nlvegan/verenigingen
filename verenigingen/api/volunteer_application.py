@@ -219,9 +219,12 @@ def submit_volunteer_application(**data) -> OperationResult[Dict[str, Any]]:
             f"Volunteer application submission error: {str(e)}\n{traceback.format_exc()}",
             "Volunteer Application Error",
         )
-        return OperationResult.fail(
-            error_msg, error_code="APPLICATION_SUBMISSION_ERROR", technical_details=str(e)
-        )
+        # The full exception is already in the Error Log above; do not also put it
+        # in the response metadata. OperationResult.to_dict(scrub_sensitive=True)
+        # -- what @public_api actually returns -- only redacts keys matching a
+        # token/secret/password/... pattern, so a "technical_details" key here
+        # would reach this UNAUTHENTICATED caller verbatim (#674).
+        return OperationResult.fail(error_msg, error_code="APPLICATION_SUBMISSION_ERROR")
 
 
 def _reactivate_volunteer(volunteer_name, data, member_link, system_user):

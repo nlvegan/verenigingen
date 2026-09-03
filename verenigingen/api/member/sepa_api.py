@@ -67,8 +67,9 @@ def get_active_sepa_mandate(member: str, iban: str = None):
         stacklevel=2,
     )
 
-    # Delegate to service. Membership-scoped (#605): `sepa-utils.js:419` hides the
-    # "Create SEPA Mandate" button when this returns something, so answering with a
+    # Delegate to service. Membership-scoped (#605): the `get_active_sepa_mandate`
+    # call in `sepa-utils.js` hides the "Create SEPA Mandate" button when this
+    # returns something, so answering with a
     # member's DONATION mandate hid the button that would have created the
     # membership mandate their dues collection needs.
     manager = get_sepa_mandate_manager()
@@ -100,7 +101,6 @@ def create_and_link_mandate_enhanced(
     used_for_memberships=1,
     used_for_donations=0,
     notes="",
-    replace_existing=None,
 ):
     """
     Create a new SEPA mandate and link it to the member.
@@ -290,9 +290,10 @@ def validate_mandate_creation(
         response = {"success": True, "valid": True, **(result.data or {})}
         # Check for existing mandate with same IBAN and add warning (legacy behavior)
         # Only a mandate OVERLAPPING what the caller is about to create counts as
-        # one that "will be replaced" -- which is what the JS says on this key
-        # (`sepa-utils.js:318`) before calling `create_and_link_mandate_enhanced`,
-        # whose supersession is itself purpose-scoped. Unscoped, this named the
+        # one that "will be replaced" -- which is what `create_mandate_with_values`
+        # in `sepa-utils.js` says on this key before calling
+        # `create_and_link_mandate_enhanced`, whose supersession is itself
+        # purpose-scoped. Unscoped, this named the
         # member's donation mandate, which is left alone; hard-coded to memberships
         # it would name their membership mandate on a donation-only creation. The
         # purposes come from the same two values the caller passes to the create
@@ -397,17 +398,31 @@ def setup_sepa_direct_debit(iban: str = None, account_holder_name: str = None):
         # under it is already purpose-scoped -- this guard was not, so a member's
         # donation mandate on the same account would have suppressed the membership
         # mandate this endpoint exists to set up (#605).
-        existing_mandate = frappe.get_all(
+        #
+        # `iban` here is the cleaned (unspaced, uppercase) input, but
+        # `SEPAMandate.validate_iban` reformats the stored value WITH spaces
+        # before saving -- so filtering the DB query on `iban` directly never
+        # matched, and this guard was unreachable: every repeat call cancelled
+        # the mandate it had just created and minted a new mandate_id for no
+        # reason (#624). Compare the normalized form instead, in Python, the
+        # same way `member_utils.need_new_mandate` already does.
+        #
+        # No `is_active` filter, for the same reason the supersede call below
+        # drops it: `status` is the field this guard and the batch query both
+        # read, and a row with status Active but is_active 0 would otherwise
+        # slip past this guard and get superseded and re-minted.
+        active_membership_mandates = frappe.get_all(
             "SEPA Mandate",
             filters={
                 "member": member_name,
-                "iban": iban,
                 "status": "Active",
-                "is_active": 1,
                 "used_for_memberships": 1,
             },
-            fields=["name", "mandate_id"],
-            limit=1,
+            fields=["name", "mandate_id", "iban"],
+        )
+        existing_mandate = next(
+            (m for m in active_membership_mandates if (m.iban or "").replace(" ", "").upper() == iban),
+            None,
         )
 
         if existing_mandate:
@@ -415,7 +430,7 @@ def setup_sepa_direct_debit(iban: str = None, account_holder_name: str = None):
             return {
                 "success": True,
                 "message": _("Bank details updated. Your existing SEPA mandate remains active."),
-                "mandate_id": existing_mandate[0].mandate_id,
+                "mandate_id": existing_mandate.mandate_id,
                 "redirect": "/payment_dashboard?success=bank_details_updated",
             }
 
@@ -481,16 +496,16 @@ def setup_sepa_direct_debit(iban: str = None, account_holder_name: str = None):
 
 
 def _generate_sepa_mandate_id(member_name: str) -> str:
-    """Generate a unique SEPA mandate ID."""
-    from frappe.utils import today
+    """Generate a unique SEPA mandate ID for this member.
 
-    # Format: SEPA-YYYYMMDD-XXXX where XXXX is a sequence number
-    date_part = today().replace("-", "")
+    Delegates to `SEPAMandateManager.generate_mandate_reference`, which locks
+    the per-member-per-day sequence (`FOR UPDATE`) before allocating it. The
+    former implementation counted ALL mandates created today with no member
+    scoping and no locking -- so `member_name` was accepted but never read --
+    and two members completing SEPA setup in the same window could read the
+    same count and mint the same `mandate_id`, which is `unique: 1` on SEPA
+    Mandate (#624).
+    """
+    from verenigingen.services.payment.sepa_mandate_manager import get_sepa_mandate_manager
 
-    # Get count of mandates created today
-    today_count = frappe.db.count(
-        "SEPA Mandate",
-        filters={"creation": [">=", today()]},
-    )
-
-    return f"SEPA-{date_part}-{str(today_count + 1).zfill(4)}"
+    return get_sepa_mandate_manager().generate_mandate_reference(member_name)

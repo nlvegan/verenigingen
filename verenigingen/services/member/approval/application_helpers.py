@@ -10,7 +10,7 @@ from frappe import _
 from frappe.utils import now_datetime, today
 
 from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
-from verenigingen.utils.dutch_name_utils import format_dutch_full_name, is_dutch_installation
+from verenigingen.utils.dutch_name_utils import format_dutch_full_name
 
 
 def safe_log_error(message, title=None):

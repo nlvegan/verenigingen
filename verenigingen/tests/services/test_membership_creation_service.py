@@ -23,6 +23,10 @@ from verenigingen.services.member.approval.membership_creation_service import (
     get_membership_creation_service,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.non_resumable_errors import deadlock
+from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import (
+    MembershipDuesSchedule,
+)
 
 
 class TestMembershipCreationInputValidation(EnhancedTestCase):
@@ -254,6 +258,61 @@ class TestCreateMembershipOnApproval(EnhancedTestCase):
         second = self.service.create_membership_on_approval(self.member, create_invoice=False)
         # Retry must reuse the existing membership, not create a duplicate
         self.assertEqual(second.name, first.name)
+
+
+class TestEnsureDuesScheduleExistsNonResumableGuard(EnhancedTestCase):
+    """`_ensure_dues_schedule_exists`'s catch-all is deliberately forgiving --
+    "Don't fail approval if dues schedule creation fails" -- but that used to
+    include 1213/1205, so a deadlock during dues-schedule creation was reported
+    to the operator as a mere orange warning while the caller (a CSV import row)
+    moved on to the next row against a transaction the server had discarded.
+    """
+
+    def setUp(self):
+        super().setUp()
+        ensure_payment_modes_exist()
+        self.service = MembershipCreationService()
+        self.mt = self.create_test_membership_type(membership_type_name="GuardType", amount=15.0)
+        self.member = self.create_test_member(
+            first_name="Guard",
+            last_name="Dues",
+            email="guarddues@example.com",
+            selected_membership_type=self.mt.name,
+        )
+        self.membership = self.service._get_or_create_membership(self.member, self.mt, None, False)
+        self.track_doc("Membership", self.membership.name)
+
+    def test_a_deadlock_during_dues_schedule_creation_is_not_swallowed_as_a_warning(self):
+        original = MembershipDuesSchedule.create_from_template
+
+        def _boom(*args, **kwargs):
+            raise deadlock()
+
+        MembershipDuesSchedule.create_from_template = staticmethod(_boom)
+        self.addCleanup(
+            setattr, MembershipDuesSchedule, "create_from_template", staticmethod(original)
+        )
+
+        with self.assertRaises(frappe.QueryDeadlockError):
+            self.service._ensure_dues_schedule_exists(self.member, self.membership, self.mt)
+
+    def test_control_an_ordinary_failure_is_still_a_warning_not_a_raise(self):
+        """Without this, the guard above could be satisfied by a change that
+        made EVERY exception here propagate, not just the non-resumable two --
+        which would turn "don't fail approval" into "always fail approval"."""
+        original = MembershipDuesSchedule.create_from_template
+
+        def _boom(*args, **kwargs):
+            raise ValueError("ordinary template error")
+
+        MembershipDuesSchedule.create_from_template = staticmethod(_boom)
+        self.addCleanup(
+            setattr, MembershipDuesSchedule, "create_from_template", staticmethod(original)
+        )
+
+        # Must not raise -- the whole point of this method is to degrade
+        # gracefully for anything that isn't a destroyed transaction.
+        self.service._ensure_dues_schedule_exists(self.member, self.membership, self.mt)
 
 
 class TestResolveDuesTemplate(EnhancedTestCase):

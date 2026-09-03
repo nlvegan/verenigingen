@@ -7,6 +7,7 @@ import frappe
 from frappe import _
 
 from verenigingen.services.communication.email_service import get_email_service
+from verenigingen.utils.secure_operations import save_as_system_user
 from verenigingen.utils.security.api_security_framework import public_api
 
 
@@ -93,7 +94,7 @@ def process_donation_form(data):
         return {"success": True, "donation_id": donation.name, "message": _("Thank you for your donation!")}
 
     except Exception as e:
-        frappe.log_error(f"Donation form error: {str(e)}", "Donation Form Error")
+        frappe.log_error(title="Donation Form Error", message=f"Donation form error: {str(e)}")
         return {
             "success": False,
             "message": _("An error occurred processing your donation. Please try again."),
@@ -131,22 +132,19 @@ def get_or_create_donor(data):
     donor.phone = validated_phone or ""
     donor.donor_type = data.get("donor_type", "Individual")
 
-    # CORRECTED SECURE VERSION: Use proper secure operations for public form submissions
-    from verenigingen.utils.secure_operations import secure_document_operation
-
-    result = secure_document_operation(
-        operation="insert",
-        doc=donor,
-        justification="Create donor record from public donation form - public fundraising system",
-        required_permissions=["Donor:create"],
-        override_user="Administrator",  # Use system context for public forms
-    )
-
-    if not result.success:
-        frappe.log_error(f"Failed to create donor from donation form: {'; '.join(result.errors)}")
+    try:
+        save_as_system_user(
+            donor,
+            "insert",
+            "donation_form_donor_creation",
+            f"Creating donor from donation form: {validated_email}",
+        )
+    except Exception as e:
+        frappe.log_error(
+            title="Donation Form Donor Creation Error",
+            message=f"Failed to create donor from donation form: {str(e)}",
+        )
         frappe.throw(_("Unable to process donation. Please try again or contact support."))
-
-    donor = result.document
 
     return donor.name
 
@@ -157,9 +155,13 @@ def create_donation(donor, data):
 
     donation = frappe.new_doc("Donation")
     donation.donor = donor
-    # Donation schema uses donation_date + mode_of_payment, not date + payment_method.
-    # Accept either input key for backward compat with form payloads.
-    donation.donation_date = data.get("donation_date") or data.get("date") or frappe.utils.today()
+    # Always server-set: a guest-supplied date would let a donation be backdated
+    # into a different tax year (ANBI receipts are date-sensitive). Matches
+    # verenigingen/services/donation/public_donation_service.py, which does the
+    # same for the same reason.
+    donation.donation_date = frappe.utils.today()
+    # Donation schema uses mode_of_payment, not payment_method. Accept either
+    # input key for backward compat with form payloads.
     donation.amount = float(data.get("amount"))
     donation.mode_of_payment = data.get("mode_of_payment") or data.get("payment_method")
     donation.status = data.get("donation_status", "One-time")
@@ -169,17 +171,29 @@ def create_donation(donor, data):
     if donation.status == "Recurring":
         donation.recurring_frequency = data.get("recurring_frequency")
 
-    # Set purpose-specific fields
-    if donation.donation_purpose_type == "Campaign":
-        donation.campaign_reference = data.get("campaign_reference")
+    # Set notes
+    if data.get("donation_notes"):
+        donation.donation_notes = data.get("donation_notes")
+
+    # Set purpose-specific fields. "campaign" is a Link to Donation Campaign
+    # (not free text), so a campaign_reference that doesn't match an existing
+    # Donation Campaign is recorded in the notes instead of raising a
+    # LinkValidationError — matching public_donation_service.py's
+    # existence-checked-with-notes-fallback pattern.
+    if donation.donation_purpose_type == "Campaign" and data.get("campaign_reference"):
+        campaign_ref = data.get("campaign_reference")
+        if frappe.db.exists("Donation Campaign", campaign_ref):
+            donation.campaign = campaign_ref
+        else:
+            donation.donation_notes = (
+                f"Campaign: {campaign_ref}\n\n{donation.donation_notes}"
+                if donation.donation_notes
+                else f"Campaign: {campaign_ref}"
+            )
     elif donation.donation_purpose_type == "Chapter":
         donation.chapter_reference = data.get("chapter_reference")
     elif donation.donation_purpose_type == "Specific Goal":
         donation.specific_goal_description = data.get("specific_goal_description")
-
-    # Set notes
-    if data.get("donation_notes"):
-        donation.donation_notes = data.get("donation_notes")
 
     # Handle anonymous donation
     if data.get("anonymous_donation"):
@@ -188,33 +202,26 @@ def create_donation(donor, data):
     # Set company
     donation.company = get_company_for_donations()
 
-    # Set default donation type
-    if not hasattr(donation, "donation_type") or not donation.donation_type:
-        donation.donation_type = _get_validated_donation_type()
-
-    # CORRECTED SECURE VERSION: Use proper secure operations for public form submissions
-    from verenigingen.utils.secure_operations import secure_document_operation
-
-    result = secure_document_operation(
-        operation="insert",
-        doc=donation,
-        justification="Create donation record from public donation form - public fundraising system",
-        required_permissions=["Donation:create"],
-        override_user="Administrator",  # Use system context for public forms
-    )
-
-    if not result.success:
-        frappe.log_error(f"Failed to create donation from donation form: {'; '.join(result.errors)}")
+    try:
+        save_as_system_user(
+            donation,
+            "insert",
+            "donation_form_donation_creation",
+            f"Creating donation from donation form: amount €{donation.amount}",
+        )
+    except Exception as e:
+        frappe.log_error(
+            title="Donation Form Donation Creation Error",
+            message=f"Failed to create donation from donation form: {str(e)}",
+        )
         frappe.throw(_("Unable to process donation. Please try again or contact support."))
 
-    donation = result.document
-
-    # Submit if payment method is not requiring further action.
-    # Read from the doc (canonical) rather than the input payload — handles
-    # both old (payment_method) and new (mode_of_payment) input keys.
-    if donation.mode_of_payment not in ["SEPA Direct Debit", "Mollie"]:
-        donation.submit()
-
+    # Donation is not a submittable DocType (is_submittable=0) and no role
+    # carries a "submit" DocPerm on it — a previous version of this function
+    # called donation.submit() here, which could never have succeeded for any
+    # caller. Removed rather than "fixed": there is nothing to submit, and the
+    # live guest-donation path (public_donation_service.py) never submits
+    # either — a Donation from this form is created, and stays, as a draft.
     return donation
 
 
@@ -235,7 +242,11 @@ def create_periodic_agreement_from_donation(donor, data):
 
     if result.get("success"):
         # Send information about next steps
-        send_periodic_agreement_info(donor, result.get("agreement"))
+        # create_periodic_agreement is @high_security_api-wrapped, which converts
+        # its OperationResult to the nested {"success", "data": {...}, "meta"} schema
+        # (verenigingen/utils/operation_result.py:to_dict) — the agreement name is
+        # under "data", not the top level.
+        send_periodic_agreement_info(donor, result.get("data", {}).get("agreement"))
 
 
 def send_donation_confirmation(donation):
@@ -254,7 +265,9 @@ def send_donation_confirmation(donation):
                 notification_key="donation_confirmation",
             )
     except Exception as e:
-        frappe.log_error(f"Failed to send donation confirmation: {str(e)}", "Donation Email Error")
+        frappe.log_error(
+            title="Donation Email Error", message=f"Failed to send donation confirmation: {str(e)}"
+        )
 
 
 def get_confirmation_email_content(donation, donor):
@@ -324,10 +337,4 @@ def send_periodic_agreement_info(donor_name, agreement_name):
                 notification_key="periodic_donation_confirmation",
             )
     except Exception as e:
-        frappe.log_error(f"Failed to send agreement info: {str(e)}", "Agreement Email Error")
-
-
-def _get_validated_donation_type():
-    """Get validated donation type - DEPRECATED: Donation Type DocType was removed"""
-    # Donation Type DocType was removed - return None for backwards compatibility
-    return None
+        frappe.log_error(title="Agreement Email Error", message=f"Failed to send agreement info: {str(e)}")

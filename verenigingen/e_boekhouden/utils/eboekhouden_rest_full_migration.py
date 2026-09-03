@@ -20,9 +20,42 @@ from verenigingen.e_boekhouden.utils.eboekhouden_payment_naming import (
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.utils.transaction_errors import (
     NON_RESUMABLE_DB_ERRORS,
+    mysql_error_code,
     release_savepoint_if_present,
     rollback_to_savepoint,
 )
+
+# CR_SERVER_GONE_ERROR / CR_SERVER_LOST -- MySQL client-side codes for a lost
+# connection (#731). Verified empirically against this bench's driver
+# (mysqlclient/MySQLdb) and confirmed identical on the pymysql backend: neither
+# is_deadlocked()/is_timedout() nor an InterfaceError check matches these, and
+# neither driver wraps them into QueryDeadlockError/QueryTimeoutError -- a lost
+# connection surfaces as a plain OperationalError, indistinguishable BY CLASS
+# from many unrelated conditions. So this is NOT added to the shared
+# NON_RESUMABLE_DB_ERRORS tuple (isinstance-matched by ~32 call sites outside
+# this module; widening it needs its own sweep of every one of those, per
+# #731's issue body) -- it is a code check, scoped to the mutation-processing
+# call sites in this module that already re-raise NON_RESUMABLE_DB_ERRORS
+# instead of folding a non-resumable error into an ordinary per-mutation
+# failure and continuing the batch on a connection the server may have
+# silently replaced mid-transaction.
+_CONNECTION_LOST_ERROR_CODES = (2006, 2013)
+
+
+def _is_connection_lost(exc):
+    """True for a lost MySQL connection (2006/2013) on either driver backend.
+
+    The isinstance check matters: matching on args[0] alone would also fire on
+    e.g. a KeyError(2006) from an id-keyed dict (mutation ids in this module
+    are ints) -- an unrelated bug that happens to share a first arg with the
+    driver code, not a connection loss. frappe.db.OperationalError resolves to
+    the configured backend's real class (MySQLdb.OperationalError or
+    pymysql.OperationalError), so this stays driver-agnostic.
+    """
+    return (
+        isinstance(exc, frappe.db.OperationalError) and mysql_error_code(exc) in _CONNECTION_LOST_ERROR_CODES
+    )
+
 
 # eBoekhouden mutation type labels (singular form — for individual transaction display)
 MUTATION_TYPE_SINGULAR = {
@@ -2973,6 +3006,17 @@ def start_full_rest_import(migration_name, mutation_types=None):
         aborted_type_names = []
 
         for i, mutation_type in enumerate(mutation_types):
+            # Reset before the try so a non-resumable/connection-lost error
+            # raised BEFORE `mutations` is fetched below (e.g. from the
+            # migration_doc.db_set()/commit() calls right after this) does not
+            # read an UnboundLocalError, or worse, silently reuse the PREVIOUS
+            # type's list in the abort handler's `len(mutations)` fallback --
+            # a real regression the widened handler below made reachable
+            # (verified: without this reset, a connection-lost error before
+            # `mutations` is (re)assigned crashes with UnboundLocalError, and
+            # one after a prior iteration already assigned it borrows that
+            # prior type's count).
+            mutations = None
             try:
                 # Update progress dynamically based on total mutation types
                 total_types = len(mutation_types)
@@ -3081,39 +3125,45 @@ def start_full_rest_import(migration_name, mutation_types=None):
                     migration_doc.db_set("total_records", current_total)
                     frappe.db.commit()
 
-            except NON_RESUMABLE_DB_ERRORS as abort_error:
-                # _import_rest_mutations_batch_enhanced already aborted its own batch
-                # and logged the operator-visible report (_report_batch_abort); it
-                # attaches that report's counts to the exception because this is its
-                # ONLY caller and the alternative -- treating the whole type as one
-                # opaque failure below -- would both lose the real partial counts and
-                # leave migration_doc's own counters silently contradicting the Error
-                # Log entry an operator would go read.
-                summary = getattr(abort_error, "batch_abort_summary", None) or {
-                    "imported": 0,
-                    "skipped": 0,
-                    "failed": len(mutations) if mutations else 1,
-                }
-                total_imported += summary.get("imported", 0)
-                total_skipped += summary.get("skipped", 0)
-                total_failed += summary.get("failed", 0)
-                aborted_type_names.append(type_name)
-                errors.append(
-                    f"ABORTED importing mutation type {mutation_type} ({type_name}) after a "
-                    f"non-resumable database error: {abort_error}. See the '... - ABORTED "
-                    f"(non-resumable error)' Error Log entry for how far it got."
-                )
-                migration_doc.db_set(
-                    "current_operation",
-                    f"ABORTED {type_name} (type {mutation_type}) after a non-resumable "
-                    f"database error -- see Error Log",
-                )
-                migration_doc.db_set("imported_records", total_imported)
-                migration_doc.db_set("failed_records", total_failed)
-                frappe.db.commit()
-            except Exception as e:
-                errors.append(f"Error importing mutation type {mutation_type}: {str(e)}")
-                total_failed += 1
+            except Exception as abort_error:
+                # #731: a lost connection is not a NON_RESUMABLE_DB_ERRORS class,
+                # so it needs its own check alongside the isinstance match --
+                # merged into one except (rather than a second class-matched
+                # clause) because Python except clauses do not fall through, and
+                # both outcomes need to share this one.
+                if not (isinstance(abort_error, NON_RESUMABLE_DB_ERRORS) or _is_connection_lost(abort_error)):
+                    errors.append(f"Error importing mutation type {mutation_type}: {str(abort_error)}")
+                    total_failed += 1
+                else:
+                    # _import_rest_mutations_batch_enhanced already aborted its own batch
+                    # and logged the operator-visible report (_report_batch_abort); it
+                    # attaches that report's counts to the exception because this is its
+                    # ONLY caller and the alternative -- treating the whole type as one
+                    # opaque failure below -- would both lose the real partial counts and
+                    # leave migration_doc's own counters silently contradicting the Error
+                    # Log entry an operator would go read.
+                    summary = getattr(abort_error, "batch_abort_summary", None) or {
+                        "imported": 0,
+                        "skipped": 0,
+                        "failed": len(mutations) if mutations else 1,
+                    }
+                    total_imported += summary.get("imported", 0)
+                    total_skipped += summary.get("skipped", 0)
+                    total_failed += summary.get("failed", 0)
+                    aborted_type_names.append(type_name)
+                    errors.append(
+                        f"ABORTED importing mutation type {mutation_type} ({type_name}) after a "
+                        f"non-resumable database error: {abort_error}. See the '... - ABORTED "
+                        f"(non-resumable error)' Error Log entry for how far it got."
+                    )
+                    migration_doc.db_set(
+                        "current_operation",
+                        f"ABORTED {type_name} (type {mutation_type}) after a non-resumable "
+                        f"database error -- see Error Log",
+                    )
+                    migration_doc.db_set("imported_records", total_imported)
+                    migration_doc.db_set("failed_records", total_failed)
+                    frappe.db.commit()
 
         # Final progress update. Do NOT blindly overwrite current_operation with
         # "Import completed" when a type aborted on a non-resumable error above --
@@ -3212,13 +3262,14 @@ def _process_mutation_with_coordinator(
                 # _process_single_mutation against a transaction the server has
                 # already discarded (or half-applied) -- not a "new processor
                 # failed" case the legacy path can retry (#572).
-                # KNOWN GAP (#731): a lost connection (2006/2013) is NOT a member
-                # of NON_RESUMABLE_DB_ERRORS -- verified empirically, it surfaces
-                # as a plain OperationalError on both driver backends, not
-                # QueryDeadlockError/QueryTimeoutError -- so it still falls through
-                # to the catch-all below instead of propagating here.
                 raise
             except Exception as proc_error:
+                if _is_connection_lost(proc_error):
+                    # #731: same reasoning as the NON_RESUMABLE_DB_ERRORS guard
+                    # above, for a lost connection (2006/2013) instead of a
+                    # deadlock/timeout -- not a class NON_RESUMABLE_DB_ERRORS
+                    # matches, so it needs its own check.
+                    raise
                 debug_info.append(
                     f"New processor failed for mutation {mutation_id} (Type {mutation_type}): {str(proc_error)}, using legacy"
                 )
@@ -3246,10 +3297,12 @@ def _process_mutation_with_coordinator(
         # opened for, one call frame further from the savepoint: the caller would
         # count it as an ordinary per-mutation failure and move on, on a
         # transaction the server has already discarded (or half-applied).
-        # KNOWN GAP (#731): same caveat as the guard above -- a lost connection
-        # (2006/2013) is not covered and still reaches the catch-all below.
         raise
     except Exception as processing_error:
+        if _is_connection_lost(processing_error):
+            # #731: same caveat as the guard above -- a lost connection is not a
+            # NON_RESUMABLE_DB_ERRORS class, so it needs its own check here too.
+            raise
         error_str = str(processing_error)
         is_stock = "Stock accounts" in error_str and "can only be updated via Stock Transactions" in error_str
         if is_stock:
@@ -3459,7 +3512,26 @@ def _retry_transient_failures(migration_name, errors, failed, imported, debug_in
                         debug_info.append(
                             f"  Retry failed for mutation {mutation_id}: {result.get('error', 'Unknown error')}"
                         )
+                except NON_RESUMABLE_DB_ERRORS:
+                    # #726: import_single_mutation has its own bare
+                    # `except Exception` that already converts an in-flight
+                    # 1213/1205 into a {"success": False} result rather than
+                    # raising one (verified empirically -- its entire body is
+                    # covered by that one try). The ONE thing that try does NOT
+                    # cover is the except handler's own frappe.log_error() /
+                    # frappe.as_json() call at e_boekhouden_migration.py:1502 --
+                    # so this guard protects the narrower case where THAT call
+                    # itself hits a non-resumable error (e.g. because the
+                    # connection is genuinely gone, #731) and escapes uncaught.
+                    # Either way, retrying the REMAINING ids on a transaction
+                    # the server has discarded or half-applied is not a state
+                    # any caller here is written to reason about (#572) --
+                    # propagate instead.
+                    raise
                 except Exception as retry_error:
+                    if _is_connection_lost(retry_error):
+                        # Same reasoning as above, for a lost connection (#731).
+                        raise
                     retry_failed += 1
                     debug_info.append(f"  Retry exception for mutation {mutation_id}: {str(retry_error)}")
 
@@ -3522,6 +3594,10 @@ def _report_batch_abort(
     * a 1213 deadlock discards the ENTIRE uncommitted transaction, not just work after
       the failure point. Every mutation this batch "imported" (released its savepoint)
       is gone too, not just the ones after `last_imported_mutation_id`.
+    * a lost connection (2006/2013, #731) is at least as destructive as a deadlock: the
+      session itself is gone, so nothing this function did not commit itself survives --
+      frappe's auto_reconnect hands the caller a BRAND NEW connection with no memory of
+      the old one's uncommitted work. Treated the same as a deadlock below.
     * a 1205 lock-wait timeout only rolls back the failed statement; this mutation's own
       savepoint rollback has already undone ITS partial writes, so earlier mutations
       remain queued in the still-open transaction and are committed with the rest of
@@ -3531,6 +3607,7 @@ def _report_batch_abort(
     processed = aborted_index + 1
     remaining = max(total - processed, 0)
     is_deadlock = isinstance(abort_error, frappe.QueryDeadlockError)
+    is_connection_lost = _is_connection_lost(abort_error)
 
     if is_deadlock:
         persistence_note = (
@@ -3538,6 +3615,14 @@ def _report_batch_abort(
             "not just work after the point of failure. This function commits nothing of "
             "its own, so NONE of this batch's mutations -- including the ones counted as "
             "'Imported' above -- are durably persisted. Re-run this ENTIRE mutation type."
+        )
+    elif is_connection_lost:
+        persistence_note = (
+            "This is a LOST CONNECTION (2006/2013): the session itself is gone, which is "
+            "at least as destructive as a deadlock's full transaction rollback -- nothing "
+            "this function did not commit itself survives. This function commits nothing "
+            "of its own, so NONE of this batch's mutations -- including the ones counted "
+            "as 'Imported' above -- are durably persisted. Re-run this ENTIRE mutation type."
         )
     else:
         persistence_note = (
@@ -3565,13 +3650,13 @@ def _report_batch_abort(
     )
 
     # Reporting counts for the CALLER (start_full_rest_import's running totals), kept
-    # separate from the message's raw counts above: a deadlock means none of this
-    # batch's "imported" mutations are actually persisted, so crediting them to
-    # total_imported would make the migration document's own counters overclaim
-    # exactly what this function exists to stop overclaiming. Every mutation in the
-    # batch is accounted for somewhere (imported+skipped+failed == total), matching
-    # the convention the no-cost-center early-return already uses.
-    reporting_imported = 0 if is_deadlock else imported
+    # separate from the message's raw counts above: a deadlock (or a lost connection,
+    # #731) means none of this batch's "imported" mutations are actually persisted, so
+    # crediting them to total_imported would make the migration document's own counters
+    # overclaim exactly what this function exists to stop overclaiming. Every mutation
+    # in the batch is accounted for somewhere (imported+skipped+failed == total),
+    # matching the convention the no-cost-center early-return already uses.
+    reporting_imported = 0 if (is_deadlock or is_connection_lost) else imported
     reporting_skipped = skipped
     reporting_failed = total - reporting_imported - reporting_skipped
     return {
@@ -3731,11 +3816,15 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
                 # would feed every remaining mutation into state the server has
                 # already discarded, each appearing to succeed or fail on its own
                 # terms while actually resting on nothing. Propagate instead.
-                # KNOWN GAP (#731): a lost connection (2006/2013) is not a member of
-                # NON_RESUMABLE_DB_ERRORS (verified empirically against both driver
-                # backends) and would still be swallowed as a "LOOP ERROR" below.
                 raise
             except Exception as e:
+                if _is_connection_lost(e):
+                    # #731: a lost connection is not a NON_RESUMABLE_DB_ERRORS
+                    # class, so it needs its own check to avoid being folded into
+                    # "LOOP ERROR" below and letting the loop feed the remaining
+                    # mutations into a connection the server may have silently
+                    # replaced mid-transaction.
+                    raise
                 failed += 1
                 error_msg = f"Error in batch processing loop for mutation {i}: {str(e)}"
                 errors.append(error_msg)
@@ -3747,7 +3836,14 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
                 # must still be undone. A non-resumable error here also propagates
                 # (see _finalize_mutation_savepoint) and is caught below.
                 _finalize_mutation_savepoint(savepoint_name, mutation_succeeded)
-    except NON_RESUMABLE_DB_ERRORS as abort_error:
+    except Exception as abort_error:
+        # #731: a lost connection is not a NON_RESUMABLE_DB_ERRORS class, so it
+        # needs its own check here too -- anything else (an ordinary exception
+        # would already have been caught and folded into a per-mutation result
+        # by the loop above, so reaching here uncaught means it is not one this
+        # handler is written to report on) still propagates immediately.
+        if not (isinstance(abort_error, NON_RESUMABLE_DB_ERRORS) or _is_connection_lost(abort_error)):
+            raise
         try:
             # Reporting must never replace the error it is reporting: an insert
             # failure inside _report_batch_abort would otherwise surface to the

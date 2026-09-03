@@ -15,9 +15,8 @@ from frappe.utils import flt, getdate
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.secure_operations import (
-    get_system_user_for_operation,
+    save_as_system_user,
     secure_document_operation,
-    secure_user_context,
 )
 
 
@@ -144,14 +143,10 @@ class PublicDonationService(StatelessService):
         """Save or insert a donation/donor document using system user context.
 
         PUBLIC DONATION FLOW: Guests lack roles in ESCALATION_ALLOWED_ROLES so
-        secure_document_operation(allow_system_user=True) fails for them.  This
-        helper switches to the configured system user via secure_user_context()
-        instead — the same pattern used for donor creation elsewhere.
+        secure_document_operation(allow_system_user=True) fails for them. See
+        verenigingen.utils.secure_operations.save_as_system_user for why.
         """
-        system_user = get_system_user_for_operation(operation_context)
-        with secure_user_context(system_user, description):
-            getattr(doc, operation)()
-            frappe.db.commit()
+        save_as_system_user(doc, operation, operation_context, description)
 
     def process_payment_method(self, donation, form_data):
         """

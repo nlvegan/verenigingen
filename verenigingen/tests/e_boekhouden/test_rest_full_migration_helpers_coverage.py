@@ -42,16 +42,46 @@ from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
     _check_if_invoice_number_exists,
     _get_bank_transaction_stats,
     _get_memorial_booking_amounts,
+    _is_connection_lost,
     _retry_transient_failures,
     _validate_memorial_booking,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.non_resumable_errors import connection_lost, deadlock
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 
 
 # ---------------------------------------------------------------------------
 # Pure: _get_memorial_booking_amounts
 # ---------------------------------------------------------------------------
+class TestIsConnectionLost(unittest.TestCase):
+    """#731: matches a lost connection (2006/2013) by error CODE, since neither
+    driver backend wraps it into a distinct exception class the way it does
+    1213/1205."""
+
+    def test_real_connection_lost_error_matches(self):
+        self.assertTrue(_is_connection_lost(connection_lost()))
+
+    def test_real_connection_lost_2013_also_matches(self):
+        """CR_SERVER_LOST (2013), not just the default CR_SERVER_GONE_ERROR
+        (2006) -- both are lost-connection codes, and only 2006 was previously
+        exercised as a real (rather than negative-control) case."""
+        self.assertTrue(_is_connection_lost(connection_lost(code=2013)))
+
+    def test_deadlock_does_not_match(self):
+        """A real QueryDeadlockError (1213) is a NON_RESUMABLE_DB_ERRORS class,
+        not a connection loss -- must not double-match."""
+        self.assertFalse(_is_connection_lost(deadlock()))
+
+    def test_unrelated_exception_with_coincidental_first_arg_does_not_match(self):
+        """A KeyError(2006) from an id-keyed dict (mutation ids in this module
+        are ints) must NOT be mistaken for a lost connection just because its
+        first arg happens to equal the driver's error code -- the isinstance
+        check on frappe.db.OperationalError is what rules this out."""
+        self.assertFalse(_is_connection_lost(KeyError(2006)))
+        self.assertFalse(_is_connection_lost(ValueError(2013)))
+
+
 class TestGetMemorialBookingAmounts(unittest.TestCase):
     """The 'amount' field is the CREDIT side: positive => credit row / debit main."""
 

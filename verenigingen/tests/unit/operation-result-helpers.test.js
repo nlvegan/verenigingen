@@ -74,6 +74,25 @@ describe('OperationResult helpers', () => {
 			// success present but no data key -> not a full OperationResult
 			expect(utils.unwrapOperationResult({ success: true })).toEqual({ success: true });
 		});
+
+		test('returns null for a REAL OperationResult.to_dict() nested-schema failure (#674)', () => {
+			// This is the actual on-the-wire shape of OperationResult.to_dict() (the
+			// default, nested=True) for a failure -- verified empirically via
+			// `bench execute verenigingen.api.volunteer_application.submit_volunteer_application`:
+			// there is no top-level "data" key on failure, only "error". The previous
+			// `'data' in message` check made this fall through to `return message`
+			// (the whole envelope, which is truthy), so every failure was read as a
+			// success by callers doing `if (unwrapOperationResult(...))`.
+			const nestedFailure = {
+				success: false,
+				timestamp: '2026-09-03 04:01:57.295664',
+				error: {
+					message: 'Missing required fields: first_name, last_name, email, birth_date, motivation',
+					code: 'MISSING_REQUIRED_FIELDS'
+				}
+			};
+			expect(utils.unwrapOperationResult(nestedFailure)).toBeNull();
+		});
 	});
 
 	describe('getErrorMessage', () => {
@@ -106,6 +125,74 @@ describe('OperationResult helpers', () => {
 		test('ignores an empty errors array', () => {
 			const msg = { success: false, errors: [], message: 'fallback message' };
 			expect(utils.getErrorMessage(msg, 'd')).toBe('fallback message');
+		});
+
+		test('extracts the message from a REAL OperationResult.to_dict() nested-schema failure (#674)', () => {
+			// Same real shape as the unwrapOperationResult test above. Neither
+			// `error_message`, `errors` (top-level), nor `message` exist on this
+			// envelope -- the text lives at `error.message` -- so the previous
+			// implementation always fell through to defaultMsg here.
+			const nestedFailure = {
+				success: false,
+				error: {
+					message: 'Volunteers must be at least 21 years old (current age: 18)',
+					code: 'AGE_REQUIREMENT_NOT_MET'
+				}
+			};
+			expect(utils.getErrorMessage(nestedFailure, 'Submission failed')).toBe(
+				'Volunteers must be at least 21 years old (current age: 18)'
+			);
+		});
+
+		test('extracts a plain string "error" as a last resort (a hand-rolled dict, not an OperationResult)', () => {
+			// A real OperationResult never emits this shape -- `to_dict(nested=False)`
+			// is exercised nowhere in production, only in this app's own tests --
+			// but plenty of hand-rolled `{success, error, message}` dicts exist
+			// elsewhere in the app, and `error` here is a bare string, which is
+			// legitimately ambiguous (message vs. machine code). It is checked
+			// last, after `message`, precisely because of that ambiguity.
+			const handRolled = { success: false, error: 'Legacy failure text', errors: [] };
+			expect(utils.getErrorMessage(handRolled, 'default')).toBe('Legacy failure text');
+		});
+
+		test('a populated errors[] wins over an ambiguous string "error" (precedence)', () => {
+			const msg = { success: false, error: 'permission_denied', errors: ['Field a', 'Field b'] };
+			expect(utils.getErrorMessage(msg, 'd')).toBe('Field a; Field b');
+		});
+
+		test('a translated "message" wins over a machine-readable string "error" code', () => {
+			// Real shape from verenigingen/api/document_portal.py: {success:false,
+			// error:"permission_denied", message:_("You do not have permission...")}.
+			// The object-shaped `error` branch above must not fire for a string
+			// `error`, or a board member would see the raw code instead of the
+			// translated sentence.
+			const msg = { success: false, error: 'permission_denied', message: 'You do not have permission.' };
+			expect(utils.getErrorMessage(msg, 'd')).toBe('You do not have permission.');
+		});
+
+		test('a success-flagged object is never mined for an unrelated "error" field', () => {
+			// Real shape from verenigingen/utils/security/csrf_protection.py:
+			// {success:true, valid:false, error:str(e), message:"CSRF token
+			// validation failed"}. This function is only asked for an error
+			// message on a genuine failure; when success is true, `error` must
+			// not outrank `message`.
+			const msg = {
+				success: true,
+				valid: false,
+				error: 'Traceback (most recent call last)...',
+				message: 'CSRF token validation failed'
+			};
+			expect(utils.getErrorMessage(msg, 'd')).toBe('CSRF token validation failed');
+		});
+
+		test('joins error.errors[] when the nested error object has no message', () => {
+			// Defensive branch: OperationResult.fail() always sets error.message
+			// (defaulting to "Operation failed"), so a genuine OperationResult
+			// failure never reaches this, but a hand-rolled dict following the
+			// same nested shape and omitting "message" should still surface its
+			// per-field detail rather than falling through to the default.
+			const msg = { success: false, error: { errors: ['Email required', 'Name required'] } };
+			expect(utils.getErrorMessage(msg, 'd')).toBe('Email required; Name required');
 		});
 	});
 

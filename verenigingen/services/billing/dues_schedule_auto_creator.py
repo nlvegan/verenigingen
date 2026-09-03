@@ -102,6 +102,24 @@ def _get_validated_dues_rate(member):
         return 0
 
 
+def _warn_if_ambiguous_membership_type(member, result, ambiguous_members):
+    """Record a warning when the Active Membership picked for `member` (the most
+    recently created one, per #663's ROW_NUMBER dedupe) is not the member's only
+    candidate: their other Active membership(s) carry a DIFFERENT
+    membership_type, so a different dues_rate/template would have been picked
+    had a different one won. The pick itself is a deliberate, defensible
+    default (see #663's commit message) -- this only makes it visible instead
+    of silent, on the same admin-facing result dict that already surfaces
+    per-member errors.
+    """
+    if member.member_name in ambiguous_members:
+        result.setdefault("warnings", []).append(
+            f"Member {member.member_name} has multiple Active memberships with different "
+            f"membership types; auto-created dues schedule using the most recently created "
+            f"membership's type ({member.membership_type})."
+        )
+
+
 def auto_create_missing_dues_schedules_scheduled():
     """
     Scheduled task version - Auto-create missing dues schedules for members who have:
@@ -543,27 +561,46 @@ def send_summary_email(created_count, error_count, total_found):
 @high_security_api(operation_type=OperationType.FINANCIAL)
 def preview_missing_dues_schedules():
     """Preview members who would get dues schedules created (for testing)"""
+    # Same row-grain fix as auto_create_missing_dues_schedules_enhanced (#663,
+    # see #616 for the sibling defect in the SEPA collection path): dedupe to
+    # one (most recently created) Active Membership per member before applying
+    # LIMIT 10, so this preview matches what would actually be created, and
+    # ORDER BY explicitly so which 10 members show up is deterministic rather
+    # than left to the window function's internal materialisation order.
     members_without_schedules = frappe.db.sql(
         """
         SELECT
-            m.name as membership_name,
-            m.member as member_name,
-            m.membership_type,
+            ranked.name as membership_name,
+            ranked.member as member_name,
+            ranked.membership_type,
             mem.full_name,
             mt.minimum_amount as membership_type_amount
-        FROM `tabMembership` m
-        INNER JOIN `tabMember` mem ON m.member = mem.name
-        LEFT JOIN `tabMembership Type` mt ON m.membership_type = mt.name
-        WHERE
-            m.status = 'Active'
-            AND m.docstatus = 1
-            AND m.membership_type IS NOT NULL
-            AND NOT EXISTS (
-                SELECT 1
-                FROM `tabMembership Dues Schedule` mds
-                WHERE mds.member = m.member
-                AND mds.status = 'Active'
-            )
+        FROM (
+            SELECT
+                m.name,
+                m.member,
+                m.membership_type,
+                m.creation,
+                ROW_NUMBER() OVER (
+                    PARTITION BY m.member
+                    ORDER BY m.creation DESC, m.name DESC
+                ) AS rn
+            FROM `tabMembership` m
+            WHERE
+                m.status = 'Active'
+                AND m.docstatus = 1
+                AND m.membership_type IS NOT NULL
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM `tabMembership Dues Schedule` mds
+                    WHERE mds.member = m.member
+                    AND mds.status = 'Active'
+                )
+        ) ranked
+        INNER JOIN `tabMember` mem ON ranked.member = mem.name
+        LEFT JOIN `tabMembership Type` mt ON ranked.membership_type = mt.name
+        WHERE ranked.rn = 1
+        ORDER BY ranked.creation DESC, ranked.member DESC
         LIMIT 10
     """,
         as_dict=True,
@@ -596,31 +633,77 @@ def auto_create_missing_dues_schedules_enhanced(preview_mode=False, send_emails=
     if not frappe.has_permission("Membership Dues Schedule", "create"):
         frappe.throw("You don't have permission to create dues schedules")
 
-    # Get members without schedules
+    # Get members without schedules. Multiple Active memberships per member are
+    # permitted (frappe.flags.allow_multiple_memberships, set by the whitelisted
+    # `allow_multiple_memberships` server action), so a plain join on `m.member`
+    # is one-to-MANY: one row per Active Membership, not one per member. #663,
+    # see #616 for the sibling defect this same join shape caused in the SEPA
+    # collection path -- pick a single (most recently created) Active Membership
+    # per member via ROW_NUMBER, the same PARTITION BY member pattern the
+    # members_without_active_memberships report already uses, so the row grain
+    # here matches what is actually being created: one schedule per member.
     members_without_schedules = frappe.db.sql(
         """
         SELECT
-            m.name as membership_name,
-            m.member as member_name,
-            m.membership_type,
+            ranked.name as membership_name,
+            ranked.member as member_name,
+            ranked.membership_type,
             mem.full_name,
             mem.member_id,
             mt.minimum_amount as membership_type_amount
-        FROM `tabMembership` m
-        INNER JOIN `tabMember` mem ON m.member = mem.name
-        LEFT JOIN `tabMembership Type` mt ON m.membership_type = mt.name
-        WHERE
-            m.status = 'Active'
-            AND m.docstatus = 1
-            AND m.membership_type IS NOT NULL
-            AND NOT EXISTS (
-                SELECT 1
-                FROM `tabMembership Dues Schedule` mds
-                WHERE mds.member = m.member
-                AND mds.status = 'Active'
-            )
+        FROM (
+            SELECT
+                m.name,
+                m.member,
+                m.membership_type,
+                ROW_NUMBER() OVER (
+                    PARTITION BY m.member
+                    ORDER BY m.creation DESC, m.name DESC
+                ) AS rn
+            FROM `tabMembership` m
+            WHERE
+                m.status = 'Active'
+                AND m.docstatus = 1
+                AND m.membership_type IS NOT NULL
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM `tabMembership Dues Schedule` mds
+                    WHERE mds.member = m.member
+                    AND mds.status = 'Active'
+                )
+        ) ranked
+        INNER JOIN `tabMember` mem ON ranked.member = mem.name
+        LEFT JOIN `tabMembership Type` mt ON ranked.membership_type = mt.name
+        WHERE ranked.rn = 1
     """,
         as_dict=True,
+    )
+
+    # Members whose OTHER (discarded) Active membership(s) carry a DIFFERENT
+    # membership_type than the one the ranked query above picked. This DB's
+    # MariaDB does not support COUNT(DISTINCT ...) as a window function, so
+    # this is a separate aggregate query rather than a column on `ranked`
+    # above; the WHERE clause intentionally mirrors it so the two queries
+    # agree on which rows are "without a schedule".
+    ambiguous_members = set(
+        frappe.db.sql_list(
+            """
+            SELECT m.member
+            FROM `tabMembership` m
+            WHERE
+                m.status = 'Active'
+                AND m.docstatus = 1
+                AND m.membership_type IS NOT NULL
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM `tabMembership Dues Schedule` mds
+                    WHERE mds.member = m.member
+                    AND mds.status = 'Active'
+                )
+            GROUP BY m.member
+            HAVING COUNT(DISTINCT m.membership_type) > 1
+        """
+        )
     )
 
     result = {
@@ -635,6 +718,7 @@ def auto_create_missing_dues_schedules_enhanced(preview_mode=False, send_emails=
     if preview_mode:
         # Just return the members that would be processed
         for member in members_without_schedules:
+            _warn_if_ambiguous_membership_type(member, result, ambiguous_members)
             result["created_schedules"].append(
                 {
                     "member": member.member_name,
@@ -649,6 +733,7 @@ def auto_create_missing_dues_schedules_enhanced(preview_mode=False, send_emails=
     # Actually create the schedules
     for member in members_without_schedules:
         try:
+            _warn_if_ambiguous_membership_type(member, result, ambiguous_members)
             membership_type_doc = frappe.get_doc("Membership Type", member.membership_type)
 
             dues_schedule = frappe.new_doc("Membership Dues Schedule")
@@ -910,25 +995,43 @@ def get_members_without_dues_schedules():
     if not frappe.has_permission("Membership Dues Schedule", "create"):
         frappe.throw("You don't have permission to create dues schedules")
 
+    # Same row-grain fix as auto_create_missing_dues_schedules_enhanced (#663):
+    # `mb ON mb.member = m.name` is one-to-MANY when a member holds more than one
+    # Active Membership, so dedupe to one (most recently created) Active
+    # Membership per member.
     members = frappe.db.sql(
         """
         SELECT
-            m.name,
-            m.member_id,
-            m.full_name,
-            m.status,
-            mb.membership_type,
-            mb.status as membership_status
-        FROM `tabMember` m
-        INNER JOIN `tabMembership` mb ON mb.member = m.name
-        LEFT JOIN `tabMembership Dues Schedule` ds ON ds.member = m.name AND ds.status = 'Active'
-        WHERE
-            mb.status = 'Active'
-            AND mb.membership_type IS NOT NULL
-            AND mb.membership_type != ''
-            AND mb.docstatus = 1
-            AND ds.name IS NULL
-        ORDER BY m.full_name
+            ranked.name,
+            ranked.member_id,
+            ranked.full_name,
+            ranked.status,
+            ranked.membership_type,
+            ranked.membership_status
+        FROM (
+            SELECT
+                m.name,
+                m.member_id,
+                m.full_name,
+                m.status,
+                mb.membership_type,
+                mb.status as membership_status,
+                ROW_NUMBER() OVER (
+                    PARTITION BY m.name
+                    ORDER BY mb.creation DESC, mb.name DESC
+                ) AS rn
+            FROM `tabMember` m
+            INNER JOIN `tabMembership` mb ON mb.member = m.name
+            LEFT JOIN `tabMembership Dues Schedule` ds ON ds.member = m.name AND ds.status = 'Active'
+            WHERE
+                mb.status = 'Active'
+                AND mb.membership_type IS NOT NULL
+                AND mb.membership_type != ''
+                AND mb.docstatus = 1
+                AND ds.name IS NULL
+        ) ranked
+        WHERE ranked.rn = 1
+        ORDER BY ranked.full_name
     """,
         as_dict=True,
     )

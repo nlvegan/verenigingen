@@ -35,6 +35,11 @@ from verenigingen.utils.csv.procurios_membership_validator import (
 )
 from verenigingen.utils.error_handling import sanitize_error_for_audit
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.transaction_errors import (
+    NON_RESUMABLE_DB_ERRORS,
+    release_savepoint_if_present,
+    rollback_to_savepoint,
+)
 
 # dues-schedule template settings fields (checked on validate)
 DUES_TEMPLATE_SETTINGS = [
@@ -266,6 +271,12 @@ class ProcuriosMembershipImport(BaseCSVImport):
                 return self._create_active_membership(row, member_name, caches)
             return self._create_historical_membership(row, member_name, caches)
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213/1205: the server has already thrown the transaction away (or
+            # left it half-applied). Let it propagate -- #700 makes the batch
+            # loop abandon the import on this rather than counting it as one
+            # bad row; catching it here as a bare Exception would defeat that.
+            raise
         except Exception as e:
             skip_counters["error"] += 1
             sanitized = sanitize_error_for_audit(str(e))
@@ -278,47 +289,66 @@ class ProcuriosMembershipImport(BaseCSVImport):
         member_name: str,
         caches: _Caches,
     ) -> Tuple[str, str]:
-        """Create a live Membership + dues schedule via MembershipImportService."""
-        member_doc = frappe.get_doc("Member", member_name)
-        row_data = {
-            "member_id": row.debiteur_id,
-            "membership_type": caches.type_mapping[row.procurios_type],
-            "payment_period": row.payment_period,
-            "member_since": row.start_date,
-            "dues_rate": row.dues_rate,
-        }
-        membership_name = get_membership_import_service().create_membership_from_csv(member_doc, row_data)
-        if not membership_name:
-            # Service swallows creation failures (logged to Error Log) and
-            # returns None. Surface it as a per-row error rather than a silent
-            # created/skipped miscount.
-            raise frappe.ValidationError(f"membership creation returned no result for member {member_name}")
+        """Create a live Membership + dues schedule via MembershipImportService.
 
-        # Invariant: Step 4 (already_active skip) prevents reaching this for a
-        # member who already holds an active Membership, so create_membership_from_csv's
-        # advisory-lock double-check should not return a *pre-existing* membership
-        # here. Guard defensively anyway: if it returned one already tagged with a
-        # different procurios_membership_id, don't overwrite the tag or miscount it
-        # as created — surface it as a per-row error instead.
-        existing_tag = frappe.db.get_value("Membership", membership_name, "procurios_membership_id")
-        if existing_tag and existing_tag != row.procurios_membership_id:
-            raise frappe.ValidationError(
-                f"membership {membership_name} already tagged with procurios_membership_id "
-                f"'{existing_tag}'; refusing to retag as '{row.procurios_membership_id}'"
+        One savepointed unit of work (#698): without it, a failure in the
+        existence check or the idempotency-tag `db_set` below -- both of which
+        run AFTER the service has already created the Membership and dues
+        schedule -- left them committed by the batch loop's
+        `frappe.db.commit()` while this row was reported "skipped". Same
+        divergence #570 fixed for Member Import.
+        """
+        savepoint = f"procurios_membership_active_{frappe.generate_hash(length=8)}"
+        frappe.db.savepoint(savepoint)
+        try:
+            member_doc = frappe.get_doc("Member", member_name)
+            row_data = {
+                "member_id": row.debiteur_id,
+                "membership_type": caches.type_mapping[row.procurios_type],
+                "payment_period": row.payment_period,
+                "member_since": row.start_date,
+                "dues_rate": row.dues_rate,
+            }
+            membership_name = get_membership_import_service().create_membership_from_csv(member_doc, row_data)
+            if not membership_name:
+                # Service swallows creation failures (logged to Error Log) and
+                # returns None. Surface it as a per-row error rather than a silent
+                # created/skipped miscount.
+                raise frappe.ValidationError(
+                    f"membership creation returned no result for member {member_name}"
+                )
+
+            # Invariant: Step 4 (already_active skip) prevents reaching this for a
+            # member who already holds an active Membership, so create_membership_from_csv's
+            # advisory-lock double-check should not return a *pre-existing* membership
+            # here. Guard defensively anyway: if it returned one already tagged with a
+            # different procurios_membership_id, don't overwrite the tag or miscount it
+            # as created — surface it as a per-row error instead.
+            existing_tag = frappe.db.get_value("Membership", membership_name, "procurios_membership_id")
+            if existing_tag and existing_tag != row.procurios_membership_id:
+                raise frappe.ValidationError(
+                    f"membership {membership_name} already tagged with procurios_membership_id "
+                    f"'{existing_tag}'; refusing to retag as '{row.procurios_membership_id}'"
+                )
+
+            # Idempotency marker so re-imports skip this membership.
+            frappe.db.set_value(
+                "Membership",
+                membership_name,
+                "procurios_membership_id",
+                row.procurios_membership_id,
+                update_modified=False,
             )
-
-        # Idempotency marker so re-imports skip this membership.
-        frappe.db.set_value(
-            "Membership",
-            membership_name,
-            "procurios_membership_id",
-            row.procurios_membership_id,
-            update_modified=False,
-        )
-
-        caches.existing_membership_ids.add(row.procurios_membership_id)
-        caches.members_with_active_membership.add(member_name)
-        return ("created", membership_name)
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
+        except Exception:
+            rollback_to_savepoint(savepoint)
+            raise
+        else:
+            release_savepoint_if_present(savepoint)
+            caches.existing_membership_ids.add(row.procurios_membership_id)
+            caches.members_with_active_membership.add(member_name)
+            return ("created", membership_name)
 
     def _create_historical_membership(
         self,
@@ -344,6 +374,14 @@ class ProcuriosMembershipImport(BaseCSVImport):
         `_is_csv_import` is deliberately NOT set on this historical path: that
         flag pushes `renewal_date` to today+period (future) to keep *active*
         imports Active, which would wrongly suppress the Expired status here.
+
+        One savepointed unit of work (#698): `insert()` and `submit()` are two
+        separate writes with nothing between them today, but a throw inside
+        `submit()`'s `on_submit` hook still leaves `docstatus=1` written
+        (`db_update()` runs before `on_submit`) -- matching
+        `transaction_errors.insert_and_submit_atomically`'s documented failure
+        mode. Without the savepoint that leaves a submitted Membership behind
+        while the row is reported "skipped".
         """
         membership_data = {
             "doctype": "Membership",
@@ -356,6 +394,8 @@ class ProcuriosMembershipImport(BaseCSVImport):
             membership_data["cancellation_date"] = row.cancellation_date
             membership_data["cancellation_reason"] = "Imported from Procurios (historical)"
 
+        savepoint = f"procurios_membership_historical_{frappe.generate_hash(length=8)}"
+        frappe.db.savepoint(savepoint)
         original_user = frappe.session.user
         original_suppress = frappe.flags.get("suppress_grace_period_message")
         try:
@@ -370,14 +410,20 @@ class ProcuriosMembershipImport(BaseCSVImport):
             membership.flags.skip_dues_schedule_creation = True  # no billing for historical
             membership.insert()
             membership.submit()  # set_status -> Cancelled (cancellation_date) / Expired (past renewal_date)
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
+        except Exception:
+            rollback_to_savepoint(savepoint)
+            raise
+        else:
+            release_savepoint_if_present(savepoint)
+            caches.existing_membership_ids.add(row.procurios_membership_id)
+            return ("created", membership.name)
         finally:
             frappe.set_user(original_user)
             # Reset the flag we set above so it does not leak True onto the rest
             # of the batch (other rows / callers rely on the default behaviour).
             frappe.flags.suppress_grace_period_message = original_suppress
-
-        caches.existing_membership_ids.add(row.procurios_membership_id)
-        return ("created", membership.name)
 
     # ---- finalize ----
 
