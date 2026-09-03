@@ -42,6 +42,7 @@ import frappe
 from frappe.utils import now_datetime
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.donation_form_data import make_donation_form_data
 
 
 class TestDonationWebFormGuestSubmission(EnhancedTestCase):
@@ -56,18 +57,13 @@ class TestDonationWebFormGuestSubmission(EnhancedTestCase):
             frappe.set_user(self._original_user)
         super().tearDown()
 
-    def _make_form_data(self, **overrides):
-        ts = now_datetime().strftime("%H%M%S%f")
-        data = {
-            "donor_name": f"Web Form Donor {ts}",
-            "donor_email": f"web.form.donor.{ts}@example.com",
-            "donor_type": "Individual",
-            "amount": "25.00",
-            "mode_of_payment": "SEPA Direct Debit",
-            "donation_purpose_type": "General",
-        }
-        data.update(overrides)
-        return data
+    def _web_form_payload(self, **overrides):
+        return make_donation_form_data(
+            label="Web Form Donor",
+            payment_key="mode_of_payment",
+            payment_method="SEPA Direct Debit",
+            **overrides,
+        )
 
     def test_guest_can_submit_donation_via_donation_form(self):
         """REGRESSION: process_donation_form must not raise TypeError for Guests.
@@ -79,7 +75,7 @@ class TestDonationWebFormGuestSubmission(EnhancedTestCase):
         from verenigingen.verenigingen.web_form.donation_form.donation_form import process_donation_form
 
         frappe.set_user("Guest")
-        data = self._make_form_data()
+        data = self._web_form_payload()
         result = process_donation_form(data)
 
         self.assertTrue(result.get("success"), f"Guest donation should succeed: {result}")
@@ -98,7 +94,7 @@ class TestDonationWebFormGuestSubmission(EnhancedTestCase):
         from verenigingen.verenigingen.web_form.donation_form.donation_form import get_or_create_donor
 
         frappe.set_user("Guest")
-        data = self._make_form_data()
+        data = self._web_form_payload()
         donor_name = get_or_create_donor(data)
 
         self.assertIsNotNone(donor_name)
@@ -117,7 +113,7 @@ class TestDonationWebFormGuestSubmission(EnhancedTestCase):
         from verenigingen.verenigingen.web_form.donation_form.donation_form import process_donation_form
 
         frappe.set_user("Guest")
-        data = self._make_form_data(mode_of_payment="Bank Transfer")
+        data = self._web_form_payload(mode_of_payment="Bank Transfer")
         result = process_donation_form(data)
 
         frappe.set_user(self._original_user)
@@ -134,16 +130,6 @@ class TestDonationWebFormCampaignField(EnhancedTestCase):
     silent no-op, so every Campaign-purpose donation from this form silently
     lost its campaign attribution."""
 
-    def _make_donor(self):
-        ts = now_datetime().strftime("%H%M%S%f")
-        donor = frappe.new_doc("Donor")
-        donor.donor_name = f"Campaign Test Donor {ts}"
-        donor.donor_email = f"campaign.test.donor.{ts}@example.com"
-        donor.donor_type = "Individual"
-        donor.insert(ignore_permissions=True)
-        self.track_doc("Donor", donor.name)
-        return donor
-
     def test_campaign_reference_matching_real_campaign_sets_campaign_link(self):
         from verenigingen.verenigingen.web_form.donation_form.donation_form import create_donation
 
@@ -155,7 +141,7 @@ class TestDonationWebFormCampaignField(EnhancedTestCase):
         campaign.insert()
         self.track_doc("Donation Campaign", campaign.name)
 
-        donor = self._make_donor()
+        donor = self.create_test_donor(donor_type="Individual")
         data = {
             "amount": "10.00",
             "mode_of_payment": "SEPA Direct Debit",
@@ -170,7 +156,7 @@ class TestDonationWebFormCampaignField(EnhancedTestCase):
     def test_campaign_reference_without_matching_campaign_falls_back_to_notes(self):
         from verenigingen.verenigingen.web_form.donation_form.donation_form import create_donation
 
-        donor = self._make_donor()
+        donor = self.create_test_donor(donor_type="Individual")
         data = {
             "amount": "10.00",
             "mode_of_payment": "SEPA Direct Debit",
@@ -188,18 +174,6 @@ class TestDonationWebFormPeriodicAgreementNesting(EnhancedTestCase):
     """REGRESSION (#755 bug 2): agreement name must be read from the nested
     OperationResult schema, not a non-existent top-level key."""
 
-    def _make_consented_donor(self):
-        ts = now_datetime().strftime("%H%M%S%f")
-        donor = frappe.new_doc("Donor")
-        donor.donor_name = f"Consented Donor {ts}"
-        donor.donor_email = f"consented.donor.{ts}@example.com"
-        donor.donor_type = "Individual"
-        donor.anbi_consent = 1
-        donor.bsn_citizen_service_number = "111222333"
-        donor.insert(ignore_permissions=True)
-        self.track_doc("Donor", donor.name)
-        return donor
-
     def test_create_periodic_agreement_from_donation_passes_real_agreement_name(self):
         """REGRESSION: create_periodic_agreement_from_donation must forward the
         actual agreement name (result["data"]["agreement"]) to
@@ -210,7 +184,7 @@ class TestDonationWebFormPeriodicAgreementNesting(EnhancedTestCase):
             create_periodic_agreement_from_donation,
         )
 
-        donor = self._make_consented_donor()
+        donor = self.create_test_donor(donor_type="Individual", anbi_consent=1)
         data = {
             "amount": "25.00",
             "recurring_frequency": "Monthly",
@@ -249,7 +223,7 @@ class TestDonationWebFormPeriodicAgreementNesting(EnhancedTestCase):
 
         self.expectErrorLog("Agreement Email Error")
 
-        donor = self._make_consented_donor()
+        donor = self.create_test_donor(donor_type="Individual", anbi_consent=1)
         data = {
             "amount": "25.00",
             "recurring_frequency": "Monthly",
