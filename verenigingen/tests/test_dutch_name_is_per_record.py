@@ -17,6 +17,13 @@ Two consequences:
 
 The record already answers the question, so these tests pin that the output no
 longer varies with the site-wide flag.
+
+The flag itself moved in the #780 follow-up: it is now the declared setting
+`Verenigingen Settings.enable_dutch_name_fields`, which governs whether forms
+OFFER the field, and the Redis-cached Company scan is gone. These tests toggle
+the setting rather than the retired cache key -- pinning the dead key would have
+left them unable to fail, because re-introducing the flag into
+`update_member_full_name` would read the setting and the key would be ignored.
 """
 
 import unittest
@@ -24,8 +31,7 @@ import unittest
 import frappe
 
 from verenigingen.utils.dutch_name_service import update_member_full_name
-
-FLAG = "is_dutch_installation"
+from verenigingen.utils.dutch_name_utils import DUTCH_NAME_FIELDS_FIELD, SETTINGS_DOCTYPE
 
 
 def _member(first, tussenvoegsel, last, middle=None):
@@ -40,16 +46,25 @@ def _member(first, tussenvoegsel, last, middle=None):
 
 class TestDutchNameIsPerRecord(unittest.TestCase):
     def setUp(self):
-        self._original = frappe.cache().get_value(FLAG)
+        rows = frappe.db.sql(
+            "select value from tabSingles where doctype=%s and field=%s",
+            (SETTINGS_DOCTYPE, DUTCH_NAME_FIELDS_FIELD),
+        )
+        self._original = rows[0][0] if rows else None
 
     def tearDown(self):
         if self._original is None:
-            frappe.cache().delete_value(FLAG)
+            frappe.db.sql(
+                "delete from tabSingles where doctype=%s and field=%s",
+                (SETTINGS_DOCTYPE, DUTCH_NAME_FIELDS_FIELD),
+            )
         else:
-            frappe.cache().set_value(FLAG, self._original)
+            frappe.db.set_single_value(SETTINGS_DOCTYPE, DUTCH_NAME_FIELDS_FIELD, self._original)
+        frappe.clear_document_cache(SETTINGS_DOCTYPE, SETTINGS_DOCTYPE)
 
     def _full_name_with_flag(self, flag_value, doc):
-        frappe.cache().set_value(FLAG, flag_value, expires_in_sec=60)
+        frappe.db.set_single_value(SETTINGS_DOCTYPE, DUTCH_NAME_FIELDS_FIELD, int(flag_value))
+        frappe.clear_document_cache(SETTINGS_DOCTYPE, SETTINGS_DOCTYPE)
         update_member_full_name(doc)
         return doc.full_name
 

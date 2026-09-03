@@ -17,6 +17,7 @@
   "column_break_org",
   "national_board_chapter",
   "enable_chapter_management",
+  "enable_dutch_name_fields",
   "member_id_start",
   "last_member_id",
   "last_member_history_refresh",
@@ -197,6 +198,13 @@
    "fieldname": "enable_chapter_management",
    "fieldtype": "Check",
    "label": "Enable Chapter Management"
+  },
+  {
+   "default": "1",
+   "description": "Offer the tussenvoegsel (Dutch name particle) field on the membership application form, the Member form, and the linked User. Dutch here means the language, so leave it on for Flemish members too. Stored names are unaffected: a member who has a tussenvoegsel always keeps it in their full name regardless of this setting (#780).",
+   "fieldname": "enable_dutch_name_fields",
+   "fieldtype": "Check",
+   "label": "Enable Dutch Name Fields"
   },
   {
    "default": "0",
