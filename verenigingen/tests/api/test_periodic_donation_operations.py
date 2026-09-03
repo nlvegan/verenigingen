@@ -221,6 +221,73 @@ class TestPeriodicDonationOperations(VereningingenTestCase):
         self.assertFalse(self._ok(result))
         self.assertTrue(self._errors(result))
 
+    # ------------------------------------------------------------------ #
+    # payment_method mapping (#744)
+    #
+    # Periodic Donation Agreement.payment_method is a Select with exactly
+    # three options: "SEPA Direct Debit", "Bank Transfer", "Other". Before
+    # the fix, create_periodic_agreement assigned the caller-supplied string
+    # straight into that field with no check -- Frappe's _validate_selects()
+    # then rejects it at insert() time.
+    #
+    # The concrete, code-verified reachability path is donation_form.py's
+    # create_periodic_agreement_from_donation, which forwards the Donation
+    # Form's own payment_method value (options: Bank Transfer, SEPA Direct
+    # Debit, Mollie, Cash, Check -- see donation_form.json). Three of those
+    # five have no equivalent Select option here.
+    # ------------------------------------------------------------------ #
+    def test_create_agreement_accepts_exact_select_options_unchanged(self):
+        donor = self._make_donor(anbi_consent=1)
+        for value in ("SEPA Direct Debit", "Bank Transfer", "Other"):
+            result = create_periodic_agreement(
+                donor=donor.name,
+                annual_amount=1200,
+                payment_frequency="Monthly",
+                payment_method=value,
+            )
+            self.assertTrue(self._ok(result), f"{value} should be accepted as-is: {self._errors(result)}")
+            agreement_name = self._data(result)["agreement"]
+            self.track_doc("Periodic Donation Agreement", agreement_name)
+            agreement = frappe.get_doc("Periodic Donation Agreement", agreement_name)
+            self.assertEqual(agreement.payment_method, value)
+
+    def test_create_agreement_maps_donation_form_only_methods_to_other(self):
+        """Mollie, Cash and Check are valid Donation Form payment methods with no
+        direct equivalent on the agreement's 3-option Select. They must map to
+        the genuine catch-all "Other" bucket instead of raising ValidationError
+        (this is not the #427 anti-pattern: "Other" is the correct bucket for
+        exactly this class of value, unlike silently defaulting to a specific,
+        wrong option such as "Bank Transfer")."""
+        donor = self._make_donor(anbi_consent=1)
+        for value in ("Mollie", "Cash", "Check"):
+            result = create_periodic_agreement(
+                donor=donor.name,
+                annual_amount=1200,
+                payment_frequency="Monthly",
+                payment_method=value,
+            )
+            self.assertTrue(self._ok(result), f"{value} should map to Other: {self._errors(result)}")
+            agreement_name = self._data(result)["agreement"]
+            self.track_doc("Periodic Donation Agreement", agreement_name)
+            agreement = frappe.get_doc("Periodic Donation Agreement", agreement_name)
+            self.assertEqual(agreement.payment_method, "Other")
+
+    def test_create_agreement_rejects_unrecognized_payment_method(self):
+        """An unrecognized value (typo, forged request, future donation-form
+        option this map hasn't been taught yet) must fail loudly with a clear
+        message -- not be silently coerced into any bucket (#427)."""
+        donor = self._make_donor(anbi_consent=1)
+        result = create_periodic_agreement(
+            donor=donor.name,
+            annual_amount=1200,
+            payment_frequency="Monthly",
+            payment_method="Bitcoin",
+        )
+        self.assertFalse(self._ok(result))
+        joined = " ".join(self._errors(result))
+        self.assertIn("Bitcoin", joined)
+        self.assertFalse(frappe.db.exists("Periodic Donation Agreement", {"donor": donor.name}))
+
     # ================================================================== #
     # link_donation_to_agreement
     #   NOTE: this whitelisted API has NO production callers (verified via

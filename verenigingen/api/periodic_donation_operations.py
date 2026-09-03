@@ -23,6 +23,48 @@ from verenigingen.utils.security.api_security_framework import (
     standard_api,
 )
 
+# Periodic Donation Agreement.payment_method is a Select with exactly these
+# three options (periodic_donation_agreement.json). Callers -- notably the
+# Donation Form, whose own payment_method Select offers "Bank Transfer",
+# "SEPA Direct Debit", "Mollie", "Cash", "Check" -- may supply a value with no
+# direct equivalent here. Map every value this app is known to produce to one
+# of the three real options; anything else fails loudly instead of being
+# silently coerced (#427: substituting a specific, wrong default such as
+# "Bank Transfer" for an unmapped value misrecords the caller's actual
+# choice). Mapping Mollie/Cash/Check to "Other" is not that mistake --
+# "Other" is the genuine catch-all bucket this Select defines for exactly
+# this class of value, not an unrelated substitute.
+PERIODIC_AGREEMENT_PAYMENT_METHOD_MAP = {
+    "SEPA Direct Debit": "SEPA Direct Debit",
+    "Bank Transfer": "Bank Transfer",
+    "Other": "Other",
+    "Mollie": "Other",
+    "Cash": "Other",
+    "Check": "Other",
+}
+
+
+def map_periodic_agreement_payment_method(payment_method: str) -> str:
+    """Map a caller-supplied payment method to a valid
+    Periodic Donation Agreement.payment_method Select option.
+
+    Raises frappe.ValidationError (via frappe.throw) for a missing or
+    unrecognized value -- see #427 for why silently defaulting instead is
+    the wrong failure mode for an out-of-range but non-empty value.
+    """
+    if not payment_method:
+        frappe.throw(_("Payment method is required."), title=_("Invalid Payment Method"))
+
+    if payment_method not in PERIODIC_AGREEMENT_PAYMENT_METHOD_MAP:
+        frappe.throw(
+            _("'{0}' is not a recognized payment method for a periodic donation agreement.").format(
+                payment_method
+            ),
+            title=_("Invalid Payment Method"),
+        )
+
+    return PERIODIC_AGREEMENT_PAYMENT_METHOD_MAP[payment_method]
+
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
@@ -67,7 +109,7 @@ def create_periodic_agreement(
         agreement.donor = donor
         agreement.annual_amount = flt(annual_amount)
         agreement.payment_frequency = payment_frequency
-        agreement.payment_method = payment_method
+        agreement.payment_method = map_periodic_agreement_payment_method(payment_method)
         agreement.start_date = start_date or today()
         agreement.agreement_type = agreement_type
         agreement.status = "Draft"
