@@ -818,6 +818,62 @@ class TestVIPImportRobustness(FrappeTestCase):
             # Cleanup
             self._cleanup_savepoint_test_data(member, test_vip_id)
 
+    def test_a_deadlock_abandons_the_row_instead_of_being_swallowed(self):
+        """A 1213 discards the WHOLE transaction, not just this row (#701).
+
+        The test above proves the ordinary-failure path: the savepoint is intact,
+        the rollback undoes the row, and the caller reports one failed row while
+        continuing the batch. A deadlock is not an ordinary failure -- the server
+        has already thrown the entire transaction away, so
+        ``process_import_background``'s row loop must abandon the import instead
+        of treating this as one more row to skip and move past.
+
+        Before the #701 fix, ``_process_single_row``'s bare ``except Exception``
+        caught this the same as any other error, attempted (and silently failed,
+        via a dropped ``frappe.logger().warning``) to roll back to a savepoint the
+        deadlock had already destroyed, and returned an ordinary ``"error"``
+        status dict -- so the caller never learned the transaction was gone and
+        kept processing rows against it.
+        """
+        import uuid
+
+        unique_id = str(uuid.uuid4())[:8]
+        member, row, test_vip_id = self._create_savepoint_test_data(unique_id)
+
+        original_set_value = frappe.db.set_value
+
+        def deadlocking_set_value(doctype, name, field, value=None, *args, **kwargs):
+            if doctype == "Member" and field == "volunteer_record":
+                raise frappe.QueryDeadlockError(
+                    "Deadlock found when trying to get lock; try restarting transaction"
+                )
+            return original_set_value(doctype, name, field, value, *args, **kwargs)
+
+        import_doc = MagicMock()
+        import_doc.create_members_if_missing = False
+        import_doc.duplicate_handling = "Update existing"
+        import_doc.name = None  # Skip batch tracking in test
+
+        stats = {
+            "volunteers_created": 0,
+            "volunteers_updated": 0,
+            "volunteers_skipped": 0,
+            "members_not_found": 0,
+            "members_created": 0,
+        }
+
+        try:
+            with patch.object(frappe.db, "set_value", deadlocking_set_value):
+                from verenigingen.verenigingen.doctype.vip_import.vip_import import (
+                    _process_single_row,
+                )
+
+                with self.assertRaises(frappe.QueryDeadlockError):
+                    _process_single_row(row, import_doc, stats)
+        finally:
+            # Cleanup
+            self._cleanup_savepoint_test_data(member, test_vip_id)
+
     def _create_test_member(self, first_name, last_name, email):
         # NOTE: Intentionally local — VIP import domain-specific setup (bulk_member_operations flag)
         """Create a test member for testing."""

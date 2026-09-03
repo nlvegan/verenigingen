@@ -205,6 +205,13 @@ class TestEverySavepointRollbackInAnExcept(VereningingenTestCase):
     2. the rollback itself must go through ``rollback_to_savepoint()``, because rule 1
        does not cover the nested-commit cause -- that arrives as an ordinary exception.
 
+    Both rules originally matched only ``frappe.db.rollback(save_point=...)``. Two sites
+    (vip_import.py, member_import_service.py) instead hand-wrote the raw SQL --
+    ``frappe.db.sql("ROLLBACK TO SAVEPOINT ...")`` -- which is a ``.sql(...)`` call, not a
+    ``.rollback(save_point=...)`` call, so they survived this ratchet entirely despite its
+    docstring's claim to cover "every such handler" (#701). ``_bare_savepoint_rollbacks``,
+    ``_is_savepoint_only`` and ``_rolls_back_a_savepoint`` now match either spelling.
+
     **What it cannot see:** whether a guarded handler then reports the error usefully, and
     whether an exemption's stated reason is true. Both stay human claims. Read that before
     reading a green run here as coverage of behaviour.
@@ -213,15 +220,54 @@ class TestEverySavepointRollbackInAnExcept(VereningingenTestCase):
     SKIP_DIRS = ("/tests/", "/node_modules/", "/__pycache__/")
 
     @staticmethod
-    def _bare_savepoint_rollbacks(handler):
-        """``frappe.db.rollback(save_point=...)`` written out by hand, rather than the helper."""
+    def _sql_call_leading_text(node):
+        """The first argument's leading literal text for a ``frappe.db.sql(...)``-shaped
+        call: a plain string, or the fixed prefix of an f-string before its first
+        interpolation (``f"ROLLBACK TO SAVEPOINT {name}"`` -> ``"ROLLBACK TO SAVEPOINT "``).
+        None for anything that is not a ``.sql(...)`` call, or whose query argument is
+        not a literal -- a query built entirely from a variable defeats this the same
+        way it would defeat a human reviewer, which is out of scope here as it is for
+        every other AST ratchet in this app.
+        """
+        if not (
+            isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "sql"
+        ):
+            return None
+        if not node.args:
+            return None
+        arg = node.args[0]
+        if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+            return arg.value
+        if isinstance(arg, ast.JoinedStr) and arg.values and isinstance(arg.values[0], ast.Constant):
+            return arg.values[0].value
+        return None
+
+    @classmethod
+    def _is_raw_sql_savepoint_op(cls, node, *prefixes):
+        text = cls._sql_call_leading_text(node)
+        return bool(text) and text.strip().upper().startswith(prefixes)
+
+    @classmethod
+    def _bare_savepoint_rollbacks(cls, handler):
+        """``frappe.db.rollback(save_point=...)`` OR the raw-SQL spelling
+        ``frappe.db.sql("ROLLBACK TO SAVEPOINT ...")`` -- written out by hand, rather
+        than through the helper.
+
+        The raw-SQL spelling is what let vip_import.py and member_import_service.py
+        survive this ratchet entirely (#701): the AST shape is a ``.sql(...)`` call,
+        not a ``.rollback(save_point=...)`` call, so the original matcher -- whose
+        docstring claimed to cover "every such handler" -- never saw it.
+        """
         return [
             node
             for node in ast.walk(handler)
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "rollback"
-            and any(k.arg == "save_point" for k in node.keywords)
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "rollback"
+                and any(k.arg == "save_point" for k in node.keywords)
+            )
+            or cls._is_raw_sql_savepoint_op(node, "ROLLBACK TO SAVEPOINT")
         ]
 
     @classmethod
@@ -243,6 +289,20 @@ class TestEverySavepointRollbackInAnExcept(VereningingenTestCase):
 
     _SAVEPOINT_OPS = ("rollback", "release_savepoint")
 
+    # The raw-SQL spelling of the same three operations (#701) -- checked by leading
+    # literal text rather than attribute name, since all three go through `.sql(...)`.
+    _RAW_SQL_SAVEPOINT_PREFIXES = ("ROLLBACK TO SAVEPOINT", "RELEASE SAVEPOINT", "SAVEPOINT ")
+
+    # A bare-name call to the canonical helper ITSELF (#701 follow-up review). A
+    # hand-written `try: rollback_to_savepoint(sp) except Exception: pass` is a
+    # copy of the same shape as reimplementing the SQL by hand: the helper
+    # already tolerates the one diagnosed cause and records anything else, so
+    # wrapping it in another swallow-all hides that record. This is exactly what
+    # let migration_transaction's own `finally:` cleanup survive review
+    # undetected -- neither `_hand_written_copies` nor `error_swallow_validator`
+    # recognised a bare `ast.Name` call as a savepoint op.
+    _CANONICAL_HELPER_NAMES = ("rollback_to_savepoint", "release_savepoint_if_present")
+
     @classmethod
     def _is_savepoint_only(cls, statements):
         """Every statement is a savepoint call (possibly under a plain `if`), nothing else."""
@@ -255,9 +315,15 @@ class TestEverySavepointRollbackInAnExcept(VereningingenTestCase):
                 continue
             if not isinstance(stmt, ast.Expr) or not isinstance(stmt.value, ast.Call):
                 return False
-            func = stmt.value.func
-            if not isinstance(func, ast.Attribute) or func.attr not in cls._SAVEPOINT_OPS:
-                return False
+            call = stmt.value
+            func = call.func
+            if isinstance(func, ast.Attribute) and func.attr in cls._SAVEPOINT_OPS:
+                continue
+            if isinstance(func, ast.Name) and func.id in cls._CANONICAL_HELPER_NAMES:
+                continue
+            if cls._is_raw_sql_savepoint_op(call, *cls._RAW_SQL_SAVEPOINT_PREFIXES):
+                continue
+            return False
         return True
 
     @classmethod
@@ -297,7 +363,11 @@ class TestEverySavepointRollbackInAnExcept(VereningingenTestCase):
                 if EXEMPTION_MARKER in lines[handler.lineno - 1]:
                     continue
                 if self._bare_savepoint_rollbacks(handler):
-                    yield handler.lineno, "writes frappe.db.rollback(save_point=...) by hand"
+                    yield (
+                        handler.lineno,
+                        "writes a savepoint rollback by hand (frappe.db.rollback(save_point=...) or "
+                        'raw frappe.db.sql("ROLLBACK TO SAVEPOINT ...")) instead of rollback_to_savepoint()',
+                    )
                 if not catches_bare_exception(handler):
                     continue
                 # A catch-all that re-raises unconditionally cannot swallow anything, so it
@@ -404,6 +474,54 @@ class TestEverySavepointRollbackInAnExcept(VereningingenTestCase):
                 "try:\n    f()\nexcept (ValueError, Exception):\n    frappe.db.rollback(save_point=sp)\n",
                 2,
             ),
+            # The raw-SQL spelling (#701): vip_import.py and member_import_service.py
+            # survived every case above unscathed because they wrote
+            # frappe.db.sql("ROLLBACK TO SAVEPOINT ...") instead of
+            # frappe.db.rollback(save_point=...). These plant that shape directly so a
+            # future refactor of _is_raw_sql_savepoint_op cannot silently stop seeing it.
+            "raw-SQL rollback in a re-raising catch-all": (
+                'try:\n    f()\nexcept Exception:\n    frappe.db.sql("ROLLBACK TO SAVEPOINT sp1")\n    raise\n',
+                1,
+            ),
+            "raw-SQL rollback as an f-string in a swallowing catch-all": (
+                "try:\n    f()\nexcept Exception:\n"
+                '    frappe.db.sql(f"ROLLBACK TO SAVEPOINT {sp}")\n    return None\n',
+                2,
+            ),
+            "raw-SQL rollback is still flagged for spelling even when properly guarded": (
+                "try:\n    f()\nexcept NON_RESUMABLE_DB_ERRORS:\n    raise\n"
+                'except Exception:\n    frappe.db.sql("ROLLBACK TO SAVEPOINT sp1")\n    raise\n',
+                1,
+            ),
+            "raw-SQL rollback survives different case and surrounding whitespace": (
+                "try:\n    f()\nexcept Exception:\n"
+                '    frappe.db.sql("   rollback to savepoint sp1   ")\n    raise\n',
+                1,
+            ),
+            "raw-SQL rollback spanning multiple lines is still detected": (
+                "try:\n    f()\nexcept Exception:\n"
+                '    frappe.db.sql("""\n        ROLLBACK TO SAVEPOINT sp1\n    """)\n    raise\n',
+                1,
+            ),
+            "raw-SQL RELEASE-only hand-written copy in its own try/except": (
+                'try:\n    if flag:\n        frappe.db.sql("RELEASE SAVEPOINT sp1")\n'
+                "except Exception:\n    pass\n",
+                1,
+            ),
+            # A wrapper AROUND the canonical helper itself (2nd #701 review round):
+            # migration_transaction's own `finally:` cleanup was exactly this shape --
+            # a bare-name call to release_savepoint_if_present, in its own try/except,
+            # invisible to every rule above because none of them recognised an
+            # ast.Name call as a savepoint op.
+            "a canonical helper call wrapped in its own try/except is a copy too": (
+                "try:\n    rollback_to_savepoint(sp)\nexcept Exception:\n    pass\n",
+                1,
+            ),
+            "the other helper, release_savepoint_if_present, is caught the same way": (
+                "try:\n    if flag:\n        release_savepoint_if_present(sp)\n"
+                "except Exception:\n    pass\n",
+                1,
+            ),
         }
         for label, (snippet, expected) in planted.items():
             with self.subTest(label):
@@ -439,6 +557,18 @@ class TestEverySavepointRollbackInAnExcept(VereningingenTestCase):
             "an exempted handler": (
                 "try:\n    f()\nexcept Exception:  # non-resumable-ok: runs after the failure\n"
                 "    frappe.db.rollback(save_point=sp)\n"
+            ),
+            "an exempted raw-SQL hand-written copy": (
+                'try:\n    frappe.db.sql("ROLLBACK TO SAVEPOINT sp1")\n'
+                "except Exception as e:  # non-resumable-ok: deliberately swallows more\n    log(e)\n"
+            ),
+            "an exempted raw-SQL handler": (
+                "try:\n    f()\nexcept Exception:  # non-resumable-ok: runs after the failure\n"
+                '    frappe.db.sql("ROLLBACK TO SAVEPOINT sp1")\n'
+            ),
+            "an exempted canonical-helper wrapper, migration_transaction's real shape": (
+                "try:\n    release_savepoint_if_present(sp)\n"
+                "except Exception:  # non-resumable-ok: logged, not silent (#701)\n    log(e)\n"
             ),
         }
         for label, snippet in accepted.items():

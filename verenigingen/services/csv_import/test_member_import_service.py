@@ -7,6 +7,8 @@ MemberImportService Tests - TDD tests for member import service.
 Tests member creation/update logic extracted from MijnRood CSV Import DocType.
 """
 
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -563,6 +565,122 @@ class TestMemberImportService(FrappeTestCase):
             ),
             "expected an Error Log titled 'CSV Import Update Validation Error Row 7'",
         )
+
+    def test_a_destroyed_savepoint_replaces_the_validation_error_instead_of_being_reported(self):
+        """#701: the ValidationError branch of `_update_existing_member` writes its
+        `ROLLBACK TO SAVEPOINT` bare, with no `try` around it at all -- not even the
+        silent-swallow shape the other branches use. If the savepoint is gone (a
+        1213, or a nested commit -- mt940_import hit exactly this and hand-wrote
+        this same function twice), that ROLLBACK raises 1305 and REPLACES the
+        ValidationError being handled (#561's shape): `create_or_update_member`
+        never reaches `_failure_status(e)`, and the operator never learns the row
+        failed on the stale link -- only that a savepoint went missing.
+
+        Reproduces the same stale-Dynamic-Link ValidationError as
+        `test_update_validation_error_surfaces_reason_and_logs`, but releases the
+        savepoint immediately after it is created -- simulating what a 1213 or a
+        nested commit leaves behind -- so the later ROLLBACK TO SAVEPOINT has
+        nothing left to roll back to.
+        """
+        from verenigingen.services.csv_import.member_import_service import get_member_import_service
+        from verenigingen.utils.csv_import_processor import bulk_member_operations
+
+        member = self._create_member(
+            first_name="Stale",
+            last_name="LinkMember2",
+            email="stale.link2@example.com",
+        )
+        self.created_members.append(member.name)
+
+        bogus_reference = "Schedule-Does-Not-Exist-As-A-Membership-002"
+        frappe.db.sql(
+            """
+            INSERT INTO `tabMember Payment History`
+                (name, parent, parenttype, parentfield, idx, docstatus,
+                 transaction_type, reference_doctype, reference_name)
+            VALUES (%s, %s, 'Member', 'payment_history', 1, 0,
+                    'Membership Invoice', 'Membership', %s)
+            """,
+            (frappe.generate_hash(length=10), member.name, bogus_reference),
+        )
+        frappe.db.commit()
+
+        original_sql = frappe.db.sql
+
+        def sql_that_destroys_the_savepoint(query, *args, **kwargs):
+            result = original_sql(query, *args, **kwargs)
+            if isinstance(query, str) and query.startswith("SAVEPOINT "):
+                name = query.split(" ", 1)[1]
+                # Simulate what a 1213 deadlock (or a nested commit) leaves
+                # behind: the savepoint is gone before the handler ever tries
+                # to roll back to it.
+                original_sql(f"RELEASE SAVEPOINT {name}")
+            return result
+
+        with patch.object(frappe.db, "sql", side_effect=sql_that_destroys_the_savepoint):
+            with bulk_member_operations("TEST-IMPORT"):
+                status, returned_name = get_member_import_service().create_or_update_member(
+                    row_data={
+                        "row_number": 8,
+                        "first_name": "Stale",
+                        "last_name": "LinkMember2",
+                        "email": "stale.link2@example.com",
+                        "membership_type": "lid",
+                    },
+                    import_doc_name="TEST-IMPORT-001",
+                )
+
+        # The desired behaviour: the row is reported as a failure naming the REAL
+        # reason (the stale link), exactly as it is when the savepoint survives
+        # (see test_update_validation_error_surfaces_reason_and_logs). Before the
+        # #701 fix this never executes -- the ROLLBACK's own 1305 propagates out
+        # of create_or_update_member instead, so this assertion is what proves the
+        # masking: an unhandled exception here, not a returned status, is the
+        # symptom.
+        self.assertTrue(status.startswith("failed"), f"expected a failed status, got {status!r}")
+        self.assertIn(bogus_reference, status)
+        self.assertEqual(returned_name, member.name)
+
+    def test_a_deadlock_during_member_creation_is_swallowed_instead_of_abandoning_the_import(self):
+        """#701: a 1213 discards the ENTIRE transaction, not just this row.
+
+        Before the fix, `_create_new_member`'s catch-all treated a deadlock as an
+        ordinary row failure -- silently failing to roll back to a savepoint the
+        deadlock had already destroyed (a bare `except Exception: pass`) and
+        returning `_failure_status(e)` as if one row had failed cleanly, instead of
+        letting the caller (the CSV import batch loop) learn the transaction was
+        discarded and abandon the import.
+        """
+        from verenigingen.services.csv_import.member_import_service import (
+            MemberImportService,
+            get_member_import_service,
+        )
+        from verenigingen.utils.csv_import_processor import bulk_member_operations
+
+        service = get_member_import_service()
+        row_data = {
+            "row_number": 9,
+            "member_id": "TEST-DEADLOCK-001",
+            "first_name": "Deadlock",
+            "last_name": "Test",
+            "email": "deadlock.test@example.com",
+            "membership_type": "lid",
+        }
+
+        with patch.object(
+            MemberImportService,
+            "update_member_fields",
+            side_effect=frappe.QueryDeadlockError(
+                "Deadlock found when trying to get lock; try restarting transaction"
+            ),
+        ):
+            with bulk_member_operations("TEST-IMPORT"):
+                with self.assertRaises(frappe.QueryDeadlockError):
+                    service.create_or_update_member(
+                        row_data=row_data,
+                        import_doc_name="TEST-IMPORT-001",
+                        create_volunteer_records=False,
+                    )
 
     def test_failure_status_truncates_long_reasons(self):
         """The reason is capped so it cannot bloat the status or the event field."""

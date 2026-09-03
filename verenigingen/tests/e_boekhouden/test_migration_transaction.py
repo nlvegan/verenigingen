@@ -16,6 +16,8 @@ Run with:
 import unittest
 from unittest.mock import patch
 
+import frappe
+
 
 class TestMigrationTransactionAutoCommit(unittest.TestCase):
     """Tests for auto-commit behavior in migration_transaction"""
@@ -251,11 +253,22 @@ class TestMigrationTransactionSavepoints(unittest.TestCase):
         self.mock_has_perm.return_value = True
         self.mock_time.time.return_value = 1000.0
 
+        # test_savepoint_released_on_normal_exit wraps the REAL
+        # release_savepoint_if_present (patching security_helper.frappe does not
+        # reach it -- it imports its own `frappe` in transaction_errors.py), so it
+        # runs against the real database. Mark the start so tearDown can sweep any
+        # Error Log row it produces.
+        self._error_log_marker = frappe.utils.now_datetime()
+
     def tearDown(self):
-        """Clean up patches"""
+        """Clean up patches. `tabError Log` is MyISAM (non-transactional, verified
+        on this site), so a plain frappe.db.rollback() would NOT remove a row
+        inserted above -- an explicit delete is required."""
         self.perm_patcher.stop()
         self.time_patcher.stop()
         self.frappe_patcher.stop()
+        frappe.db.delete("Error Log", {"creation": (">=", self._error_log_marker)})
+        frappe.db.commit()
 
     def test_savepoint_created_on_entry(self):
         """Test that a savepoint is created when entering the context"""
@@ -281,17 +294,25 @@ class TestMigrationTransactionSavepoints(unittest.TestCase):
             )
 
     def test_savepoint_released_on_normal_exit(self):
-        """Test that savepoint is released when context exits normally"""
-        from verenigingen.e_boekhouden.utils.security_helper import migration_transaction
+        """Test that savepoint is released when context exits normally.
 
-        with migration_transaction(operation_type="account_creation"):
-            pass
+        #701: the `finally` cleanup now goes through the canonical
+        `release_savepoint_if_present()` helper rather than a hand-written
+        `frappe.db.sql("RELEASE SAVEPOINT ...")` wrapped in a silent
+        `except Exception: pass` (the shape the AST ratchet was widened to
+        catch). That helper is imported directly into security_helper's
+        namespace, so patching the module's `frappe` reference does not
+        reach it -- patch the helper itself instead.
+        """
+        from verenigingen.e_boekhouden.utils import security_helper
 
-        calls = self.mock_frappe.db.sql.call_args_list
-        self.assertTrue(
-            any("RELEASE SAVEPOINT migration_start" in str(c) for c in calls),
-            "Expected final RELEASE SAVEPOINT call",
-        )
+        with patch.object(
+            security_helper, "release_savepoint_if_present", wraps=security_helper.release_savepoint_if_present
+        ) as mock_release:
+            with security_helper.migration_transaction(operation_type="account_creation"):
+                pass
+
+        mock_release.assert_called_once_with("migration_start")
 
 
 class TestMigrationTransactionSavepointFallback(unittest.TestCase):
@@ -378,26 +399,45 @@ class TestMigrationTransactionRollback(unittest.TestCase):
         self.mock_has_perm.return_value = True
         self.mock_time.time.return_value = 1000.0
 
+        # test_rollback_on_exception wraps the REAL rollback_to_savepoint
+        # (patching security_helper.frappe does not reach it -- it imports its own
+        # `frappe` in transaction_errors.py), which logs a real "Savepoint
+        # rollback skipped" Error Log row when the (mocked-away) savepoint isn't
+        # actually there. Mark the start so tearDown can sweep it.
+        self._error_log_marker = frappe.utils.now_datetime()
+
     def tearDown(self):
-        """Clean up patches"""
+        """Clean up patches. `tabError Log` is MyISAM (non-transactional, verified
+        on this site), so a plain frappe.db.rollback() would NOT remove a row
+        inserted above -- an explicit delete is required."""
         self.perm_patcher.stop()
         self.time_patcher.stop()
         self.frappe_patcher.stop()
+        frappe.db.delete("Error Log", {"creation": (">=", self._error_log_marker)})
+        frappe.db.commit()
 
     def test_rollback_on_exception(self):
-        """Test that rollback is triggered when an exception occurs"""
-        from verenigingen.e_boekhouden.utils.security_helper import migration_transaction
+        """Test that rollback is triggered when an exception occurs.
 
-        with self.assertRaises(ValueError):
-            with migration_transaction(operation_type="account_creation") as tx:
-                tx.track_operation("create", "doc1")
-                raise ValueError("Test error")
+        #701: the rollback now goes through the canonical `rollback_to_savepoint()`
+        helper rather than a hand-written `frappe.db.sql("ROLLBACK TO SAVEPOINT
+        ...")` (the shape the AST ratchet was widened to catch -- it tolerates a
+        savepoint a 1213/nested-commit already destroyed instead of letting the
+        1305 that would raise REPLACE the original ValueError). That helper is
+        imported directly into security_helper's namespace, so patching the
+        module's `frappe` reference does not reach it -- patch the helper itself.
+        """
+        from verenigingen.e_boekhouden.utils import security_helper
 
-        calls = self.mock_frappe.db.sql.call_args_list
-        self.assertTrue(
-            any("ROLLBACK TO SAVEPOINT migration_start" in str(c) for c in calls),
-            "Expected ROLLBACK TO SAVEPOINT call",
-        )
+        with patch.object(
+            security_helper, "rollback_to_savepoint", wraps=security_helper.rollback_to_savepoint
+        ) as mock_rollback:
+            with self.assertRaises(ValueError):
+                with security_helper.migration_transaction(operation_type="account_creation") as tx:
+                    tx.track_operation("create", "doc1")
+                    raise ValueError("Test error")
+
+        mock_rollback.assert_called_once_with("migration_start")
 
     def test_user_restored_after_exception(self):
         """Test that original user is restored even after exception"""
