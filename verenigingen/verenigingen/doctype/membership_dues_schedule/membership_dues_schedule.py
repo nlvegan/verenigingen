@@ -528,6 +528,12 @@ class MembershipDuesSchedule(Document):
         """
         Find dues schedules that reference non-existent members
         Returns list of schedule names and member IDs that need cleanup
+
+        ORDER BY creation DESC makes a `limit`-capped result deterministic:
+        without it, which rows come back is up to the query plan (#398), so a
+        capped cleanup call could arbitrarily skip the very orphan a caller
+        just created. Newest-first also means a busy site does not starve out
+        just-created orphans behind a backlog of older ones on each capped run.
         """
         orphaned = frappe.db.sql(
             """
@@ -537,6 +543,7 @@ class MembershipDuesSchedule(Document):
             WHERE m.name IS NULL
             AND mds.member IS NOT NULL
             AND mds.is_template = 0
+            ORDER BY mds.creation DESC
             LIMIT %s
         """,
             (limit,),

@@ -140,6 +140,52 @@ class TestInvoiceManagement(EnhancedTestCase):
         frappe.db.commit()
         return ds.name
 
+    def _make_decoy_orphans(self, count, seconds_ago=3600):
+        """Create `count` orphaned schedules that predate our own fixture, to
+        simulate other leaked/pre-existing site orphans crowding a capped
+        sweep (#398). Raw INSERT bypasses controller hooks entirely — a plain
+        doc.insert() on this doctype trips fee_change_recording_service via a
+        doc_event — every other NOT NULL column has a DB-level default.
+        Tracked in self._committed_docs for tearDown force-deletion.
+
+        No frappe.db.commit() here: the endpoint under test reads on the SAME
+        connection within the same test, so it sees these rows uncommitted --
+        measured directly (3/3 isolated runs pass with no commit call at all).
+        Committing would only widen the leak window if tearDown's delete ever
+        failed partway, with no benefit to the test.
+        """
+        mt = self._make_membership_type()
+        names = []
+        for i in range(count):
+            sched_name = f"IM-DECOY-{frappe.generate_hash(length=10)}"
+            bogus_member = "NONEXISTENT-MEMBER-" + frappe.generate_hash(length=8)
+            ts = frappe.utils.add_to_date(frappe.utils.now_datetime(), seconds=-(seconds_ago + i))
+            frappe.db.sql(
+                """
+                INSERT INTO `tabMembership Dues Schedule`
+                    (name, creation, modified, modified_by, owner, docstatus, idx,
+                     schedule_name, membership_type, status, billing_frequency, currency,
+                     is_template, member)
+                VALUES (%s, %s, %s, %s, %s, 0, 0, %s, %s, %s, %s, %s, 0, %s)
+                """,
+                (
+                    sched_name,
+                    ts,
+                    ts,
+                    "Administrator",
+                    "Administrator",
+                    sched_name,
+                    mt.name,
+                    "Active",
+                    "Annual",
+                    "EUR",
+                    bogus_member,
+                ),
+            )
+            self._committed_docs.append(("Membership Dues Schedule", sched_name))
+            names.append(sched_name)
+        return names
+
     def _make_limited_user(self):
         """Create a real, logged-in-capable User with NO admin roles (fresh users
         carry only All/Guest). Used to exercise the internal role guard on the
@@ -320,6 +366,29 @@ class TestInvoiceManagement(EnhancedTestCase):
         if not data["errors"]:
             # Clean run committed -> orphan really deleted.
             self.assertFalse(frappe.db.exists("Membership Dues Schedule", sched_name))
+
+    def test_cleanup_membership_data_fixture_survives_a_full_sweep_cap(self):
+        """Regression for #398: find_orphaned_schedules() had no ORDER BY, so a
+        LIMIT-capped sweep's result depended on the query plan rather than on
+        recency (measured: MariaDB range-scans idx_dues_schedule_member on
+        `member`, an order uncorrelated with which row was created last).
+        Forcing max_cleanup down to 1 makes this deterministic to test: with 25
+        older decoys in scope, ONLY a genuinely newest-first ordering can make
+        our fixture the single row returned. Under the unordered query, the
+        one row returned depends on where our fixture's random member value
+        falls in the member-value scan order -- about a 1-in-26 chance of
+        accidentally passing, not a real pass."""
+        self._make_decoy_orphans(25, seconds_ago=3600)  # older than our fixture
+        sched_name = self._make_orphaned_schedule()  # newest orphan on the site
+        data = im.cleanup_orphaned_membership_data(dry_run=True, max_cleanup=1)["data"]
+        schedule_items = [it for it in data["processed_items"] if it.get("type") == "orphaned_schedule"]
+        self.assertEqual(
+            [it["name"] for it in schedule_items],
+            [sched_name],
+            "a max_cleanup=1 sweep with 25 older decoys in scope must return "
+            "our fixture specifically -- it is the only row a newest-first "
+            "ordering can produce",
+        )
 
     # ------------------------------------------------------------------
     # bulk_generate_dues_invoices
