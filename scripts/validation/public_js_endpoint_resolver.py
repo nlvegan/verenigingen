@@ -18,9 +18,23 @@ The same sweep that found #679 also found two genuinely dead spots elsewhere in
 `public/js`: `verenigingen.e_boekhouden.api.*` (14 calls, `eboekhouden_migration_config.js`
 -- the real module is `verenigingen.e_boekhouden.doctype.e_boekhouden_account_mapping.api`)
 and `verenigingen.api.volunteer.expenses.*` (2 calls, `expense_claim_form.vue` --
-the real module is `verenigingen.templates.pages.volunteer.expenses`). Neither is
-fixed by this change; they are baselined below and tracked for follow-up so this
-guard does not fail the commit that merely adds it.
+the real module is `verenigingen.templates.pages.volunteer.expenses`). Neither was
+fixed by the PR that introduced this script; they were baselined and tracked as
+#772 so that PR's own commit would not fail against a guard it had just added.
+
+#772 (filed as the tracked follow-up) confirmed both files are unreachable --
+same finding as #679's file: no `app_include_js`/`web_include_js`, no Page,
+Workspace, or www template loads either one, and `expense_claim_form.vue` has
+no SFC compiler configured for this app at all (it was the only `.vue` file in
+`public/js`) and was superseded by a live inline-Vue3 page
+(`templates/pages/volunteer/expense_claim_new.html`) that already calls the
+correct paths. #772 also found that repointing `eboekhouden_migration_config.js`
+without fixing it would have reproduced #679's own lesson: `stage_eboekhouden_data`
+returns both a `success` and a `data` key, so `unwrapOperationResult` strips to
+the inner `data` payload and `showStagingResults()` then reads
+`transaction_count`/`account_count` off the stripped object -- always zero. Both
+files were deleted rather than repointed, matching #679's resolution, and the
+baseline below is now empty.
 
 A THIRD candidate the first version of this script flagged --
 `get_current_dues_schedule_details` / `refresh_fee_change_history` in

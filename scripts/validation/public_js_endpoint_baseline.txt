@@ -7,19 +7,3 @@
 # was found and why it is not yet fixed. This baseline should only shrink;
 # a fix removes its line here rather than needing an update.
 #
-verenigingen/public/js/eboekhouden_migration_config.js::verenigingen.e_boekhouden.api.add_account_mapping
-verenigingen/public/js/eboekhouden_migration_config.js::verenigingen.e_boekhouden.api.apply_suggested_mappings
-verenigingen/public/js/eboekhouden_migration_config.js::verenigingen.e_boekhouden.api.bulk_update_mappings
-verenigingen/public/js/eboekhouden_migration_config.js::verenigingen.e_boekhouden.api.clear_all_mappings
-verenigingen/public/js/eboekhouden_migration_config.js::verenigingen.e_boekhouden.api.export_migration_config
-verenigingen/public/js/eboekhouden_migration_config.js::verenigingen.e_boekhouden.api.get_migration_config_status
-verenigingen/public/js/eboekhouden_migration_config.js::verenigingen.e_boekhouden.api.get_staged_data_summary
-verenigingen/public/js/eboekhouden_migration_config.js::verenigingen.e_boekhouden.api.import_migration_config
-verenigingen/public/js/eboekhouden_migration_config.js::verenigingen.e_boekhouden.api.preview_migration_impact
-verenigingen/public/js/eboekhouden_migration_config.js::verenigingen.e_boekhouden.api.remove_account_mapping
-verenigingen/public/js/eboekhouden_migration_config.js::verenigingen.e_boekhouden.api.stage_eboekhouden_data
-verenigingen/public/js/eboekhouden_migration_config.js::verenigingen.e_boekhouden.api.start_configured_migration
-verenigingen/public/js/eboekhouden_migration_config.js::verenigingen.e_boekhouden.api.suggest_account_mappings
-verenigingen/public/js/eboekhouden_migration_config.js::verenigingen.e_boekhouden.api.update_account_mapping
-verenigingen/public/js/expense_claim_form.vue::verenigingen.api.volunteer.expenses.get_volunteer_expense_context
-verenigingen/public/js/expense_claim_form.vue::verenigingen.api.volunteer.expenses.submit_multiple_expenses
