@@ -15,7 +15,6 @@ It is called with keyword arguments (def submit_application(**kwargs)).
 """
 
 
-from contextlib import contextmanager
 from unittest import mock
 
 import frappe
@@ -24,48 +23,11 @@ from frappe.utils import add_days, today
 from verenigingen.api import membership_application
 from verenigingen.services.member.approval.application_helpers import get_form_data
 from verenigingen.tests.utils.base import VereningingenUnitTestCase
+from verenigingen.tests.utils.query_counter import count_queries as _count_queries
 
 
 def _unique(prefix):
     return f"{prefix}_{frappe.generate_hash(length=8)}"
-
-
-class _QueryCounter:
-    """Holder exposing the queries captured by ``_count_queries``."""
-
-    def __init__(self):
-        self.queries = []
-
-
-@contextmanager
-def _count_queries():
-    """Count ``frappe.db.sql`` calls made inside the block.
-
-    Patches the INSTANCE attribute, not the class, and *deletes* it on exit
-    rather than re-assigning: a re-assignment (``frappe.db.sql = orig_sql``)
-    leaves a permanent instance attribute that shadows any later class-level
-    patch (e.g. the built-in ``assertQueryCount``), silently zeroing every
-    query counter that runs afterwards in the same process. See
-    verenigingen/tests/member/test_member_performance_optimization.py for the
-    module that hit this.
-    """
-    counter = _QueryCounter()
-    had_own_sql = "sql" in frappe.db.__dict__
-    orig_sql = frappe.db.sql
-
-    def _sql_with_count(*args, **kwargs):
-        ret = orig_sql(*args, **kwargs)
-        counter.queries.append(str(args[0]) if args else "")
-        return ret
-
-    try:
-        frappe.db.sql = _sql_with_count
-        yield counter
-    finally:
-        if had_own_sql:
-            frappe.db.sql = orig_sql
-        else:
-            del frappe.db.sql
 
 
 class TestMembershipApplicationAPI(VereningingenUnitTestCase):

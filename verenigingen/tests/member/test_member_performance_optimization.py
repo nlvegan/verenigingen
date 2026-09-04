@@ -16,14 +16,9 @@ import time
 from contextlib import contextmanager
 
 import frappe
+
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-
-
-class _QueryCounter:
-    """Simple holder exposing the captured queries to the test body."""
-
-    def __init__(self):
-        self.queries = []
+from verenigingen.tests.utils.query_counter import count_queries
 
 
 class TestMemberPerformanceOptimization(EnhancedTestCase):
@@ -33,46 +28,14 @@ class TestMemberPerformanceOptimization(EnhancedTestCase):
     def _count_queries(self, max_queries):
         """Count SQL queries executed in the block and assert an upper bound.
 
-        Frappe v16's assertQueryCount no longer yields an object exposing the
-        executed queries, so this local helper restores the ``ctx.queries``
-        access these performance tests rely on while keeping the upper-bound
-        assertion behaviour.
-
-        Patches the INSTANCE, not the class. This used to assign
-        ``frappe.db.__class__.sql``, which an instance attribute silently shadows --
-        and one gets left behind: tests/integration/test_query_optimization_suite.py
-        does ``original_sql = frappe.db.sql`` / ``frappe.db.sql = counting_sql`` and
-        then "restores" with ``frappe.db.sql = original_sql``, which re-assigns the
-        instance attribute instead of deleting it. After that module runs once in a
-        process, ``frappe.db`` carries an instance ``sql`` forever, every later
-        class-level patch is invisible, and this counter silently records ZERO
-        queries.
-
-        That is what made test_member_dashboard_caching fail in CI and never locally:
-        with nothing counted, `first_load > cached_load` was `0 > 0`. It also means
-        every upper-bound assertion here passed vacuously in any shard where that
-        module ran first -- `assertLessEqual(0, 300)` is always true. An instance
-        attribute always wins lookup, so patching at that level is immune to both.
+        Delegates to the shared ``count_queries`` helper (extracted to
+        verenigingen/tests/utils/query_counter.py so this module and
+        test_membership_application_api.py share one implementation instead
+        of two copies) and keeps this method's own upper-bound assertion
+        behaviour, which callers throughout this file rely on.
         """
-        counter = _QueryCounter()
-        had_own_sql = "sql" in frappe.db.__dict__
-        orig_sql = frappe.db.sql
-
-        def _sql_with_count(*args, **kwargs):
-            ret = orig_sql(*args, **kwargs)
-            counter.queries.append(str(args[0]) if args else "")
-            return ret
-
-        try:
-            frappe.db.sql = _sql_with_count
+        with count_queries() as counter:
             yield counter
-        finally:
-            # Delete rather than re-assign when there was no instance attribute to
-            # begin with -- re-assigning is exactly the bug described above.
-            if had_own_sql:
-                frappe.db.sql = orig_sql
-            else:
-                del frappe.db.sql
         self.assertLessEqual(len(counter.queries), max_queries)
 
     def setUp(self):
