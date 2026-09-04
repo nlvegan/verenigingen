@@ -266,7 +266,6 @@ COMMIT verenigingen/doctype/contribution_amendment_request/test_contribution_ame
 COMMIT verenigingen/doctype/critical_operation_rule/test_critical_operation_rule.py::3  # order-dependence
 COMMIT verenigingen/doctype/critical_operation_rule/test_critical_operation_rule_extra.py::6  # order-dependence
 COMMIT verenigingen/doctype/donor/test_donor_coverage.py::1  # order-dependence
-COMMIT verenigingen/doctype/member/mixins/test_payment_mixin.py::1  # order-dependence
 COMMIT verenigingen/doctype/membership/test_membership.py::2  # order-dependence
 COMMIT verenigingen/doctype/membership/test_membership_coverage.py::10  # order-dependence
 COMMIT verenigingen/doctype/membership/test_scheduler_coverage.py::8  # order-dependence
