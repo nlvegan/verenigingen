@@ -160,7 +160,6 @@ class TestTerminationAbandonsOnNonResumableError(VereningingenTestCase):
             },
         )
         chapter_doc.save()
-        frappe.db.commit()
 
         result = end_board_positions_safe(self.member.name, today(), "two roles, one chapter")
 
@@ -190,7 +189,6 @@ class TestTerminationAbandonsOnNonResumableError(VereningingenTestCase):
             },
         )
         other_volunteer_membership.save()
-        frappe.db.commit()
 
         failing_chapter_name = self.chapter.name
         real_save = Chapter.save
