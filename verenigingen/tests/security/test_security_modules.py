@@ -465,7 +465,7 @@ class TestSecurityModuleIntegration(FrappeTestCase):
 
     def test_framework_uses_self_service_controller(self):
         """Test that APISecurityFramework delegates to SelfServiceAccessController."""
-        from verenigingen.utils.security import (
+        from verenigingen.utils.security.api_security_framework import (
             get_security_framework,
         )
 
@@ -489,7 +489,7 @@ class TestSecurityModuleIntegration(FrappeTestCase):
 
     def test_framework_uses_whitelist_adapter(self):
         """Test that APISecurityFramework uses FrappeWhitelistAdapter."""
-        from verenigingen.utils.security import (
+        from verenigingen.utils.security.frappe_whitelist_adapter import (
             get_frappe_whitelist_adapter,
         )
 
@@ -504,11 +504,18 @@ class TestSecurityModuleIntegration(FrappeTestCase):
         )
 
     def test_all_exports_available(self):
-        """Test that all new modules are exported from package."""
-        from verenigingen.utils.security import (
+        """Test that all new classes/functions are importable from their defining submodules.
+
+        The package `__init__.py` deliberately does not re-export these (see
+        verenigingen/utils/security/__init__.py and issue #396) -- import from
+        the submodule that defines each name instead.
+        """
+        from verenigingen.utils.security.frappe_whitelist_adapter import (
             FrappeWhitelistAdapter,
-            SelfServiceAccessController,
             get_frappe_whitelist_adapter,
+        )
+        from verenigingen.utils.security.self_service_access_controller import (
+            SelfServiceAccessController,
             get_self_service_controller,
         )
 

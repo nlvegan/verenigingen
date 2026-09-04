@@ -19,60 +19,35 @@ Import from the defining submodule instead; this file keeps the __init__ empty.
 
 Two checks, because neither alone is enough: the AST one names every offender
 so the failure explains itself, and the runtime one is what actually matters -
-it survives importlib.import_module(), a PEP 562 __getattr__ lazy loader, and
-any other form the AST walk cannot see.
+it catches some forms the AST walk cannot see, such as
+`importlib.import_module(...)` assigned to a module-level name (see
+runtime_own_names's own docstring for what it still cannot catch).
+
+The AST/runtime helpers live in verenigingen/tests/utils/barrel_init_ast.py,
+shared with the repo-wide ratchet in
+verenigingen/tests/utils/test_barrel_init_no_self_import.py (issue #396) -
+this file used to carry its own copy, which is exactly the kind of
+copy-pasted static-analysis helper `duplicate_helper_validator.py` exists to
+catch: a fix to one copy leaves the others with the bug.
 """
 
-import ast
-import os
-import subprocess
-import sys
 import unittest
 from pathlib import Path
 
+from verenigingen.tests.utils.barrel_init_ast import (
+    eager_imports,
+    is_own_submodule,
+    runtime_own_names,
+)
+
 PACKAGE = "verenigingen.services.billing"
-
-
-def _is_type_checking_guard(node) -> bool:
-    """True for `if TYPE_CHECKING:` - those imports never run."""
-    test = node.test
-    if isinstance(test, ast.Name):
-        return test.id == "TYPE_CHECKING"
-    return isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
-
-
-def _runtime_imports(path: Path) -> list[str]:
-    """Every module name the file imports, excluding TYPE_CHECKING-only imports."""
-    names = []
-    stack = [ast.parse(path.read_text(), filename=str(path))]
-    while stack:
-        node = stack.pop()
-        if isinstance(node, ast.If) and _is_type_checking_guard(node):
-            stack.extend(node.orelse)  # the else branch does run
-            continue
-        if isinstance(node, ast.Import):
-            names.extend(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom):
-            if node.level == 0:
-                names.append(node.module)
-            elif node.level == 1:
-                # `from .x import y` - resolves inside this package
-                names.append(f"{PACKAGE}.{node.module}" if node.module else PACKAGE)
-            # level >= 2 resolves to an ancestor package, never to this one
-        stack.extend(ast.iter_child_nodes(node))
-    return [n for n in names if n]
-
-
-def _is_own_submodule(name: str) -> bool:
-    # `verenigingen.services.billing_extra` shares the prefix but is a sibling
-    return name == PACKAGE or name.startswith(PACKAGE + ".")
 
 
 class TestBillingPackageInit(unittest.TestCase):
     def test_init_does_not_import_its_own_submodules(self):
         init = Path(__file__).parent / "__init__.py"
 
-        offenders = [name for name in _runtime_imports(init) if _is_own_submodule(name)]
+        offenders = [name for name in eager_imports(init, PACKAGE) if is_own_submodule(name, PACKAGE)]
 
         self.assertEqual(
             offenders,
@@ -81,27 +56,14 @@ class TestBillingPackageInit(unittest.TestCase):
             "deadlock window - callers must import from the defining submodule instead.",
         )
 
-    def test_importing_the_package_loads_no_submodule(self):
-        """The property the AST check only approximates.
-
-        Runs in a subprocess because sibling tests in this process have already
-        imported half the package, so sys.modules here proves nothing.
-        """
-        env = dict(os.environ, PYTHONPATH=os.pathsep.join(p for p in sys.path if p))
-        probe = (
-            f"import {PACKAGE}, sys, json;"
-            f"print(json.dumps(sorted(m for m in sys.modules if m.startswith({PACKAGE!r} + '.'))))"
-        )
-        result = subprocess.run(
-            [sys.executable, "-c", probe], capture_output=True, text=True, env=env, timeout=120
-        )
-        self.assertEqual(result.returncode, 0, f"probe failed: {result.stderr}")
-
-        loaded = ast.literal_eval(result.stdout.strip())
+    def test_importing_the_package_defines_no_new_name(self):
+        """The property the AST check only approximates - see runtime_own_names."""
+        own_names = runtime_own_names(PACKAGE)
 
         self.assertEqual(
-            loaded,
+            own_names,
             [],
-            f"importing {PACKAGE} pulled in {loaded}. Whatever caused that - an import in "
-            "__init__.py, a lazy __getattr__, importlib - re-opens the deadlock window.",
+            f"importing {PACKAGE} left {own_names} bound in its own namespace. Whatever caused "
+            "that - an import in __init__.py, a lazy __getattr__, importlib bound to a name - "
+            "re-opens the deadlock window.",
         )
