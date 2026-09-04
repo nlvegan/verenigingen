@@ -114,6 +114,8 @@ with a relative path landed **nested inside another worktree**.
 - **#807** (#781) — SEPA agreements with no mandate now refused at the API boundary.
 - **#816** (#815) — the cache isolation above. Test-harness only: no production code.
 - **#818** — the order-dependence ratchet (below).
+- **#811** (#809) — the Mollie idempotency unique index, declared as a Data Custom Field so
+  `migrate` stops stripping it. Merged after this document was drafted; see below.
 - **#800** — the previous handoff.
 
 Four issues stayed open after their PRs merged, because the PR titles referenced them
@@ -189,17 +191,22 @@ collisions were invisible from titles.
 
 ## For next session
 
-1. **#811 is rebased onto #816 and awaiting CI** (`5b27dc7db`). Its shard failure was caused
-   entirely by the develop-side defect #816 fixes, so this run is the test of that claim: if
-   `test_add_activity` is still red, #816 did not fully close #815 and the diagnosis needs
-   reopening. Merge it if green — veg11's data blocker is already cleared.
-2. **#817's `generation_rejections`** is the cheapest real fix on the board: populate it, or delete
+**Resolved before this document was pushed.** #811's run on `5b27dc7db` came back green and it
+is merged (`3775742a3`), closing #809. That run was the test of the #815 diagnosis, and the
+diagnosis holds: shard 10's log carries `✔ test_add_activity` under
+`verenigingen.verenigingen.doctype.volunteer.test_volunteer.TestVolunteer` — the module that was
+red — with all 12 shards green. #816 did close #815; no reopening needed. The honest scope: this
+proves the test passes under *this* shard packing. Shards re-pack on measured runtime, so it does
+not prove the original co-tenancy is now safe — only that the develop-side cache-scoping fix
+removed the failure everywhere this run looked.
+
+1. **#817's `generation_rejections`** is the cheapest real fix on the board: populate it, or delete
    the dead read and the always-empty key its consumer exposes, and tighten the test that currently
    asserts the broken state.
-3. **The `COUNT` gap** in `scan_order_dependence.py` — its own PR, per above.
-4. **#776 and #777** are pre-existing and red. #776 needs a rebase; merge it before #807's
+2. **The `COUNT` gap** in `scan_order_dependence.py` — its own PR, per above.
+3. **#776 and #777** are pre-existing and red. #776 needs a rebase; merge it before #807's
    territory drifts further.
-5. **~100 stale worktrees**, several locked. Given this repo's note about a moved branch ref
+4. **~100 stale worktrees**, several locked. Given this repo's note about a moved branch ref
    desyncing the veg11 tree, clean up deliberately rather than in passing.
 
 **And the habit to carry forward.** Every one of my three wrong mechanisms died to a check I could
