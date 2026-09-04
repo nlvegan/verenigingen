@@ -12,6 +12,13 @@ import frappe
 from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.verenigingen_payments.utils.sepa_utilities import SEPAUtilities
 
+# Single source of truth for these defaults -- previously duplicated as bare
+# literals at both the point of read and every downstream `.get(key, <literal>)`
+# fallback (#535).
+DEFAULT_BATCH_SIZE_LIMIT = 1000
+DEFAULT_GRACE_PERIOD_DAYS = 5
+DEFAULT_COLLECTION_DATE_OFFSET = 5
+
 
 class SEPAConfigurationService:
     """Service for managing SEPA configuration and settings"""
@@ -62,12 +69,47 @@ class SEPAConfigurationService:
             "bic": payment_settings.get("company_bic"),
             "iban": payment_settings.get("company_iban"),
             # Processing settings
-            "batch_size_limit": getattr(payment_settings, "sepa_batch_size_limit", 1000),
-            "grace_period_days": getattr(payment_settings, "grace_period_days", 5),
-            "collection_date_offset": getattr(payment_settings, "collection_date_offset", 5),
+            # `or <default>`, not `getattr(doc, field, <default>)` / `doc.get(field, <default>)`:
+            # a field declared on the doctype is a valid column on every loaded
+            # Document, present in `doc.__dict__` whether or not anything was ever
+            # written to `tabSingles` for it (measured on test_site_fresh: deleting
+            # the row outright still leaves `getattr(doc, field, "MISSING")` ==
+            # `None`, never "MISSING"). So a presence-based fallback never fires --
+            # the resolved value can come back `None` (no row at all) or `0`
+            # (something has since saved the Single, coercing the missing Int to 0),
+            # but never the intended default either way. `sepa_batch_size_limit` is
+            # never meaningfully 0 or unset in practice, so treating both as "not
+            # configured" and falling back is safe -- and it is not just cosmetic: a
+            # bare `None` reaches `len(invoices) > limits["max_batch_size"]` in
+            # batch_validation_service.py and raises TypeError, not just "wrong
+            # number".
+            "batch_size_limit": payment_settings.get("sepa_batch_size_limit") or DEFAULT_BATCH_SIZE_LIMIT,
+            # grace_period_days / collection_date_offset: #535 also named these two,
+            # but neither gets a real field here. Both keys are consumed only inside
+            # get_collection_date_settings() below, which -- confirmed by grepping
+            # every caller -- never reads them back out: `minimum_notice_days` and
+            # `maximum_notice_days` are the only keys anything downstream uses, and
+            # both are fixed SEPA-scheme constants, not derived from these two.
+            # Declaring real fields would make them look configurable while
+            # remaining just as inert, and "grace_period_days" would additionally
+            # collide in name and intent with the real, working
+            # `Verenigingen Settings.default_grace_period_days` (a different
+            # default, a different meaning -- membership termination grace, not
+            # SEPA mandate/collection grace). Kept as named constants rather than
+            # `getattr`/`.get()` reads of a field that does not exist, so this is no
+            # longer #535's silent-default shape: it is a documented, intentional
+            # constant, not a bug hiding behind a default parameter. #830 tracks
+            # whether either should become a real, wired setting.
+            "grace_period_days": DEFAULT_GRACE_PERIOD_DAYS,
+            "collection_date_offset": DEFAULT_COLLECTION_DATE_OFFSET,
             # Validation settings
-            "enable_strict_validation": getattr(payment_settings, "enable_strict_sepa_validation", True),
-            "allow_zero_amounts": getattr(payment_settings, "allow_zero_amount_transactions", False),
+            # Note: an "enable_strict_validation" key used to live here, read from a
+            # nonexistent "enable_strict_sepa_validation" field (#535). It had zero
+            # consumers of its own (nothing read the resolved key either), so it was
+            # removed rather than wired to a field nothing reads. See #466 for the
+            # earlier discovery that no field with this intent exists on either
+            # Settings doctype.
+            "allow_zero_amounts": bool(payment_settings.get("allow_zero_amount_transactions")),
             # Company reference
             "company": verenigingen_settings.company,
         }
@@ -172,8 +214,8 @@ class SEPAConfigurationService:
         settings = self.get_sepa_settings()
 
         return {
-            "offset_days": settings.get("collection_date_offset", 5),
-            "grace_period_days": settings.get("grace_period_days", 5),
+            "offset_days": settings.get("collection_date_offset", DEFAULT_COLLECTION_DATE_OFFSET),
+            "grace_period_days": settings.get("grace_period_days", DEFAULT_GRACE_PERIOD_DAYS),
             "minimum_notice_days": 1,  # SEPA minimum
             "maximum_notice_days": 35,  # SEPA maximum
         }
@@ -198,7 +240,7 @@ class SEPAConfigurationService:
         settings = self.get_sepa_settings()
 
         return {
-            "max_batch_size": settings.get("batch_size_limit", 1000),
+            "max_batch_size": settings.get("batch_size_limit", DEFAULT_BATCH_SIZE_LIMIT),
             "max_amount_per_transaction": 999999.99,  # SEPA limit
             "max_total_batch_amount": 999999999.99,  # Practical limit
             "min_amount_per_transaction": 0.01 if not settings.get("allow_zero_amounts") else 0.00,
