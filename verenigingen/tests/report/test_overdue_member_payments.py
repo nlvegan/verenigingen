@@ -341,6 +341,57 @@ class TestOverdueMemberPaymentsReport(VereningingenTestCase):
         self.assertIn(member_a.name, names)
         self.assertNotIn(member_b.name, names, "different membership type must be excluded")
 
+    def test_member_filter_scopes_to_one_member(self):
+        """#792: get_data() never read filters.get("member"), so a member filter
+        was accepted and silently discarded -- every member's overdue rows came
+        back regardless of which member was asked for. The control here is a
+        SECOND member with their own overdue invoice: without the fix, filtering
+        by member_a still returns member_b's row too.
+        """
+        member_a = self._member_with_customer()
+        self._active_membership(member_a)
+        self._overdue_invoice(member_a, due_date=add_days(today(), -20))
+
+        member_b = self._member_with_customer()
+        self._active_membership(member_b)
+        self._overdue_invoice(member_b, due_date=add_days(today(), -20))
+
+        with self.assertNoErrorLog():
+            columns, data, _none, chart, summary = report.execute({"member": member_a.name})
+        names = {r["member_name"] for r in data}
+        self.assertIn(member_a.name, names)
+        self.assertNotIn(
+            member_b.name, names, "a member filter must not return other members' overdue invoices"
+        )
+
+    def test_member_filter_with_no_customer_returns_empty(self):
+        """A member filter for a member with no Customer must not silently
+        become "no filter" (fall through to every member's data). It must
+        resolve to an explicit empty result.
+        """
+        # Ambient overdue data from another member -- proves an empty result
+        # is because the filter was honoured, not because the site had no data.
+        other = self._member_with_customer()
+        self._active_membership(other)
+        self._overdue_invoice(other, due_date=add_days(today(), -20))
+
+        no_customer_member = self.create_test_member(
+            first_name="NoCustomer",
+            last_name=f"Member{frappe.generate_hash(length=4)}",
+            email=f"nocustomer.{frappe.generate_hash(length=6)}@test.invalid",
+            auto_create_customer=False,
+        )
+        # Member.after_insert() auto-creates a Customer whenever email is set,
+        # regardless of the factory's auto_create_customer flag -- so force the
+        # no-customer state directly to exercise the report's handling of it.
+        frappe.db.set_value("Member", no_customer_member.name, "customer", None)
+        no_customer_member.reload()
+        self.assertFalse(no_customer_member.customer)
+
+        with self.assertNoErrorLog():
+            columns, data, _none, chart, summary = report.execute({"member": no_customer_member.name})
+        self.assertEqual(data, [])
+
     def test_chapter_filter_excludes_members_not_in_chapter(self):
         member = self._member_with_customer()
         self._active_membership(member)
