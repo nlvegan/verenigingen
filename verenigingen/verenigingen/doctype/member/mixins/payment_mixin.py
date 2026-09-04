@@ -551,54 +551,85 @@ class PaymentMixin:
 
     def _get_invoice_with_retry(self, invoice_name, max_retries=3):
         """
-        Get invoice with exponential backoff retry mechanism for race conditions.
+        Get the invoice, tolerating that it may not yet be visible to this
+        transaction's REPEATABLE READ read view.
 
-        Uses exponential backoff with jitter to handle transient failures:
-        - Normal mode: 0.5s base delay (retries at ~0.5s, ~1s, ~2s with jitter)
-        - Bulk mode: 2s base delay (retries at ~2s, ~4s, ~8s with jitter)
+        #421 (#411's sibling). This used to retry in a sleep loop with a
+        ``frappe.db.commit()`` between attempts to force a fresh read view.
+        That commit ended the CALLER's whole transaction -- flushing whatever
+        it had not yet committed and discarding every savepoint MariaDB
+        holds, e.g. FinancialHistoryBatchProcessor's per-member scope (#411's
+        defect, one frame up). It could not simply be deleted either: a plain
+        re-read in the same transaction is pinned to the snapshot an earlier
+        query in this same request already established --
+        ``financial_history_batch_processor.py``'s ``frappe.db.exists("Member",
+        ...)`` runs before this is ever reached, and
+        ``bulk_invoice_generation_service.py`` reads the Member doc first too
+        -- so sleeping and re-reading without ending the transaction fails
+        identically on every attempt; there is nothing to retry here.
 
-        Jitter (±25%) prevents thundering herd when multiple requests retry simultaneously.
+        A locking read (``for_update=True``) was tried and measured to be
+        WORSE, not just "still risky": ``SELECT ... FOR UPDATE`` on a
+        not-yet-existing primary key takes a gap lock over the surrounding
+        key range in the invoice table -- verified live to (a) block the very
+        INSERT this method is waiting for, for the whole
+        ``innodb_lock_wait_timeout``, and (b) deadlock (1213) against
+        ``MemberFinancialHistoryManager.add_or_update_entry``, which locks the
+        Member row first and only then reaches this method -- the reverse
+        lock order from Sales Invoice's own insert/submit path. A 1213 rolls
+        back the WHOLE transaction, which is strictly worse than the commit
+        this issue exists to remove: the commit at least made prior work
+        durable.
+
+        So this makes no attempt to see the invoice in THIS transaction at
+        all. A miss re-queues the same update for the batch processor's own
+        next drain -- which runs in a genuinely fresh transaction, either the
+        next unrelated ``add_invoice_to_payment_history()`` call within 30s
+        or the "*/5 * * * *" safety-net cron
+        (``hooks/scheduler.py``,
+        ``financial_history_batch_processor.schedule_financial_history_processing``)
+        -- rather than trying (and being unable) to refresh this one.
+        ``max_retries`` no longer changes anything here; kept only for
+        signature compatibility, since no amount of retrying inside this
+        transaction can succeed for the reason above.
+
+        Known gap, left for the file that owns it: a re-queued update that
+        keeps missing (e.g. a genuinely bad invoice name) retries forever,
+        quietly, roughly every 5 minutes, rather than giving up after a bound
+        and logging an error the way the old code did. Capping that needs a
+        persistent attempt counter carried in the queued operation's own
+        data, which only ``financial_history_batch_processor.py`` can thread
+        through -- out of this fix's file.
         """
-        import random
-        import time
+        from verenigingen.utils.financial_history_batch_processor import queue_payment_update
 
-        is_bulk_processing = getattr(frappe.flags, "bulk_invoice_generation", False)
+        try:
+            return frappe.get_doc("Sales Invoice", invoice_name)
+        except frappe.DoesNotExistError:
+            # Reentrancy guard. queue_payment_update() can itself trigger an
+            # immediate drain of the batch queue
+            # (FinancialHistoryBatchProcessor._maybe_process_batches()). If
+            # THIS call is already running from inside that very drain
+            # (_process_member_payment_batch), re-queuing would re-enter it --
+            # and since nothing has committed, the re-drained attempt sees
+            # the identical stale snapshot and would requeue again, without
+            # end. This flag collapses that into one harmless extra miss
+            # instead of unbounded recursion.
+            if getattr(frappe.flags, "_payment_mixin_invoice_retry_requeuing", False):
+                return None
 
-        # Base delay: 0.5s for normal, 2s for bulk processing
-        base_delay = 2.0 if is_bulk_processing else 0.5
-        max_delay = 10.0  # Cap maximum delay at 10 seconds
-
-        for retry_count in range(max_retries):
+            frappe.flags._payment_mixin_invoice_retry_requeuing = True
             try:
-                return frappe.get_doc("Sales Invoice", invoice_name)
-            except frappe.DoesNotExistError:
-                if retry_count < max_retries - 1:
-                    # Exponential backoff: base_delay * (2 ^ retry_count)
-                    delay = min(base_delay * (2**retry_count), max_delay)
+                queue_payment_update(self.name, invoice_name)
+            finally:
+                frappe.flags._payment_mixin_invoice_retry_requeuing = False
 
-                    # Add jitter: ±25% randomization to prevent synchronized retries
-                    jitter = random.uniform(0.75, 1.25)
-                    sleep_duration = delay * jitter
-
-                    frappe.logger("payment_history").info(
-                        f"Invoice {invoice_name} not found (attempt {retry_count + 1}/{max_retries}). "
-                        f"Exponential backoff: waiting {sleep_duration:.2f}s "
-                        f"{'(bulk mode)' if is_bulk_processing else '(normal mode)'}"
-                    )
-
-                    time.sleep(sleep_duration)
-                    frappe.db.commit()
-                else:
-                    # Calculate total wait time for error message
-                    total_wait = sum(min(base_delay * (2**i), max_delay) for i in range(max_retries - 1))
-
-                    frappe.log_error(
-                        f"Sales Invoice {invoice_name} not found after {max_retries} retries "
-                        f"(~{total_wait:.1f}s total wait) - possible race condition",
-                        "Payment History Race Condition",
-                    )
-                    return None
-        return None
+            frappe.logger("payment_history").info(
+                f"Invoice {invoice_name} not visible yet for member {self.name}; "
+                "re-queued for the batch processor's next drain instead of "
+                "committing mid-request (#421)."
+            )
+            return None
 
     def update_invoice_in_payment_history(self, invoice_name):
         """Update an existing invoice in payment history using consolidated manager"""
