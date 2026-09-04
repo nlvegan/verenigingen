@@ -166,16 +166,66 @@ def _wrap_success_check(fn, success_message="", fail_message="", fail_error="fai
 
 # API Endpoints
 
+# get_form_data() (services/member/approval/application_helpers.py) issues
+# roughly 11 SQL queries per Membership Type -- confirmed linear on
+# test_site_1 (239 queries / 21 types, 895 / 81 types) -- and is identical
+# for every caller: it takes no arguments and returns the same public
+# reference data (membership types, chapters, volunteer areas, countries)
+# regardless of who is asking. Since this endpoint is `allow_guest=True`,
+# every anonymous visitor to the application form pays that cost on every
+# page load (#439). Cache the response instead of recomputing it per request.
+#
+# templates/pages/apply_for_membership.py's get_context() computes the same
+# membership-types-with-contributions payload server-side, on every
+# uncached page render, BEFORE any JS runs -- so it shares this cache too
+# (via get_cached_form_data()) rather than paying the cost a second time on
+# the same page load.
+#
+# TTL, not doc_events invalidation: this is public reference data (active
+# Membership Types, published Chapters, Volunteer Interest Categories) that
+# an admin changes rarely; a change is visible to guests within 5 minutes.
+# Deliberately left at that -- a correctness-preserving, minimal fix -- with
+# invalidation hooks as possible follow-up if 5 minutes of propagation delay
+# ever turns out to matter in practice.
+FORM_DATA_CACHE_KEY = "membership_application:public_form_data"
+FORM_DATA_CACHE_TTL = 300  # seconds -- reference data that changes rarely
+
+
+def get_cached_form_data() -> Dict[str, Any]:
+    """Return the public application-form payload, cached for FORM_DATA_CACHE_TTL.
+
+    Only caches a genuinely complete result: get_form_data() catches each
+    section independently and can return success=True with an empty
+    membership_types list on a transient failure in that one section -- if
+    caching gated on that (forced) success flag alone, an empty payload
+    could get frozen for every guest for the full TTL. Gate on the payload
+    actually being non-empty instead.
+
+    Returns a deep copy so callers mutating the returned dict/lists can't
+    poison the object shared via frappe.local's in-process cache layer.
+    """
+    import copy
+
+    cached = frappe.cache().get_value(FORM_DATA_CACHE_KEY)
+    if cached is not None:
+        return copy.deepcopy(cached)
+
+    result = get_form_data()
+    is_complete = bool(result.get("success")) and bool(result.get("membership_types"))
+    # Ensure consistent success format regardless of whether we cache it
+    if not result.get("success"):
+        result["success"] = True
+    if is_complete:
+        frappe.cache().set_value(FORM_DATA_CACHE_KEY, result, expires_in_sec=FORM_DATA_CACHE_TTL)
+    return copy.deepcopy(result)
+
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
 def get_application_form_data() -> OperationResult[Dict[str, Any]]:
     """Get data needed for application form"""
     try:
-        result = get_form_data()
-        # Ensure consistent success format
-        if not result.get("success"):
-            result["success"] = True
+        result = get_cached_form_data()
         return OperationResult.ok(result, message=_("Form data retrieved successfully"))
     except Exception as e:
         # Enhanced error logging and fallback
