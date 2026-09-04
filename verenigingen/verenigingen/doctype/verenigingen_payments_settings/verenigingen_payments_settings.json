@@ -49,6 +49,8 @@
   "sepa_mandate_naming_pattern",
   "creditor_id",
   "sepa_mandate_starting_counter",
+  "sepa_batch_size_limit",
+  "allow_zero_amount_transactions",
   "batch_creation_days",
   "financial_admin_emails",
   "batch_optimization_config",
@@ -189,6 +191,21 @@
    "fieldname": "sepa_mandate_starting_counter",
    "fieldtype": "Int",
    "label": "SEPA Mandate Starting Counter"
+  },
+  {
+   "default": "1000",
+   "description": "Maximum number of invoices allowed in a single SEPA Direct Debit batch.",
+   "fieldname": "sepa_batch_size_limit",
+   "fieldtype": "Int",
+   "label": "SEPA Batch Size Limit",
+   "non_negative": 1
+  },
+  {
+   "default": "0",
+   "description": "Allow SEPA Direct Debit transactions with a zero amount. Disabled by default because banks generally reject zero-amount collections.",
+   "fieldname": "allow_zero_amount_transactions",
+   "fieldtype": "Check",
+   "label": "Allow Zero-Amount Transactions"
   },
   {
    "default": "1",
@@ -401,7 +418,7 @@
  "icon": "fa fa-cog",
  "issingle": 1,
  "links": [],
- "modified": "2026-02-21 11:00:00.000000",
+ "modified": "2026-09-04 20:18:27.936148",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Verenigingen Payments Settings",

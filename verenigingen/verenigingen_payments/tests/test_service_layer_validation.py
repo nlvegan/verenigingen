@@ -14,6 +14,8 @@ import unittest
 from datetime import datetime, timedelta
 from typing import Any, Dict, List
 
+import frappe
+
 # Import the refactored services
 from verenigingen.tests.support.sepa_test_configuration import apply_sepa_test_configuration
 from verenigingen.verenigingen_payments.services.batch_validation_service import (
@@ -83,6 +85,115 @@ class TestServiceLayerValidation(unittest.TestCase):
         self.assertIn("is_valid", validation_result)
         self.assertIn("errors", validation_result)
         self.assertIn("warnings", validation_result)
+
+    def test_sepa_configuration_service_reads_configured_processing_settings(self):
+        """#535: batch_size_limit / allow_zero_amounts must reflect an
+        administrator's configured value, not just fall through to the
+        hardcoded default -- which is what happened while ``_load_sepa_settings``
+        read fieldnames (``sepa_batch_size_limit`` / ``allow_zero_amount_transactions``)
+        that did not exist on ``Verenigingen Payments Settings`` (confirmed via
+        ``get_meta`` on test_site_fresh: both ``get_field(...)`` calls returned
+        ``None``).
+
+        This asserts the resolved *value* changes with the configured field,
+        which a bare ``assertIn("batch_size_limit", settings)`` (the pre-existing
+        shape of this test class) cannot distinguish from the bug.
+        """
+        doctype = "Verenigingen Payments Settings"
+        configured = {
+            "sepa_batch_size_limit": 42,
+            "allow_zero_amount_transactions": 1,
+        }
+        original = {
+            fieldname: frappe.db.get_single_value(doctype, fieldname) for fieldname in configured
+        }
+        try:
+            for fieldname, value in configured.items():
+                frappe.db.set_single_value(doctype, fieldname, value, update_modified=False)
+
+            settings = sepa_config_service.get_sepa_settings(force_refresh=True)
+
+            self.assertEqual(settings["batch_size_limit"], 42)
+            self.assertTrue(settings["allow_zero_amounts"])
+
+            limits = sepa_config_service.get_batch_processing_limits()
+            self.assertEqual(limits["max_batch_size"], 42)
+            self.assertEqual(limits["min_amount_per_transaction"], 0.00)
+        finally:
+            for fieldname, value in original.items():
+                frappe.db.set_single_value(doctype, fieldname, value, update_modified=False)
+            sepa_config_service.refresh_settings_cache()
+
+    def test_sepa_configuration_service_falls_back_when_unconfigured(self):
+        """#535, the case the previous test could not distinguish from the bug.
+
+        A declared-but-never-written field on a Single loads as ``None``
+        (measured on test_site_fresh: deleting the ``tabSingles`` row for
+        ``sepa_batch_size_limit`` outright still leaves ``getattr(doc, field,
+        "MISSING")`` returning ``None``, never the sentinel) -- and once
+        anything has since saved the Single, a missing Int is coerced to ``0``
+        instead. Either way the field is *present*, so a presence-based
+        ``getattr(doc, field, default)`` / ``doc.get(field, default)`` never
+        falls back to the intended default; only a falsiness check
+        (``doc.get(field) or default``) does.
+
+        This is the one case the previous test's configured-value assertions
+        cannot tell apart from the bug: reverting just the ``or default`` code
+        change back to a presence-based read, while leaving the doctype fields
+        declared, leaves that test green (a real, non-zero configured value
+        round-trips identically either way) but leaves this one red.
+        """
+        doctype = "Verenigingen Payments Settings"
+        original = frappe.db.get_single_value(doctype, "sepa_batch_size_limit")
+        try:
+            for unset in (0, None):
+                with self.subTest(stored=unset):
+                    frappe.db.set_single_value(
+                        doctype, "sepa_batch_size_limit", unset, update_modified=False
+                    )
+                    settings = sepa_config_service.get_sepa_settings(force_refresh=True)
+                    self.assertEqual(settings["batch_size_limit"], 1000)
+
+                    limits = sepa_config_service.get_batch_processing_limits()
+                    self.assertEqual(limits["max_batch_size"], 1000)
+        finally:
+            frappe.db.set_single_value(
+                doctype, "sepa_batch_size_limit", original, update_modified=False
+            )
+            sepa_config_service.refresh_settings_cache()
+
+    def test_sepa_configuration_service_zero_amount_limit_has_a_control(self):
+        """The min-amount-per-transaction check
+        (``batch_validation_service.py``'s amount-too-small guard) only proves
+        it reads ``allow_zero_amounts`` if both the on and off state are
+        checked -- an assertion of only the "allowed" side cannot distinguish
+        "reads the field" from "always returns 0.00".
+        """
+        doctype = "Verenigingen Payments Settings"
+        original = frappe.db.get_single_value(doctype, "allow_zero_amount_transactions")
+        try:
+            frappe.db.set_single_value(
+                doctype, "allow_zero_amount_transactions", 0, update_modified=False
+            )
+            sepa_config_service.get_sepa_settings(force_refresh=True)
+            limits = sepa_config_service.get_batch_processing_limits()
+            self.assertEqual(limits["min_amount_per_transaction"], 0.01)
+        finally:
+            frappe.db.set_single_value(
+                doctype, "allow_zero_amount_transactions", original, update_modified=False
+            )
+            sepa_config_service.refresh_settings_cache()
+
+    def test_sepa_configuration_service_dropped_dead_strict_validation_key(self):
+        """#535: ``enable_strict_validation`` read a field
+        (``enable_strict_sepa_validation``) that has never existed on either
+        Settings doctype and had zero consumers of its own key (confirmed by
+        ``grep -rn "enable_strict_validation"`` finding only its own producer
+        line). It is dead in both directions, so the fix removes the key
+        entirely rather than wiring it to a field nothing reads.
+        """
+        settings = sepa_config_service.get_sepa_settings(force_refresh=True)
+        self.assertNotIn("enable_strict_validation", settings)
 
     def test_batch_validation_service_validation_result_class(self):
         """Test ValidationResult class functionality"""
