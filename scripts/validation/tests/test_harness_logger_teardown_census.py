@@ -54,8 +54,18 @@ MRO_CALLS, MRO_ERRORS, MRO_TEARDOWNS = 20, 3, 11
 # `>= ERROR` gate therefore still covers every route it claims to -- re-measured,
 # not incremented: census("name") returns 36 sites / 8 error, census("mro") is
 # unchanged at 20 / 3 / 11, so RESIDUAL_BELOW_ERROR (20-3) stays 17.
-NAME_CALLS, NAME_ERRORS = 36, 8
-RESIDUAL_BELOW_ERROR = 17  # unchanged: the new call moved warning->error, not added a new below-ERROR site
+# 36, 8 -> 37, 9 (#515): `TestDataBuilder.with_member`/`with_team_assignment`
+# append a child row to a fixture they may only have BORROWED, and neither
+# registered nor undid it. The fix adds `TestCleanupManager._undo_child_row`,
+# reached from `cleanup()` (a class-teardown route), which logs an undo
+# failure through `get_harness_logger("test-cleanup-manager").error(...)` --
+# so name-mode gains one site, and it enters AT ERROR, so NAME_ERRORS moves
+# too (not just NAME_CALLS). The `>= ERROR` gate still covers it: re-measured,
+# not incremented -- census("name") returns 37 sites / 9 error, census("mro")
+# is unchanged at 20 / 3 / 11 (this route has no MRO-reachable counterpart),
+# so RESIDUAL_BELOW_ERROR (20-3) stays 17.
+NAME_CALLS, NAME_ERRORS = 37, 9
+RESIDUAL_BELOW_ERROR = 17  # unchanged: MRO mode (20/3/11) is untouched by this route
 
 
 class TestHarnessLoggerTeardownCensus(unittest.TestCase):
