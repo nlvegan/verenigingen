@@ -180,7 +180,7 @@ class _StderrHandler(logging.StreamHandler):
     ``tearDown`` has ~500 defs in this repo (``cleanup`` 7, ``restore`` 4 -- exact
     counts are printed by ``--report``, so this sentence cannot silently rot), so resolving
     ``cls._test_instance.tearDown()`` by name alone links to every one of them, and the walk returns
-    35 calls at 7 ERRORs instead of 20 at 3. Receiver resolution is what excludes those,
+    36 calls at 8 ERRORs instead of 20 at 3. Receiver resolution is what excludes those,
     and it is also the only thing that keeps the phantom ``factories.py:260`` out of the
     set -- six teardowns call ``cls.factory.cleanup()``, but that receiver is
     ``CoreTestDataFactory``, whose ``cleanup`` uses ``print()``.
