@@ -209,9 +209,9 @@ def _unusable_reasons(company: str) -> list:
 
     # Needed to PARENT a new income account, which the company defaults above do
     # not guarantee: "[Account, Income - EBHMT]: parent_account", 19 occurrences.
-    # Must be matched on root_type, NOT account_type -- ERPNext stamps
-    # account_type="Income Account" only on LEAF income accounts, so every group
-    # income account has an empty account_type.
+    # Must be matched on root_type, NOT account_type -- ERPNext's standard chart
+    # leaves account_type EMPTY on income accounts altogether, group AND leaf
+    # (#442); it is not a group-vs-leaf distinction.
     if not frappe.db.get_value(
         "Account", {"company": company, "root_type": "Income", "is_group": 1}, "name"
     ):
@@ -284,9 +284,11 @@ def ensure_membership_dues_item(billing_frequency: str = "Daily") -> str:
     # ensure_item_exists needs a company for the default accounts; the EUR test
     # company has a usable chart of accounts.
     company = get_eur_test_company()
+    # ERPNext's standard chart of accounts leaves account_type EMPTY on income
+    # leaves; they carry root_type = "Income" instead (#442).
     income_account = frappe.db.get_value(
         "Account",
-        {"account_type": "Income Account", "company": company, "is_group": 0},
+        {"root_type": "Income", "company": company, "is_group": 0},
         "name",
     )
     MembershipDuesItemManager().ensure_item_exists(

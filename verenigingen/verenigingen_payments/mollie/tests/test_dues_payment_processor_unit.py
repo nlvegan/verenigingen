@@ -476,9 +476,11 @@ class TestDuesItemHelper(DuesProcessorTestBase):
     """_get_or_create_dues_item is idempotent and returns the item name."""
 
     def test_creates_and_reuses_item(self):
+        # ERPNext's standard chart of accounts leaves account_type EMPTY on income
+        # leaves; they carry root_type = "Income" instead (#442).
         income_account = frappe.db.get_value(
             "Account",
-            {"account_type": "Income Account", "company": self.company, "is_group": 0},
+            {"root_type": "Income", "company": self.company, "is_group": 0},
             "name",
         )
         item_name = f"Membership Dues - UnitTest {frappe.generate_hash(length=6)}"

@@ -242,8 +242,10 @@ class DuesCreationTestBase(EnhancedTestCase):
         clearing = frappe.db.get_value(
             "Account", {"company": company, "account_type": "Bank", "is_group": 0}, "name"
         ) or ensure_mollie_bank_gl_account(company)
+        # ERPNext's standard chart of accounts leaves account_type EMPTY on income
+        # leaves; they carry root_type = "Income" instead (#442).
         income = frappe.db.get_value(
-            "Account", {"company": company, "account_type": "Income Account", "is_group": 0}, "name"
+            "Account", {"company": company, "root_type": "Income", "is_group": 0}, "name"
         )
         cls.clearing_account = clearing
         cls.income_account = income

@@ -49,8 +49,10 @@ def _prepare_sepa_test_invoice(invoice, item_code, rate, member_field=None, memb
     company = frappe.db.get_single_value("Global Defaults", "default_company") or frappe.db.get_all(
         "Company", limit=1
     )[0].name
+    # ERPNext's standard chart of accounts leaves account_type EMPTY on income
+    # leaves; they carry root_type = "Income" instead (#442).
     income_account = frappe.db.get_value(
-        "Account", {"account_type": "Income Account", "is_group": 0, "company": company}, "name"
+        "Account", {"root_type": "Income", "is_group": 0, "company": company}, "name"
     )
     cost_center = frappe.db.get_value("Company", company, "cost_center") or frappe.db.get_value(
         "Cost Center", {"company": company, "is_group": 0}, "name"

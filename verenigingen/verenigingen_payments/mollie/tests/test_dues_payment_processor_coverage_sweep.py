@@ -244,8 +244,10 @@ class DuesSweepTestBase(EnhancedTestCase):
         # this company has ten. Both escapes are accidents of shard packing, which
         # is why this failed on #346/#365/#379 and passed locally.
         get_eur_bank_account(cls.company)
+        # ERPNext's standard chart of accounts leaves account_type EMPTY on income
+        # leaves; they carry root_type = "Income" instead (#442).
         cls.income_account = frappe.db.get_value(
-            "Account", {"company": cls.company, "account_type": "Income Account", "is_group": 0}, "name"
+            "Account", {"company": cls.company, "root_type": "Income", "is_group": 0}, "name"
         )
         cls.receivable_account = frappe.db.get_value("Company", cls.company, "default_receivable_account")
         # Bank Account linked to the clearing GL so the BT path resolves config.

@@ -266,9 +266,11 @@ class TestCreateOrphanInvoice(EnhancedTestCase):
         # a membership-dues Item the orphan-invoice item lookup can resolve.
         cls.company = get_eur_test_company()
         ensure_membership_dues_item("Daily")
+        # ERPNext's standard chart of accounts leaves account_type EMPTY on income
+        # leaves; they carry root_type = "Income" instead (#442).
         cls.income = frappe.db.get_value(
             "Account",
-            {"company": cls.company, "account_type": "Income Account", "is_group": 0},
+            {"company": cls.company, "root_type": "Income", "is_group": 0},
             "name",
         )
         if cls.income and not frappe.db.get_value("Company", cls.company, "default_income_account"):
