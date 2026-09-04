@@ -7,8 +7,6 @@ This package provides comprehensive security measures including:
 - Role-based authorization
 - Comprehensive audit logging
 
-All security measures are configured to work together seamlessly.
-
 Architecture (see docs/REFACTOR_API_SECURITY_FRAMEWORK.md):
 - types.py: Shared enums and data classes (lowest layer)
 - authorization_policy.py: Pure authorization decision logic
@@ -20,149 +18,38 @@ Architecture (see docs/REFACTOR_API_SECURITY_FRAMEWORK.md):
 - frappe_whitelist_adapter.py: Façade for Frappe whitelist registration
 - self_service_access_controller.py: Self-service access validation with TOCTOU protection
 - api_security_framework.py: Orchestrator (uses all above)
+
+Import from the submodule that defines what you need, not from this package:
+
+    from verenigingen.utils.security.api_security_framework import get_security_framework
+
+This __init__ deliberately imports nothing at module level. It used to
+re-export 13 submodules, which made `import verenigingen.utils.security.<anything>`
+run all 13 first. CPython takes the submodule lock before the package lock
+(importlib._bootstrap._find_and_load acquires the lock for the full dotted
+name, then _find_and_load_unlocked re-enters the import of a parent whose spec
+is still _initializing), so under a threaded web worker one thread could hold
+the package lock inside this file while a second held a submodule lock and
+waited for the package -- a cycle CPython reports as _DeadlockError. This
+package has the widest exposure of any barrel in the app: ~394 files import
+`api_security_framework` at module level, essentially every request path. See
+verenigingen/services/billing/__init__.py, where this shape first surfaced in
+production, and issue #396, which covers this and other barrel packages.
+
+Note this is 3.13+ behaviour: python 3.12's _find_and_load_unlocked re-imports
+the parent only when it is absent from sys.modules, so the cycle never closed.
+
+`setup_all_security()` stays defined here (an `after_migrate` hook path,
+"verenigingen.utils.security.setup_all_security", resolves it as an attribute
+of this module), but its submodule imports are deferred inside the function
+body. A function body only runs when called -- here, once, single-threaded,
+during `bench migrate`, long after this module has finished initializing --
+so those imports cannot participate in the deadlock the way a module-level
+import can.
+
+verenigingen/tests/utils/test_barrel_init_no_self_import.py keeps this file
+honest, alongside every other barrel package in the app.
 """
-
-# ============================================================================
-# API Security Framework (orchestrator)
-# ============================================================================
-from .api_security_framework import (
-    APISecurityFramework,
-    api_security_framework,
-    critical_api,
-    get_security_framework,
-    high_security_api,
-    public_api,
-    standard_api,
-    utility_api,
-    webhook_api,
-)
-
-# ============================================================================
-# Audit Emitter (simplified interface for API security)
-# ============================================================================
-from .audit_emitter import AuditEmitter, get_audit_emitter
-
-# ============================================================================
-# Legacy SEPA-specific security (maintained for backwards compatibility)
-# ============================================================================
-from .audit_logging import SEPAAuditLogger, audit_log, setup_audit_logging
-from .authorization import (
-    SEPAAuthorizationManager,
-    SEPAOperation,
-    SEPAPermissionLevel,
-    require_sepa_permission,
-    setup_authorization,
-)
-
-# ============================================================================
-# Authorization Engine (I/O layer for authorization)
-# ============================================================================
-from .authorization_engine import (
-    AuthorizationEngine,
-    get_authorization_engine,
-    invalidate_user_role_cache,
-)
-
-# ============================================================================
-# Pure logic modules (depend only on types)
-# ============================================================================
-from .authorization_policy import AuthorizationPolicy, get_authorization_policy
-from .csrf_protection import CSRFProtection, require_csrf_token, setup_csrf_protection
-
-# ============================================================================
-# I/O layer modules (depend on types, may use Frappe)
-# ============================================================================
-from .environment_validator import EnvironmentValidator, get_environment_validator
-
-# ============================================================================
-# Frappe Whitelist Adapter (extracted for modularity)
-# ============================================================================
-from .frappe_whitelist_adapter import FrappeWhitelistAdapter, get_frappe_whitelist_adapter
-from .input_validator import InputValidator, get_input_validator
-
-# ============================================================================
-# Rate Limit Engine (COR integration)
-# ============================================================================
-from .rate_limit_engine import RateLimitEngine, RateLimitResult, get_rate_limit_engine
-
-# ============================================================================
-# Self-Service Access Controller (TOCTOU protection)
-# ============================================================================
-from .self_service_access_controller import SelfServiceAccessController, get_self_service_controller
-from .types import (
-    AuditEventType,
-    AuditSeverity,
-    AuthResult,
-    EnvironmentLevel,
-    ExecutionContext,
-    OperationType,
-    SecurityLevel,
-    SecurityProfile,
-)
-
-__all__ = [
-    # Types
-    "SecurityLevel",
-    "EnvironmentLevel",
-    "OperationType",
-    "ExecutionContext",
-    "AuditEventType",
-    "AuditSeverity",
-    "AuthResult",
-    "SecurityProfile",
-    # Authorization Policy (pure logic)
-    "AuthorizationPolicy",
-    "get_authorization_policy",
-    # Authorization Engine (I/O layer)
-    "AuthorizationEngine",
-    "get_authorization_engine",
-    "invalidate_user_role_cache",
-    # Rate Limit Engine
-    "RateLimitEngine",
-    "RateLimitResult",
-    "get_rate_limit_engine",
-    # Audit Emitter
-    "AuditEmitter",
-    "get_audit_emitter",
-    # Input Validator (pure logic)
-    "InputValidator",
-    "get_input_validator",
-    # Environment Validator
-    "EnvironmentValidator",
-    "get_environment_validator",
-    # Self-Service Access Controller
-    "SelfServiceAccessController",
-    "get_self_service_controller",
-    # API Security Framework
-    "APISecurityFramework",
-    "api_security_framework",
-    "get_security_framework",
-    "FrappeWhitelistAdapter",
-    "get_frappe_whitelist_adapter",
-    # Convenience decorators
-    "critical_api",
-    "high_security_api",
-    "standard_api",
-    "utility_api",
-    "public_api",
-    "webhook_api",
-    # CSRF Protection
-    "CSRFProtection",
-    "require_csrf_token",
-    "setup_csrf_protection",
-    # SEPA Authorization (legacy)
-    "SEPAAuthorizationManager",
-    "SEPAOperation",
-    "SEPAPermissionLevel",
-    "require_sepa_permission",
-    "setup_authorization",
-    # Audit Logging
-    "SEPAAuditLogger",
-    "audit_log",
-    "setup_audit_logging",
-    # Setup
-    "setup_all_security",
-]
 
 
 def setup_all_security():
@@ -175,6 +62,15 @@ def setup_all_security():
     - Authorization system
     - Audit logging
     """
+    # Deliberately imported here, not at module level (see this module's
+    # docstring) - but ALSO deliberately above the try/except below, not
+    # inside it: an ImportError here is a real setup failure and must
+    # propagate/log loudly, not be swallowed into a silent `return False`
+    # the after_migrate hook never checks.
+    from .audit_logging import setup_audit_logging
+    from .authorization import setup_authorization
+    from .csrf_protection import setup_csrf_protection
+
     try:
         # Setup individual components
         setup_csrf_protection()
