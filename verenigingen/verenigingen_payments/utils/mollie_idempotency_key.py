@@ -27,6 +27,11 @@ nothing is lost diagnostically.
 
 import hashlib
 
+from verenigingen.verenigingen_payments.utils.payment_services.constants import (
+    MOLLIE_LIVE_PAYMENT_PREFIX,
+    MOLLIE_LIVE_REFUND_PREFIX,
+)
+
 FIELDNAME = "custom_mollie_idempotency_key"
 
 # The reference shapes the Mollie writers produce. `unified_payment_entry_creator.py:56`
@@ -35,7 +40,16 @@ FIELDNAME = "custom_mollie_idempotency_key"
 # and are separated only by the suffix and `payment_type`. That is why the key is the
 # composite and NOT `custom_mollie_payment_id`, which would reject a legitimate refund
 # (and is not written by this creator at all -- only by the settlement path).
-_MOLLIE_PREFIXES = ("tr_", "re_")
+#
+# Only the LIVE prefixes are adopted. `constants.py` also declares
+# MOLLIE_TEST_PAYMENT_PREFIX = "test_", and pulling that in would be actively harmful
+# here: this app's own factory defaults a Payment Entry to `reference_no =
+# "test_payment_<hash>"` (tests/fixtures/enhanced_test_factory.py), so a "test_" prefix
+# would drag every factory-made row into the guard's scope and make the unique index
+# refuse ordinary test fixtures. Whether Mollie ever issues a "test_"-prefixed id is
+# unverified -- that constants module has no other consumer in the app, so it is not
+# evidence either way.
+_MOLLIE_PREFIXES = (MOLLIE_LIVE_PAYMENT_PREFIX, MOLLIE_LIVE_REFUND_PREFIX)
 _MOLLIE_INFIXES = ("_refund_", "_chargeback_")
 
 # The SQL half of the same predicate, for the backfill patch. `test_mollie_idempotency_key`
@@ -57,12 +71,19 @@ _SEPARATOR = "\x1f"
 
 
 def is_mollie_style_reference(reference_no) -> bool:
-    """True when `reference_no` is one the Mollie writers produce."""
+    """True when `reference_no` is one the Mollie writers produce.
+
+    Case-INsensitive, to match the SQL half. `tabPayment Entry.reference_no` has a
+    case-insensitive collation, so `'TR_X' LIKE 'tr\\_%'` is true in MariaDB while a
+    Python `startswith` on the same value is false. That disagreement is not academic:
+    the patch selects rows with the SQL half and derives keys with the Python half, so a
+    row could be counted in the duplicate scan and then written NULL in the same run.
+    Real Mollie ids are lowercase; this exists so the two halves cannot diverge.
+    """
     if not reference_no:
         return False
-    return reference_no.startswith(_MOLLIE_PREFIXES) or any(
-        infix in reference_no for infix in _MOLLIE_INFIXES
-    )
+    lowered = reference_no.lower()
+    return lowered.startswith(_MOLLIE_PREFIXES) or any(infix in lowered for infix in _MOLLIE_INFIXES)
 
 
 def build_idempotency_key(reference_no, payment_type, party):
@@ -81,12 +102,19 @@ def build_idempotency_key(reference_no, payment_type, party):
 
 
 def set_payment_entry_idempotency_key(doc, method=None):
-    """`before_save` on Payment Entry: keep the key in step with the fields it derives from.
+    """`validate` on Payment Entry: keep the key in step with the fields it derives from.
 
-    `before_save` rather than `before_insert` because `reference_no`, `payment_type` and
-    `party` are all editable on a draft, and a key that only matched the values at insert
-    time would guard the wrong tuple. Both `insert()` and `_save()` call
-    `run_before_save_methods()` (frappe/model/document.py:484, :592).
+    Not `before_insert`: `reference_no`, `payment_type` and `party` are all editable on a
+    draft, so a key frozen at insert time would guard the tuple the row used to have.
+
+    Not `before_save` either, which is the subtler one. `run_before_save_methods`
+    (frappe/model/document.py:1389-1416) dispatches `validate` + `before_save` for
+    `_action == "save"` but `validate` + `before_SUBMIT` for `_action == "submit"` -- so a
+    `before_save` handler does NOT run on a bare `.submit()`. Measured: mutate
+    `reference_no` on a draft and call `.submit()` without an intervening `.save()`, and
+    the persisted key stays the hash of the OLD reference -- guarding the wrong tuple
+    while permanently reserving a slot the row no longer occupies. `validate` fires on
+    both actions, so it is the only single registration that covers them.
 
     Guarded on the field existing, for the window where this code is live on a site whose
     doctype cache predates the field -- the same shape as #780's and #797's guards. A

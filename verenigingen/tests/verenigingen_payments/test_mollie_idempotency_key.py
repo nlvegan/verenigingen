@@ -25,6 +25,9 @@ IN_SCOPE = [
     "re_4qqhO89gsT",
     "tr_WDqYK6vllg_refund_re_4qqhO89gsT",
     "tr_WDqYK6vllg_chargeback_chb_n9z0tp",
+    # reference_no has a case-insensitive collation, so the SQL half matches this and a
+    # naive Python `startswith` did not. Kept in the corpus so the two cannot diverge again.
+    "TR_UPPERCASE123",
 ]
 OUT_OF_SCOPE = [
     "nlvf-standfacturen-2024",

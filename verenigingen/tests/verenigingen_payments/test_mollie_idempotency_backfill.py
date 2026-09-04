@@ -65,6 +65,10 @@ class TestMollieIdempotencyBackfill(EnhancedTestCase):
         duplicates = [
             frappe._dict(reference_no="tr_deadbeef", payment_type="Receive", party="CUST-0001", count=42)
         ]
+        # _abort_on_duplicates logs before it raises; declare it so the harness's
+        # "errors logged during test" guard does not treat it as an unexpected error.
+        # expectErrorLog marks patterns for that check -- it is not a context manager.
+        self.expectErrorLog("Mollie idempotency key: duplicates block unique index")
         with self.assertRaises(frappe.ValidationError) as caught:
             patch._abort_on_duplicates(duplicates)
 

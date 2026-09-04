@@ -55,6 +55,22 @@ class TestMollieIdempotencyConstraint(EnhancedTestCase):
         )
         self.assertNotEqual(original.get(FIELDNAME), refund.get(FIELDNAME))
 
+    def test_submitting_an_edited_draft_moves_the_key(self):
+        # The regression that `before_save` allowed and `validate` closes.
+        # run_before_save_methods dispatches before_save ONLY for _action == "save"; a
+        # bare .submit() runs validate + before_submit. With the handler on before_save
+        # the persisted key stayed the hash of the pre-edit reference, so the row guarded
+        # a tuple it no longer had and reserved a slot nothing occupied.
+        payment = self.create_test_payment_entry(reference_no=f"tr_{frappe.generate_hash()[:10]}")
+        moved_to = f"tr_{frappe.generate_hash()[:10]}"
+        payment.reference_no = moved_to
+        payment.submit()
+
+        self.assertEqual(
+            frappe.db.get_value("Payment Entry", payment.name, FIELDNAME),
+            build_idempotency_key(moved_to, payment.payment_type, payment.party),
+        )
+
     def test_non_mollie_references_may_repeat_freely(self):
         # The whole reason the index is scoped: this app reuses invoice numbers and
         # payroll batch references across many Payment Entries by design.
