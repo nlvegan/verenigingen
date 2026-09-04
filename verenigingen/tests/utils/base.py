@@ -206,9 +206,18 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # later test's volunteer gets -- which then reads the earlier
         # volunteer's stale cached assignments instead of running its own
         # query. EnhancedTestCase has this reset too (see
-        # _reset_volunteer_assignment_cache there); this base class is its
-        # sibling and needs it for the same reason the batch-queue reset
-        # above does -- see #815.
+        # _reset_volunteer_assignment_cache there, called from BOTH setUp
+        # and tearDown); this base class is its sibling and needs it for the
+        # same reason the batch-queue reset above does -- see #815.
+        #
+        # setUp-only is intentional here (not setUp+tearDown, unlike
+        # Enhanced): every current reader of this cache is on one of these
+        # two base classes -- and thus gets cleared by the NEXT test's setUp
+        # regardless of which base it runs on -- except one, which clears
+        # its own cache in both setUp and tearDown already
+        # (test_history_audit_improvements.py). If a future reader appears
+        # on neither base and doesn't self-protect, add a tearDown call here
+        # too rather than assuming setUp coverage is still sufficient.
         try:
             from verenigingen.services.volunteer.assignment_query_builder import (
                 invalidate_volunteer_assignment_cache,
