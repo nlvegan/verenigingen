@@ -251,11 +251,13 @@ class TestBankTransactionCreatorFromDict(_BankTxnFixtureMixin, EnhancedTestCase)
         self.assertEqual(frappe.db.get_value("Bank Transaction", draft.name, "docstatus"), 1)
         self.assertEqual(frappe.db.count("Bank Transaction", {"reference_number": ref}), 1)
 
-    def test_create_from_dict_does_not_submit_draft_for_a_different_bank_account(self):
+    def test_create_from_dict_ignores_draft_belonging_to_a_different_bank_account(self):
         """reference_number alone is not unique -- a draft that shares this
-        reference but belongs to a DIFFERENT bank account must not be submitted
-        by this caller. It is still reported as "already exists" (unchanged
-        idempotency behaviour for the collision case), but left untouched."""
+        reference but belongs to a DIFFERENT bank account is not this caller's
+        concern: it must not be submitted, and must not be adopted as "already
+        exists" either (that would hand the caller a transaction for someone
+        else's bank account). The caller creates its own Bank Transaction for
+        its own account instead, and the stranger's draft is left untouched."""
         other_gl_account = self._ensure_gl_account(name_suffix=" Other")
         other_bank_account = self._ensure_bank_account(other_gl_account, name_suffix=" Other")
 
@@ -265,12 +267,38 @@ class TestBankTransactionCreatorFromDict(_BankTxnFixtureMixin, EnhancedTestCase)
         payload = {"date": today(), "amount": 12.0, "reference_number": ref}
         result = self.creator.create_from_dict(payload, self.bank_account, COMPANY)
 
-        self.assertEqual(result, draft.name)
+        self.assertNotEqual(result, draft.name, "must not adopt a different account's draft as its own")
+        self.assertEqual(frappe.db.get_value("Bank Transaction", result, "bank_account"), self.bank_account)
         self.assertEqual(
             frappe.db.get_value("Bank Transaction", draft.name, "docstatus"),
             0,
             "a draft belonging to a different bank account must not be submitted",
         )
+        self.assertEqual(frappe.db.count("Bank Transaction", {"reference_number": ref}), 2)
+
+    def test_create_from_dict_finds_own_older_draft_despite_a_newer_collision(self):
+        """The discriminating case: TWO non-cancelled rows share one reference --
+        this caller's own draft, created FIRST (so it is not the newest row), and
+        a second row for a DIFFERENT bank account created afterwards. A query
+        that is merely post-filtered (not scoped in the WHERE clause) fetches the
+        newest row by creation, which is the other account's -- so this caller's
+        own, older draft is never found or submitted at all. Scoping the query
+        itself finds it regardless of what newer rows exist for other accounts."""
+        import time
+
+        other_gl_account = self._ensure_gl_account(name_suffix=" Newer")
+        other_bank_account = self._ensure_bank_account(other_gl_account, name_suffix=" Newer")
+
+        ref = self._ref("draft-own-older")
+        own_draft = self._insert_draft_bank_transaction(ref, self.bank_account, amount=12.0)
+        time.sleep(1.1)  # force a distinct, later `creation` timestamp
+        self._insert_draft_bank_transaction(ref, other_bank_account, amount=99.0)
+
+        payload = {"date": today(), "amount": 12.0, "reference_number": ref}
+        result = self.creator.create_from_dict(payload, self.bank_account, COMPANY)
+
+        self.assertEqual(result, own_draft.name)
+        self.assertEqual(frappe.db.get_value("Bank Transaction", own_draft.name, "docstatus"), 1)
 
 
 class TestBankTransactionCreatorSettlement(_BankTxnFixtureMixin, EnhancedTestCase):
