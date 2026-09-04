@@ -8,9 +8,9 @@ WHY THIS EXISTS, and why it is not merely a number-matching ratchet:
 
 ``_StderrHandler`` in ``verenigingen/tests/harness_logger.py`` mirrors records to
 ``sys.__stderr__`` only at ``>= ERROR``. That threshold is not arbitrary -- the
-docstring justifies it by saying ERROR is the level of the two class-teardown
-records that must not be lost, and explicitly accepts that the other seventeen
-(16 WARNING + 1 DEBUG) ARE lost.
+docstring justifies it by saying ERROR is the level of the class-teardown
+records that must not be lost (three, as of #815), and explicitly accepts that
+the other seventeen (16 WARNING + 1 DEBUG) ARE lost.
 
 That justification holds only while the census does. Add a class-teardown route
 that logs at WARNING something which must not be lost, and the gate silently
@@ -47,9 +47,9 @@ BASELINE = Path(__file__).resolve().parents[1] / "harness_logger_teardown_baseli
 # exists to keep honest. Changing one of these is a deliberate act: read the
 # `>= ERROR` gate rationale before touching it, because the gate loses
 # everything below ERROR that class teardown emits.
-MRO_CALLS, MRO_ERRORS, MRO_TEARDOWNS = 19, 2, 11
-NAME_CALLS, NAME_ERRORS = 34, 6
-RESIDUAL_BELOW_ERROR = 17
+MRO_CALLS, MRO_ERRORS, MRO_TEARDOWNS = 20, 3, 11
+NAME_CALLS, NAME_ERRORS = 35, 7
+RESIDUAL_BELOW_ERROR = 17  # unchanged: the new call moved warning->error, not added a new below-ERROR site
 
 
 class TestHarnessLoggerTeardownCensus(unittest.TestCase):
@@ -68,35 +68,42 @@ class TestHarnessLoggerTeardownCensus(unittest.TestCase):
             "decide whether the new route can afford that, THEN regenerate.",
         )
 
-    def test_the_two_error_sites_the_docstring_names_are_reached(self):
-        """The gate's rationale names two ERROR sites. Assert both, and the count.
+    def test_the_three_error_sites_the_docstring_names_are_reached(self):
+        """The gate's rationale names three ERROR sites. Assert all, and the count.
 
         Keyed on the full (path, lineno, level) tuple, not (path, level): a
-        SECOND error() added to singleton_backup.py and reached from teardown
-        would otherwise collapse into the existing entry and keep this green
-        while the docstring's "exactly two" became false.
+        SECOND error() added to any one of these files and reached from
+        teardown would otherwise collapse into the existing entry and keep
+        this green while the docstring's "exactly three" became false.
+
+        The third (enhanced_test_factory.py) was added by #815: a WARNING
+        there was reachable from EnhancedTestCase.tearDown(), which the
+        chapter_permission_service_integration.py route drags onto a
+        class-teardown path, so it would have been silently lost by the
+        >= ERROR mirror gate. Promoted to ERROR rather than left at WARNING.
         """
         _routes, sites, _fns = v.census("mro")
         errors = {s for s in sites if s[2] == "error"}
         paths = {s[0] for s in errors}
         self.assertIn("verenigingen/tests/fixtures/singleton_backup.py", paths)
         self.assertIn("verenigingen/tests/utils/error_log_guard.py", paths)
+        self.assertIn("verenigingen/tests/fixtures/enhanced_test_factory.py", paths)
         self.assertEqual(
             len(errors),
             MRO_ERRORS,
-            "harness_logger.py says exactly two class-teardown records are at ERROR, "
+            "harness_logger.py says exactly three class-teardown records are at ERROR, "
             f"and that this is why the mirror gate sits there. Now: {sorted(errors)}",
         )
 
     def test_the_residual_limit_is_still_the_documented_size(self):
-        """17 of 19 records are below ERROR and are LOST. The docstring says so."""
+        """17 of 20 records are below ERROR and are LOST. The docstring says so."""
         _routes, sites, _fns = v.census("mro")
         below = [s for s in sites if s[2] not in ("error", "critical", "exception")]
         self.assertEqual(
             len(below),
             RESIDUAL_BELOW_ERROR,
             "harness_logger.py's 'residual limit' paragraph says seventeen of the "
-            f"nineteen class-teardown records are below ERROR and lost. Now {len(below)}. "
+            f"twenty class-teardown records are below ERROR and lost. Now {len(below)}. "
             "Update the paragraph, not just the baseline.",
         )
 

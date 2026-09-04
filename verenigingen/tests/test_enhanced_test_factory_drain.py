@@ -13,6 +13,7 @@ docs/plans/2026-05-24-test-framework-tracked-doc-drain-design.md.
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 
 class TestDrainTrackedDocuments(EnhancedTestCase):
@@ -321,6 +322,79 @@ class TestFinancialBatchQueueIsolation(EnhancedTestCase):
         )
         self.assertEqual(
             self._queue_depth(BP._payment_queue), 0, "reset must leave the queue empty"
+        )
+
+
+class TestVolunteerAssignmentCacheIsolation(EnhancedTestCase):
+    """Regression: AssignmentQueryBuilder keeps a runner-global assignment
+    cache in frappe.local, keyed only by volunteer NAME. Volunteer autoname is
+    a format-series whose counter rolls back with everything else at
+    tearDown, so a volunteer created by an earlier (rolled-back) test can be
+    issued the exact same name a later test's volunteer gets -- which then
+    reads the earlier volunteer's stale cached assignments instead of running
+    its own query. See #815 (TestVolunteer.test_add_activity).
+    """
+
+    def test_reset_clears_stale_assignment_cache_entries(self):
+        """The per-method reset empties the runner-global assignment cache."""
+        frappe.local._volunteer_assignment_cache = {
+            "STALE-VOLUNTEER:active_assignments": [{"role": "Chair"}],
+            "STALE-VOLUNTEER:complete_history": [{"role": "Chair"}],
+        }
+
+        self._reset_volunteer_assignment_cache()
+
+        self.assertEqual(
+            frappe.local._volunteer_assignment_cache,
+            {},
+            "stale assignment-cache entries must be cleared by the reset",
+        )
+
+
+class TestEnhancedTestCaseAssignmentCacheCallSite(EnhancedTestCase):
+    """Regression for the recurrence class this whole fix is about: the
+    HELPER being correct (TestVolunteerAssignmentCacheIsolation above) does
+    not prove the CALL SITE in setUp/tearDown still exists. Seed the cache
+    before super().setUp() runs so this test fails if EnhancedTestCase's
+    setUp/tearDown call to _reset_volunteer_assignment_cache() is ever
+    removed, independent of whether the helper method itself still works.
+    See #815.
+    """
+
+    def setUp(self):
+        frappe.local._volunteer_assignment_cache = {
+            "STALE-VOLUNTEER:active_assignments": [{"role": "Chair"}],
+        }
+        super().setUp()
+
+    def test_setup_call_site_clears_seeded_cache(self):
+        self.assertEqual(
+            frappe.local._volunteer_assignment_cache,
+            {},
+            "EnhancedTestCase.setUp() must still call "
+            "_reset_volunteer_assignment_cache()",
+        )
+
+
+class TestVereningingenTestCaseAssignmentCacheCallSite(VereningingenTestCase):
+    """Same call-site guard as above, for VereningingenTestCase -- the base
+    class test_contribution_amendment_request_coverage.py itself extends.
+    See #815 and the "prior one-sided fix" comment on the batch-queue reset
+    a few lines above this class's setUp() in base.py.
+    """
+
+    def setUp(self):
+        frappe.local._volunteer_assignment_cache = {
+            "STALE-VOLUNTEER:active_assignments": [{"role": "Chair"}],
+        }
+        super().setUp()
+
+    def test_setup_call_site_clears_seeded_cache(self):
+        self.assertEqual(
+            frappe.local._volunteer_assignment_cache,
+            {},
+            "VereningingenTestCase.setUp() must still call "
+            "invalidate_volunteer_assignment_cache()",
         )
 
 

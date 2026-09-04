@@ -164,18 +164,23 @@ class _StderrHandler(logging.StreamHandler):
     ``cls._test_instance.tearDown()`` (``test_chapter_permission_service_integration.py:182``),
     the only place in the repo where a class teardown invokes a per-test ``tearDown`` on a
     stashed instance -- which binds to ``EnhancedTestCase.tearDown`` and so drags the whole
-    drain onto a class-teardown path. Between them they reach NINETEEN logging calls at
-    three levels, of which TWO are at ERROR: ``_restore_singleton``'s "Failed to restore
-    %s: %s" (``singleton_backup.py:292``) and ``ErrorLogGuardMixin._capture_test_error_logs``'
+    drain onto a class-teardown path. Between them they reach TWENTY logging calls at
+    three levels, of which THREE are at ERROR: ``_restore_singleton``'s "Failed to restore
+    %s: %s" (``singleton_backup.py:292``), ``ErrorLogGuardMixin._capture_test_error_logs``'
     "Error Log guard capture failed" (``error_log_guard.py:194``) -- both tracked precisely
-    because a failure that said so nowhere is #433.
+    because a failure that said so nowhere is #433 -- and
+    ``EnhancedTestCase._reset_volunteer_assignment_cache``'s "Volunteer assignment cache
+    reset failed" (``enhanced_test_factory.py:2736``), promoted from WARNING to ERROR by
+    #815 for the same reason: it is reachable from ``EnhancedTestCase.tearDown()``, which
+    this same route drags onto a class-teardown path, so a WARNING there would have been
+    silently lost.
 
     Edges were resolved by callee name, EXCEPT that an attribute call's receiver was
     resolved to its class and bound through the MRO. That exception is not cosmetic:
     ``tearDown`` has ~500 defs in this repo (``cleanup`` 7, ``restore`` 4 -- exact
     counts are printed by ``--report``, so this sentence cannot silently rot), so resolving
     ``cls._test_instance.tearDown()`` by name alone links to every one of them, and the walk returns
-    34 calls at 6 ERRORs instead of 19 at 2. Receiver resolution is what excludes those,
+    35 calls at 7 ERRORs instead of 20 at 3. Receiver resolution is what excludes those,
     and it is also the only thing that keeps the phantom ``factories.py:260`` out of the
     set -- six teardowns call ``cls.factory.cleanup()``, but that receiver is
     ``CoreTestDataFactory``, whose ``cleanup`` uses ``print()``.
@@ -186,7 +191,7 @@ class _StderrHandler(logging.StreamHandler):
     "exactly one ERROR". Both alias-form loggers (``logger = get_harness_logger(...)``, as
     ``enhanced_test_factory`` and ``tests/setup`` cache them) and inline
     ``get_harness_logger(...).level(...)`` calls were matched; a scan for only one shape
-    misses the other entirely, and route 3 is 13 alias-form calls to 1 inline -- an
+    misses the other entirely, and route 3 is 14 alias-form calls to 1 inline -- an
     alias-blind scan reports it as a single call and the sixteen WARNINGs become one.
 
     So ``emit`` mirrors onto ``sys.__stderr__``, which the runner never swaps, for
@@ -201,13 +206,13 @@ class _StderrHandler(logging.StreamHandler):
 
     The gate is what keeps the middle row from happening: mirroring everything
     duplicates every in-test record and gives back the attribution the lazy read was
-    for. ERROR is where the gate sits because that is the level of the two
+    for. ERROR is where the gate sits because that is the level of the three
     class-teardown records that must not be lost, above. It does NOT cover the other
     seventeen -- see the residual limit.
 
     **The residual limit:** anything below ERROR from class teardown is still lost -- a
     ``.warning()``, ``.info()`` or ``.debug()``. Measured, that is seventeen of the
-    nineteen: sixteen WARNING and one DEBUG. No INFO site is class-teardown-reachable
+    twenty: sixteen WARNING and one DEBUG. No INFO site is class-teardown-reachable
     today, so the gate's INFO behaviour is untested by that census rather than confirmed
     by it. Fixing the loss properly means draining the buffer in ``stopTestRun``, which is
     ``frappe/``'s to do, not this app's.
