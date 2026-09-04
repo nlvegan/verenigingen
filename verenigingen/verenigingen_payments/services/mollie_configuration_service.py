@@ -391,7 +391,9 @@ class MollieConfigurationService:
 
         Args:
             account_name: GL Account name to validate (e.g., "10460 - Mollie - NVV")
-            account_type: Expected account type ("Asset", "Liability", "Expense", etc.)
+            account_type: Expected Account.account_type value, e.g. "Bank" or
+                "Expense Account" (see the doctype's own options -- "Asset" and
+                "Expense" are root_type values, not account_type ones; #789/#788)
             company: Company name (validates account belongs to company)
             allow_frozen: Whether to allow frozen accounts (default: False)
 
@@ -400,7 +402,7 @@ class MollieConfigurationService:
             {
                 "valid": True,
                 "account_name": "10460 - Mollie - NVV",
-                "account_type": "Asset",
+                "account_type": "Bank",
                 "company": "Vegan Netwerk Nederland",
                 "is_group": False,
                 "frozen": False
@@ -410,16 +412,16 @@ class MollieConfigurationService:
             frappe.ValidationError: If account invalid with specific reason
 
         Example:
-            # Validate clearing account is Asset type
+            # Validate clearing account is a Bank-type account
             result = get_mollie_config().validate_gl_account(
                 "10460 - Mollie - NVV",
-                account_type="Asset"
+                account_type="Bank"
             )
 
             # Validate with company check
             result = get_mollie_config().validate_gl_account(
                 "10460 - Mollie - NVV",
-                account_type="Asset",
+                account_type="Bank",
                 company="Vegan Netwerk Nederland"
             )
         """
@@ -664,7 +666,7 @@ class MollieConfigurationService:
                     "clearing_account": {
                         "valid": True,
                         "account_name": "10460 - Mollie - NVV",
-                        "account_type": "Asset",
+                        "account_type": "Bank",
                         ...
                     },
                     "bank_account": {"valid": True, ...},
@@ -707,7 +709,7 @@ class MollieConfigurationService:
             "fees_account": {
                 "name": settings.get("payment_processing_fees_account"),
                 "required": False,
-                "account_type": None,  # Don't validate type for fees (can be "Expense" or "Expense Account")
+                "account_type": None,  # Don't validate type for fees (can be "Expense Account", "Direct Expense", ...)
             },
         }
 

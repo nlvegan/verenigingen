@@ -29,10 +29,13 @@ Run with:
         --module verenigingen.tests.e_boekhouden.test_stock_account_handler_coverage
 """
 
+from unittest.mock import patch
+
 import frappe
 
 from verenigingen.e_boekhouden.utils.stock_account_handler import StockAccountHandler
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.test_accounts import make_leaf_account
 
 
 class _StockHandlerBase(EnhancedTestCase):
@@ -44,27 +47,6 @@ class _StockHandlerBase(EnhancedTestCase):
 
         cls.company = get_eur_test_company()
         cls.abbr = frappe.db.get_value("Company", cls.company, "abbr")
-
-    def _make_account(self, account_name, *, account_type="", root_type="Asset", is_group=0):
-        """Get-or-create an Account under a matching-root group parent."""
-        full = f"{account_name} - {self.abbr}"
-        if frappe.db.exists("Account", full):
-            return full
-        parent = frappe.db.get_value(
-            "Account",
-            {"company": self.company, "root_type": root_type, "is_group": 1},
-            "name",
-        )
-        doc = frappe.new_doc("Account")
-        doc.account_name = account_name
-        doc.company = self.company
-        doc.parent_account = parent
-        doc.root_type = root_type
-        if account_type:
-            doc.account_type = account_type
-        doc.is_group = is_group
-        doc.insert(ignore_permissions=True)
-        return doc.name
 
     def _make_ledger_mapping(self, ledger_id, erpnext_account):
         """Get-or-create an E-Boekhouden Ledger Mapping row for the test."""
@@ -87,12 +69,12 @@ class TestIsStockAccount(_StockHandlerBase):
         self.handler = StockAccountHandler(self.company, [])
 
     def test_stock_account_detected(self):
-        acct = self._make_account("EBKH Stock Detect", account_type="Stock")
+        acct = make_leaf_account(self.company, self.abbr, "EBKH Stock Detect", account_type="Stock")
         with self.assertNoErrorLog():
             self.assertTrue(self.handler.is_stock_account(acct))
 
     def test_non_stock_account_false(self):
-        acct = self._make_account("EBKH NonStock Detect", account_type="")
+        acct = make_leaf_account(self.company, self.abbr, "EBKH NonStock Detect", account_type="")
         with self.assertNoErrorLog():
             self.assertFalse(self.handler.is_stock_account(acct))
 
@@ -105,8 +87,8 @@ class TestGetAndSkipStockAccounts(_StockHandlerBase):
     def setUp(self):
         super().setUp()
         self.handler = StockAccountHandler(self.company, [])
-        self.stock_acct = self._make_account("EBKH Stock Balances", account_type="Stock")
-        self.normal_acct = self._make_account("EBKH Normal Balances", account_type="")
+        self.stock_acct = make_leaf_account(self.company, self.abbr, "EBKH Stock Balances", account_type="Stock")
+        self.normal_acct = make_leaf_account(self.company, self.abbr, "EBKH Normal Balances", account_type="")
         self._make_ledger_mapping(990001, self.stock_acct)
         self._make_ledger_mapping(990002, self.normal_acct)
 
@@ -162,9 +144,11 @@ class TestAssetAccountCreation(_StockHandlerBase):
             first = self.handler.get_or_create_generic_asset_account()
         self.assertEqual(first, expected_name)
         self.assertTrue(frappe.db.exists("Account", expected_name))
-        # account_type must be a non-stock type so a JE can post to it.
+        # account_type must be a non-stock type so a JE can post to it. The
+        # primary attempt always uses "Temporary"; the fallback (#788) leaves
+        # account_type unset rather than the invalid "Asset" it used to set.
         acct_type = frappe.db.get_value("Account", expected_name, "account_type")
-        self.assertIn(acct_type, ("Temporary", "Asset"))
+        self.assertIn(acct_type, ("Temporary", ""))
         # Second call returns the same account without creating a duplicate.
         with self.assertNoErrorLog():
             second = self.handler.get_or_create_generic_asset_account()
@@ -183,13 +167,59 @@ class TestAssetAccountCreation(_StockHandlerBase):
         self.assertIsInstance(result, str)
 
     def test_create_alternative_asset_mappings(self):
-        stock_acct = self._make_account("EBKH Stock Remap", account_type="Stock")
+        stock_acct = make_leaf_account(self.company, self.abbr, "EBKH Stock Remap", account_type="Stock")
         stock_accounts = [{"account": stock_acct, "balance": 10}]
         with self.assertNoErrorLog():
             mappings = self.handler.create_alternative_asset_mappings(stock_accounts)
         self.assertIn(stock_acct, mappings)
         # Every stock account maps to the single generic asset account.
         self.assertEqual(set(mappings.values()), {self.handler.get_or_create_generic_asset_account()})
+
+
+class TestAssetAccountCreationFallback(_StockHandlerBase):
+    """#788: get_or_create_generic_asset_account's fallback branch set
+    account_type="Asset", which is not a valid Account.account_type option
+    (valid asset-ish values include "Fixed Asset", "Current Asset", ...).  So
+    whenever the primary (account_type="Temporary") attempt failed for any
+    unrelated reason, the fallback's own insert() always raised ValidationError
+    too, and that raise was swallowed by `except Exception as e2`, silently
+    discarding the intended account and falling through to an unrelated
+    equity/temporary account instead.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.handler = StockAccountHandler(self.company, [])
+        self.expected_name = f"Stock Value (Opening Balance) - {self.abbr}"
+        # Defensive: an earlier failed run may have left this behind.
+        if frappe.db.exists("Account", self.expected_name):
+            frappe.delete_doc("Account", self.expected_name, force=True, ignore_permissions=True)
+
+    def test_fallback_creates_the_intended_account_when_primary_attempt_fails(self):
+        """Simulate the primary (Temporary-typed) attempt failing for a reason
+        unrelated to account_type -- e.g. a transient error during the
+        eBoekhouden import. The fallback should then actually create the
+        intended account, not silently discard it because its own account_type
+        value is invalid.
+        """
+        from frappe.model.document import Document
+
+        original_insert = Document.insert
+
+        def fake_insert(self_doc, *args, **kwargs):
+            if (
+                self_doc.doctype == "Account"
+                and self_doc.account_name == "Stock Value (Opening Balance)"
+                and self_doc.account_type == "Temporary"
+            ):
+                raise Exception("Simulated primary-attempt failure")
+            return original_insert(self_doc, *args, **kwargs)
+
+        with patch.object(Document, "insert", fake_insert):
+            result = self.handler.get_or_create_generic_asset_account()
+
+        self.assertEqual(result, self.expected_name)
+        self.assertTrue(frappe.db.exists("Account", self.expected_name))
 
 
 class TestStaticHelpers(_StockHandlerBase):

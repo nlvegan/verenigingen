@@ -88,30 +88,43 @@ def create_period_closing_vouchers():
 @frappe.whitelist()
 def check_p_and_l_impact():
     """Check the impact on P&L accounts after creating Period Closing Vouchers"""
+    return _check_p_and_l_impact("Ned Ver Vegan")
 
-    company = "Ned Ver Vegan"
+
+def _check_p_and_l_impact(company: str):
+    """Implementation of check_p_and_l_impact, parameterized on company so it
+    is directly testable. NOT whitelisted itself -- exposing `company` as a
+    parameter on the whitelisted wrapper would let any logged-in user pull
+    another company's Income/Expense account names and GL balances, since
+    this endpoint carries no permission/role check of its own."""
     results = []
 
     results.append("\n=== Checking P&L Account Balances ===")
 
-    # Get Income and Expense account balances
+    # Get Income and Expense account balances. "Income" and "Expense" are
+    # Account.root_type values, not Account.account_type values -- of the
+    # three literals this used to filter on, only "Cost of Goods Sold" is an
+    # actual account_type option (see #789), so this scan used to see COGS
+    # accounts only and silently miss every Income and Expense account.
+    # root_type covers all three: COGS accounts have root_type "Expense".
     p_and_l_accounts = frappe.db.sql(
         """
         SELECT
             acc.name,
             acc.account_name,
             acc.account_type,
+            acc.root_type,
             COALESCE(SUM(gle.debit - gle.credit), 0) as balance
         FROM `tabAccount` acc
         LEFT JOIN `tabGL Entry` gle ON gle.account = acc.name
             AND gle.company = %s
             AND gle.is_cancelled = 0
         WHERE acc.company = %s
-        AND acc.account_type IN ('Income', 'Expense', 'Cost of Goods Sold')
+        AND acc.root_type IN ('Income', 'Expense')
         AND acc.is_group = 0
         GROUP BY acc.name
         HAVING ABS(balance) > 0.01
-        ORDER BY acc.account_type, acc.name
+        ORDER BY acc.root_type, acc.name
     """,
         (company, company),
         as_dict=True,
@@ -122,12 +135,12 @@ def check_p_and_l_impact():
 
     for acc in p_and_l_accounts:
         balance = acc.balance
-        if acc.account_type == "Income":
+        if acc.root_type == "Income":
             total_income += balance
         else:
             total_expense += balance
 
-        results.append(f"  {acc.name}: {balance:,.2f} ({acc.account_type})")
+        results.append(f"  {acc.name}: {balance:,.2f} ({acc.root_type})")
 
     net_profit_loss = total_income - total_expense
     results.append(f"\nNet Profit/Loss: {net_profit_loss:,.2f}")
