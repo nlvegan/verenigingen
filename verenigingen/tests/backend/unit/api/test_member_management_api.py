@@ -36,8 +36,18 @@ class TestMemberManagementAPI(VereningingenUnitTestCase):
 
     def tearDown(self):
         """Clean up after each test"""
-        self.builder.cleanup()
+        # super().tearDown() FIRST, THEN builder.cleanup(commit=True): the base
+        # teardown's `_rollback_once_before_draining` (tests/utils/base.py) must
+        # discard this test's other uncommitted rows before the commit below runs,
+        # or the commit makes ALL of them durable too -- not just the builder's
+        # registered deletes. Measured: calling cleanup(commit=True) BEFORE
+        # super().tearDown() leaked untracked Chapter/Membership Dues Schedule/User
+        # rows created earlier in the test, because the rollback that would have
+        # discarded them never got the chance. This order matches how
+        # `_cleanup_document_with_retry` already does it: rollback first, delete
+        # and commit after (#489).
         super().tearDown()
+        self.builder.cleanup(commit=True)
 
     def test_assign_member_to_chapter(self):
         """Test assigning member to a chapter"""

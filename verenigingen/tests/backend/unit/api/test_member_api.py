@@ -41,9 +41,15 @@ class TestMemberWhitelistMethods(VereningingenTestCase):
     
     def tearDown(self):
         """Clean up test data including builder cleanup"""
-        if hasattr(self, 'builder'):
-            self.builder.cleanup()
+        # super().tearDown() FIRST, THEN builder.cleanup(commit=True): see the
+        # identical note in test_member_management_api.py -- the base teardown's
+        # `_rollback_once_before_draining` must discard this test's other
+        # uncommitted rows before the commit below runs, or the commit makes ALL
+        # of them durable too. Measured leak when this ran the other way round:
+        # untracked Chapter/Membership Dues Schedule/User rows (#489).
         super().tearDown()
+        if hasattr(self, 'builder'):
+            self.builder.cleanup(commit=True)
 
     # tearDown handled automatically by VereningingenTestCase
 

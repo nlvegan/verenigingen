@@ -50,8 +50,23 @@ class TestVolunteerWhitelistMethods(VereningingenUnitTestCase):
     def tearDown(self):
         """Clean up after each test"""
         frappe.flags.run_events_synchronously = self._prev_run_events_sync
-        self.builder.cleanup()
+        # super().tearDown() FIRST, THEN builder.cleanup(commit=True). Two reasons,
+        # both measured:
+        #  1. Calling cleanup(commit=True) BEFORE super().tearDown() commits every
+        #     OTHER uncommitted row already pending in the connection too -- not
+        #     just the builder's registered deletes -- because the base teardown's
+        #     `_rollback_once_before_draining` never gets the chance to discard
+        #     them first. That leaked untracked Chapter/Membership Dues
+        #     Schedule/User rows in the sibling controller tests (#489).
+        #  2. This class ALSO `track_doc`s a "Volunteer Activity" that depends on
+        #     the builder-registered Volunteer. That tracked-doc drain runs INSIDE
+        #     `super().tearDown()`, so calling it first means the Activity is
+        #     cleaned up while the Volunteer still exists; only afterward does
+        #     builder.cleanup(commit=True) remove the Volunteer. The reverse order
+        #     used to fail the Activity's own cleanup with "Volunteer ... not
+        #     found" once the Volunteer's delete became durable.
         super().tearDown()
+        self.builder.cleanup(commit=True)
 
     def test_validate_member_link_method(self):
         """Test validation of member linkage"""

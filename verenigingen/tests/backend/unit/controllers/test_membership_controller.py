@@ -156,8 +156,13 @@ class TestMembershipController(EnhancedTestCase):
 
     def tearDown(self):
         """Clean up after each test"""
-        self.builder.cleanup()
+        # super().tearDown() FIRST, THEN builder.cleanup(commit=True): the base
+        # teardown's `_rollback_once_before_draining` must discard this test's
+        # other uncommitted rows before the commit below runs, or the commit makes
+        # ALL of them durable too -- not just the builder's registered deletes
+        # (#489).
         super().tearDown()
+        self.builder.cleanup(commit=True)
 
     def test_validate_dates_method(self):
         """Test the validate_dates method"""

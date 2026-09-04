@@ -37,8 +37,15 @@ class TestMemberController(VereningingenUnitTestCase):
 
     def tearDown(self):
         """Clean up after each test"""
+        # super().tearDown() FIRST, THEN builder.cleanup(commit=True): the base
+        # teardown's `_rollback_once_before_draining` must discard this test's
+        # other uncommitted rows before the commit below runs, or the commit makes
+        # ALL of them durable too -- not just the builder's registered deletes.
+        # Measured: the other order leaked untracked Chapter/Membership Dues
+        # Schedule/User rows (#489).
+        super().tearDown()
         try:
-            self.builder.cleanup()
+            self.builder.cleanup(commit=True)
         except Exception as e:
             # get_harness_logger, NOT frappe.logger(): the latter reaches no log CI
             # surfaces, so this message did not exist where it was needed -- and
@@ -47,7 +54,6 @@ class TestMemberController(VereningingenUnitTestCase):
             get_harness_logger("member-controller").error(
                 "Cleanup error in %s: %s", self._testMethodName, e
             )
-        super().tearDown()
 
     def _get_test_membership_type(self):
         """Helper to get or create a test membership type"""

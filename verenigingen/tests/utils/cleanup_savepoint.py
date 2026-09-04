@@ -80,8 +80,12 @@ def release_cleanup_savepoint(savepoint):
 
     Without this, a cleanup of N documents leaves N savepoints standing in the
     transaction. `_cleanup_document_with_retry` gets away without releasing because it
-    commits after every successful delete; the callers here deliberately do not commit
-    (#489), so the savepoints would accumulate for the whole teardown.
+    commits after every successful delete; the callers here release explicitly
+    instead, because each PER-ITEM attempt never commits on its own -- `cleanup()`
+    now optionally commits ONCE, after the whole loop, when called as
+    `cleanup(commit=True)` (#489), but that is one commit for every item, not one
+    per item, so the savepoints would still accumulate for the whole loop without
+    this release.
 
     Correct bookkeeping rather than a fix for anything observable: 5000 unreleased
     savepoints were measured at 0.60s to create and cost nothing measurable on the next
