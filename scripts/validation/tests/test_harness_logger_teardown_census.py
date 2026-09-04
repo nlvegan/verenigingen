@@ -48,7 +48,13 @@ BASELINE = Path(__file__).resolve().parents[1] / "harness_logger_teardown_baseli
 # `>= ERROR` gate rationale before touching it, because the gate loses
 # everything below ERROR that class teardown emits.
 MRO_CALLS, MRO_ERRORS, MRO_TEARDOWNS = 20, 3, 11
-NAME_CALLS, NAME_ERRORS = 35, 7
+# 35, 7 -> 36, 8 (#392): this branch replaced a silent `except Exception: pass`
+# in test_rest_migration_payments.py's tearDown with a get_harness_logger
+# `.error()` call, so name-mode gains one site and it is an ERROR one. The
+# `>= ERROR` gate therefore still covers every route it claims to -- re-measured,
+# not incremented: census("name") returns 36 sites / 8 error, census("mro") is
+# unchanged at 20 / 3 / 11, so RESIDUAL_BELOW_ERROR (20-3) stays 17.
+NAME_CALLS, NAME_ERRORS = 36, 8
 RESIDUAL_BELOW_ERROR = 17  # unchanged: the new call moved warning->error, not added a new below-ERROR site
 
 

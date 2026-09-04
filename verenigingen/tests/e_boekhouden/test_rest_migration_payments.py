@@ -26,6 +26,9 @@ Run with:
         --module verenigingen.tests.e_boekhouden.test_rest_migration_payments
 """
 
+import unittest
+from unittest import mock
+
 import frappe
 from frappe.utils import flt, today
 
@@ -34,7 +37,12 @@ from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
     _create_payment_entry,
     _resolve_account_mapping,
 )
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import (
+    EnhancedTestCase,
+    shared_fixture,
+    suspend_insert_capture,
+)
+from verenigingen.tests.harness_logger import get_harness_logger
 
 COMPANY_NAME = "TEST-EB-Payment-Company"
 COMPANY_ABBR = "TEBPC"
@@ -50,8 +58,22 @@ def _non_group(doctype):
     return frappe.db.get_value(doctype, {"is_group": 0}, "name")
 
 
+@shared_fixture
 def _ensure_payment_company():
-    """Create (once) a dedicated EUR/Netherlands company with full account tree."""
+    """Create (once) a dedicated EUR/Netherlands company with full account tree.
+
+    ``TEST-EB-Payment-Company`` is site-owned master data shared by every test
+    in this module, not a throwaway row belonging to whichever test calls
+    first. It survived only by accident before this decorator: the
+    captured-insert drain is installed in ``EnhancedTestCase.setUp``, not
+    ``setUpClass``, and every caller here happens to run from
+    ``_PaymentTestBase.setUpClass()``. That is a harness implementation
+    detail, not a declared contract -- #392 found the same company built a
+    second time, unprotected, in ``test_e_boekhouden_migration_integration.py``
+    (fixed there under ``@shared_fixture`` by #387), and #386/#387 already
+    measured what happens when the drain claims a company's whole chart of
+    accounts: every later class needing it dies in ``setUpClass``.
+    """
     if frappe.db.exists("Company", COMPANY_NAME):
         return COMPANY_NAME
     company = frappe.new_doc("Company")
@@ -210,36 +232,46 @@ class _PaymentTestBase(EnhancedTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.company = _ensure_payment_company()
-        _ensure_current_fiscal_year()
-        cls.cost_center = _ensure_cost_center(cls.company)
+        # Everything below is site-owned master data shared by every test in this
+        # module (the company, its chart of accounts, cost center, ledger mappings,
+        # bank account and the two parties) -- not a throwaway row belonging to
+        # whichever test happens to run first. It survived the captured-insert
+        # drain only because that hook is installed in EnhancedTestCase.setUp, not
+        # setUpClass; suspending capture here makes that a declared contract
+        # instead of an accident of call order (#392).
+        with suspend_insert_capture():
+            cls.company = _ensure_payment_company()
+            _ensure_current_fiscal_year()
+            cls.cost_center = _ensure_cost_center(cls.company)
 
-        # GL accounts under the auto-created roots
-        cls.bank = _make_leaf_account(cls.company, "TEB Bank One", "Asset", "Bank")
-        cls.cash = _make_leaf_account(cls.company, "TEB Cash", "Asset", "Cash")
-        cls.income = _make_leaf_account(cls.company, "TEB Income", "Income", "Income Account")
-        cls.expense = _make_leaf_account(cls.company, "TEB Expense", "Expense", "Expense Account")
+            # GL accounts under the auto-created roots
+            cls.bank = _make_leaf_account(cls.company, "TEB Bank One", "Asset", "Bank")
+            cls.cash = _make_leaf_account(cls.company, "TEB Cash", "Asset", "Cash")
+            cls.income = _make_leaf_account(cls.company, "TEB Income", "Income", "Income Account")
+            cls.expense = _make_leaf_account(cls.company, "TEB Expense", "Expense", "Expense Account")
 
-        # Company defaults (receivable/payable) for the Payment Entry path
-        cls.receivable = _make_leaf_account(
-            cls.company, "TEB Receivable", "Asset", "Receivable"
-        )
-        cls.payable = _make_leaf_account(cls.company, "TEB Payable", "Liability", "Payable")
-        frappe.db.set_value("Company", cls.company, "default_receivable_account", cls.receivable)
-        frappe.db.set_value("Company", cls.company, "default_payable_account", cls.payable)
+            # Company defaults (receivable/payable) for the Payment Entry path
+            cls.receivable = _make_leaf_account(
+                cls.company, "TEB Receivable", "Asset", "Receivable"
+            )
+            cls.payable = _make_leaf_account(cls.company, "TEB Payable", "Liability", "Payable")
+            frappe.db.set_value(
+                "Company", cls.company, "default_receivable_account", cls.receivable
+            )
+            frappe.db.set_value("Company", cls.company, "default_payable_account", cls.payable)
 
-        # Ledger mappings (ledger_id == ledger_code)
-        _persist_ledger_mapping(BANK_LEDGER, cls.bank)
-        _persist_ledger_mapping(INCOME_LEDGER, cls.income)
-        _persist_ledger_mapping(EXPENSE_LEDGER, cls.expense)
+            # Ledger mappings (ledger_id == ledger_code)
+            _persist_ledger_mapping(BANK_LEDGER, cls.bank)
+            _persist_ledger_mapping(INCOME_LEDGER, cls.income)
+            _persist_ledger_mapping(EXPENSE_LEDGER, cls.expense)
 
-        # Bank Account DocType for JE money-transfer reconciliation
-        _make_bank_account_doctype(cls.company, cls.bank, "TEB Bank One Acct")
+            # Bank Account DocType for JE money-transfer reconciliation
+            _make_bank_account_doctype(cls.company, cls.bank, "TEB Bank One Acct")
 
-        # Parties resolvable purely from DB by relation code
-        cls.customer = _persist_customer("TEB Customer", relation_id="REL-CUST-1")
-        cls.supplier = _persist_supplier("TEB Supplier", relation_id="REL-SUPP-1")
-        frappe.db.commit()
+            # Parties resolvable purely from DB by relation code
+            cls.customer = _persist_customer("TEB Customer", relation_id="REL-CUST-1")
+            cls.supplier = _persist_supplier("TEB Supplier", relation_id="REL-SUPP-1")
+            frappe.db.commit()
 
     _id_counter = 0
 
@@ -478,3 +510,104 @@ class TestMoneyTransferJournalEntry(_PaymentTestBase):
         income_lines = [a for a in saved.accounts if a.account == self.income]
         self.assertEqual(len(income_lines), 1)
         self.assertEqual(flt(income_lines[0].credit_in_account_currency, 2), 45.0)
+
+
+def _create_probe_company(module_name, temp_name, temp_abbr):
+    """Build a throwaway company through the real ``_ensure_payment_company()``
+    and commit it. Named ``_create_*`` -- a privileged fixture-building helper,
+    like this file's other ``_ensure_``/``_make_``/``_persist_`` builders --
+    rather than inlined in the test body, for two reasons:
+
+    1. The commit is load-bearing, not incidental: without it, the drain's own
+       pre-delete ``frappe.db.rollback()`` would destroy this uncommitted row
+       before the delete loop ever runs, passing the test for the wrong reason
+       (any uncommitted fixture vanishes on rollback, protected or not -- that
+       proves nothing about the captured-insert drain this test is about).
+    2. ``scripts/testing/scan_order_dependence.py``'s order-dependence scanner
+       exempts ``_cleanup_*``/``_create_*``/``tearDown`` helpers from its COMMIT
+       check on the same reasoning it exempts every other privileged fixture
+       helper in this codebase -- a bare ``frappe.db.commit()`` inline in a
+       ``test_*`` method is what the ratchet is watching for, not one inside a
+       named, reviewed fixture builder.
+    """
+    with mock.patch(f"{module_name}.COMPANY_NAME", temp_name), mock.patch(
+        f"{module_name}.COMPANY_ABBR", temp_abbr
+    ):
+        _ensure_payment_company()
+    frappe.db.commit()
+
+
+class TestEbPaymentCompanySurvivesCapture(unittest.TestCase):
+    """#392: ``_ensure_payment_company`` is protected from the captured-insert
+    drain only by accident -- it happens to be called from
+    ``_PaymentTestBase.setUpClass()``, and the drain's insert-capture hook is
+    installed in ``EnhancedTestCase.setUp``, not ``setUpClass``
+    (``enhanced_test_factory.py``'s ``_install_insert_capture``). That is a
+    harness implementation detail, not a declared contract: #386/#387 already
+    showed the same unprotected-builder shape losing a sibling company's whole
+    chart of accounts the moment something forced it through the drain.
+
+    This proves the claim empirically instead of trusting call-site ordering:
+    install the REAL capture hook, call the REAL builder against a throwaway
+    company name, run the REAL drain, and check whether the company survives.
+    """
+
+    def setUp(self):
+        suffix = frappe.generate_hash(length=6)
+        self.temp_company_name = f"TEST-EB-Payment-Shared-Probe-{suffix}"
+        self.temp_company_abbr = f"TPP{suffix[:5]}"
+
+    def tearDown(self):
+        # Committed, not just deleted: this class is plain unittest.TestCase (no
+        # framework rollback of its own), but sibling classes in this module ARE
+        # EnhancedTestCase and roll back per test. Measured: an uncommitted delete
+        # here is undone whole by the next such rollback -- the Company, its 96
+        # Accounts, 2 Cost Centers and 5 Warehouses all reappeared in a probe run
+        # against test_site_2 -- reproducing exactly the leak this test exists to
+        # prevent, just one call later and silently.
+        #
+        # A failed delete must be visible, not swallowed: frappe.logger() writes
+        # to a file CI never surfaces (see CLAUDE.md's "known traps"), so use the
+        # harness logger, which reaches stderr and the CI job log.
+        try:
+            if frappe.db.exists("Company", self.temp_company_name):
+                frappe.delete_doc(
+                    "Company", self.temp_company_name, force=True, ignore_permissions=True
+                )
+                frappe.db.commit()
+        except Exception as e:
+            get_harness_logger("test_rest_migration_payments").error(
+                f"tearDown could not delete probe company {self.temp_company_name}: {e}"
+            )
+
+    def test_ensure_payment_company_survives_capture(self):
+        module_name = "verenigingen.tests.e_boekhouden.test_rest_migration_payments"
+
+        class _Probe(EnhancedTestCase):
+            # Function-local, so unittest's TestCase-subclass discovery can never
+            # collect it regardless of test_* methods (see
+            # test_harness_leak_attribution.py's _DrainProbe for the same trick).
+            pass
+
+        probe = _Probe("runTest")
+        probe._captured_inserts = []
+        probe._install_insert_capture()
+        try:
+            _create_probe_company(module_name, self.temp_company_name, self.temp_company_abbr)
+        finally:
+            probe._uninstall_insert_capture()
+
+        self.assertTrue(
+            frappe.db.exists("Company", self.temp_company_name),
+            "sanity check: the builder must actually have created the company",
+        )
+
+        probe._drain_captured_inserts()
+
+        self.assertTrue(
+            frappe.db.exists("Company", self.temp_company_name),
+            "_ensure_payment_company must be @shared_fixture (or build under "
+            "suspend_insert_capture()), or the captured-insert drain claims the "
+            "company the moment this helper is ever called from outside "
+            "setUpClass (#392)",
+        )
