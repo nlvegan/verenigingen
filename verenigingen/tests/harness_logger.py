@@ -179,8 +179,14 @@ class _StderrHandler(logging.StreamHandler):
     resolved to its class and bound through the MRO. That exception is not cosmetic:
     ``tearDown`` has ~500 defs in this repo (``cleanup`` 7, ``restore`` 4 -- exact
     counts are printed by ``--report``, so this sentence cannot silently rot), so resolving
-    ``cls._test_instance.tearDown()`` by name alone links to every one of them, and the walk returns
-    36 calls at 8 ERRORs instead of 20 at 3. Receiver resolution is what excludes those,
+    ``cls._test_instance.tearDown()`` by name alone links to every one of them, so the
+    name-mode walk returns substantially more calls, at more ERRORs, than the 20 at 3 that
+    MRO resolution finds. The exact pair is deliberately NOT repeated here: it is pinned as
+    ``NAME_CALLS, NAME_ERRORS`` in ``scripts/validation/tests/test_harness_logger_teardown_census.py``,
+    which re-measures it and fails when it drifts. This sentence used to carry the numbers and
+    silently rotted anyway -- it still read "35 calls at 7 ERRORs" after the census had moved to
+    36/8 and then to 37/9 -- which is exactly the rot the parenthesis above claims cannot happen.
+    Receiver resolution is what excludes those,
     and it is also the only thing that keeps the phantom ``factories.py:260`` out of the
     set -- six teardowns call ``cls.factory.cleanup()``, but that receiver is
     ``CoreTestDataFactory``, whose ``cleanup`` uses ``print()``.
