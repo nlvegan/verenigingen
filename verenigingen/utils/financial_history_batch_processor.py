@@ -401,6 +401,206 @@ def schedule_financial_history_processing():
         frappe.log_error(f"Scheduled financial history processing failed: {e}")
 
 
+def validate_donor_history_integrity(donor_names=None):
+    """
+    Scheduled integrity sweep for ``donor_history`` (#425).
+
+    Before this, ``donor_history`` was one of two history tables (the other is
+    ``fee_change_history``) with NO periodic safety net at all. Its writers
+    (Donation's ``after_insert``/``on_update`` hooks) ride whatever transaction
+    is open, same as ``payment_history`` and ``volunteer_expenses`` -- but
+    unlike those two, nothing ever re-checked it, so a write lost to a rolled
+    back transaction (an unhandled exception, or any GET request, per
+    ``frappe/app.py``) stayed lost forever.
+
+    Calls the existing, already-tested ``DonationHistoryManager.sync_donation_history()``
+    (``donation_history_manager.py``) per donor, which rebuilds that donor's
+    ENTIRE ``donor_history`` child table from ``Donation`` records -- the
+    source of truth -- and commits per donor here, the same scope
+    ``sync_all_donor_histories()`` already commits at and for the same reason
+    (a lock per donor row, not a durability boundary of its own). This calls
+    the manager directly rather than going through that whitelisted endpoint
+    so an optional ``donor_names`` can scope the run -- used by tests to
+    avoid rewriting every donor on a shared site, and available for chunking
+    a production run later. The scheduled entry point always omits it and
+    sweeps every donor.
+
+    Because the rebuild is total (not a diff against a prior snapshot), one
+    pass catches BOTH a missing entry (lost write) and a stale/orphaned entry
+    (the donation was later deleted) -- unlike the payment/expense validators,
+    which each detect only one direction of drift. Known tradeoff, not fixed
+    here: because the rebuild is unconditional, it deletes and re-inserts
+    every child row (and Donor has ``track_changes=1``) even when nothing was
+    wrong, so a donor with real history accumulates a new Version every week.
+    A follow-up to make the underlying sync a no-op when nothing changed is
+    warranted but out of scope here.
+    """
+    from verenigingen.utils.donation_history_manager import DonationHistoryManager
+
+    donors = donor_names if donor_names is not None else frappe.get_all("Donor", pluck="name")
+
+    resynced = 0
+    errors = 0
+
+    for donor_name in donors:
+        try:
+            result = DonationHistoryManager.sync_donation_history(donor_name)
+            if result.get("success"):
+                frappe.db.commit()
+                resynced += 1
+            else:
+                frappe.db.rollback()
+                errors += 1
+                frappe.logger("financial_batch").error(
+                    f"Donor history sync reported failure for {donor_name}: {result.get('error')}"
+                )
+        except Exception as e:
+            frappe.db.rollback()
+            errors += 1
+            frappe.log_error(
+                title="Donor History Integrity Sweep Error",
+                message=f"Failed to resync donor history for {donor_name}: {e}",
+            )
+
+    frappe.logger("financial_batch").info(
+        f"Donor history integrity sweep: {resynced} resynced, {errors} errors, {len(donors)} total"
+    )
+    return {"total": len(donors), "resynced": resynced, "errors": errors}
+
+
+def validate_fee_change_history_integrity(member_names=None):
+    """
+    Scheduled integrity sweep for ``fee_change_history`` (#425).
+
+    Fee changes are recorded from several call sites (dues schedule creation,
+    cancellation, resumption, and amendment approval), so unlike
+    ``payment_history``/``volunteer_expenses``/``donor_history`` there is no
+    single doctype whose rows map 1:1 to a fee change. This sweep finds two
+    kinds of gap directly in SQL -- a ``Membership Dues Schedule`` with no
+    matching ``Member Fee Change History`` row, and an ``Applied``
+    ``Contribution Amendment Request`` with no matching row (the latter
+    catches members whose ONLY fee-change record is an amendment, with no
+    dues schedule of their own to key a sweep off) -- and repairs each by
+    calling the "new entry" builders directly.
+
+    Deliberately does NOT call ``MemberHistoryUpdateService.refresh_fee_change_history()``,
+    which looked like the obvious reuse (it already reconstructs this same
+    picture): its reconciliation path for an EXISTING entry
+    (``_process_fee_schedule``'s ``needs_update`` check) compares
+    ``existing_entry.reason`` against ``f"Dues schedule: {schedule_name}"`` --
+    a string the live writer (``FeeChangeTrackingService``, which writes
+    ``f"New schedule - {...}"`` or a custom reason) never actually produces.
+    Every pre-existing row therefore looks "stale" and gets overwritten --
+    change_date, change_type, reason and changed_by -- silently, on every run.
+    Measured on veg11: 560 of 565 rows have ``change_type='New Schedule'``,
+    and 476 carry ``reason='MijnRood CSV import'`` -- import provenance a
+    single scheduled run of that path would erase. This sweep instead calls
+    ``MemberHistoryUpdateService._process_fee_schedule``/``_process_fee_amendments``
+    (the same two @staticmethod builders ``refresh_fee_change_history`` uses)
+    but ONLY for rows already confirmed missing by the SQL above, passing an
+    empty existing-entries map so the "already have one, check if it needs
+    updating" branch is structurally unreachable from here. It never rewrites
+    a row that already exists.
+    """
+    from verenigingen.services.member.history.member_history_update_service import (
+        MemberHistoryUpdateService,
+    )
+    from verenigingen.utils.history_manager_utils import safe_child_table_update
+
+    missing_schedules = frappe.db.sql(
+        """
+        SELECT mds.name AS name, mds.member AS member, mds.schedule_name AS schedule_name,
+               mds.dues_rate AS dues_rate, mds.billing_frequency AS billing_frequency,
+               mds.creation AS creation
+        FROM `tabMembership Dues Schedule` mds
+        LEFT JOIN `tabMember Fee Change History` mfch
+            ON mfch.dues_schedule = mds.name
+        WHERE mds.is_template = 0
+          AND mds.member IS NOT NULL AND mds.member != ''
+          AND mfch.name IS NULL
+        """,
+        as_dict=True,
+    )
+
+    missing_amendments = frappe.db.sql(
+        """
+        SELECT car.name AS name, car.member AS member, car.requested_amount AS requested_amount,
+               car.current_amount AS current_amount, car.reason AS reason,
+               car.applied_date AS applied_date, car.effective_date AS effective_date,
+               car.applied_by AS applied_by
+        FROM `tabContribution Amendment Request` car
+        LEFT JOIN `tabMember Fee Change History` mfch
+            ON mfch.amendment_request = car.name
+        WHERE car.status = 'Applied'
+          AND car.member IS NOT NULL AND car.member != ''
+          AND mfch.name IS NULL
+        """,
+        as_dict=True,
+    )
+
+    by_member = defaultdict(lambda: {"schedules": [], "amendments": []})
+    for row in missing_schedules:
+        if member_names is None or row.member in member_names:
+            by_member[row.member]["schedules"].append(row)
+    for row in missing_amendments:
+        if member_names is None or row.member in member_names:
+            by_member[row.member]["amendments"].append(row)
+
+    repaired = 0
+    errors = 0
+    skipped = 0
+
+    for member_name, gaps in by_member.items():
+        if not frappe.db.exists("Member", member_name):
+            # The member was deleted after the schedule/amendment that named
+            # it -- the same expected race _process_member_payment_batch
+            # already tolerates for the batch queues. Not a failure.
+            skipped += 1
+            continue
+
+        try:
+            member_doc = frappe.get_doc("Member", member_name)
+            for row in gaps["schedules"]:
+                MemberHistoryUpdateService._process_fee_schedule(member_doc, row, None)
+            if gaps["amendments"]:
+                MemberHistoryUpdateService._process_fee_amendments(member_doc, gaps["amendments"], {})
+
+            result = safe_child_table_update(
+                member_doc,
+                "fee_change_history",
+                justification="Fee change history integrity sweep (#425): repair missing entries",
+                doctype_permission="Member:write",
+                auto_cleanup=True,
+            )
+            if result.success:
+                frappe.db.commit()
+                repaired += 1
+            else:
+                frappe.db.rollback()
+                errors += 1
+                frappe.logger("financial_batch").error(
+                    f"Fee change history repair failed for {member_name}: {result.errors}"
+                )
+        except Exception as e:
+            frappe.db.rollback()
+            errors += 1
+            frappe.log_error(
+                title="Fee Change History Integrity Sweep Error",
+                message=f"Failed to repair fee change history for {member_name}: {e}",
+            )
+
+    frappe.logger("financial_batch").info(
+        f"Fee change history integrity sweep: {repaired} members repaired, {errors} errors, "
+        f"{skipped} skipped (member deleted), {len(by_member)} members with gaps"
+    )
+    return {
+        "members_with_gaps": len(by_member),
+        "repaired": repaired,
+        "errors": errors,
+        "skipped": skipped,
+    }
+
+
 # Convenience functions for immediate use
 def queue_payment_update(member_name: str, invoice_name: str):
     """Queue a payment history add/update operation."""
