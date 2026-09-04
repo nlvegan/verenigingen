@@ -1,3 +1,4 @@
+import re
 import unittest
 
 import frappe
@@ -1480,6 +1481,106 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         if member.customer:
             frappe.delete_doc("Customer", member.customer, force=True)
         frappe.delete_doc("Member", member.name, force=True)
+
+    def test_ticked_volunteer_interest_areas_reach_the_volunteer_record(self):
+        """A ticked area of interest on the public form must reach the created
+        Volunteer's `interests` child table, not just flip
+        Member.interested_in_volunteering.
+
+        #410: the JS collector read `#volunteer-interests`, an id the page
+        never renders (the real checkboxes are `name="volunteer_areas[]"`
+        with short-code values), so the browser always sent `[]`; and
+        `submit_application`/`create_volunteer_record` never read the
+        `volunteer_interests` key regardless of what was sent. This pins the
+        server-side half of that contract end to end: the wire values below
+        are exactly what the page's checkboxes send, not the category names
+        other fixtures in this file use.
+        """
+        volunteer_data = self.application_data.copy()
+        volunteer_data["interested_in_volunteering"] = 1
+        volunteer_data["volunteer_interests"] = ["fundraising", "outreach"]
+        volunteer_data["email"] = f"interestarea_{self.test_email}"
+
+        result = submit_application(**volunteer_data)
+        self.assertTrue(result["success"])
+        member_name = result["data"]["member_record"]
+
+        volunteer_name = frappe.db.get_value("Volunteer", {"member": member_name}, "name")
+        self.assertTrue(volunteer_name, "Volunteer record should be created for a volunteering applicant")
+
+        volunteer = frappe.get_doc("Volunteer", volunteer_name)
+        stored_areas = {row.interest_area for row in volunteer.interests}
+        self.assertEqual(stored_areas, {"Fundraising", "Community Outreach"})
+
+        self._cleanup_member_completely(member_name)
+
+    def test_a_bare_string_volunteer_interest_is_not_split_into_characters(self):
+        """submit_application's flat-kwargs shape means a single ticked
+        checkbox can arrive as a plain string, not a one-item list, exactly
+        like the pre-existing `volunteer_skills` string fixture elsewhere in
+        this file. Iterating a string yields its characters, so this pins
+        that the value is treated as one interest, not N single-letter ones.
+        """
+        volunteer_data = self.application_data.copy()
+        volunteer_data["interested_in_volunteering"] = 1
+        volunteer_data["volunteer_interests"] = "fundraising"
+        volunteer_data["email"] = f"stringinterest_{self.test_email}"
+
+        result = submit_application(**volunteer_data)
+        self.assertTrue(result["success"])
+        member_name = result["data"]["member_record"]
+
+        volunteer_name = frappe.db.get_value("Volunteer", {"member": member_name}, "name")
+        volunteer = frappe.get_doc("Volunteer", volunteer_name)
+        stored_areas = {row.interest_area for row in volunteer.interests}
+        self.assertEqual(stored_areas, {"Fundraising"})
+
+        self._cleanup_member_completely(member_name)
+
+    def test_an_unrecognised_volunteer_interest_creates_no_category(self):
+        """`volunteer_interests` is reachable from an unauthenticated public
+        endpoint. A value outside the four codes the page actually offers
+        must be dropped, not used to mint a new Volunteer Interest Category
+        from arbitrary guest input.
+        """
+        volunteer_data = self.application_data.copy()
+        volunteer_data["interested_in_volunteering"] = 1
+        volunteer_data["volunteer_interests"] = ["Totally Made Up Category", "fundraising"]
+        volunteer_data["email"] = f"unrecognisedinterest_{self.test_email}"
+
+        self.assertFalse(frappe.db.exists("Volunteer Interest Category", "Totally Made Up Category"))
+
+        result = submit_application(**volunteer_data)
+        self.assertTrue(result["success"])
+        member_name = result["data"]["member_record"]
+
+        volunteer_name = frappe.db.get_value("Volunteer", {"member": member_name}, "name")
+        volunteer = frappe.get_doc("Volunteer", volunteer_name)
+        stored_areas = {row.interest_area for row in volunteer.interests}
+        self.assertEqual(stored_areas, {"Fundraising"})
+        self.assertFalse(frappe.db.exists("Volunteer Interest Category", "Totally Made Up Category"))
+
+        self._cleanup_member_completely(member_name)
+
+    def test_volunteer_interest_area_map_matches_the_page_checkboxes(self):
+        """apply_for_membership.html's `volunteer_areas[]` checkboxes are the
+        only wire values the public form can ever send for this contract.
+        VOLUNTEER_INTEREST_AREA_MAP is a closed set by design (an
+        unrecognised value is silently dropped, not turned into a category)
+        -- so a checkbox added or renamed without updating the map would
+        silently stop reaching any Volunteer record, with no error anywhere.
+        """
+        from verenigingen.services.member.approval.application_helpers import (
+            VOLUNTEER_INTEREST_AREA_MAP,
+        )
+
+        template_path = frappe.get_app_path("verenigingen", "templates", "pages", "apply_for_membership.html")
+        with open(template_path) as f:
+            html = f.read()
+
+        rendered_values = set(re.findall(r'name="volunteer_areas\[\]" value="([^"]+)"', html))
+        self.assertTrue(rendered_values, "page rendered no volunteer_areas[] checkboxes to check")
+        self.assertEqual(rendered_values, set(VOLUNTEER_INTEREST_AREA_MAP))
 
     @unittest.skip("Custom amount billing integration needs separate investigation")
     def test_edge_case_zero_custom_amount(self):

@@ -652,6 +652,11 @@ def create_member_from_application(data, application_id, address=None):
     if volunteer_skills:
         member.volunteer_skills = volunteer_skills
 
+    # Store volunteer areas of interest as a temporary attribute for volunteer record creation
+    volunteer_interests = data.get("volunteer_interests", [])
+    if volunteer_interests:
+        member.volunteer_interests = volunteer_interests
+
     # Handle custom membership amount using fee override fields
     _apply_custom_contribution_fee(member, data, context_label="application")
 
@@ -754,6 +759,11 @@ def update_member_from_reapplication(member_name, data, application_id, address=
     if volunteer_skills:
         member.volunteer_skills = volunteer_skills
 
+    # Transfer volunteer areas of interest (consistency with new applications)
+    volunteer_interests = data.get("volunteer_interests", [])
+    if volunteer_interests:
+        member.volunteer_interests = volunteer_interests
+
     # Add chapter information to notes for approver visibility
     _append_chapter_notes(member, data.get("selected_chapter"), label="Selected Chapter (Reapplication)")
 
@@ -775,6 +785,79 @@ def update_member_from_reapplication(member_name, data, application_id, address=
         member.save()
 
     return member
+
+
+# Wire-level codes the public application form's `volunteer_areas[]`
+# checkboxes send (apply_for_membership.html). Each value is exactly the
+# checkbox's own (untranslated) label text, so the category a submission
+# lands in matches what the applicant read, independent of the runtime
+# translation the label itself goes through. This is a closed set on
+# purpose (see _resolve_volunteer_interest_category): a guest-supplied
+# string that isn't one of these four is never turned into a category.
+VOLUNTEER_INTEREST_AREA_MAP = {
+    "events": "Event Organization",
+    "communications": "Communications",
+    "fundraising": "Fundraising",
+    "outreach": "Community Outreach",
+}
+
+
+def _resolve_volunteer_interest_category(raw_value):
+    """Resolve a wire-level interest value to a Volunteer Interest Category name.
+
+    Only recognises the short codes in VOLUNTEER_INTEREST_AREA_MAP -- an
+    unrecognised value returns None rather than being used as a category
+    name verbatim, because this is reachable from an unauthenticated public
+    endpoint (submit_application) and passing raw guest input straight into
+    a get-or-create would let anyone mint arbitrary Volunteer Interest
+    Category records. The category is created if it does not exist yet:
+    the doctype is admin-configurable and ships with no fixtures, so a
+    fresh site has none.
+    """
+    category_name = VOLUNTEER_INTEREST_AREA_MAP.get(raw_value)
+    if not category_name:
+        return None
+    if not frappe.db.exists("Volunteer Interest Category", category_name):
+        frappe.get_doc({"doctype": "Volunteer Interest Category", "category_name": category_name}).insert(
+            ignore_if_duplicate=True
+        )
+    return category_name
+
+
+def _add_volunteer_interest_areas(volunteer, raw_interests):
+    """Append ticked areas of interest to a Volunteer's `interests` child table.
+
+    ``raw_interests`` is normally a list, but the public application
+    endpoint also accepts flat form-encoded kwargs, where a single ticked
+    value arrives as a bare string -- iterating a string yields its
+    characters, not the value, so that shape is decoded the same way
+    volunteer.py's skills handling already does for the same reason.
+
+    Saves the volunteer only if a row was actually added, so an applicant who
+    ticked no (recognised) areas leaves the just-created volunteer untouched.
+    """
+    if isinstance(raw_interests, str):
+        try:
+            raw_interests = json.loads(raw_interests)
+        except (json.JSONDecodeError, TypeError):
+            raw_interests = [raw_interests]
+
+    if not isinstance(raw_interests, (list, tuple, set)):
+        return
+
+    existing = {row.interest_area for row in volunteer.interests}
+    added = False
+    for raw_value in raw_interests:
+        if not raw_value:
+            continue
+        category_name = _resolve_volunteer_interest_category(raw_value)
+        if not category_name or category_name in existing:
+            continue
+        volunteer.append("interests", {"interest_area": category_name})
+        existing.add(category_name)
+        added = True
+    if added:
+        volunteer.save()
 
 
 def create_volunteer_record(member):
@@ -836,6 +919,7 @@ def create_volunteer_record(member):
 
         # Get volunteer skills from member if available
         volunteer_skills = getattr(member, "volunteer_skills", None)
+        volunteer_interests = getattr(member, "volunteer_interests", None)
 
         system_user = get_system_user_for_operation("volunteer_creation_during_application")
         with secure_user_context(system_user, f"Volunteer creation for member {member.name}"):
@@ -850,10 +934,27 @@ def create_volunteer_record(member):
                 volunteer_name = result.get("volunteer_name")
                 volunteer = frappe.get_doc("Volunteer", volunteer_name)
 
-                # Update member's volunteer_record field if it exists
+                # Update member's volunteer_record field if it exists. This runs
+                # BEFORE the interest-area append below so a failure there can
+                # never leave the Volunteer created but unlinked from the Member
+                # (the #267 scenario the comments elsewhere in this function
+                # guard against).
                 if hasattr(member, "volunteer_record"):
                     member.volunteer_record = volunteer_name
                     member.save()
+
+                if volunteer_interests:
+                    try:
+                        _add_volunteer_interest_areas(volunteer, volunteer_interests)
+                    except Exception as e:
+                        # Non-fatal: the volunteer already exists and is linked
+                        # to the member above, so a malformed interest value
+                        # (e.g. one that fails Frappe's name validation) must
+                        # not fail the whole application submission.
+                        frappe.log_error(
+                            title="Volunteer Interest Area Error",
+                            message=f"Failed to add interest areas for volunteer {volunteer_name}: {e}",
+                        )
 
                 frappe.logger().info(
                     f"Successfully created volunteer {volunteer_name} for member {member.name}"
