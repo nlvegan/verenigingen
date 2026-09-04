@@ -178,6 +178,22 @@ class TestCleanupManager:
     def __init__(self):
         self._cleanup_stack = []
         self._dependencies = {}
+        self._undo_stack = []
+
+    def register_undo(self, doctype, name, fieldname, row_name):
+        """Register one child-table ROW for removal -- not the parent document.
+
+        For a fixture this builder BORROWED (it already existed, so `register()`
+        was deliberately skipped -- see `with_chapter`/`with_team_assignment`,
+        #498), appending a child row and calling nothing to undo it leaves that
+        row on shared master data forever: it is not on `_cleanup_stack`, so
+        `cleanup()`'s delete loop never reaches it, and the borrowed parent
+        surviving `cleanup()` (correctly, #498) means the row survives with it,
+        across every test that later borrows the same fixture by name (#515).
+        """
+        self._undo_stack.append(
+            {"doctype": doctype, "name": name, "fieldname": fieldname, "row_name": row_name}
+        )
 
     def register(self, doctype, name, dependencies=None):
         """Register a document for cleanup with optional dependencies.
@@ -276,6 +292,21 @@ class TestCleanupManager:
         """
         errors = []
 
+        # Undo appended child rows on BORROWED parents first. These are not on
+        # `_cleanup_stack` -- the parent is deliberately not registered (#498) --
+        # so they cannot be reached by the delete loop below at all.
+        for item in self._undo_stack:
+            error = self._undo_child_row(item)
+            if error:
+                errors.append(error)
+                get_harness_logger("test-cleanup-manager").error(
+                    "Could not undo %s row on %s %s: %s",
+                    error["fieldname"],
+                    error["doctype"],
+                    error["name"],
+                    error["error"],
+                )
+
         # Sort by dependencies and timestamp
         sorted_stack = self._sort_by_dependencies()
 
@@ -354,6 +385,55 @@ class TestCleanupManager:
         release_cleanup_savepoint(savepoint)
         return None
 
+    @staticmethod
+    def _undo_child_row(item):
+        """Remove one child-table row this builder appended to a BORROWED parent.
+
+        Returns an error dict, or None on success (including "already gone" --
+        the parent, or the row on it, may have been removed by something else
+        already, e.g. `Member.on_trash` -> `MemberCleanupService`).
+
+        Savepointed like `_delete_registered_document`: `doc.save()` re-validates
+        the WHOLE parent (Chapter re-checks every roster row, board member, etc.),
+        so a save that fails partway must not leave the connection in a state
+        that poisons whatever runs next in the same transaction.
+
+        The existence check is INSIDE the try, same as the sibling method and
+        for the same reason (#483): it is a real query (`frappe.db.exists`) that
+        can raise a deadlock or a lost connection, and anything raised out of
+        this method skips the caller's `super().tearDown()` -- the drain, the
+        Error Log capture, the leak report, the mock restoration.
+        """
+        savepoint = f"testundo_{frappe.generate_hash(length=8)}"
+        savepoint_taken = False
+        try:
+            if not DocumentExistenceValidator.check_document_exists(item["doctype"], item["name"]):
+                return None
+            frappe.db.savepoint(savepoint)
+            savepoint_taken = True
+            doc = frappe.get_doc(item["doctype"], item["name"])
+            row = next(
+                (r for r in doc.get(item["fieldname"]) if r.name == item["row_name"]), None
+            )
+            if row is None:
+                # Already gone -- nothing to undo.
+                release_cleanup_savepoint(savepoint)
+                return None
+            doc.remove(row)
+            doc.save()
+        except Exception as e:
+            if savepoint_taken:
+                rollback_cleanup_attempt(savepoint, e)
+            return {
+                "doctype": item["doctype"],
+                "name": item["name"],
+                "fieldname": item["fieldname"],
+                "error": str(e),
+            }
+
+        release_cleanup_savepoint(savepoint)
+        return None
+
     def _sort_by_dependencies(self):
         """Sort cleanup stack considering dependencies"""
         # Simple topological sort
@@ -388,6 +468,7 @@ class TestCleanupManager:
         """Clear the cleanup stack"""
         self._cleanup_stack.clear()
         self._dependencies.clear()
+        self._undo_stack.clear()
 
 
 class TestDataBuilder:
@@ -438,6 +519,7 @@ class TestDataBuilder:
             # is borrowed on that path -- which is the only reason this has not already
             # taken the shared chapter out from under a shard (#330/#390).
             chapter = frappe.get_doc("Chapter", name)
+            self._data["chapter_borrowed"] = True
         else:
             chapter = frappe.get_doc(
                 {
@@ -449,6 +531,7 @@ class TestDataBuilder:
             )
             chapter.insert()
             self._cleanup_manager.register("Chapter", chapter.name)
+            self._data["chapter_borrowed"] = False
 
         self._data["chapter"] = chapter
 
@@ -488,11 +571,22 @@ class TestDataBuilder:
             chapter_name = self._data["chapter"].name
             try:
                 chapter = frappe.get_doc("Chapter", chapter_name)
-                chapter.append(
+                new_row = chapter.append(
                     "members",
                     {"member": member.name, "chapter_join_date": today(), "enabled": 1, "status": "Active"},
                 )
                 chapter.save()
+                if self._data.get("chapter_borrowed"):
+                    # The chapter itself is deliberately NOT registered for
+                    # deletion (#498) -- it belongs to whoever built it. But the
+                    # ROW this call just appended to it is this builder's own, and
+                    # nothing else will ever remove it: it is not on
+                    # `_cleanup_stack`, so the surviving borrowed chapter takes it
+                    # along forever, across every later test that borrows the
+                    # same fixture by name (#515). Undo the row, not the parent.
+                    self._cleanup_manager.register_undo(
+                        "Chapter", chapter_name, "members", new_row.name
+                    )
             except frappe.LinkValidationError as e:
                 # NOT swallowed any more. `chapter.save()` re-validates the WHOLE
                 # Chapter, so ONE persisted row whose link no longer resolves makes
@@ -644,7 +738,8 @@ class TestDataBuilder:
         if not team_name:
             team_name = f"Test Team {random_string(8)}"
 
-        if not DocumentExistenceValidator.check_document_exists("Team", team_name):
+        team_borrowed = DocumentExistenceValidator.check_document_exists("Team", team_name)
+        if not team_borrowed:
             team = frappe.get_doc(
                 {
                     "doctype": "Team",
@@ -658,6 +753,9 @@ class TestDataBuilder:
             team.insert()
             self._cleanup_manager.register("Team", team.name)
         else:
+            # BORROWED, so deliberately NOT registered -- same reasoning as
+            # `with_chapter` (#498). The `team_members` row appended below is
+            # this builder's own, though, and is undone separately (#515).
             team = frappe.get_doc("Team", team_name)
 
         # Get or create a team role
@@ -677,7 +775,7 @@ class TestDataBuilder:
                 self._cleanup_manager.register("Team Role", team_role)
 
         # Add volunteer to team
-        team.append(
+        new_row = team.append(
             "team_members",
             {
                 "volunteer": self._data["volunteer"].name,
@@ -689,6 +787,13 @@ class TestDataBuilder:
             },
         )
         team.save()
+
+        if team_borrowed:
+            # Undo the row this call appended, not the team itself -- deleting a
+            # borrowed team would repeat #498 one level down, and leaving the row
+            # would repeat the Chapter Member leak this same call fixes for
+            # `with_member` above (#515).
+            self._cleanup_manager.register_undo("Team", team.name, "team_members", new_row.name)
 
         if "teams" not in self._data:
             self._data["teams"] = []

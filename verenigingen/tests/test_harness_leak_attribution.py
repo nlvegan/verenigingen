@@ -1943,6 +1943,142 @@ class BuilderMustNotSilentlyDropTheChapterLinkageTest(
         self.assertIn(member.name, message, message)
 
 
+class BuilderMustUndoWhatItAppendsToABorrowedFixtureTest(
+    _BorrowedChapterFixture, unittest.TestCase
+):
+    """A row `with_member`/`with_team_assignment` appends to a BORROWED parent
+    must not survive `cleanup()` (#515).
+
+    #498 stopped the builder DELETING a chapter/team it only borrowed; #525
+    stopped it silently dropping the chapter linkage when the roster could not
+    be saved. Neither touched the actual mutation: `with_member` appends a
+    `Chapter Member` row to a possibly-borrowed chapter and saves it,
+    `with_team_assignment` does the same to a possibly-borrowed Team, and
+    neither call registered that CHILD ROW for cleanup or undid it. Because
+    #498 correctly made the borrowed parent survive `cleanup()`, its
+    accumulated child rows now survive with it -- forever, across every later
+    test that borrows the same fixture by name.
+
+    The discriminating claim is not "the row was appended" (never in doubt) --
+    it is "the row is gone after `cleanup()` completes AND the borrowed parent
+    still exists". A test that only checks the append proves nothing about the
+    leak; a test that does not also check the parent survives could be
+    satisfied by resurrecting #498 (deleting the whole borrowed document).
+    """
+
+    def test_a_row_appended_to_a_borrowed_chapter_does_not_survive_cleanup(self):
+        from verenigingen.tests.utils.factories import TestDataBuilder
+
+        name = self._seed_chapter(label="Roster Undo")
+
+        builder = TestDataBuilder()
+        builder.with_chapter(name=name, region=self._region())
+        builder.with_member()
+        member = builder._data["member"]
+        self.created.append(("Member", member.name))
+
+        self.assertTrue(
+            frappe.db.exists("Chapter Member", {"parent": name, "member": member.name}),
+            "precondition: the append must actually have landed on the chapter",
+        )
+
+        # Isolate the CHAPTER-SIDE undo from `Member.on_trash` -> `MemberCleanupService`,
+        # which force-deletes a member's OWN roster rows as an unrelated side
+        # effect of deleting the member -- and would mask this fix completely,
+        # since `with_member` always registers the member it created. Drop that
+        # registration so `cleanup()` below exercises only the undo-stack path
+        # this test is actually about; the member itself is still cleaned up by
+        # this fixture's own tearDown via `self.created`.
+        builder._cleanup_manager._cleanup_stack = [
+            item for item in builder._cleanup_manager._cleanup_stack if item["doctype"] != "Member"
+        ]
+
+        failures = builder.cleanup()
+        self.assertEqual([], failures, "precondition: cleanup itself must not fail")
+
+        self.assertTrue(
+            frappe.db.exists("Chapter", name),
+            "precondition: the BORROWED chapter itself must still survive (#498) "
+            "-- this test is about the child row, not the parent",
+        )
+        self.assertTrue(
+            frappe.db.exists("Member", member.name),
+            "precondition: the member must still exist -- its OWN on_trash cascade "
+            "must not be what removed the roster row below",
+        )
+        self.assertFalse(
+            frappe.db.exists("Chapter Member", {"parent": name, "member": member.name}),
+            "the builder appended a roster row to a chapter it only borrowed and "
+            "never undid it, so the row survives on shared master data forever "
+            "(#515)",
+        )
+
+    def test_a_row_appended_to_a_borrowed_team_does_not_survive_cleanup(self):
+        from verenigingen.tests.utils.factories import TestDataBuilder
+
+        team_name = f"Test Borrowed Team {self.suffix}"
+
+        # Not committed, unlike `_seed_chapter`'s deliberate commit: safe here
+        # because `assertTrue(exists("Team"))` below would catch a rollback
+        # putting the team back to "never existed" just as readily as it would
+        # catch one deleting it.
+        seed = TestDataBuilder()
+        seed.with_member().with_volunteer_profile().with_team_assignment(team_name=team_name)
+        self.created.append(("Team", team_name))
+        self.created.append(("Volunteer", seed._data["volunteer"].name))
+        self.created.append(("Member", seed._data["member"].name))
+
+        borrower = TestDataBuilder()
+        borrower.with_member().with_volunteer_profile().with_team_assignment(team_name=team_name)
+        volunteer = borrower._data["volunteer"]
+        member = borrower._data["member"]
+        self.created.append(("Volunteer", volunteer.name))
+        self.created.append(("Member", member.name))
+
+        self.assertTrue(
+            frappe.db.exists("Team Member", {"parent": team_name, "volunteer": volunteer.name}),
+            "precondition: the append must actually have landed on the team",
+        )
+
+        # Isolate the TEAM-SIDE undo the same way the chapter test isolates it
+        # from `Member.on_trash`: strip the Member/Volunteer this call created
+        # out of `borrower`'s own delete stack before calling `cleanup()`, so a
+        # hypothetical future `Volunteer.on_trash` roster cascade (the mirror
+        # of `MemberCleanupService`) could not make this test pass on the
+        # defect by deleting the row as a side effect of deleting the
+        # volunteer. Both are still cleaned up by this fixture's own tearDown
+        # via `self.created` above.
+        borrower._cleanup_manager._cleanup_stack = [
+            item
+            for item in borrower._cleanup_manager._cleanup_stack
+            if item["doctype"] not in ("Member", "Volunteer")
+        ]
+
+        failures = borrower.cleanup()
+        self.assertEqual([], failures, "precondition: cleanup itself must not fail")
+
+        self.assertTrue(
+            frappe.db.exists("Team", team_name),
+            "precondition: the BORROWED team itself must still survive -- this "
+            "test is about the child row, not the parent",
+        )
+        self.assertTrue(
+            frappe.db.exists("Volunteer", volunteer.name),
+            "precondition: the volunteer must still exist -- a roster cascade "
+            "from deleting it must not be what removed the row below",
+        )
+        self.assertTrue(
+            frappe.db.exists("Member", member.name),
+            "precondition: the member must still exist, for the same reason",
+        )
+        self.assertFalse(
+            frappe.db.exists("Team Member", {"parent": team_name, "volunteer": volunteer.name}),
+            "the builder appended a Team Member row to a team it only borrowed "
+            "and never undid it, so the row survives on shared master data "
+            "forever (#515)",
+        )
+
+
 class BuilderRegistersTheDoctypeItActuallyInsertedTest(
     _BorrowedChapterFixture, unittest.TestCase
 ):
