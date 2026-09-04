@@ -566,12 +566,18 @@ def end_board_positions_safe(member_name, end_date, reason):
     """
     End board positions safely by updating through parent Chapter document
     Child table records must be saved through their parent, not directly
+
+    Returns the number of board positions that actually persisted (#476): a
+    position is only counted once the Chapter document holding it has been
+    saved successfully, never at mark time. A chapter whose save fails
+    contributes nothing, and other chapters are unaffected -- each chapter
+    save is independent, not all-or-nothing.
     """
     try:
         # Get volunteer records for this member
         volunteer_records = frappe.get_all("Volunteer", filters={"member": member_name}, fields=["name"])
 
-        positions_ended = 0
+        positions_marked_by_chapter = {}  # chapter_name -> count of positions marked in it
         chapters_to_save = {}  # Track chapters that need saving
 
         for volunteer_record in volunteer_records:
@@ -602,7 +608,9 @@ def end_board_positions_safe(member_name, end_date, reason):
                             # Add reason to notes if field exists
                             append_to_text_field(board_member, "notes", f"Ended: {reason}")
 
-                            positions_ended += 1
+                            positions_marked_by_chapter[chapter_name] = (
+                                positions_marked_by_chapter.get(chapter_name, 0) + 1
+                            )
                             frappe.logger().info(
                                 f"Marked board position {position.chapter_role} at {chapter_name} for ending"
                             )
@@ -613,11 +621,15 @@ def end_board_positions_safe(member_name, end_date, reason):
                 except Exception as e:
                     frappe.logger().error(f"Failed to end board position {position.name}: {str(e)}")
 
-        # Save all modified chapters
+        # Save all modified chapters. Only count positions belonging to a chapter that
+        # actually persisted -- a position marked in memory but never saved must not be
+        # reported to the caller as ended (#476).
+        positions_ended = 0
         for chapter_name, chapter_doc in chapters_to_save.items():
             try:
                 chapter_doc.save()
                 frappe.logger().info(f"Saved Chapter {chapter_name} with ended board positions")
+                positions_ended += positions_marked_by_chapter.get(chapter_name, 0)
             except frappe.PermissionError as pe:
                 frappe.logger().error(f"Permission denied saving Chapter {chapter_name}: {str(pe)}")
             except NON_RESUMABLE_DB_ERRORS:
