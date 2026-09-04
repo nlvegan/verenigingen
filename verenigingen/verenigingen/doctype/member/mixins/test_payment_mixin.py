@@ -192,6 +192,26 @@ class TestGetInvoiceWithRetryDoesNotEndTheTransaction(EnhancedTestCase):
             member.reload()
         return member
 
+    def _create_committed_member_fixture(self):
+        """Create a Member with a linked Customer and COMMIT it immediately.
+
+        This is a fixture-builder, not test logic -- the same shape as
+        test_history_manager_row_lock.py's ``_committed()`` helper and this
+        file's own ``_create_and_commit_on_another_connection`` below. The
+        member/customer this returns are read by a GENUINELY SEPARATE DB
+        connection in
+        ``test_defers_to_batch_queue_without_locking_when_invoice_committed_elsewhere``
+        (a second thread with its own ``frappe.init``/``frappe.connect``), and
+        a second connection cannot see an uncommitted row under any isolation
+        level -- that is the property the test exists to exercise. So this
+        fixture must be durable to the database itself, not just to this
+        test's transaction; the commit here is that durability step, not an
+        incidental side effect of how the fixture happens to be built.
+        """
+        member = self._member_with_customer()
+        frappe.db.commit()
+        return member
+
     def tearDown(self):
         # The reentrancy guard flag is request/thread-local (frappe.flags),
         # but leaving it set True would make the NEXT test's first miss
@@ -250,18 +270,15 @@ class TestGetInvoiceWithRetryDoesNotEndTheTransaction(EnhancedTestCase):
     # attempt got wrong -- takes no lock while failing to.
     # ------------------------------------------------------------------
     def test_defers_to_batch_queue_without_locking_when_invoice_committed_elsewhere(self):
-        member = self._member_with_customer()
-
-        # The Member/Customer only exist in THIS transaction until committed
-        # -- the worker thread below opens a genuinely separate connection
-        # and cannot see uncommitted rows at all. Commit to publish them (same
-        # pattern as test_history_manager_row_lock.py's _committed() helper),
-        # then one throwaway read to fix the NEW transaction's REPEATABLE READ
-        # snapshot *before* the worker creates the invoice -- otherwise this
-        # transaction's first read would be the control-check below, which
-        # would happen only after the invoice already exists and would pass
-        # vacuously "clean".
-        frappe.db.commit()
+        # _create_committed_member_fixture() publishes the Member/Customer
+        # with an immediate commit -- the worker thread below opens a
+        # genuinely separate connection and cannot see uncommitted rows at
+        # all. One throwaway read here fixes THIS (new, post-commit)
+        # transaction's REPEATABLE READ snapshot *before* the worker creates
+        # the invoice -- otherwise this transaction's first read would be the
+        # control-check below, which would happen only after the invoice
+        # already exists and would pass vacuously "clean".
+        member = self._create_committed_member_fixture()
         frappe.db.get_value("Member", member.name, "name")
 
         FinancialHistoryBatchProcessor._last_processed["payments"] = frappe.utils.now()
