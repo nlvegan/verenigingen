@@ -178,6 +178,7 @@ fixtures = [
                 "fieldname",
                 "in",
                 [
+                    "custom_mollie_idempotency_key",
                     "custom_mollie_payment_id",
                     "custom_mollie_settlement_id",
                     "custom_processing_status",

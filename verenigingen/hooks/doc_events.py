@@ -263,6 +263,15 @@ doc_events = {
     # FINANCIAL SYSTEM - PAYMENTS
     # =========================================================================
     "Payment Entry": {
+        # Derives custom_mollie_idempotency_key from (reference_no, payment_type, party).
+        # `validate`, NOT `before_save`: run_before_save_methods dispatches before_save
+        # only for _action == "save", so a before_save handler is skipped entirely on a
+        # bare .submit() and the key would go stale against an edited draft
+        # (frappe/model/document.py:1389-1416). See #809 -- this field is what turns
+        # unified_payment_entry_creator's check-then-act into a real constraint.
+        "validate": [
+            "verenigingen.verenigingen_payments.utils.mollie_idempotency_key.set_payment_entry_idempotency_key",
+        ],
         "on_submit": [
             "verenigingen.utils.background_jobs.queue_member_payment_history_update_handler",
             "verenigingen.verenigingen_payments.utils.payment_notifications.on_payment_submit",
