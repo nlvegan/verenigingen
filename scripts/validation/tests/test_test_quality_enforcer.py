@@ -322,6 +322,49 @@ class ScanScopeTest(unittest.TestCase):
             self.assertEqual(["test_real.py"], found)
 
 
+class FactoryFileScopeTest(unittest.TestCase):
+    """#798: `"_factory" in path.name` excluded any test module whose SUBJECT is a
+    factory, not just fixture helpers -- e.g. `test_payment_entry_factory.py`,
+    which is a real test module, was invisible to every check the enforcer runs.
+
+    A `test_`-prefixed filename is a test module by this repo's own convention,
+    whatever its subject; a helper is named without that prefix (or lives under a
+    path already excluded above, e.g. `tests/fixtures/`). This is the positive
+    control #798 asked for: a `test_*_factory*.py`-shaped name IS scanned, an
+    `*_factory.py`-shaped helper name is NOT.
+    """
+
+    def test_a_test_prefixed_factory_module_is_scanned(self):
+        src = (
+            "class TestThing:\n"
+            "    def test_it(self):\n"
+            f"        with {_PATCH_DB}:\n"
+            "            pass\n"
+        )
+        self.assertIn(
+            "DATABASE MOCK", _kinds(src, name="test_payment_entry_factory.py")
+        )
+
+    def test_a_helper_factory_module_is_still_skipped(self):
+        src = (
+            "class TestThing:\n"
+            "    def test_it(self):\n"
+            f"        with {_PATCH_DB}:\n"
+            "            pass\n"
+        )
+        self.assertEqual([], _kinds(src, name="enhanced_test_factory.py"))
+
+    def test_a_factory_prefixed_helper_module_is_still_skipped(self):
+        """`factory_*.py` never starts with `test_`, so it stays excluded."""
+        src = (
+            "class TestThing:\n"
+            "    def test_it(self):\n"
+            f"        with {_PATCH_DB}:\n"
+            "            pass\n"
+        )
+        self.assertEqual([], _kinds(src, name="factory_helper.py"))
+
+
 class WholeTreeTotalsTest(unittest.TestCase):
     """The control that makes 'detection broke' visible.
 
@@ -392,8 +435,16 @@ class WholeTreeTotalsTest(unittest.TestCase):
         #
         # None of this is new debt -- it is debt that was always there and could
         # not be measured.
-        self.assertEqual(201, len(self.findings), "finding count moved")
-        self.assertEqual(184, len(tqe.counts_of(self.findings)), "key count moved")
+        #
+        # 201 -> 203 findings, 184 -> 186 keys (#798): the `_factory` substring
+        # rule in `_is_test_file()` excluded any test module with `_factory` in
+        # its name, not just fixture helpers. Un-excluding `test_*_factory*.py`
+        # modules brings 7 previously-invisible real test files into scope; only
+        # one of them, `test_payment_entry_factory.py`, was carrying a violation
+        # -- 2 DATABASE MOCK findings (its own f-string mock targets, cited in
+        # #798 as the concrete cost of the blind spot). The other 6 are clean.
+        self.assertEqual(203, len(self.findings), "finding count moved")
+        self.assertEqual(186, len(tqe.counts_of(self.findings)), "key count moved")
 
     def test_findings_are_keyed_to_a_named_scope(self):
         """A key of '<module>' is legitimate but should stay rare; a flood of them
