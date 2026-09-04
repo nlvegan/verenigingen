@@ -453,7 +453,6 @@ class TestMemberRowLockOrderWithinOneChapterSave(VereningingenTestCase):
         doc.append("members", {"member": hi, "enabled": 1})
         doc.append("members", {"member": lo, "enabled": 1})
         doc.save()
-        frappe.db.commit()
         self.addCleanup(frappe.db.commit)
 
         doc = frappe.get_doc("Chapter", chapter.name)
@@ -483,7 +482,6 @@ class TestMemberRowLockOrderWithinOneChapterSave(VereningingenTestCase):
         doc.append("members", {"member": hi, "enabled": 1})
         doc.append("members", {"member": lo, "enabled": 1})
         doc.save()
-        frappe.db.commit()
         self.addCleanup(frappe.db.commit)
 
         doc = frappe.get_doc("Chapter", chapter.name)
@@ -509,7 +507,6 @@ class TestMemberRowLockOrderWithinOneChapterSave(VereningingenTestCase):
 
         doc = frappe.get_doc("Chapter", chapter.name)
         doc.save()  # establish an old_doc baseline with no members yet
-        frappe.db.commit()
         self.addCleanup(frappe.db.commit)
 
         doc = frappe.get_doc("Chapter", chapter.name)
@@ -550,14 +547,12 @@ class TestMemberRowLockOrderWithinOneChapterSave(VereningingenTestCase):
         doc = frappe.get_doc("Chapter", chapter_a.name)
         doc.append("members", {"member": hi, "enabled": 1})
         doc.save()
-        frappe.db.commit()
         self.addCleanup(frappe.db.commit)
 
         chapter_b = self.create_test_chapter()
         doc = frappe.get_doc("Chapter", chapter_b.name)
         doc.append("members", {"member": lo, "enabled": 1})
         doc.save()
-        frappe.db.commit()
 
         # Chapter A: disable hi (already seated), add lo.
         doc_a = frappe.get_doc("Chapter", chapter_a.name)
@@ -609,7 +604,6 @@ class TestMemberRowLockOrderWithinOneChapterSave(VereningingenTestCase):
         doc.append("members", {"member": touched_member.name, "enabled": 1})
         doc.append("members", {"member": untouched_member.name, "enabled": 1})
         doc.save()
-        frappe.db.commit()
         self.addCleanup(frappe.db.commit)
 
         doc = frappe.get_doc("Chapter", chapter.name)
