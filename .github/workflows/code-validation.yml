@@ -565,6 +565,89 @@ jobs:
         fi
         echo "Clone-family copies did not grow."
 
+  order-dependence-ratchet:
+    name: 🔀 Order-Dependence Ratchet
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        # baseline_shrink_gate.py diffs the baseline against its committed version.
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    # Stdlib-only (ast, os, argparse): no bench, no site, no install.
+    #
+    # WHY THIS GATE IS COUNT-ONLY AND DOES NOT BLOCK ON EXISTING SITES
+    # ----------------------------------------------------------------
+    # #815 is the reason this exists, and also the reason it does not sweep. The
+    # bare `frappe.db.commit()` there was a TRIGGER, not the cause -- the actual
+    # defect was a shard-global cache on frappe.local (#817). Removing that commit
+    # broke 16 of its own module's 24 tests, because it was load-bearing for the
+    # naming-series deadlock its docstring describes. So a bare commit is a WEAK
+    # predictor of harm: 1005 findings, one known defect. Blocking new ones is
+    # worth it; demanding the debt be paid would convert a latent ordering risk
+    # into hundreds of red tests.
+    #
+    # Upward-only, matching bf379a4fe: growth fails, pure shrinkage self-heals.
+    # No --require-marker: every finding this scanner reports is equally
+    # ratchetable, unlike the duplicate-helper baseline where unmarked name
+    # collisions are deliberately recorded rather than blocked.
+    - name: Baseline is in sync with the tree
+      env:
+        FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' && '--fail-on-shrink' || '' }}
+      run: |
+        BASELINE=scripts/validation/order_dependence_baseline.txt
+        REGEN="python scripts/testing/scan_order_dependence.py --update-baseline $BASELINE"
+        $REGEN
+        python scripts/validation/baseline_shrink_gate.py "$BASELINE" "$REGEN" $FAIL_ON_SHRINK
+
+    # The step above CANNOT catch the one abuse that defeats this gate: regenerating the
+    # baseline in the same PR so a new finding is recorded rather than fixed. It compares
+    # the regenerated file against `git show HEAD:<path>` -- the PR's OWN committed
+    # baseline -- so a contributor who runs --update-baseline and commits both files stays
+    # green. Reproduced during review: self-baselined probe -> exit 0; the same probe
+    # without self-baselining -> exit 1. So the shrink gate bites the honest mistake and
+    # not the dishonest one.
+    #
+    # base.sha is the PR's merge base and cannot be rewritten from inside the PR, which is
+    # what makes this step independent. Every sibling ratchet in this file carries the same
+    # step for the same reason; omitting it here was an oversight, not a tradeoff.
+    - name: Baseline did not grow
+      if: github.event_name == 'pull_request'
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      run: |
+        BASELINE=scripts/validation/order_dependence_baseline.txt
+        SCANNER=scripts/testing/scan_order_dependence.py
+        total() { grep -e '# order-dependence' | awk -F'::' '{s+=$2+0} END {print s+0}'; }
+
+        if ! git cat-file -e "$BASE_SHA:$BASELINE" 2>/dev/null; then
+          echo "No baseline on the base branch yet - nothing to compare."
+          exit 0
+        fi
+        if ! git diff --quiet "$BASE_SHA" HEAD -- "$SCANNER"; then
+          echo "Scanner changed in this PR, so a different census is expected."
+          exit 0
+        fi
+
+        before=$(git show "$BASE_SHA:$BASELINE" | total)
+        after=$(total < "$BASELINE")
+        echo "order-dependence findings: base=$before  head=$after"
+        if [ "$after" -gt "$before" ]; then
+          echo "::error file=$BASELINE::Order-dependence findings grew from $before to $after without a scanner change."
+          echo "A new order-dependence site was recorded into the baseline instead of avoided."
+          echo "See #815: a bare frappe.db.commit() in test setup made another module's rows"
+          echo "permanent and broke a test three modules later."
+          exit 1
+        fi
+
   fast-validation:
     runs-on: ubuntu-latest
     timeout-minutes: 5

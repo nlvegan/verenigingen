@@ -14,12 +14,27 @@ Patterns flagged (each is a way a test's result can depend on its neighbours):
           depends on what preceding files in the shard left in the DB. This is
           the exact bug in test_team_assignment_history.
 
-  COUNT   An assertion over len(frappe.get_all(DT)) or frappe.db.count(DT) with
+  COUNT   *** STRUCTURALLY UNREACHABLE against this codebase -- see below. ***
+          An assertion over len(frappe.get_all(DT)) or frappe.db.count(DT) with
           no test-scoped filter. Neighbours that add records of DT break it.
 
   COMMIT  A bare frappe.db.commit() in test code (outside a _cleanup_/_create_
           helper). Commits escape the per-test rollback, leaking state to later
           files in the same shard process.
+
+KNOWN GAP -- COUNT reports 0 and always will (#815 review, 2026-09-04)
+-------------------------------------------------------------------
+COUNT fires only from ``visit_Compare``, i.e. a bare ``==``/``<`` comparison node. Every
+count assertion in this codebase is written ``self.assertEqual(frappe.db.count(DT), n)`` --
+an ``ast.Call``, which that visitor never inspects. Measured across all 337 scanned files:
+**COUNT=0**, and a grep for the Compare shape returns zero matches. So a COUNT of 0 means
+"this kind cannot fire here", NOT "no such anti-pattern exists"; real unscoped-count sites
+exist and are invisible, e.g. ``tests/backend/components/test_setup_workflow_definitions.py``
+(x3) and ``tests/events/test_approval_events_coverage.py``.
+
+Recorded rather than fixed on purpose: extending detection to assertion Calls would add
+findings to a baseline in the same change that introduced the gate, which is the one shape
+the "Baseline did not grow" CI step is built to reject. Widen it in its own PR.
 
 Usage (from the app root or anywhere):
     python scripts/testing/scan_order_dependence.py [tests_root] [--json out.json]
@@ -155,9 +170,24 @@ def scan_file(path, root):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     here = os.path.dirname(os.path.abspath(__file__))
-    default_root = os.path.normpath(os.path.join(here, "..", "..", "verenigingen", "tests"))
-    ap.add_argument("root", nargs="?", default=default_root, help="tests directory to scan")
+    # The whole PACKAGE, not verenigingen/tests. The narrower default was a real blind
+    # spot: test modules also live beside the code they cover
+    # (verenigingen/verenigingen/doctype/*/test_*.py, verenigingen/services/*/test_*.py),
+    # and measured on 7f1557af0 the default hid 179 COMMIT findings across 63 files --
+    # including test_contribution_amendment_request_coverage.py, whose bare commit is what
+    # #815 turned on. A scanner that exits 0 has no reason to look at less. Same class as
+    # #798, where a filename exclusion hid 9 real test modules from every check.
+    default_root = os.path.normpath(os.path.join(here, "..", "..", "verenigingen"))
+    ap.add_argument("root", nargs="?", default=default_root, help="directory to scan")
     ap.add_argument("--json", help="write findings JSON to this path")
+    ap.add_argument(
+        "--update-baseline",
+        metavar="PATH",
+        help="rewrite PATH as a per-file census (`<KIND> <relpath>::<count>`). Growth/shrink "
+             "classification is NOT done here -- scripts/validation/baseline_shrink_gate.py "
+             "owns that, so this tool does not become a ninth hand-rolled copy of the "
+             "read_baseline/regressions pair the other validators each carry.",
+    )
     args = ap.parse_args()
 
     findings = []
@@ -186,6 +216,27 @@ def main():
         for f in items:
             print(f"  {f.file}:{f.line}: {f.snippet}")
         print()
+
+    if args.update_baseline:
+        counts = {}
+        for f in findings:
+            counts[(f.kind, f.file)] = counts.get((f.kind, f.file), 0) + 1
+        lines = [
+            "# Order-dependence census -- see #815. Upward-only: growth fails, shrinkage",
+            "# self-heals (scripts/validation/baseline_shrink_gate.py). Regenerate with",
+            "#   python scripts/testing/scan_order_dependence.py --update-baseline <this file>",
+            "# A bare commit is NOT proof of a bug: #815's commit was a TRIGGER, and removing",
+            "# it broke 16 of its own module's tests because it was load-bearing for deadlock",
+            "# avoidance. This ratchet exists to stop NEW ones accruing, not to demand the",
+            "# existing debt be paid.",
+            "# COUNT never appears below: its detector cannot fire against this codebase's",
+            "# assertEqual-style assertions -- see the scanner's KNOWN GAP section.",
+        ]
+        for (kind, path), n in sorted(counts.items()):
+            lines.append(f"{kind} {path}::{n}  # order-dependence")
+        with open(args.update_baseline, "w") as fh:
+            fh.write("\n".join(lines) + "\n")
+        print(f"baseline written: {len(counts)} keys, {len(findings)} findings")
 
     if args.json:
         with open(args.json, "w") as fh:
