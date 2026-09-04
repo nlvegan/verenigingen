@@ -2714,7 +2714,17 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         everything else), and the later test then reads the earlier volunteer's
         stale cached assignments instead of its own. See #815.
 
-        Guarded so a failure here never breaks the test lifecycle.
+        Guarded so a failure here never breaks the test lifecycle. Logged at
+        ERROR, not WARNING: this call is reachable from EnhancedTestCase.tearDown(),
+        and tearDown.harness_logger.py's `_StderrHandler` only mirrors >= ERROR
+        records onto real stderr for anything reached from a class-teardown body
+        (one such route -- test_chapter_permission_service_integration.py's
+        cls._test_instance.tearDown() -- binds through the MRO to this exact
+        method). A WARNING here would be silently discarded in that path, same
+        class of loss as the two existing ERROR sites (_restore_singleton,
+        ErrorLogGuardMixin._capture_test_error_logs): a cache-reset failure that
+        goes unseen could quietly reintroduce the #815 collision instead of
+        showing up as "why is this failing to reset".
         """
         try:
             from verenigingen.services.volunteer.assignment_query_builder import (
@@ -2723,7 +2733,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
             invalidate_volunteer_assignment_cache()
         except Exception as e:  # pragma: no cover - defensive
-            logger.warning(f"Volunteer assignment cache reset failed: {e}")
+            logger.error(f"Volunteer assignment cache reset failed: {e}")
 
     def _drain_tracked_documents(self):
         """Delete factory-tracked documents that survived per-method rollback.
