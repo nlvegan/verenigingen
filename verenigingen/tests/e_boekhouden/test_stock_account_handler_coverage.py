@@ -35,6 +35,7 @@ import frappe
 
 from verenigingen.e_boekhouden.utils.stock_account_handler import StockAccountHandler
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.test_accounts import make_leaf_account
 
 
 class _StockHandlerBase(EnhancedTestCase):
@@ -46,27 +47,6 @@ class _StockHandlerBase(EnhancedTestCase):
 
         cls.company = get_eur_test_company()
         cls.abbr = frappe.db.get_value("Company", cls.company, "abbr")
-
-    def _make_account(self, account_name, *, account_type="", root_type="Asset", is_group=0):
-        """Get-or-create an Account under a matching-root group parent."""
-        full = f"{account_name} - {self.abbr}"
-        if frappe.db.exists("Account", full):
-            return full
-        parent = frappe.db.get_value(
-            "Account",
-            {"company": self.company, "root_type": root_type, "is_group": 1},
-            "name",
-        )
-        doc = frappe.new_doc("Account")
-        doc.account_name = account_name
-        doc.company = self.company
-        doc.parent_account = parent
-        doc.root_type = root_type
-        if account_type:
-            doc.account_type = account_type
-        doc.is_group = is_group
-        doc.insert(ignore_permissions=True)
-        return doc.name
 
     def _make_ledger_mapping(self, ledger_id, erpnext_account):
         """Get-or-create an E-Boekhouden Ledger Mapping row for the test."""
@@ -89,12 +69,12 @@ class TestIsStockAccount(_StockHandlerBase):
         self.handler = StockAccountHandler(self.company, [])
 
     def test_stock_account_detected(self):
-        acct = self._make_account("EBKH Stock Detect", account_type="Stock")
+        acct = make_leaf_account(self.company, self.abbr, "EBKH Stock Detect", account_type="Stock")
         with self.assertNoErrorLog():
             self.assertTrue(self.handler.is_stock_account(acct))
 
     def test_non_stock_account_false(self):
-        acct = self._make_account("EBKH NonStock Detect", account_type="")
+        acct = make_leaf_account(self.company, self.abbr, "EBKH NonStock Detect", account_type="")
         with self.assertNoErrorLog():
             self.assertFalse(self.handler.is_stock_account(acct))
 
@@ -107,8 +87,8 @@ class TestGetAndSkipStockAccounts(_StockHandlerBase):
     def setUp(self):
         super().setUp()
         self.handler = StockAccountHandler(self.company, [])
-        self.stock_acct = self._make_account("EBKH Stock Balances", account_type="Stock")
-        self.normal_acct = self._make_account("EBKH Normal Balances", account_type="")
+        self.stock_acct = make_leaf_account(self.company, self.abbr, "EBKH Stock Balances", account_type="Stock")
+        self.normal_acct = make_leaf_account(self.company, self.abbr, "EBKH Normal Balances", account_type="")
         self._make_ledger_mapping(990001, self.stock_acct)
         self._make_ledger_mapping(990002, self.normal_acct)
 
@@ -187,7 +167,7 @@ class TestAssetAccountCreation(_StockHandlerBase):
         self.assertIsInstance(result, str)
 
     def test_create_alternative_asset_mappings(self):
-        stock_acct = self._make_account("EBKH Stock Remap", account_type="Stock")
+        stock_acct = make_leaf_account(self.company, self.abbr, "EBKH Stock Remap", account_type="Stock")
         stock_accounts = [{"account": stock_acct, "balance": 10}]
         with self.assertNoErrorLog():
             mappings = self.handler.create_alternative_asset_mappings(stock_accounts)

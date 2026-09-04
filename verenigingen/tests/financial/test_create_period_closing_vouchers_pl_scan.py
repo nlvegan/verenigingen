@@ -18,6 +18,7 @@ import frappe
 from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.test_accounts import make_leaf_account, make_submitted_journal_entry
 
 
 class TestPeriodClosingVouchersPLScan(EnhancedTestCase):
@@ -32,52 +33,24 @@ class TestPeriodClosingVouchersPLScan(EnhancedTestCase):
         if not frappe.db.exists("Account", cls.cash_account):
             raise RuntimeError(f"Expected seeded account {cls.cash_account!r} not found on {cls.company}")
 
-    def _make_account(self, account_name, *, account_type, root_type):
-        """Create a fresh, zero-balance leaf Account with an account_type that
-        is NOT one of the three literals the buggy query pinned ("Income",
-        "Expense", "Cost of Goods Sold")."""
-        parent = frappe.db.get_value(
-            "Account", {"company": self.company, "root_type": root_type, "is_group": 1}, "name"
-        )
-        doc = frappe.new_doc("Account")
-        doc.account_name = account_name
-        doc.company = self.company
-        doc.parent_account = parent
-        doc.root_type = root_type
-        doc.account_type = account_type
-        doc.is_group = 0
-        doc.insert(ignore_permissions=True)
-        self.track_doc("Account", doc.name)
-        return doc.name
-
-    def _make_je(self, debit_account, credit_account, amount):
-        je = frappe.new_doc("Journal Entry")
-        je.company = self.company
-        je.posting_date = today()
-        je.append(
-            "accounts",
-            {"account": debit_account, "debit_in_account_currency": amount, "credit_in_account_currency": 0},
-        )
-        je.append(
-            "accounts",
-            {"account": credit_account, "debit_in_account_currency": 0, "credit_in_account_currency": amount},
-        )
-        je.insert(ignore_permissions=True)
-        je.submit()
-        self.track_doc("Journal Entry", je.name)
-        return je
-
     def test_scan_reports_income_and_expense_accounts_not_just_cogs(self):
         from scripts.migration.create_period_closing_vouchers import _check_p_and_l_impact
 
-        income_account = self._make_account(
-            "PCV Scan Income", account_type="Income Account", root_type="Income"
+        income_account = make_leaf_account(
+            self.company, self.abbr, "PCV Scan Income",
+            account_type="Income Account", root_type="Income",
         )
-        expense_account = self._make_account(
-            "PCV Scan Expense", account_type="Expense Account", root_type="Expense"
+        expense_account = make_leaf_account(
+            self.company, self.abbr, "PCV Scan Expense",
+            account_type="Expense Account", root_type="Expense",
         )
-        self._make_je(self.cash_account, income_account, 123.45)
-        self._make_je(expense_account, self.cash_account, 67.89)
+        self.track_doc("Account", income_account)
+        self.track_doc("Account", expense_account)
+        for je in (
+            make_submitted_journal_entry(self.company, self.cash_account, income_account, 123.45),
+            make_submitted_journal_entry(self.company, expense_account, self.cash_account, 67.89),
+        ):
+            self.track_doc("Journal Entry", je.name)
 
         report = _check_p_and_l_impact(self.company)
 
