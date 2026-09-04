@@ -205,10 +205,16 @@ class TestMembershipApplicationAPI(VereningingenUnitTestCase):
         # (uncached) call below would already be a cache hit, and a cold
         # information_schema/table_columns lookup would also get misattributed
         # to the code under test rather than to warmup.
+        # frappe.db.count(), not get_all(..., limit=1): the latter picks an
+        # arbitrary existing row, which is exactly the order-dependence shape
+        # scan_order_dependence.py's REUSE check exists to block (a test's
+        # behaviour must not depend on what a preceding file in the shard left
+        # in the DB). count() only needs the table to exist to warm the schema
+        # cache -- it never reads a specific row.
         frappe.db.get_value("Membership Type", {"is_active": 1}, "name")
         frappe.db.count("Chapter")
-        frappe.get_all("Country", limit=1)
-        frappe.get_all("Volunteer Interest Category", limit=1)
+        frappe.db.count("Country")
+        frappe.db.count("Volunteer Interest Category")
 
         frappe.cache().delete_value(cache_key)
         self.addCleanup(frappe.cache().delete_value, cache_key)
