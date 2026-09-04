@@ -147,6 +147,12 @@ class TestInvoiceManagement(EnhancedTestCase):
         doc.insert() on this doctype trips fee_change_recording_service via a
         doc_event — every other NOT NULL column has a DB-level default.
         Tracked in self._committed_docs for tearDown force-deletion.
+
+        No frappe.db.commit() here: the endpoint under test reads on the SAME
+        connection within the same test, so it sees these rows uncommitted --
+        measured directly (3/3 isolated runs pass with no commit call at all).
+        Committing would only widen the leak window if tearDown's delete ever
+        failed partway, with no benefit to the test.
         """
         mt = self._make_membership_type()
         names = []
@@ -178,7 +184,6 @@ class TestInvoiceManagement(EnhancedTestCase):
             )
             self._committed_docs.append(("Membership Dues Schedule", sched_name))
             names.append(sched_name)
-        frappe.db.commit()
         return names
 
     def _make_limited_user(self):
