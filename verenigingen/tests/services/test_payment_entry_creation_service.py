@@ -774,19 +774,29 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
                 "Account", {"company": company, "account_type": "Bank", "is_group": 0}, "name"
             )
             self.assertIsNotNone(account, f"No bank account available on {company}")
-            bank_account = (
-                frappe.get_doc(
-                    {
-                        "doctype": "Bank Account",
-                        "account_name": "Test PECS Bank Account",
-                        "bank": bank_name,
-                        "company": company,
-                        "account": account,
-                    }
+            # Re-check keyed on the constraint ERPNext actually enforces (one Bank
+            # Account per `account`, `bank_account.py::validate_account`) rather than
+            # on `company` above, which misses a Bank Account another fixture already
+            # created on this exact (unordered-picked) GL account. Without this, and
+            # without `is_company_account` below, this row could quietly become the
+            # first (unvalidated) claimer of a GL account another fixture legitimately
+            # wants (#443).
+            bank_account = frappe.db.get_value("Bank Account", {"account": account}, "name")
+            if not bank_account:
+                bank_account = (
+                    frappe.get_doc(
+                        {
+                            "doctype": "Bank Account",
+                            "account_name": f"Test PECS Bank Account - {company}",
+                            "bank": bank_name,
+                            "company": company,
+                            "account": account,
+                            "is_company_account": 1,
+                        }
+                    )
+                    .insert(ignore_permissions=True)
+                    .name
                 )
-                .insert(ignore_permissions=True)
-                .name
-            )
 
         bank_transaction = frappe.new_doc("Bank Transaction")
         bank_transaction.date = frappe.utils.today()
@@ -801,6 +811,109 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
             bank_transaction.currency = frappe.get_cached_value("Account", gl_account, "account_currency")
         bank_transaction.insert(ignore_permissions=True)
         return bank_transaction
+
+    def _persist_minimal_company(self, name, abbr):
+        """A throwaway company with a Bank-type GL leaf but no Bank Account of its
+        own yet -- just enough to exercise `_create_bank_transaction`'s create
+        branch. ERPNext's default Chart of Accounts only creates group accounts,
+        so the Bank-type leaf `_create_bank_transaction` looks up must be added
+        explicitly, same as `test_coa_import.py`'s company fixtures do."""
+        if not frappe.db.exists("Company", name):
+            doc = frappe.new_doc("Company")
+            doc.company_name = name
+            doc.abbr = abbr
+            doc.default_currency = "EUR"
+            doc.country = "Netherlands"
+            doc.insert(ignore_permissions=True)
+            self.track_doc("Company", name)
+
+            # Prefer the Bank-type group; only fall back to "any Asset group" if
+            # the company has none. The Asset-group-only filter this replaced is
+            # the exact recency borrow `sepa_test_company._bank_account_parent`'s
+            # docstring documents resolving `Temporary Accounts` under
+            # `get_value`'s `creation DESC` default (#443 review).
+            parent = frappe.db.get_value(
+                "Account", {"company": name, "account_type": "Bank", "is_group": 1}, "name"
+            ) or frappe.db.get_value(
+                "Account", {"company": name, "root_type": "Asset", "is_group": 1}, "name"
+            )
+            self.assertIsNotNone(parent, f"No Asset group account found for {name}")
+            gl_account = frappe.new_doc("Account")
+            gl_account.account_name = "Regression Bank GL"
+            gl_account.company = name
+            gl_account.parent_account = parent
+            gl_account.account_type = "Bank"
+            gl_account.is_group = 0
+            gl_account.insert(ignore_permissions=True)
+            self.track_doc("Account", gl_account.name)
+        return name
+
+    def test_bank_transaction_bank_account_is_company_scoped_and_validated(self):
+        """Regression for #443: `_create_bank_transaction`'s Bank Account docname
+        used to be the GLOBAL literal "Test PECS Bank Account" (Bank Account
+        autonames on `account_name + " - " + bank`, with no company component), so
+        a second company hitting the create branch collided with
+        DuplicateEntryError on the first company's row. It also never set
+        `is_company_account`, so ERPNext's one-Bank-Account-per-GL-account
+        constraint (`bank_account.py::validate_account`) never actually ran.
+
+        Two distinct, fresh companies -- neither with a Bank Account yet -- must
+        each get their OWN company-scoped, company-account Bank Account.
+        """
+        company_a = self._persist_minimal_company("TEST PECS Regression Co A", "TPRCA")
+        company_b = self._persist_minimal_company("TEST PECS Regression Co B", "TPRCB")
+
+        bt_a = self._create_bank_transaction(company_a, 10.0)
+        bt_b = self._create_bank_transaction(company_b, 10.0)
+
+        self.assertNotEqual(bt_a.bank_account, bt_b.bank_account)
+        for bank_account in (bt_a.bank_account, bt_b.bank_account):
+            self.assertEqual(
+                frappe.db.get_value("Bank Account", bank_account, "is_company_account"),
+                1,
+                f"{bank_account} must be a validated company account (#443)",
+            )
+
+        # A second call for the SAME company must reuse the existing row, not
+        # attempt (and fail, or silently duplicate) a second one on the same GL
+        # account. (This exercises the pre-existing `{"company": ...}` probe, not
+        # the new guard below -- kept as a basic idempotency check.)
+        bt_a_again = self._create_bank_transaction(company_a, 5.0)
+        self.assertEqual(bt_a_again.bank_account, bt_a.bank_account)
+
+    def test_bank_transaction_reuses_bank_account_another_fixture_left_on_the_gl_account(self):
+        """Regression for #443: the `{"account": account}` guard itself, not just
+        the `{"company": company}` fast path above.
+
+        A Bank Account can already sit on a company's Bank-type GL leaf without
+        its own `company` field matching (a stray/blank-company row another
+        fixture left behind) -- the `{"company": company}` probe misses it
+        entirely. `_create_bank_transaction` must still find and reuse it via
+        `account`, rather than attempting a second insert on the same GL account
+        and raising `bank_account.py::validate_account`'s ValidationError.
+        """
+        company = self._persist_minimal_company("TEST PECS Regression Co C", "TPRCC")
+        account = frappe.db.get_value(
+            "Account", {"company": company, "account_type": "Bank", "is_group": 0}, "name"
+        )
+        bank_name = "Test Bank PECS"
+        if not frappe.db.exists("Bank", bank_name):
+            frappe.get_doc({"doctype": "Bank", "bank_name": bank_name}).insert(ignore_permissions=True)
+        squatter = frappe.get_doc(
+            {
+                "doctype": "Bank Account",
+                "account_name": "Pre-existing Squatter",
+                "bank": bank_name,
+                "account": account,
+                # Deliberately NOT this company, so the `{"company": company}`
+                # probe in `_create_bank_transaction` cannot find it.
+            }
+        ).insert(ignore_permissions=True)
+        self.track_doc("Bank Account", squatter.name)
+
+        bt = self._create_bank_transaction(company, 10.0)
+
+        self.assertEqual(bt.bank_account, squatter.name)
 
     def test_bank_transaction_name_is_persisted(self):
         """The bank_transaction_name parameter must land on a field that exists.
