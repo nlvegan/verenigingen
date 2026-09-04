@@ -140,9 +140,11 @@ class TestPaymentProcessingAPIReal(EnhancedTestCase):
             item.save()
         
         company = invoice.company
+        # ERPNext's standard chart of accounts leaves account_type EMPTY on income
+        # leaves; they carry root_type = "Income" instead (#442).
         income_account = frappe.db.get_value(
             "Account",
-            {"account_type": "Income Account", "is_group": 0, "company": company},
+            {"root_type": "Income", "is_group": 0, "company": company},
             "name",
         )
         cost_center = frappe.db.get_value("Company", company, "cost_center") or frappe.db.get_value(

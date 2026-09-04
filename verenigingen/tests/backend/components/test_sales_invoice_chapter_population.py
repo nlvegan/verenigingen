@@ -62,8 +62,12 @@ class TestSalesInvoiceChapterPopulation(EnhancedTestCase):
         selling_price_list = (
             frappe.db.get_value("Selling Settings", None, "selling_price_list") or "Standard Selling"
         )
+        # ERPNext's standard chart of accounts leaves account_type EMPTY on income
+        # leaves; they carry root_type = "Income" instead (#442). Keying on
+        # account_type resolved only when a sibling suite in the same shard had
+        # already planted a hand-typed row.
         income_account = frappe.db.get_value(
-            "Account", {"account_type": "Income Account", "company": company, "is_group": 0}, "name"
+            "Account", {"root_type": "Income", "company": company, "is_group": 0}, "name"
         )
         cost_center = frappe.db.get_value("Company", company, "cost_center")
 
