@@ -263,6 +263,13 @@ doc_events = {
     # FINANCIAL SYSTEM - PAYMENTS
     # =========================================================================
     "Payment Entry": {
+        # Derives custom_mollie_idempotency_key from (reference_no, payment_type, party).
+        # before_save, not before_insert: all three are editable on a draft, and a key
+        # frozen at insert time would guard the wrong tuple. See #809 -- the field is what
+        # turns unified_payment_entry_creator's check-then-act into a real constraint.
+        "before_save": [
+            "verenigingen.verenigingen_payments.utils.mollie_idempotency_key.set_payment_entry_idempotency_key",
+        ],
         "on_submit": [
             "verenigingen.utils.background_jobs.queue_member_payment_history_update_handler",
             "verenigingen.verenigingen_payments.utils.payment_notifications.on_payment_submit",
