@@ -34,17 +34,16 @@ COMPANY = "_Test Company 2"
 
 
 class _BankTxnFixtureMixin:
-    def _ensure_gl_account(self):
-        name = frappe.get_value(
-            "Account", {"company": COMPANY, "account_name": "BTCreator Cov Bank"}, "name"
-        )
+    def _ensure_gl_account(self, name_suffix=""):
+        account_name = f"BTCreator Cov Bank{name_suffix}"
+        name = frappe.get_value("Account", {"company": COMPANY, "account_name": account_name}, "name")
         if name:
             return name
         parent = frappe.get_value(
             "Account", {"company": COMPANY, "account_type": "Bank", "is_group": 1}, "name"
         )
         acct = frappe.new_doc("Account")
-        acct.account_name = "BTCreator Cov Bank"
+        acct.account_name = account_name
         acct.company = COMPANY
         acct.parent_account = parent
         acct.account_type = "Bank"
@@ -52,7 +51,7 @@ class _BankTxnFixtureMixin:
         acct.insert(ignore_permissions=True)
         return acct.name
 
-    def _ensure_bank_account(self, gl_account):
+    def _ensure_bank_account(self, gl_account, name_suffix=""):
         existing = frappe.get_value("Bank Account", {"account": gl_account}, "name")
         if existing:
             return existing
@@ -63,7 +62,7 @@ class _BankTxnFixtureMixin:
             bank.insert(ignore_permissions=True)
             bank_name = bank.name
         ba = frappe.new_doc("Bank Account")
-        ba.account_name = "BTCreator Cov"
+        ba.account_name = f"BTCreator Cov{name_suffix}"
         ba.bank = bank_name
         ba.account = gl_account
         ba.company = COMPANY
@@ -73,6 +72,29 @@ class _BankTxnFixtureMixin:
 
     def _ref(self, prefix="ref"):
         return f"{prefix}-{frappe.generate_hash(length=12)}"
+
+    def _insert_draft_bank_transaction(self, reference_number, bank_account, company=COMPANY, amount=12.0):
+        """Simulate a Bank Transaction left in draft by an earlier caller who
+        lacked submit permission -- exactly what ``_create_bank_transaction``
+        produces on that branch."""
+        draft = frappe.get_doc(
+            {
+                "doctype": "Bank Transaction",
+                "date": today(),
+                "bank_account": bank_account,
+                "company": company,
+                "deposit": amount,
+                "withdrawal": 0.0,
+                "currency": "EUR",
+                "reference_number": reference_number,
+                "description": "pre-existing draft",
+                "status": "Unreconciled",
+                "unallocated_amount": amount,
+                "allocated_amount": 0.0,
+            }
+        )
+        draft.insert(ignore_permissions=True)
+        return draft
 
 
 class TestBankTransactionCreatorFromDict(_BankTxnFixtureMixin, EnhancedTestCase):
@@ -203,6 +225,81 @@ class TestBankTransactionCreatorFromDict(_BankTxnFixtureMixin, EnhancedTestCase)
         self.assertEqual(first, second)
         self.assertEqual(frappe.db.count("Bank Transaction", {"reference_number": ref}), 1)
 
+    # ---------------------------------------------- draft never gets resubmitted (#383)
+    def test_create_from_dict_submits_existing_draft(self):
+        ref = self._ref("draft-dict")
+        draft = self._insert_draft_bank_transaction(ref, self.bank_account)
+
+        payload = {"date": today(), "amount": 12.0, "reference_number": ref}
+        result = self.creator.create_from_dict(payload, self.bank_account, COMPANY)
+
+        self.assertEqual(result, draft.name)
+        self.assertEqual(frappe.db.get_value("Bank Transaction", draft.name, "docstatus"), 1)
+        self.assertEqual(frappe.db.count("Bank Transaction", {"reference_number": ref}), 1)
+
+    def test_create_low_level_submits_existing_draft(self):
+        ref = self._ref("draft-low")
+        draft = self._insert_draft_bank_transaction(ref, self.bank_account)
+
+        result = self.creator.create(
+            date=today(), bank_account=self.bank_account, company=COMPANY,
+            deposit=12.0, withdrawal=0.0, currency="EUR", reference_number=ref,
+            description="low-level create",
+        )
+
+        self.assertEqual(result, draft.name)
+        self.assertEqual(frappe.db.get_value("Bank Transaction", draft.name, "docstatus"), 1)
+        self.assertEqual(frappe.db.count("Bank Transaction", {"reference_number": ref}), 1)
+
+    def test_create_from_dict_ignores_draft_belonging_to_a_different_bank_account(self):
+        """reference_number alone is not unique -- a draft that shares this
+        reference but belongs to a DIFFERENT bank account is not this caller's
+        concern: it must not be submitted, and must not be adopted as "already
+        exists" either (that would hand the caller a transaction for someone
+        else's bank account). The caller creates its own Bank Transaction for
+        its own account instead, and the stranger's draft is left untouched."""
+        other_gl_account = self._ensure_gl_account(name_suffix=" Other")
+        other_bank_account = self._ensure_bank_account(other_gl_account, name_suffix=" Other")
+
+        ref = self._ref("draft-other-account")
+        draft = self._insert_draft_bank_transaction(ref, other_bank_account)
+
+        payload = {"date": today(), "amount": 12.0, "reference_number": ref}
+        result = self.creator.create_from_dict(payload, self.bank_account, COMPANY)
+
+        self.assertNotEqual(result, draft.name, "must not adopt a different account's draft as its own")
+        self.assertEqual(frappe.db.get_value("Bank Transaction", result, "bank_account"), self.bank_account)
+        self.assertEqual(
+            frappe.db.get_value("Bank Transaction", draft.name, "docstatus"),
+            0,
+            "a draft belonging to a different bank account must not be submitted",
+        )
+        self.assertEqual(frappe.db.count("Bank Transaction", {"reference_number": ref}), 2)
+
+    def test_create_from_dict_finds_own_older_draft_despite_a_newer_collision(self):
+        """The discriminating case: TWO non-cancelled rows share one reference --
+        this caller's own draft, created FIRST (so it is not the newest row), and
+        a second row for a DIFFERENT bank account created afterwards. A query
+        that is merely post-filtered (not scoped in the WHERE clause) fetches the
+        newest row by creation, which is the other account's -- so this caller's
+        own, older draft is never found or submitted at all. Scoping the query
+        itself finds it regardless of what newer rows exist for other accounts."""
+        import time
+
+        other_gl_account = self._ensure_gl_account(name_suffix=" Newer")
+        other_bank_account = self._ensure_bank_account(other_gl_account, name_suffix=" Newer")
+
+        ref = self._ref("draft-own-older")
+        own_draft = self._insert_draft_bank_transaction(ref, self.bank_account, amount=12.0)
+        time.sleep(1.1)  # force a distinct, later `creation` timestamp
+        self._insert_draft_bank_transaction(ref, other_bank_account, amount=99.0)
+
+        payload = {"date": today(), "amount": 12.0, "reference_number": ref}
+        result = self.creator.create_from_dict(payload, self.bank_account, COMPANY)
+
+        self.assertEqual(result, own_draft.name)
+        self.assertEqual(frappe.db.get_value("Bank Transaction", own_draft.name, "docstatus"), 1)
+
 
 class TestBankTransactionCreatorSettlement(_BankTxnFixtureMixin, EnhancedTestCase):
     def setUp(self):
@@ -236,6 +333,57 @@ class TestBankTransactionCreatorSettlement(_BankTxnFixtureMixin, EnhancedTestCas
             description="Mollie settlement payout",
         )
         self.assertEqual(again, bt_name)
+
+    def test_create_from_settlement_submits_existing_draft(self):
+        """A settlement draft left behind by a caller lacking submit permission
+        must be resubmitted, not adopted as "already processed" forever (#383)."""
+        from types import SimpleNamespace
+
+        settlement_id = self._ref("stl-draft")
+        draft = self._insert_draft_bank_transaction(settlement_id, self.bank_account, amount=250.00)
+
+        settlement = SimpleNamespace(id=settlement_id)
+        bt_name = self.creator.create_from_settlement(
+            settlement=settlement, bank_account=self.bank_account, company=COMPANY,
+            settlement_amount=250.00, settlement_date=today(), currency="EUR",
+            description="Mollie settlement payout",
+        )
+
+        self.assertEqual(bt_name, draft.name)
+        self.assertEqual(frappe.db.get_value("Bank Transaction", draft.name, "docstatus"), 1)
+        self.assertEqual(frappe.db.count("Bank Transaction", {"reference_number": settlement_id}), 1)
+
+
+class TestBankTransactionCreatorMolliePayment(_BankTxnFixtureMixin, EnhancedTestCase):
+    def setUp(self):
+        super().setUp()
+        self.gl_account = self._ensure_gl_account()
+        self.bank_account = self._ensure_bank_account(self.gl_account)
+        self.creator = BankTransactionCreator()
+
+    def tearDown(self):
+        frappe.db.rollback()
+        super().tearDown()
+
+    def test_create_from_mollie_payment_submits_existing_draft(self):
+        """A Mollie-payment draft left behind by a caller lacking submit
+        permission must be resubmitted, not adopted as "already processed"
+        forever (#383). The idempotency check runs before any Mollie-specific
+        field extraction, so a bare object exposing only ``id`` reaches it --
+        the same pattern used for create_from_settlement's SDK stand-in."""
+        from types import SimpleNamespace
+
+        payment_id = self._ref("tr-draft")
+        draft = self._insert_draft_bank_transaction(payment_id, self.bank_account, amount=75.00)
+
+        payment = SimpleNamespace(id=payment_id)
+        bt_name = self.creator.create_from_mollie_payment(
+            payment=payment, bank_account=self.bank_account, company=COMPANY,
+        )
+
+        self.assertEqual(bt_name, draft.name)
+        self.assertEqual(frappe.db.get_value("Bank Transaction", draft.name, "docstatus"), 1)
+        self.assertEqual(frappe.db.count("Bank Transaction", {"reference_number": payment_id}), 1)
 
 
 class TestBankTransactionCreatorAlreadyProcessed(_BankTxnFixtureMixin, EnhancedTestCase):

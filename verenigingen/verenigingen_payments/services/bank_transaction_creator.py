@@ -53,15 +53,16 @@ class BankTransactionCreator:
         """
         payment_id = payment.id
 
+        # Auto-detect company if not provided (needed for currency validation, and
+        # to scope the existing-Bank-Transaction check below).
+        if not company:
+            company = self._get_default_company()
+
         # Check for existing Bank Transaction first (before expensive validation)
-        existing_bt = self._check_existing_by_reference(payment_id)
+        existing_bt = self._resolve_existing_bank_transaction(payment_id, bank_account, company)
         if existing_bt:
             frappe.logger().info(f"⏭️ Bank Transaction already exists: {existing_bt}")
             return existing_bt
-
-        # Auto-detect company if not provided (needed for currency validation)
-        if not company:
-            company = self._get_default_company()
 
         # Use centralized PaymentDataExtractor for consistent extraction
         amount = self._extractor.extract_amount(payment)
@@ -121,7 +122,7 @@ class BankTransactionCreator:
         settlement_id = settlement.id
 
         # Check for existing Bank Transaction
-        existing_bt = self._check_existing_by_reference(settlement_id)
+        existing_bt = self._resolve_existing_bank_transaction(settlement_id, bank_account, company)
         if existing_bt:
             frappe.logger().info(f"⏭️ Bank Transaction already exists: {existing_bt}")
             return existing_bt
@@ -224,7 +225,7 @@ class BankTransactionCreator:
 
         # Check for existing Bank Transaction (idempotency)
         if reference_number:
-            existing_bt = self._check_existing_by_reference(reference_number)
+            existing_bt = self._resolve_existing_bank_transaction(reference_number, bank_account, company)
             if existing_bt:
                 frappe.logger().info(
                     f"Bank Transaction already exists for reference {reference_number}: {existing_bt}"
@@ -281,6 +282,17 @@ class BankTransactionCreator:
         failure is swallowed one level down -- a booked reversal with no bank line and
         nothing said (#370).
 
+        NOT scoped to a bank account: ``reference_number`` alone is not unique
+        (measured: 10 non-cancelled rows sharing one reference on veg11), and with
+        a dict filter ``frappe.db.get_value()`` returns the NEWEST matching row
+        (see ``_find_matching_bank_transaction``), which may belong to a different
+        account than the one a caller is actually asking about. This method is no
+        longer used internally as a create-time idempotency gate for exactly that
+        reason (#383) -- use ``_find_matching_bank_transaction`` for anything that
+        needs to know "does MY account already have this". It is kept for callers
+        that genuinely want "does this reference exist for ANYONE" and for the
+        existing external test coverage that exercises it directly.
+
         Args:
             reference_number: Reference number to check (payment ID, settlement ID, etc.)
 
@@ -292,6 +304,129 @@ class BankTransactionCreator:
             {"reference_number": reference_number, "docstatus": ["!=", 2]},
             "name",
         )
+
+    def _find_matching_bank_transaction(
+        self, reference_number: str, bank_account: str, company: Optional[str] = None
+    ) -> Optional["frappe._dict"]:
+        """
+        Find a non-cancelled Bank Transaction for this reference that belongs to
+        THIS bank account (and company, when given) -- scoped in the QUERY itself,
+        not by filtering a single already-fetched row.
+
+        ``reference_number`` alone is NOT unique (measured: 10 non-cancelled rows
+        sharing one reference on veg11). ``frappe.db.get_value()`` with a dict
+        filter defaults to ``ORDER BY creation`` with no explicit direction, and
+        an unparsed direction is treated as DESC (``_validate_order_by`` in
+        ``frappe/database/query.py``) -- so an unscoped query returns the NEWEST
+        non-cancelled row for the reference, which can belong to a different
+        account than this caller's own OLDER row. Filtering that single fetched
+        row after the fact (as an earlier version of this fix did) misses the
+        caller's own draft whenever a newer row exists for a different account:
+        the wrong row is fetched, its bank_account doesn't match, and the
+        caller's own draft is never found -- the #383 defect survives in exactly
+        the collision case this scoping exists to handle. Putting bank_account
+        (and company) into the WHERE clause instead means the row returned, if
+        any, is one this caller is responsible for by construction.
+
+        A reference that matches nothing for THIS bank account -- even though
+        rows exist for other accounts -- returns None: "not processed here, go
+        create one" is the question every caller is actually asking (they are
+        each about to create/act on a Bank Transaction for a SPECIFIC account),
+        not "does this reference exist anywhere for anyone".
+
+        Returns:
+            A dict with ``name``/``docstatus`` for the matching row, or None.
+        """
+        filters = {
+            "reference_number": reference_number,
+            "docstatus": ["!=", 2],
+            "bank_account": bank_account,
+        }
+        if company is not None:
+            filters["company"] = company
+
+        return frappe.db.get_value(
+            "Bank Transaction",
+            filters,
+            ["name", "docstatus"],
+            as_dict=True,
+        )
+
+    def _resolve_existing_bank_transaction(
+        self, reference_number: str, bank_account: str, company: Optional[str] = None
+    ) -> Optional[str]:
+        """
+        Find an existing non-cancelled Bank Transaction for this reference and
+        bank account, retrying the submit if it is still a draft.
+
+        A draft can exist because an earlier caller lacked submit permission --
+        ``_create_bank_transaction`` deliberately creates in draft rather than
+        failing in that case. Without this retry, ``_check_existing_by_reference``
+        matches that draft exactly as it would a submitted one, so every later
+        caller -- including one who DOES hold submit permission -- is told the
+        reference is "already processed" and the submit is never reattempted; the
+        bank line stays unreconciled forever (#383).
+
+        See ``_find_matching_bank_transaction`` for why the lookup is scoped to
+        bank_account/company in the query rather than filtered after the fact.
+
+        Returns:
+            Bank Transaction name if one exists (submitted or still draft) for
+            THIS bank account, None otherwise.
+        """
+        existing = self._find_matching_bank_transaction(reference_number, bank_account, company)
+        if not existing:
+            return None
+
+        if existing.docstatus == 0:
+            self._try_submit_existing_draft(existing.name, reference_number)
+
+        return existing.name
+
+    def _try_submit_existing_draft(self, bt_name: str, reference_number: str) -> None:
+        """
+        Attempt to submit an existing draft Bank Transaction that matches the
+        caller's bank account/company.
+
+        Uses the same has_permission-then-submit_atomically pattern as
+        ``payment_entry_creation_service``'s graceful-degradation path (the
+        reference implementation for "an unsubmitted draft is a legitimate
+        outcome"): if the current user cannot submit, the draft is left untouched
+        for a later caller to retry; if the submit itself throws partway through
+        (e.g. ``before_submit`` clears a voucher then a validation fails),
+        ``submit_atomically`` rolls back to the savepoint so the row stays a clean
+        draft instead of a half-submitted one that no longer means "unfinished".
+
+        A deadlock/timeout (``NON_RESUMABLE_DB_ERRORS``) is re-raised rather than
+        swallowed -- the transaction is already gone at that point, and treating
+        it as "resolved" would return a Bank Transaction name backed by a
+        transaction the server discarded.
+        """
+        from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, submit_atomically
+
+        try:
+            bank_transaction = frappe.get_doc("Bank Transaction", bt_name)
+            if not frappe.has_permission("Bank Transaction", "submit", bank_transaction):
+                frappe.logger().info(
+                    f"⏭️ Existing draft Bank Transaction {bt_name} (ref: {reference_number}) "
+                    "still lacks submit permission"
+                )
+                return
+
+            submit_atomically(bank_transaction)
+            frappe.logger().info(
+                f"✅ Submitted previously-draft Bank Transaction: {bt_name} (ref: {reference_number})"
+            )
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
+        except Exception as e:
+            frappe.log_error(
+                title="Bank Transaction Draft Resubmit Error",
+                message=(
+                    f"Failed to resubmit existing draft Bank Transaction {bt_name} "
+                    f"(ref: {reference_number}): {e}"
+                ),
+            )
 
     def check_already_processed(
         self, reference_number: str, check_payment_entry: bool = False
@@ -538,7 +673,7 @@ class BankTransactionCreator:
             Bank Transaction name if created, None on failure
         """
         # Check for existing Bank Transaction first (idempotency)
-        existing_bt = self._check_existing_by_reference(reference_number)
+        existing_bt = self._resolve_existing_bank_transaction(reference_number, bank_account, company)
         if existing_bt:
             frappe.logger().info(f"⏭️ Bank Transaction already exists: {existing_bt}")
             return existing_bt
@@ -614,8 +749,16 @@ class BankTransactionCreator:
         while retry_count < max_retries:
             try:
                 # CRITICAL: Double-check for existing Bank Transaction immediately before insert
-                # This minimizes the race condition window between check and insert
-                existing_bt_name = self._check_existing_by_reference(reference_number)
+                # This minimizes the race condition window between check and insert.
+                # Scoped to bank_account/company (see _find_matching_bank_transaction) so
+                # this cannot mistake a different account's row sharing the reference for
+                # "already exists" and skip creating THIS account's transaction (#383
+                # review). Plain (non-resubmitting) check: this runs inside the
+                # deadlock/race retry loop, including right after a QueryDeadlockError,
+                # where the transaction may already be gone -- retrying a submit from
+                # here is not race detection's job.
+                existing_match = self._find_matching_bank_transaction(reference_number, bank_account, company)
+                existing_bt_name = existing_match.name if existing_match else None
                 if existing_bt_name:
                     frappe.logger().info(
                         f"⏭️ Bank Transaction already exists (caught in retry loop): {existing_bt_name}"
@@ -716,8 +859,13 @@ class BankTransactionCreator:
                     f"⏭️ Bank Transaction already created (race condition): {reference_number}"
                 )
 
-                # Query the existing Bank Transaction - it MUST exist since we got a duplicate error
-                existing_bt_name = self._check_existing_by_reference(reference_number)
+                # Query the existing Bank Transaction - it MUST exist since we got a duplicate error.
+                # Scoped to bank_account/company for the same reason as the pre-insert
+                # check above. Plain check, not a resubmit attempt: the row just committed
+                # belongs to whichever process won the race, and may be mid-submit itself
+                # (#383 review).
+                existing_match = self._find_matching_bank_transaction(reference_number, bank_account, company)
+                existing_bt_name = existing_match.name if existing_match else None
 
                 if existing_bt_name:
                     frappe.logger().info(
