@@ -863,6 +863,9 @@ def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20) -> OperationR
             processed_schedules += 1
 
         # 2. Find and clean up memberships with invalid membership types
+        # ORDER BY creation DESC: same reasoning as find_orphaned_schedules
+        # (#398) — a LIMIT with no ORDER BY is nondeterministic about which
+        # rows a capped sweep returns.
         invalid_memberships = frappe.db.sql(
             """
             SELECT name, member, membership_type, start_date, status
@@ -870,6 +873,7 @@ def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20) -> OperationR
             WHERE membership_type NOT IN ({})
             AND membership_type IS NOT NULL
             AND membership_type != ''
+            ORDER BY creation DESC
             LIMIT %s
         """.format(
                 ",".join(["%s"] * len(valid_membership_types))
@@ -951,6 +955,9 @@ def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20) -> OperationR
             processed_memberships += 1
 
         # 3. Find and clean up orphaned amendment requests
+        # ORDER BY creation DESC: same reasoning as find_orphaned_schedules
+        # (#398) — a LIMIT with no ORDER BY is nondeterministic about which
+        # rows a capped sweep returns.
         orphaned_amendments = frappe.db.sql(
             """
             SELECT ar.name, ar.member, ar.status, ar.amendment_type, ar.requested_membership_type
@@ -959,6 +966,7 @@ def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20) -> OperationR
             WHERE m.name IS NULL
             AND ar.member IS NOT NULL
             AND ar.status = 'Approved'
+            ORDER BY ar.creation DESC
             LIMIT %s
         """,
             (max_cleanup,),
