@@ -860,9 +860,10 @@ class TestDonationSubscriptionActivation(EnhancedTestCase):
         re-delivery lands back on the new-payment path -- the code says so itself.
         Asking Mollie to retry is therefore only safe if the money-side steps are
         individually idempotent. They claim to be, on the payment id:
-        `bank_transaction_creator._check_existing_by_reference` matches
-        `Bank Transaction.reference_number`, and the donation Journal Entry creator
-        matches `Journal Entry.cheque_no` (that doctype has no `reference_no`).
+        `bank_transaction_creator._find_matching_bank_transaction` (the create-time
+        gate since #383/#823) matches `Bank Transaction.reference_number`, and the
+        donation Journal Entry creator matches `Journal Entry.cheque_no` (that
+        doctype has no `reference_no`).
 
         So: fail the history write, then re-deliver cleanly, and count the rows.
         """
