@@ -195,6 +195,29 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
             # `bench run-tests`, so a warning here would be discarded entirely.
             print(f"Financial batch queue reset failed: {e}")
 
+        # VOLUNTEER-ASSIGNMENT CACHE ISOLATION: same shape as the batch-queue
+        # reset above. AssignmentQueryBuilder (services/volunteer/
+        # assignment_query_builder.py) keeps a runner-global cache in
+        # frappe.local, keyed only by volunteer NAME, documented as "cleared
+        # at end of request" but never actually cleared anywhere in
+        # production. Volunteer autoname is a format-series whose counter
+        # rolls back with everything else, so a volunteer created by an
+        # earlier (rolled-back) test can be issued the exact same name a
+        # later test's volunteer gets -- which then reads the earlier
+        # volunteer's stale cached assignments instead of running its own
+        # query. EnhancedTestCase has this reset too (see
+        # _reset_volunteer_assignment_cache there); this base class is its
+        # sibling and needs it for the same reason the batch-queue reset
+        # above does -- see #815.
+        try:
+            from verenigingen.services.volunteer.assignment_query_builder import (
+                invalidate_volunteer_assignment_cache,
+            )
+
+            invalidate_volunteer_assignment_cache()
+        except Exception as e:  # never break the test lifecycle over this
+            print(f"Volunteer assignment cache reset failed: {e}")
+
         self._test_docs = []
         self._original_session_user = frappe.session.user
         # Track test start time for error monitoring

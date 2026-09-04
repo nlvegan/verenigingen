@@ -2214,6 +2214,13 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # uncommitted setUp data. See TestFinancialBatchQueueIsolation.
         self._reset_financial_history_batch_queue()
 
+        # VOLUNTEER-ASSIGNMENT CACHE ISOLATION: AssignmentQueryBuilder's
+        # runner-global assignment cache can serve a stale result to a
+        # different Volunteer that reuses a rolled-back one's autoname. See
+        # _reset_volunteer_assignment_cache() below for the full mechanism
+        # and #815.
+        self._reset_volunteer_assignment_cache()
+
         # CLEANUP: Remove stale test data from previous test runs
         # Only run once per test class (not per method) to avoid timeout
         if not hasattr(self.__class__, "_cleanup_done"):
@@ -2647,6 +2654,18 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         except Exception as e:
             logger.warning(f"Settings restoration failed in tearDown: {e}")
 
+        # VOLUNTEER-ASSIGNMENT CACHE ISOLATION: clear again here, AFTER the
+        # drains above, not just in setUp. The drains delete records via
+        # frappe.delete_doc(), which fires on_trash/on_update hooks for
+        # Chapter Board Member / Team Member / Volunteer Activity -- any of
+        # which could re-populate the cache with data about to be rolled
+        # back. Clearing only in setUp would leave that repopulated entry for
+        # the NEXT test on a different base class (see
+        # _reset_volunteer_assignment_cache and #815). Placed after the
+        # drains and after settings restoration so nothing following it in
+        # this method can repopulate it again.
+        self._reset_volunteer_assignment_cache()
+
         super().tearDown()
 
         # LAST: warn (default) or fail (VERENIGINGEN_FAIL_ON_ERROR_LOG=1) on captured
@@ -2680,6 +2699,31 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             FinancialHistoryBatchProcessor.reset_queues()
         except Exception as e:  # pragma: no cover - defensive
             logger.warning(f"Financial batch queue reset failed: {e}")
+
+    def _reset_volunteer_assignment_cache(self):
+        """Clear AssignmentQueryBuilder's runner-global assignment cache.
+
+        The cache is keyed only by volunteer NAME and documented as "cleared at
+        end of request" (assignment_query_builder.py), but nothing actually
+        clears it -- ``invalidate_volunteer_assignment_cache()`` exists but has
+        no production callers. In a web request that's mostly harmless because
+        ``frappe.local`` is torn down between requests. In this long-lived,
+        single-process test run there is no such boundary: a Volunteer created
+        by an earlier (rolled-back) test can hand the SAME autoname to a later
+        test's Volunteer (the format-series counter rolls back together with
+        everything else), and the later test then reads the earlier volunteer's
+        stale cached assignments instead of its own. See #815.
+
+        Guarded so a failure here never breaks the test lifecycle.
+        """
+        try:
+            from verenigingen.services.volunteer.assignment_query_builder import (
+                invalidate_volunteer_assignment_cache,
+            )
+
+            invalidate_volunteer_assignment_cache()
+        except Exception as e:  # pragma: no cover - defensive
+            logger.warning(f"Volunteer assignment cache reset failed: {e}")
 
     def _drain_tracked_documents(self):
         """Delete factory-tracked documents that survived per-method rollback.

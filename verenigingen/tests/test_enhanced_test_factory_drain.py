@@ -324,6 +324,32 @@ class TestFinancialBatchQueueIsolation(EnhancedTestCase):
         )
 
 
+class TestVolunteerAssignmentCacheIsolation(EnhancedTestCase):
+    """Regression: AssignmentQueryBuilder keeps a runner-global assignment
+    cache in frappe.local, keyed only by volunteer NAME. Volunteer autoname is
+    a format-series whose counter rolls back with everything else at
+    tearDown, so a volunteer created by an earlier (rolled-back) test can be
+    issued the exact same name a later test's volunteer gets -- which then
+    reads the earlier volunteer's stale cached assignments instead of running
+    its own query. See #815 (TestVolunteer.test_add_activity).
+    """
+
+    def test_reset_clears_stale_assignment_cache_entries(self):
+        """The per-method reset empties the runner-global assignment cache."""
+        frappe.local._volunteer_assignment_cache = {
+            "STALE-VOLUNTEER:active_assignments": [{"role": "Chair"}],
+            "STALE-VOLUNTEER:complete_history": [{"role": "Chair"}],
+        }
+
+        self._reset_volunteer_assignment_cache()
+
+        self.assertEqual(
+            frappe.local._volunteer_assignment_cache,
+            {},
+            "stale assignment-cache entries must be cleared by the reset",
+        )
+
+
 class TestCapturedInsertDrain(EnhancedTestCase):
     """Regression: committed records created via RAW frappe inserts (not the
     factory) must be drained at tearDown, so they don't leak into later tests
