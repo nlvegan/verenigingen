@@ -209,6 +209,14 @@ def _ensure_bank_account(test_case):
     if not gl_account:
         return None
 
+    # Re-check keyed on the constraint ERPNext actually enforces (one Bank Account
+    # per `account`, `bank_account.py::validate_account`) rather than trusting the
+    # `{"company": ...}` probe above, which misses a Bank Account another fixture
+    # already created on this exact (unordered-picked) GL account (#443).
+    existing_on_account = frappe.db.get_value("Bank Account", {"account": gl_account}, "name")
+    if existing_on_account:
+        return existing_on_account
+
     ba = frappe.get_doc(
         {
             "doctype": "Bank Account",
@@ -216,6 +224,7 @@ def _ensure_bank_account(test_case):
             "bank": get_or_create_unknown_bank(),
             "account": gl_account,
             "company": company,
+            "is_company_account": 1,
         }
     )
     ba.insert(ignore_permissions=True)

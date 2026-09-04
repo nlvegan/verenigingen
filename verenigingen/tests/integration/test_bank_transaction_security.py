@@ -99,11 +99,25 @@ class TestBankTransactionSecurity(EnhancedTestCase):
         # Transaction raises "Company Account is mandatory".
         gl_account = self._ensure_bank_gl_account()
 
-        # Create Bank Account
+        # Reuse a Bank Account already on this GL account rather than trying to
+        # insert a second one. `ignore_if_duplicate` (previously used here) only
+        # suppresses a duplicate NAME at the DB-insert stage; it does nothing for
+        # the ValidationError `Bank Account.validate_account` raises when a
+        # `is_company_account=1` row already claims this `account` -- which the
+        # unordered EUR-leaf lookup below could return (#443).
+        existing = frappe.db.get_value("Bank Account", {"account": gl_account}, "name")
+        if existing:
+            return existing
+
+        # Create Bank Account. account_name is company-scoped, not the bare
+        # literal "Test Bank Account": that exact docname ("Test Bank Account -
+        # Test Bank") is also used, unguarded by `account`, by
+        # tests/backend/components/test_banking_import.py, so a fixed literal here
+        # risked a DuplicateEntryError race between the two files (#443).
         bank_account = frappe.get_doc(
             {
                 "doctype": "Bank Account",
-                "account_name": "Test Bank Account",
+                "account_name": f"Test Bank Account - {self.company_name}",
                 "bank": "Test Bank",
                 "account": gl_account,
                 "company": self.company_name,
@@ -111,23 +125,24 @@ class TestBankTransactionSecurity(EnhancedTestCase):
                 "is_company_account": 1,
             }
         )
-        bank_account.insert(ignore_permissions=True, ignore_if_duplicate=True)
+        bank_account.insert(ignore_permissions=True)
         return bank_account.name
 
     def _ensure_bank_gl_account(self):
-        """Return a non-group EUR GL Account of type Bank for the test company.
+        """Return the non-group EUR GL Account of type Bank this class owns, by NAME.
 
         The Bank Transaction creator defaults the transaction currency to EUR,
         so the linked GL account must also be EUR to avoid a currency mismatch.
+
+        Owned by a fixed account_name rather than borrowed as "any Bank-type EUR
+        leaf of the company": the unscoped-by-identity borrow this replaced could
+        resolve to a GL account another fixture already claims a Bank Account on
+        (e.g. a gateway clearing account), which then made the `is_company_account=1`
+        insert above throw in `setUp` for every test in this class (#443).
         """
         existing = frappe.db.get_value(
             "Account",
-            {
-                "account_type": "Bank",
-                "is_group": 0,
-                "company": self.company_name,
-                "account_currency": "EUR",
-            },
+            {"account_name": "Test Bank GL EUR", "company": self.company_name, "is_group": 0},
             "name",
         )
         if existing:

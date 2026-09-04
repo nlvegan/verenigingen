@@ -3,7 +3,7 @@ import unittest
 import frappe
 from frappe.utils import today
 
-from verenigingen.tests.support.sepa_test_company import ensure_default_gl_bank_account, get_eur_test_company
+from verenigingen.tests.support.sepa_test_company import get_eur_bank_account, get_eur_test_company
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation import (
     PaymentReconciliationManager,
@@ -66,34 +66,21 @@ class TestSEPAReconciliation(VereningingenTestCase):
                     "is_active": 1}
             ).insert()
 
-        # Ensure a Bank master exists (Bank Account.bank is a required Link to Bank,
-        # and the test site may have no Bank records).
-        bank_name = frappe.db.get_value("Bank", {"name": ["!=", ""]}, "name")
-        if not bank_name:
-            bank_name = frappe.get_doc({"doctype": "Bank", "bank_name": "Test Recon Bank"}).insert().name
-
         # Scope the GL account to the EUR test company. A Bank account picked from an
         # arbitrary company could be non-EUR under parallel load, which would then
         # clash with the EUR Bank Transactions the tests create ("Transaction currency
-        # cannot be different from Bank Account currency"). `ensure_default_gl_bank_account`
-        # owns this by NAME rather than borrowing "any Bank-type leaf of this company" by
-        # recency -- the `or` fallback this replaced dropped the company scope entirely
-        # on a site with none yet, which is the exact failure the comment above warns
-        # about (#583).
+        # cannot be different from Bank Account currency").
         eur_company = get_eur_test_company()
-        bank_gl_account = ensure_default_gl_bank_account(eur_company)
 
-        # Create test bank account
-        if not frappe.db.exists("Bank Account", "TEST-RECON-BANK"):
-            cls.test_bank_account = frappe.get_doc(
-                {
-                    "doctype": "Bank Account",
-                    "account_name": "Test Recon Bank Account",
-                    "bank": bank_name,
-                    "account": bank_gl_account}
-            ).insert()
-        else:
-            cls.test_bank_account = frappe.get_doc("Bank Account", "TEST-RECON-BANK")
+        # Reuse the shared EUR Bank Account `get_eur_bank_account` owns, keyed on the
+        # GL account ERPNext actually constrains (one Bank Account per `account`,
+        # `bank_account.py::validate_account`). The guard this replaced --
+        # `frappe.db.exists("Bank Account", "TEST-RECON-BANK")` -- checked a docname
+        # that never matched `Bank Account.autoname` (`account_name + " - " + bank`,
+        # no company component), so it never actually guarded anything and the `else`
+        # branch (`frappe.get_doc("Bank Account", "TEST-RECON-BANK")`) was dead code
+        # that would have raised DoesNotExistError had it ever been reached (#443).
+        cls.test_bank_account = frappe.get_doc("Bank Account", get_eur_bank_account(eur_company))
 
     @classmethod
     def tearDownClass(cls):
@@ -109,9 +96,10 @@ class TestSEPAReconciliation(VereningingenTestCase):
         if cls.test_customer and frappe.db.exists("Customer", cls.test_customer.name):
             frappe.delete_doc("Customer", cls.test_customer.name, force=True)
 
-        # Delete test bank account
-        if hasattr(cls, "test_bank_account") and frappe.db.exists("Bank Account", cls.test_bank_account.name):
-            frappe.delete_doc("Bank Account", cls.test_bank_account.name, force=True)
+        # `cls.test_bank_account` is now the shared EUR Bank Account
+        # `get_eur_bank_account` owns (#443) -- this class must not delete a
+        # fixture it doesn't own, or it takes the row away from every other
+        # suite that reuses it in the same shard.
 
         frappe.db.commit()
 

@@ -127,6 +127,19 @@ class _BulkImporterSweepBase(EnhancedTestCase):
             bank.insert(ignore_permissions=True)
 
         gl_account = cls._persist_bank_gl_account(company)
+
+        # Re-check keyed on the constraint ERPNext actually enforces (one Bank
+        # Account per `account`, `bank_account.py::validate_account`) rather than
+        # trusting the `{"company": ...}` probe above, which misses a Bank Account
+        # another fixture already created on this exact (unordered-picked) GL
+        # account. Without this, the `is_company_account=1` insert below can throw
+        # in `setUpClass` and kill the whole class -- measured live on
+        # `test_site_1`: `_persist_bank_gl_account`'s borrow resolves the GL
+        # account a pre-existing squatter Bank Account already sits on (#443).
+        existing_on_account = frappe.db.get_value("Bank Account", {"account": gl_account}, "name")
+        if existing_on_account:
+            return existing_on_account
+
         ba = frappe.new_doc("Bank Account")
         # Bank Account.autoname is ``account_name + " - " + bank`` with NO company
         # component (erpnext bank_account.py), so a fixed account_name is a GLOBAL
