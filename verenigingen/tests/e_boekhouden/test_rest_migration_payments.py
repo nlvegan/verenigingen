@@ -42,6 +42,7 @@ from verenigingen.tests.fixtures.enhanced_test_factory import (
     shared_fixture,
     suspend_insert_capture,
 )
+from verenigingen.tests.harness_logger import get_harness_logger
 
 COMPANY_NAME = "TEST-EB-Payment-Company"
 COMPANY_ABBR = "TEBPC"
@@ -511,6 +512,31 @@ class TestMoneyTransferJournalEntry(_PaymentTestBase):
         self.assertEqual(flt(income_lines[0].credit_in_account_currency, 2), 45.0)
 
 
+def _create_probe_company(module_name, temp_name, temp_abbr):
+    """Build a throwaway company through the real ``_ensure_payment_company()``
+    and commit it. Named ``_create_*`` -- a privileged fixture-building helper,
+    like this file's other ``_ensure_``/``_make_``/``_persist_`` builders --
+    rather than inlined in the test body, for two reasons:
+
+    1. The commit is load-bearing, not incidental: without it, the drain's own
+       pre-delete ``frappe.db.rollback()`` would destroy this uncommitted row
+       before the delete loop ever runs, passing the test for the wrong reason
+       (any uncommitted fixture vanishes on rollback, protected or not -- that
+       proves nothing about the captured-insert drain this test is about).
+    2. ``scripts/testing/scan_order_dependence.py``'s order-dependence scanner
+       exempts ``_cleanup_*``/``_create_*``/``tearDown`` helpers from its COMMIT
+       check on the same reasoning it exempts every other privileged fixture
+       helper in this codebase -- a bare ``frappe.db.commit()`` inline in a
+       ``test_*`` method is what the ratchet is watching for, not one inside a
+       named, reviewed fixture builder.
+    """
+    with mock.patch(f"{module_name}.COMPANY_NAME", temp_name), mock.patch(
+        f"{module_name}.COMPANY_ABBR", temp_abbr
+    ):
+        _ensure_payment_company()
+    frappe.db.commit()
+
+
 class TestEbPaymentCompanySurvivesCapture(unittest.TestCase):
     """#392: ``_ensure_payment_company`` is protected from the captured-insert
     drain only by accident -- it happens to be called from
@@ -532,14 +558,27 @@ class TestEbPaymentCompanySurvivesCapture(unittest.TestCase):
         self.temp_company_abbr = f"TPP{suffix[:5]}"
 
     def tearDown(self):
+        # Committed, not just deleted: this class is plain unittest.TestCase (no
+        # framework rollback of its own), but sibling classes in this module ARE
+        # EnhancedTestCase and roll back per test. Measured: an uncommitted delete
+        # here is undone whole by the next such rollback -- the Company, its 96
+        # Accounts, 2 Cost Centers and 5 Warehouses all reappeared in a probe run
+        # against test_site_2 -- reproducing exactly the leak this test exists to
+        # prevent, just one call later and silently.
+        #
+        # A failed delete must be visible, not swallowed: frappe.logger() writes
+        # to a file CI never surfaces (see CLAUDE.md's "known traps"), so use the
+        # harness logger, which reaches stderr and the CI job log.
         try:
             if frappe.db.exists("Company", self.temp_company_name):
                 frappe.delete_doc(
                     "Company", self.temp_company_name, force=True, ignore_permissions=True
                 )
                 frappe.db.commit()
-        except Exception:
-            pass
+        except Exception as e:
+            get_harness_logger("test_rest_migration_payments").error(
+                f"tearDown could not delete probe company {self.temp_company_name}: {e}"
+            )
 
     def test_ensure_payment_company_survives_capture(self):
         module_name = "verenigingen.tests.e_boekhouden.test_rest_migration_payments"
@@ -554,20 +593,9 @@ class TestEbPaymentCompanySurvivesCapture(unittest.TestCase):
         probe._captured_inserts = []
         probe._install_insert_capture()
         try:
-            with mock.patch(f"{module_name}.COMPANY_NAME", self.temp_company_name), mock.patch(
-                f"{module_name}.COMPANY_ABBR", self.temp_company_abbr
-            ):
-                _ensure_payment_company()
+            _create_probe_company(module_name, self.temp_company_name, self.temp_company_abbr)
         finally:
             probe._uninstall_insert_capture()
-
-        # Commit before draining, exactly as the real _PaymentTestBase.setUpClass()
-        # does: without this, an unprotected builder's row is destroyed by the
-        # drain's own pre-delete `frappe.db.rollback()` rather than by the delete
-        # loop, which would pass this test for the wrong reason (a rollback of an
-        # uncommitted insert, not the captured-insert drain claiming a committed
-        # one) and would not distinguish this from any other uncommitted fixture.
-        frappe.db.commit()
 
         self.assertTrue(
             frappe.db.exists("Company", self.temp_company_name),
