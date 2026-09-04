@@ -873,11 +873,14 @@ class _MembershipApplication {
 	}
 
 	getSelectedVolunteerInterests() {
-		const interests = [];
-		$('#volunteer-interests input[type="checkbox"]:checked').each(function () {
-			interests.push($(this).val());
-		});
-		return interests;
+		// The page renders these as `name="volunteer_areas[]"` checkboxes
+		// (apply_for_membership.html); there is no `#volunteer-interests`
+		// element on this page. Values are stable short codes (not the
+		// translated label), so this stays i18n-safe. Native DOM APIs
+		// (mirroring getVolunteerSkills() below, #409) keep this testable
+		// under jest's incomplete jQuery stub.
+		const checked = document.querySelectorAll('input[name="volunteer_areas[]"]:checked');
+		return Array.from(checked).map((box) => box.value);
 	}
 
 	getVolunteerSkills() {
@@ -3586,10 +3589,14 @@ class VolunteerStep extends BaseStep {
 	}
 
 	getData() {
-		const interests = [];
-		$('#volunteer-interests input[type="checkbox"]:checked').each(function () {
-			interests.push($(this).val());
-		});
+		// Same fix as _MembershipApplication.getSelectedVolunteerInterests()
+		// above (#410): `#volunteer-interests` is not an id the page renders.
+		// This method's own output is currently superseded by
+		// collectFormDataDirectly() at submission time (see getAllFormData()),
+		// but that merge order is not something to depend on, so this reader
+		// gets the same fix rather than being left as a second broken copy.
+		const checked = document.querySelectorAll('input[name="volunteer_areas[]"]:checked');
+		const interests = Array.from(checked).map((box) => box.value);
 
 		return {
 			interested_in_volunteering: $('#interested_in_volunteering').is(':checked'),
