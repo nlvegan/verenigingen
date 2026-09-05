@@ -353,6 +353,7 @@ COMMIT_EXEMPT tests/e_boekhouden/test_rest_migration_payments.py::2  # order-dep
 COMMIT_EXEMPT tests/e_boekhouden/test_rest_orchestration_batch.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/e_boekhouden/test_rest_orchestration_start.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/e_boekhouden/test_settings.py::2  # order-dep-exempt
+COMMIT_EXEMPT tests/fixtures/test_membership_type_amount_sync.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/integration/services/test_coverage_calculator_module.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/integration/services/test_cutoff_date_calculations.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/integration/test_account_creation_service_orchestration.py::1  # order-dep-exempt
@@ -394,7 +395,7 @@ COMMIT_EXEMPT tests/services/event_application/test_mapping_service.py::1  # ord
 COMMIT_EXEMPT tests/services/event_application/test_member_sync_service.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/services/event_application/test_related_records_orchestrator.py::9  # order-dep-exempt
 COMMIT_EXEMPT tests/services/event_application/test_termination_sync_service.py::3  # order-dep-exempt
-COMMIT_EXEMPT tests/services/event_application/test_volunteer_sync_service.py::25  # order-dep-exempt
+COMMIT_EXEMPT tests/services/event_application/test_volunteer_sync_service.py::27  # order-dep-exempt
 COMMIT_EXEMPT tests/services/payment/test_pain002_ingestion.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/services/payment/test_sepa_upload_guard.py::3  # order-dep-exempt
 COMMIT_EXEMPT tests/services/payment/test_sepa_upload_integration.py::5  # order-dep-exempt
