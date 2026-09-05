@@ -424,21 +424,6 @@ class TestMemberUtilsEndpoints(VereningingenTestCase):
         result = mu.debug_postal_code_matching("")
         self.assertIn("error", result)
 
-    def _unwrap(self, fn):
-        """Return the undecorated business function.
-
-        ``find_chapter_by_postal_code`` is wrapped by
-        ``@frappe.whitelist(allow_guest=True)`` + ``@public_api``, whose
-        audit/rate-limit machinery issues a fixed, N-independent number of
-        extra queries. Those are constant overhead, not the N+1 under test,
-        so the query-count assertion measures the bare business function
-        (reached via ``__wrapped__``), matching the precedent in
-        ``tests/sepa/test_sepa_performance_optimization.py``.
-        """
-        while hasattr(fn, "__wrapped__"):
-            fn = fn.__wrapped__
-        return fn
-
     def test_find_chapter_by_postal_code_query_count_does_not_scale_with_chapters(self):
         """#845: find_chapter_by_postal_code used to frappe.get_doc() every
         published chapter just to call matches_postal_code() -- a per-row
@@ -467,7 +452,16 @@ class TestMemberUtilsEndpoints(VereningingenTestCase):
                 published=1,
             )
 
-        business_fn = self._unwrap(mu.find_chapter_by_postal_code)
+        # find_chapter_by_postal_code is wrapped by
+        # @frappe.whitelist(allow_guest=True) + @public_api, whose
+        # audit/rate-limit machinery issues a fixed, N-independent number of
+        # extra queries. Those are constant overhead, not the N+1 under
+        # test, so measure the bare business function (reached via
+        # __wrapped__), matching the precedent in
+        # tests/sepa/test_sepa_performance_optimization.py.
+        business_fn = mu.find_chapter_by_postal_code
+        while hasattr(business_fn, "__wrapped__"):
+            business_fn = business_fn.__wrapped__
 
         # 1 query for the bulk Chapter fetch + 1 for the settings check --
         # must NOT scale with the number of chapters (measured: unfixed code
