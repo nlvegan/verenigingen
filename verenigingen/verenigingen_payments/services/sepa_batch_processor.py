@@ -1001,19 +1001,49 @@ class SEPABatchProcessor:
     # Dues Schedule Helpers
     # =========================================================================
 
+    def _get_max_invoice_days_before_lookahead(self, filters):
+        """Widest invoice_days_before configured on any candidate schedule.
+
+        The next_invoice_date filter below narrows candidates before the
+        per-schedule invoice_days_before check ever runs. A hardcoded 30-day
+        window here silently dropped schedules configured with a wider
+        lookahead (#204): their next_invoice_date could sit outside the
+        hardcoded window while still being genuinely due once their own
+        invoice_days_before was applied. Basing the window on the actual
+        configured values keeps this fetch a superset of what the
+        per-schedule Python filter below will accept.
+
+        invoice_days_before=0 is a deliberate value (see
+        membership_dues_integration.py, immediate invoicing for new
+        members), not a "not configured" sentinel - but the per-schedule
+        Python filter below still treats it like None, via
+        ``schedule.invoice_days_before or 30``. The window is floored at 30
+        so that fallback stays covered regardless of what the widest
+        explicitly-configured value is.
+        """
+        widest = frappe.get_all(
+            "Membership Dues Schedule",
+            filters=filters,
+            fields=["invoice_days_before"],
+            order_by="invoice_days_before desc",
+            limit=1,
+        )
+        max_days = widest[0].invoice_days_before if widest else None
+        return max(max_days or 30, 30)
+
     def get_eligible_dues_schedules(self, collection_date):
         """Get membership dues schedules eligible for collection"""
-        # Calculate the date range for eligible schedules
-        # We want to collect dues that are due within the invoice_days_before period
-        max_due_date = add_days(collection_date, 30)  # Default 30 days lookahead
-
         filters = {
             "status": "Active",
             "auto_generate": 1,
             "test_mode": 0,
             "payment_terms_template": "SEPA Direct Debit",
-            "next_invoice_date": ["<=", max_due_date],
         }
+
+        # Calculate the date range for eligible schedules
+        # We want to collect dues that are due within the invoice_days_before period
+        max_due_date = add_days(collection_date, self._get_max_invoice_days_before_lookahead(filters))
+        filters["next_invoice_date"] = ["<=", max_due_date]
 
         schedules = frappe.get_all(
             "Membership Dues Schedule",

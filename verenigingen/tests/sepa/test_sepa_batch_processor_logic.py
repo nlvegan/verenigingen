@@ -388,6 +388,54 @@ class TestSEPABatchProcessorIntegration(EnhancedTestCase):
         names = [s.name for s in eligible]
         self.assertNotIn(schedule.name, names)
 
+    def test_get_eligible_dues_schedules_honours_invoice_days_before_beyond_30(self):
+        """The method's own comment says the lookahead is driven by
+        invoice_days_before, but the initial DB query hardcoded a 30-day
+        max_due_date (#204). A schedule due 40 days out with
+        invoice_days_before=45 is genuinely eligible today (40 <= 45) but was
+        silently dropped before the SQL filter ever reached the per-schedule
+        Python check, because 40 > the hardcoded 30-day window."""
+        member = self._member_with_membership("1998-09-09")
+        self.factory.create_test_sepa_mandate(member=member.name, status="Active")
+        schedule = self._sepa_schedule(
+            member.name, next_invoice_date=add_days(today(), 40), invoice_days_before=45
+        )
+        eligible = self.processor.get_eligible_dues_schedules(today())
+        names = [s.name for s in eligible]
+        self.assertIn(schedule.name, names)
+
+    def test_max_invoice_days_before_lookahead_floors_at_30_despite_zero_values(self):
+        """invoice_days_before=0 is a deliberate "invoice immediately" value
+        (see membership_dues_integration.py, used for new members), not a
+        not-configured sentinel - but the per-schedule Python filter in
+        get_eligible_dues_schedules still treats it like None, via
+        `schedule.invoice_days_before or 30`. So MAX(invoice_days_before)
+        across candidates is the wrong quantity whenever every OTHER
+        candidate configures something narrower than 30: it must still floor
+        at 30 to stay a superset of that fallback.
+
+        Exercises the helper directly (rather than through
+        get_eligible_dues_schedules) with an added `member in (...)` filter,
+        scoping the aggregate MAX to just these two schedules - test_site_2
+        carries leftover schedules from unrelated runs that would otherwise
+        mask this assertion (a real MAX=30 row already present regardless of
+        this fix)."""
+        zero_member = self._member_with_membership("1999-10-10")
+        self._sepa_schedule(zero_member.name, invoice_days_before=0)
+
+        narrow_member = self._member_with_membership("1999-11-11")
+        self._sepa_schedule(narrow_member.name, invoice_days_before=15)
+
+        filters = {
+            "status": "Active",
+            "auto_generate": 1,
+            "test_mode": 0,
+            "payment_terms_template": "SEPA Direct Debit",
+            "member": ["in", [zero_member.name, narrow_member.name]],
+        }
+        lookahead = self.processor._get_max_invoice_days_before_lookahead(filters)
+        self.assertEqual(lookahead, 30)
+
     # --- generate_invoice_description ---------------------------------------
 
     def test_generate_invoice_description_includes_coverage_and_frequency(self):
