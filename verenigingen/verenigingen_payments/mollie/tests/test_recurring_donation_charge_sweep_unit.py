@@ -88,7 +88,11 @@ class _SweepTestBase(EnhancedTestCase):
     def setUp(self):
         super().setUp()
         self.ensure_mode_of_payment("iDEAL")
-        self.company = frappe.get_list("Company", limit=1)[0].name
+        # `_get_test_company()` picks a harness-OWNED company by name (and lazily
+        # builds its chart of accounts, marked `@shared_fixture` so the cleanup
+        # drain never claims it) instead of borrowing whatever Company row a
+        # sibling file in the same CI shard happened to leave behind -- see #299.
+        self.company = self._get_test_company()
 
     def _create_donation(self, **kwargs):
         donor = self.create_test_donor(donor_email=f"sweep.{frappe.generate_hash(length=8)}@example.org")
