@@ -279,17 +279,22 @@ def run_self_check():
 
     #851 (a file path) and #825 (a renamed helper) both let a run that had checked
     nothing look identical to a run that found a clean tree. This scans
-    ``_CONTROL_SOURCE`` -- written to a real temp file and read back through the same
-    ``discover_findings()`` codepath a normal CLI invocation uses, file-path handling
-    included -- and demands all three kinds come back. If any are missing, the
-    scanner itself (not the tree) is broken: exit loudly here rather than proceed to
-    print a possibly-fake "0 findings".
+    ``_CONTROL_SOURCE`` -- written to a real temp file under a temp DIRECTORY, read
+    back through ``discover_findings(tmp)`` -- the ``os.walk`` + ``fn.startswith
+    ("test_")`` codepath every real (directory) invocation actually uses, CI
+    included -- and demands all three kinds come back. Scanning the control *file*
+    path directly would take the ``os.path.isfile`` shortcut instead and never
+    touch that filter at all, which is exactly the gap a skeptical review found:
+    mutating the filter alone left this check green while a real directory scan
+    silently returned zero. If any kind is missing, the scanner itself (not the
+    tree) is broken: exit loudly here rather than proceed to print a possibly-fake
+    "0 findings".
     """
     with tempfile.TemporaryDirectory() as tmp:
         control_path = os.path.join(tmp, "test_order_dependence_control.py")
         with open(control_path, "w", encoding="utf-8") as fh:
             fh.write(_CONTROL_SOURCE)
-        findings = discover_findings(control_path)
+        findings = discover_findings(tmp)
     kinds = {f.kind for f in findings}
     missing = _CONTROL_EXPECTED_KINDS - kinds
     if missing:

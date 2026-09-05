@@ -200,6 +200,45 @@ class SelfCheckControlTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             module.run_self_check()
 
+    def test_self_check_catches_a_broken_directory_walk_filter(self):
+        # Skeptical review of #910: run_self_check() used to scan the control via
+        # discover_findings(control_path) -- a FILE path, which takes the
+        # os.path.isfile branch straight into scan_file() and never touches the
+        # os.walk + fn.startswith("test_") filter every real (directory) invocation
+        # uses. A typo in that filter alone left the self-check green while a real
+        # directory scan with genuine findings silently returned "Total findings: 0".
+        # Reproduce that exact mutation end-to-end and require the self-check to
+        # catch it now that it scans the control through a real directory.
+        with open(SCANNER, encoding="utf-8") as fh:
+            src = fh.read()
+        old = 'if fn.startswith("test_") and fn.endswith(".py"):'
+        self.assertEqual(src.count(old), 1, "expected filter line not found -- scanner changed shape")
+        broken = src.replace(old, 'if fn.startswith("ZZZ_NEVER_MATCHES_") and fn.endswith(".py"):')
+        with tempfile.TemporaryDirectory() as tmp:
+            broken_path = os.path.join(tmp, "scan_order_dependence_broken.py")
+            with open(broken_path, "w", encoding="utf-8") as fh:
+                fh.write(broken)
+            # A real target directory with genuine findings, scanned by the broken
+            # scanner: this must NOT be allowed to fall through to a clean report.
+            target = os.path.join(tmp, "target")
+            os.makedirs(target)
+            self._write(
+                target, "test_probe.py",
+                "import frappe\n\n\ndef test_a():\n    frappe.db.commit()\n",
+            )
+            result = subprocess.run(
+                [sys.executable, broken_path, target], capture_output=True, text=True,
+            )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("SELF-CHECK FAILED", result.stdout + result.stderr)
+        self.assertNotIn("Total findings", result.stdout)
+
+    def _write(self, tmp, name, body):
+        path = os.path.join(tmp, name)
+        with open(path, "w") as fh:
+            fh.write(body)
+        return path
+
     def test_main_refuses_to_scan_when_self_check_fails(self):
         # End-to-end: a scanner whose control no longer fires must exit non-zero and
         # print the self-check failure -- never fall through to "Total findings: 0".
