@@ -845,11 +845,24 @@ class BankTransactionCreator:
                     )
                     return bank_transaction.name
                 else:
-                    # Document created but not submitted (draft state)
-                    frappe.logger().info(
-                        f"✅ Created Bank Transaction (draft): {bank_transaction.name} "
-                        f"(ref: {reference_number}) - user lacks submit permission"
-                    )
+                    # See #385: a failed submit is NOT necessarily "still a
+                    # draft" -- db_update() can have already flipped docstatus
+                    # to 1 before an on_submit hook raised. Report what
+                    # partial_write actually found rather than assuming the
+                    # cause was a missing permission (allow_system_user=False
+                    # above makes that the common case, but not the only one).
+                    if submit_result.partial_write:
+                        frappe.logger().error(
+                            f"⚠️ Bank Transaction {bank_transaction.name} (ref: {reference_number}) "
+                            f"has persisted docstatus={submit_result.persisted_docstatus} despite "
+                            f"a failed submit: {'; '.join(submit_result.errors)}"
+                        )
+                    else:
+                        frappe.logger().info(
+                            f"✅ Created Bank Transaction (draft): {bank_transaction.name} "
+                            f"(ref: {reference_number}) - submit did not complete: "
+                            f"{'; '.join(submit_result.errors) if submit_result.errors else 'user likely lacks submit permission'}"
+                        )
                     return bank_transaction.name
 
             except (DuplicateEntryError, frappe.UniqueValidationError) as dup_error:

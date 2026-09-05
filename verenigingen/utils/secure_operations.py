@@ -43,7 +43,7 @@ from typing import Dict, List
 
 import frappe
 from frappe import _
-from frappe.utils import now_datetime
+from frappe.utils import cint, now_datetime
 
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import (
@@ -299,6 +299,22 @@ class SecureOperationResult:
         self.doc_name = None
         self.document = None  # Add document reference
         self.duration = 0.0
+        # See #385: on a failure, `success=False` alone cannot tell a caller
+        # whether nothing was persisted (safe to retry) from a write that
+        # already landed (e.g. submit flips docstatus to 1, then a
+        # downstream hook like GL posting throws). These are populated only
+        # on the failure path -- None/False mean "not applicable", not
+        # "clean failure" -- so a caller must check `success` first.
+        #
+        # SCOPE: this detects a DOCSTATUS transition only (submit 0->1,
+        # cancel 1->2), read from the SAME, still-open transaction -- i.e.
+        # "written in this transaction", not "committed" (a caller whose own
+        # exception handler rolls back, e.g. via frappe.throw, makes this
+        # moot). It does NOT cover a failed create/save whose row (or child
+        # rows) landed without a docstatus change -- that is a real, distinct
+        # partial-write shape this flag cannot see; see #385 follow-up.
+        self.persisted_docstatus = None
+        self.partial_write = False
 
     @property
     def doc(self):
@@ -749,6 +765,30 @@ def secure_user_context_with_validation(target_user: str, operation_description:
                 frappe.session.sid = original_session_data["sid"]
 
 
+def _read_persisted_docstatus_best_effort(doctype, name):
+    """Best-effort read of a document's current DB docstatus, for the #385
+    partial-write comparison. MUST NOT raise: this is a diagnostic signal,
+    not the operation itself, and a caller can legitimately pass a doc whose
+    `.doctype`/`.name` are not real strings (a test double standing in for a
+    real document -- see test_setup_password_policy_new, which regressed
+    exactly this way against a MagicMock). Real Singles are fine here
+    (measured: frappe.db.exists("System Settings", "System Settings") and
+    get_value(..., "docstatus") both behave normally, docstatus reads 0) --
+    this guard is for non-document inputs, not Singles specifically.
+
+    Returns None when the row cannot be determined to exist or read (missing
+    doctype/name, DocType not registered, a mock, or any other failure).
+    """
+    if not isinstance(doctype, str) or not name:
+        return None
+    try:
+        if not frappe.db.exists(doctype, name):
+            return None
+        return frappe.db.get_value(doctype, name, "docstatus")
+    except Exception:  # swallow-ok: best-effort
+        return None
+
+
 def secure_document_operation(
     operation: str,
     doc,
@@ -794,7 +834,16 @@ def secure_document_operation(
             path (this bypasses it entirely).
 
     Returns:
-        SecureOperationResult with success status and audit information
+        SecureOperationResult with success status and audit information. On a
+        failure (success=False), check `.partial_write` and
+        `.persisted_docstatus` before treating it as a clean no-op: an
+        operation whose docstatus changed despite failing (e.g. a submit that
+        flipped docstatus to 1 before a downstream hook raised) sets
+        `partial_write=True` and `persisted_docstatus` to the value read back
+        from the DB in the still-open transaction, distinguishing it from a
+        failure that left docstatus unchanged (see #385). This does NOT cover
+        a failed create/save whose row landed without a docstatus change --
+        that is a separate, uncovered partial-write shape (see #385 follow-up).
 
     Raises:
         frappe.ValidationError: If justification is invalid
@@ -804,6 +853,20 @@ def secure_document_operation(
     operation_id = f"{operation}_{doc.doctype}_{int(time.time() * 1000)}"
     start_time = time.time()
     original_user = frappe.session.user
+    # See #385: snapshot the docstatus the document carried BEFORE the
+    # operation, so a failure handler can tell "nothing changed" from
+    # "the write partially landed" by comparing against what actually
+    # persisted. Read from the DB when the row already exists rather than
+    # trusting doc.docstatus in memory -- an in-memory doc can be stale
+    # (loaded earlier, reloaded elsewhere, or mutated by the caller without
+    # saving), which would otherwise skew the comparison in either direction.
+    # This read is best-effort (see _read_persisted_docstatus_best_effort) and
+    # runs BEFORE the try/except below, so it must never itself raise.
+    pre_operation_docstatus = _read_persisted_docstatus_best_effort(
+        getattr(doc, "doctype", None), getattr(doc, "name", None)
+    )
+    if pre_operation_docstatus is None:
+        pre_operation_docstatus = getattr(doc, "docstatus", None)
 
     # Step 0: Validate justification upfront for audit compliance
     validated_justification = validate_justification(justification, operation)
@@ -966,12 +1029,54 @@ def secure_document_operation(
     except Exception as e:
         # Capture full traceback for debugging
         error_traceback = frappe.get_traceback()
+
+        # See #385: Document.save() writes db_update() (which flips
+        # docstatus for a submit) BEFORE run_post_save_methods() invokes
+        # on_submit -- so a submit whose on_submit hook raises (e.g. a
+        # Journal Entry's GL posting hitting a group account) has already
+        # persisted docstatus=1 to the DB by the time we land here. Re-read
+        # the actual persisted state rather than trusting doc.docstatus in
+        # memory, so the caller can distinguish a clean failure (nothing
+        # written) from a partial write.
+        doc_name = getattr(doc, "name", None)
+        persisted_docstatus = _read_persisted_docstatus_best_effort(getattr(doc, "doctype", None), doc_name)
+
+        result.persisted_docstatus = persisted_docstatus
+        result.partial_write = (
+            persisted_docstatus is not None
+            and pre_operation_docstatus is not None
+            and cint(persisted_docstatus) != cint(pre_operation_docstatus)
+        )
+
+        # A caller reading partial_write=True needs to be able to NAME the
+        # row -- these are only set on the success branches above otherwise,
+        # leaving a partial-write result with document=None/doc_name=None.
+        if doc_name:
+            result.doc_name = doc_name
+            result.document = doc
+
+        if result.partial_write:
+            result.add_warning(
+                f"PARTIAL_WRITE: {doc.doctype} {doc_name} has persisted docstatus="
+                f"{persisted_docstatus} (was {pre_operation_docstatus}) despite the "
+                f"'{operation}' operation failing. Downstream effects of that state "
+                "change (e.g. ledger postings) may be incomplete -- this is NOT a "
+                "clean failure that can simply be retried; check whether "
+                "compensation or manual reconciliation is required."
+            )
+
         result.add_error(f"Operation failed: {str(e)}")
         result.add_audit_entry(
             "operation_failed",
             doc.doctype,
-            getattr(doc, "name", "new"),
-            {"error": str(e), "operation": operation, "traceback": error_traceback},
+            doc_name or "new",
+            {
+                "error": str(e),
+                "operation": operation,
+                "traceback": error_traceback,
+                "persisted_docstatus": persisted_docstatus,
+                "partial_write": result.partial_write,
+            },
         )
 
         frappe.logger().error(

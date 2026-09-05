@@ -19,6 +19,7 @@ from frappe.utils import flt, getdate, nowdate
 
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.verenigingen_payments.services.journal_entry_booking_support import (
+    discard_unposted_journal_entry,
     find_journal_entry_by_reference,
     reconcile_bank_transaction_with_journal_entry,
 )
@@ -389,16 +390,27 @@ class DonationJournalEntryCreator:
                 allow_system_user=True,
             )
 
-            if submit_result.success:
-                frappe.logger().info(
-                    f"Created and submitted Journal Entry {je.name} for donation {donation_name}"
+            if not submit_result.success:
+                # See #385: a failed submit does NOT leave a draft. db_update()
+                # already wrote docstatus=1 before on_submit (GL posting) threw,
+                # so the entry can be sitting there one-sided and still claiming
+                # this reference for find_journal_entry_by_reference(). Undo it
+                # the same way the refund/reversal siblings in this package do.
+                return discard_unposted_journal_entry(
+                    je.name,
+                    subject=f"donation {donation_name}",
+                    error_message=(
+                        ", ".join(submit_result.errors) if submit_result.errors else "Unknown error"
+                    ),
                 )
 
-                # Reconcile Bank Transaction with this Journal Entry
-                if bank_transaction_name:
-                    reconcile_bank_transaction_with_journal_entry(bank_transaction_name, je.name, flt(amount))
-            else:
-                frappe.logger().info(f"Created Journal Entry {je.name} (draft) for donation {donation_name}")
+            frappe.logger().info(
+                f"Created and submitted Journal Entry {je.name} for donation {donation_name}"
+            )
+
+            # Reconcile Bank Transaction with this Journal Entry
+            if bank_transaction_name:
+                reconcile_bank_transaction_with_journal_entry(bank_transaction_name, je.name, flt(amount))
 
             return je.name
 
