@@ -680,6 +680,20 @@ class Chapter(Document):
             # Donor -> Member -> Volunteer: alphabetical, and already what every other
             # multi-lock path does. Measured in tests/unit/test_history_lock_order.py.
             # #459.
+            #
+            # prelock_members_for_save takes every Member-row lock this save's
+            # handle_member_* passes will need, in ONE sorted pass, EXACTLY ONCE
+            # (#885) -- it used to also be called defensively from inside both
+            # handle_member_changes and handle_member_additions, which was correct
+            # (idempotent, no-op re-lock) but re-issued a `SELECT ... FOR UPDATE`
+            # round-trip per Member on every save, one extra pass per redundant call
+            # site. Measured on test_bulk_member_operations_performance (10 members,
+            # one Chapter.save()): 277 queries with both in-handler calls, 267 with
+            # only this one -- exactly the 10-query cost of the one pass removed.
+            # Tripped the query-count gate (260 -> 277 on develop). Both in-handler
+            # calls were removed; this is now the only call site, and it must run
+            # before either handler below.
+            self.member_manager.prelock_members_for_save(old_doc)
             self.member_manager.handle_member_changes(old_doc)
             self.member_manager.handle_member_additions(old_doc)
 

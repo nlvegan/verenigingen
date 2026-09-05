@@ -284,19 +284,37 @@ class TestChapterMemberPerformance(EnhancedTestCase):
 
         # Test bulk addition with query count monitoring. This class does NOT enable
         # run_events_synchronously, so the inline event-subscriber writes are NOT counted here
-        # (unlike TestChapterMemberIntegration). The measured cost for this 10-member bulk save
-        # is a stable ~227 queries (~22-23/member: real un-mocked Member saves + the chapter-member
-        # child-table write path). The threshold is set just above that measured baseline so an
-        # N+1 / N^2 regression in the bulk-append path trips it, while leaving ~15% headroom for
-        # environmental query-count variance. Do NOT relax this without re-measuring.
-        # INTERIM, see #885: raised 260 -> 300 because #844's `_prelock_members_for_save`
-        # is called from inside each handler rather than once per save, so every Member is
-        # locked 6x. Measured on develop: 277 queries (was ~227 pre-#844). The lock re-take
-        # is a semantic no-op -- the row is already locked in this transaction -- but still
-        # costs a round-trip per member. Put this BACK to 260 and re-measure once #885 is
-        # fixed; this cap exists to catch an N+1 in the bulk-append path and a permanently
-        # inflated ceiling defeats it.
-        with self.assertQueryCount(300):
+        # (unlike TestChapterMemberIntegration). The measured cost for this 10-member bulk
+        # save was documented as ~227 queries (~22-23/member) before #844 -- but re-measuring
+        # that pre-#844 baseline directly (checking out 4cf5c0d79's member_manager.py/chapter.py
+        # in this same environment) gives 257, not 227. The ~227 figure was already stale by
+        # the time #885 checked it, for reasons unrelated to #844 -- re-measured, not assumed.
+        #
+        # INTERIM->FIXED, see #885: #887 raised 260 -> 300 because #844's
+        # `_prelock_members_for_save` was called from inside EACH handler
+        # (handle_member_changes AND handle_member_additions) rather than once per save, so
+        # every touched Member paid for two redundant `SELECT ... FOR UPDATE` round-trips
+        # instead of one. Measured on develop: 277 queries. The lock re-take is a semantic
+        # no-op -- the row is already locked in this transaction -- but each one still costs
+        # a real round-trip.
+        #
+        # #885 fixed the root cause: `prelock_members_for_save` is now called exactly once
+        # per save, from `Chapter._handle_document_changes`, before either handler runs (both
+        # in-handler calls were removed). Re-measured, stable across repeated runs:
+        #   - pre-#844 control (4cf5c0d79, same environment):     257
+        #   - develop before #885 (2 redundant pre-lock passes):  277
+        #   - #885's fix (1 canonical pre-lock pass):             267
+        # 267 - 257 = 10, exactly one pass over the 10 touched members -- confirming the fix
+        # takes precisely the lock #469 requires, no more.
+        #
+        # Cap is 270, not 260 and not 300: it must sit above the real 267 floor (260 would
+        # permanently fail here), and strictly below 277 so that if the redundant pre-lock
+        # pass this comment describes ever comes back, the count returns to 277 and this gate
+        # still catches it -- a 300 cap would not. 260 is not achievable without weakening the
+        # #469 lock itself (see #885's issue for why memoizing the lock instead is NOT safe:
+        # frappe.db.rollback() releases locks, so a memo would go stale on a rolled-back
+        # savepoint). Do NOT relax this without re-measuring.
+        with self.assertQueryCount(270):
             for member in members:
                 chapter.append("members", {"member": member.name, "enabled": 1, "status": "Active"})
             chapter.save()
