@@ -454,6 +454,32 @@ repos:
         stages: [pre-commit]
         exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/validation/archived/|verenigingen/tests/)'
 
+      - id: db-clock-date-window-validator
+        name: 🕒 SQL Date Window Built From The Database Clock (ratchet)
+        description: >-
+          Frappe writes creation/modified from the SITE clock
+          (frappe.utils.now(), System Settings.time_zone), not the database
+          server's own NOW()/CURDATE() -- the two drift independently (#668,
+          measured 3h30m skew on test_site_4). A predicate like
+          `creation > DATE_SUB(NOW(), INTERVAL 1 HOUR)` is exactly as skewed
+          as that drift, silently widening or emptying the window. #668
+          measured 94 such sites across 30 files. Ratcheted against
+          scripts/validation/db_clock_date_window_baseline.txt so existing
+          code does not block commits -- the baseline should only ever
+          shrink. Compute the boundary in Python
+          (frappe.utils.add_to_date(now_datetime(), hours=-1)) and bind it as
+          a query parameter instead. Mark a deliberate exception
+          `# db-clock-window-ok: false-positive`.
+          The exclude below must stay a SUBSET of SCAN_ROOTS in the validator
+          -- anything scanned here but absent from the baseline fails on
+          first edit.
+        entry: python scripts/validation/db_clock_date_window_validator.py
+        language: system
+        pass_filenames: true
+        files: '^(verenigingen|scripts)/.*\.py$'
+        stages: [pre-commit]
+        exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/validation/archived/|verenigingen/tests/)'
+
       - id: secure-operation-result-validator
         name: 🔐 Unchecked secure_document_operation Result
         description: >-

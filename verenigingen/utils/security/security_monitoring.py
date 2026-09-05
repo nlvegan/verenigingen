@@ -506,13 +506,17 @@ class SecurityMonitor:
 
         Following reviewer's suggestion for business logic monitoring
         """
+        # Site-tz clock: `Payment Entry.creation` is written on the SITE clock, so a
+        # DATABASE-clock DATE_SUB(NOW()...) cutoff drifts from it independently
+        # (#668) -- same shape as check_unusual_member_operations below (#637).
+        day_ago = now_datetime() - timedelta(days=1)
         payments = frappe.db.sql(
             """
             SELECT name, paid_amount as amount, owner
             FROM `tabPayment Entry`
-            WHERE paid_amount > %s AND creation > DATE_SUB(NOW(), INTERVAL 1 DAY)
+            WHERE paid_amount > %s AND creation > %s
         """,
-            (threshold,),
+            (threshold, day_ago),
             as_dict=True,
         )
 
@@ -571,15 +575,20 @@ class SecurityMonitor:
         """Check for suspicious financial patterns"""
         alerts = []
 
+        # Site-tz clock: `Sales Invoice.creation` is written on the SITE clock (#668;
+        # same shape as check_unusual_member_operations below, #637).
+        day_ago = now_datetime() - timedelta(days=1)
+
         # Check for round number amounts (potential fraud indicator)
         round_amounts = frappe.db.sql(
             """
             SELECT name, grand_total, owner
             FROM `tabSales Invoice`
-            WHERE creation > DATE_SUB(NOW(), INTERVAL 1 DAY)
+            WHERE creation > %s
             AND MOD(grand_total, 100) = 0
             AND grand_total >= 1000
         """,
+            day_ago,
             as_dict=True,
         )
 
@@ -599,10 +608,11 @@ class SecurityMonitor:
             """
             SELECT name, discount_amount, grand_total, owner
             FROM `tabSales Invoice`
-            WHERE creation > DATE_SUB(NOW(), INTERVAL 1 DAY)
+            WHERE creation > %s
             AND discount_amount > 0
             AND (discount_amount / (grand_total + discount_amount)) > 0.3
         """,
+            day_ago,
             as_dict=True,
         )
 
@@ -629,12 +639,16 @@ class SecurityMonitor:
         Following reviewer's suggestion for policy change monitoring
         """
         alerts = []
+        # Site-tz clock: `Critical Operation Rule.modified` is written on the SITE
+        # clock (#668; same shape as check_unusual_member_operations below, #637).
+        day_ago = now_datetime() - timedelta(days=1)
         changes = frappe.db.sql(
             """
             SELECT name, modified_by, modified
             FROM `tabCritical Operation Rule`
-            WHERE modified > DATE_SUB(NOW(), INTERVAL 1 DAY)
+            WHERE modified > %s
         """,
+            day_ago,
             as_dict=True,
         )
 
@@ -656,15 +670,22 @@ class SecurityMonitor:
         """Check for unusual SEPA operations"""
         alerts = []
 
+        # Site-tz clock: `SEPA Mandate.creation` is written on the SITE clock, so a
+        # DATABASE-clock DATE_SUB(NOW()...) cutoff drifts from it independently
+        # (#668, the sharpest of that sweep's 94 sites -- the shortest window).
+        # Same shape as check_unusual_member_operations below (#637).
+        hour_ago = now_datetime() - timedelta(hours=1)
+
         # Check for rapid SEPA mandate creations
         rapid_sepa = frappe.db.sql(
             """
             SELECT owner, COUNT(*) as count
             FROM `tabSEPA Mandate`
-            WHERE creation > DATE_SUB(NOW(), INTERVAL 1 HOUR)
+            WHERE creation > %s
             GROUP BY owner
             HAVING count > 5
         """,
+            hour_ago,
             as_dict=True,
         )
 
