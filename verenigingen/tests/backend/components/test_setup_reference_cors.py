@@ -179,7 +179,6 @@ class TestConfigureWebsiteCors(FrappeTestCase):
         get_single_spy.assert_called_once_with("Website Settings")
         # ...and, seeing origins already set, returned early without saving.
         save_spy.assert_not_called()
-        self.assertTrue(frappe.db.exists("Website Settings", "Website Settings"))
 
 
 class TestLoadApplicationFixtures(FrappeTestCase):

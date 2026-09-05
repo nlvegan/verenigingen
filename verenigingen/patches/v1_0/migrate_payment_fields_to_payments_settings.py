@@ -42,8 +42,10 @@ def execute():
 
     frappe.log(f"Migrating {len(source_values)} payment fields to Verenigingen Payments Settings")
 
-    # Ensure target singleton exists
-    if not frappe.db.exists("Verenigingen Payments Settings", "Verenigingen Payments Settings"):
+    # Ensure target singleton exists. frappe.db.exists(dt, dt) is
+    # unconditionally truthy for a Single (#889), so check whether it has
+    # actually been saved instead.
+    if not frappe.db.get_singles_dict("Verenigingen Payments Settings"):
         payments_settings = frappe.get_doc(
             {
                 "doctype": "Verenigingen Payments Settings",

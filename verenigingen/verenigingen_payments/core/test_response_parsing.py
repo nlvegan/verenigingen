@@ -61,8 +61,10 @@ class TestResponseParsing(unittest.TestCase):
         """Set up test environment before each test"""
         frappe.set_user("Administrator")
 
-        # Create minimal Mollie settings for client initialization
-        if not frappe.db.exists("Mollie Settings", "Mollie Settings"):
+        # Create minimal Mollie settings for client initialization.
+        # frappe.db.exists(dt, dt) is unconditionally truthy for a Single
+        # (#889); check whether it has actually been saved instead.
+        if not frappe.db.get_singles_dict("Mollie Settings"):
             make_test_records("Mollie Settings")
 
         # Initialize client (will use test mode by default)

@@ -274,8 +274,11 @@ class TestBackgroundServiceUser(FrappeTestCase):
 
 class TestEboekhoudenSettingsSeed(FrappeTestCase):
     def test_settings_exist_with_the_seeded_api_url(self):
+        # frappe.db.exists("E-Boekhouden Settings", "E-Boekhouden Settings") is
+        # always truthy for a Single (see #889); check the singleton has
+        # actually been saved instead.
         setup_mod.create_default_eboekhouden_settings()
-        self.assertTrue(frappe.db.exists("E-Boekhouden Settings", "E-Boekhouden Settings"))
+        self.assertTrue(frappe.db.get_singles_dict("E-Boekhouden Settings"))
         settings = frappe.get_single("E-Boekhouden Settings")
         self.assertTrue(settings.api_url, "A fresh site needs a default API url")
 
