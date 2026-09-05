@@ -1020,19 +1020,74 @@ def split_gap_by_book_year(gap_start, gap_end):
 
 
 def calculate_billing_periods_for_gap(gap_start, gap_end, billing_frequency, dues_rate):
-    """Calculate billing periods needed to fill a specific gap, split by book year first"""
+    """Calculate billing periods needed to fill a specific gap.
+
+    Annual periods are rolled forward a full 12 months from gap_start (matching how the
+    dues schedule itself generates coverage - coverage_calculator.
+    calculate_next_coverage_period, fix/coverage-period-boundary / #212) instead of being
+    split at the book-year boundary first. The old book-year-first split double-charged a
+    single missed Annual period that straddled 1 January (#207): each book-year half was
+    billed at the full dues_rate, e.g. a member missing one year of dues from 2024-07-01
+    to 2025-06-30 was catch-up-billed TWICE. Rolling the natural 12-month period forward
+    instead produces exactly one period per actually-missed year, whether or not it
+    happens to cross 1 January.
+
+    Monthly/Quarterly/Custom/Daily are unchanged: they still split by book year first
+    (see ``split_gap_by_book_year``) and chunk within each segment. Monthly/Quarterly
+    already land on calendar-month/quarter boundaries that coincide with a calendar
+    (Jan-Dec) book year, so book-year splitting is a no-op for them under the default
+    configuration. Custom/Daily have no natural period length available here (the
+    caller does not pass custom_frequency_number/unit), so - as before #207 - a gap is
+    chunked one lump per book year as an anti-runaway-invoice-size heuristic; that
+    approximation is unchanged and out of scope for this issue.
+    """
+    gap_start = getdate(gap_start)
+    gap_end = getdate(gap_end)
+
+    if billing_frequency == "Annual":
+        return _calculate_annual_periods(gap_start, gap_end, dues_rate)
 
     periods = []
-
-    # First, split the gap by book year boundaries
     book_year_segments = split_gap_by_book_year(gap_start, gap_end)
 
     for segment_start, segment_end, book_year in book_year_segments:
-        # Now apply billing frequency logic within each book year segment
         segment_periods = _calculate_periods_within_segment(
             segment_start, segment_end, billing_frequency, dues_rate, book_year
         )
         periods.extend(segment_periods)
+
+    return periods
+
+
+def _calculate_annual_periods(gap_start, gap_end, dues_rate):
+    """Roll full 12-month periods forward from gap_start until gap_end is covered.
+
+    The last period is clipped to gap_end if it would otherwise run past it. Each
+    period is labelled with the book year its OWN start date falls in, purely for the
+    informational ``book_year`` display key (not used to compute period boundaries).
+    """
+    from frappe.utils import add_months
+
+    start_month, start_day, _end_month, _end_day = get_book_year_boundaries()
+
+    periods = []
+    current_start = gap_start
+
+    while current_start <= gap_end:
+        natural_end = add_days(add_months(current_start, 12), -1)
+        period_end = min(natural_end, gap_end)
+
+        periods.append(
+            {
+                "start": current_start,
+                "end": period_end,
+                "amount": dues_rate,
+                "billing_frequency": "Annual",
+                "book_year": get_book_year_for_date(current_start, start_month, start_day),
+            }
+        )
+
+        current_start = add_days(period_end, 1)
 
     return periods
 
@@ -1100,8 +1155,13 @@ def _calculate_periods_within_segment(segment_start, segment_end, billing_freque
             current_date = period_end + timedelta(days=1)
 
         elif billing_frequency == "Annual":
-            # Annual billing - use the segment as is (already split by book year)
-            # The segment IS the book year portion, so just use segment boundaries
+            # DEAD as of #207: calculate_billing_periods_for_gap() now intercepts
+            # billing_frequency == "Annual" before ever reaching here and routes to
+            # _calculate_annual_periods() instead, which rolls a natural 12-month
+            # period forward rather than emitting one full-rate charge per segment
+            # (the exact double-charge bug #207 fixed). Kept only in case some future
+            # caller reaches this helper directly with "Annual" - if you're adding
+            # one, use _calculate_annual_periods() instead of this branch.
             periods.append(
                 {
                     "start": segment_start,
