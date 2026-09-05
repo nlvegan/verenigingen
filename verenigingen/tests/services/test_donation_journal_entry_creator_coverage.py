@@ -212,6 +212,66 @@ class TestDonationJournalEntryCreatorMoneyPath(_DonationJEFixtureMixin, Enhanced
             "Donation.journal_entry must be written back",
         )
 
+    def test_failed_submit_does_not_leave_a_claimed_reference(self):
+        """See #385/#(this fix): a failed submit is NOT a draft.
+
+        db_update() already wrote docstatus=1 before on_submit's GL posting threw
+        (income_account here is a Group Account, which GLEntry.on_update rejects
+        AFTER inserting the row -- same mechanism as
+        test_secure_operations_partial_write.py). Before this fix,
+        _create_journal_entry logged "(draft)" and returned je.name anyway, so the
+        Donation got linked to an entry that never posted and
+        find_journal_entry_by_reference() would report the payment_id as already
+        handled forever. The fix routes the failure through
+        discard_unposted_journal_entry(), the same helper the refund/reversal
+        siblings use, which cancels the entry so the key is freed.
+        """
+        from verenigingen.verenigingen_payments.services.journal_entry_booking_support import (
+            find_journal_entry_by_reference,
+        )
+
+        group_income_account = frappe.get_value(
+            "Account", {"company": COMPANY, "root_type": "Income", "is_group": 1}, "name"
+        )
+        self.assertTrue(group_income_account, "Test company has no Income group account")
+        self.creator._config["income_account"] = group_income_account
+
+        amount = 25.00
+        payment_id = f"tr_{frappe.generate_hash(length=12)}"
+        donation = self._make_donation(self._make_donor(), amount, payment_id=payment_id)
+
+        self.expectErrorLog(
+            "Secure Operation Failed: submit on Journal Entry",
+            "Mollie Journal Entry Not Posted",
+        )
+        result = self.creator.create_from_mollie_payment(
+            {
+                "id": payment_id,
+                "amount": {"value": f"{amount:.2f}", "currency": "EUR"},
+                "paid_at": "2025-01-15T10:00:00+00:00",
+            },
+            donation,
+        )
+
+        self.assertIsNone(result, "a failed submit must NOT be reported as a created Journal Entry")
+
+        # The entry exists (it was inserted) but must have been cancelled, not
+        # left at docstatus=1 claiming the reference forever.
+        je_name = frappe.db.get_value("Journal Entry", {"cheque_no": payment_id}, "name")
+        self.assertTrue(je_name, "expected the attempted Journal Entry to still exist, cancelled")
+        self.track_test_record("Journal Entry", je_name)
+        self.assertEqual(
+            frappe.db.get_value("Journal Entry", je_name, "docstatus"),
+            2,
+            "failed submit must be cancelled, not left at docstatus=1",
+        )
+
+        # The key is free again for a retry.
+        self.assertIsNone(find_journal_entry_by_reference(payment_id))
+
+        # The Donation must NOT be linked to an entry that never posted.
+        self.assertFalse(frappe.db.get_value("Donation", donation.name, "journal_entry"))
+
     def test_create_from_dict_creates_correct_je(self):
         amount = 17.00
         ref = f"dict-{frappe.generate_hash(length=10)}"
