@@ -14,6 +14,8 @@ helpers (metrics, member overview, pending actions, financials, dues status,
 board info, recent activity). No business logic is mocked.
 """
 
+from unittest import mock
+
 import frappe
 
 from verenigingen.templates.pages import chapter_dashboard as cd
@@ -297,3 +299,76 @@ class TestChapterDashboardPage(VereningingenTestCase):
         # Members joined recently, so there should be join activity entries.
         for item in activity:
             self.assertIn("member", item)
+
+    # ------------------------------------------------------------------
+    # #785: the access check must survive a WARM payload cache.
+    #
+    # #784 fixed #782 by keying cache_with_ttl per session user, which kept the
+    # access check (living inside the cached body) from being skipped -- at the
+    # cost of one cache miss per authorized board member. #785 hoists the check
+    # out of the cached body instead, so the payload cache goes back to
+    # per_user=False and is shared across every authorized viewer of one
+    # chapter. That only works if the check runs on every call regardless of
+    # cache state -- a cold-cache-only test cannot tell the two designs apart.
+    # ------------------------------------------------------------------
+
+    def test_unauthorized_user_is_refused_on_a_warm_shared_cache(self):
+        cd._cached_chapter_dashboard_payload.cache_clear()
+
+        with mock.patch.object(
+            cd, "_chapter_dashboard_payload", wraps=cd._chapter_dashboard_payload
+        ) as spy:
+            # Cold cache: the authorized board member's call builds the payload.
+            frappe.set_user(self.board_user.name)
+            first = cd.get_chapter_dashboard_data(self.chapter.name)
+            first_data = first.get("data", first) if isinstance(first, dict) else first
+            self.assertIn("chapter_info", first_data)
+            self.assertEqual(spy.call_count, 1, "cold cache: the payload must be built once")
+
+            # Warm cache, same chapter: because the cache is now per_user=False,
+            # a second call must be served from the shared entry without
+            # rebuilding it.
+            second = cd.get_chapter_dashboard_data(self.chapter.name)
+            second_data = second.get("data", second) if isinstance(second, dict) else second
+            self.assertEqual(second_data["last_updated"], first_data["last_updated"])
+            self.assertEqual(
+                spy.call_count, 1, "a second call for the same chapter should hit the shared cache"
+            )
+
+            # An unauthorized caller, on this SAME warm cache, must still be
+            # refused. Before #785, the access check ran INSIDE the cached
+            # body, so a cache hit returned before it ever executed -- this is
+            # the regression only a warm-cache assertion can catch.
+            #
+            # The role profile matters: this user holds the SAME role (and
+            # matching HIGH-tier profile) as a chapter board member, so it
+            # clears @high_security_api's own gate and actually reaches
+            # get_chapter_dashboard_data()'s body -- it is just not on THIS
+            # chapter's board. Denying it a low-tier profile instead would make
+            # the test pass by hitting an unrelated 403 upstream of the code
+            # under test.
+            from verenigingen.tests.fixtures.role_profile_helper import (
+                grant_matching_role_profiles,
+            )
+
+            email = f"plain785.{frappe.generate_hash(length=8)}@example.com"
+            user = self.create_test_user(email, roles=["Verenigingen Chapter Board Member"])
+            grant_matching_role_profiles(email, "Verenigingen Chapter Board Member")
+            frappe.set_user(user.name)
+            self.assertEqual(
+                cd.get_user_board_chapters(),
+                [],
+                "test setup error: the intruder must not sit on any chapter's board",
+            )
+            refused = cd.get_chapter_dashboard_data(self.chapter.name)
+
+        self.assertFalse(
+            refused.get("success", True) if isinstance(refused, dict) else True,
+            "an unauthorized caller must be refused, warm cache or not",
+        )
+        self.assertEqual(
+            spy.call_count,
+            1,
+            "the payload builder must never run for an unauthorized caller -- the "
+            "check must gate access, not the cache key",
+        )

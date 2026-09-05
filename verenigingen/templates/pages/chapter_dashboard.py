@@ -206,17 +206,34 @@ def get_role_permissions(role_name: str) -> Dict[str, Any]:
     return role_permissions.get(role_name, default_permissions)
 
 
-def _get_chapter_dashboard_data_internal(chapter_name: str) -> Dict[str, Any]:
-    """Internal function to get dashboard data without API wrapper"""
+def _assert_user_may_view_chapter(chapter_name: str) -> None:
+    """Authorization gate for the chapter dashboard. Never cached -- always runs.
 
+    #785: this used to live inside the function body that ``cache_with_ttl``
+    memoized, so a cache hit returned before it ever executed. Hoisting it out
+    is what lets the payload below go back to a shared (``per_user=False``)
+    cache without reintroducing #782.
+    """
     if not chapter_name:
         frappe.throw(_("Chapter name is required"))
 
-    # Verify user has access to this chapter
     user_chapters = get_user_board_chapters()
     if not any(ch["chapter_name"] == chapter_name for ch in user_chapters):
         frappe.throw(_("You don't have access to this chapter"))
 
+
+def _get_chapter_dashboard_data_internal(chapter_name: str) -> Dict[str, Any]:
+    """Internal function to get dashboard data without API wrapper"""
+
+    _assert_user_may_view_chapter(chapter_name)
+    return _chapter_dashboard_payload(chapter_name)
+
+
+def _chapter_dashboard_payload(chapter_name: str) -> Dict[str, Any]:
+    """Assemble the dashboard payload. Contains no access check: the data itself
+    does not vary by caller, only permission to see it does (#785) -- callers
+    must gate access themselves, e.g. via ``_assert_user_may_view_chapter``.
+    """
     dashboard_data = {
         "chapter_info": get_chapter_basic_info(chapter_name),
         "key_metrics": get_chapter_key_metrics(chapter_name),
@@ -234,13 +251,26 @@ def _get_chapter_dashboard_data_internal(chapter_name: str) -> Dict[str, Any]:
     return serialize_dates(dashboard_data)
 
 
+@cache_with_ttl(ttl=120, per_user=False)  # Cache for 2 minutes - balance between freshness and
+# performance. per_user=False: get_chapter_dashboard_data() below checks access
+# BEFORE calling this, so the payload -- which does not vary by who is asking,
+# only which chapter -- can be shared across every authorized viewer of the
+# same chapter instead of one cache entry per board member (#785).
+def _cached_chapter_dashboard_payload(chapter_name: str) -> Dict[str, Any]:
+    return _chapter_dashboard_payload(chapter_name)
+
+
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 @api_response_handler
-@cache_with_ttl(ttl=120)  # Cache for 2 minutes - balance between freshness and performance
 def get_chapter_dashboard_data(chapter_name: str) -> Dict[str, Any]:
-    """Get comprehensive dashboard data for chapter board members (API endpoint)"""
-    return _get_chapter_dashboard_data_internal(chapter_name)
+    """Get comprehensive dashboard data for chapter board members (API endpoint).
+
+    The access check runs here, uncached, on every call; only the resulting
+    payload is cached and shared (#785).
+    """
+    _assert_user_may_view_chapter(chapter_name)
+    return _cached_chapter_dashboard_payload(chapter_name)
 
 
 def get_chapter_basic_info(chapter_name: str) -> Dict[str, Any]:
