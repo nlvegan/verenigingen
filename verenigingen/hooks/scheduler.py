@@ -66,6 +66,12 @@ scheduler_events = {
         "verenigingen.verenigingen_payments.doctype.payment_plan.payment_plan.process_overdue_installments",
         # Mollie bulk run cleanup (stuck-runner detection)
         "verenigingen.verenigingen_payments.services.mollie_bulk_run_service.mark_stale_runs_timed_out",
+        # Recurring donation charge recovery sweep (#872, part B of #345):
+        # Mollie's webhook retry ladder gives up after 26 hours, and nothing
+        # retried a charge past that point. Lists each active donation
+        # subscription's payments at Mollie directly and books any with no
+        # Donation yet.
+        "verenigingen.verenigingen_payments.mollie.services.recurring_donation_charge_sweep.sweep_recurring_donation_charges",
         # Security and monitoring
         "verenigingen.utils.security.audit_logging.cleanup_old_audit_logs",
         "verenigingen.utils.alert_manager.run_daily_checks",
