@@ -107,6 +107,11 @@ scheduler_events = {
         "verenigingen.tasks.address_optimization.refresh_member_address_displays",
         # Expense history validation
         "verenigingen.services.volunteer.expense_history_batch_processor.validate_expense_history_integrity",
+        # Financial history integrity (#425): fee_change_history and donor_history
+        # had no periodic sweep at all, unlike payment_history (hourly, above) and
+        # volunteer_expenses (weekly, above).
+        "verenigingen.utils.financial_history_batch_processor.validate_fee_change_history_integrity",
+        "verenigingen.utils.financial_history_batch_processor.validate_donor_history_integrity",
         # Session cleanup
         "verenigingen.utils.session_cleanup_enhanced.scheduled_session_cleanup",
         # Data retention (gated; dry-run unless explicitly enabled in settings)
