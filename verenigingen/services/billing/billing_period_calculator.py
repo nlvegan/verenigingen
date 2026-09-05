@@ -273,6 +273,118 @@ def calculate_coverage_end(
         return add_days(add_months(coverage_start, 1), -1)
 
 
+# A period that legitimately runs from a member's join date, rolled forward once per
+# generation cycle, could in principle need many steps to reach a far-future
+# coverage_start. Daily billing needs ~365 steps a year, so this only trips on
+# genuinely nonsensical inputs (mirrors coverage_calculator.MAX_PERIOD_ROLL_STEPS).
+MAX_ANCHOR_ROLL_STEPS = 10000
+
+
+def is_coverage_start_anchored(
+    coverage_start,
+    billing_frequency: str,
+    anchor_date=None,
+    previous_coverage_end=None,
+    custom_frequency_number: int = None,
+    custom_frequency_unit: str = None,
+) -> bool:
+    """
+    Check whether coverage_start is anchored to the member's own running-period
+    cycle (#882/#884/#890), not merely one period long.
+
+    Under the running-period billing model (see calculate_coverage_end above), a
+    generated period's coverage_start must be either:
+      - the day after the member's previous coverage period ended (previous_coverage_end
+        given), or
+      - the member's own cycle anchor (e.g. Membership.start_date), or that anchor
+        rolled forward by whole periods (no previous coverage - first period).
+
+    A coverage_start that sits on a calendar boundary (1st of month, 1 January, a
+    quarter start) instead of the member's own cycle is a period-generation defect
+    even when the period's LENGTH matches one billing period exactly - which is why
+    this checks the START, not the length.
+
+    Args:
+        coverage_start: Proposed coverage period start
+        billing_frequency: Daily, Weekly, Monthly, Quarterly, Semi-Annual, Annual or Custom
+        anchor_date: The member's own cycle anchor, used only when
+            previous_coverage_end is None
+        previous_coverage_end: End date of the member's most recent coverage period,
+            if one exists - takes priority over anchor_date when both are given
+        custom_frequency_number: Period length for Custom frequency
+        custom_frequency_unit: Days, Weeks, Months or Years for Custom frequency
+
+    Returns:
+        bool: True if the invariant holds, or if there is no anchor to check against
+        (neither previous_coverage_end nor anchor_date given - nothing to violate).
+    """
+    coverage_start = getdate(coverage_start)
+
+    if previous_coverage_end is not None:
+        return coverage_start == add_days(getdate(previous_coverage_end), 1)
+
+    if anchor_date is None:
+        return True
+
+    period_start = getdate(anchor_date)
+    if coverage_start < period_start:
+        return False
+    if coverage_start == period_start:
+        return True
+
+    for _ in range(MAX_ANCHOR_ROLL_STEPS):
+        period_end = calculate_coverage_end(
+            billing_frequency, period_start, custom_frequency_number, custom_frequency_unit
+        )
+        next_start = add_days(period_end, 1)
+        if next_start == coverage_start:
+            return True
+        if next_start > coverage_start:
+            return False
+        period_start = next_start
+
+    return False
+
+
+def assert_coverage_start_anchored(
+    coverage_start,
+    billing_frequency: str,
+    anchor_date=None,
+    previous_coverage_end=None,
+    custom_frequency_number: int = None,
+    custom_frequency_unit: str = None,
+) -> None:
+    """
+    Hard-failing counterpart to is_coverage_start_anchored(), for tests that need
+    to fail rather than assert on a boolean.
+
+    Raises:
+        AssertionError: with the offending coverage_start and what it should have
+            been, if the invariant does not hold.
+    """
+    if is_coverage_start_anchored(
+        coverage_start,
+        billing_frequency,
+        anchor_date=anchor_date,
+        previous_coverage_end=previous_coverage_end,
+        custom_frequency_number=custom_frequency_number,
+        custom_frequency_unit=custom_frequency_unit,
+    ):
+        return
+
+    if previous_coverage_end is not None:
+        expected = add_days(getdate(previous_coverage_end), 1)
+        raise AssertionError(
+            f"coverage_start {getdate(coverage_start)} is not anchored to the member's cycle: "
+            f"expected {expected} (the day after previous coverage end {getdate(previous_coverage_end)})"
+        )
+
+    raise AssertionError(
+        f"coverage_start {getdate(coverage_start)} is not anchored to the member's cycle: "
+        f"not reachable from anchor {getdate(anchor_date)} by whole {billing_frequency} periods"
+    )
+
+
 def derive_coverage_from_invoice_data(
     posting_date, last_invoice_date=None, next_invoice_date=None, billing_frequency=None
 ):
