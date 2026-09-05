@@ -10,6 +10,7 @@ from frappe import _
 
 from verenigingen.utils.error_handling import handle_api_error
 from verenigingen.utils.security.api_security_framework import standard_api
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 @frappe.whitelist()
@@ -103,6 +104,12 @@ def sync_team_with_volunteers(team_name: str | None = None):
 
             TeamService().sync_with_volunteers(team_doc)
             updated_count += 1
+        # #505: without this a 1205/1213 syncing one team is logged and the loop
+        # keeps syncing further teams against a transaction the server has already
+        # discarded (the #470 shape, one frame below @handle_api_error). Re-raise
+        # unconditionally.
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
         except Exception as e:
             frappe.log_error(f"Failed to sync team {team['name']}: {str(e)}", "Team Sync Error")
 
@@ -184,6 +191,10 @@ def bulk_apply_team_role_profiles(team_name: str):
         try:
             auto_sync_on_role_change(user)
             updated += 1
+        # #505: same shape as sync_team_with_volunteers above -- re-raise
+        # unconditionally so @handle_api_error's own guard (#504) sees the class.
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
         except Exception as e:
             frappe.log_error(
                 f"Role profile sync failed for {user}: {e}",
