@@ -222,7 +222,7 @@ COMMIT tests/services/event_application/test_mapping_service.py::1  # order-depe
 COMMIT tests/services/event_application/test_member_sync_service.py::2  # order-dependence
 COMMIT tests/services/event_application/test_related_records_orchestrator.py::6  # order-dependence
 COMMIT tests/services/event_application/test_termination_sync_service.py::3  # order-dependence
-COMMIT tests/services/event_application/test_volunteer_sync_service.py::7  # order-dependence
+COMMIT tests/services/event_application/test_volunteer_sync_service.py::9  # order-dependence
 COMMIT tests/services/payment/test_sepa_upload_guard.py::2  # order-dependence
 COMMIT tests/services/payment/test_sepa_upload_integration.py::1  # order-dependence
 COMMIT tests/services/test_bulk_invoice_generation_service.py::2  # order-dependence
