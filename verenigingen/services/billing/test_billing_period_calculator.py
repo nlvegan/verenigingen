@@ -13,8 +13,30 @@ from verenigingen.services.billing.billing_period_calculator import (
     calculate_billing_period,
     calculate_next_invoice_date,
     derive_coverage_from_invoice_data,
+    get_nominal_period_days,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+
+class TestGetNominalPeriodDays(EnhancedTestCase):
+    """get_nominal_period_days() backs the gap-detection thresholds below - it
+    must return the period's own length, not a one-size-fits-all Monthly value."""
+
+    def test_known_frequencies_scale_by_period(self):
+        self.assertEqual(get_nominal_period_days("Daily"), 1)
+        self.assertEqual(get_nominal_period_days("Weekly"), 7)
+        self.assertEqual(get_nominal_period_days("Monthly"), 30)
+        self.assertEqual(get_nominal_period_days("Quarterly"), 90)
+        self.assertEqual(get_nominal_period_days("Semi-Annual"), 182)
+        self.assertEqual(get_nominal_period_days("Annual"), 365)
+
+    def test_unknown_or_missing_frequency_falls_back_to_thirty(self):
+        # Custom frequencies aren't sized here (need a number + unit, not just the
+        # frequency label) and None means "we don't know" - both keep the historical
+        # Monthly-sized default rather than raising.
+        self.assertEqual(get_nominal_period_days("Custom"), 30)
+        self.assertEqual(get_nominal_period_days(None), 30)
+        self.assertEqual(get_nominal_period_days("Fortnightly"), 30)
 
 
 class TestCalculateNextInvoiceDate(EnhancedTestCase):
@@ -235,6 +257,39 @@ class TestDeriveCoverageFromInvoiceData(EnhancedTestCase):
         )
         self.assertEqual(start, getdate("2025-03-21"))
         self.assertEqual(end, getdate("2025-04-20"))
+
+    def test_weekly_gap_resets_at_weekly_period_not_monthly_threshold(self):
+        # last_invoice 2025-03-01 -> derived start 2025-03-02, posting 2025-03-22 ->
+        # gap of 20 days. That is under the flat 30-day threshold tuned for Monthly
+        # billing, but it is nearly THREE Weekly periods (7 days each) - so a Weekly
+        # schedule must still reset forward to the posting date instead of quietly
+        # deriving an oversized "coverage period" spanning the missed weeks.
+        self.expectErrorLog("Large coverage gap detected")
+        start, end = derive_coverage_from_invoice_data(
+            "2025-03-22", last_invoice_date="2025-03-01", billing_frequency="Weekly"
+        )
+        self.assertEqual(start, getdate("2025-03-22"))
+        self.assertEqual(end, getdate("2025-03-28"))
+
+    def test_weekly_short_gap_keeps_derived_start(self):
+        # last_invoice 2025-03-15 -> derived start 2025-03-16, posting 2025-03-19 ->
+        # gap of 3 days, well within one Weekly period, so no reset.
+        start, end = derive_coverage_from_invoice_data(
+            "2025-03-19", last_invoice_date="2025-03-15", billing_frequency="Weekly"
+        )
+        self.assertEqual(start, getdate("2025-03-16"))
+        self.assertEqual(end, getdate("2025-03-22"))
+
+    def test_annual_normal_gap_keeps_derived_start_no_reset(self):
+        # Locks in the semantic change on the OTHER side of this fix: a 60-day
+        # gap - well over the OLD flat 30-day threshold, which applied to every
+        # frequency - must NOT reset forward for an Annual schedule, where 60
+        # days is far under one 365-day period.
+        start, end = derive_coverage_from_invoice_data(
+            "2025-03-03", last_invoice_date="2025-01-01", billing_frequency="Annual"
+        )
+        self.assertEqual(start, getdate("2025-01-02"))
+        self.assertEqual(end, getdate("2026-01-01"))
 
     def test_unknown_frequency_uses_next_invoice_date(self):
         # No billing_frequency -> falls to next_invoice_date branch; coverage_end = next - 1

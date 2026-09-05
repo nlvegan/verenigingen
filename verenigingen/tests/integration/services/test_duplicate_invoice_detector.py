@@ -171,7 +171,17 @@ class TestDuplicateInvoiceDetector(EnhancedTestCase):
         self.assertEqual("No duplicates found", result.reason)
 
     def test_gap_reset_logic(self):
-        """Large gap (>30 days) triggers gap reset"""
+        """Large gap (>1 billing period) triggers gap reset for a Monthly schedule.
+
+        Pinned to Monthly explicitly: the gap-reset threshold now scales to the
+        schedule's own billing_frequency (see test_gap_reset_scales_down_for_weekly_frequency),
+        so this ~32-day gap only reads as "large" for a Monthly (or shorter) cadence -
+        it would NOT trigger reset for the auto-created default schedule's real
+        Annual frequency, where 32 days is well under one period.
+        """
+        frappe.db.set_value("Membership Dues Schedule", self.schedule.name, "billing_frequency", "Monthly")
+        self.schedule.reload()
+
         # Create invoice from 2 months ago (Nov 1-30)
         old_invoice = self.create_test_sales_invoice(customer=self.customer, posting_date="2024-11-05")
         frappe.db.set_value(
@@ -189,6 +199,86 @@ class TestDuplicateInvoiceDetector(EnhancedTestCase):
         self.assertTrue(result.can_generate)
         self.assertIn("gap reset", result.reason)
         self.assertTrue(result.metadata.get("gap_reset"))
+
+    def test_gap_reset_scales_down_for_weekly_frequency(self):
+        """A Weekly schedule's gap-reset threshold must scale to ~1 Weekly period
+        (7 days), not the flat 30-day threshold tuned for Monthly billing. A 14-day
+        gap is under the old flat 30-day constant (so it would NOT have triggered
+        gap reset), but it is two full Weekly periods overdue."""
+        frappe.db.set_value("Membership Dues Schedule", self.schedule.name, "billing_frequency", "Weekly")
+        self.schedule.reload()
+
+        old_invoice = self.create_test_sales_invoice(customer=self.customer, posting_date="2025-01-05")
+        frappe.db.set_value(
+            "Sales Invoice",
+            old_invoice.name,
+            {"custom_coverage_start_date": "2025-01-01", "custom_coverage_end_date": "2025-01-07"},
+        )
+        old_invoice.reload()
+        old_invoice.submit()
+
+        # Proposed period starts 14 days after the last coverage end (Jan 7).
+        detector = DuplicateInvoiceDetector(self.schedule)
+        result = detector.check_for_duplicates(date(2025, 1, 21), date(2025, 1, 27))
+
+        self.assertTrue(result.can_generate)
+        self.assertIn("gap reset", result.reason)
+        self.assertTrue(result.metadata.get("gap_reset"))
+
+    def test_gap_reset_not_triggered_within_a_single_weekly_period(self):
+        """A gap well inside one Weekly period must NOT trigger gap reset - the
+        scaled-down threshold isn't simply "always reset for short frequencies"."""
+        frappe.db.set_value("Membership Dues Schedule", self.schedule.name, "billing_frequency", "Weekly")
+        self.schedule.reload()
+
+        old_invoice = self.create_test_sales_invoice(customer=self.customer, posting_date="2025-01-05")
+        frappe.db.set_value(
+            "Sales Invoice",
+            old_invoice.name,
+            {"custom_coverage_start_date": "2025-01-01", "custom_coverage_end_date": "2025-01-07"},
+        )
+        old_invoice.reload()
+        old_invoice.submit()
+
+        # Proposed period starts 3 days after the last coverage end (Jan 7) - well
+        # within one Weekly period.
+        detector = DuplicateInvoiceDetector(self.schedule)
+        result = detector.check_for_duplicates(date(2025, 1, 10), date(2025, 1, 16))
+
+        self.assertTrue(result.can_generate)
+        self.assertNotIn("gap reset", result.reason)
+        self.assertFalse(result.metadata.get("gap_reset"))
+
+    def test_gap_reset_not_triggered_for_annual_frequency_normal_gap(self):
+        """Locks in the semantic change on the OTHER side of this fix: a ~32-day
+        gap - previously treated as "large" for EVERY schedule under the old flat
+        30-day constant - must no longer trigger gap reset for an Annual schedule,
+        where 32 days is well under one 365-day period. Auto-created dues
+        schedules default to Annual (see the membership type's template creation
+        logic), so this is the common case, not an edge case. The gap is still
+        resolved correctly (as "no duplicates found"), just via the ordinary
+        overlap/fallback checks instead of a short-circuiting gap reset.
+        """
+        frappe.db.set_value("Membership Dues Schedule", self.schedule.name, "billing_frequency", "Annual")
+        self.schedule.reload()
+
+        # Same ~32-day gap as test_gap_reset_logic above (Nov 30 -> Jan 1), which
+        # DID trigger gap reset for a Monthly schedule.
+        old_invoice = self.create_test_sales_invoice(customer=self.customer, posting_date="2024-11-05")
+        frappe.db.set_value(
+            "Sales Invoice",
+            old_invoice.name,
+            {"custom_coverage_start_date": "2024-11-01", "custom_coverage_end_date": "2024-11-30"},
+        )
+        old_invoice.reload()
+        old_invoice.submit()
+
+        detector = DuplicateInvoiceDetector(self.schedule)
+        result = detector.check_for_duplicates(date(2025, 1, 1), date(2025, 1, 31))
+
+        self.assertTrue(result.can_generate)
+        self.assertNotIn("gap reset", result.reason)
+        self.assertFalse(result.metadata.get("gap_reset"))
 
     def test_fallback_detection_for_missing_coverage(self):
         """Fallback detection works for invoices with missing coverage dates"""
@@ -364,10 +454,17 @@ class TestDuplicateInvoiceDetector(EnhancedTestCase):
         self.assertIn(invoice.name, result.reason)
 
     def test_gap_reset_skips_fallback_for_large_gap(self):
-        """When the most recent coverage ended far in the past (> 30 day gap from
-        the proposed start), gap-reset logic returns can_generate=True with the
+        """When the most recent coverage ended far in the past (> 1 billing period
+        from the proposed start), gap-reset logic returns can_generate=True with the
         'gap reset applied' reason and the gap_reset metadata flag, short-circuiting
-        fallback processing."""
+        fallback processing.
+
+        Pinned to Monthly explicitly - see test_gap_reset_logic above for why the
+        threshold is no longer a flat 30 days regardless of frequency.
+        """
+        frappe.db.set_value("Membership Dues Schedule", self.schedule.name, "billing_frequency", "Monthly")
+        self.schedule.reload()
+
         # A coverage-dated invoice ending long ago.
         old = self.create_test_sales_invoice(customer=self.customer, posting_date="2024-01-05")
         frappe.db.set_value(

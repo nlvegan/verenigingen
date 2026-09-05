@@ -20,11 +20,21 @@ from typing import Any, Dict, List, Optional
 import frappe
 from frappe.utils import getdate
 
-from verenigingen.services.billing.billing_period_calculator import derive_coverage_from_invoice_data
+from verenigingen.services.billing.billing_period_calculator import (
+    derive_coverage_from_invoice_data,
+    get_nominal_period_days,
+)
 from verenigingen.services.infrastructure.base_service import StatelessService
 
 # Business rule constants
-GAP_RESET_THRESHOLD_DAYS = 30  # Billing gap threshold - prevents processing old invoices
+# NOTE: the gap-reset threshold is no longer a flat constant here - it scales to
+# each schedule's own billing_frequency via get_nominal_period_days() in
+# _check_gap_reset() below (30 days for Monthly, 7 for Weekly, 365 for Annual,
+# etc; a flat Monthly-sized value let a Weekly schedule tolerate a gap of 4+
+# periods before ever resetting, while a Monthly schedule's normal single-period
+# cycle could look like a "large gap"). get_nominal_period_days() has its own
+# fallback (also 30) for unknown/Custom frequencies, so there is no separate
+# constant to keep in sync here.
 MAX_OVERLAPPING_INVOICES = 10  # Maximum overlapping invoices to return from SQL query
 FALLBACK_CUTOFF_DATE = "1900-01-01"  # Sentinel date for first-time invoice generation
 
@@ -237,7 +247,9 @@ class DuplicateInvoiceDetector(StatelessService):
         """
         Check for large gaps in coverage that trigger gap reset logic.
 
-        If more than 30 days have passed since last coverage, skip fallback processing.
+        If more than one billing period's worth of days have passed since last
+        coverage (scaled to this schedule's own billing_frequency - 30 days for
+        Monthly, 7 for Weekly, 365 for Annual, etc.), skip fallback processing.
 
         Args:
             customer: Customer name to check
@@ -263,11 +275,15 @@ class DuplicateInvoiceDetector(StatelessService):
         if latest_coverage_invoice:
             latest_coverage_end = getdate(latest_coverage_invoice[0]["custom_coverage_end_date"])
             gap_days = (getdate(proposed_start) - latest_coverage_end).days
+            # Scale the threshold to this schedule's own billing period rather than a
+            # flat constant tuned for Monthly (see the module-level NOTE above).
+            gap_threshold_days = get_nominal_period_days(self.billing_frequency)
 
-            if gap_days > GAP_RESET_THRESHOLD_DAYS:
+            if gap_days > gap_threshold_days:
                 # Large gap detected - skip fallback processing entirely
                 self.logger.info(
-                    f"Large coverage gap ({gap_days} days > {GAP_RESET_THRESHOLD_DAYS}) detected for {customer}. "
+                    f"Large coverage gap ({gap_days} days > {gap_threshold_days}) detected for {customer} "
+                    f"(billing_frequency={self.billing_frequency}). "
                     f"Skipping fallback coverage processing per gap reset logic."
                 )
                 return DuplicateInvoiceDetectionResult(
