@@ -35,11 +35,17 @@ and `member.subscription_canceled_at`. Neither is a declared field on Member
 `_update_donor_subscription_canceled` is worse: Donor has NONE of
 `subscription_status` / `subscription_cancel_reason` / `subscription_canceled_at`
 declared (same verification), so that whole method is a no-op beyond bumping
-`modified`. Fixing either requires either renaming the Member call site to the
-field that already exists (`subscription_cancelled_date`) or adding fields to
-both doctypes -- a schema change out of scope for a test-only branch. Filed as
-#873 rather than fixed here, per this branch's own "new test files only"
-territory.
+`modified`.
+
+Not a schema change: `CompletePaymentService._update_owner_record`
+(complete_payment_service.py:889) already does this job correctly, elsewhere in
+the same package -- it filters the payload through `meta.has_field(key)` before
+writing, and its caller writes the real field (`subscription_cancelled_date`),
+already covered by test_mollie_subscription_consolidation.py's
+`test_update_owner_record_skips_fields_a_doctype_lacks`. The fix is routing
+`_update_member_subscription_canceled` / `_update_donor_subscription_canceled`
+through that existing pattern, not adding fields. Filed as #873 rather than
+fixed here, per this branch's own "new test files only" territory.
 
 Gating / hygiene: identical to test_subscription_service_live.py -- every test
 skips cleanly without a configured `mollie_test_secret_key` (e.g. plain CI).
@@ -148,21 +154,28 @@ class TestSubscriptionCancelBookkeepingLive(EnhancedTestCase):
 
         # Independent proof: Mollie itself now reports the subscription cancelled,
         # read back fresh rather than trusting the call's own return value.
+        # assertEqual, not assertTrue(is_canceled): is_canceled is also True for
+        # "suspended"/"completed" (subscription_service.py), which would let a
+        # mandate-revoked suspension pass this check too.
         status = self.service.get_subscription_status(customer_id, subscription_id)
-        self.assertTrue(status["is_canceled"])
+        self.assertEqual(status["status"], "canceled")
 
         # The one piece of the local bookkeeping that actually persists today.
         member.reload()
         self.assertEqual(member.subscription_status, "canceled")
 
-        # Documented existing bug (see module docstring and #873):
-        # subscription_cancel_reason and subscription_canceled_at are not
-        # declared Member fields, so Document.save() drops both assignments
-        # silently. Asserted here (rather than left unchecked) so a future
-        # half-fix doesn't silently regress this test's understanding of what
-        # is actually persisted.
-        self.assertIsNone(getattr(member, "subscription_cancel_reason", None))
-        self.assertIsNone(getattr(member, "subscription_canceled_at", None))
+        # Documented existing bug (see module docstring and #873): checked at
+        # the DB level, on the real field the fix should use, not on Python
+        # attributes of this in-memory `member` object. `member` here is never
+        # the same object `_update_member_subscription_canceled` mutates (that
+        # method loads its own `frappe.get_doc`), so asserting
+        # `getattr(member, "subscription_cancel_reason", None) is None` would
+        # hold vacuously regardless of what production code does -- that
+        # attribute was never set on THIS object either way. Instead: assert
+        # the real Member field the fix should actually populate
+        # (subscription_cancelled_date) is still untouched today. This flips
+        # to a real date once #873 lands.
+        self.assertIsNone(frappe.db.get_value("Member", member.name, "subscription_cancelled_date"))
 
     def test_cancel_subscription_recurring_donation_cancels_at_mollie(self):
         """cancel_subscription() with recurring_donation metadata against a real
@@ -183,6 +196,14 @@ class TestSubscriptionCancelBookkeepingLive(EnhancedTestCase):
             {"subscription_type": "recurring_donation", "donor_id": donor.name},
         )
 
+        # Captured before the cancel: _update_donor_subscription_canceled calls
+        # donor.save(), which bumps `modified` regardless of which fields it
+        # actually persists. That makes `modified` the one observable proof
+        # that the recurring_donation metadata branch actually ran, rather
+        # than being silently ignored (there's nothing else to check -- Donor
+        # has none of the three fields the method tries to write).
+        donor_modified_before = frappe.db.get_value("Donor", donor.name, "modified")
+
         result = self.service.cancel_subscription(
             customer_id, subscription_id, reason="live bookkeeping test cancellation"
         )
@@ -191,4 +212,11 @@ class TestSubscriptionCancelBookkeepingLive(EnhancedTestCase):
         self.assertEqual(result["subscription_id"], subscription_id)
 
         status = self.service.get_subscription_status(customer_id, subscription_id)
-        self.assertTrue(status["is_canceled"])
+        self.assertEqual(status["status"], "canceled")
+
+        donor_modified_after = frappe.db.get_value("Donor", donor.name, "modified")
+        self.assertNotEqual(
+            donor_modified_after,
+            donor_modified_before,
+            "Donor was never re-saved -- the recurring_donation metadata branch did not run",
+        )
