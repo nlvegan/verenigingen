@@ -3649,11 +3649,9 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         use the same setup as production installations.
         """
         try:
-            # Use the proper installation setup function
-            from verenigingen.setup import create_default_verenigingen_settings
-
-            # Ensure settings exist (same as production installation)
-            create_default_verenigingen_settings()
+            # Ensure settings exist (same as production installation), and that
+            # they actually took -- see _require_settings_installer_succeeded.
+            self._require_settings_installer_succeeded()
 
             # ENHANCED FIXTURE LOADING: Load all essential fixtures
             self._load_essential_fixtures()
@@ -3707,6 +3705,57 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 f"Test master-data setup failed, so fixtures would link to records that "
                 f"do not exist. Fix the setup rather than the downstream test: {e}"
             ) from e
+
+    def _require_settings_installer_succeeded(self):
+        """Seed Verenigingen Settings, then assert the seed actually took.
+
+        Named distinctly from ``_ensure_verenigingen_settings`` (below, ~1800
+        lines away) -- that one repoints an EXISTING Single at the test
+        company; this one is about whether the Single's initial seed ran at
+        all.
+
+        ``create_default_verenigingen_settings()`` (verenigingen/setup/__init__.py)
+        is deliberately best-effort: it catches its own exception, prints a
+        warning, and returns ``None`` rather than raising -- defensible in a
+        real install, where "don't fail installation" is a real requirement.
+        The harness used to just call it for the side effect and move on, so a
+        failure there was invisible until some unrelated later test read
+        Verenigingen Settings and hit a confusing, unrelated error (#309).
+
+        The fix is not to change the installer's policy -- production installs
+        still get the best-effort behaviour -- it is to check, from the
+        harness side, whether the call actually took. Read the function's own
+        return value (``settings`` on success, ``None`` on its internal
+        swallow) rather than probing existence: ``frappe.db.exists(
+        "Verenigingen Settings", "Verenigingen Settings")`` is UNCONDITIONALLY
+        truthy for a Single (frappe's database layer short-circuits to
+        "single always exists" whenever doctype == docname), so that check can
+        never fire -- the installer's own identical guard is the antipattern
+        that makes ITS create branch dead code in the first place (a separate,
+        out-of-scope defect: the same shape recurs at ~19 sites outside
+        tests/, not just this one).
+
+        Seeding ``creation_user``/``company`` here first, the same way
+        ``before_tests`` does for a full suite run, keeps this check from
+        being the first thing to fail on a site an isolated module run left
+        fresh (the two reqd fields the installer's dead branch never sets);
+        it is idempotent and already called from ~19 test modules' own
+        ``setUpClass``, so calling it again here is not new exposure.
+        """
+        from verenigingen.setup import create_default_verenigingen_settings
+        from verenigingen.tests.setup import _seed_verenigingen_test_system_user
+
+        _seed_verenigingen_test_system_user()
+
+        if create_default_verenigingen_settings() is None:
+            raise RuntimeError(
+                "Verenigingen Settings could not be created (see the installer's own "
+                "warning printed above); tests that read it would otherwise fail with "
+                "a far less useful, unrelated error somewhere else. Run the full suite "
+                "so before_tests seeds Verenigingen Settings.creation_user/company, or "
+                "call verenigingen.tests.setup.ensure_member_test_masters() from this "
+                "module's setUpClass (#309)."
+            )
 
     def _ensure_required_roles(self):
         """
