@@ -501,8 +501,8 @@
    "label": "Stuck Schedule Notification Emails"
   },
   {
-   "default": "0",
-   "description": "When enabled, SEPA XML generation will fail if any mandate sign date is missing. When disabled (default), missing dates fall back to today with a warning email to financial admins.",
+   "default": "1",
+   "description": "When enabled (default), SEPA XML generation fails if any mandate sign date is missing, naming the affected invoice(s)/mandate(s) so the batch can be fixed. When disabled, missing dates fall back to today's date instead, with a warning email to financial admins -- a fabricated signature date is then sent to the bank as fact, so only disable this if you understand that tradeoff (#631).",
    "fieldname": "sepa_strict_mandate_validation",
    "fieldtype": "Check",
    "label": "SEPA Strict Mandate Validation"
