@@ -305,18 +305,13 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
         """Test compliance with pain.008.001.08 XML structure"""
         batch_doc = self._create_comprehensive_test_batch()
 
-        try:
-            # Generate SEPA XML
-            xml_file = sepa_xml_service.generate_sepa_xml_for_batch(batch_doc)
+        # Generate SEPA XML
+        xml_file = sepa_xml_service.generate_sepa_xml_for_batch(batch_doc)
 
-            # Parse and validate XML structure
-            xml_content = self._get_xml_content_from_batch(batch_doc)
-            if xml_content:
-                self._validate_pain_008_structure(xml_content)
-
-        except Exception as e:
-            # Log but don't fail if configuration is incomplete
-            frappe.logger().warning(f"pain.008.001.08 structure test skipped: {str(e)}")
+        # Parse and validate XML structure
+        xml_content = self._get_xml_content_from_batch(batch_doc)
+        self.assertIsNotNone(xml_content, "extractor returned None -- assertions below never ran")
+        self._validate_pain_008_structure(xml_content)
 
     def test_get_xml_content_from_batch_returns_the_generated_xml(self):
         """#529: _get_xml_content_from_batch called sepa_xml_service._create_sepa_xml_structure,
@@ -352,132 +347,146 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
         """Test SEPA Core Direct Debit scheme compliance"""
         batch_doc = self._create_comprehensive_test_batch()
 
-        try:
-            xml_file = sepa_xml_service.generate_sepa_xml_for_batch(batch_doc)
-            xml_content = self._get_xml_content_from_batch(batch_doc)
+        xml_file = sepa_xml_service.generate_sepa_xml_for_batch(batch_doc)
+        xml_content = self._get_xml_content_from_batch(batch_doc)
+        self.assertIsNotNone(xml_content, "extractor returned None -- assertions below never ran")
 
-            if xml_content:
-                root = ET.fromstring(xml_content)
+        root = ET.fromstring(xml_content)
 
-                # Check service level
-                service_level = root.find(
-                    ".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}SvcLvl/{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}Cd"
-                )
-                self.assertIsNotNone(service_level)
-                self.assertEqual(service_level.text, "SEPA")
+        # Check service level
+        service_level = root.find(
+            ".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}SvcLvl/{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}Cd"
+        )
+        self.assertIsNotNone(service_level)
+        self.assertEqual(service_level.text, "SEPA")
 
-                # Check local instrument
-                local_instrument = root.find(
-                    ".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}LclInstrm/{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}Cd"
-                )
-                self.assertIsNotNone(local_instrument)
-                self.assertEqual(local_instrument.text, "CORE")
+        # Check local instrument
+        local_instrument = root.find(
+            ".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}LclInstrm/{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}Cd"
+        )
+        self.assertIsNotNone(local_instrument)
+        self.assertEqual(local_instrument.text, "CORE")
 
-                # Check sequence type
-                sequence_type = root.find(".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}SeqTp")
-                self.assertIsNotNone(sequence_type)
-                self.assertIn(sequence_type.text, ["FRST", "RCUR", "OOFF", "FNAL"])
-
-        except Exception as e:
-            frappe.logger().warning(f"SEPA Core compliance test skipped: {str(e)}")
+        # Check sequence type
+        sequence_type = root.find(".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}SeqTp")
+        self.assertIsNotNone(sequence_type)
+        self.assertIn(sequence_type.text, ["FRST", "RCUR", "OOFF", "FNAL"])
 
     def test_dutch_banking_specific_requirements(self):
         """Test Dutch banking specific SEPA requirements"""
         batch_doc = self._create_comprehensive_test_batch()
 
-        try:
-            xml_file = sepa_xml_service.generate_sepa_xml_for_batch(batch_doc)
-            xml_content = self._get_xml_content_from_batch(batch_doc)
+        xml_file = sepa_xml_service.generate_sepa_xml_for_batch(batch_doc)
+        xml_content = self._get_xml_content_from_batch(batch_doc)
+        self.assertIsNotNone(xml_content, "extractor returned None -- assertions below never ran")
 
-            if xml_content:
-                root = ET.fromstring(xml_content)
+        root = ET.fromstring(xml_content)
 
-                # Check Dutch creditor IBAN format
-                creditor_iban = root.find(
-                    ".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}CdtrAcct/{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}Id/{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}IBAN"
-                )
-                self.assertIsNotNone(creditor_iban)
-                self.assertTrue(creditor_iban.text.startswith("NL"))
-                self.assertTrue(SEPAUtilities.validate_dutch_iban(creditor_iban.text))
+        # Check Dutch creditor IBAN format
+        creditor_iban = root.find(
+            ".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}CdtrAcct/{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}Id/{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}IBAN"
+        )
+        self.assertIsNotNone(creditor_iban)
+        self.assertTrue(creditor_iban.text.startswith("NL"))
+        self.assertTrue(SEPAUtilities.validate_dutch_iban(creditor_iban.text))
 
-                # Check Dutch BIC format
-                creditor_bic = root.find(
-                    ".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}CdtrAgt/{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}FinInstnId/{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}BIC"
-                )
-                self.assertIsNotNone(creditor_bic)
-                self.assertEqual(len(creditor_bic.text), 8)  # Dutch BIC format
+        # Check Dutch BIC format
+        creditor_bic = root.find(
+            ".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}CdtrAgt/{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}FinInstnId/{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}BIC"
+        )
+        self.assertIsNotNone(creditor_bic)
+        self.assertEqual(len(creditor_bic.text), 8)  # Dutch BIC format
 
-                # Check creditor scheme identification (Dutch incassant ID)
-                creditor_id = root.find(
-                    ".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}CdtrSchmeId//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}Id"
-                )
-                self.assertIsNotNone(creditor_id)
-                self.assertTrue(creditor_id.text.startswith("NL"))
-                self.assertIn("ZZZ", creditor_id.text)
-
-        except Exception as e:
-            frappe.logger().warning(f"Dutch banking requirements test skipped: {str(e)}")
+        # Check creditor scheme identification (Dutch incassant ID). The naive
+        # `//Id` XPath below used to match the CdtrSchmeId/Id WRAPPER element
+        # (whitespace text, per the schema), not the actual identifier four
+        # levels down at Id/PrvtId/Othr/Id -- #490 review, verified against
+        # the generated XML.
+        creditor_id = root.find(
+            ".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}CdtrSchmeId"
+            "/{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}Id"
+            "/{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}PrvtId"
+            "/{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}Othr"
+            "/{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}Id"
+        )
+        self.assertIsNotNone(creditor_id)
+        self.assertTrue(creditor_id.text.startswith("NL"))
+        self.assertIn("ZZZ", creditor_id.text)
 
     def test_mandate_sequence_type_accuracy(self):
         """Test mandate sequence type handling accuracy"""
         # Create batch with mixed sequence types
         batch_doc = self._create_test_batch_with_sequence_types()
 
-        try:
-            xml_file = sepa_xml_service.generate_sepa_xml_for_batch(batch_doc)
-            xml_content = self._get_xml_content_from_batch(batch_doc)
+        xml_file = sepa_xml_service.generate_sepa_xml_for_batch(batch_doc)
+        xml_content = self._get_xml_content_from_batch(batch_doc)
+        self.assertIsNotNone(xml_content, "extractor returned None -- assertions below never ran")
 
-            if xml_content:
-                root = ET.fromstring(xml_content)
+        root = ET.fromstring(xml_content)
 
-                # Check that mandate information is present
-                mandate_ids = root.findall(".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}MdtId")
-                self.assertGreater(len(mandate_ids), 0)
+        # Check that mandate information is present. pain.008.001.08 spells
+        # the element "MndtId", not "MdtId" -- #490 review, verified against
+        # the generated XML (<MndtRltdInf><MndtId>...).
+        mandate_ids = root.findall(".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}MndtId")
+        self.assertGreater(len(mandate_ids), 0)
 
-                # Check mandate sign dates
-                sign_dates = root.findall(".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}DtOfSgntr")
-                self.assertEqual(len(sign_dates), len(mandate_ids))
+        # Check mandate sign dates
+        sign_dates = root.findall(".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}DtOfSgntr")
+        self.assertEqual(len(sign_dates), len(mandate_ids))
 
-                # Validate date format (YYYY-MM-DD) and check not hardcoded
-                for date_elem in sign_dates:
-                    self._validate_date_format(date_elem.text)
+        # Validate date format (YYYY-MM-DD) and check not hardcoded
+        for date_elem in sign_dates:
+            self._validate_date_format(date_elem.text)
 
-                # Additional validation to ensure sign dates aren't hardcoded
-                self._validate_mandate_sign_dates_not_hardcoded(xml_content)
+        # Additional validation to ensure sign dates aren't hardcoded
+        self._validate_mandate_sign_dates_not_hardcoded(xml_content)
 
-        except Exception as e:
-            frappe.logger().warning(f"Mandate sequence type test skipped: {str(e)}")
-
+    @unittest.expectedFailure
     def test_structured_address_information(self):
-        """Test structured address information (pain.008.001.08 requirement)"""
+        """Test structured address information (pain.008.001.08 requirement)
+
+        #490: this is a genuine, unfixed production gap, not a test bug -- traced
+        two layers deep. (1) `Direct Debit Batch Invoice` (the child doctype
+        `_create_test_batch_with_addresses` inserts rows into) has no
+        address/postal_code/city fields at all, so the fixture below builds an
+        `addresses` list and never attaches it to the row -- there is nowhere on
+        the row to put it. (2) Even if it could: `SEPAXMLAdapter._build_transaction`
+        constructs `SEPADebtor(name=..., iban=..., bic=..., country="NL")` and never
+        populates `address_line_1`/`postal_code`/`town`, so
+        `EnhancedSEPAXMLGenerator._generate_debtor_info`'s `build_postal_address(...)`
+        call is always given an all-None address and emits no `<PstlAdr>`. The XML
+        generator itself DOES support this (`build_postal_address` writes a
+        `PstlAdr` when given data) -- the gap is that nothing upstream ever supplies
+        it. Implementing this is a real feature (schema + adapter + a source for the
+        address, e.g. the member's `Address`), out of scope for a swallow-removal
+        fix; `@unittest.expectedFailure` keeps this failure visible (as an expected
+        one) rather than silently green, and will flip to an "unexpected success"
+        the day the feature lands, which is the signal to remove this decorator.
+        """
         batch_doc = self._create_test_batch_with_addresses()
 
-        try:
-            xml_file = sepa_xml_service.generate_sepa_xml_for_batch(batch_doc)
-            xml_content = self._get_xml_content_from_batch(batch_doc)
+        xml_file = sepa_xml_service.generate_sepa_xml_for_batch(batch_doc)
+        xml_content = self._get_xml_content_from_batch(batch_doc)
+        self.assertIsNotNone(xml_content, "extractor returned None -- assertions below never ran")
 
-            if xml_content:
-                root = ET.fromstring(xml_content)
+        root = ET.fromstring(xml_content)
 
-                # Check for postal address information
-                postal_addresses = root.findall(
-                    ".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}Dbtr/{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}PstlAdr"
-                )
+        # Check for postal address information
+        postal_addresses = root.findall(
+            ".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}Dbtr/{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}PstlAdr"
+        )
+        self.assertTrue(postal_addresses, "no postal addresses were generated -- nothing below can be checked")
 
-                if postal_addresses:
-                    for address in postal_addresses:
-                        # Check country code
-                        country = address.find(".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}Ctry")
-                        if country is not None:
-                            self.assertEqual(country.text, "NL")
+        for address in postal_addresses:
+            # Check country code
+            country = address.find(".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}Ctry")
+            if country is not None:
+                self.assertEqual(country.text, "NL")
 
-                        # Check postal code format
-                        postal_code = address.find(".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}PstCd")
-                        if postal_code is not None:
-                            self._validate_dutch_postal_code(postal_code.text)
-
-        except Exception as e:
-            frappe.logger().warning(f"Structured address test skipped: {str(e)}")
+            # Check postal code format
+            postal_code = address.find(".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}PstCd")
+            if postal_code is not None:
+                self._validate_dutch_postal_code(postal_code.text)
 
     def test_financial_data_accuracy(self):
         """Test financial data accuracy and calculations"""
@@ -487,115 +496,100 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
         expected_total = sum(float(invoice.amount) for invoice in batch_doc.invoices)
         expected_count = len(batch_doc.invoices)
 
-        try:
-            xml_file = sepa_xml_service.generate_sepa_xml_for_batch(batch_doc)
-            xml_content = self._get_xml_content_from_batch(batch_doc)
+        xml_file = sepa_xml_service.generate_sepa_xml_for_batch(batch_doc)
+        xml_content = self._get_xml_content_from_batch(batch_doc)
+        self.assertIsNotNone(xml_content, "extractor returned None -- assertions below never ran")
 
-            if xml_content:
-                root = ET.fromstring(xml_content)
+        root = ET.fromstring(xml_content)
 
-                # Check group header totals
-                nb_of_txs = root.find(
-                    ".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}GrpHdr/{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}NbOfTxs"
-                )
-                self.assertIsNotNone(nb_of_txs)
-                self.assertEqual(int(nb_of_txs.text), expected_count)
+        # Check group header totals
+        nb_of_txs = root.find(
+            ".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}GrpHdr/{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}NbOfTxs"
+        )
+        self.assertIsNotNone(nb_of_txs)
+        self.assertEqual(int(nb_of_txs.text), expected_count)
 
-                ctrl_sum = root.find(
-                    ".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}GrpHdr/{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}CtrlSum"
-                )
-                self.assertIsNotNone(ctrl_sum)
-                self.assertAlmostEqual(float(ctrl_sum.text), expected_total, places=2)
+        ctrl_sum = root.find(
+            ".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}GrpHdr/{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}CtrlSum"
+        )
+        self.assertIsNotNone(ctrl_sum)
+        self.assertAlmostEqual(float(ctrl_sum.text), expected_total, places=2)
 
-                # Check individual transaction amounts
-                instd_amounts = root.findall(".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}InstdAmt")
-                self.assertEqual(len(instd_amounts), expected_count)
+        # Check individual transaction amounts
+        instd_amounts = root.findall(".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}InstdAmt")
+        self.assertEqual(len(instd_amounts), expected_count)
 
-                # Verify currency codes
-                for amount in instd_amounts:
-                    self.assertEqual(amount.get("Ccy"), "EUR")
-                    # Verify amount is positive and reasonable
-                    amount_value = float(amount.text)
-                    self.assertGreater(amount_value, 0)
-                    self.assertLess(amount_value, 1000)  # Reasonable membership fee
-
-        except Exception as e:
-            frappe.logger().warning(f"Financial data accuracy test skipped: {str(e)}")
+        # Verify currency codes
+        for amount in instd_amounts:
+            self.assertEqual(amount.get("Ccy"), "EUR")
+            # Verify amount is positive and reasonable
+            amount_value = float(amount.text)
+            self.assertGreater(amount_value, 0)
+            self.assertLess(amount_value, 1000)  # Reasonable membership fee
 
     def test_xml_schema_validation(self):
         """Test XML schema validation against pain.008.001.08 XSD"""
         batch_doc = self._create_comprehensive_test_batch()
 
-        try:
-            xml_file = sepa_xml_service.generate_sepa_xml_for_batch(batch_doc)
-            xml_content = self._get_xml_content_from_batch(batch_doc)
+        xml_file = sepa_xml_service.generate_sepa_xml_for_batch(batch_doc)
+        xml_content = self._get_xml_content_from_batch(batch_doc)
+        self.assertIsNotNone(xml_content, "extractor returned None -- assertions below never ran")
 
-            if xml_content:
-                # Test with SEPA XML validator
-                validation_result = SEPAXMLValidator.validate_sepa_xml_schema(xml_content, batch_doc.name)
+        # Test with SEPA XML validator
+        validation_result = SEPAXMLValidator.validate_sepa_xml_schema(xml_content, batch_doc.name)
 
-                # Should have validation result even if XSD is not available
-                self.assertIsInstance(validation_result, dict)
-                self.assertIn("valid", validation_result)
-
-        except Exception as e:
-            frappe.logger().warning(f"XML schema validation test skipped: {str(e)}")
+        # Should have validation result even if XSD is not available
+        self.assertIsInstance(validation_result, dict)
+        self.assertIn("valid", validation_result)
 
     def test_xml_namespace_compliance(self):
         """Test XML namespace compliance with pain.008.001.08"""
         batch_doc = self._create_comprehensive_test_batch()
 
-        try:
-            xml_file = sepa_xml_service.generate_sepa_xml_for_batch(batch_doc)
-            xml_content = self._get_xml_content_from_batch(batch_doc)
+        xml_file = sepa_xml_service.generate_sepa_xml_for_batch(batch_doc)
+        xml_content = self._get_xml_content_from_batch(batch_doc)
+        self.assertIsNotNone(xml_content, "extractor returned None -- assertions below never ran")
 
-            if xml_content:
-                root = ET.fromstring(xml_content)
+        root = ET.fromstring(xml_content)
 
-                # Check namespace declaration. ElementTree consumes a default
-                # `xmlns=` declaration into the tag's own namespace and does not
-                # retain it in .attrib, so root.get("xmlns") is always None for a
-                # default-namespaced document; derive it from the tag instead
-                # (#529 review).
-                expected_namespace = "urn:iso:std:iso:20022:tech:xsd:pain.008.001.08"
-                self.assertTrue(root.tag.startswith("{"), f"unexpected unqualified tag: {root.tag}")
-                actual_namespace = root.tag[1 : root.tag.index("}")]
-                self.assertEqual(actual_namespace, expected_namespace)
+        # Check namespace declaration. ElementTree consumes a default
+        # `xmlns=` declaration into the tag's own namespace and does not
+        # retain it in .attrib, so root.get("xmlns") is always None for a
+        # default-namespaced document; derive it from the tag instead
+        # (#529 review).
+        expected_namespace = "urn:iso:std:iso:20022:tech:xsd:pain.008.001.08"
+        self.assertTrue(root.tag.startswith("{"), f"unexpected unqualified tag: {root.tag}")
+        actual_namespace = root.tag[1 : root.tag.index("}")]
+        self.assertEqual(actual_namespace, expected_namespace)
 
-                # Check schema location
-                schema_location = root.get("{http://www.w3.org/2001/XMLSchema-instance}schemaLocation")
-                if schema_location:
-                    self.assertIn("pain.008.001.08", schema_location)
-
-        except Exception as e:
-            frappe.logger().warning(f"XML namespace compliance test skipped: {str(e)}")
+        # Check schema location
+        schema_location = root.get("{http://www.w3.org/2001/XMLSchema-instance}schemaLocation")
+        if schema_location:
+            self.assertIn("pain.008.001.08", schema_location)
 
     def test_dutch_name_handling_with_tussenvoegsel(self):
         """Test proper handling of Dutch names with tussenvoegsel (van, de, etc.)"""
         batch_doc = self._create_test_batch_with_dutch_names()
 
-        try:
-            xml_file = sepa_xml_service.generate_sepa_xml_for_batch(batch_doc)
-            xml_content = self._get_xml_content_from_batch(batch_doc)
+        xml_file = sepa_xml_service.generate_sepa_xml_for_batch(batch_doc)
+        xml_content = self._get_xml_content_from_batch(batch_doc)
+        self.assertIsNotNone(xml_content, "extractor returned None -- assertions below never ran")
 
-            if xml_content:
-                root = ET.fromstring(xml_content)
+        root = ET.fromstring(xml_content)
 
-                # Check debtor names
-                debtor_names = root.findall(
-                    ".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}Dbtr/{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}Nm"
-                )
+        # Check debtor names
+        debtor_names = root.findall(
+            ".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}Dbtr/{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}Nm"
+        )
+        self.assertTrue(debtor_names, "no debtor names were generated -- nothing below can be checked")
 
-                for name_elem in debtor_names:
-                    name = name_elem.text
-                    # Should be properly formatted (not just field concatenation)
-                    self.assertIsNotNone(name)
-                    self.assertGreater(len(name.strip()), 0)
-                    # Should not have double spaces or weird formatting
-                    self.assertNotIn("  ", name)
-
-        except Exception as e:
-            frappe.logger().warning(f"Dutch name handling test skipped: {str(e)}")
+        for name_elem in debtor_names:
+            name = name_elem.text
+            # Should be properly formatted (not just field concatenation)
+            self.assertIsNotNone(name)
+            self.assertGreater(len(name.strip()), 0)
+            # Should not have double spaces or weird formatting
+            self.assertNotIn("  ", name)
 
     def _create_comprehensive_test_batch(self):
         """Create comprehensive test batch with realistic Dutch data"""
@@ -607,16 +601,22 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
         batch_doc.sequence_type = "RCUR"  # SEPA sequence -> pain.008 SeqTp
         batch_doc.currency = "EUR"
 
-        # Add realistic Dutch test data
+        # Add realistic Dutch test data. #490: the RABO/INGB IBANs below used to
+        # carry bogus check digits (NL20.../NL13...), which fail
+        # validate_iban's mod-97 checksum and get silently dropped as
+        # "Transaction Build Error"s by the adapter -- so a 3-invoice batch
+        # only ever produced 1 transaction in the generated XML, and every
+        # test in this module that swallowed its own assertions never noticed.
+        # Regenerated with generate_test_iban() so all three pass the checksum.
         test_data = [
             {"name": "Jan de Vries", "iban": "NL91ABNA0417164300", "amount": 25.00, "mandate": "MAND-001"},
             {
                 "name": "Maria van der Berg",
-                "iban": "NL20RABO0123456789",
+                "iban": "NL44RABO0123456789",
                 "amount": 50.00,
                 "mandate": "MAND-002",
             },
-            {"name": "Pieter Jansen", "iban": "NL13INGB0000000001", "amount": 35.00, "mandate": "MAND-003"},
+            {"name": "Pieter Jansen", "iban": "NL28INGB0000000001", "amount": 35.00, "mandate": "MAND-003"},
         ]
 
         for i, data in enumerate(test_data):
