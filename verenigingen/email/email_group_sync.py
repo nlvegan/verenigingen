@@ -16,11 +16,17 @@ from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
+@frappe.whitelist()
+@standard_api(operation_type=OperationType.ADMIN)
 def create_initial_email_groups():
     """
     Create basic email group structure for the organization
     This should be run during initial setup or migration
     """
+    # Check permissions (matches sync_email_groups_manually / get_email_group_stats below)
+    if not (Roles.SYSTEM_MANAGER in frappe.get_roles() or Roles.VERENIGINGEN_STAFF in frappe.get_roles()):
+        frappe.throw(_("You don't have permission to create email groups"))
+
     created_groups = []
 
     # Organization-wide groups

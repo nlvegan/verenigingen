@@ -102,7 +102,7 @@ frappe.ready(function() {
         btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Loading...');
 
         frappe.call({
-            method: 'verenigingen.api.eboekhouden_item_mapping_tool.get_unmapped_accounts',
+            method: 'verenigingen.e_boekhouden.api.eboekhouden_item_mapping_tool.get_unmapped_accounts',
             args: {
                 company: defaultCompany
             },
@@ -254,7 +254,7 @@ frappe.ready(function() {
         // Process mappings
         mappingsToCreate.forEach(function(mapping, index) {
             frappe.call({
-                method: 'verenigingen.api.eboekhouden_item_mapping_tool.create_mapping',
+                method: 'verenigingen.e_boekhouden.api.eboekhouden_item_mapping_tool.create_mapping',
                 args: {
                     company: defaultCompany,
                     account_code: mapping.account_code,

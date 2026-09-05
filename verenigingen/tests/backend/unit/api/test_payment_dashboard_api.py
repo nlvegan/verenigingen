@@ -18,6 +18,7 @@ from frappe.utils import add_days, add_months, getdate, today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.api.payment_dashboard import (
+    export_all_financial_data,
     export_payment_history_csv,
     get_dashboard_data,
     get_mandate_history,
@@ -27,6 +28,7 @@ from verenigingen.api.payment_dashboard import (
     get_payment_method,
     get_payment_schedule,
     retry_failed_payment,
+    save_notification_settings,
     validate_member_exists,
 )
 
@@ -381,6 +383,89 @@ class TestPaymentDashboardAPI(EnhancedTestCase):
             result = export_payment_history_csv()
         self.assertTrue(result["success"], msg=result)
         self.assertIn(invoice.name, frappe.local.response.filecontent)
+
+    # ------------------------------------------------------------------
+    # export_all_financial_data (#430 -- verenigingen.api.payment_dashboard had
+    # never defined this; templates/pages/payment_dashboard.html's "Export All
+    # Data" button called a method that did not exist)
+    # ------------------------------------------------------------------
+    def test_export_all_financial_data_sets_response_file(self):
+        # Both section headers are unconditional writer.writerow() calls, so
+        # asserting only their presence would pass even with zero rows in either
+        # loop -- seed a real invoice and mandate so the row-writing code paths
+        # actually run.
+        customer = self._ensure_customer()
+        invoice = self.create_test_sales_invoice(customer=customer)
+        invoice.submit()
+        mandate = self.create_test_sepa_mandate(member=self.member.name, status="Active")
+
+        user_email = self._admin_user_linked_to_member()
+        with self.set_user(user_email):
+            result = export_all_financial_data()
+
+        self.assertTrue(result["success"], msg=result)
+        self.assertTrue(result["data"]["filename"].endswith(".csv"))
+        self.assertEqual(frappe.local.response.type, "csv")
+        self.assertIn("Payment History", frappe.local.response.filecontent)
+        self.assertIn("SEPA Mandate History", frappe.local.response.filecontent)
+        self.assertIn(invoice.name, frappe.local.response.filecontent)
+        self.assertIn(mandate.mandate_id, frappe.local.response.filecontent)
+
+    def test_export_all_financial_data_no_member_for_user(self):
+        with self.set_user("Administrator"):
+            self._clear_member_user_cache()
+            result = export_all_financial_data()
+        self.assertFalse(result["success"], msg=result)
+        self.assertEqual(result["error"]["message"], "No member found for current user")
+
+    # ------------------------------------------------------------------
+    # save_notification_settings (#430 -- also never defined; the dashboard's
+    # "Save Settings" button called it directly)
+    # ------------------------------------------------------------------
+    def test_save_notification_settings_persists_only_known_keys(self):
+        user_email = self._admin_user_linked_to_member()
+        with self.set_user(user_email):
+            result = save_notification_settings(
+                {
+                    "email_notifications": True,
+                    "reminder_notifications": False,
+                    "not_a_real_setting": "should be dropped",
+                }
+            )
+        self.assertTrue(result["success"], msg=result)
+        stored = frappe.parse_json(
+            frappe.db.get_value("Member", self.member.name, "payment_notification_preferences")
+        )
+        self.assertEqual(
+            stored,
+            # cbool (not bool()) normalizes to 0/1 -- see save_notification_settings.
+            {"email_notifications": 1, "reminder_notifications": 0},
+        )
+
+    def test_save_notification_settings_ignores_member_override(self):
+        """A caller cannot use the ``member`` frontend sends to edit someone else's row.
+
+        The frontend always sends a ``member`` arg alongside ``settings``
+        (templates/pages/payment_dashboard.html:1720-1721); frappe.call() drops
+        any kwarg the target function doesn't declare, so this pins that
+        save_notification_settings never grows a ``member`` parameter that
+        would let a caller edit someone else's preferences.
+        """
+        other_member = self.create_test_member(first_name="Other", last_name="PayDash")
+        user_email = self._admin_user_linked_to_member()
+        with self.set_user(user_email):
+            result = frappe.call(
+                save_notification_settings,
+                settings={"email_notifications": True},
+                member=other_member.name,
+            )
+        self.assertTrue(result["success"], msg=result)
+        self.assertIsNone(
+            frappe.db.get_value("Member", other_member.name, "payment_notification_preferences")
+        )
+        self.assertIsNotNone(
+            frappe.db.get_value("Member", self.member.name, "payment_notification_preferences")
+        )
 
     # ------------------------------------------------------------------
     # retry_failed_payment

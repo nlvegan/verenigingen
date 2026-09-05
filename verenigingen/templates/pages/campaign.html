@@ -284,23 +284,28 @@ frappe.ready(function() {
             args: formData,
             callback: function(r) {
                 const data = unwrapOperationResult(r.message);
-                if (data && (data.success !== false)) {
-                    // Redirect to payment page or success page
-                    if (data.payment_url) {
-                        window.location.href = data.payment_url;
-                    } else {
-                        frappe.msgprint({
-                            title: __('Thank You!'),
-                            message: __('Your donation has been received.'),
-                            indicator: 'green'
-                        });
-                        // Reload page to show updated progress
-                        setTimeout(function() {
-                            window.location.reload();
-                        }, 2000);
-                    }
+                // process_campaign_donation always drives PublicDonationService's
+                // Mollie payment-first flow (the campaign form has no payment-method
+                // selector), so a success response nests the redirect target under
+                // payment_info -- same shape /donate's donation_form.js reads. This
+                // page has no payment_url at the top level; reading one there always
+                // fell through to a false "Thank You" while no payment was ever
+                // initiated (#430).
+                if (data && data.success !== false && data.payment_info && data.payment_info.payment_url) {
+                    window.location.href = data.payment_info.payment_url;
+                } else if (data && data.success !== false) {
+                    frappe.msgprint({
+                        title: __('Thank You!'),
+                        message: __('Your donation has been received.'),
+                        indicator: 'green'
+                    });
+                    // Reload page to show updated progress
+                    setTimeout(function() {
+                        window.location.reload();
+                    }, 2000);
                 } else {
-                    const errorMsg = verenigingen.utils.getErrorMessage(r.message, __('An error occurred'));
+                    const errorMsg = (data && data.message)
+                        || verenigingen.utils.getErrorMessage(r.message, __('An error occurred'));
                     frappe.msgprint(errorMsg);
                 }
             }

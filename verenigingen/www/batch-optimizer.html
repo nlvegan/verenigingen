@@ -194,7 +194,7 @@ function loadEligibleInvoices() {
     showLoading(__("Loading eligible invoices..."));
 
     frappe.call({
-        method: 'verenigingen.api.dd_batch_optimizer.get_batching_preview',
+        method: 'verenigingen.verenigingen_payments.api.dd_batch_optimizer.get_batching_preview',
         args: {
             config: getConfig()
         },
@@ -222,7 +222,7 @@ function previewBatches() {
     showLoading(__("Generating batch preview..."));
 
     frappe.call({
-        method: 'verenigingen.api.dd_batch_optimizer.get_batching_preview',
+        method: 'verenigingen.verenigingen_payments.api.dd_batch_optimizer.get_batching_preview',
         args: {
             config: getConfig()
         },
@@ -310,7 +310,7 @@ function createOptimalBatches() {
     showLoading(__("Creating optimal batches..."));
 
     frappe.call({
-        method: 'verenigingen.api.dd_batch_optimizer.create_optimal_batches',
+        method: 'verenigingen.verenigingen_payments.api.dd_batch_optimizer.create_optimal_batches',
         args: {
             target_date: document.getElementById('target_date').value,
             config: getConfig()
