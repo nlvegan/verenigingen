@@ -31,7 +31,20 @@ on:
         type: string
 
 concurrency:
-  group: chaos-shards
+  # A static repo-global group means at most ONE pending run at a time: with
+  # cancel-in-progress false, GitHub cancels an older PENDING run in the same
+  # group when a new one queues behind it -- so a workflow_dispatch fired while
+  # the 03:17 cron (or another dispatch) is still in flight could silently
+  # replace, and never run, an earlier queued dispatch (#426). Each job here
+  # spins up its own ephemeral mariadb/redis services on its own runner VM, so
+  # two concurrent runs share no DATA. What they do share is the account's
+  # hosted-runner pool (20 concurrent jobs on Free; 13 per run here) -- the same
+  # cost server-tests.yml states for the same pattern. That delays runs rather
+  # than cancelling them, and dispatches are rare (2 in this workflow's
+  # history), so the trade is worth it. Distinguishing every dispatch by run_id
+  # (always unique) makes concurrent dispatches independent instead of queued;
+  # the cron still gets one stable lineage of its own.
+  group: chaos-shards-${{ github.ref }}-${{ github.event_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', github.run_id) || '' }}
   cancel-in-progress: false
 
 jobs:
