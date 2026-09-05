@@ -618,5 +618,62 @@ class TestSEPAConfigManagerSingletonAndAPI(_PatchedManagerMixin, EnhancedTestCas
         self.assertIn("company_sepa", result)
 
 
+class TestSEPAConfigManagerDirectEditInvalidation(_PatchedManagerMixin, EnhancedTestCase):
+    """#866: a direct edit to the backing Settings doctypes (Desk UI, another
+    script, doc.save() outside this manager) must invalidate the singleton's
+    cache, not just edits made through update_setting()."""
+
+    def setUp(self):
+        super().setUp()
+        prev = scm._config_manager
+        scm._config_manager = None
+        self.addCleanup(setattr, scm, "_config_manager", prev)
+
+    def test_clear_cache_on_settings_update_clears_singleton_cache(self):
+        manager = get_sepa_config_manager()
+        manager._settings_cache["sentinel"] = "value"
+        manager._validation_cache["sentinel"] = "value"
+
+        scm.clear_cache_on_settings_update()
+
+        self.assertEqual(manager._settings_cache, {})
+        self.assertEqual(manager._validation_cache, {})
+
+    def test_clear_cache_on_settings_update_accepts_doc_events_signature(self):
+        """doc_events calls handlers as fn(doc, method=None)."""
+        manager = get_sepa_config_manager()
+        manager._settings_cache["sentinel"] = "value"
+
+        fake_doc = frappe._dict({"doctype": "Verenigingen Settings"})
+        scm.clear_cache_on_settings_update(fake_doc, method="on_update")
+
+        self.assertEqual(manager._settings_cache, {})
+
+    def test_clear_cache_on_settings_update_is_safe_before_first_use(self):
+        scm._config_manager = None
+
+        scm.clear_cache_on_settings_update()  # must not raise
+
+        # Building the singleton on demand (get-or-create) is fine here; the
+        # important behaviour is that it does not error.
+        self.assertIsNotNone(scm._config_manager)
+
+    def _handlers_for(self, doctype, event):
+        from verenigingen.hooks.doc_events import doc_events
+
+        handlers = doc_events.get(doctype, {}).get(event, [])
+        if isinstance(handlers, str):
+            handlers = [handlers]
+        return handlers
+
+    def test_hooked_for_verenigingen_settings_on_update(self):
+        target = "verenigingen.verenigingen_payments.utils.sepa_config_manager.clear_cache_on_settings_update"
+        self.assertIn(target, self._handlers_for("Verenigingen Settings", "on_update"))
+
+    def test_hooked_for_verenigingen_payments_settings_on_update(self):
+        target = "verenigingen.verenigingen_payments.utils.sepa_config_manager.clear_cache_on_settings_update"
+        self.assertIn(target, self._handlers_for("Verenigingen Payments Settings", "on_update"))
+
+
 if __name__ == "__main__":
     unittest.main()
