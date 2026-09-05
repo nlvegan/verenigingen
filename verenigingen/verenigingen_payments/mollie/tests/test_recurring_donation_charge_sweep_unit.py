@@ -27,13 +27,51 @@ def _payment(payment_id, status="paid"):
     return SimpleNamespace(id=payment_id, status=status)
 
 
-class _FakeSubscription:
-    def __init__(self, payments):
+class _FakePage:
+    """One Mollie payments page: iterable, with real has_next()/get_next().
+
+    Mollie's List Subscription Payments endpoint paginates and returns
+    newest-first; PaginationList (mollie-api-python 4.0.0) only iterates its
+    OWN embedded page and exposes has_next()/get_next() for the rest. A fake
+    that flattened every page into one list -- as this file's first version
+    did -- would exercise a code path production never takes and hide a
+    single-page-only bug (the defect this class exists to catch).
+    """
+
+    def __init__(self, payments, remaining_pages):
         self._payments = list(payments)
+        self._remaining_pages = list(remaining_pages)
+
+    def __iter__(self):
+        return iter(self._payments)
+
+    def has_next(self):
+        return len(self._remaining_pages) > 0
+
+    def get_next(self):
+        if not self._remaining_pages:
+            return None
+        nxt, *rest = self._remaining_pages
+        return _FakePage(nxt, rest)
+
+
+class _FakeSubscription:
+    def __init__(self, pages):
+        """``pages``: a list of payment-lists, one per Mollie page.
+
+        A plain flat list of payments is also accepted and treated as a
+        single page, for tests that do not care about pagination -- detected
+        by the first element not itself being a list (a payment fake is a
+        SimpleNamespace, never a list).
+        """
+        if pages and not isinstance(pages[0], list):
+            pages = [pages]
+        self._pages = [list(p) for p in pages] if pages else [[]]
 
     @property
     def payments(self):
-        return SimpleNamespace(list=lambda limit=None: list(self._payments))
+        first, *rest = self._pages
+        return SimpleNamespace(list=lambda limit=None: _FakePage(first, rest))
 
 
 class _FakeMollieClient:
@@ -228,3 +266,71 @@ class TestSweepOnePayment(_SweepTestBase):
         self.assertEqual(summary["charges_booked"], 1)
         self.assertEqual(len(summary["errors"]), 1)
         self.assertEqual(summary["errors"][0]["subscription_id"], f"sub_broken_{tag2}")
+
+
+class TestPagination(_SweepTestBase):
+    """A subscription with more payments than one Mollie page.
+
+    Mollie's List Subscription Payments endpoint returns newest-first and
+    paginates; a single page is a SLIDING WINDOW over recent charges, not a
+    growing scan -- a charge that ages past the first page while unbooked
+    would never be revisited by a later run unless every `next` link is
+    followed. These tests build a subscription whose payments span more than
+    one page and prove the sweep actually walks past the first one.
+    """
+
+    def test_an_unbooked_charge_on_the_second_page_is_still_booked(self):
+        tag = frappe.generate_hash(length=8)
+        self._origin(tag)
+        # Page 1 carries only the already-booked first payment; the unbooked
+        # charge sits on page 2. Reading only page 1 would find nothing to
+        # book and this test would see charges_booked == 0.
+        client = _FakeMollieClient(
+            subscriptions={
+                f"sub_{tag}": [
+                    [_payment(f"tr_first_{tag}")],
+                    [_payment(f"tr_page2_{tag}")],
+                ]
+            }
+        )
+
+        with patch(f"{_MODULE}.MollieClient", return_value=client), patch(
+            f"{_MODULE}.DonationProcessor"
+        ) as mocked_processor:
+            mocked_processor.return_value.process_donation_payment.return_value = {"status": "success"}
+            summary = sweep_recurring_donation_charges()
+
+        self.assertEqual(summary["charges_already_booked"], 1)
+        self.assertEqual(summary["charges_booked"], 1)
+        mocked_processor.return_value.process_donation_payment.assert_called_once()
+        called_payment_id = mocked_processor.return_value.process_donation_payment.call_args[0][0]
+        self.assertEqual(called_payment_id, f"tr_page2_{tag}")
+
+    def test_pagination_is_bounded_so_one_subscription_cannot_run_unbounded(self):
+        from verenigingen.verenigingen_payments.mollie.services import (
+            recurring_donation_charge_sweep as sweep_module,
+        )
+
+        tag = frappe.generate_hash(length=8)
+        self._origin(tag)
+        # One distinct unbooked charge per page, well past the bound -- if
+        # get_next() were followed forever, every page would be seen and
+        # booked (or attempted); the bound must cut this off at exactly
+        # _MAX_PAGES_PER_SUBSCRIPTION pages read (this subscription's first
+        # page carries the origin's own payment, plus one page per index).
+        total_pages = sweep_module._MAX_PAGES_PER_SUBSCRIPTION + 5
+        pages = [[_payment(f"tr_first_{tag}")]] + [
+            [_payment(f"tr_p{i}_{tag}")] for i in range(total_pages - 1)
+        ]
+        client = _FakeMollieClient(subscriptions={f"sub_{tag}": pages})
+
+        with patch(f"{_MODULE}.MollieClient", return_value=client), patch(
+            f"{_MODULE}.DonationProcessor"
+        ) as mocked_processor:
+            mocked_processor.return_value.process_donation_payment.return_value = {"status": "success"}
+            summary = sweep_recurring_donation_charges()
+
+        total_seen = (
+            summary["charges_booked"] + summary["charges_already_booked"] + summary["charges_not_paid"]
+        )
+        self.assertEqual(total_seen, sweep_module._MAX_PAGES_PER_SUBSCRIPTION)
