@@ -11,7 +11,7 @@ Security Features:
 
 import frappe
 from frappe import _
-from frappe.utils import flt, getdate
+from frappe.utils import cint, flt, getdate
 
 from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.security.api_security_framework import (
@@ -35,7 +35,9 @@ def check_rate_limit():
         return True  # Guest check happens elsewhere
 
     cache_key = f"{RATE_LIMIT_CACHE_PREFIX}:{frappe.session.user}"
-    current_count = frappe.cache().get(cache_key) or 0
+    # frappe.cache().get() returns bytes on a cache hit (raw redis, not
+    # frappe's pickling get_value()); coerce before comparing to an int.
+    current_count = cint(frappe.cache().get(cache_key))
 
     if current_count >= RATE_LIMIT_SUBMISSIONS_PER_HOUR:
         frappe.log_error(
@@ -56,10 +58,14 @@ def increment_rate_limit():
         return
 
     cache_key = f"{RATE_LIMIT_CACHE_PREFIX}:{frappe.session.user}"
-    current_count = frappe.cache().get(cache_key) or 0
+    # frappe.cache().get() returns bytes on a cache hit; coerce before
+    # arithmetic, otherwise `current_count + 1` raises TypeError.
+    current_count = cint(frappe.cache().get(cache_key))
 
-    # Set count with 1 hour expiry
-    frappe.cache().set(cache_key, current_count + 1, expires_in_sec=3600)
+    # Set count with 1 hour expiry. This uses the raw redis .set() (matching
+    # the raw .get() above), whose expiry kwarg is `ex`, not set_value()'s
+    # `expires_in_sec` -- the latter raised TypeError on every call.
+    frappe.cache().set(cache_key, current_count + 1, ex=3600)
 
 
 def get_context(context):
