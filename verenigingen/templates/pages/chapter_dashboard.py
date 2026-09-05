@@ -226,13 +226,20 @@ def _get_chapter_dashboard_data_internal(chapter_name: str) -> Dict[str, Any]:
     """Internal function to get dashboard data without API wrapper"""
 
     _assert_user_may_view_chapter(chapter_name)
-    return _chapter_dashboard_payload(chapter_name)
+    return _annotate_current_user(_chapter_dashboard_payload(chapter_name))
 
 
 def _chapter_dashboard_payload(chapter_name: str) -> Dict[str, Any]:
-    """Assemble the dashboard payload. Contains no access check: the data itself
-    does not vary by caller, only permission to see it does (#785) -- callers
-    must gate access themselves, e.g. via ``_assert_user_may_view_chapter``.
+    """Assemble the dashboard payload. Contains no access check: which chapter's
+    data is returned does not vary by caller, only permission to see it does
+    (#785) -- callers must gate access themselves, e.g. via
+    ``_assert_user_may_view_chapter``.
+
+    One field DOES vary by caller: ``board_info.members[].is_current_user``.
+    ``get_board_information()`` never reads the session, precisely so this
+    function's output is safe to put behind a shared (``per_user=False``)
+    cache -- see ``_annotate_current_user``, which fills that field in
+    afterwards, per caller, outside the cache.
     """
     dashboard_data = {
         "chapter_info": get_chapter_basic_info(chapter_name),
@@ -251,9 +258,36 @@ def _chapter_dashboard_payload(chapter_name: str) -> Dict[str, Any]:
     return serialize_dates(dashboard_data)
 
 
+def _annotate_current_user(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a COPY of the dashboard payload with ``board_info.members[].is_current_user``
+    set for the calling user.
+
+    Found in skeptical review of #904: ``_chapter_dashboard_payload`` sits behind
+    a shared (``per_user=False``, 120s TTL) cache, so computing this flag inside
+    it (as the pre-#785 code did) freezes whichever caller happened to warm the
+    cache as "you" for every other board member for up to two minutes. Computing
+    it here instead, AFTER the cache read, fixes that -- but only if this
+    function does not mutate ``payload`` in place: ``cache_with_ttl`` stores the
+    dict object by reference, so an in-place write here would leak straight into
+    the shared cache entry and hand the NEXT reader this caller's identity.
+    Hence the copy.
+    """
+    current_user = frappe.session.user
+    board_info = payload.get("board_info") or {}
+    members = board_info.get("members") or []
+    annotated_members = [
+        {**member, "is_current_user": member.get("email") == current_user} for member in members
+    ]
+    return {
+        **payload,
+        "board_info": {**board_info, "members": annotated_members},
+    }
+
+
 @cache_with_ttl(ttl=120, per_user=False)  # Cache for 2 minutes - balance between freshness and
 # performance. per_user=False: get_chapter_dashboard_data() below checks access
-# BEFORE calling this, so the payload -- which does not vary by who is asking,
+# BEFORE calling this, and annotates the caller-specific is_current_user field
+# AFTER, so the cached payload itself -- which does not vary by who is asking,
 # only which chapter -- can be shared across every authorized viewer of the
 # same chapter instead of one cache entry per board member (#785).
 def _cached_chapter_dashboard_payload(chapter_name: str) -> Dict[str, Any]:
@@ -267,10 +301,11 @@ def get_chapter_dashboard_data(chapter_name: str) -> Dict[str, Any]:
     """Get comprehensive dashboard data for chapter board members (API endpoint).
 
     The access check runs here, uncached, on every call; only the resulting
-    payload is cached and shared (#785).
+    payload is cached and shared (#785). ``is_current_user`` is filled in after
+    the cache read, per caller -- see ``_annotate_current_user``.
     """
     _assert_user_may_view_chapter(chapter_name)
-    return _cached_chapter_dashboard_payload(chapter_name)
+    return _annotate_current_user(_cached_chapter_dashboard_payload(chapter_name))
 
 
 def get_chapter_basic_info(chapter_name: str) -> Dict[str, Any]:
@@ -964,7 +999,16 @@ def get_dues_payment_status(chapter_name: str) -> Dict[str, Any]:
 
 
 def get_board_information(chapter_name: str) -> Dict[str, Any]:
-    """Get board member information"""
+    """Get board member information.
+
+    Deliberately does not read ``frappe.session.user``: this function feeds the
+    dashboard payload that sits behind a shared (``per_user=False``) cache
+    (#785), and a session read here would freeze one caller's identity onto
+    that shared entry for everyone else until the TTL expires (found in
+    skeptical review of #904). ``is_current_user`` is filled in by
+    ``_annotate_current_user``, per caller, AFTER the cache read -- so it
+    always starts False here.
+    """
     chapter = frappe.get_doc("Chapter", chapter_name)
 
     board_members = []
@@ -979,11 +1023,6 @@ def get_board_information(chapter_name: str) -> Dict[str, Any]:
                 "to_date": board_member.to_date,
                 "is_current_user": False,
             }
-
-            # Check if this is the current user
-            current_user_email = frappe.session.user
-            if board_member.email == current_user_email:
-                member_info["is_current_user"] = True
 
             board_members.append(member_info)
 
