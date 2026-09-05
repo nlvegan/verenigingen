@@ -48,6 +48,17 @@ UNGUARDED_CALLS = {
         # Both the per-file call and the loop around it must stay unguarded: the
         # loop swallow alone made the inner one dead code (#309).
         "_load_fixture_file",
+        # A `None` return means the installer's own best-effort handler
+        # swallowed a real failure; `_require_settings_installer_succeeded`
+        # must keep checking that return value unguarded, or a re-wrapped
+        # try/except here would silently restore the #309 swallow (#309).
+        "create_default_verenigingen_settings",
+        # The self-heal that keeps the check above from being a spurious
+        # failure on a fresh/isolated-module site (it seeds the two reqd
+        # fields -- creation_user, company -- the installer's own dead
+        # branch never sets). Deleting the call passes every other test in
+        # this module unnoticed; only this guard catches that (#309).
+        "_seed_verenigingen_test_system_user",
         # NB: `ensure_root_department` is deliberately NOT listed, for the same
         # reason `ensure_netherlands_territory` is not. Both sit inside
         # `_ensure_master_data`'s handler, which re-raises as a RuntimeError
@@ -316,6 +327,69 @@ class FixtureLoadFailuresAreNotSwallowedTest(unittest.TestCase):
             _load([{"doctype": "Role", "role_name": role}])
         finally:
             frappe.delete_doc("Role", role, force=True)
+
+
+class VerenigingenSettingsInstallationIsNotSwallowedTest(unittest.TestCase):
+    """The installer's own seed is best-effort by design; the harness must not be.
+
+    ``create_default_verenigingen_settings()`` (verenigingen/setup/__init__.py)
+    catches its own exception, prints a warning, and returns ``None`` --
+    defensible in production, where "don't fail installation" is a real
+    requirement. The harness call site used to just call it for its side effect
+    and move on, so a failure there was invisible until a much later test read
+    Verenigingen Settings and hit a confusing, unrelated error (#309).
+
+    The postcondition reads the function's own return value (``None`` on its
+    internal swallow), not ``frappe.db.exists("Verenigingen Settings",
+    "Verenigingen Settings")``. That check is UNCONDITIONALLY truthy for a
+    Single -- frappe's database layer short-circuits to "single always exists"
+    whenever doctype == docname, without touching the database -- so it can
+    never fire. Measured directly: deleting every row of ``tabSingles`` for
+    this doctype and calling ``exists()`` again still returns the name. The
+    installer's own identical guard is the same antipattern, and is why its
+    create branch never actually runs (a separate defect recurring at ~19
+    sites outside tests/; tracked, out of scope here).
+    ``_require_settings_installer_succeeded`` works around the gap directly,
+    by calling ``_seed_verenigingen_test_system_user()`` itself -- the same
+    idempotent seeder ``before_tests`` and ~19 other test modules' own
+    ``setUpClass`` already call, see ``tests/setup/__init__.py``.
+    """
+
+    def test_a_swallowed_installer_failure_is_fatal(self):
+        """A `None` return -- the installer's own documented failure signal -- must raise.
+
+        Mocks the installer function directly (the actual dependency this
+        method reads), not the broken existence probe -- so the mock cannot
+        hide the very defect being tested.
+        """
+        from unittest import mock
+
+        from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+        stub = _TrackingStub()
+        with mock.patch("verenigingen.setup.create_default_verenigingen_settings", return_value=None):
+            with self.assertRaises(RuntimeError) as caught:
+                EnhancedTestCase._require_settings_installer_succeeded(stub)
+        self.assertIn("Verenigingen Settings", str(caught.exception))
+
+    def test_the_happy_path_does_not_raise_and_calls_the_installer_once(self):
+        """A successful seed must not raise, and must actually reach the installer.
+
+        Asserting only "did not raise" is satisfied even by a neutered method
+        that does nothing at all -- measured: `lambda self: None` in place of
+        the real method still passes a bare no-exception check. Asserting the
+        installer was actually called is what a neutered method fails.
+        """
+        from unittest import mock
+
+        from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+        stub = _TrackingStub()
+        with mock.patch(
+            "verenigingen.setup.create_default_verenigingen_settings", return_value=object()
+        ) as installer:
+            EnhancedTestCase._require_settings_installer_succeeded(stub)
+        installer.assert_called_once_with()
 
 
 class EssentialFixtureListIsHonestTest(unittest.TestCase):
