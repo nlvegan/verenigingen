@@ -37,13 +37,21 @@ class TestDonation(EnhancedTestCase):
             self.test_company = "_Test Company"
 
         # Create test donor using proper schema understanding
-        self.test_donor = self.create_test_donor()
+        self.test_donor = self._create_basic_test_donor()
 
         # Set up basic donation settings
         self.setup_donation_settings()
 
-    def create_test_donor(self):
-        """Create test donor using actual schema fields"""
+    def _create_basic_test_donor(self):
+        """Create test donor using actual schema fields.
+
+        Renamed from `create_test_donor` (#496): that name shadows
+        `EnhancedTestCase.create_test_donor(**kwargs)`, which
+        `create_test_donation()` calls internally for a caller that omits
+        `donor=`. This zero-argument override is incompatible with that call
+        site -- latent because this class never calls `create_test_donation()`
+        today.
+        """
         # Use the factory to create donor with correct field types
         donor = frappe.new_doc("Donor")
         donor.donor_name = f"Test Donation Donor {self.test_run_id}"
