@@ -153,7 +153,6 @@ class TestBrandDefaultsAndDerivation(EnhancedTestCase):
             as_dict=True,
         )
         frappe.db.sql("DELETE FROM tabSingles WHERE doctype = %s", "Brand Settings")
-        frappe.db.commit()
         try:
             self.assertFalse(
                 frappe.db.get_singles_dict("Brand Settings"),
@@ -178,7 +177,6 @@ class TestBrandDefaultsAndDerivation(EnhancedTestCase):
                     "INSERT INTO tabSingles (doctype, field, value) VALUES (%s, %s, %s)",
                     ("Brand Settings", row.field, row.value),
                 )
-            frappe.db.commit()
 
     def test_auto_calculate_preserves_manual_hover_override(self):
         """If a user manually set a hover color (different from the auto value), a
