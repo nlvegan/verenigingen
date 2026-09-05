@@ -27,6 +27,7 @@ from unittest.mock import patch
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.doc_events_test_helpers import get_doc_event_handlers
 from verenigingen.verenigingen_payments.utils import sepa_config_manager as scm
 from verenigingen.verenigingen_payments.utils.sepa_config_manager import (
     SEPAConfigManager,
@@ -658,21 +659,13 @@ class TestSEPAConfigManagerDirectEditInvalidation(_PatchedManagerMixin, Enhanced
         # important behaviour is that it does not error.
         self.assertIsNotNone(scm._config_manager)
 
-    def _handlers_for(self, doctype, event):
-        from verenigingen.hooks.doc_events import doc_events
-
-        handlers = doc_events.get(doctype, {}).get(event, [])
-        if isinstance(handlers, str):
-            handlers = [handlers]
-        return handlers
-
     def test_hooked_for_verenigingen_settings_on_update(self):
         target = "verenigingen.verenigingen_payments.utils.sepa_config_manager.clear_cache_on_settings_update"
-        self.assertIn(target, self._handlers_for("Verenigingen Settings", "on_update"))
+        self.assertIn(target, get_doc_event_handlers("Verenigingen Settings", "on_update"))
 
     def test_hooked_for_verenigingen_payments_settings_on_update(self):
         target = "verenigingen.verenigingen_payments.utils.sepa_config_manager.clear_cache_on_settings_update"
-        self.assertIn(target, self._handlers_for("Verenigingen Payments Settings", "on_update"))
+        self.assertIn(target, get_doc_event_handlers("Verenigingen Payments Settings", "on_update"))
 
 
 if __name__ == "__main__":

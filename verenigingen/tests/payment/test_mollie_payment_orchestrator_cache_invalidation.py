@@ -22,6 +22,8 @@ explicitly out of scope for this change (#874/#876 territory).
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.doc_events_test_helpers import get_doc_event_handlers
+from verenigingen.tests.support.mollie_client_test_isolation import isolate_mollie_client
 from verenigingen.verenigingen_payments.services import mollie_payment_orchestrator as orch_mod
 from verenigingen.verenigingen_payments.services.mollie_payment_orchestrator import (
     MolliePaymentOrchestrator,
@@ -31,28 +33,11 @@ from verenigingen.verenigingen_payments.services.mollie_payment_orchestrator imp
 
 
 class _OrchestratorTestBase(EnhancedTestCase):
-    """Constructs a real MolliePaymentOrchestrator without live Mollie creds.
-
-    Mirrors tests/payment/test_mollie_orchestrator_coverage_b2.py's
-    _isolate_mollie_client helper: patch MollieClient's API key lookup so
-    MolliePaymentOrchestrator() (and the DuesPaymentProcessor it builds
-    internally) can be constructed independent of ambient Mollie Settings.
-    """
+    """Constructs a real MolliePaymentOrchestrator without live Mollie creds."""
 
     def setUp(self):
         super().setUp()
-        self._isolate_mollie_client()
-
-    def _isolate_mollie_client(self):
-        from verenigingen.verenigingen_payments.mollie.core import client as client_mod
-
-        real_get_api_key = client_mod.MollieClient._get_api_key
-        client_mod.MollieClient._get_api_key = lambda self: "test_dummy_key_for_tests"
-        self.addCleanup(setattr, client_mod.MollieClient, "_get_api_key", real_get_api_key)
-
-        prev = orch_mod._orchestrator_instance
-        orch_mod._orchestrator_instance = None
-        self.addCleanup(setattr, orch_mod, "_orchestrator_instance", prev)
+        isolate_mollie_client(self)
 
 
 class TestBankConfigCacheClearing(_OrchestratorTestBase):
@@ -113,19 +98,11 @@ class TestBankConfigCacheHookWiring(EnhancedTestCase):
         "reset_payment_orchestrator"
     )
 
-    def _handlers_for(self, doctype, event):
-        from verenigingen.hooks.doc_events import doc_events
-
-        handlers = doc_events.get(doctype, {}).get(event, [])
-        if isinstance(handlers, str):
-            handlers = [handlers]
-        return handlers
-
     def test_bank_account_on_update_resets_orchestrator(self):
-        self.assertIn(self.TARGET, self._handlers_for("Bank Account", "on_update"))
+        self.assertIn(self.TARGET, get_doc_event_handlers("Bank Account", "on_update"))
 
     def test_verenigingen_settings_on_update_resets_orchestrator(self):
-        self.assertIn(self.TARGET, self._handlers_for("Verenigingen Settings", "on_update"))
+        self.assertIn(self.TARGET, get_doc_event_handlers("Verenigingen Settings", "on_update"))
 
 
 if __name__ == "__main__":
