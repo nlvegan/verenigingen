@@ -291,6 +291,50 @@ class TestDonorCoverage(VereningingenTestCase):
         self._run_sync_hook(donor)
         self.assertEqual(self._persisted_status(donor), "Error")
 
+    def test_sync_failure_error_log_preserves_diagnostic_message(self):
+        """#711: sync_with_customer's own except-Exception handler -- the last stop
+        before a sync failure is recorded as "Error" -- called frappe.log_error with
+        (message, title) reversed from the real (title, message) signature. Since the
+        message argument never contains a newline, frappe's swap-heuristic
+        (frappe/utils/error.py) never rescues it: the diagnostic lands in the 140-char
+        `method` column (truncated) and the traceback column holds only the literal
+        label "Donor-Customer Sync Error" -- recording no usable diagnostic for
+        exactly the failure #711 needs surfaced (an escalation to a nonexistent
+        creation_user reaches this same handler). Reuses the real breakage from
+        test_failed_customer_update_persists_error_not_synced -- the exception is a
+        genuine Customer.save() failure, not mocked -- and checks where its content
+        landed rather than just that *some* status flipped to "Error".
+        """
+        donor = self.create_test_donor_with_sync()
+        frappe.db.set_value(
+            "Customer", donor.customer, "customer_group", "__no_such_group__", update_modified=False
+        )
+        self._expect_sync_failure_logs()
+        marker = frappe.utils.now_datetime()
+        self._run_sync_hook(donor)
+        self.assertEqual(self._persisted_status(donor), "Error")
+
+        rows = frappe.get_all(
+            "Error Log",
+            filters={"creation": [">=", marker]},
+            fields=["method", "error"],
+            order_by="creation desc",
+        )
+        candidates = [r for r in rows if "__no_such_group__" in f"{r.method}\n{r.error}"]
+        self.assertTrue(candidates, f"no Error Log row mentions the injected failure; rows={rows}")
+        row = candidates[0]
+        self.assertEqual(
+            row.method,
+            "Donor-Customer Sync Error",
+            "title column must stay the short constant label, not the (mis-swapped) diagnostic",
+        )
+        self.assertIn(
+            "__no_such_group__",
+            row.error or "",
+            "the actual failure detail must land in the traceback column, not be replaced "
+            "by the literal label",
+        )
+
     def test_failed_customer_creation_persists_error(self):
         """donor.py create_customer_from_donor: the Customer insert fails, so
         get_or_create_customer yielded nothing and sync_with_customer skipped its whole
