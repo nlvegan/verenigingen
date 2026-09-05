@@ -469,3 +469,164 @@ class TestInvoiceGenerator(EnhancedTestCase):
             self.schedule.payment_terms_template = original_terms
             self.schedule.save()
             frappe.db.commit()
+
+
+class TestInvoiceGeneratorPeriodAnchorGuard(EnhancedTestCase):
+    """
+    Regression coverage for the #882/#884/#890 period-anchor invariant guard.
+
+    The member's anchor (Membership.start_date) is deliberately the 15th of a
+    month - not the 1st, not 1 January, not a quarter start. A boundary-anchored
+    fixture would pass identically whether the guard works or not (see #890
+    comment history), so it proves nothing.
+    """
+
+    ANCHOR = date(2024, 11, 15)
+
+    def setUp(self):
+        super().setUp()
+
+        self.member = self.create_test_member(
+            first_name="Anchor", last_name="Guard", birth_date="1985-05-15"
+        )
+        self.customer_doc = self.link_member_to_customer(self.member)
+
+        self.membership = self.create_test_membership(
+            member_name=self.member.name,
+            membership_type_name="Regular Member",
+            start_date=self.ANCHOR,
+        )
+
+        schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": self.member.name, "status": "Active"},
+            limit=1,
+        )
+        if not schedules:
+            frappe.throw("No schedule was created with membership")
+        self.schedule = frappe.get_doc("Membership Dues Schedule", schedules[0].name)
+        self.schedule.billing_frequency = "Quarterly"
+
+        self.member.reload()
+
+    def _error_log_count(self, since):
+        return frappe.db.count(
+            "Error Log",
+            filters={"creation": [">=", since], "method": ["like", "%Period Anchor Violation%"]},
+        )
+
+    def test_calendar_anchored_period_generates_invoice_and_flags_violation(self):
+        """A calendar-quarter-anchored coverage_start (the #884/#890 shape) must
+        still produce the invoice (non-blocking) but be flagged: Error Log +
+        a comment on the invoice."""
+        self.expectErrorLog("Period Anchor Violation")
+        marker = frappe.utils.now_datetime()
+
+        generator = InvoiceGenerator(self.schedule)
+        result = generator.generate_invoice(
+            coverage_start=date(2025, 1, 1),  # calendar quarter start, not the member's own cycle
+            coverage_end=date(2025, 3, 31),
+            member_doc=self.member,
+        )
+
+        self.assertTrue(result.success, f"Invoice generation failed: {result.error_message}")
+        invoice = result.data
+        self.assertEqual(str(invoice.custom_coverage_start_date), "2025-01-01")
+
+        self.assertEqual(
+            self._error_log_count(marker),
+            1,
+            "Expected exactly one Period Anchor Violation Error Log entry",
+        )
+
+        comments = frappe.get_all(
+            "Comment",
+            filters={
+                "reference_doctype": "Sales Invoice",
+                "reference_name": invoice.name,
+                "content": ["like", "%Period anchor violation%"],
+            },
+        )
+        self.assertEqual(len(comments), 1, "Expected exactly one anchor-violation comment on the invoice")
+
+    def test_cycle_anchored_first_period_generates_invoice_without_flag(self):
+        """coverage_start exactly on the member's own anchor - no previous
+        invoice yet - must NOT be flagged."""
+        marker = frappe.utils.now_datetime()
+
+        generator = InvoiceGenerator(self.schedule)
+        result = generator.generate_invoice(
+            coverage_start=self.ANCHOR,
+            coverage_end=date(2025, 2, 14),  # ANCHOR + 1 Quarterly period
+            member_doc=self.member,
+        )
+
+        self.assertTrue(result.success, f"Invoice generation failed: {result.error_message}")
+        invoice = result.data
+
+        self.assertEqual(self._error_log_count(marker), 0)
+
+        comments = frappe.get_all(
+            "Comment",
+            filters={
+                "reference_doctype": "Sales Invoice",
+                "reference_name": invoice.name,
+                "content": ["like", "%Period anchor violation%"],
+            },
+        )
+        self.assertEqual(len(comments), 0)
+
+    def test_cycle_anchored_second_period_generates_invoice_without_flag(self):
+        """coverage_start exactly one period after a previous submitted
+        invoice's coverage_end must NOT be flagged, even though it does not
+        match the member's raw anchor date."""
+        first = InvoiceGenerator(self.schedule).generate_invoice(
+            coverage_start=self.ANCHOR,
+            coverage_end=date(2025, 2, 14),
+            member_doc=self.member,
+        )
+        self.assertTrue(first.success, f"First invoice generation failed: {first.error_message}")
+
+        marker = frappe.utils.now_datetime()
+        second = InvoiceGenerator(self.schedule).generate_invoice(
+            coverage_start=date(2025, 2, 15),
+            coverage_end=date(2025, 5, 14),
+            member_doc=self.member,
+        )
+
+        self.assertTrue(second.success, f"Second invoice generation failed: {second.error_message}")
+        self.assertEqual(self._error_log_count(marker), 0)
+
+    def test_anchored_start_with_wrong_length_still_flags_violation(self):
+        """coverage_start correctly anchored on the member's own cycle, but
+        coverage_end truncated/miscalculated (not a full Quarterly period from
+        that start) must still be flagged - anchoring the start is necessary
+        but not sufficient; length has to follow from it too."""
+        self.expectErrorLog("Period Anchor Violation")
+        marker = frappe.utils.now_datetime()
+
+        generator = InvoiceGenerator(self.schedule)
+        result = generator.generate_invoice(
+            coverage_start=self.ANCHOR,
+            coverage_end=date(2025, 1, 31),  # short of the full Quarterly period (2025-02-14)
+            member_doc=self.member,
+        )
+
+        self.assertTrue(result.success, f"Invoice generation failed: {result.error_message}")
+        invoice = result.data
+
+        self.assertEqual(
+            self._error_log_count(marker),
+            1,
+            "Expected exactly one Period Anchor Violation Error Log entry",
+        )
+
+        comments = frappe.get_all(
+            "Comment",
+            filters={
+                "reference_doctype": "Sales Invoice",
+                "reference_name": invoice.name,
+                "content": ["like", "%Period anchor violation%"],
+            },
+        )
+        self.assertEqual(len(comments), 1, "Expected exactly one anchor-violation comment on the invoice")
