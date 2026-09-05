@@ -1642,7 +1642,17 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         volunteer_data["volunteer_availability"] = "Project-based"
         volunteer_data["email"] = f"projectbased_{self.test_email}"
 
-        result = submit_application(**volunteer_data)
+        # assertNoErrorLog is the discriminating half of this assertion: a naive
+        # fix that assigns the wire value straight to commitment_level without
+        # coerce_select_option would fail Volunteer.save() with a ValidationError,
+        # get caught by create_volunteer_record's broad except, and log it -- the
+        # Volunteer would still end up showing "Occasional" (the doctype default
+        # from insert(), never overwritten because the save failed), so a bare
+        # assertEqual below cannot tell that apart from a successful, deliberate
+        # fallback. The pre-existing "Volunteer - JSON Parsing Error" this fixture's
+        # volunteer_skills string produces is unrelated to this fix and expected.
+        with self.assertNoErrorLog(ignore=["Volunteer - JSON Parsing Error"]):
+            result = submit_application(**volunteer_data)
         self.assertTrue(result["success"])
         member_name = result["data"]["member_record"]
 
