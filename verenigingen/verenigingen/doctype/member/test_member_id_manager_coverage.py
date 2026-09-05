@@ -14,7 +14,6 @@ Run as Administrator except where a guard branch needs a non-privileged user.
 No business logic is mocked.
 """
 
-from contextlib import contextmanager
 
 import frappe
 from frappe.utils import cint
@@ -34,14 +33,9 @@ FIELD = "last_member_id"
 
 
 class TestMemberIDManagerCoverage(EnhancedTestCase):
-    @contextmanager
-    def as_user(self, user):
-        original = frappe.session.user
-        frappe.set_user(user)
-        try:
-            yield
-        finally:
-            frappe.set_user(original)
+    # as_user() removed (#496): it shadowed EnhancedTestCase.as_user(user_email),
+    # and was equivalent to it (restore-on-exit via a context manager). Deleted
+    # rather than renamed since there was nothing local about it to preserve.
 
     def _make_member_with_id(self, member_id):
         member = self.create_test_member()

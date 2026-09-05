@@ -372,6 +372,36 @@ repos:
         always_run: true
         stages: [pre-push]
 
+      - id: harness-method-shadow-validator
+        name: 🥷 Harness Method Shadow Guard
+        description: >-
+          Blocks a test class defining a method whose name matches one that its
+          harness base (EnhancedTestCase or VereningingenTestCase) calls on itself,
+          with a signature that cannot accept the arguments the harness will pass.
+          Python's MRO resolves the harness's own internal call to the LOCAL
+          override instead, so the harness behaviour everyone assumes is running
+          simply is not (#496). One instance of this shape was FATAL:
+          `MollieBase._ensure_company_cost_center(self)` overrode
+          `EnhancedTestCase._ensure_company_cost_center(self, company_name)`, which
+          the harness calls from every setUp() -- 38/38 tests in that module
+          errored, silently, for 12 days (`e16523d6` to the #194 PR). #496's census
+          found 28 further instances, all latent (the harness call site was never
+          reached), which is why a passing suite never surfaced them. NO ALLOWLIST:
+          this ratchet starts at zero known violations (#496 fixed every one that
+          existed) and any new occurrence fails immediately. Scoped to arity
+          incompatibility only -- a same-arity override that silently returns
+          different data never raises, so a static check cannot tell it apart from
+          a legitimate, compatible override (several of #496's findings were exactly
+          that: a subclass calling `super().<name>(...)` and adding a default).
+          Runs at pre-push, not pre-commit — it walks the whole tree to resolve
+          cross-file inheritance and imports (a few seconds), and the answer cannot
+          change from the file list of one commit.
+        entry: python scripts/validation/harness_method_shadow_validator.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
       - id: failed-write-validator
         name: 💾 Failed-Write Guard (ratchet) [advisory]
         description: >-

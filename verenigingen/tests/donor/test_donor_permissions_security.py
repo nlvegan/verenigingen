@@ -48,7 +48,7 @@ class TestDonorPermissionsSecurity(VereningingenTestCase):
         )
 
         # Create test donor linked to member with all required fields
-        self.test_donor = self.create_test_donor(
+        self.test_donor = self._create_permissions_test_donor(
             member=self.test_member.name,
             donor_name="Security Test Donor",
             donor_type="Individual",
@@ -56,15 +56,22 @@ class TestDonorPermissionsSecurity(VereningingenTestCase):
         )
 
         # Create orphaned donor (no member link) for access denial tests
-        self.orphaned_donor = self.create_test_donor(
+        self.orphaned_donor = self._create_permissions_test_donor(
             donor_name="Orphaned Test Donor",
             donor_type="Individual",
             donor_email="orphaned@example.com",
             # No member field - orphaned
         )
 
-    def create_test_donor(self, **kwargs):
+    def _create_permissions_test_donor(self, **kwargs):
         """Create test donor with proper field validation"""
+        # Renamed from `create_test_donor` (#496): that name shadows
+        # `VereningingenTestCase.create_test_donor(**kwargs)`, which
+        # `create_test_donation()`/`create_test_periodic_donation_agreement()`
+        # call internally for a caller that omits `donor=`. Same arity so no
+        # crash, but this override skips the harness's `is_anbi_eligible`
+        # default -- latent because this class never calls those methods
+        # without an explicit `donor=` today.
         defaults = {
             "donor_name": f"Test Donor {random_string(5)}",
             "donor_type": "Individual",
@@ -267,7 +274,7 @@ class TestDonorPermissionsSecurity(VereningingenTestCase):
         # donor pointing at a non-existent member directly. Instead create a valid
         # donor, then corrupt the member field via db.set_value (bypassing link
         # validation) to simulate a member that was deleted out from under the donor.
-        invalid_donor = self.create_test_donor(
+        invalid_donor = self._create_permissions_test_donor(
             donor_name="Invalid Reference Donor",
             donor_type="Individual",
             donor_email="invalid@example.com",
@@ -310,7 +317,7 @@ class TestDonorPermissionsSecurity(VereningingenTestCase):
             first_name="Other", last_name="Member", email="other_member@example.com", birth_date="1985-01-01"
         )
 
-        other_donor = self.create_test_donor(
+        other_donor = self._create_permissions_test_donor(
             donor_name="Other Member Donor",
             donor_type="Individual",
             donor_email="otherdonor@example.com",
@@ -354,7 +361,7 @@ class TestDonorPermissionsSecurity(VereningingenTestCase):
             birth_date="1992-01-01",
         )
 
-        orm_donor = self.create_test_donor(
+        orm_donor = self._create_permissions_test_donor(
             donor_name="ORM Test Donor",
             donor_type="Individual",
             donor_email="ormdonor@example.com",
@@ -451,7 +458,7 @@ class TestDonorPermissionsEdgeCases(VereningingenTestCase):
         """Test behavior under simulated concurrent access"""
 
         # Create donor
-        donor = self.create_test_donor(
+        donor = self._create_permissions_test_donor(
             donor_name="Concurrent Test Donor",
             donor_type="Individual",
             donor_email="concurrent@example.com",
@@ -520,8 +527,15 @@ class TestDonorPermissionsEdgeCases(VereningingenTestCase):
             frappe.db.get_value = original_get_value
             frappe.db.exists = original_exists
 
-    def create_test_donor(self, **kwargs):
+    def _create_permissions_test_donor(self, **kwargs):
         """Helper method to create test donor with proper cleanup tracking"""
+        # Renamed from `create_test_donor` (#496): that name shadows
+        # `VereningingenTestCase.create_test_donor(**kwargs)`, which
+        # `create_test_donation()`/`create_test_periodic_donation_agreement()`
+        # call internally for a caller that omits `donor=`. Same arity so no
+        # crash, but this override skips the harness's `is_anbi_eligible`
+        # default -- latent because this class never calls those methods
+        # without an explicit `donor=` today.
         defaults = {
             "donor_name": f"Test Donor {random_string(5)}",
             "donor_type": "Individual",
@@ -570,7 +584,7 @@ class TestDonorPermissionsRealWorldScenarios(VereningingenTestCase):
         )
 
         # Create donor record linked to Foppe
-        foppe_donor = self.create_test_donor(
+        foppe_donor = self._create_permissions_test_donor(
             donor_name="Foppe Test Donor",
             donor_type="Individual",
             donor_email="foppe@veganisme.org",
@@ -589,8 +603,15 @@ class TestDonorPermissionsRealWorldScenarios(VereningingenTestCase):
             )
             self.assertTrue(len(accessible_donors) > 0, "Foppe should find donor via ORM")
 
-    def create_test_donor(self, **kwargs):
+    def _create_permissions_test_donor(self, **kwargs):
         """Helper method to create test donor"""
+        # Renamed from `create_test_donor` (#496): that name shadows
+        # `VereningingenTestCase.create_test_donor(**kwargs)`, which
+        # `create_test_donation()`/`create_test_periodic_donation_agreement()`
+        # call internally for a caller that omits `donor=`. Same arity so no
+        # crash, but this override skips the harness's `is_anbi_eligible`
+        # default -- latent because this class never calls those methods
+        # without an explicit `donor=` today.
         defaults = {
             "donor_name": f"Test Donor {random_string(5)}",
             "donor_type": "Individual",

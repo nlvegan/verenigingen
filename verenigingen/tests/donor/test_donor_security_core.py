@@ -39,7 +39,7 @@ class TestDonorSecurityCore(VereningingenTestCase):
         )
 
         # Create donor linked to member
-        self.linked_donor = self.create_test_donor(
+        self.linked_donor = self._create_security_core_test_donor(
             donor_name="Linked Security Donor",
             donor_type="Individual",
             donor_email="linked_donor@example.com",
@@ -47,15 +47,24 @@ class TestDonorSecurityCore(VereningingenTestCase):
         )
 
         # Create orphaned donor (no member link)
-        self.orphaned_donor = self.create_test_donor(
+        self.orphaned_donor = self._create_security_core_test_donor(
             donor_name="Orphaned Security Donor",
             donor_type="Individual",
             donor_email="orphaned@example.com",
             # No member field
         )
 
-    def create_test_donor(self, **kwargs):
-        """Create test donor with required fields"""
+    def _create_security_core_test_donor(self, **kwargs):
+        """Create test donor with required fields.
+
+        Renamed from `create_test_donor` (#496): that name shadows
+        `VereningingenTestCase.create_test_donor(**kwargs)`, which
+        `create_test_donation()`/`create_test_periodic_donation_agreement()`
+        call internally for a caller that omits `donor=`. Same arity so no
+        crash, but this override skips the harness's `is_anbi_eligible`
+        default -- latent because this class never calls those methods
+        without an explicit `donor=` today.
+        """
         defaults = {
             "donor_name": f"Security Test Donor {random_string(5)}",
             "donor_type": "Individual",
@@ -155,7 +164,7 @@ class TestDonorSecurityCore(VereningingenTestCase):
             birth_date="1985-01-01",
         )
 
-        other_donor = self.create_test_donor(
+        other_donor = self._create_security_core_test_donor(
             donor_name="Other Member Donor",
             donor_type="Individual",
             donor_email="other_donor@example.com",

@@ -25,7 +25,7 @@ from unittest.mock import MagicMock, patch
 
 import frappe
 import requests_mock
-from frappe.utils import add_months, flt, now_datetime, nowdate, today
+from frappe.utils import add_months, flt, now_datetime, nowdate
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
@@ -784,38 +784,11 @@ class TestMollieErrorHandlingAndRecovery(EnhancedTestCase):
                 self.assertIn(result.get("status"), {"error", "ignored", "already_processed"})
 
     # Helper methods for Mollie integration tests
-    def create_test_payment_entry(self, payment_type="Receive", **kwargs):
-        """Create test payment entry for chargeback testing"""
-        payment_entry = frappe.new_doc("Payment Entry")
-
-        defaults = {
-            "payment_type": payment_type,
-            "posting_date": today(),
-            "company": "Ned Ver Vegan",
-            "mode_of_payment": "Bank Transfer",
-            "paid_amount": 25.00,
-            "received_amount": 25.00,
-            "source_exchange_rate": 1,
-            "target_exchange_rate": 1,
-        }
-        defaults.update(kwargs)
-
-        payment_entry.update(defaults)
-
-        # Add reference if provided
-        if defaults.get("reference_doctype") and defaults.get("reference_name"):
-            payment_entry.append(
-                "references",
-                {
-                    "reference_doctype": defaults["reference_doctype"],
-                    "reference_name": defaults["reference_name"],
-                    "allocated_amount": defaults.get("paid_amount", 25.00),
-                },
-            )
-
-        payment_entry.insert()
-        payment_entry.submit()
-        return payment_entry
+    #
+    # create_test_payment_entry() removed (#496): it shadowed
+    # EnhancedTestCase.create_test_payment_entry(**kwargs), which
+    # create_test_mollie_payment() calls internally -- and it was unused: no
+    # test in this class called either method. Dead code, not a live helper.
 
     def create_test_mollie_payment_data(self, status="paid", amount="25.00"):
         """Create standardized Mollie payment test data"""
