@@ -8,6 +8,7 @@ from typing import Any, Dict
 
 import frappe
 from frappe import _
+from frappe.utils import cint
 
 from verenigingen.api.membership_application_review import send_rejection_notification
 from verenigingen.utils.application_helpers import (
@@ -74,7 +75,11 @@ def check_rate_limit(endpoint, limit_per_hour=60):
         client_ip = frappe.local.request.environ.get("REMOTE_ADDR", "unknown")
         cache_key = f"rate_limit:{endpoint}:{client_ip}"
 
-        current_count = frappe.cache().get(cache_key) or 0
+        # frappe.cache().get() returns bytes on a cache hit (raw redis, not
+        # frappe's pickling get_value()); coerce before comparing/adding, or
+        # a bare bytes/int op raises TypeError -- caught below and silently
+        # fails OPEN, which is exactly what makes this bug dangerous.
+        current_count = cint(frappe.cache().get(cache_key))
         if current_count >= limit_per_hour:
             return False
 
