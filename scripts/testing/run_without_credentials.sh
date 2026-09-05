@@ -34,7 +34,9 @@
 #   scripts/testing/run_without_credentials.sh test_site_1 \
 #       verenigingen.tests.payment.test_mollie_subscription_service_coverage
 #
-# Only ever run this against test_site_1..test_site_5.
+# Only ever run this against a disposable test site (test_site_1-13, test_site_fresh).
+# NEVER against veg11.veganisme.org: it carries a production data copy, and
+# this script mutates site config and clears stored gateway Password fields.
 
 set -uo pipefail
 
@@ -48,9 +50,13 @@ if [[ -z "$SITE" || $# -eq 0 ]]; then
 fi
 
 case "$SITE" in
-    test_site_1|test_site_2|test_site_3|test_site_4|test_site_5) ;;
+    # test_site_1..13. Enumerated by pattern rather than by name so that adding
+    # a disposable site does not silently fall through to the refusal -- which is
+    # what happened when sites 6-13 were created and every agent on them got
+    # "REFUSING" instead of a credential check.
+    test_site_[1-9]|test_site_1[0-3]|test_site_fresh) ;;
     *)
-        echo "REFUSING: '$SITE' is not one of test_site_1..5." >&2
+        echo "REFUSING: '$SITE' is not a disposable test site (test_site_1-13, test_site_fresh)." >&2
         echo "This script mutates site config and gateway settings; never point it at a live site." >&2
         exit 2
         ;;
