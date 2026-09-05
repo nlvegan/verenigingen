@@ -566,9 +566,6 @@ class TestSEPARetryBatchController(EnhancedTestCase):
         self.assertEqual(batch.total_operations, 0)
 
     def test_validate_operation_requires_type(self):
-        # A new row cannot reach this check: _set_defaults() fills an empty child
-        # Select with its first option on insert, so operation_type is only ever
-        # missing on an existing batch whose value was cleared.
         batch = frappe.new_doc("SEPA Retry Batch")
         batch.batch_date = today()
         batch.append("operations", {"operation_type": "Other", "status": "Pending"})
@@ -578,6 +575,42 @@ class TestSEPARetryBatchController(EnhancedTestCase):
         batch.operations[0].operation_type = None
         with self.assertRaises(frappe.ValidationError):
             batch.save()
+
+    def test_missing_operation_type_on_insert_is_rejected(self):
+        """Issue #202: a brand-new operation row with no explicit operation_type
+        must be rejected, not silently defaulted to the first Select option
+        ("Mandate Validation").
+
+        Before the fix, Frappe's own `_set_defaults()`
+        (frappe/model/create_new.py:117-118) filled the child row's Select field
+        with its first option on insert -- silently, before validate_operations()
+        ever ran -- so `if not operation.operation_type: frappe.throw(...)` never
+        fired for a genuinely-omitted value. Prepending a blank leading option to
+        operation_type's options makes that same mechanism fill an empty string
+        instead, which is falsy, so the guard now fires on insert.
+        """
+        batch = frappe.new_doc("SEPA Retry Batch")
+        batch.batch_date = today()
+        batch.append("operations", {"status": "Pending"})
+        # operation_type is also `reqd: 1`, so a plain assertRaises(ValidationError)
+        # would still pass if someone deleted the app's own guard in
+        # validate_operations() -- Frappe's mandatory-field check (MandatoryError,
+        # a ValidationError subclass) would still fire. Assert the app's own
+        # message so this can only pass for the reason it claims to.
+        with self.assertRaisesRegex(
+            frappe.ValidationError, "Operation type is required for all retry operations"
+        ):
+            batch.insert()
+
+    def test_explicit_valid_operation_type_on_insert_still_saves(self):
+        """Control: an explicit, valid operation_type must still save normally."""
+        batch = frappe.new_doc("SEPA Retry Batch")
+        batch.batch_date = today()
+        batch.append("operations", {"operation_type": "Other", "status": "Pending"})
+        batch.insert()
+        self.addCleanup(frappe.delete_doc, "SEPA Retry Batch", batch.name, force=True)
+        batch.reload()
+        self.assertEqual(batch.operations[0].operation_type, "Other")
 
     def test_validate_invalid_error_category_throws(self):
         batch = frappe.new_doc("SEPA Retry Batch")

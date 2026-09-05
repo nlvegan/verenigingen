@@ -156,15 +156,50 @@ class TestPaymentPlan(EnhancedTestCase):
             plan.insert()
 
     def test_frequency_required_for_equal_installments(self):
-        """Missing frequency should raise validation error for equal installments."""
-        # A new document cannot reach this check: _set_defaults() fills an empty
-        # Select with its first option ("Weekly") on insert, so frequency is only
-        # ever missing on an existing plan whose value was cleared.
+        """Missing frequency should raise validation error on update, too."""
         plan = self._create_plan()
         plan.insert()
         plan.frequency = None
         with self.assertRaises(frappe.ValidationError):
             plan.save()
+
+    def test_missing_frequency_on_insert_is_rejected(self):
+        """Issue #202: a brand-new plan with no explicit frequency must be rejected.
+
+        `frequency` is a Select with no explicit `default`, so before the fix
+        Frappe's own `_set_defaults()` (frappe/model/create_new.py:117-118) filled
+        it with the first option, "Weekly" -- silently, before validate() ever
+        ran -- and the `if not self.frequency: frappe.throw(...)` guard below
+        never fired. Prepending a blank leading option makes that same mechanism
+        fill an empty string instead, which is falsy, so the guard now fires. A
+        test that only checked `plan.frequency == "Weekly"` would reproduce the
+        bug rather than catch it; this asserts the insert is rejected outright.
+        """
+        plan = self._create_plan()
+        plan.frequency = None
+        with self.assertRaises(frappe.ValidationError):
+            plan.insert()
+
+    def test_explicit_valid_frequency_on_insert_still_saves(self):
+        """Control: an explicit, valid frequency must still save normally."""
+        plan = self._create_plan(frequency="Monthly")
+        plan.insert()
+        plan.reload()
+        self.assertEqual(plan.frequency, "Monthly")
+
+    def test_missing_plan_type_on_insert_is_rejected(self):
+        """`plan_type` has the identical shape (Select, reqd=1, no explicit
+        default, first option "Equal Installments") and is fixed the same way.
+        Without this fix, omitting both `plan_type` and `frequency` produced a
+        confusing "Payment frequency is required for equal installments" error
+        naming a plan type the caller never chose -- because plan_type silently
+        defaulted to "Equal Installments" first. Frappe's own mandatory-field
+        check (reqd=1) now catches the missing plan_type before that happens.
+        """
+        plan = self._create_plan()
+        plan.plan_type = None
+        with self.assertRaises(frappe.ValidationError):
+            plan.insert()
 
     def test_weekly_frequency_dates(self):
         """Weekly frequency should space installments 7 days apart."""

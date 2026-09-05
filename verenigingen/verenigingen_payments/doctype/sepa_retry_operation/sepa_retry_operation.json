@@ -28,7 +28,7 @@
       "fieldname": "operation_type",
       "fieldtype": "Select",
       "label": "Operation Type",
-      "options": "Mandate Validation\nInvoice Creation\nBatch Processing\nSequence Type Determination\nPayment Processing\nNotification Sending\nOther",
+      "options": "\nMandate Validation\nInvoice Creation\nBatch Processing\nSequence Type Determination\nPayment Processing\nNotification Sending\nOther",
       "reqd": 1
     },
     {
