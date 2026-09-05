@@ -240,7 +240,7 @@ class TestEveryHandleApiErrorEndpointReRaisesNonResumableErrors(VereningingenTes
                         )
                         if not guarded:
                             yield handler.lineno
-                walk(child)
+                yield from walk(child)
 
         yield from walk(func_node)
 
@@ -291,6 +291,38 @@ class TestEveryHandleApiErrorEndpointReRaisesNonResumableErrors(VereningingenTes
             "        f()\n"
             "    except Exception:\n"
             "        return {'success': False}\n"
+        )
+        (func_node,) = planted.body
+        self.assertTrue(list(self._unguarded_in_function(func_node)))
+
+    def test_the_ratchet_sees_an_unguarded_catch_all_nested_in_a_loop_with_no_outer_try(self):
+        """STANDING CONTROL for the recursive-descent step itself, not just the
+        predicates it applies once it arrives somewhere.
+
+        ``sync_team_with_volunteers`` and ``bulk_apply_team_role_profiles`` in
+        ``team_management.py`` have NO function-level try at all -- their only
+        catch-all sits one level down, inside a ``for`` loop. A walker whose
+        recursive step is a bare ``walk(child)`` statement instead of
+        ``yield from walk(child)`` only constructs the inner generator and
+        immediately discards it without iterating, so it never visits a ``Try``
+        node that isn't a direct child of the function body. That walker still
+        passes ``test_the_ratchet_sees_a_swallow_the_app_no_longer_contains`` above
+        (that planted catch-all IS a direct child), so this shape needed its own
+        control -- proved by reverting exactly these two guards on the PR branch
+        and rerunning the ratchet: it stayed green, reporting zero offenders.
+
+        This reuses ``self._unguarded_in_function`` -- the real production walker,
+        not a second implementation of it -- which is the point: a parallel walker
+        here would only prove the parallel walker works."""
+        planted = ast.parse(
+            "@frappe.whitelist()\n"
+            "@handle_api_error\n"
+            "def endpoint():\n"
+            "    for item in get_items():\n"
+            "        try:\n"
+            "            f(item)\n"
+            "        except Exception:\n"
+            "            log(item)\n"
         )
         (func_node,) = planted.body
         self.assertTrue(list(self._unguarded_in_function(func_node)))
