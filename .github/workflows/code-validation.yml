@@ -614,9 +614,13 @@ jobs:
     # into hundreds of red tests.
     #
     # Upward-only, matching bf379a4fe: growth fails, pure shrinkage self-heals.
-    # No --require-marker: every finding this scanner reports is equally
-    # ratchetable, unlike the duplicate-helper baseline where unmarked name
-    # collisions are deliberately recorded rather than blocked.
+    # No --require-marker: this step compares the WHOLE file, so any change --
+    # COMMIT, REUSE, or COMMIT_EXEMPT (#825) -- requires a baseline update commit,
+    # unlike the duplicate-helper baseline where unmarked name collisions are
+    # deliberately recorded rather than blocked. COMMIT_EXEMPT entries are still
+    # visible here; they are excluded only from the SEPARATE no-growth total below,
+    # via their own trailing marker that step's grep does not match -- see
+    # scan_order_dependence.py's module docstring ("FIXED -- #825").
     - name: Baseline is in sync with the tree
       env:
         FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' && '--fail-on-shrink' || '' }}
