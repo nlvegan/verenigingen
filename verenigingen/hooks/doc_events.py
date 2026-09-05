@@ -137,6 +137,10 @@ doc_events = {
             "verenigingen.services.chapter.chapter_role_events.on_member_on_update",
             "verenigingen.services.field_sync_service.sync_fields",
             "verenigingen.services.member.account.member_user_email_sync.sync_user_email_on_member_update",
+            # #270: keep a Volunteer's user in step with Member.user, but only when
+            # it was actually mirroring the member's account -- see the module
+            # docstring for why this can't be a blind overwrite.
+            "verenigingen.services.volunteer.volunteer_user_sync.resync_volunteer_user_on_member_update",
         ],
     },
     "Chapter Member": {
