@@ -27,6 +27,7 @@ from unittest.mock import patch
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.doc_events_test_helpers import get_doc_event_handlers
 from verenigingen.verenigingen_payments.utils import sepa_config_manager as scm
 from verenigingen.verenigingen_payments.utils.sepa_config_manager import (
     SEPAConfigManager,
@@ -616,6 +617,55 @@ class TestSEPAConfigManagerSingletonAndAPI(_PatchedManagerMixin, EnhancedTestCas
         with patch.object(scm, "get_sepa_config_manager", return_value=manager):
             result = scm.get_sepa_config()
         self.assertIn("company_sepa", result)
+
+
+class TestSEPAConfigManagerDirectEditInvalidation(_PatchedManagerMixin, EnhancedTestCase):
+    """#866: a direct edit to the backing Settings doctypes (Desk UI, another
+    script, doc.save() outside this manager) must invalidate the singleton's
+    cache, not just edits made through update_setting()."""
+
+    def setUp(self):
+        super().setUp()
+        prev = scm._config_manager
+        scm._config_manager = None
+        self.addCleanup(setattr, scm, "_config_manager", prev)
+
+    def test_clear_cache_on_settings_update_clears_singleton_cache(self):
+        manager = get_sepa_config_manager()
+        manager._settings_cache["sentinel"] = "value"
+        manager._validation_cache["sentinel"] = "value"
+
+        scm.clear_cache_on_settings_update()
+
+        self.assertEqual(manager._settings_cache, {})
+        self.assertEqual(manager._validation_cache, {})
+
+    def test_clear_cache_on_settings_update_accepts_doc_events_signature(self):
+        """doc_events calls handlers as fn(doc, method=None)."""
+        manager = get_sepa_config_manager()
+        manager._settings_cache["sentinel"] = "value"
+
+        fake_doc = frappe._dict({"doctype": "Verenigingen Settings"})
+        scm.clear_cache_on_settings_update(fake_doc, method="on_update")
+
+        self.assertEqual(manager._settings_cache, {})
+
+    def test_clear_cache_on_settings_update_is_safe_before_first_use(self):
+        scm._config_manager = None
+
+        scm.clear_cache_on_settings_update()  # must not raise
+
+        # Building the singleton on demand (get-or-create) is fine here; the
+        # important behaviour is that it does not error.
+        self.assertIsNotNone(scm._config_manager)
+
+    def test_hooked_for_verenigingen_settings_on_update(self):
+        target = "verenigingen.verenigingen_payments.utils.sepa_config_manager.clear_cache_on_settings_update"
+        self.assertIn(target, get_doc_event_handlers("Verenigingen Settings", "on_update"))
+
+    def test_hooked_for_verenigingen_payments_settings_on_update(self):
+        target = "verenigingen.verenigingen_payments.utils.sepa_config_manager.clear_cache_on_settings_update"
+        self.assertIn(target, get_doc_event_handlers("Verenigingen Payments Settings", "on_update"))
 
 
 if __name__ == "__main__":
