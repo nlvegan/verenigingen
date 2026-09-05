@@ -86,6 +86,7 @@ from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
 )
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.utils.validation.api_validators import (
     APIValidator,
     parse_json_filters,
@@ -318,6 +319,12 @@ def send_overdue_payment_reminders(
 
                     sent_count += 1
 
+                # #505: without this, a 1205/1213 sending one member's reminder is
+                # logged and the loop keeps sending further reminders on a
+                # transaction the server has already discarded (the #470 shape,
+                # one frame below @handle_api_error). Re-raise unconditionally.
+                except NON_RESUMABLE_DB_ERRORS:
+                    raise
                 except Exception as e:
                     # log_error's second parameter is `context: dict`, not a title
                     # string: it does `(context or {}).get("trace_id")`, so a string
@@ -339,6 +346,11 @@ def send_overdue_payment_reminders(
             data={"count": sent_count}, message=_("Payment reminders sent successfully")
         )
 
+    # #505: the guard above stops the loop; this frame's job is to let the class
+    # keep going past this catch-all too, rather than being converted into an
+    # OperationResult one frame below @handle_api_error's own guard (#504).
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.log_error(
             message=f"Payment reminder operation failed: {str(e)}\n{traceback.format_exc()}",
@@ -434,10 +446,17 @@ def export_overdue_payments(
                 message=_("Export completed successfully"),
             )
 
+        # #505: this inner try wraps the file save() -- a 1205/1213 here must not be
+        # converted into a failure dict one frame below @handle_api_error's own
+        # guard (#504); re-raise unconditionally.
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
         except Exception as e:
             log_error(e, {"operation": "export_overdue_payments", "context": "Payment Export Error"})
             return OperationResult.fail(_("Export failed: {0}").format(str(e)), http_status=500)
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.log_error(
             message=f"Overdue payments export failed: {str(e)}\n{traceback.format_exc()}",
@@ -517,6 +536,12 @@ def execute_bulk_payment_action(
 
                 processed_count += 1
 
+            # #505: same shape as send_overdue_payment_reminders -- without this a
+            # 1205/1213 acting on one member is logged and the loop keeps acting on
+            # further members against a transaction the server has already
+            # discarded. Re-raise unconditionally.
+            except NON_RESUMABLE_DB_ERRORS:
+                raise
             except Exception as e:
                 # See the note in send_overdue_payment_reminders: a string second
                 # argument makes this handler raise, so the `continue` never runs
@@ -534,6 +559,8 @@ def execute_bulk_payment_action(
 
         return OperationResult.ok(data={"count": processed_count}, message=_("Bulk action completed"))
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.log_error(
             message=f"Bulk payment action failed: {str(e)}\n{traceback.format_exc()}",
