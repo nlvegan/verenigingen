@@ -528,6 +528,18 @@ doc_events = {
         "on_trash": "verenigingen.utils.security.cache_invalidation.invalidate_all_user_caches_on_role_profile_update",
     },
     "Has Role": {
+        # #693: Has Role is a child table (istable=1, same rule as Chapter Member
+        # / Team Member above), so this does NOT fire when a role is granted or
+        # withdrawn via the parent User doc (user_doc.append("roles", ...) /
+        # user_doc.roles.remove(...) + user_doc.save() -- the shape every role
+        # writer in this app actually uses). That path is covered by the
+        # unconditional invalidation on "User".on_update instead. This
+        # registration is kept as the only cover for a Has Role row
+        # loaded/saved directly (e.g. assign_chapter_board_role()'s grant
+        # branch, which does frappe.get_doc({"doctype": "Has Role", ...}).insert()).
+        # Its withdrawal branch uses frappe.db.delete("Has Role", ...), which
+        # bypasses the ORM and dispatches no doc event at all -- a known,
+        # separate gap, not fixed here.
         "on_update": "verenigingen.utils.security.cache_invalidation.invalidate_user_cache_on_user_role_update",
         "on_trash": "verenigingen.utils.security.cache_invalidation.invalidate_user_cache_on_user_role_update",
     },
