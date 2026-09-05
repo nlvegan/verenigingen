@@ -145,7 +145,6 @@ class TestCheckSepaOperationAnomaliesUsesSiteClock(FrappeTestCase):
     def _backdate_mandates(self, when):
         for name in self.mandate_names:
             frappe.db.set_value("SEPA Mandate", name, "creation", when, update_modified=False)
-        frappe.db.commit()
 
     def _alert_fired_for_current_user(self):
         alerts = self.monitor.check_sepa_operation_anomalies()
