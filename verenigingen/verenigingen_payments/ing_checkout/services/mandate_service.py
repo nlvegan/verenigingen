@@ -247,6 +247,19 @@ class MandateService:
                 "error": _("Mandate is not active"),
             }
 
+        # A draft (docstatus 0) does NOT carry outstanding_amount == 0 - it carries
+        # its full grand_total (calculate_outstanding_amount runs on every save that
+        # is not cancelled). So this must be checked BEFORE the outstanding_amount
+        # <= 0 "already paid" branch below, or a draft falls through as a normal
+        # payable invoice and a debit is executed - and a transaction recorded -
+        # against a document ERPNext will refuse to reference in a Payment Entry
+        # ("... must be submitted"). #856/#209.
+        if invoice.docstatus != 1:
+            return {
+                "success": False,
+                "error": _("Invoice is not submitted"),
+            }
+
         if invoice.outstanding_amount <= 0:
             return {
                 "success": False,

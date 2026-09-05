@@ -33,6 +33,10 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 import frappe
 
 from verenigingen.services.infrastructure.base_service import StatelessService
+from verenigingen.verenigingen.doctype.chapter.validators.postal_code_validator import (
+    PostalCodeValidator,
+    chapter_postal_codes_match,
+)
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
@@ -88,17 +92,18 @@ class ChapterMatchingService(StatelessService):
             "Chapter", filters={"published": 1}, fields=["name", "region", "postal_codes", "introduction"]
         )
 
-        matching_chapters = []
-
-        # Check each chapter for postal code match
-        for chapter in chapters:
-            if not chapter.get("postal_codes"):
-                continue
-
-            # Use chapter's postal code matching logic
-            chapter_doc = frappe.get_doc("Chapter", chapter.name)
-            if chapter_doc.matches_postal_code(postal_code):
-                matching_chapters.append(chapter)
+        # #846: this used to frappe.get_doc() every published chapter just to
+        # call matches_postal_code() -- an N+1 Document load per row, two
+        # hops from the guest-whitelisted suggest_chapters_for_member().
+        # matches_postal_code() only ever reads the postal_codes text already
+        # fetched above, so match against that directly. One shared validator
+        # avoids re-reading the max-patterns setting per chapter.
+        validator = PostalCodeValidator()
+        matching_chapters = [
+            chapter
+            for chapter in chapters
+            if chapter_postal_codes_match(chapter.get("postal_codes"), postal_code, validator)
+        ]
 
         return matching_chapters
 

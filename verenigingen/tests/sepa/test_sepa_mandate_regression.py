@@ -255,22 +255,17 @@ class TestSEPAMandateRegression(VereningingenTestCase):
                 payments_settings.sepa_mandate_starting_counter = 1
                 payments_settings.save()
                 
-                try:
-                    member = self.create_test_member(
-                        first_name="Pattern",
-                        last_name=f"Test{hash(pattern) % 1000}",
-                        email=f"pattern{hash(pattern) % 1000}@example.com"
-                    )
-                    
-                    mandate = self.create_test_sepa_mandate(member=member.name)
-                    
-                    # Should generate some mandate_id
-                    self.assertTrue(mandate.mandate_id, 
-                                   f"Should generate mandate_id for pattern: {pattern}")
-                    
-                except Exception as e:
-                    # Log the error but don't fail - some patterns might not be valid
-                    frappe.logger().warning(f"Pattern '{pattern}' failed: {str(e)}")
+                member = self.create_test_member(
+                    first_name="Pattern",
+                    last_name=f"Test{hash(pattern) % 1000}",
+                    email=f"pattern{hash(pattern) % 1000}@example.com"
+                )
+
+                mandate = self.create_test_sepa_mandate(member=member.name)
+
+                # Should generate some mandate_id
+                self.assertTrue(mandate.mandate_id,
+                               f"Should generate mandate_id for pattern: {pattern}")
 
     def test_data_migration_compatibility(self):
         """Test that naming system works with data migration scenarios"""

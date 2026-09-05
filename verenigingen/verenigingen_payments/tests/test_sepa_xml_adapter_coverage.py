@@ -248,6 +248,58 @@ class TestHandleValidationIssues(EnhancedTestCase):
                 "Verenigingen Settings", "sepa_strict_mandate_validation", original or 0
             )
 
+    def test_strict_mode_failure_names_the_affected_invoice_and_mandate(self):
+        """#631: a strict-mode failure must name WHICH invoice/mandate could not
+        be resolved, not just a bare count -- an operator needs to know what to
+        fix."""
+        summary = BatchValidationSummary(total_invoices=2, successful_transactions=1)
+        summary.add_missing_mandate_date("INV-2024-NAMED-001", "MAND-UNRESOLVED-XYZ")
+        self.adapter._validation_summary = summary
+
+        original = frappe.db.get_single_value("Verenigingen Settings", "sepa_strict_mandate_validation")
+        try:
+            frappe.db.set_single_value("Verenigingen Settings", "sepa_strict_mandate_validation", 1)
+            with self.assertRaises(frappe.exceptions.ValidationError) as ctx:
+                self.adapter._handle_validation_issues("BATCH-NAMED-1")
+            message = str(ctx.exception)
+            self.assertIn("INV-2024-NAMED-001", message)
+            self.assertIn("MAND-UNRESOLVED-XYZ", message)
+        finally:
+            frappe.db.set_single_value(
+                "Verenigingen Settings", "sepa_strict_mandate_validation", original or 0
+            )
+
+
+class TestBatchValidationSummaryMissingMandateDetails(EnhancedTestCase):
+    """BatchValidationSummary.add_missing_mandate_date (#631)."""
+
+    def test_add_missing_mandate_date_records_invoice_and_mandate(self):
+        summary = BatchValidationSummary()
+        summary.add_missing_mandate_date("INV-001", "MAND-001")
+        summary.add_missing_mandate_date("INV-002", "MAND-002")
+
+        self.assertEqual(summary.missing_mandate_dates, 2)
+        self.assertEqual(
+            summary.missing_mandate_date_details,
+            [
+                {"invoice": "INV-001", "mandate_reference": "MAND-001"},
+                {"invoice": "INV-002", "mandate_reference": "MAND-002"},
+            ],
+        )
+        self.assertTrue(summary.has_issues)
+
+
+class TestStrictModeFieldDeclaresStrictAsDefault(EnhancedTestCase):
+    """#631: the field's declared JSON default is documentation of the new
+    default (a fresh Desk form for a never-saved Single reflects it) -- the
+    force-enable migration patch is what actually makes it operative on an
+    already-migrated site (see tests/patches/
+    test_force_enable_sepa_strict_mandate_validation.py)."""
+
+    def test_declared_default_is_strict(self):
+        field = frappe.get_meta("Verenigingen Settings").get_field("sepa_strict_mandate_validation")
+        self.assertEqual(field.default, "1")
+
 
 class TestFinancialAdminEmails(EnhancedTestCase):
     """_get_financial_admin_emails parses the configured comma list."""

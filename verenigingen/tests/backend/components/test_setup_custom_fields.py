@@ -251,21 +251,24 @@ class TestInitialSetupCompleteFlag(FrappeTestCase):
         # site. Either way the row is shared and the patch below is still needed.
         #
         # _is_initial_setup_complete / _mark_initial_setup_complete are thin
-        # wrappers over frappe.db.exists + frappe.db.get_value/set_value on that
-        # Single. Patch those three to an in-process dict so the round-trip
-        # (mark -> is_complete reads True; force 0 -> reads False) exercises the
-        # real function LOGIC -- the exists-guard, the bool() coercion, the
-        # get-after-set -- without touching the globally-shared row a sibling
-        # could clobber. This is immune to concurrent shards because the backing
-        # store is per-process memory.
+        # wrappers over frappe.db.get_singles_dict + frappe.db.get_value/
+        # set_value on that Single (frappe.db.exists(dt, dt) is
+        # unconditionally truthy for a Single and cannot express "has this
+        # ever been saved", see #889, so the production code checks
+        # get_singles_dict instead). Patch those three to an in-process dict
+        # so the round-trip (mark -> is_complete reads True; force 0 -> reads
+        # False) exercises the real function LOGIC -- the exists-guard, the
+        # bool() coercion, the get-after-set -- without touching the
+        # globally-shared row a sibling could clobber. This is immune to
+        # concurrent shards because the backing store is per-process memory.
         from unittest.mock import patch
 
         store = {"flag": 0}
 
-        def fake_exists(doctype, name=None, *a, **k):
+        def fake_get_singles_dict(doctype, *a, **k):
             if doctype == "Verenigingen Settings":
-                return "Verenigingen Settings"
-            return _real_exists(doctype, name, *a, **k)
+                return {"name": "Verenigingen Settings"}
+            return _real_get_singles_dict(doctype, *a, **k)
 
         def fake_get_value(doctype, name, fieldname, *a, **k):
             if doctype == "Verenigingen Settings" and fieldname == "initial_setup_complete":
@@ -278,12 +281,12 @@ class TestInitialSetupCompleteFlag(FrappeTestCase):
                 return None
             return _real_set_value(doctype, name, fieldname, value, *a, **k)
 
-        _real_exists = frappe.db.exists
+        _real_get_singles_dict = frappe.db.get_singles_dict
         _real_get_value = frappe.db.get_value
         _real_set_value = frappe.db.set_value
 
         with (
-            patch.object(frappe.db, "exists", side_effect=fake_exists),
+            patch.object(frappe.db, "get_singles_dict", side_effect=fake_get_singles_dict),
             patch.object(frappe.db, "get_value", side_effect=fake_get_value),
             patch.object(frappe.db, "set_value", side_effect=fake_set_value),
             patch.object(frappe.db, "commit"),

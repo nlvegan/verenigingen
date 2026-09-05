@@ -158,12 +158,40 @@ def format_address_single_line(address_doc):
     return ", ".join(parts)
 
 
+def _build_address_payload(address_name: str):
+    """Format one Address document. Contains no permission check: the formatted
+    output does not vary by caller, only permission to see it does (#785) --
+    callers must gate access themselves before reaching this.
+    """
+    address = frappe.get_doc("Address", address_name)
+    formatted = format_address_for_country(address)
+
+    return {
+        "has_address": True,
+        "formatted_address": formatted,
+        "country": address.country,
+        "address_type": "primary",
+    }
+
+
+@cache_with_ttl(ttl=1800, per_user=False)  # Cache for 30 minutes - addresses don't change
+# frequently. per_user=False: format_member_address() below checks permissions
+# BEFORE calling this, so the formatted output -- keyed on the address itself,
+# not the caller -- can be shared across every authorized viewer instead of one
+# cache entry per member (#785).
+def _cached_address_payload(address_name: str):
+    return _build_address_payload(address_name)
+
+
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 @api_response_handler
-@cache_with_ttl(ttl=1800)  # Cache for 30 minutes - addresses don't change frequently
 def format_member_address(member_name: str):
-    """Format a member's primary address using appropriate country conventions"""
+    """Format a member's primary address using appropriate country conventions.
+
+    The permission checks run here, uncached, on every call; only the resulting
+    payload is cached and shared (#785).
+    """
     # CORRECTED SECURE VERSION: Check Member read permissions explicitly
     if not frappe.has_permission("Member", "read", member_name):
         return {
@@ -185,15 +213,7 @@ def format_member_address(member_name: str):
             "message": "Access denied to address information",
         }
 
-    address = frappe.get_doc("Address", member.primary_address)
-    formatted = format_address_for_country(address)
-
-    return {
-        "has_address": True,
-        "formatted_address": formatted,
-        "country": address.country,
-        "address_type": "primary",
-    }
+    return _cached_address_payload(member.primary_address)
 
 
 @frappe.whitelist()

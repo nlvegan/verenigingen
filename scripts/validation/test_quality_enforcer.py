@@ -542,6 +542,12 @@ class TestQualityEnforcer:
         # Skip fixture / helper / conftest files even if they live under tests/.
         # These provide infrastructure for tests rather than being tests themselves,
         # and their use of permission bypasses or DB writes is appropriate.
+        #
+        # A `test_`-prefixed filename is a real test module by this repo's own
+        # convention regardless of which directory it is colocated in (with the
+        # helper it tests, or the fixtures it exercises) -- #801, same class as
+        # #798's `_factory` substring fix. Only a non-`test_`-prefixed name is the
+        # helper shape these markers exist to skip.
         helper_path_markers = [
             "/tests/fixtures/",
             "/tests/conftest",
@@ -549,7 +555,9 @@ class TestQualityEnforcer:
             "/tests/config/",
             "/tests/utils/",
         ]
-        if any(marker in path_str for marker in helper_path_markers):
+        if not path.name.startswith("test_") and any(
+            marker in path_str for marker in helper_path_markers
+        ):
             return False
         if path.name == "conftest.py":
             return False

@@ -86,6 +86,7 @@ from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
 )
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.utils.validation.api_validators import (
     APIValidator,
     parse_json_filters,
@@ -318,6 +319,12 @@ def send_overdue_payment_reminders(
 
                     sent_count += 1
 
+                # #505: without this, a 1205/1213 sending one member's reminder is
+                # logged and the loop keeps sending further reminders on a
+                # transaction the server has already discarded (the #470 shape,
+                # one frame below @handle_api_error). Re-raise unconditionally.
+                except NON_RESUMABLE_DB_ERRORS:
+                    raise
                 except Exception as e:
                     # log_error's second parameter is `context: dict`, not a title
                     # string: it does `(context or {}).get("trace_id")`, so a string
@@ -339,6 +346,11 @@ def send_overdue_payment_reminders(
             data={"count": sent_count}, message=_("Payment reminders sent successfully")
         )
 
+    # #505: the guard above stops the loop; this frame's job is to let the class
+    # keep going past this catch-all too, rather than being converted into an
+    # OperationResult one frame below @handle_api_error's own guard (#504).
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.log_error(
             message=f"Payment reminder operation failed: {str(e)}\n{traceback.format_exc()}",
@@ -434,10 +446,17 @@ def export_overdue_payments(
                 message=_("Export completed successfully"),
             )
 
+        # #505: this inner try wraps the file save() -- a 1205/1213 here must not be
+        # converted into a failure dict one frame below @handle_api_error's own
+        # guard (#504); re-raise unconditionally.
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
         except Exception as e:
             log_error(e, {"operation": "export_overdue_payments", "context": "Payment Export Error"})
             return OperationResult.fail(_("Export failed: {0}").format(str(e)), http_status=500)
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.log_error(
             message=f"Overdue payments export failed: {str(e)}\n{traceback.format_exc()}",
@@ -517,6 +536,12 @@ def execute_bulk_payment_action(
 
                 processed_count += 1
 
+            # #505: same shape as send_overdue_payment_reminders -- without this a
+            # 1205/1213 acting on one member is logged and the loop keeps acting on
+            # further members against a transaction the server has already
+            # discarded. Re-raise unconditionally.
+            except NON_RESUMABLE_DB_ERRORS:
+                raise
             except Exception as e:
                 # See the note in send_overdue_payment_reminders: a string second
                 # argument makes this handler raise, so the `continue` never runs
@@ -534,6 +559,8 @@ def execute_bulk_payment_action(
 
         return OperationResult.ok(data={"count": processed_count}, message=_("Bulk action completed"))
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.log_error(
             message=f"Bulk payment action failed: {str(e)}\n{traceback.format_exc()}",
@@ -876,11 +903,7 @@ def process_application_refund(member_name, reason):
         )
 
         if not submit_result.success:
-            frappe.logger().error(f"Failed to submit refund entry: {'; '.join(submit_result.errors)}")
-            return {
-                "success": False,
-                "message": f"Failed to submit refund entry: {'; '.join(submit_result.errors)}",
-            }
+            return _compensate_failed_refund_submit(refund_entry, submit_result, member_name)
 
         # Log the refund
         member.add_comment("Info", f"Refund processed: {invoice.grand_total} - Reason: {reason}")
@@ -895,3 +918,127 @@ def process_application_refund(member_name, reason):
     except Exception as e:
         frappe.logger().error(f"Failed to process refund for {member_name}: {str(e)}")
         return {"success": False, "message": f"Refund processing failed: {str(e)}"}
+
+
+def _compensate_failed_refund_submit(refund_entry, submit_result, member_name):
+    """Build the API response for a refund Payment Entry whose submit failed (#863).
+
+    Per #385/#864, `success=False` alone cannot tell a caller whether nothing was
+    persisted (safe to retry) from a submit that already flipped docstatus to 1
+    before its `on_submit` GL posting raised -- `submit_result.partial_write`
+    (read from the DB in the still-open transaction) makes that distinction.
+
+    A clean failure (`partial_write=False`) is reported exactly as before: safe
+    to retry. A partial write is not a "this document did not save" outcome, so
+    it is not returned that way -- the stranded entry is handed to
+    `discard_unposted_refund_payment_entry` to compensate, and the response
+    reflects what actually happened: cancelled (safe to retry) or, if the
+    compensating cancel itself failed, still docstatus=1 and in need of a human.
+    """
+    joined_errors = "; ".join(submit_result.errors)
+    frappe.logger().error(f"Failed to submit refund entry: {joined_errors}")
+
+    if not submit_result.partial_write:
+        return {
+            "success": False,
+            "message": f"Failed to submit refund entry: {joined_errors}",
+        }
+
+    discard_unposted_refund_payment_entry(refund_entry.name, member_name, joined_errors)
+    final_docstatus = frappe.db.get_value("Payment Entry", refund_entry.name, "docstatus")
+
+    if final_docstatus == 2:
+        return {
+            "success": False,
+            "message": (
+                f"Refund entry {refund_entry.name} could not be posted to the ledger and was "
+                f"automatically cancelled; safe to retry the refund. Error: {joined_errors}"
+            ),
+        }
+
+    return {
+        "success": False,
+        "requires_manual_reconciliation": True,
+        "message": (
+            f"Refund entry {refund_entry.name} could not be posted to the ledger and could NOT be "
+            f"automatically cancelled (still docstatus={final_docstatus}) -- do not retry this "
+            f"refund until a human reconciles it. Error: {joined_errors}"
+        ),
+    }
+
+
+def discard_unposted_refund_payment_entry(
+    payment_entry_name: str, member_name: str, error_message: str
+) -> None:
+    """Undo a refund Payment Entry whose submit failed. Always returns None.
+
+    Mirrors `journal_entry_booking_support.discard_unposted_journal_entry` for
+    the Payment Entry case #863 was filed for -- there was no equivalent helper
+    for Payment Entry before this. `Document.save()` writes `db_update()`
+    (flipping docstatus to 1 for a submit) BEFORE `run_post_save_methods()`
+    invokes `on_submit`, so a refund Payment Entry whose `on_submit` (GL
+    posting, `PaymentEntry.make_gl_entries`) throws has already persisted
+    docstatus=1, with no ledger entry to show for it -- and `secure_document_operation`
+    catches that error without rolling back (see #385).
+
+    Cancelled, not deleted, for the same reasons as the Journal Entry case: it
+    stops the entry claiming to be "the" refund for this member (so a caller
+    knows a retry is safe), and it leaves an auditable record of a posting that
+    was attempted and failed. Deleting is worse in both directions: `cancel()`
+    can itself raise -- e.g. against the same bad account the failed submit
+    already hit, since `on_cancel` re-posts the same GL rows through the same
+    validation -- and when it does the delete never runs anyway; and when
+    cancel succeeds, `Accounts Settings.delete_linked_ledger_entries` defaults
+    to 0, so deleting the voucher would orphan its GL rows.
+
+    IMPORTANT: `cancel()` raising is NOT proof that nothing changed. `Document.
+    _cancel()` sets docstatus=2 and calls `save()`, which -- exactly like
+    submit -- writes that via `db_update()` BEFORE `run_post_save_methods()`
+    invokes `on_cancel`. Measured: cancelling a Payment Entry stuck on the same
+    bad account raises the identical group-account error AND still leaves
+    docstatus=2 in the DB. So this function never infers success/failure from
+    whether `cancel()` raised -- only the re-read at the end decides what
+    actually happened, exactly like the Journal Entry helper it mirrors.
+
+    This does not retry the cancel, escalate, or attempt anything beyond a
+    single compensating write: compensating for a failed compensation is the
+    Runaway Refactor CLAUDE.md warns against, and a transaction that already
+    threw once is exactly where an unbounded retry loop is least safe.
+
+    Args:
+        payment_entry_name: the entry to undo.
+        member_name: whose refund this was, for the operator reading the log.
+        error_message: why the submit failed.
+    """
+    message = (
+        f"Refund Payment Entry {payment_entry_name} for member {member_name} could not be "
+        f"submitted and did not post to the ledger: {error_message}"
+    )
+    frappe.logger().error(message)
+    frappe.log_error(title="Refund Payment Entry Not Posted", message=message)
+
+    try:
+        pe = frappe.get_doc("Payment Entry", payment_entry_name)
+        if pe.docstatus == 1:
+            pe.cancel()
+    except Exception as cleanup_error:  # failed-write-ok: reported-elsewhere
+        frappe.logger().error(
+            f"Could not cancel unposted refund Payment Entry {payment_entry_name}: {cleanup_error}"
+        )
+
+    # Report what is actually true, which is not always what was attempted:
+    # cancel() can raise and STILL leave docstatus=2 behind, by the same
+    # write-before-hooks ordering described above. Only a re-read can tell the
+    # operator whether the entry is really cancelled.
+    docstatus = frappe.db.get_value("Payment Entry", payment_entry_name, "docstatus")
+    if docstatus != 2:
+        frappe.log_error(
+            title="Refund Payment Entry Still Docstatus=1",
+            message=(
+                f"Unposted refund Payment Entry {payment_entry_name} for member {member_name} is "
+                f"still at docstatus={docstatus} after a compensating cancel was attempted. "
+                "Manual reconciliation required -- verify no partial GL Entry rows were left "
+                "behind, then cancel it by hand."
+            ),
+        )
+    return None

@@ -14,6 +14,8 @@ helpers (metrics, member overview, pending actions, financials, dues status,
 board info, recent activity). No business logic is mocked.
 """
 
+from unittest import mock
+
 import frappe
 
 from verenigingen.templates.pages import chapter_dashboard as cd
@@ -276,12 +278,19 @@ class TestChapterDashboardPage(VereningingenTestCase):
         emails = [m["email"] for m in board["members"]]
         self.assertIn(self.board_email, emails)
 
-    def test_get_board_information_marks_current_user(self):
-        """The current user's board row is flagged is_current_user."""
+    def test_get_board_information_never_flags_current_user_itself(self):
+        """get_board_information() must stay caller-independent: it feeds the
+        dashboard payload behind a shared (per_user=False) cache (#785), so a
+        session read here would freeze one caller's identity onto that shared
+        entry for every other viewer (found in skeptical review of #904).
+        is_current_user is filled in afterwards, per caller, by
+        _annotate_current_user -- see test_is_current_user_is_correct_per_caller_
+        on_a_warm_shared_cache below.
+        """
         frappe.set_user(self.board_user.name)
         board = cd.get_board_information(self.chapter.name)
-        current = [m for m in board["members"] if m["is_current_user"]]
-        self.assertTrue(current)
+        self.assertTrue(board["members"], "test setup error: expected at least one board member")
+        self.assertFalse(any(m["is_current_user"] for m in board["members"]))
 
     def test_get_available_document_categories(self):
         categories = cd.get_available_document_categories()
@@ -297,3 +306,141 @@ class TestChapterDashboardPage(VereningingenTestCase):
         # Members joined recently, so there should be join activity entries.
         for item in activity:
             self.assertIn("member", item)
+
+    # ------------------------------------------------------------------
+    # #785: the access check must survive a WARM payload cache.
+    #
+    # #784 fixed #782 by keying cache_with_ttl per session user, which kept the
+    # access check (living inside the cached body) from being skipped -- at the
+    # cost of one cache miss per authorized board member. #785 hoists the check
+    # out of the cached body instead, so the payload cache goes back to
+    # per_user=False and is shared across every authorized viewer of one
+    # chapter. That only works if the check runs on every call regardless of
+    # cache state -- a cold-cache-only test cannot tell the two designs apart.
+    # ------------------------------------------------------------------
+
+    def test_unauthorized_user_is_refused_on_a_warm_shared_cache(self):
+        cd._cached_chapter_dashboard_payload.cache_clear()
+
+        with mock.patch.object(
+            cd, "_chapter_dashboard_payload", wraps=cd._chapter_dashboard_payload
+        ) as spy:
+            # Cold cache: the authorized board member's call builds the payload.
+            frappe.set_user(self.board_user.name)
+            first = cd.get_chapter_dashboard_data(self.chapter.name)
+            first_data = first.get("data", first) if isinstance(first, dict) else first
+            self.assertIn("chapter_info", first_data)
+            self.assertEqual(spy.call_count, 1, "cold cache: the payload must be built once")
+
+            # Warm cache, same chapter: because the cache is now per_user=False,
+            # a second call must be served from the shared entry without
+            # rebuilding it.
+            second = cd.get_chapter_dashboard_data(self.chapter.name)
+            second_data = second.get("data", second) if isinstance(second, dict) else second
+            self.assertEqual(second_data["last_updated"], first_data["last_updated"])
+            self.assertEqual(
+                spy.call_count, 1, "a second call for the same chapter should hit the shared cache"
+            )
+
+            # An unauthorized caller, on this SAME warm cache, must still be
+            # refused. Before #785, the access check ran INSIDE the cached
+            # body, so a cache hit returned before it ever executed -- this is
+            # the regression only a warm-cache assertion can catch.
+            #
+            # The role profile matters: this user holds the SAME role (and
+            # matching HIGH-tier profile) as a chapter board member, so it
+            # clears @high_security_api's own gate and actually reaches
+            # get_chapter_dashboard_data()'s body -- it is just not on THIS
+            # chapter's board. Denying it a low-tier profile instead would make
+            # the test pass by hitting an unrelated 403 upstream of the code
+            # under test.
+            from verenigingen.tests.fixtures.role_profile_helper import (
+                grant_matching_role_profiles,
+            )
+
+            email = f"plain785.{frappe.generate_hash(length=8)}@example.com"
+            user = self.create_test_user(email, roles=["Verenigingen Chapter Board Member"])
+            grant_matching_role_profiles(email, "Verenigingen Chapter Board Member")
+            frappe.set_user(user.name)
+            self.assertEqual(
+                cd.get_user_board_chapters(),
+                [],
+                "test setup error: the intruder must not sit on any chapter's board",
+            )
+            refused = cd.get_chapter_dashboard_data(self.chapter.name)
+
+        self.assertFalse(
+            refused.get("success", True) if isinstance(refused, dict) else True,
+            "an unauthorized caller must be refused, warm cache or not",
+        )
+        self.assertEqual(
+            spy.call_count,
+            1,
+            "the payload builder must never run for an unauthorized caller -- the "
+            "check must gate access, not the cache key",
+        )
+
+    # ------------------------------------------------------------------
+    # Found in skeptical review of #904: is_current_user must be correct per
+    # caller even though the payload it lives in is now a SHARED cache entry.
+    # ------------------------------------------------------------------
+
+    def test_is_current_user_is_correct_per_caller_on_a_warm_shared_cache(self):
+        """Two distinct board members on the same chapter; the second call is
+        served from the SAME warm cache entry as the first (per_user=False,
+        #785) -- each must still see their OWN row, not the cache-warmer's
+        row, flagged is_current_user.
+
+        Before this fix, ``get_board_information()`` computed the flag from
+        ``frappe.session.user`` inside the now-shared payload, so whichever
+        caller warmed the cache was frozen as "you" for every other board
+        member for up to two minutes (found in skeptical review of #904).
+        """
+        from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
+
+        # A second, distinct board member on the same chapter.
+        second_email = f"board2.{frappe.generate_hash(length=8)}@example.com"
+        second_user = self.create_test_user(second_email, roles=["Verenigingen Chapter Board Member"])
+        grant_matching_role_profiles(second_email, "Verenigingen Chapter Board Member")
+        second_member = self.create_test_member(chapter=self.chapter.name, email=second_email)
+        second_volunteer = self.create_test_volunteer(member=second_member.name, email=second_email)
+        self.chapter.reload()
+        self.add_board_member_to_chapter(
+            self.chapter, second_volunteer, self.chapter_role, email=second_email
+        )
+
+        cd._cached_chapter_dashboard_payload.cache_clear()
+
+        with mock.patch.object(
+            cd, "_chapter_dashboard_payload", wraps=cd._chapter_dashboard_payload
+        ) as spy:
+            # First caller warms the shared cache.
+            frappe.set_user(self.board_user.name)
+            first = cd.get_chapter_dashboard_data(self.chapter.name)
+            first_data = first.get("data", first) if isinstance(first, dict) else first
+            first_own = [m["email"] for m in first_data["board_info"]["members"] if m["is_current_user"]]
+            self.assertEqual(
+                first_own, [self.board_email], "the first caller must see only their own row flagged"
+            )
+            self.assertEqual(spy.call_count, 1, "cold cache: the payload must be built once")
+
+            # Second caller reads the SAME warm cache entry (same chapter,
+            # still within the 120s TTL) -- must see THEIR own row flagged,
+            # not the first caller's. The call-count assertion is what proves
+            # this is really the shared entry rather than two independent
+            # builds; without it, the test would prove nothing about the
+            # shared-cache case #904 introduced.
+            frappe.set_user(second_user.name)
+            second = cd.get_chapter_dashboard_data(self.chapter.name)
+            second_data = second.get("data", second) if isinstance(second, dict) else second
+            self.assertEqual(
+                spy.call_count, 1, "the second call must be served from the shared cache, not rebuilt"
+            )
+
+        second_own = [m["email"] for m in second_data["board_info"]["members"] if m["is_current_user"]]
+        self.assertEqual(
+            second_own,
+            [second_email],
+            "the second caller, reading the SAME warm shared cache entry, must "
+            "see their OWN row flagged -- not the first caller's frozen identity",
+        )

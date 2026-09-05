@@ -212,6 +212,10 @@ class InvoiceGenerator(StatelessService):
             if validation_error:
                 return OperationResult.fail(validation_error)
 
+            # Phase 2.5: Period-anchor invariant check (#882/#884/#890). Non-blocking
+            # by design - see _check_period_anchor docstring.
+            anchor_violation = self._check_period_anchor(coverage_start, coverage_end, member_doc)
+
             # Phase 3: Account configuration - Get invoice accounts with fallbacks
             income_account, expense_account, cost_center = self._get_invoice_accounts(member_doc)
             if not income_account:
@@ -235,6 +239,7 @@ class InvoiceGenerator(StatelessService):
                 cost_center=cost_center,
                 item_code=item_code,
                 payment_config=payment_config,
+                anchor_violation=anchor_violation,
             )
 
             # Phase 7: Submission - Submit invoice based on auto-submit settings
@@ -304,6 +309,136 @@ class InvoiceGenerator(StatelessService):
             return f"Invalid dues rate on schedule: {self.dues_rate}"
 
         return None  # Validation passed
+
+    def _check_period_anchor(
+        self, coverage_start: date, coverage_end: date, member_doc: Any
+    ) -> Optional[str]:
+        """
+        Verify (coverage_start, coverage_end) is one full running billing period
+        anchored to the member's own cycle (#882/#884/#890) - not a calendar-grid
+        period that merely happens to be the right length.
+
+        Non-blocking BY DESIGN: a violation is recorded (Error Log + a comment on
+        the invoice, added by the caller once the invoice exists) but never raised,
+        and any failure inside this check itself is swallowed rather than allowed
+        to block generation. Existing callers compute coverage_start from various
+        sources, including the catch-up report path known to have this defect
+        (#884/#890); refusing here would turn billing generation into a hard
+        outage for members already caught by that bug, for a defect this guard
+        cannot fix itself (period generation is not this service's concern - see
+        #882's resolution). Tests that need a hard failure should call
+        billing_period_calculator.assert_coverage_start_anchored() directly
+        instead of relying on this method.
+
+        Args:
+            coverage_start: Proposed coverage period start
+            coverage_end: Proposed coverage period end
+            member_doc: Member document
+
+        Returns:
+            A human-readable description of the violation, or None if the invariant
+            holds (or there is nothing to check it against, or the check itself
+            failed - see above).
+        """
+        try:
+            from verenigingen.services.billing.billing_period_calculator import (
+                calculate_coverage_end,
+                is_coverage_start_anchored,
+            )
+            from verenigingen.services.billing.coverage_calculator import CoverageCalculator
+
+            custom_number = getattr(self.schedule, "custom_frequency_number", None)
+            custom_unit = getattr(self.schedule, "custom_frequency_unit", None)
+
+            previous_coverage_end = CoverageCalculator(self.schedule).get_latest_coverage_end_date(member_doc)
+
+            anchor_date = None
+            if previous_coverage_end is None:
+                # Mirrors CoverageCalculator._get_membership_start_date(): earliest
+                # active, submitted Membership start - the same anchor the correct
+                # (sequential) coverage path itself would roll a first period from.
+                anchor_date = frappe.db.get_value(
+                    "Membership",
+                    {"member": self.member_name, "status": "Active", "docstatus": 1},
+                    "start_date",
+                    order_by="start_date asc",
+                )
+
+            start_ok = is_coverage_start_anchored(
+                coverage_start,
+                self.billing_frequency,
+                anchor_date=anchor_date,
+                previous_coverage_end=previous_coverage_end,
+                custom_frequency_number=custom_number,
+                custom_frequency_unit=custom_unit,
+            )
+
+            if not start_ok:
+                if previous_coverage_end:
+                    expected = add_days(getdate(previous_coverage_end), 1)
+                    detail = (
+                        f"coverage_start {getdate(coverage_start)} does not follow the previous "
+                        f"coverage end {previous_coverage_end} (expected {expected})"
+                    )
+                else:
+                    detail = (
+                        f"coverage_start {getdate(coverage_start)} is not reachable from anchor "
+                        f"{anchor_date} by whole {self.billing_frequency} periods"
+                    )
+            else:
+                # Start is anchored correctly - length still needs to match one
+                # full running period from that (now-confirmed) start. A caller
+                # could anchor the start correctly and still pass a truncated or
+                # miscalculated end.
+                expected_end = calculate_coverage_end(
+                    self.billing_frequency, getdate(coverage_start), custom_number, custom_unit
+                )
+                if getdate(coverage_end) == expected_end:
+                    return None
+                detail = (
+                    f"coverage_start {getdate(coverage_start)} is anchored correctly, but "
+                    f"coverage_end {getdate(coverage_end)} does not match the expected running-period "
+                    f"end {expected_end}"
+                )
+
+            frappe.log_error(
+                title=f"Period Anchor Violation - {self.schedule_name[:50]}",
+                message=(
+                    f"Schedule: {self.schedule_name}\n"
+                    f"Member: {self.member_name}\n"
+                    f"Billing frequency: {self.billing_frequency}\n"
+                    f"{detail}"
+                ),
+            )
+
+            return detail
+        except Exception as guard_error:  # swallow-ok: best-effort
+            # The guard itself must never block invoice generation - see the
+            # non-blocking rationale in this method's docstring. But a silent
+            # failure here is exactly the failure mode this guard exists to
+            # prevent: self.logger (LazyServiceLogger -> frappe.logger()) is
+            # level ERROR under this harness (measured: level=40), so a bare
+            # .warning() call is filtered before any handler runs and records
+            # nothing anywhere - not a log file, not the Error Log doctype.
+            # frappe.log_error() writes a durable, queryable tabError Log row
+            # instead, independently wrapped so a failure THERE cannot escape
+            # either.
+            self.logger.warning(
+                f"Period anchor guard failed for schedule {self.schedule_name}: {guard_error}"
+            )
+            try:
+                frappe.log_error(
+                    title=f"Period Anchor Guard Failed - {self.schedule_name[:50]}",
+                    message=(
+                        f"Schedule: {self.schedule_name}\n"
+                        f"Member: {self.member_name}\n"
+                        f"The period-anchor invariant guard raised and could not complete "
+                        f"its check:\n{guard_error}"
+                    ),
+                )
+            except Exception:  # swallow-ok: best-effort
+                pass
+            return None
 
     def _validate_authorization(self) -> Optional[str]:
         """
@@ -632,6 +767,7 @@ class InvoiceGenerator(StatelessService):
         cost_center: Optional[str],
         item_code: str,
         payment_config: Dict[str, Any],
+        anchor_violation: Optional[str] = None,
     ) -> Any:
         """
         Build the sales invoice document with all fields.
@@ -645,6 +781,9 @@ class InvoiceGenerator(StatelessService):
             cost_center: Cost center
             item_code: Membership dues item code
             payment_config: Payment configuration dict
+            anchor_violation: Description of a period-anchor invariant violation
+                (#882/#884/#890), or None. When set, flagged as a comment on the
+                invoice - generation itself is never blocked by it.
 
         Returns:
             Sales Invoice document (not yet submitted)
@@ -750,6 +889,9 @@ class InvoiceGenerator(StatelessService):
         invoice.flags.ignore_version = True
         invoice.flags.ignore_links = True
         invoice.insert()
+
+        if anchor_violation:
+            invoice.add_comment("Comment", f"Period anchor violation: {anchor_violation}")
 
         return invoice
 

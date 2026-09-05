@@ -23,6 +23,7 @@ from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import SEPAError, handle_api_error, log_error
 from verenigingen.utils.performance_utils import performance_monitor
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen_payments.utils.shared.db_helpers import insert_audit_row
 from verenigingen.verenigingen_payments.utils.shared.recipient_resolver import get_recipients_by_roles
 
@@ -1166,5 +1167,10 @@ def list_rollback_operations(batch_name: str = None, days_back: int = 30) -> Dic
             "total_operations": len(operations),
         }
 
+    # #505: this catch-all sits below @handle_api_error; without this a 1205/1213
+    # here is logged and returned as a plain failure dict one frame below the
+    # decorator's own guard (#504). Re-raise unconditionally.
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         return {"success": False, "error": str(e)}
