@@ -43,6 +43,15 @@ class TestPaymentEntryHandler(EnhancedTestCase):
         cls.bank_account = cls._ensure_bank_account(cls.company)
         cls._ensure_ledger_mapping(cls.BANK_LEDGER_ID, "TRIODOS-TEST", cls.bank_account)
 
+    # Account autonames account_name + " - " + abbr, and this must be the
+    # existence-check key -- the shared EUR test company routinely already
+    # has other leaf Bank accounts (created by sibling suites), and querying
+    # by "any leaf Bank account for the company" adopts one of those instead
+    # of owning "Test Bank Triodos" by name (#308). The ledger mapping this
+    # class builds is pinned to a Triodos-named ledger code, so adopting an
+    # unrelated account silently mismatches it.
+    OWN_ACCOUNT_NAME = "Test Bank Triodos"
+
     @classmethod
     def _ensure_bank_account(cls, company):
         """Return a Bank-type GL account for the company, creating one if needed.
@@ -51,7 +60,7 @@ class TestPaymentEntryHandler(EnhancedTestCase):
         Bank to the GL account) to build the Payment Entry, so create that too.
         """
         gl_account = frappe.db.get_value(
-            "Account", {"account_type": "Bank", "company": company, "is_group": 0}, "name"
+            "Account", {"account_name": cls.OWN_ACCOUNT_NAME, "company": company}, "name"
         )
         if not gl_account:
             parent = frappe.db.get_value(
@@ -66,7 +75,7 @@ class TestPaymentEntryHandler(EnhancedTestCase):
             account = frappe.get_doc(
                 {
                     "doctype": "Account",
-                    "account_name": "Test Bank Triodos",
+                    "account_name": cls.OWN_ACCOUNT_NAME,
                     "parent_account": parent,
                     "company": company,
                     "account_type": "Bank",
@@ -79,18 +88,25 @@ class TestPaymentEntryHandler(EnhancedTestCase):
         cls._ensure_bank_account_master(company, gl_account)
         return gl_account
 
+    # Bank Account autonames account_name + " - " + bank; guarding on
+    # {"account": gl_account, "company": company} instead can miss a row that
+    # already carries this literal name under a different `account`, and then
+    # collide on insert with a DuplicateEntryError -- same guard-key-vs-
+    # autoname-key gap as _ensure_bank_account above (#308).
+    OWN_BANK_ACCOUNT_NAME = "Test Bank Triodos Account"
+
     @classmethod
     def _ensure_bank_account_master(cls, company, gl_account):
         """Create a Bank Account master linking a Bank to the GL account."""
-        if frappe.db.exists("Bank Account", {"account": gl_account, "company": company}):
-            return
         bank_name = "Test Bank (Triodos)"
+        if frappe.db.exists("Bank Account", {"account_name": cls.OWN_BANK_ACCOUNT_NAME, "bank": bank_name}):
+            return
         if not frappe.db.exists("Bank", bank_name):
             frappe.get_doc({"doctype": "Bank", "bank_name": bank_name}).insert(ignore_permissions=True)
         frappe.get_doc(
             {
                 "doctype": "Bank Account",
-                "account_name": "Test Bank Triodos Account",
+                "account_name": cls.OWN_BANK_ACCOUNT_NAME,
                 "bank": bank_name,
                 "account": gl_account,
                 "company": company,
@@ -125,6 +141,37 @@ class TestPaymentEntryHandler(EnhancedTestCase):
         super().tearDown()
         # Enhanced Test Factory handles cleanup automatically
     
+    def test_ensure_bank_account_owns_its_row_not_any_leaf_bank_account(self):
+        """A pre-existing leaf Bank account for the (intentionally shared) EUR
+        test company, created by some other suite, must not be adopted (#308).
+        Before the fix, _ensure_bank_account resolved by "any leaf Bank
+        account for the company", so whichever one a co-tenant suite created
+        first won -- silently mismatching this class's Triodos ledger mapping."""
+        parent = frappe.db.get_value(
+            "Account", {"company": self.company, "is_group": 1, "account_type": "Bank"}, "name"
+        ) or frappe.db.get_value(
+            "Account", {"company": self.company, "is_group": 1, "root_type": "Asset"}, "name"
+        )
+        neighbour = frappe.get_doc(
+            {
+                "doctype": "Account",
+                "account_name": f"Some Other Suite's Bank {frappe.generate_hash()[:6]}",
+                "parent_account": parent,
+                "company": self.company,
+                "account_type": "Bank",
+                "is_group": 0,
+            }
+        ).insert(ignore_permissions=True)
+        self.created_records.append(("Account", neighbour.name))
+
+        resolved = self._ensure_bank_account(self.company)
+
+        self.assertEqual(
+            resolved,
+            self.bank_account,
+            "must resolve to its own owned account, not a neighbour's leaf Bank account",
+        )
+
     def test_parse_invoice_numbers(self):
         """Test parsing of comma-separated invoice numbers."""
         # Single invoice

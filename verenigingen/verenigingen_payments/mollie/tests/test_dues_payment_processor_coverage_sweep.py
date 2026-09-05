@@ -105,16 +105,22 @@ def _ensure_bank_account_linked(company, gl_account):
 
 
 def _ensure_clearing_gl_account(company):
-    """Module-scope fixture: a leaf (non-group) Bank GL account for the company.
+    """Module-scope fixture: a leaf (non-group) Bank GL account owned by this suite.
 
     A freshly-provisioned EUR test company on a CI runner has no non-group Bank
-    account, so the clearing-account lookup returns None and the processor rejects
-    the config ("Clearing Account not configured"). Create one idempotently so the
-    Mollie clearing/bank-account config resolves on any site.
+    account, so an unmet clearing-account lookup would make the Mollie
+    processor reject the config ("Clearing Account not configured"). Create
+    one idempotently so the config always resolves.
+
+    Keyed on its own account_name, not on "any leaf Bank account for the
+    company": get_eur_test_company() is intentionally a SHARED company used by
+    many suites and routinely already has several Bank leaves (e.g. from
+    get_eur_bank_account()), so a broader existence check adopts a neighbour's
+    account instead of owning one (#308) -- and a Company-scoped Account still
+    autonames on account_name, so account_name is the correct guard key.
     """
-    existing = frappe.db.get_value(
-        "Account", {"company": company, "account_type": "Bank", "is_group": 0}, "name"
-    )
+    account_name = "Mollie Sweep Clearing GL"
+    existing = frappe.db.get_value("Account", {"company": company, "account_name": account_name}, "name")
     if existing:
         return existing
     parent = frappe.db.get_value(
@@ -124,7 +130,7 @@ def _ensure_clearing_gl_account(company):
         frappe.get_doc(
             {
                 "doctype": "Account",
-                "account_name": "Mollie Sweep Clearing GL",
+                "account_name": account_name,
                 "company": company,
                 "parent_account": parent,
                 "account_type": "Bank",
@@ -222,6 +228,45 @@ def _ensure_item():
         item.insert(ignore_permissions=True, ignore_if_duplicate=True)
         frappe.db.commit()
     return name
+
+
+def _make_neighbour_leaf_bank_account(company):
+    """Test fixture: a leaf Bank account for `company` owned by nobody in
+    particular -- stands in for whatever sibling suite's Bank leaf
+    `_ensure_clearing_gl_account` must NOT adopt."""
+    parent = frappe.db.get_value(
+        "Account", {"company": company, "account_type": "Bank", "is_group": 1}, "name"
+    ) or frappe.db.get_value("Account", {"company": company, "is_group": 1, "root_type": "Asset"}, "name")
+    return frappe.get_doc(
+        {
+            "doctype": "Account",
+            "account_name": f"Some Other Suite's Bank {frappe.generate_hash()[:6]}",
+            "company": company,
+            "parent_account": parent,
+            "account_type": "Bank",
+            "is_group": 0,
+        }
+    ).insert(ignore_permissions=True)
+
+
+class TestEnsureClearingGlAccountOwnsItsRow(EnhancedTestCase):
+    """#308: _ensure_clearing_gl_account must not adopt a neighbour's leaf
+    Bank account just because one already exists for the company -- the EUR
+    test company is intentionally SHARED across many suites and routinely
+    already has several Bank leaves (e.g. from get_eur_bank_account())."""
+
+    def test_does_not_adopt_a_pre_existing_leaf_bank_account(self):
+        company = get_eur_test_company()
+        neighbour = _make_neighbour_leaf_bank_account(company)
+        self.created_records.append(("Account", neighbour.name))
+
+        resolved = _ensure_clearing_gl_account(company)
+
+        self.assertNotEqual(resolved, neighbour.name, "must not adopt a neighbour's leaf Bank account")
+        self.assertTrue(
+            resolved.startswith("Mollie Sweep Clearing GL"),
+            f"must own a dedicated Mollie Sweep Clearing GL account, got {resolved!r}",
+        )
 
 
 class DuesSweepTestBase(EnhancedTestCase):
