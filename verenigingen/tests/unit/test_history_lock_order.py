@@ -64,8 +64,8 @@ first pass at #459 and cost more than leaving it alone would have -- see
 of each doctype must come in canonical rank order. Re-locking a row the transaction
 already holds is free and is deduplicated away. Two different rows of the *same* doctype
 locked in a data-dependent order (two concurrent Chapter saves walking a shared
-``members`` table in child-table ``idx`` order) is a real and separate defect that these
-tests deliberately do not cover.
+``members`` table in child-table ``idx`` order) is a real and separate defect --
+``TestMemberRowLockOrderWithinOneChapterSave`` below covers it (#469).
 """
 
 import re
@@ -403,6 +403,228 @@ class TestHistoryLockOrder(VereningingenTestCase):
         self.assertIn("Member", recorder.doctypes, f"no Member lock taken: {recorder.locks}")
         self.assertIn("Volunteer", recorder.doctypes, f"no Volunteer lock taken: {recorder.locks}")
         self._assert_canonical(recorder, "the whitelisted execute_safe_termination API")
+
+
+class TestMemberRowLockOrderWithinOneChapterSave(VereningingenTestCase):
+    """Two Members whose child-table `idx` order disagrees with their name order (#469).
+
+    Follow-up to #459, which fixed the cross-doctype order (Donor -> Member -> Volunteer)
+    and explicitly left this one open. Since #436, every ``ChapterMembershipHistoryManager``
+    call locks the Member row it rewrites (see ``BaseHistoryManager._with_doc``).
+    ``MemberManager`` walks ``chapter_doc.members`` in child-table ``idx`` order across four
+    loops (``handle_member_changes``, ``handle_member_deletions``, and both branches of
+    ``handle_member_additions``) and, before the fix, never sorted. A member's ``idx`` in
+    one chapter's ``members`` table is independent of its ``idx`` in another chapter's --
+    so two chapters sharing the same two members in opposite ``idx`` order lock those two
+    Member rows in opposite order, which is a classic AB-BA deadlock.
+
+    These tests do not reproduce a live deadlock (a tight loop cannot reliably reproduce a
+    timing collision -- see MEMORY.md). Instead, each pins the *order* ``ParentLockRecorder``
+    observes for a single save whose two members are seeded in the idx order that inverts
+    their name order -- red before the fix (idx order), green after it (name order) -- which
+    is the property a second chapter walking the same two rows in the OTHER idx order needs
+    to agree with in order not to deadlock against this one.
+    """
+
+    def _two_members_reverse_of_name_order(self):
+        """Two committed Members, and their (low, high) name order."""
+        member_a = self.create_test_member()
+        member_b = self.create_test_member()
+        lo, hi = sorted([member_a.name, member_b.name])
+        return lo, hi
+
+    def _member_lock_sequence(self, recorder):
+        """First-seen order of Member rows locked, per `recorder.locks` (not `.doctypes`,
+        which dedupes across ALL doctypes and would hide a same-doctype reordering)."""
+        seen = []
+        for doctype, row, _query in recorder.locks:
+            if doctype == "Member" and row not in seen:
+                seen.append(row)
+        return seen
+
+    def test_disabling_two_members_locks_them_in_name_order_not_idx_order(self):
+        """`handle_member_changes` -> `end_chapter_membership`, for two members disabled
+        in the same save."""
+        chapter = self.create_test_chapter()
+        lo, hi = self._two_members_reverse_of_name_order()
+
+        doc = frappe.get_doc("Chapter", chapter.name)
+        # Seed idx 0 = hi, idx 1 = lo -- the reverse of name order.
+        doc.append("members", {"member": hi, "enabled": 1})
+        doc.append("members", {"member": lo, "enabled": 1})
+        doc.save()
+        self.addCleanup(frappe.db.commit)
+
+        doc = frappe.get_doc("Chapter", chapter.name)
+        for row in doc.members:
+            row.enabled = 0
+            row.leave_reason = "test disable (#469)"
+
+        with ParentLockRecorder() as recorder:
+            doc.save()
+
+        self.assertTrue(recorder.locks, "the recorder captured no locks -- instrument broken")
+        self.assertEqual(
+            self._member_lock_sequence(recorder),
+            [lo, hi],
+            "handle_member_changes locked Member rows in child-table idx order, not name "
+            f"order: {recorder.locks}. A second chapter sharing these two members in idx "
+            "order (lo, hi) would lock them the other way round and deadlock (#469).",
+        )
+
+    def test_deleting_two_members_locks_them_in_name_order_not_idx_order(self):
+        """`handle_member_deletions` -> `end_chapter_membership`, for two rows removed
+        (not just disabled) in the same save."""
+        chapter = self.create_test_chapter()
+        lo, hi = self._two_members_reverse_of_name_order()
+
+        doc = frappe.get_doc("Chapter", chapter.name)
+        doc.append("members", {"member": hi, "enabled": 1})
+        doc.append("members", {"member": lo, "enabled": 1})
+        doc.save()
+        self.addCleanup(frappe.db.commit)
+
+        doc = frappe.get_doc("Chapter", chapter.name)
+        doc.members = []
+
+        with ParentLockRecorder() as recorder:
+            doc.save()
+
+        self.assertTrue(recorder.locks, "the recorder captured no locks -- instrument broken")
+        self.assertEqual(
+            self._member_lock_sequence(recorder),
+            [lo, hi],
+            "handle_member_deletions locked Member rows in child-table idx order, not name "
+            f"order: {recorder.locks}. A second chapter sharing these two members in idx "
+            "order (lo, hi) would lock them the other way round and deadlock (#469).",
+        )
+
+    def test_adding_two_members_locks_them_in_name_order_not_idx_order(self):
+        """`handle_member_additions` (the `old_doc` branch) -> `add_membership_history`,
+        for two members added in the same save."""
+        chapter = self.create_test_chapter()
+        lo, hi = self._two_members_reverse_of_name_order()
+
+        doc = frappe.get_doc("Chapter", chapter.name)
+        doc.save()  # establish an old_doc baseline with no members yet
+        self.addCleanup(frappe.db.commit)
+
+        doc = frappe.get_doc("Chapter", chapter.name)
+        # Seed idx 0 = hi, idx 1 = lo -- the reverse of name order.
+        doc.append("members", {"member": hi, "enabled": 1})
+        doc.append("members", {"member": lo, "enabled": 1})
+
+        with ParentLockRecorder() as recorder:
+            doc.save()
+
+        self.assertTrue(recorder.locks, "the recorder captured no locks -- instrument broken")
+        self.assertEqual(
+            self._member_lock_sequence(recorder),
+            [lo, hi],
+            "handle_member_additions locked Member rows in child-table idx order, not name "
+            f"order: {recorder.locks}. A second chapter sharing these two members in idx "
+            "order (lo, hi) would lock them the other way round and deadlock (#469).",
+        )
+
+    def test_two_chapters_disabling_and_adding_the_same_pair_with_roles_swapped_agree_on_order(self):
+        """The gap a per-pass sort alone cannot close (found in skeptical review of #469).
+
+        `handle_member_changes` and `handle_member_additions` are two SEPARATE passes,
+        dispatched one after another from `Chapter._handle_document_changes`. A save that
+        disables member X in the "changes" pass and adds member Y in the "additions" pass
+        locks X then Y in PASS order -- each pass here touches only one member, so the
+        per-pass name sort has nothing to reorder. Two chapters that, between them,
+        disable and add the SAME two members with the roles swapped must still lock those
+        two Member rows in the SAME order, or they deadlock against each other.
+
+        Measured before `_prelock_members_for_save` existed: chapter A (disables hi, adds
+        lo) locked ['hi', 'lo']; chapter B (disables lo, adds hi) locked ['lo', 'hi'] --
+        opposite orders on the same two rows.
+        """
+        lo, hi = self._two_members_reverse_of_name_order()
+
+        chapter_a = self.create_test_chapter()
+        doc = frappe.get_doc("Chapter", chapter_a.name)
+        doc.append("members", {"member": hi, "enabled": 1})
+        doc.save()
+        self.addCleanup(frappe.db.commit)
+
+        chapter_b = self.create_test_chapter()
+        doc = frappe.get_doc("Chapter", chapter_b.name)
+        doc.append("members", {"member": lo, "enabled": 1})
+        doc.save()
+
+        # Chapter A: disable hi (already seated), add lo.
+        doc_a = frappe.get_doc("Chapter", chapter_a.name)
+        for row in doc_a.members:
+            row.enabled = 0
+        doc_a.append("members", {"member": lo, "enabled": 1})
+
+        with ParentLockRecorder() as recorder_a:
+            doc_a.save()
+
+        # Chapter B: disable lo (already seated), add hi -- same two members, roles
+        # swapped relative to chapter A.
+        doc_b = frappe.get_doc("Chapter", chapter_b.name)
+        for row in doc_b.members:
+            row.enabled = 0
+        doc_b.append("members", {"member": hi, "enabled": 1})
+
+        with ParentLockRecorder() as recorder_b:
+            doc_b.save()
+
+        self.assertTrue(
+            recorder_a.locks and recorder_b.locks, "the recorder captured no locks -- instrument broken"
+        )
+        order_a = self._member_lock_sequence(recorder_a)
+        order_b = self._member_lock_sequence(recorder_b)
+        self.assertEqual(
+            order_a,
+            order_b,
+            "Chapter A (disable hi, add lo) and Chapter B (disable lo, add hi) locked the "
+            f"same two Member rows in DIFFERENT orders: A={order_a} B={order_b}. That is "
+            "an AB-BA deadlock between the two saves (#469).",
+        )
+        self.assertEqual(order_a, [lo, hi], f"expected canonical (name) order, got {order_a}")
+
+    def test_an_untouched_member_is_not_locked(self):
+        """The pre-lock's footprint must be the rows a save touches, not the whole
+        roster (found in review of #469): a chapter with a large membership -- veg11
+        has chapters north of 100 enabled members -- must not take a FOR UPDATE lock
+        on every one of them just because ONE was disabled, or a save that changes no
+        membership at all (e.g. editing the chapter description) would still lock the
+        entire roster, trading a rare AB-BA deadlock for guaranteed lock contention on
+        every concurrent write to any member on that chapter.
+        """
+        chapter = self.create_test_chapter()
+        touched_member = self.create_test_member()
+        untouched_member = self.create_test_member()
+
+        doc = frappe.get_doc("Chapter", chapter.name)
+        doc.append("members", {"member": touched_member.name, "enabled": 1})
+        doc.append("members", {"member": untouched_member.name, "enabled": 1})
+        doc.save()
+        self.addCleanup(frappe.db.commit)
+
+        doc = frappe.get_doc("Chapter", chapter.name)
+        for row in doc.members:
+            if row.member == touched_member.name:
+                row.enabled = 0
+                row.leave_reason = "test disable (#469)"
+
+        with ParentLockRecorder() as recorder:
+            doc.save()
+
+        locked = self._member_lock_sequence(recorder)
+        self.assertIn(
+            touched_member.name, locked, f"the touched member was not locked: {recorder.locks}"
+        )
+        self.assertNotIn(
+            untouched_member.name,
+            locked,
+            "an untouched member was locked -- the pre-lock is locking the whole roster "
+            f"again, not just the rows this save touches: {recorder.locks}",
+        )
 
 
 class TestTheRecorderItself(VereningingenTestCase):
