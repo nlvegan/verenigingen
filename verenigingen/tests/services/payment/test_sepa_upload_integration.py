@@ -12,6 +12,8 @@ to verify end-to-end functionality of the duplicate prevention system.
 Author: Verenigingen Development Team
 """
 
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -521,3 +523,89 @@ class TestPhantomHashRetry(FrappeTestCase):
         self.assertEqual(log_row.is_phantom, 1)
         self.assertIn("Retry failed", log_row.bank_error_message or "")
         self.assertNotIn("[RETRY_IN_PROGRESS]", log_row.bank_error_message or "")
+
+
+class TestSEPABatchStatusRollbackOnFailure(FrappeTestCase):
+    """
+    Regression tests for #796.
+
+    ``_save_xml_file`` (called from ``generate_sepa_xml_for_batch``) writes
+    ``sepa_file``, ``sepa_file_generated`` and ``status="Generated"`` via
+    ``db_set`` *before* its own final step (recording the file name on the
+    SEPA Batch Upload Log entry). ``db_set`` bypasses the in-memory document
+    and writes straight to the DB connection with no rollback safety net, so
+    if that final step throws, the exception propagates to the caller (who
+    sees "generation failed") while the batch row is left claiming
+    status="Generated" — an inert-but-wrong signal on a money/SEPA path.
+
+    ``verenigingen/api/sepa_phantom_hash_admin.py::retry_phantom_attachment``
+    already guards its own, analogous db_set sequence with a
+    ``frappe.db.rollback()`` in its except handler (see
+    ``TestPhantomHashRetry.test_failed_retry_records_the_failure_and_leaves_no_orphan_file``
+    above) — this test asserts the same atomicity for
+    ``generate_sepa_xml_for_batch``.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.factory = SEPATestDataFactory(seed=13579)
+        _ensure_sepa_settings_for_xml_generation()
+
+    def setUp(self):
+        super().setUp()
+        _ensure_sepa_settings_for_xml_generation()
+        self.service = SEPAXMLGenerationService()
+        self._cleanup_upload_logs()
+
+    def tearDown(self):
+        self._cleanup_upload_logs()
+        super().tearDown()
+
+    def _cleanup_upload_logs(self):
+        frappe.db.delete("SEPA Batch Upload Log", {})
+        frappe.db.commit()
+
+    def test_status_not_flipped_to_generated_when_final_step_fails(self):
+        """
+        Inject a failure in the LAST write _save_xml_file makes (the upload
+        log's file_name update, which runs after status is already set to
+        "Generated") and confirm the batch is not left reporting a
+        generation that did not actually complete.
+        """
+        batch = self.factory.create_test_direct_debit_batch(invoice_count=1)
+
+        original_set_value = frappe.db.set_value
+
+        def _fail_on_upload_log_update(doctype, *args, **kwargs):
+            if doctype == "SEPA Batch Upload Log":
+                raise RuntimeError("injected failure: upload log update failed")
+            return original_set_value(doctype, *args, **kwargs)
+
+        with patch.object(frappe.db, "set_value", side_effect=_fail_on_upload_log_update):
+            with self.assertRaises(Exception):
+                self.service.generate_sepa_xml_for_batch(batch)
+
+        # Read persisted state fresh via SQL - db_set bypasses the in-memory
+        # document, so batch.status here would just reflect what we set
+        # in-process rather than what actually reached the database.
+        persisted = frappe.db.get_value(
+            "Direct Debit Batch",
+            batch.name,
+            ["status", "sepa_file_generated", "sepa_file"],
+            as_dict=True,
+        )
+
+        self.assertNotEqual(
+            persisted.status,
+            "Generated",
+            "batch status was left as 'Generated' even though generation failed",
+        )
+        self.assertFalse(
+            persisted.sepa_file_generated,
+            "sepa_file_generated was left set even though generation failed",
+        )
+        self.assertFalse(
+            persisted.sepa_file,
+            "sepa_file was left attached even though generation failed",
+        )

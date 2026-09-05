@@ -182,18 +182,36 @@ class SEPAXMLGenerationService:
                 temp_file_path, batch_doc.doctype, batch_doc.name
             )
 
-            # Update batch document
-            batch_doc.db_set("sepa_file", file_url)
-            batch_doc.db_set("sepa_file_generated", 1)
-            batch_doc.db_set("status", "Generated")
+            # Everything below must land as one unit. db_set() writes straight
+            # to the DB connection with no rollback of its own (#796), so a
+            # failure in any one of these writes -- most plausibly the
+            # upload-log filename update, since it runs last -- would
+            # otherwise leave the batch claiming status="Generated" (and
+            # sepa_file/sepa_file_generated set) even though this function
+            # goes on to raise and the caller sees a failed generation. A
+            # savepoint scoped to just this block keeps the group atomic
+            # without touching the upload guard's own hash reservation,
+            # which was already registered above this point and must survive
+            # regardless (it is what blocks a retry from re-uploading
+            # identical content).
+            finalize_savepoint = "sepa_batch_finalize"
+            frappe.db.savepoint(finalize_savepoint)
+            try:
+                # Update batch document
+                batch_doc.db_set("sepa_file", file_url)
+                batch_doc.db_set("sepa_file_generated", 1)
+                batch_doc.db_set("status", "Generated")
 
-            # Optionally update the upload log with file info
-            # Find log by file_hash and set file_name
-            frappe.db.set_value(
-                "SEPA Batch Upload Log",
-                {"file_hash": atomic_result.file_hash},
-                {"file_name": f"sepa-{batch_doc.name}.xml"},
-            )
+                # Optionally update the upload log with file info
+                # Find log by file_hash and set file_name
+                frappe.db.set_value(
+                    "SEPA Batch Upload Log",
+                    {"file_hash": atomic_result.file_hash},
+                    {"file_name": f"sepa-{batch_doc.name}.xml"},
+                )
+            except Exception:
+                frappe.db.rollback(save_point=finalize_savepoint)
+                raise
 
             return file_url
 
