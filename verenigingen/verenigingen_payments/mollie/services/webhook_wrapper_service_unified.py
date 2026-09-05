@@ -339,7 +339,9 @@ class UnifiedWebhookWrapperService:
 
         return refund_results
 
-    def _update_missing_payment_history(self, donation, payment_id: str, missing_entries: list) -> int:
+    def _update_missing_payment_history(
+        self, donation, payment_id: str, missing_entries: list
+    ) -> Tuple[int, Optional[str]]:
         """
         Update payment history for refunds that have Payment Entries but missing history rows.
 
@@ -349,10 +351,16 @@ class UnifiedWebhookWrapperService:
             missing_entries: List of dicts with refund_id, payment_entry, amount
 
         Returns:
-            Count of successfully updated entries
+            (count, failure_reason) -- count of entries actually appended, and
+            the failure reason if the batch save raised (None otherwise,
+            including the "nothing to add" no-op). Both used to collapse onto a
+            bare ``0``, indistinguishable from each other (#478) -- a caller
+            checking ``count > 0`` cannot tell "nothing needed doing" from "the
+            save failed and nothing was written". Callers must check
+            ``failure_reason``, not just the count, to detect a failed backfill.
         """
         if not missing_entries:
-            return 0
+            return 0, None
 
         self.logger.info(f"📝 Updating {len(missing_entries)} missing payment history entries")
 
@@ -403,17 +411,23 @@ class UnifiedWebhookWrapperService:
                 self.logger.info(
                     f"✅ Updated {len(entries_to_add)} payment history entries (sorted chronologically)"
                 )
-                return len(entries_to_add)
+                return len(entries_to_add), None
             else:
                 self.logger.info("⏭️ All payment history entries already exist, nothing to add")
-                return 0
-        except Exception as e:
+                return 0, None
+        # failed-write-ok: reported-elsewhere -- the validator reads any truthy
+        # return as "claims success"; a 2-tuple is always truthy regardless of its
+        # contents, so it cannot see that the SECOND element is the failure
+        # signal (None on success, the reason on failure -- same contract as
+        # _update_donation_status above, #464/#478). Both callers check that
+        # element, not the count, to detect a failed backfill.
+        except Exception as e:  # failed-write-ok: reported-elsewhere
             self.logger.error(f"❌ Failed to update missing payment history: {e}")
             frappe.log_error(
                 title="Payment History Backfill Error",
                 message=f"Payment history backfill failed for {donation.name}: {e}",
             )
-            return 0
+            return 0, (str(e) or type(e).__name__)
 
     def process_payment_webhook(self, payment_id: str, webhook_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -675,11 +689,28 @@ class UnifiedWebhookWrapperService:
                     donation, payment_id, processing_state.pending_refunds
                 )
 
-        # Handle refunds with missing payment history
+        # Handle refunds with missing payment history. The return value used to
+        # be discarded entirely -- a failed backfill answered Mollie 200 and the
+        # refund history row stayed missing forever (#478). Reported the same
+        # way as the batch-save failure above (status="error", refund_id=None,
+        # failure_kind="payment_history") so `failed_refunds` below picks it up
+        # and the webhook fails, triggering a re-delivery.
         if donation and processing_state.payment_history_missing:
-            self._update_missing_payment_history(
+            _, backfill_failure = self._update_missing_payment_history(
                 donation, payment_id, processing_state.payment_history_missing
             )
+            if backfill_failure:
+                refund_results.append(
+                    {
+                        "status": "error",
+                        "refund_id": None,
+                        "failure_kind": "payment_history",
+                        "message": (
+                            f"Missing payment history backfill failed for {payment_id}: "
+                            f"{backfill_failure}"
+                        ),
+                    }
+                )
 
         # NOTE: subscription activation is deliberately NOT retried here.
         # This branch cannot be reached for a donation today -- is_fully_processed()
@@ -710,10 +741,24 @@ class UnifiedWebhookWrapperService:
 
         if failed_refunds:
             # CRITICAL: Return error status if ANY refunds failed - this triggers Mollie retry
-            self.logger.error(f"❌ {len(failed_refunds)} refunds failed for payment {payment_id}")
+            #
+            # A failed BOOKING and a failed history SAVE are different facts and must
+            # not be narrated as each other (same split as _handle_new_payment_processing
+            # below): the payment-history backfill entry appended above carries
+            # failure_kind="payment_history", so counting it as a "refund failed" would
+            # claim a booking failed when only its history row could not be written.
+            booking_failures = [r for r in failed_refunds if r.get("failure_kind") != "payment_history"]
+            history_failure_count = len(failed_refunds) - len(booking_failures)
+            self.logger.error(
+                f"❌ {len(failed_refunds)} refund operation(s) failed for {payment_id} "
+                f"({len(booking_failures)} booking, {history_failure_count} history)"
+            )
             return {
                 "status": "error",
-                "message": f"Payment processed but {len(failed_refunds)} refunds failed - requires retry",
+                "message": (
+                    f"Payment processed but {len(booking_failures)} refund booking(s) and "
+                    f"{history_failure_count} payment history update(s) failed - requires retry"
+                ),
                 "payment_id": payment_id,
                 "idempotent": True,
                 "unified_state": {
@@ -871,7 +916,8 @@ class UnifiedWebhookWrapperService:
             #
             # Asking Mollie to re-deliver is safe here: the money-side steps are
             # each individually idempotent on the payment id
-            # (`bank_transaction_creator._check_existing_by_reference` and the
+            # (`bank_transaction_creator._find_matching_bank_transaction`, the
+            # create-time gate since #823, and the
             # donation Journal Entry creator's own idempotency check), so a retry
             # cannot double-book even though the top-level `is_fully_processed()`
             # gate is broken for donations (#344) and every re-delivery therefore
@@ -1142,11 +1188,21 @@ class UnifiedWebhookWrapperService:
 
             # CRITICAL FIX: Also handle refund payment history backfill during partial processing
             # This ensures that when main payment history is missing, we also check for missing refund history
+            #
+            # `refund_history_count > 0` used to be the only signal read here, so a
+            # failed save (which also returns a count of 0) was silently read as
+            # "nothing to backfill" -- component_failures stayed empty and the
+            # handler answered success (#478). The failure reason is now checked
+            # first and fed into component_failures like the other writers above,
+            # so a failed backfill fails the status instead of reading as a no-op.
             if donation and processing_state.payment_history_missing:
-                refund_history_count = self._update_missing_payment_history(
+                refund_history_count, refund_history_failure = self._update_missing_payment_history(
                     donation, payment_id, processing_state.payment_history_missing
                 )
-                if refund_history_count > 0:
+                if refund_history_failure:
+                    results.append(f"Refund payment history backfill failed: {refund_history_failure}")
+                    component_failures.append("refund payment history")
+                elif refund_history_count > 0:
                     results.append(f"Backfilled {refund_history_count} refund payment history entries")
 
             result = {

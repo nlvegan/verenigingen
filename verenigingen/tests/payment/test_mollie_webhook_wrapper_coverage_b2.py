@@ -16,7 +16,7 @@ What is covered (no external boundary touched):
   * _process_pending_refunds Mollie-config-error branch (the bank-account config
     on the test site has no clearing account, so the real config call returns an
     error and the helper returns a single error result WITHOUT any HTTP call)
-  * _update_missing_payment_history early-return on empty list (returns 0)
+  * _update_missing_payment_history early-return on empty list (returns (0, None))
   * _update_missing_payment_history idempotent skip when the PE row already exists
   * _update_missing_payment_history real backfill: appends a Refunded payment
     history row pointing at a real Payment Entry and persists it
@@ -168,11 +168,12 @@ class TestProcessPendingRefunds(WrapperBase):
 # _update_missing_payment_history
 # =============================================================================
 class TestUpdateMissingPaymentHistory(WrapperBase):
-    def test_empty_list_returns_zero(self):
+    def test_empty_list_returns_zero_and_no_failure(self):
         donation = self._make_submitted_donation()
         with self.assertNoErrorLog():
-            count = self.service._update_missing_payment_history(donation, self.pid, [])
+            count, failure = self.service._update_missing_payment_history(donation, self.pid, [])
         self.assertEqual(count, 0)
+        self.assertIsNone(failure)
 
     def test_backfills_missing_payment_entry_row(self):
         """A refund with a real Payment Entry but no history row gets a Refunded
@@ -183,10 +184,11 @@ class TestUpdateMissingPaymentHistory(WrapperBase):
             {"refund_id": "re_xyz", "payment_entry": pe.name, "amount": 10.0}
         ]
         with self.assertNoErrorLog():
-            count = self.service._update_missing_payment_history(
+            count, failure = self.service._update_missing_payment_history(
                 donation, self.pid, missing
             )
         self.assertEqual(count, 1)
+        self.assertIsNone(failure)
         donation.reload()
         rows = [
             p
@@ -201,20 +203,24 @@ class TestUpdateMissingPaymentHistory(WrapperBase):
 
     def test_idempotent_skip_when_entry_exists(self):
         """A second call with the same Payment Entry must not add a duplicate row
-        and returns 0 (already exists)."""
+        and returns (0, None) -- already exists, NOT a failure."""
         donation = self._make_submitted_donation()
         pe = self._make_submitted_payment_entry()
         missing = [
             {"refund_id": "re_dup", "payment_entry": pe.name, "amount": 10.0}
         ]
-        first = self.service._update_missing_payment_history(donation, self.pid, missing)
-        self.assertEqual(first, 1)
+        first_count, first_failure = self.service._update_missing_payment_history(
+            donation, self.pid, missing
+        )
+        self.assertEqual(first_count, 1)
+        self.assertIsNone(first_failure)
         donation.reload()
         with self.assertNoErrorLog():
-            second = self.service._update_missing_payment_history(
+            second_count, second_failure = self.service._update_missing_payment_history(
                 donation, self.pid, missing
             )
-        self.assertEqual(second, 0)
+        self.assertEqual(second_count, 0)
+        self.assertIsNone(second_failure, "nothing-to-do must not read as a failure")
         donation.reload()
         rows = [
             p
@@ -222,3 +228,197 @@ class TestUpdateMissingPaymentHistory(WrapperBase):
             if getattr(p, "payment_entry", None) == pe.name
         ]
         self.assertEqual(len(rows), 1, "no duplicate row should be added")
+
+    def test_save_failure_returns_zero_and_a_reason_not_silent_success(self):
+        """#478: a failed batch save must be distinguishable from 'nothing to
+        add' -- both used to return the same bare 0. A caller that only checks
+        `count > 0` cannot tell them apart; the second element of the tuple is
+        what a caller must now branch on.
+        """
+        from unittest.mock import patch
+
+        donation = self._make_submitted_donation()
+        pe = self._make_submitted_payment_entry()
+        missing = [{"refund_id": "re_boom", "payment_entry": pe.name, "amount": 10.0}]
+
+        self.expectErrorLog("Payment History Backfill Error")
+        with patch.object(type(donation), "save", side_effect=Exception("db exploded")):
+            count, failure = self.service._update_missing_payment_history(
+                donation, self.pid, missing
+            )
+
+        self.assertEqual(count, 0)
+        self.assertIsNotNone(
+            failure,
+            "a failed backfill must not be reported the same way as 'nothing to add'",
+        )
+        self.assertIn("db exploded", failure)
+
+
+# =============================================================================
+# #478: the two callers of _update_missing_payment_history must ACT on the
+# (count, failure) distinction, not just receive it.
+# =============================================================================
+class TestMissingPaymentHistoryCallerPropagation(WrapperBase):
+    def _missing_entry(self, refund_id, pe_name):
+        return [{"refund_id": refund_id, "payment_entry": pe_name, "amount": 5.0}]
+
+    def test_fully_processed_handler_reports_backfill_failure(self):
+        """_handle_fully_processed_payment used to call
+        _update_missing_payment_history and discard the return value entirely
+        (line 680 pre-fix) -- a failed backfill answered Mollie 200 and the
+        refund history row stayed missing forever.
+
+        Patching ``save`` on the CLASS fails every Donation save for the
+        duration of the block, not just the backfill's -- safe here only
+        because ``pending_refunds`` is empty (no refund booking touches
+        ``donation.save``) and there is no donation-status write on this
+        handler's path.
+        """
+        from unittest.mock import patch
+
+        from verenigingen.verenigingen_payments.mollie.services.unified_idempotency_manager import (
+            PaymentIdempotencyCheckResult,
+        )
+
+        donation = self._make_submitted_donation()
+        pe = self._make_submitted_payment_entry()
+        state = PaymentIdempotencyCheckResult(self.pid)
+        state.payment_history_missing = self._missing_entry("re_fail1", pe.name)
+
+        self.expectErrorLog("Payment History Backfill Error")
+        with patch.object(type(donation), "save", side_effect=Exception("backfill boom")):
+            result = self.service._handle_fully_processed_payment(self.pid, state, 0.0)
+
+        self.assertEqual(
+            result["status"],
+            "error",
+            "a failed missing-payment-history backfill must not be reported as success",
+        )
+        failure_entries = [
+            r for r in result["refund_processing"] if r.get("failure_kind") == "payment_history"
+        ]
+        self.assertEqual(len(failure_entries), 1)
+        self.assertIn("backfill boom", failure_entries[0]["message"])
+
+    def test_fully_processed_handler_noop_backfill_still_succeeds(self):
+        """Control for the test above: when the backfill genuinely has nothing to
+        do (the row already exists), the handler must still report success --
+        the fix must distinguish failure from no-op, not just fail everything
+        that touches payment_history_missing."""
+        from verenigingen.verenigingen_payments.mollie.services.unified_idempotency_manager import (
+            PaymentIdempotencyCheckResult,
+        )
+
+        donation = self._make_submitted_donation()
+        pe = self._make_submitted_payment_entry()
+        entry = self._missing_entry("re_dup2", pe.name)
+        first_count, first_failure = self.service._update_missing_payment_history(
+            donation, self.pid, entry
+        )
+        self.assertEqual((first_count, first_failure), (1, None))
+        donation.reload()
+
+        state = PaymentIdempotencyCheckResult(self.pid)
+        state.payment_history_missing = entry
+
+        with self.assertNoErrorLog():
+            result = self.service._handle_fully_processed_payment(self.pid, state, 0.0)
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(
+            [r for r in result["refund_processing"] if r.get("failure_kind") == "payment_history"],
+            [],
+        )
+        # Prove the idempotent-skip branch actually ran against the real row
+        # rather than the assertion above passing for a reason unconnected to
+        # the backfill (e.g. no duplicate because nothing touched the table).
+        donation.reload()
+        rows = [p for p in donation.payments if getattr(p, "payment_entry", None) == pe.name]
+        self.assertEqual(len(rows), 1, "no duplicate row should be added by the no-op path")
+
+    def test_partial_handler_reports_backfill_failure(self):
+        """_handle_partial_processing used to read `refund_history_count > 0`
+        (line 1149 pre-fix) -- 0 from a failed save was silently read as
+        'nothing to do' and the handler answered success/component_failures=[].
+
+        `donation_status` is deliberately left missing and stubbed to succeed
+        independently of the patched ``save`` below: without a real, unrelated
+        component present, `results` stays empty regardless of the backfill's
+        outcome, and the pre-existing ``if results and ... else "error"`` check
+        makes ``status == "error"`` true for a reason that has nothing to do
+        with THIS fix (caught in skeptical review). Stubbing keeps that
+        component's success independent of the ``save`` patch, so the failure
+        below is the only thing that can flip the status.
+        """
+        from unittest.mock import patch
+
+        from verenigingen.verenigingen_payments.mollie.services.unified_idempotency_manager import (
+            PaymentIdempotencyCheckResult,
+        )
+
+        donation = self._make_submitted_donation()
+        pe = self._make_submitted_payment_entry()
+        state = PaymentIdempotencyCheckResult(self.pid)
+        state.payment_entry_exists = True
+        state.payment_history_updated = True
+        state.donation_status_updated = False
+        state.payment_history_missing = self._missing_entry("re_pfail", pe.name)
+
+        self.service._update_donation_status = lambda *a, **k: None  # succeeds, independent of save patch
+
+        self.expectErrorLog("Payment History Backfill Error")
+        with patch.object(
+            self.service, "_fetch_payment_from_mollie", return_value={"status": "paid"}
+        ), patch.object(type(donation), "save", side_effect=Exception("partial backfill boom")):
+            result = self.service._handle_partial_processing(self.pid, {}, state, 0.0)
+
+        self.assertEqual(
+            result["status"],
+            "error",
+            "a failed refund-history backfill during partial processing must not read as success",
+        )
+        self.assertIn("refund payment history", result["component_failures"])
+        self.assertIn(
+            "Donation status updated",
+            result["components_processed"],
+            "the independent component must have actually run and succeeded",
+        )
+
+    def test_partial_handler_noop_backfill_still_succeeds(self):
+        """Control: nothing new to backfill (already present) plus a real
+        completed component must still report success."""
+        from unittest.mock import patch
+
+        from verenigingen.verenigingen_payments.mollie.services.unified_idempotency_manager import (
+            PaymentIdempotencyCheckResult,
+        )
+
+        donation = self._make_submitted_donation()
+        pe = self._make_submitted_payment_entry()
+        entry = self._missing_entry("re_pdup", pe.name)
+        first_count, first_failure = self.service._update_missing_payment_history(
+            donation, self.pid, entry
+        )
+        self.assertEqual((first_count, first_failure), (1, None))
+        donation.reload()
+
+        state = PaymentIdempotencyCheckResult(self.pid)
+        state.payment_entry_exists = True
+        state.payment_history_updated = True
+        # donation_status_updated left False so the handler has a real component
+        # to complete -- otherwise an empty `results` list independently forces
+        # "error", which is not what this test is checking.
+        state.payment_history_missing = entry
+
+        with patch.object(
+            self.service, "_fetch_payment_from_mollie", return_value={"status": "paid"}
+        ), self.assertNoErrorLog():
+            result = self.service._handle_partial_processing(self.pid, {}, state, 0.0)
+
+        self.assertEqual(result["status"], "success", f"unexpected: {result}")
+        self.assertEqual(result["component_failures"], [])
+        # Prove the idempotent-skip branch actually ran against the real row.
+        donation.reload()
+        rows = [p for p in donation.payments if getattr(p, "payment_entry", None) == pe.name]
+        self.assertEqual(len(rows), 1, "no duplicate row should be added by the no-op path")
