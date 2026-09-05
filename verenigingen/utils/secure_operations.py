@@ -765,6 +765,30 @@ def secure_user_context_with_validation(target_user: str, operation_description:
                 frappe.session.sid = original_session_data["sid"]
 
 
+def _read_persisted_docstatus_best_effort(doctype, name):
+    """Best-effort read of a document's current DB docstatus, for the #385
+    partial-write comparison. MUST NOT raise: this is a diagnostic signal,
+    not the operation itself, and a caller can legitimately pass a doc whose
+    `.doctype`/`.name` are not real strings (a test double standing in for a
+    real document -- see test_setup_password_policy_new, which regressed
+    exactly this way against a MagicMock). Real Singles are fine here
+    (measured: frappe.db.exists("System Settings", "System Settings") and
+    get_value(..., "docstatus") both behave normally, docstatus reads 0) --
+    this guard is for non-document inputs, not Singles specifically.
+
+    Returns None when the row cannot be determined to exist or read (missing
+    doctype/name, DocType not registered, a mock, or any other failure).
+    """
+    if not isinstance(doctype, str) or not name:
+        return None
+    try:
+        if not frappe.db.exists(doctype, name):
+            return None
+        return frappe.db.get_value(doctype, name, "docstatus")
+    except Exception:  # swallow-ok: best-effort
+        return None
+
+
 def secure_document_operation(
     operation: str,
     doc,
@@ -836,10 +860,12 @@ def secure_document_operation(
     # trusting doc.docstatus in memory -- an in-memory doc can be stale
     # (loaded earlier, reloaded elsewhere, or mutated by the caller without
     # saving), which would otherwise skew the comparison in either direction.
-    _pre_op_doc_name = getattr(doc, "name", None)
-    if _pre_op_doc_name and frappe.db.exists(doc.doctype, _pre_op_doc_name):
-        pre_operation_docstatus = frappe.db.get_value(doc.doctype, _pre_op_doc_name, "docstatus")
-    else:
+    # This read is best-effort (see _read_persisted_docstatus_best_effort) and
+    # runs BEFORE the try/except below, so it must never itself raise.
+    pre_operation_docstatus = _read_persisted_docstatus_best_effort(
+        getattr(doc, "doctype", None), getattr(doc, "name", None)
+    )
+    if pre_operation_docstatus is None:
         pre_operation_docstatus = getattr(doc, "docstatus", None)
 
     # Step 0: Validate justification upfront for audit compliance
@@ -1013,9 +1039,7 @@ def secure_document_operation(
         # memory, so the caller can distinguish a clean failure (nothing
         # written) from a partial write.
         doc_name = getattr(doc, "name", None)
-        persisted_docstatus = None
-        if doc_name and frappe.db.exists(doc.doctype, doc_name):
-            persisted_docstatus = frappe.db.get_value(doc.doctype, doc_name, "docstatus")
+        persisted_docstatus = _read_persisted_docstatus_best_effort(getattr(doc, "doctype", None), doc_name)
 
         result.persisted_docstatus = persisted_docstatus
         result.partial_write = (
