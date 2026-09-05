@@ -15,28 +15,36 @@ class TestMembershipAnalyticsPermissions(BaseTestCase):
         super().setUpClass()
         
         # Create test users with different roles
-        cls.admin_user = cls.create_test_user("admin@test.com", [
+        cls.admin_user = cls._create_analytics_test_user("admin@test.com", [
             "Verenigingen Administrator",
             "System Manager"
         ])
         
-        cls.manager_user = cls.create_test_user("manager@test.com", [
+        cls.manager_user = cls._create_analytics_test_user("manager@test.com", [
             "Verenigingen Staff"
         ])
         
-        cls.board_member_user = cls.create_test_user("board@test.com", [
+        cls.board_member_user = cls._create_analytics_test_user("board@test.com", [
             "Verenigingen National Board Member"
         ])
         
-        cls.regular_member_user = cls.create_test_user("member@test.com", [
+        cls.regular_member_user = cls._create_analytics_test_user("member@test.com", [
             "Verenigingen Member"
         ])
         
-        cls.no_role_user = cls.create_test_user("norole@test.com", [])
+        cls.no_role_user = cls._create_analytics_test_user("norole@test.com", [])
         
     @classmethod
-    def create_test_user(cls, email, roles):
-        """Create a test user with specified roles"""
+    def _create_analytics_test_user(cls, email, roles):
+        """Create a test user with specified roles.
+
+        Renamed from `create_test_user` (#496): that name shadows
+        `EnhancedTestCase.create_test_user(email, roles=None, **kwargs)`, which
+        `as_role()` calls internally as `self.create_test_user(email,
+        roles=roles)`. This override is a classmethod with no `**kwargs`, used
+        only from setUpClass -- latent because this class never calls
+        `self.as_role()` today.
+        """
         if frappe.db.exists("User", email):
             user = frappe.get_doc("User", email)
         else:
