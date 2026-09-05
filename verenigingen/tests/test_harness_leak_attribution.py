@@ -1707,6 +1707,212 @@ class CleanupManagerDoesNotDiscardRowsItDoesNotOwnTest(unittest.TestCase):
         )
 
 
+class CleanupManagerCommitMakesDeletesDurableTest(unittest.TestCase):
+    """`cleanup()`'s deletes live inside the test transaction (#489).
+
+    Every caller runs `builder.cleanup()` from its own `tearDown`, and the base
+    teardown's first act is one transaction-wide `frappe.db.rollback()`
+    (`_rollback_once_before_draining`, `tests/utils/base.py`). That rollback puts
+    back every row the builder deleted that had been committed before the
+    delete. `cleanup()` returning `[]` is not evidence the rows are gone -- same
+    shape as the `cleanup_status == "skipped"` instrument that hid #486.
+
+    `cleanup(commit=True)` is opt-in, not the new default. Three call sites
+    invoke `builder.cleanup()` MID-TEST (`test_member_api.py`,
+    `test_member_controller.py` x2) to clear a uniqueness collision before
+    building a second fixture at the same address. An unconditional commit
+    there would also commit every OTHER uncommitted row already pending in the
+    connection at that point -- including uncommitted `setUpClass` fixtures the
+    rest of the class still needs alive until `addClassCleanup(_rollback_db)` --
+    turning a same-test delete into a same-CLASS leak (the #330 failure mode).
+    Those three keep today's behaviour by passing nothing; the five `tearDown`
+    callers pass `commit=True`, and ALL FIVE call `super().tearDown()` FIRST.
+
+    THAT ORDER IS LOAD-BEARING, not a style choice, and a skeptical review of an
+    earlier version of this fix caught it empirically: passing `commit=True`
+    BEFORE `super().tearDown()` (the first shape this fix shipped with) leaked
+    every OTHER uncommitted row a test had left pending -- 18 extra Chapter rows
+    and 17 extra Membership Dues Schedule rows in one 17-test module, reproduced
+    twice -- because `_rollback_once_before_draining()` never got the chance to
+    discard them first. `test_the_commit_ordering_contract_*` below pins that
+    ordering directly, and is what would have caught it: the two tests above
+    only drive `TestCleanupManager` in isolation and are green either way.
+    """
+
+    def setUp(self):
+        self.created = []
+
+    def tearDown(self):
+        for doctype, name in reversed(self.created):
+            try:
+                frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+
+    def _create_committed_territory(self, label):
+        """A COMMITTED, tracked Territory -- the shape #489 is about.
+
+        Named with the `_create` prefix (like `_territory` itself is not, since it
+        is a bare module function used across many classes) so this method's own
+        `frappe.db.commit()` reads as the exempt fixture-setup shape
+        `scan_order_dependence.py` already recognises, rather than a second,
+        new COMMIT finding next to the one every sibling test class in this file
+        already carries inline.
+        """
+        doc = _territory(label)
+        frappe.db.commit()
+        self.created.append(("Territory", doc.name))
+        return doc
+
+    def test_default_cleanup_is_undone_by_a_later_rollback(self):
+        """Control: the untouched default is still the bug (#489), not silently fixed.
+
+        Both rows are COMMITTED on purpose -- an uncommitted one is destroyed by
+        the rollback either way, so "the row is back" would read the same
+        whether cleanup's delete was undone or never durable to begin with.
+        """
+        from verenigingen.tests.utils.factories import TestCleanupManager
+
+        victim = self._create_committed_territory("zzmgr-489-default")
+
+        manager = TestCleanupManager()
+        manager.register("Territory", victim.name)
+        errors = manager.cleanup()
+
+        self.assertEqual([], errors, "precondition: the cleanup itself must not fail")
+        self.assertFalse(
+            frappe.db.exists("Territory", victim.name), "precondition: cleanup must delete it first"
+        )
+
+        # Stand-in for `_rollback_once_before_draining`'s transaction-wide rollback.
+        frappe.db.rollback()
+
+        self.assertTrue(
+            frappe.db.exists("Territory", victim.name),
+            "the row was not resurrected by the rollback -- either the default "
+            "already commits (a silent, undocumented behaviour change for the "
+            "three mid-test callers) or this control is not exercising #489",
+        )
+
+    def test_committed_cleanup_survives_a_later_rollback(self):
+        """`cleanup(commit=True)` makes the delete durable against a later rollback."""
+        from verenigingen.tests.utils.factories import TestCleanupManager
+
+        victim = self._create_committed_territory("zzmgr-489-commit")
+
+        manager = TestCleanupManager()
+        manager.register("Territory", victim.name)
+        errors = manager.cleanup(commit=True)
+
+        self.assertEqual([], errors, "precondition: the cleanup itself must not fail")
+
+        # Stand-in for `_rollback_once_before_draining`'s transaction-wide rollback.
+        frappe.db.rollback()
+
+        self.assertFalse(
+            frappe.db.exists("Territory", victim.name),
+            "cleanup(commit=True) must survive a later rollback -- otherwise the "
+            "delete is exactly as durable as the untouched default (#489)",
+        )
+
+    def test_the_commit_ordering_contract_committing_before_the_rollback_leaks(self):
+        """Control: `commit=True` BEFORE a pending rollback leaks what the rollback owned.
+
+        This is the regression a skeptical review found in an earlier version of
+        this fix: `builder.cleanup(commit=True)` called from a test's own
+        `tearDown`, BEFORE `super().tearDown()`, commits not just this cleanup's
+        registered deletes but every OTHER uncommitted row already pending in the
+        connection -- including a row this cleanup never registered and knows
+        nothing about. `bystander` stands in for one of those (an untracked
+        Chapter or Membership Dues Schedule row, in the real regression).
+        """
+        from verenigingen.tests.utils.factories import TestCleanupManager
+
+        victim = self._create_committed_territory("zzmgr-489-order-bad-victim")
+
+        # Uncommitted on purpose: this is the row `_rollback_once_before_draining`
+        # would discard if it ran BEFORE the commit below, same as any other
+        # fixture a test builds without registering it anywhere.
+        bystander = _territory("zzmgr-489-order-bad-bystander")
+        self.created.append(("Territory", bystander.name))
+
+        manager = TestCleanupManager()
+        manager.register("Territory", victim.name)
+        manager.cleanup(commit=True)
+
+        # WRONG order: the stand-in for the base teardown's rollback runs AFTER
+        # the commit above already made everything durable, so it has nothing
+        # left to discard.
+        frappe.db.rollback()
+
+        self.assertTrue(
+            frappe.db.exists("Territory", bystander.name),
+            "commit=True before the rollback must make the bystander permanent "
+            "too -- if this is False, the control no longer demonstrates the "
+            "hazard `cleanup(commit=True)`'s docstring warns about",
+        )
+
+    def test_the_commit_ordering_contract_committing_after_the_rollback_does_not_leak(self):
+        """`commit=True` called AFTER a pending rollback leaks nothing extra.
+
+        Same two rows as the control above, same registration -- only the order
+        of the rollback and the commit is swapped, matching what all five
+        `tearDown` callers now do: `super().tearDown()` (which is what
+        `frappe.db.rollback()` stands in for here) first, `builder.cleanup(
+        commit=True)` after.
+        """
+        from verenigingen.tests.utils.factories import TestCleanupManager
+
+        victim = self._create_committed_territory("zzmgr-489-order-good-victim")
+
+        bystander = _territory("zzmgr-489-order-good-bystander")
+        self.created.append(("Territory", bystander.name))
+
+        manager = TestCleanupManager()
+        manager.register("Territory", victim.name)
+
+        # RIGHT order: the stand-in for the base teardown's rollback runs FIRST,
+        # discarding the uncommitted bystander while it is still discardable.
+        frappe.db.rollback()
+
+        manager.cleanup(commit=True)
+
+        self.assertFalse(
+            frappe.db.exists("Territory", bystander.name),
+            "the bystander must not survive -- if it does, cleanup(commit=True) "
+            "is committing more than its own registered deletes",
+        )
+        self.assertFalse(
+            frappe.db.exists("Territory", victim.name),
+            "the registered victim must still be durably deleted in the correct "
+            "order too, not just in the (wrong) order the other control uses",
+        )
+
+    def test_builder_cleanup_forwards_commit_to_the_manager(self):
+        """`TestDataBuilder.cleanup(commit=...)` must reach `TestCleanupManager`.
+
+        Every real caller goes through `TestDataBuilder`, not
+        `TestCleanupManager` directly -- the two tests above pin the manager in
+        isolation and would not notice `TestDataBuilder.cleanup` silently
+        dropping the keyword.
+        """
+        from verenigingen.tests.utils.factories import TestDataBuilder
+
+        builder = TestDataBuilder()
+        victim = self._create_committed_territory("zzmgr-489-threading")
+        builder._cleanup_manager.register("Territory", victim.name)
+
+        builder.cleanup(commit=True)
+        frappe.db.rollback()
+
+        self.assertFalse(
+            frappe.db.exists("Territory", victim.name),
+            "TestDataBuilder.cleanup(commit=True) did not survive a later "
+            "rollback -- the keyword is not reaching TestCleanupManager.cleanup",
+        )
+
+
 class _BorrowedChapterFixture:
     """Committed-chapter plumbing shared by the two borrowed-fixture suites.
 

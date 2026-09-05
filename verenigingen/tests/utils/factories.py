@@ -216,22 +216,64 @@ class TestCleanupManager:
         if dependencies:
             self._dependencies[f"{doctype}:{name}"] = dependencies
 
-    def cleanup(self):
+    def cleanup(self, commit=False):
         """Delete every registered document in reverse order. Returns the failures.
+
+        `commit=False` BY DEFAULT: the deletes below live inside the caller's test
+        transaction and a later `frappe.db.rollback()` can put a committed row
+        straight back (#489) -- measured with a control in
+        `CleanupManagerCommitMakesDeletesDurableTest`: the delete reports no error
+        and the row is still resurrected, same shape as the `cleanup_status ==
+        "skipped"` instrument that hid #486. Passing `commit=True` makes the
+        deletes in THIS call durable against that rollback.
+
+        NOT the new default, because three call sites invoke this MID-TEST
+        (`test_member_api.py`, `test_member_controller.py` x2) to clear a
+        uniqueness collision before building a second fixture at the same
+        address. An unconditional commit there would also commit every OTHER
+        uncommitted row already pending in the connection at that point --
+        including uncommitted `setUpClass` fixtures the rest of the class still
+        needs alive until `addClassCleanup(_rollback_db)` -- turning a same-test
+        delete into a same-CLASS leak, the #330 failure mode. Those three keep
+        today's behaviour by passing nothing.
+
+        CALLERS PASSING `commit=True` MUST DO SO AFTER `super().tearDown()` HAS
+        ALREADY RUN, never before. `frappe.db.commit()` is connection-wide: called
+        before the base teardown's `_rollback_once_before_draining()`
+        (`tests/utils/base.py`) has had a chance to discard this test's OTHER
+        uncommitted rows, it makes ALL of them durable too, not just this cleanup's
+        registered deletes. Measured getting this wrong: calling
+        `cleanup(commit=True)` before `super().tearDown()` leaked untracked
+        Chapter, Membership Dues Schedule and User rows that the rollback would
+        otherwise have discarded -- 18 extra Chapter rows in one 17-test module,
+        reproduced twice. The five `tearDown` callers that pass `commit=True` all
+        call `super().tearDown()` first for this reason, matching the order
+        `_cleanup_document_with_retry` already uses (rollback, then delete-and-
+        commit). One of the five (`test_volunteer_controller.py`) also depends on
+        this order for a second reason: it separately `track_doc`s a "Volunteer
+        Activity" that depends on the builder-registered Volunteer, and that
+        tracked-doc drain only runs inside `super().tearDown()` -- calling it
+        first means the Activity is cleaned up while the Volunteer this cleanup
+        will delete still exists.
 
         ONE UNDELETABLE DOCUMENT MUST NOT ABANDON THE REST OF THE CLEANUP. This
         method used to roll the whole transaction back and RAISE on the first
         document it could not delete, so every document still registered behind it
         was left on the site (#483).
 
-        The raise cost more than this loop. Four of the five `tearDown`s that call
-        `TestDataBuilder.cleanup()` call it BEFORE `super().tearDown()` and do not
-        wrap it, so the exception skipped the base class's entire teardown as well:
-        the drain, the Error Log capture, the leak report and the mock restoration.
-        Three call sites in two of those suites also call it mid-test, where a
-        transaction-wide rollback discards the test's own `setUp` -- and any uncommitted `setUpClass` fixture
-        the class still needs, which is the #330 failure mode (measured in CI when
-        the drain's rollback was widened that way: 6 of 12 shards red).
+        The raise cost more than this loop. Before #489's fix, all five `tearDown`s
+        that call `TestDataBuilder.cleanup()` called it BEFORE `super().tearDown()`
+        and did not wrap it, so an exception here skipped the base class's entire
+        teardown as well: the drain, the Error Log capture, the leak report and the
+        mock restoration. #489's fix moved all five to call it AFTER
+        `super().tearDown()` instead (see the `commit=True` ordering note above),
+        which also means an exception from this method no longer skips that
+        teardown -- only the test itself now fails, and it fails after cleanup
+        already ran once. Three call sites in two suites also call it mid-test,
+        where a transaction-wide rollback discards the test's own `setUp` -- and
+        any uncommitted `setUpClass` fixture the class still needs, which is the
+        #330 failure mode (measured in CI when the drain's rollback was widened
+        that way: 6 of 12 shards red).
 
         So: a savepoint per document, and the failures come back as a list. The
         `rollback_on_error` parameter is gone rather than kept and ignored -- no
@@ -291,7 +333,31 @@ class TestCleanupManager:
                     "Could not delete %s %s: %s", error["doctype"], error["name"], error["error"]
                 )
 
+        if commit:
+            self._cleanup_commit_deletes()
+
         return errors
+
+    @staticmethod
+    def _cleanup_commit_deletes():
+        """Commit the deletes `cleanup(commit=True)` just made, so #489 cannot undo them.
+
+        Exists so a delete this method already performed does NOT get undone by the
+        base teardown's later, conditional `frappe.db.rollback()`
+        (`_rollback_once_before_draining`, `tests/utils/base.py`) -- see the ordering
+        requirement on `cleanup()` above: callers MUST invoke `commit=True` after
+        that rollback has already run, never before.
+
+        Named with the `_cleanup` prefix as a human signal (this is the same
+        "delete, then commit, to make it durable" shape as
+        `_cleanup_document_with_retry`), NOT because `scripts/testing/
+        scan_order_dependence.py`'s COMMIT scanner needs it: that scanner's `main()`
+        only walks files named `test_*.py`, and this file (`factories.py`) is not
+        one -- it is never scanned, so the exemption prefix buys nothing here. It
+        DOES matter for `_create_committed_territory` in
+        `test_harness_leak_attribution.py`, which lives in a scanned file.
+        """
+        frappe.db.commit()
 
     @staticmethod
     def _delete_registered_document(item):
@@ -743,9 +809,9 @@ class TestDataBuilder:
         """Build and return the test data"""
         return self._data
 
-    def cleanup(self):
-        """Clean up all created test data"""
-        return self._cleanup_manager.cleanup()
+    def cleanup(self, commit=False):
+        """Clean up all created test data. See `TestCleanupManager.cleanup` for `commit`."""
+        return self._cleanup_manager.cleanup(commit=commit)
 
     def _create_named_membership_type(self, name):
         """Create a membership type with a specific name for testing.
