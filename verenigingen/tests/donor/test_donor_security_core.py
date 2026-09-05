@@ -39,7 +39,7 @@ class TestDonorSecurityCore(VereningingenTestCase):
         )
 
         # Create donor linked to member
-        self.linked_donor = self._create_local_test_donor(
+        self.linked_donor = self._create_security_core_test_donor(
             donor_name="Linked Security Donor",
             donor_type="Individual",
             donor_email="linked_donor@example.com",
@@ -47,14 +47,14 @@ class TestDonorSecurityCore(VereningingenTestCase):
         )
 
         # Create orphaned donor (no member link)
-        self.orphaned_donor = self._create_local_test_donor(
+        self.orphaned_donor = self._create_security_core_test_donor(
             donor_name="Orphaned Security Donor",
             donor_type="Individual",
             donor_email="orphaned@example.com",
             # No member field
         )
 
-    def _create_local_test_donor(self, **kwargs):
+    def _create_security_core_test_donor(self, **kwargs):
         """Create test donor with required fields.
 
         Renamed from `create_test_donor` (#496): that name shadows
@@ -164,7 +164,7 @@ class TestDonorSecurityCore(VereningingenTestCase):
             birth_date="1985-01-01",
         )
 
-        other_donor = self._create_local_test_donor(
+        other_donor = self._create_security_core_test_donor(
             donor_name="Other Member Donor",
             donor_type="Individual",
             donor_email="other_donor@example.com",
