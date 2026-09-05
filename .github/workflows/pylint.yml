@@ -1,6 +1,16 @@
 name: Pylint
 
-on: [push, pull_request]
+on:
+  # Scoped to the trunk branches, matching every other workflow in this repo.
+  # It was previously the bare `on: [push, pull_request]` -- the only unqualified
+  # trigger here -- so every push to every feature branch fired this 3-version
+  # matrix, and opening the PR fired it again (hence `2x Pylint` per branch).
+  # PRs still run it, so nothing is lost; branch pushes no longer queue 3 jobs
+  # against a shared runner ceiling.
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
 
 concurrency:
   # A per-REF group, unlike server-tests.yml's per-COMMIT group for trunk pushes.
