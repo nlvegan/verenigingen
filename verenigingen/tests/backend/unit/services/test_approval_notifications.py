@@ -87,11 +87,18 @@ class TestMemberIDGenerationNoExplicitTransaction(SingletonBackupMixin, FrappeTe
         """Ensure Verenigingen Settings singleton exists for tests."""
         super().setUpClass()
 
-        # Create singleton if it doesn't exist (e.g., in isolated test database)
-        if not frappe.db.exists("Verenigingen Settings", "Verenigingen Settings"):
+        # Create singleton if it doesn't exist (e.g., in isolated test
+        # database). frappe.db.exists(dt, dt) is unconditionally truthy for a
+        # Single (#889) and can never detect "not yet saved"; check whether
+        # it has actually been saved instead. ignore_mandatory is used
+        # because this is throwaway test data (cleaned up in
+        # tearDownClass below) and Verenigingen Settings' other mandatory
+        # fields (company, creation_user) are irrelevant to what this class
+        # tests.
+        if not frappe.db.get_singles_dict("Verenigingen Settings"):
             doc = frappe.new_doc("Verenigingen Settings")
             doc.member_id_start = 1000
-            doc.insert(ignore_permissions=True)
+            doc.insert(ignore_permissions=True, ignore_mandatory=True)
             frappe.db.commit()
             cls._created_singleton = True
         else:

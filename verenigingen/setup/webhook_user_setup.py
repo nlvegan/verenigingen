@@ -272,12 +272,11 @@ def assign_webhook_roles(webhook_email):
 def configure_webhook_user_in_settings(webhook_email):
     """Configure the webhook user in Verenigingen Payments Settings"""
     try:
-        from verenigingen.utils.validation_utilities import DocumentExistenceValidator
-
-        # Get or create the payments settings
-        if not DocumentExistenceValidator.validate_document_exists(
-            "Verenigingen Payments Settings", "Verenigingen Payments Settings", throw_on_error=False
-        ):
+        # Get or create the payments settings. DocumentExistenceValidator
+        # (like frappe.db.exists(dt, dt) underneath it) is unconditionally
+        # truthy for a Single, so it can never report "not yet created" here
+        # -- check whether it has actually been saved instead (#889).
+        if not frappe.db.get_singles_dict("Verenigingen Payments Settings"):
             settings_doc = frappe.get_doc({"doctype": "Verenigingen Payments Settings"})
             settings_doc.insert(ignore_permissions=True)
         else:
@@ -319,8 +318,11 @@ def verify_webhook_user_setup():
             "setup_complete": False,
         }
 
-        # Check if Verenigingen Payments Settings exists
-        if frappe.db.exists("Verenigingen Payments Settings", "Verenigingen Payments Settings"):
+        # Check if Verenigingen Payments Settings exists. frappe.db.exists(dt,
+        # dt) is unconditionally truthy for a Single (#889); check whether it
+        # has actually been saved instead, so this diagnostic reflects real
+        # configuration state.
+        if frappe.db.get_singles_dict("Verenigingen Payments Settings"):
             verification["settings_exist"] = True
 
             # Check if webhook user is configured
@@ -402,7 +404,9 @@ def get_webhook_credentials_for_display():
         dict: Webhook user information for display
     """
     try:
-        if not frappe.db.exists("Verenigingen Payments Settings", "Verenigingen Payments Settings"):
+        # frappe.db.exists(dt, dt) is unconditionally truthy for a Single
+        # (#889); check whether it has actually been saved instead.
+        if not frappe.db.get_singles_dict("Verenigingen Payments Settings"):
             return {"success": False, "message": "Verenigingen Payments Settings not configured"}
 
         settings = frappe.get_doc("Verenigingen Payments Settings", "Verenigingen Payments Settings")

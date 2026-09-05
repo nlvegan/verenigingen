@@ -203,8 +203,18 @@ class TestSetupSettings(FrappeTestCase):
     def test_create_default_verenigingen_settings_returns_doc(self):
         settings = setup_mod.create_default_verenigingen_settings()
         self.assertIsNotNone(settings)
-        # The single doc must exist after seeding.
-        self.assertTrue(frappe.db.exists("Verenigingen Settings", "Verenigingen Settings"))
+        # frappe.db.exists("Verenigingen Settings", "Verenigingen Settings")
+        # is unconditionally truthy for a Single (dt == dn short-circuits in
+        # frappe.db.exists, see #889) and proves nothing about whether
+        # seeding actually happened -- it is true on any site, seeded or
+        # not. _seed_default_document_categories() runs unconditionally at
+        # the end of create_default_verenigingen_settings() regardless of
+        # its create-branch's guard, so assert that real, discriminating
+        # post-condition instead.
+        self.assertTrue(
+            settings.board_document_categories,
+            "create_default_verenigingen_settings() must leave board document categories seeded",
+        )
 
     def test_settings_seed_only_writes_existing_fields(self):
         """Regression guard: the seed dict must not reference fields that no

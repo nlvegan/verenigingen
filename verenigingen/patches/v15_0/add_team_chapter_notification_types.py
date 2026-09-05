@@ -17,9 +17,13 @@ def execute():
     if not frappe.db.exists("DocType", "Verenigingen Email Configuration"):
         return
 
-    if not frappe.db.exists("Verenigingen Email Configuration", "Verenigingen Email Configuration"):
-        return
-
+    # NOTE: Verenigingen Email Configuration is a Single with no mandatory
+    # fields, so frappe.get_single() below always succeeds regardless of
+    # whether it has been saved before. A second
+    # `frappe.db.exists("Verenigingen Email Configuration", "Verenigingen
+    # Email Configuration")` guard used to sit here, but that check is
+    # unconditionally truthy for a Single (dt == dn short-circuits in
+    # frappe.db.exists) and so was never able to skip this patch (#889).
     config = frappe.get_single("Verenigingen Email Configuration")
 
     new_types = [
