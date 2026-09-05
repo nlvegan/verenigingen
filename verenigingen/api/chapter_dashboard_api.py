@@ -21,6 +21,7 @@ from verenigingen.utils.security.api_security_framework import (
     high_security_api,
     standard_api,
 )
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.utils.validation.api_validators import APIValidator
 
 
@@ -281,6 +282,11 @@ def quick_approve_member(member_name: str, chapter_name: str | None = None):
         else:
             return {"success": False, "error": result.get("message", "Unknown error occurred")}
 
+    # #505: this catch-all sits below @handle_api_error; without this a 1205/1213
+    # here is logged and returned as a plain failure dict one frame below the
+    # decorator's own guard (#504). Re-raise unconditionally.
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.log_error(f"Error in quick_approve_member: {str(e)}", "Chapter Dashboard API")
         return {"success": False, "error": str(e)}

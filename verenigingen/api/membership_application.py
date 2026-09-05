@@ -45,6 +45,7 @@ from verenigingen.utils.security.api_security_framework import (
     public_api,
     standard_api,
 )
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.utils.validation.api_validators import (
     APIValidator,
     require_roles,
@@ -510,6 +511,12 @@ def submit_application(**kwargs) -> OperationResult[Dict[str, Any]]:
         address = None
         try:
             address = create_address_from_application(data)
+        # #505: a 1205/1213 here must not be logged and shrugged off as "no address" --
+        # continuing would build the member against a transaction the server has
+        # already discarded. Re-raise and let @handle_api_error's own guard (#504)
+        # take it from here.
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
         except Exception as e:
             frappe.log_error(
                 f"Failed to create address for application {application_id}: {str(e)}\n{traceback.format_exc()}",
@@ -564,6 +571,13 @@ def submit_application(**kwargs) -> OperationResult[Dict[str, Any]]:
             ),
         )
 
+    # #505: the broad handler below already calls frappe.db.rollback() for ordinary
+    # errors -- durability was never the gap here. The gap was the CLASS: a 1205/1213
+    # reaching this frame was logged and converted into an OperationResult one frame
+    # below @handle_api_error's own NON_RESUMABLE_DB_ERRORS guard (#504), so it never
+    # fired. Re-raise unconditionally and let that guard log and propagate it instead.
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.db.rollback()
 
@@ -1161,6 +1175,10 @@ def suggest_chapters_for_postal_code(postal_code) -> OperationResult[Dict[str, A
             message=_("Found {0} chapter suggestions").format(len(suggestions)),
         )
 
+    # #505: a 1205/1213 here must reach @handle_api_error's own guard (#504), not be
+    # converted into an OperationResult one frame below it.
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.log_error(
             f"Error suggesting chapters for postal code {postal_code}: {str(e)}\n{traceback.format_exc()}",
