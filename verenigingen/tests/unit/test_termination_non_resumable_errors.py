@@ -8,14 +8,16 @@ the server has already thrown away.
 The termination stack broke that rule at every layer. #470 named one handler --
 ``TerminationExecutor.execute`` -- but the executor is not where a 1213 arrives. Each of the
 fourteen operations delegates to a ``*_safe`` helper in ``termination_integration``, and
-those catch first::
+those catch first (illustrative -- both lines marked below are now fixed, #470 and #476
+respectively; kept here because it is still the shape that motivates every test below)::
 
     try:
         chapter_doc.save()              # the Volunteer/Member lock from #459
     except Exception as e:
-        frappe.logger().error(...)      # <- 1213 lands here
+        frappe.logger().error(...)      # <- 1213 lands here (re-raises since #470)
     # loop continues, saving further chapters on the discarded transaction
     return positions_ended              # <- caller records an ACTION, not an error
+                                         #    (excludes unsaved chapters since #476)
 
 So the executor's handler never fires, and re-raising there alone would have changed
 nothing on the path most likely to deadlock. That is the shape #459 kept producing: the
@@ -119,11 +121,95 @@ class TestTerminationAbandonsOnNonResumableError(VereningingenTestCase):
         from verenigingen.services.termination.termination_integration import end_board_positions_safe
 
         with self._exploding_chapter_save(Exception("ordinary failure")):
-            # Asserting only that it returns. The value is 1 -- the counter is incremented in
-            # the marking loop, before the save that failed -- so the helper reports a board
-            # position ended that was never persisted. That is a real defect and a separate
-            # one: it is the ordinary-exception path, which #470 deliberately leaves intact.
-            end_board_positions_safe(self.member.name, today(), "control")
+            # The counter used to be incremented in the marking loop, before the save that
+            # failed, so the helper reported a board position ended that was never
+            # persisted (#476). It must still swallow the ordinary exception (that is what
+            # this control asserts, alongside the deadlock test above), but the count it
+            # returns must reflect only chapters that actually saved -- zero, here.
+            result = end_board_positions_safe(self.member.name, today(), "control")
+            self.assertEqual(result, 0)
+
+    def test_a_successful_save_reports_the_actual_number_of_positions_ended(self):
+        """CONTROL for #476. Without this, the failure-returns-0 assertion above is equally
+        consistent with a degenerate fix that always returns 0 regardless of outcome -- this
+        asserts the success path still reports the real count. It does NOT distinguish the
+        shipped per-chapter counting from an all-or-nothing strategy (return the total only
+        if every chapter saved) -- see
+        test_only_the_chapter_that_actually_saved_contributes_to_the_count for that."""
+        from verenigingen.services.termination.termination_integration import end_board_positions_safe
+
+        result = end_board_positions_safe(self.member.name, today(), "success")
+        self.assertEqual(result, 1)
+
+    def test_two_active_board_roles_in_one_chapter_both_count(self):
+        """Pins the per-chapter accumulation in ``positions_marked_by_chapter``: the same
+        volunteer holding two active board roles at one chapter must both be counted, not
+        just the last one matched."""
+        from verenigingen.services.termination.termination_integration import end_board_positions_safe
+        from verenigingen.verenigingen.doctype.chapter.chapter import Chapter
+
+        second_role = self.create_test_chapter_role()
+        chapter_doc = frappe.get_doc("Chapter", self.chapter.name)
+        chapter_doc.append(
+            "board_members",
+            {
+                "volunteer": self.volunteer.name,
+                "chapter_role": second_role.name,
+                "from_date": today(),
+                "is_active": 1,
+            },
+        )
+        chapter_doc.save()
+
+        result = end_board_positions_safe(self.member.name, today(), "two roles, one chapter")
+
+        self.assertEqual(result, 2)
+        chapter_doc.reload()
+        self.assertTrue(all(bm.is_active == 0 for bm in chapter_doc.board_members))
+
+    def test_only_the_chapter_that_actually_saved_contributes_to_the_count(self):
+        """DISCRIMINATING for #476. The single-chapter tests above cannot tell the shipped
+        per-chapter counting apart from a degenerate all-or-nothing strategy (return 0 if
+        ANY chapter fails, else the total) -- for one chapter the two are the same function.
+        With two chapters they diverge: this asserts the count is exactly the surviving
+        chapter's positions (1), not 0 (all-or-nothing) and not 2 (the pre-#476 bug)."""
+        from verenigingen.services.termination.termination_integration import end_board_positions_safe
+        from verenigingen.verenigingen.doctype.chapter.chapter import Chapter
+
+        other_chapter = self.create_test_chapter()
+        other_role = self.create_test_chapter_role()
+        other_volunteer_membership = frappe.get_doc("Chapter", other_chapter.name)
+        other_volunteer_membership.append(
+            "board_members",
+            {
+                "volunteer": self.volunteer.name,
+                "chapter_role": other_role.name,
+                "from_date": today(),
+                "is_active": 1,
+            },
+        )
+        other_volunteer_membership.save()
+
+        failing_chapter_name = self.chapter.name
+        real_save = Chapter.save
+
+        def fail_only_the_first_chapter(chapter_doc, *args, **kwargs):
+            if chapter_doc.name == failing_chapter_name:
+                raise Exception("ordinary failure")
+            return real_save(chapter_doc, *args, **kwargs)
+
+        # autospec=True is load-bearing here: without it the patched attribute is a plain
+        # MagicMock, which is not a descriptor, so `chapter_doc.save()` never passes `self`
+        # and the two chapters cannot be told apart.
+        with patch.object(Chapter, "save", autospec=True, side_effect=fail_only_the_first_chapter):
+            result = end_board_positions_safe(self.member.name, today(), "mixed")
+
+        self.assertEqual(result, 1)
+
+        failed_chapter_doc = frappe.get_doc("Chapter", failing_chapter_name)
+        self.assertEqual(failed_chapter_doc.board_members[0].is_active, 1)
+        other_volunteer_membership.reload()
+        self.assertEqual(other_volunteer_membership.board_members[0].is_active, 0)
 
     # -- layer 2: the operation that owns the commit point ----------------------------
 
