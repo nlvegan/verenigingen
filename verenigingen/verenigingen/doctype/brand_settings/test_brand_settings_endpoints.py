@@ -138,6 +138,48 @@ class TestBrandDefaultsAndDerivation(EnhancedTestCase):
         creator is a no-op returning False."""
         self.assertFalse(create_default_brand_settings())
 
+    def test_creates_defaults_on_a_genuinely_fresh_site(self):
+        """#889: frappe.db.exists("Brand Settings", "Brand Settings") is always
+        truthy for a Single (dt == dn short-circuits in frappe.db.exists), so
+        create_default_brand_settings()'s "already exists" guard can never see
+        a fresh, unconfigured site -- it always returns False, even when the
+        singleton has never actually been saved. Simulate a genuinely fresh
+        site by clearing tabSingles for Brand Settings directly, bypassing the
+        ORM, then assert the create branch actually runs.
+        """
+        backup_rows = frappe.db.sql(
+            "SELECT field, value FROM tabSingles WHERE doctype = %s",
+            "Brand Settings",
+            as_dict=True,
+        )
+        frappe.db.sql("DELETE FROM tabSingles WHERE doctype = %s", "Brand Settings")
+        frappe.db.commit()
+        try:
+            self.assertFalse(
+                frappe.db.get_singles_dict("Brand Settings"),
+                "test setup must start from a genuinely empty Single",
+            )
+
+            result = create_default_brand_settings()
+
+            self.assertTrue(
+                result,
+                "create_default_brand_settings() must create defaults on a fresh site",
+            )
+            settings = frappe.get_single("Brand Settings")
+            self.assertEqual(settings.primary_color, "#cf3131")
+            self.assertEqual(settings.primary_button_text_color, "#ffffff")
+            self.assertEqual(settings.secondary_button_text_color, "#ffffff")
+            self.assertEqual(settings.accent_button_text_color, "#ffffff")
+        finally:
+            frappe.db.sql("DELETE FROM tabSingles WHERE doctype = %s", "Brand Settings")
+            for row in backup_rows:
+                frappe.db.sql(
+                    "INSERT INTO tabSingles (doctype, field, value) VALUES (%s, %s, %s)",
+                    ("Brand Settings", row.field, row.value),
+                )
+            frappe.db.commit()
+
     def test_auto_calculate_preserves_manual_hover_override(self):
         """If a user manually set a hover color (different from the auto value), a
         re-run of auto_calculate_derived_colors must NOT overwrite it.
