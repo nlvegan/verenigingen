@@ -51,7 +51,7 @@ class TestMembershipTypeChange(BaseTestCase):
         )
 
         # Create active membership
-        self.membership = self.create_test_membership(
+        self.membership = self._create_active_test_membership(
             member=self.member.name, membership_type=self.basic_type.name
         )
 
@@ -412,8 +412,22 @@ class TestMembershipTypeChange(BaseTestCase):
                 membership_type.save(ignore_permissions=True)
         return membership_type
 
-    def create_test_membership(self, member, membership_type):
-        """Create a test membership"""
+    def _create_active_test_membership(self, member, membership_type):
+        """Create a test membership.
+
+        Renamed from `create_test_membership` (#496): `BaseTestCase` here
+        resolves (via `verenigingen.tests.base_test_case`) to
+        `VereningingenTestCase`, whose `create_test_membership(**kwargs)` is
+        called internally by `create_test_direct_debit_batch()` as
+        `self.create_test_membership(member=...)`. This override's required
+        `member`/`membership_type` positionals are incompatible with that
+        call (would raise TypeError) -- latent because this class never
+        calls `create_test_direct_debit_batch()` today. (This class was
+        earlier checked against `EnhancedTestCase` and looked like a false
+        positive there -- it is not an `EnhancedTestCase` subclass at all,
+        but it IS a `VereningingenTestCase` one, and the shadow is real
+        against that base.)
+        """
         membership = frappe.get_doc(
             {
                 "doctype": "Membership",
