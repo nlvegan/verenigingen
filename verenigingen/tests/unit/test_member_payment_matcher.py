@@ -259,6 +259,52 @@ class TestMemberPaymentMatcher(EnhancedTestCase):
         self.assertFalse(matcher._loaded)
         self.assertEqual(len(matcher._customer_id_map), 0)
 
+    def test_member_created_after_singleton_load_is_still_found(self):
+        """#255: the singleton must not go permanently stale after its first load.
+
+        A worker process keeps the module-level ``_matcher_instance`` alive across
+        many separate payment runs. If a Member is created (or has its
+        mollie_customer_id set) after the singleton has already loaded its lookup
+        tables once, that member must still be matchable on a later lookup --
+        without anyone remembering to call reset_member_payment_matcher().
+        """
+        # Control: a member that exists BEFORE the singleton's first load.
+        existing = self._create_test_member_with_mollie_id("cst_existing_control_255")
+
+        # Force the singleton to load its lookup tables now, while `existing`
+        # is the only matching member in the database.
+        matcher = get_member_payment_matcher()
+        matcher.get_member_count()
+        self.assertTrue(matcher._loaded)
+
+        # New member created AFTER the singleton already cached its lookups --
+        # simulating a member added later in a long-lived worker process.
+        new_member = self._create_test_member_with_mollie_id("cst_new_after_load_255")
+
+        # Control assertion: the pre-existing member is still matched via the
+        # very same singleton instance.
+        control_payment = MagicMock()
+        control_payment.customer_id = "cst_existing_control_255"
+        control_payment.description = ""
+        control_result = get_member_payment_matcher().find_member_for_payment(control_payment)
+        self.assertIsNotNone(control_result)
+        self.assertEqual(control_result["name"], existing.name)
+
+        # The actual regression: the new member must be found too, even though
+        # the singleton loaded its cache before this member existed.
+        payment = MagicMock()
+        payment.customer_id = "cst_new_after_load_255"
+        payment.description = ""
+        result = get_member_payment_matcher().find_member_for_payment(payment)
+
+        self.assertIsNotNone(
+            result,
+            "Member created after the singleton's first load must still be "
+            "matchable -- the cache must not go stale for the life of the "
+            "worker process (#255)",
+        )
+        self.assertEqual(result["name"], new_member.name)
+
     # =========================================================================
     # 6. Convenience Methods
     # =========================================================================

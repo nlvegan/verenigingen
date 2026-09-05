@@ -314,24 +314,12 @@ def _make_service():
     return MollieDebugService()
 
 
-def _reset_matcher():
-    """The MemberPaymentMatcher is a module singleton with cached lookups; reset
-    it so freshly-created test Members are visible (and don't leak between tests)."""
-    from verenigingen.verenigingen_payments.mollie.utils.member_payment_matcher import (
-        reset_member_payment_matcher,
-    )
-
-    reset_member_payment_matcher()
-
-
 class _BulkServiceTest(EnhancedTestCase):
     def setUp(self):
         super().setUp()
         frappe.set_user("Administrator")
-        _reset_matcher()
 
     def tearDown(self):
-        _reset_matcher()
         frappe.set_user("Administrator")
         super().tearDown()
 
@@ -381,7 +369,6 @@ class TestRetrieveCustomerPaymentsForProcessing(_BulkServiceTest):
         # and resolve a member -> processable=True, unprocessed_count incremented.
         cid = self._unique_cid()
         member = self.create_test_member(mollie_customer_id=cid)
-        _reset_matcher()
 
         pid = self._unique_pid()
         payment = _Payment(payment_id=pid, status="paid", customer_id=cid)
@@ -404,7 +391,6 @@ class TestRetrieveCustomerPaymentsForProcessing(_BulkServiceTest):
     def test_non_paid_payment_is_not_processable(self):
         cid = self._unique_cid()
         self.create_test_member(mollie_customer_id=cid)
-        _reset_matcher()
 
         pid = self._unique_pid()
         payment = _Payment(payment_id=pid, status="open", customer_id=cid)
@@ -442,7 +428,6 @@ class TestBatchProcessDuesPayments(_BulkServiceTest):
         if not member.customer:
             customer = self.create_test_customer()
             member.db_set("customer", customer.name)
-        _reset_matcher()
 
         paid_pid = self._unique_pid()
         open_pid = self._unique_pid()
@@ -602,7 +587,6 @@ class TestBulkRetrieveAllMemberPayments(_BulkServiceTest):
     def test_recent_paid_payment_matched_and_aggregated_per_member(self):
         cid = self._unique_cid()
         member = self.create_test_member(mollie_customer_id=cid)
-        _reset_matcher()
 
         recent = today() + "T00:00:00+00:00"
         pid = self._unique_pid()
@@ -627,7 +611,6 @@ class TestBulkRetrieveAllMemberPayments(_BulkServiceTest):
     def test_duplicate_payment_id_is_filtered(self):
         cid = self._unique_cid()
         self.create_test_member(mollie_customer_id=cid)
-        _reset_matcher()
 
         recent = today() + "T00:00:00+00:00"
         pid = self._unique_pid()
@@ -665,7 +648,6 @@ class TestBulkRetrieveAllMemberPayments(_BulkServiceTest):
     def test_old_payment_outside_window_filtered_by_date(self):
         cid = self._unique_cid()
         self.create_test_member(mollie_customer_id=cid)
-        _reset_matcher()
 
         old = add_days(today(), -400) + "T00:00:00+00:00"
         pid = self._unique_pid()
@@ -682,7 +664,6 @@ class TestBulkRetrieveAllMemberPayments(_BulkServiceTest):
     def test_status_filter_excludes_non_matching_status(self):
         cid = self._unique_cid()
         self.create_test_member(mollie_customer_id=cid)
-        _reset_matcher()
 
         recent = today() + "T00:00:00+00:00"
         failed = _Payment(payment_id=self._unique_pid(), status="failed", customer_id=cid, created_at=recent)
@@ -697,7 +678,6 @@ class TestBulkRetrieveAllMemberPayments(_BulkServiceTest):
     def test_early_termination_on_consecutive_old_payments(self):
         cid = self._unique_cid()
         self.create_test_member(mollie_customer_id=cid)
-        _reset_matcher()
 
         old = add_days(today(), -500) + "T00:00:00+00:00"
         # 55 consecutive old payments (> the 50 threshold) -> early termination.

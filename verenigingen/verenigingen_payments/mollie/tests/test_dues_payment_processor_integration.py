@@ -58,24 +58,10 @@ class TestDuesPaymentProcessorMatching(EnhancedTestCase):
     def setUp(self):
         super().setUp()
 
-        # MemberPaymentMatcher is a process-global singleton that loads every
-        # Member carrying a mollie_customer_id exactly once and never refreshes
-        # (#255). Whichever module in the shard touches it first freezes that
-        # snapshot, so Members this class creates in its own tests are invisible
-        # to matching and find_member_for_payment() returns None.
-        #
-        # That made this suite depend on its neighbours: it passed in shard 11
-        # and failed in shard 2 purely because adding one test file elsewhere
-        # re-packed the shards (#291). The sibling suites already reset around
-        # each test -- see test_mollie_dues_processor_coverage_b3.py:249 -- and
-        # this one was missing it.
-        from verenigingen.verenigingen_payments.mollie.utils.member_payment_matcher import (
-            reset_member_payment_matcher,
-        )
-
-        reset_member_payment_matcher()
-        self.addCleanup(reset_member_payment_matcher)
-
+        # MemberPaymentMatcher's process-global singleton now self-invalidates
+        # (compares a cheap count+max(modified) fingerprint on every lookup),
+        # so Members this class creates are visible without a manual reset
+        # (#255). No cross-shard dependency here any more.
         self.processor = _make_processor()
 
     def _payment(self, **kwargs):
