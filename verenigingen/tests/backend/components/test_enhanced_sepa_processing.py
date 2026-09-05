@@ -211,7 +211,7 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
         # mandate_reference (all mandatory), so create a SEPA mandate for the
         # member (the local helper creates one for self.test_member, which is
         # exactly dues_schedule.member) and populate the row from it.
-        mandate = self.create_test_sepa_mandate()
+        mandate = self._create_local_sepa_mandate()
 
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = today()
@@ -555,7 +555,7 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
         try:
             self._ensure_active_membership()
             # Create SEPA mandate first
-            mandate = self.create_test_sepa_mandate()
+            mandate = self._create_local_sepa_mandate()
 
             dues_schedule = frappe.new_doc("Membership Dues Schedule")
             dues_schedule.schedule_name = f"Test Schedule {frappe.generate_hash(length=8)}"
@@ -574,8 +574,17 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
         except:
             return None
             
-    def create_test_sepa_mandate(self):
-        """Create test SEPA mandate"""
+    def _create_local_sepa_mandate(self):
+        """Create test SEPA mandate.
+
+        Renamed from `create_test_sepa_mandate` (#496): that name shadows
+        `VereningingenTestCase.create_test_sepa_mandate(**kwargs)`, which
+        `create_test_direct_debit_batch()` calls internally as
+        `self.create_test_sepa_mandate(member=..., bank_code=...)`. This
+        zero-argument override would raise TypeError against that call --
+        latent because this class never calls
+        `create_test_direct_debit_batch()` today.
+        """
         from verenigingen.utils.validation.iban_validator import generate_test_iban
 
         mandate = frappe.new_doc("SEPA Mandate")
