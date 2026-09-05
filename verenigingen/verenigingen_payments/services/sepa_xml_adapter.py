@@ -45,11 +45,21 @@ class BatchValidationSummary:
     skipped_transactions: int = 0
     missing_mandate_dates: int = 0
     skipped_invoice_details: List[dict] = field(default_factory=list)
+    missing_mandate_date_details: List[dict] = field(default_factory=list)
 
     @property
     def has_issues(self) -> bool:
         """Return True if any transactions were skipped or mandates missing."""
         return self.skipped_transactions > 0 or self.missing_mandate_dates > 0
+
+    def add_missing_mandate_date(self, invoice: str, mandate_reference: str) -> None:
+        """Record an invoice whose mandate sign date could not be resolved.
+
+        Named so a strict-mode failure can tell an operator exactly which
+        mandate(s) to fix, rather than only a count (#631).
+        """
+        self.missing_mandate_dates += 1
+        self.missing_mandate_date_details.append({"invoice": invoice, "mandate_reference": mandate_reference})
 
     def add_skipped(self, invoice: str, reason: str) -> None:
         """Record a skipped transaction."""
@@ -65,8 +75,9 @@ class SEPAXMLAdapter:
     with correct mandate sign dates (DtOfSgntr).
 
     Supports strict validation mode via Verenigingen Settings:
-    - Strict mode: Fails XML generation if any mandate sign date is missing
-    - Permissive mode: Falls back to today's date with warning (default)
+    - Strict mode: Fails XML generation if any mandate sign date is missing (default,
+      #631 -- a fabricated signature date must not reach the bank)
+    - Permissive mode: Falls back to today's date with warning (opt-in)
     """
 
     def __init__(self):
@@ -296,10 +307,13 @@ class SEPAXMLAdapter:
         issue_msg = f"SEPA XML batch {batch_name}: {', '.join(issues)}"
 
         if strict_mode and summary.missing_mandate_dates > 0:
-            # In strict mode, fail if any mandate dates are missing
+            # In strict mode, fail if any mandate dates are missing. Name which
+            # invoice(s)/mandate(s) so a batch operator knows what to fix,
+            # rather than only a count (#631).
             frappe.throw(
                 f"Strict SEPA validation failed: {summary.missing_mandate_dates} mandate(s) "
-                f"missing sign dates. Fix mandate data or disable strict validation in settings."
+                f"missing sign dates: {self._format_missing_mandate_details(summary)}. "
+                f"Fix the mandate data (or its sign_date) or disable strict validation in settings."
             )
 
         # Log warning
@@ -308,6 +322,26 @@ class SEPAXMLAdapter:
         # Send alert to financial admins if any transactions were skipped
         if summary.skipped_transactions > 0:
             self._send_validation_alert(batch_name, summary)
+
+    @staticmethod
+    def _format_missing_mandate_details(summary: BatchValidationSummary, limit: int = 20) -> str:
+        """Render the invoice/mandate pairs a strict-mode failure names.
+
+        Capped so a large batch does not produce an unreadable wall of text in
+        the raised error; the count in the surrounding message already carries
+        the total.
+        """
+        details = summary.missing_mandate_date_details
+        if not details:
+            # Defensive: missing_mandate_dates > 0 without details would mean a
+            # caller incremented the counter directly instead of going through
+            # add_missing_mandate_date().
+            return "(no invoice/mandate details recorded)"
+
+        rendered = [f"invoice {d['invoice']} (mandate {d['mandate_reference']})" for d in details[:limit]]
+        if len(details) > limit:
+            rendered.append(f"and {len(details) - limit} more")
+        return "; ".join(rendered)
 
     def _send_validation_alert(self, batch_name: str, summary: BatchValidationSummary) -> None:
         """Send alert email to financial admins about validation issues."""
@@ -426,9 +460,12 @@ class SEPAXMLAdapter:
         # Get mandate sign date with fallback lookup
         mandate_sign_date, used_fallback = self._get_mandate_sign_date(invoice_item)
 
-        # Track if we used fallback (missing mandate date)
+        # Track if we used fallback (missing mandate date), naming the invoice
+        # and mandate so a strict-mode failure can point at what to fix (#631).
         if used_fallback and self._validation_summary:
-            self._validation_summary.missing_mandate_dates += 1
+            self._validation_summary.add_missing_mandate_date(
+                invoice_item.invoice or "UNKNOWN", invoice_item.mandate_reference or "UNKNOWN"
+            )
 
         # Determine transaction sequence type
         # Use invoice-level sequence type if available, otherwise use batch default
