@@ -41,11 +41,6 @@ from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 logger = get_service_logger("verenigingen.mijnrood_sync", prefix="event_application.volunteer_sync")
 
-# Doc-flag on the MijnRood Sync Event carrying "this apply succeeded but left access
-# behind" text up to apply_event, which persists it on the row. A service log file is
-# not reachable by the operator who would act on it.
-RETAINED_ACCESS_FLAG = "mijnrood_retained_access"
-
 
 class MijnRoodVolunteerSyncService:
     """Applies MijnRood role/team/board events to Verenigingen records."""
@@ -944,6 +939,7 @@ class MijnRoodVolunteerSyncService:
         current_roles: set,
         old_roles: set,
         role_config: dict,
+        division_contact_active: bool = False,
         event=None,
     ) -> list[str]:
         """Handle ROLE_ADMIN addition or removal.
@@ -954,27 +950,21 @@ class MijnRoodVolunteerSyncService:
         delta and can break legitimate non-role updates when team data is
         corrupt or role config has drifted.
 
-        Revocation here is *partial by design*, and the messages say so.
+        On removal, withdraws both the team membership configured by
+        ``add_to_team`` + ``default_team`` (via _end_team_membership, which
+        verifies the recalculation) and the ``verenigingen_role`` /
+        ``role_profile`` this config granted directly (via
+        _revoke_direct_grants — #208). ``division_contact_active`` names the one
+        case #208 flagged as unsafe to strip blindly: the member currently still
+        holds ROLE_DIVISION_CONTACT, whose own config may name the identical
+        role / role_profile, in which case _revoke_direct_grants leaves it alone.
 
-        The only access this branch withdraws is the team membership configured by
-        ``add_to_team`` + ``default_team``. The "ROLE_ADMIN removed" message is
-        appended *after* _end_team_membership(), which raises both when the row
-        edit cannot be persisted and when the resulting recalculation did not
-        actually drop the team's role profile — so it is never emitted while a
-        **team** revocation is outstanding.
-
-        It guarantees nothing about ``verenigingen_role`` and ``role_profile``,
-        which the addition path grants directly (_ensure_user_role() →
-        User.add_roles(), and the ``role_profile`` handed to
-        create_volunteer_from_member()) and which nothing here removes. Undoing
-        those correctly needs provenance the system does not record: both role
-        mappings can name the same role or profile, and a role may equally have
-        been granted by hand, so a blind remove_roles() would over-revoke. Until
-        that is designed, the retained access is *reported* rather than left
-        implied by a bare "removed" on an event apply_event then marks Applied —
-        but only the access the user is *observed* to still hold (see
-        _retained_access_messages), because telling an operator to hand-revoke a
-        role that was never granted is over-revocation by proxy.
+        The "ROLE_ADMIN removed" message is appended *after* _end_team_membership(),
+        which raises both when the row edit cannot be persisted and when the
+        resulting recalculation did not actually drop the team's role profile —
+        so it is never emitted while a **team** revocation is outstanding.
+        _revoke_direct_grants raises the same way for the direct grants, so the
+        message is likewise never emitted while one of those is outstanding.
         """
         messages = []
 
@@ -991,6 +981,12 @@ class MijnRoodVolunteerSyncService:
                 team_msg = self._end_team_membership(member_name, config["default_team"], event=event)
                 if team_msg:
                     messages.append(team_msg)
+
+            other_config = role_config.get("ROLE_DIVISION_CONTACT") if division_contact_active else None
+            messages.extend(
+                self._revoke_direct_grants(member_name, config, other_config, "ROLE_ADMIN revocation")
+            )
+
             messages.append(_("ROLE_ADMIN removed from member {0}").format(member_name))
             self.logger.info(
                 "ROLE_ADMIN removed from member %s (event %s)",
@@ -998,70 +994,164 @@ class MijnRoodVolunteerSyncService:
                 event.name if event else "N/A",
             )
 
-            self._append_retained_access_warning(
-                member_name, config, event, messages, "ROLE_ADMIN revocation"
-            )
-
         return messages
 
-    def _append_retained_access_warning(
+    def _revoke_direct_grants(
         self,
         member_name: str,
         config: dict,
-        event,
-        messages: list,
+        other_active_config: Optional[dict],
         context: str,
-    ) -> None:
-        """Append 'revoke manually' text for configured access the user still holds."""
-        retained = self._retained_access_messages(member_name, config)
-        if not retained:
-            return
+    ) -> list[str]:
+        """Withdraw the ``verenigingen_role`` / ``role_profile`` ``config`` granted directly.
 
-        retained_text = ", ".join(retained)
-        warning = _("NOT withdrawn by sync, revoke manually: {0}").format(retained_text)
-        self.logger.warning(
-            "%s for member %s does NOT withdraw %s (event %s)",
-            context,
-            member_name,
-            retained_text,
-            event.name if event else "N/A",
-        )
-        messages.append(warning)
-        if event is not None:
-            # Carried to apply_event, which persists it on the event row.
-            event.flags.setdefault(RETAINED_ACCESS_FLAG, []).append(warning)
+        ``_ensure_volunteer`` grants these whenever ``create_volunteer`` is
+        configured without ``add_to_team``: ``User.add_roles()`` (:190) for
+        ``verenigingen_role``, and ``create_volunteer_from_member(role_profile=...)``
+        for ``role_profile``. That combination had no revocation counterpart at all
+        (#208) — the team-membership path already recalculates and verifies
+        (_assert_team_profile_withdrawn / _assert_board_access_withdrawn); this
+        direct grant withdrew nothing.
 
-    def _retained_access_messages(self, member_name: str, config: dict) -> list[str]:
-        """Name only the configured access the user is *observed* to still hold.
+        Skips a value also named by ``other_active_config`` — the one cross-mapping
+        case #208 identified as unsafe to strip blindly, since ROLE_ADMIN and
+        ROLE_DIVISION_CONTACT may configure the identical role / role_profile.
+        Callers must already condition ``other_active_config`` on the member
+        currently holding that *other* MijnRood role, read from live MijnRood state
+        rather than the event being processed (see ``_live_admin_active`` /
+        ``_live_division_contact_active``); pass None when it does not apply.
 
-        Deriving this from the config alone over-reports. With ``add_to_team`` on
-        the team hook does withdraw ``role_profile``, and ``_ensure_volunteer``
-        never granted ``verenigingen_role`` in that config at all — it returns
-        early because ``populate_role_profile_roles()`` overwrites individually
-        added roles on every User.save(). An operator acting on a config-derived
-        list would strip access the user legitimately holds from another team or a
-        chapter board: over-revocation by human, on a security path, which is the
-        very failure the deferral rationale exists to avoid.
+        ``role_profile`` is withdrawn via ``sync_user_role_profile`` — the same
+        ground-truth recalculation ``_assert_team_profile_withdrawn`` /
+        ``_assert_board_access_withdrawn`` already use — not a direct
+        child-table edit. A direct edit that merely detaches the profile link does
+        not withdraw the *access*: ``User.populate_role_profile_roles()`` re-derives
+        ``roles`` from ``role_profiles`` on every save, but returns immediately when
+        ``role_profiles`` is empty, so every role the profile granted (measured:
+        9 roles for "Verenigingen Staff") stays attached while the profile link is
+        gone and the caller is told it was withdrawn. ``sync_user_role_profile``
+        always sets *some* ground-truth profile (never an empty ``role_profiles``),
+        so the role recompute always runs, and it is the same call that correctly
+        preserves a profile the user independently holds via a team or board seat.
+
+        Removes ``role_profile`` before ``verenigingen_role`` for the same reason:
+        while a profile granting ``role`` is still attached, removing the role
+        directly would be undone by ``populate_role_profile_roles()`` within that
+        same save.
+
+        A role held under the identical name for some other, unrecorded reason
+        (granted by hand) is not distinguishable from this config's own grant and
+        is withdrawn the same way _assert_board_access_withdrawn already withdraws
+        an identical board-derived role once no seat justifies it. #208's own
+        analysis names this as the residual risk that recording grant provenance
+        would remove; nothing here claims to have solved that.
+
+        Raises frappe.ValidationError if a removal does not verifiably take —
+        matching _assert_board_access_withdrawn / _assert_team_profile_withdrawn:
+        a revocation must never silently report success while access remains.
         """
         user = frappe.db.get_value("Member", member_name, "user")
         if not user:
             return []
 
-        retained = []
-        role = config.get("verenigingen_role")
-        if role and role in frappe.get_roles(user):
-            retained.append(_("role '{0}'").format(role))
+        other_active_config = other_active_config or {}
+        messages = []
 
         role_profile = config.get("role_profile")
         if role_profile:
-            from verenigingen.services.member.account.user_role_profile_calculator import (
-                get_user_role_profiles,
-            )
+            if other_active_config.get("role_profile") == role_profile:
+                self.logger.info(
+                    "%s: role profile '%s' retained for %s — also granted by the "
+                    "other active MijnRood role",
+                    context,
+                    role_profile,
+                    user,
+                )
+            else:
+                from verenigingen.services.member.account.user_role_profile_calculator import (
+                    get_user_role_profiles,
+                    sync_user_role_profile,
+                )
 
-            if role_profile in get_user_role_profiles(user):
-                retained.append(_("role profile '{0}'").format(role_profile))
+                if role_profile in get_user_role_profiles(user):
+                    result = sync_user_role_profile(user) or {}
+                    if role_profile in get_user_role_profiles(user):
+                        if result.get("success") and not result.get("skipped"):
+                            self.logger.info(
+                                "%s: role profile '%s' survives recalculation for %s — " "granted elsewhere",
+                                context,
+                                role_profile,
+                                user,
+                            )
+                        else:
+                            reason = result.get("skipped") or result.get("error") or _("unknown")
+                            raise frappe.ValidationError(
+                                _("{0}: role profile '{1}' could not be withdrawn from {2} ({3}).").format(
+                                    context, role_profile, user, reason
+                                )
+                            )
+                    else:
+                        self.logger.info(
+                            "%s: withdrew role profile '%s' from %s", context, role_profile, user
+                        )
+                        messages.append(_("Role profile '{0}' withdrawn from {1}").format(role_profile, user))
 
-        return retained
+        role = config.get("verenigingen_role")
+        if role:
+            if other_active_config.get("verenigingen_role") == role:
+                self.logger.info(
+                    "%s: role '%s' retained for %s — also granted by the other active MijnRood role",
+                    context,
+                    role,
+                    user,
+                )
+            elif role in frappe.get_roles(user):
+                user_doc = frappe.get_doc("User", user)
+                user_doc.remove_roles(role)
+                frappe.clear_cache(user=user)
+                if role in frappe.get_roles(user):
+                    if self._role_granted_by_attached_profile(user, role):
+                        # User.populate_role_profile_roles() re-derives roles from
+                        # role_profiles on every save, so a role inside the user's
+                        # surviving, independently-justified profile is re-added
+                        # within the same save that just removed it — that profile,
+                        # not this config, is what grants it. Same reasoning
+                        # _outstanding_board_access already applies by gating the
+                        # CHAPTER_BOARD_MEMBER check on is_active_board_member().
+                        self.logger.info(
+                            "%s: role '%s' survives for %s — granted by an attached role profile",
+                            context,
+                            role,
+                            user,
+                        )
+                    else:
+                        raise frappe.ValidationError(
+                            _("{0}: role '{1}' could not be withdrawn from {2}.").format(context, role, user)
+                        )
+                else:
+                    self.logger.info("%s: withdrew role '%s' from %s", context, role, user)
+                    messages.append(_("Role '{0}' withdrawn from {1}").format(role, user))
+
+        return messages
+
+    def _role_granted_by_attached_profile(self, user: str, role: str) -> bool:
+        """Whether ``role`` is granted by one of the user's currently-attached role profiles.
+
+        ``User.populate_role_profile_roles()`` re-derives ``roles`` from
+        ``role_profiles`` on every save, so a role inside the user's ground-truth
+        profile cannot be removed individually by ``user_doc.remove_roles()`` — it
+        is re-added within that same save. That is not a failed revocation: the
+        profile, not this config, is what grants it.
+        """
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            get_user_role_profiles,
+        )
+
+        for profile in get_user_role_profiles(user):
+            profile_roles = {r.role for r in frappe.get_cached_doc("Role Profile", profile).roles}
+            if role in profile_roles:
+                return True
+        return False
 
     def _handle_division_contact_change(
         self,
@@ -1069,6 +1159,7 @@ class MijnRoodVolunteerSyncService:
         new_division_ids,
         old_division_ids,
         role_config: dict,
+        admin_active: bool = False,
         event=None,
     ) -> list[str]:
         """Handle ROLE_DIVISION_CONTACT addition or removal.
@@ -1082,12 +1173,15 @@ class MijnRoodVolunteerSyncService:
         aggregate, so letting this propagate reports the failure *and* still attempts
         the ROLE_ADMIN handler, which withdraws different access.
 
-        Revocation here is partial by design, the same way ROLE_ADMIN's is: the board
-        seat is the only access this branch withdraws, while the addition path also
-        grants ``verenigingen_role`` and ``role_profile`` through _ensure_volunteer.
-        That residue is reported once the member is no longer a division contact
-        anywhere — while they still hold a division it is legitimately theirs, and
-        naming it would invite an operator to over-revoke.
+        Once the member is no longer a division contact anywhere (``new_set`` empty),
+        also withdraws the ``verenigingen_role`` / ``role_profile`` this config
+        granted directly through _ensure_volunteer (via _revoke_direct_grants —
+        #208), the same gap ROLE_ADMIN's handler closes. ``admin_active`` names the
+        one case #208 flagged as unsafe to strip blindly: the member currently
+        still holds ROLE_ADMIN, whose own config may name the identical role /
+        role_profile, in which case _revoke_direct_grants leaves it alone. While the
+        member still holds another division it is legitimately theirs, and the
+        ``if not new_set`` guard below leaves it untouched either way.
         """
         messages = []
 
@@ -1117,15 +1211,94 @@ class MijnRoodVolunteerSyncService:
                 self._notify_board_membership_change(member_name, vacated_chapters, event)
 
             if not new_set:
-                self._append_retained_access_warning(
-                    member_name,
-                    role_config.get("ROLE_DIVISION_CONTACT", {}),
-                    event,
-                    messages,
-                    "ROLE_DIVISION_CONTACT revocation",
+                config = role_config.get("ROLE_DIVISION_CONTACT", {})
+                other_config = role_config.get("ROLE_ADMIN") if admin_active else None
+                messages.extend(
+                    self._revoke_direct_grants(
+                        member_name, config, other_config, "ROLE_DIVISION_CONTACT revocation"
+                    )
                 )
 
         return messages
+
+    def _live_division_contact_active(self, member_name: str, role_config: dict) -> bool:
+        """Whether ROLE_DIVISION_CONTACT is currently active for this member.
+
+        Read from live MijnRood-mirrored state, never from the event being
+        processed: a ROLE_ADMIN-change event's payload never carries
+        ``managed_division_ids`` at all — that field comes from a separate poll of
+        the ``division_member`` junction table (``_poll_division_contacts``), not
+        the ``admin_member`` row a ROLE_ADMIN event is about — so deriving it from
+        ``mijnrood_data``/``old_data`` made the cross-mapping exemption in
+        ``_revoke_direct_grants`` permanently ``False`` on the one path it exists
+        for (#208 review).
+
+        ``MijnRood Sync Settings.last_division_contacts_hash`` is updated on every
+        poll of that junction table (``{member_id: [division_id, ...]}``),
+        independent of which event is currently being applied. The MijnRood
+        numeric ``member_id`` it is keyed by is the same id recorded on this
+        member's ``admin_member`` ``MijnRood Sync State`` row.
+
+        Known gap: ``_poll_table`` only (re-)resolves ``linked_member`` for a
+        new/changed/deleted row — an unchanged row's ``last_seen`` is bumped
+        without touching ``linked_member``. A row that was never linkable at
+        first poll and has not changed since therefore returns ``False`` here
+        (fail-open on this exemption, i.e. towards revoking), not a false
+        positive. #208's own analysis already accepts an equivalent residual gap
+        (a role held for an unrecorded reason); this is the same class.
+        """
+        if "ROLE_DIVISION_CONTACT" not in role_config:
+            return False
+
+        mijnrood_row_id = frappe.db.get_value(
+            "MijnRood Sync State",
+            {"mijnrood_table": "admin_member", "linked_member": member_name},
+            "mijnrood_row_id",
+        )
+        if not mijnrood_row_id:
+            return False
+
+        settings = frappe.get_single("MijnRood Sync Settings")
+        if not settings.last_division_contacts_hash:
+            return False
+        try:
+            current_divisions = json.loads(settings.last_division_contacts_hash)
+        except (json.JSONDecodeError, ValueError):
+            return False
+
+        return bool(current_divisions.get(str(mijnrood_row_id)))
+
+    def _live_admin_active(self, member_name: str, role_config: dict) -> bool:
+        """Whether ROLE_ADMIN is currently active for this member.
+
+        Read from live MijnRood-mirrored state, never from the event being
+        processed: a division-contact synthetic event's payload never carries
+        ``"roles"`` at all — it is built purely from the ``division_member`` diff
+        (``_poll_division_contacts``), not the ``admin_member`` row — so deriving
+        it from ``mijnrood_data``/``old_data`` made the cross-mapping exemption in
+        ``_revoke_direct_grants`` permanently ``False`` on the other path it exists
+        for (#208 review).
+
+        ``MijnRood Sync State.raw_data`` for this member's ``admin_member`` row is
+        updated on every poll of that table, independent of which event is
+        currently being applied.
+        """
+        if "ROLE_ADMIN" not in role_config:
+            return False
+
+        raw_data = frappe.db.get_value(
+            "MijnRood Sync State",
+            {"mijnrood_table": "admin_member", "linked_member": member_name},
+            "raw_data",
+        )
+        if not raw_data:
+            return False
+        try:
+            row = json.loads(raw_data)
+        except (json.JSONDecodeError, ValueError):
+            return False
+
+        return "ROLE_ADMIN" in self._parse_mijnrood_roles(row.get("roles"))
 
     def _process_member_roles(
         self,
@@ -1163,9 +1336,28 @@ class MijnRoodVolunteerSyncService:
         current_roles = self._parse_mijnrood_roles(mijnrood_data.get("roles"))
         old_roles = self._parse_mijnrood_roles(old_data.get("roles")) if old_data else set()
 
+        # 2. managed_division_ids drives ROLE_DIVISION_CONTACT
+        new_division_ids = mijnrood_data.get("managed_division_ids")
+        old_division_ids = old_data.get("managed_division_ids") if old_data else None
+
+        # Whether the *other* MijnRood role mapping is currently active for this
+        # member — the one case #208 flagged as unsafe for _revoke_direct_grants to
+        # strip blindly, since both mappings may name the identical
+        # verenigingen_role / role_profile. Read from live MijnRood-mirrored state,
+        # not this event's own payload — see the two helpers' docstrings for why.
+        division_contact_active = self._live_division_contact_active(member_name, role_config)
+        admin_active = self._live_admin_active(member_name, role_config)
+
         try:
             messages.extend(
-                self._handle_admin_role_change(member_name, current_roles, old_roles, role_config, event)
+                self._handle_admin_role_change(
+                    member_name,
+                    current_roles,
+                    old_roles,
+                    role_config,
+                    division_contact_active,
+                    event,
+                )
             )
         except NON_RESUMABLE_DB_ERRORS:
             # No point attempting the second handler: every statement it issues would
@@ -1175,10 +1367,6 @@ class MijnRoodVolunteerSyncService:
             self.logger.error("ROLE_ADMIN handling failed for member %s: %s", member_name, e)
             failures.append(e)
 
-        # 2. Process ROLE_DIVISION_CONTACT from managed_division_ids
-        new_division_ids = mijnrood_data.get("managed_division_ids")
-        old_division_ids = old_data.get("managed_division_ids") if old_data else None
-
         try:
             messages.extend(
                 self._handle_division_contact_change(
@@ -1186,6 +1374,7 @@ class MijnRoodVolunteerSyncService:
                     new_division_ids,
                     old_division_ids,
                     role_config,
+                    admin_active,
                     event,
                 )
             )

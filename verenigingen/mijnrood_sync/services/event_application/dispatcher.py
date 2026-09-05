@@ -36,9 +36,6 @@ from verenigingen.mijnrood_sync.services.event_application.member_sync_service i
 from verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator import (
     get_related_records_orchestrator,
 )
-from verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service import (
-    RETAINED_ACCESS_FLAG,
-)
 from verenigingen.mijnrood_sync.utils import safe_json_load
 from verenigingen.services.infrastructure.base_service import StatefulService
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
@@ -81,18 +78,7 @@ class MijnRoodEventApplicationService(StatefulService):
             if result["success"]:
                 event.status = "Applied"
                 event.applied_at = now_datetime()
-                # A successful apply can still leave access behind — see
-                # _handle_admin_role_change: the addition path grants
-                # verenigingen_role / role_profile and the removal branch has no
-                # counterpart. That warning previously reached a service log file
-                # only: the form button renders a fixed green "applied" on success
-                # and _batch_event_worker discards the result, so nobody who could
-                # act on it ever saw it. Persist it on the row instead of clearing
-                # the field.
-                warnings = list(event.flags.get(RETAINED_ACCESS_FLAG) or [])
-                event.error_message = "\n".join(warnings)[:500] if warnings else None
-                if warnings:
-                    result["warnings"] = warnings
+                event.error_message = None
             else:
                 event.error_message = result.get("message", "")[:500]
 
