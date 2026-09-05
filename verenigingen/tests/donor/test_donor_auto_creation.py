@@ -215,7 +215,7 @@ class TestDonorAutoCreation(VereningingenTestCase):
             customer_group="General"
         )
         
-        donor = self.create_test_donor(
+        donor = self._create_named_test_donor(
             donor_name="Existing Donor",
             customer=customer.name
         )
@@ -452,8 +452,17 @@ class TestDonorAutoCreation(VereningingenTestCase):
         self.track_doc("Customer", customer.name)
         return customer
         
-    def create_test_donor(self, donor_name, customer=None):
-        """Create a test donor"""
+    def _create_named_test_donor(self, donor_name, customer=None):
+        """Create a test donor.
+
+        Renamed from `create_test_donor` (#496): that name shadows
+        `VereningingenTestCase.create_test_donor(**kwargs)`, which
+        `create_test_donation()`/`create_test_periodic_donation_agreement()`
+        call internally for a caller that omits `donor=`. This override's
+        required `donor_name` positional argument is incompatible with that
+        zero-argument call (would raise TypeError) -- latent because this
+        class never calls those two methods today.
+        """
         donor = frappe.new_doc("Donor")
         donor.donor_name = donor_name
         donor.donor_type = "Individual"
