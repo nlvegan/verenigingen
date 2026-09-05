@@ -514,15 +514,29 @@ class TestMoneyTransferJournalEntry(_PaymentTestBase):
 
 def _create_probe_company(module_name, temp_name, temp_abbr):
     """Build a throwaway company through the real ``_ensure_payment_company()``
-    and commit it. Named ``_create_*`` -- a privileged fixture-building helper,
-    like this file's other ``_ensure_``/``_make_``/``_persist_`` builders --
-    rather than inlined in the test body, for two reasons:
+    and commit it. Named ``_create_*`` -- a privileged fixture-building prefix
+    recognised across this codebase (``scripts/validation/test_quality_enforcer.py``
+    lists it alongside ``_ensure_``/``_make_``/``_setup_``/``_persist_``), though
+    it is the first ``_create_*`` helper in THIS file -- rather than inlined in
+    the test body, for two reasons:
 
-    1. The commit is load-bearing, not incidental: without it, the drain's own
-       pre-delete ``frappe.db.rollback()`` would destroy this uncommitted row
-       before the delete loop ever runs, passing the test for the wrong reason
-       (any uncommitted fixture vanishes on rollback, protected or not -- that
-       proves nothing about the captured-insert drain this test is about).
+    1. The commit is load-bearing, but NOT for the reason first written here. The
+       original claim was that the drain's own pre-delete
+       ``frappe.db.rollback()`` would otherwise destroy the uncommitted row. That
+       is true only on the UNPROTECTED branch, which is not the one a passing run
+       exercises: with ``@shared_fixture`` in place the insert never enters
+       ``_captured_inserts``, so ``_drain_captured_inserts()`` returns on its
+       first line (``if not captured: return``) and that rollback is never
+       reached at all. Measured three ways on test_site_2 with the drain
+       instrumented, including a second pymysql connection confirming the row
+       was never committed.
+
+       The real reason is durability against any LATER rollback in the same
+       process. Without the commit the company sits in the connection's still-open
+       transaction after the test method returns, and the next test class's own
+       drain calls ``frappe.db.rollback()`` -- observed doing so, in the same run.
+       That would wipe the row and make this an order-dependent flake, which is a
+       particularly bad failure mode for a regression test about order dependence.
     2. ``scripts/testing/scan_order_dependence.py``'s order-dependence scanner
        exempts ``_cleanup_*``/``_create_*``/``tearDown`` helpers from its COMMIT
        check on the same reasoning it exempts every other privileged fixture
