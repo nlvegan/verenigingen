@@ -11,6 +11,37 @@ from datetime import date, timedelta
 import frappe
 from frappe.utils import add_days, add_months, add_years, getdate, today
 
+# Nominal length in days of one billing period, per frequency. Approximate on
+# purpose - used only to scale gap-detection thresholds to a schedule's own
+# cadence instead of a single constant tuned for Monthly billing (see
+# derive_coverage_from_invoice_data below). For exact calendar boundaries use
+# calculate_coverage_end() or calculate_billing_period() instead.
+NOMINAL_PERIOD_DAYS = {
+    "Daily": 1,
+    "Weekly": 7,
+    "Monthly": 30,
+    "Quarterly": 90,
+    "Semi-Annual": 182,
+    "Annual": 365,
+}
+
+
+def get_nominal_period_days(billing_frequency: str) -> int:
+    """
+    Approximate length, in days, of one billing period for the given frequency.
+
+    Args:
+        billing_frequency: One of Daily, Weekly, Monthly, Quarterly, Semi-Annual, Annual
+
+    Returns:
+        Nominal period length in days. Falls back to 30 (the historical
+        Monthly-sized default) for Custom or unrecognized/missing frequencies,
+        since Custom periods need both custom_frequency_number and
+        custom_frequency_unit to size correctly and this function only takes
+        billing_frequency.
+    """
+    return NOMINAL_PERIOD_DAYS.get(billing_frequency, 30)
+
 
 def calculate_next_invoice_date(
     billing_frequency: str,
@@ -296,9 +327,12 @@ def derive_coverage_from_invoice_data(
                 )
                 coverage_start = posting_date
 
-            # Gap detection: if coverage would start too far in the past, reset forward to posting date
+            # Gap detection: if coverage would start too far in the past, reset forward to posting date.
+            # Threshold scales to the schedule's own billing period (30 for Monthly, 7 for
+            # Weekly, etc.) - a flat 30-day threshold let more than 4 Weekly periods pass
+            # as "not a gap" while treating a single normal Monthly cycle as suspicious.
             gap_days = (posting_date - coverage_start).days
-            max_gap_days = 30  # Configurable threshold
+            max_gap_days = get_nominal_period_days(billing_frequency)
 
             if gap_days > max_gap_days:
                 frappe.log_error(

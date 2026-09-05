@@ -31,9 +31,40 @@ from verenigingen.services.billing.template_configuration_service import (
 )
 from verenigingen.services.billing.template_creation_service import (
     TemplateCreationService,
+    default_invoice_lead_days,
     get_template_creation_service,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+
+class TestDefaultInvoiceLeadDays(EnhancedTestCase):
+    """default_invoice_lead_days() backs template.invoice_days_before in
+    create_default_template() below - it must scale down for short billing
+    frequencies instead of applying a flat 30-day lead time meant for Annual."""
+
+    def test_annual_keeps_historical_thirty_day_default(self):
+        # create_default_template() has always hardcoded billing_frequency="Annual",
+        # so this value must stay exactly what it was before the fix.
+        self.assertEqual(default_invoice_lead_days("Annual"), 30)
+
+    def test_short_frequencies_scale_down_below_flat_thirty(self):
+        # A 30-day lead time ahead of a 7-day Weekly (or 1-day Daily) period would
+        # fire more than four periods early - the lead time must shrink well
+        # below the flat 30-day value tuned for Annual/Quarterly.
+        self.assertEqual(default_invoice_lead_days("Weekly"), 2)
+        self.assertEqual(default_invoice_lead_days("Daily"), 1)
+        self.assertLess(default_invoice_lead_days("Weekly"), 30)
+        self.assertLess(default_invoice_lead_days("Daily"), 30)
+
+    def test_unknown_or_missing_frequency_keeps_flat_thirty_day_default(self):
+        # get_nominal_period_days() falls back to a *Monthly-sized* 30 for
+        # Custom/unknown/missing frequencies (it has no number+unit to size a
+        # Custom period from). Naively feeding that fallback through the //3
+        # scaling formula would silently shrink this lead time to 10 - it must
+        # instead keep the historical flat 30-day default.
+        self.assertEqual(default_invoice_lead_days("Custom"), 30)
+        self.assertEqual(default_invoice_lead_days(None), 30)
+        self.assertEqual(default_invoice_lead_days("Fortnightly"), 30)
 
 
 class TestTemplateServices(EnhancedTestCase):

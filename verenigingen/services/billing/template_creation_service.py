@@ -35,11 +35,38 @@ from typing import TYPE_CHECKING, Optional
 import frappe
 from frappe.utils import today
 
+from verenigingen.services.billing.billing_period_calculator import (
+    NOMINAL_PERIOD_DAYS,
+    get_nominal_period_days,
+)
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
+
+
+def default_invoice_lead_days(billing_frequency: str) -> int:
+    """
+    Sensible default for invoice_days_before, scaled to the template's own
+    billing cadence instead of a flat 30 days that only happens to fit
+    Annual/Quarterly/Semi-Annual templates.
+
+    A 30-day lead time is reasonable ahead of a 365-day Annual period, but
+    generating an invoice 30 days before a 7-day Weekly (or 1-day Daily)
+    period would fire more than four periods early. The lead time is
+    capped at 30 and floored at 1, scaling as roughly a third of the
+    nominal period in between.
+
+    Unknown/Custom/missing frequencies keep the historical flat 30-day
+    default rather than scaling a period length we don't actually know:
+    get_nominal_period_days() falls back to a *Monthly-sized* 30 for those,
+    which would otherwise silently shrink this lead time to 10.
+    """
+    if billing_frequency not in NOMINAL_PERIOD_DAYS:
+        return 30
+    period_days = get_nominal_period_days(billing_frequency)
+    return min(30, max(1, period_days // 3))
 
 
 class TemplateCreationService(StatelessService):
@@ -99,7 +126,7 @@ class TemplateCreationService(StatelessService):
             template.contribution_mode = "Income-Based"
             template.minimum_amount = 0
             template.suggested_amount = 15.0  # Default template value
-            template.invoice_days_before = 30
+            template.invoice_days_before = default_invoice_lead_days(template.billing_frequency)
             template.billing_day = 1  # Default template billing day
             template.auto_generate = 1
 
