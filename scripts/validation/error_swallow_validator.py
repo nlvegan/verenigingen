@@ -176,6 +176,22 @@ caller on every path where ``urgent`` is false, exactly as swallowed as if the
 ``if`` were not there. ``_falsy_only_assigns`` also cannot see ``ast.AnnAssign``
 or ``ast.AugAssign`` at all -- see its own docstring for the measurement.
 
+STANDING CONTROL (#601)
+------------------------
+#601 is itself an instance of the general lesson: a guard reported clean on a
+shape it was built to catch, and nothing before this stood between "checked
+nothing" and "checked a clean tree" the way ``run_self_check`` now does for
+``scan_order_dependence.py`` (#851/#825). ``run_self_check`` scans a fixed,
+known-bad module -- one return-arm swallow, one assign-arm swallow (#601), one
+sentinel-call swallow (#586), and the one shape that must stay clean
+(``volunteer/dashboard.py``'s legitimate degrade) -- through the real
+``scan_file`` codepath, and exits loudly, non-zero, before ``main()`` trusts
+ANY of its own modes (a plain scan, ``--stats``, ``--check-shrink``) if the
+scores are not exactly as expected. It runs on every invocation, not only in
+CI's separate pytest job, so a future narrowing of ``_falsy_only_assigns`` or
+``_is_falsy_value`` cannot silently regress either fix without the detector
+itself refusing to answer.
+
 RATCHET, NOT BIG-BANG
 ---------------------
 There are 480 such sites today, across ``verenigingen/`` and ``scripts/`` (this
@@ -230,6 +246,7 @@ import ast
 import os
 import re
 import sys
+import tempfile
 from collections import Counter
 from pathlib import Path
 from typing import NamedTuple
@@ -1090,6 +1107,104 @@ def write_baseline(path: Path, counts: Counter) -> None:
     path.write_text("\n".join(header + body) + "\n", encoding="utf-8")
 
 
+# A fixed, known-bad module the detector must ALWAYS flag, plus one shape it must
+# ALWAYS leave clean -- see #601's own history for why a guard needs this. The
+# assign arm (#601) landed already caught 30 functions the pre-#601 validator could
+# not see at all (`get_chapter_key_metrics` here is that exact shape), and the
+# sentinel-call arm (#586) closed a SEPARATE literal-only gap the same way
+# (`get_invoice_choice`). Both are easy to silently regress -- a future refactor of
+# `_falsy_only_assigns` or `_is_falsy_value` that narrows either one back down would
+# make a scan that has checked nothing look identical to a scan of a clean tree,
+# which is the exact failure #851/#825 found in the sibling order-dependence
+# scanner. Embedded here rather than committed as a file under SCAN_ROOTS, so it
+# cannot rot, be excluded by a future scan-root change, or get "cleaned up" by
+# someone editing test fixtures.
+_CONTROL_SOURCE = '''\
+import frappe
+
+
+def get_basic_expense_stats(chapter_name):
+    """RETURN-arm control: a bare falsy return -- caught since this validator's
+    very first version, and the one arm every other control is measured against."""
+    try:
+        return compute_expenses(chapter_name)
+    except Exception as e:
+        frappe.log_error(f"boom: {e}")
+        return {"total": 0, "count": 0}
+
+
+def get_chapter_key_metrics(chapter_name):
+    """ASSIGN-arm control (#601): the identical zero-dict, assigned instead of
+    returned -- invisible to every arm reached only from an ast.Return node, which
+    is the shape this whole issue is about."""
+    try:
+        members = compute(chapter_name)
+        member_stats = {"total_members": len(members), "active_members": 3}
+    except Exception as e:
+        frappe.log_error(f"boom: {e}")
+        member_stats = {"total_members": 0, "active_members": 0}
+    expense_stats = get_basic_expense_stats(chapter_name)
+    return {"members": member_stats, "expenses": expense_stats}
+
+
+def get_invoice_choice(x):
+    """SENTINEL-call control (#586): a falsy-MEANING call, not a falsy-SHAPED
+    literal -- the literal-only gap #601 asked to check for a second time."""
+    try:
+        return InvoiceChoice(compute(x), 1)
+    except Exception as e:
+        frappe.log_error(f"boom: {e}")
+        return InvoiceChoice(None, 0)
+
+
+def get_context(context):
+    """MUST-STAY-CLEAN control: the volunteer/dashboard shape (#601) -- a falsy
+    assign beside a real signal (`data_warning`) is a legitimate page-level
+    degrade, not a swallow, and must never be flagged with no marker needed."""
+    try:
+        context.expense_summary = compute(context)
+    except Exception as e:
+        frappe.log_error(f"boom: {e}")
+        context.expense_summary = {"total_submitted": 0, "pending_count": 0}
+        context.data_warning = _("Some data could not be loaded.")
+    return context
+'''
+
+_CONTROL_MUST_FLAG = {"get_basic_expense_stats", "get_chapter_key_metrics", "get_invoice_choice"}
+_CONTROL_MUST_STAY_CLEAN = {"get_context"}
+
+
+def run_self_check() -> None:
+    """Prove the detector still finds all three known-bad shapes above, and still
+    leaves the one legitimate shape alone, before trusting any scan.
+
+    #601 found the RETURN-only detector blind to the assign shape; #586 found the
+    literal-only falsy test blind to a sentinel call. Both are fixed today, but
+    nothing stood between a future edit and silently narrowing either fix back down
+    -- exactly the class #851/#825 found in `scan_order_dependence.py`, applied
+    here. This scans ``_CONTROL_SOURCE`` -- written to a real temp file and read
+    back through the same ``scan_file`` codepath a normal invocation uses -- and
+    exits loudly, non-zero, if any expected finding is missing or the clean shape
+    is wrongly flagged, rather than proceeding to print a possibly-fake "no new
+    swallows".
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        control_path = Path(tmp) / "error_swallow_control.py"
+        control_path.write_text(_CONTROL_SOURCE, encoding="utf-8")
+        findings, _bad = scan_file(control_path)
+    flagged = {qualname for qualname, _lineno in findings}
+    missing = _CONTROL_MUST_FLAG - flagged
+    unexpected = _CONTROL_MUST_STAY_CLEAN & flagged
+    if missing or unexpected:
+        sys.exit(
+            "SWALLOW GUARD SELF-CHECK FAILED: the known-bad control module did not "
+            f"score as expected -- missing={sorted(missing)} "
+            f"wrongly-flagged={sorted(unexpected)}. This detector cannot be trusted "
+            "to report a real 'no new swallows' -- fix the detector (see #601, #586) "
+            "before trusting this or any other run of it."
+        )
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("paths", nargs="*", default=list(SCAN_ROOTS))
@@ -1110,6 +1225,12 @@ def main(argv: list[str]) -> int:
         "which is otherwise indistinguishable from a pre-existing silent sibling",
     )
     args = ap.parse_args(argv[1:])
+
+    # Prove the detector still catches known-bad shapes -- including the ones #601
+    # and #586 each found it blind to -- before trusting ANY of the modes below,
+    # `--stats` and `--check-shrink` included: all of them can print a misleadingly
+    # clean answer the same way a bare scan can.
+    run_self_check()
 
     paths = args.paths or list(SCAN_ROOTS)
 

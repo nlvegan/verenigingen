@@ -7,6 +7,7 @@ or plain:  python scripts/validation/tests/test_error_swallow_validator.py
 """
 import ast
 import importlib.util
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -1949,6 +1950,104 @@ class HandlerFingerprintTest(unittest.TestCase):
             finally:
                 esv.REPO_ROOT = original
         self.assertEqual(reported, [])
+
+
+class SelfCheckControlTest(unittest.TestCase):
+    """The mandatory control this issue is about (#601's own point, applied to
+    itself): a guard without a control cannot prove it still works. Prove
+    ``run_self_check`` both passes against the real detector and fails loudly when
+    the detector is deliberately broken -- for BOTH gaps #601 ever found (the assign
+    arm and the sentinel-call arm), not just one of them.
+    """
+
+    def test_self_check_passes_against_the_real_detector(self):
+        esv.run_self_check()  # must not raise/exit
+
+    def test_control_scores_all_four_shapes_directly(self):
+        """Same assertion `run_self_check` makes, spelled out so a future edit to
+        the scoring logic itself cannot silently defeat both at once."""
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "control.py"
+            p.write_text(esv._CONTROL_SOURCE)
+            findings, bad = esv.scan_file(p)
+        flagged = {qualname for qualname, _lineno in findings}
+        self.assertEqual(flagged, esv._CONTROL_MUST_FLAG)
+        self.assertEqual(bad, [])
+
+    def test_self_check_fails_when_the_assign_arm_stops_firing(self):
+        """Simulate #601 reopening: `_falsy_only_assigns` stops recognising the
+        assign shape. A control that cannot fail this way is not a control."""
+        original = esv._falsy_only_assigns
+        esv._falsy_only_assigns = lambda handler: False
+        try:
+            with self.assertRaises(SystemExit) as ctx:
+                esv.run_self_check()
+        finally:
+            esv._falsy_only_assigns = original
+        self.assertIn("get_chapter_key_metrics", str(ctx.exception))
+
+    def test_self_check_fails_when_the_sentinel_arm_stops_firing(self):
+        """Simulate #586 reopening: a falsy-MEANING call stops being recognised as
+        falsy, same as if the guard had never learned the sentinel shape."""
+        original = esv._is_falsy_value
+
+        def patched(v):
+            if isinstance(v, ast.Call):
+                return False
+            return original(v)
+
+        esv._is_falsy_value = patched
+        try:
+            with self.assertRaises(SystemExit) as ctx:
+                esv.run_self_check()
+        finally:
+            esv._is_falsy_value = original
+        self.assertIn("get_invoice_choice", str(ctx.exception))
+
+    def test_self_check_fails_when_the_clean_shape_gets_wrongly_flagged(self):
+        """The other failure direction: the legitimate volunteer/dashboard shape
+        starts getting flagged. Missing findings are not the only way this guard
+        can go wrong -- a widened predicate can also produce a false positive on
+        the one place the pattern is correct (module docstring, THE ASSIGN ARM)."""
+        original = esv._falsy_only_assigns
+        esv._falsy_only_assigns = lambda handler: True
+        try:
+            with self.assertRaises(SystemExit) as ctx:
+                esv.run_self_check()
+        finally:
+            esv._falsy_only_assigns = original
+        self.assertIn("get_context", str(ctx.exception))
+
+    def test_main_refuses_to_scan_when_the_self_check_fails(self):
+        """End-to-end: run the real script as a subprocess with the assign arm
+        stubbed out via monkeypatch injected through PYTHONSTARTUP-free exec, and
+        confirm the process exits non-zero rather than printing a possibly-fake
+        clean scan. Exercises the actual `main()` wiring, not just the function."""
+        broken_source = _MOD_PATH.read_text(encoding="utf-8").replace(
+            "def _falsy_only_assigns(handler: ast.ExceptHandler) -> bool:\n"
+            "    \"\"\"The ASSIGN counterpart to (4) (#601): every own-scope assignment in",
+            "def _falsy_only_assigns(handler: ast.ExceptHandler) -> bool:\n"
+            "    return False\n"
+            "\n"
+            "def _falsy_only_assigns_UNREACHABLE(handler: ast.ExceptHandler) -> bool:\n"
+            "    \"\"\"The ASSIGN counterpart to (4) (#601): every own-scope assignment in",
+        )
+        self.assertNotEqual(
+            broken_source,
+            _MOD_PATH.read_text(encoding="utf-8"),
+            "the string replace above did not match -- update it to match the source",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            broken_path = Path(tmp) / "error_swallow_validator_broken.py"
+            broken_path.write_text(broken_source, encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(broken_path), "--stats"],
+                capture_output=True,
+                text=True,
+                cwd=str(_MOD_PATH.parents[1]),
+            )
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("SWALLOW GUARD SELF-CHECK FAILED", result.stdout + result.stderr)
 
 
 if __name__ == "__main__":
