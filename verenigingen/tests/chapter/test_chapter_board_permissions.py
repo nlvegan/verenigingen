@@ -158,7 +158,7 @@ class TestChapterBoardPermissions(EnhancedTestCase):
         from verenigingen.permissions import get_membership_permission_query
 
         # Membership for the regular member, who belongs to chapter 1
-        membership = self.create_test_membership(
+        membership = self._create_active_test_membership(
             member=self.regular_member.name,
             membership_type="Basic Membership",
             start_date=frappe.utils.today(),
@@ -287,7 +287,7 @@ class TestChapterBoardPermissions(EnhancedTestCase):
         self.add_member_to_chapter(other_member.name, self.chapter_2.name)
 
         # Create membership in chapter 2
-        other_membership = self.create_test_membership(
+        other_membership = self._create_active_test_membership(
             member=other_member.name, membership_type="Basic Membership", start_date=frappe.utils.today()
         )
 
@@ -317,8 +317,18 @@ class TestChapterBoardPermissions(EnhancedTestCase):
         chapter_member.insert()
         return chapter_member
 
-    def create_test_membership(self, member, membership_type, start_date):
-        """Helper method to create test membership"""
+    def _create_active_test_membership(self, member, membership_type, start_date):
+        """Helper method to create test membership.
+
+        Renamed from `create_test_membership` (#496): that name shadows
+        `EnhancedTestCase.create_test_membership(member_name=None,
+        membership_type_name=None, **kwargs)`, which
+        `create_test_member_with_schedule()` calls internally with
+        `member_name=`/`membership_type_name=`. Those keyword names don't
+        match this override's `member`/`membership_type` params, so that call
+        would raise TypeError -- latent because this class never calls
+        `create_test_member_with_schedule()` today.
+        """
         from verenigingen.tests.fixtures.test_data_factory import ensure_membership_type_exists
 
         # Ensure the referenced Membership Type exists (fresh sites do not seed
