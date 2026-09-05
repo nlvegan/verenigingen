@@ -2018,11 +2018,9 @@ class TestRoleRevocationClosesAccess(EnhancedTestCase):
         self.addCleanup(self._restore_live_division_contacts, previous)
         encoded = json.dumps({str(k): v for k, v in mapping.items()})
         frappe.db.set_single_value("MijnRood Sync Settings", "last_division_contacts_hash", encoded)
-        frappe.db.commit()
 
     def _restore_live_division_contacts(self, previous):
         frappe.db.set_single_value("MijnRood Sync Settings", "last_division_contacts_hash", previous)
-        frappe.db.commit()
 
     def _create_role_removal_event(self, member_name):
         """An Approved 'Changed' event whose only delta is ROLE_ADMIN going away."""
