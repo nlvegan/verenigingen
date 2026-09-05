@@ -1043,3 +1043,306 @@ class TestVolunteerMemberUniqueness(EnhancedTestCase):
             frappe.db.sql("SELECT member FROM `tabVolunteer` WHERE name = %s", name)[0][0],
             "the patch must rewrite an empty-string member to NULL",
         )
+
+
+class TestVolunteerUserDerivation(EnhancedTestCase):
+    """`Volunteer.user` duplicates a fact reachable as `Volunteer.member ->
+    Member.user` in the COMMON case, but it is not always that fact: a
+    volunteer can also get their own dedicated account, independent of their
+    member account (`services/member/account/account_creation_manager.py`,
+    sourced from `Volunteer.email`, not `Member.email`). Before this fix,
+    `Volunteer.user` was written once (only by the bulk creation service) for
+    the common case and never corrected; a first version of this fix instead
+    overwrote it unconditionally from `Member.user`, which silently destroyed
+    the independent-account case (caught by review before it shipped). See
+    #270.
+
+    None of these tests need to suppress `volunteer.py`'s own `after_insert`
+    account-linking explicitly: `EnhancedTestCase.setUp`
+    (`enhanced_test_factory.py`) already sets
+    `frappe.flags.skip_volunteer_account_creation = True` for every test in
+    this suite, so that path never fires here regardless. What actually
+    populates `user` below is the mechanism each test names.
+    """
+
+    def test_new_volunteer_derives_user_from_member(self):
+        """A Volunteer created without an explicit `user` must still pick one up
+        from its linked Member -- this is the "any path other than the bulk
+        service leaves user empty" half of #270. With `after_insert`'s own
+        linking suppressed for the whole suite (see class docstring), the only
+        thing that can populate `user` here is `fetch_if_empty`.
+        """
+        user = self.create_test_user(f"vol270a-{frappe.generate_hash(length=8)}@test.invalid")
+        member = self.create_test_member(user=user.name)
+
+        volunteer = frappe.get_doc(
+            {
+                "doctype": "Volunteer",
+                "volunteer_name": f"Vol270A {frappe.generate_hash(length=6)}",
+                "email": f"vol270a-{frappe.generate_hash(length=8)}@test.invalid",
+                "member": member.name,
+                "status": "Active",
+                "start_date": today(),
+            }
+        ).insert()
+        self.track_doc("Volunteer", volunteer.name)
+
+        self.assertEqual(
+            frappe.db.get_value("Volunteer", volunteer.name, "user"),
+            user.name,
+            "Volunteer.user must be derived from the linked Member at creation, "
+            "not left empty for anything but the bulk creation service",
+        )
+
+    def test_volunteer_user_resyncs_when_it_was_mirroring_the_member(self):
+        """The "never re-synced" half of #270: a Volunteer whose `user` was
+        actually copied from its Member must follow when Member.user changes
+        -- not keep the value recorded at Volunteer creation.
+        """
+        user_a = self.create_test_user(f"vol270b-a-{frappe.generate_hash(length=8)}@test.invalid")
+        user_b = self.create_test_user(f"vol270b-b-{frappe.generate_hash(length=8)}@test.invalid")
+        member = self.create_test_member(user=user_a.name)
+
+        volunteer = frappe.get_doc(
+            {
+                "doctype": "Volunteer",
+                "volunteer_name": f"Vol270B {frappe.generate_hash(length=6)}",
+                "email": f"vol270b-{frappe.generate_hash(length=8)}@test.invalid",
+                "member": member.name,
+                "user": user_a.name,
+                "status": "Active",
+                "start_date": today(),
+            }
+        ).insert()
+        self.track_doc("Volunteer", volunteer.name)
+
+        # Control: correct before the change, and actually mirroring the member.
+        self.assertEqual(
+            frappe.db.get_value("Volunteer", volunteer.name, "user"),
+            user_a.name,
+            "fixture invalid: Volunteer.user must start out correct",
+        )
+
+        member.reload()
+        member.user = user_b.name
+        member.save()
+
+        self.assertEqual(
+            frappe.db.get_value("Volunteer", volunteer.name, "user"),
+            user_b.name,
+            "Volunteer.user must follow Member.user once it changes, not keep "
+            "the value recorded at Volunteer creation",
+        )
+
+    def test_blank_volunteer_user_is_filled_when_member_later_gets_one(self):
+        """A blank `Volunteer.user` is always safe to fill -- there is nothing
+        to lose -- so the resync hook must fill it too, not just the mirroring
+        case. Without this, a Volunteer nobody saves again stays blank forever
+        even after its member gets a login, since `fetch_if_empty` only runs on
+        the Volunteer's OWN next save.
+        """
+        user = self.create_test_user(f"vol270g-{frappe.generate_hash(length=8)}@test.invalid")
+        member = self.create_test_member()  # no user yet
+
+        volunteer = frappe.get_doc(
+            {
+                "doctype": "Volunteer",
+                "volunteer_name": f"Vol270G {frappe.generate_hash(length=6)}",
+                "email": f"vol270g-{frappe.generate_hash(length=8)}@test.invalid",
+                "member": member.name,
+                "status": "Active",
+                "start_date": today(),
+            }
+        ).insert()
+        self.track_doc("Volunteer", volunteer.name)
+
+        self.assertIsNone(
+            frappe.db.get_value("Volunteer", volunteer.name, "user"),
+            "fixture invalid: the volunteer must start out blank",
+        )
+
+        member.reload()
+        member.user = user.name
+        member.save()
+
+        self.assertEqual(
+            frappe.db.get_value("Volunteer", volunteer.name, "user"),
+            user.name,
+            "a blank Volunteer.user must be filled once its member gets a login",
+        )
+
+    def test_mirroring_volunteer_user_follows_member_user_cleared_to_none(self):
+        """A mirror is supposed to track its source all the way down: if the
+        Member's account is cleared, a Volunteer.user that was mirroring it
+        must clear too, rather than freezing the last value of a now-revoked
+        account. `member_user_email_sync.py`'s own "linked User no longer
+        exists" path already clears `Member.user` to None on exactly this
+        reasoning; this pins the same behaviour propagating to a mirroring
+        Volunteer.
+        """
+        user = self.create_test_user(f"vol270h-{frappe.generate_hash(length=8)}@test.invalid")
+        member = self.create_test_member(user=user.name)
+
+        volunteer = frappe.get_doc(
+            {
+                "doctype": "Volunteer",
+                "volunteer_name": f"Vol270H {frappe.generate_hash(length=6)}",
+                "email": f"vol270h-{frappe.generate_hash(length=8)}@test.invalid",
+                "member": member.name,
+                "user": user.name,
+                "status": "Active",
+                "start_date": today(),
+            }
+        ).insert()
+        self.track_doc("Volunteer", volunteer.name)
+
+        self.assertEqual(
+            frappe.db.get_value("Volunteer", volunteer.name, "user"),
+            user.name,
+            "fixture invalid: Volunteer.user must start out mirroring the member",
+        )
+
+        member.reload()
+        member.user = None
+        member.save()
+
+        self.assertIsNone(
+            frappe.db.get_value("Volunteer", volunteer.name, "user"),
+            "a mirroring Volunteer.user must clear when the member's account "
+            "it was mirroring is cleared, not freeze the last value",
+        )
+
+    def test_volunteer_user_is_not_touched_when_it_was_never_mirroring_the_member(self):
+        """The regression a first version of this fix introduced: a Volunteer
+        can have its OWN account, unrelated to Member.user (e.g. the member
+        never got a member-level login at all). Member.user changing --
+        including from empty to populated -- must NOT touch that independent
+        value. This is the exact case a skeptical review caught by probing the
+        live code, not by reading it: an unconditional `fetch_from` /
+        Member->Volunteer sync silently wiped it to NULL.
+
+        Also covers the `fetch_from` half of the same guarantee: an ordinary
+        SAVE of the Volunteer itself (not just a Member.user change) must not
+        overwrite the independent account either -- that's what
+        `fetch_if_empty` is for, as opposed to a blind `fetch_from`.
+        """
+        own_account = self.create_test_user(f"vol270e-own-{frappe.generate_hash(length=8)}@test.invalid")
+        member_account = self.create_test_user(f"vol270e-mem-{frappe.generate_hash(length=8)}@test.invalid")
+        member = self.create_test_member()  # no user yet -- this member has no login of their own
+
+        volunteer = frappe.get_doc(
+            {
+                "doctype": "Volunteer",
+                "volunteer_name": f"Vol270E {frappe.generate_hash(length=6)}",
+                "email": f"vol270e-{frappe.generate_hash(length=8)}@test.invalid",
+                "member": member.name,
+                "status": "Active",
+                "start_date": today(),
+            }
+        ).insert()
+        self.track_doc("Volunteer", volunteer.name)
+        # Simulate the volunteer's own dedicated account being linked, as
+        # account_creation_manager.py's Link 1 does for request_type=="Volunteer".
+        frappe.db.set_value("Volunteer", volunteer.name, "user", own_account.name, update_modified=False)
+
+        self.assertEqual(
+            frappe.db.get_value("Volunteer", volunteer.name, "user"),
+            own_account.name,
+            "fixture invalid: the volunteer must start out with its own account",
+        )
+
+        # The member later gets their own, DIFFERENT login -- this must not
+        # clobber the volunteer's independent one.
+        member.reload()
+        member.user = member_account.name
+        member.save()
+
+        self.assertEqual(
+            frappe.db.get_value("Volunteer", volunteer.name, "user"),
+            own_account.name,
+            "an independently-issued Volunteer.user must survive a Member.user "
+            "change -- it was never mirroring the member to begin with",
+        )
+
+        # And an ordinary save of the Volunteer itself must not overwrite it
+        # either -- this is the `fetch_from` + `fetch_if_empty` half of the
+        # same guarantee, not just the Member-side resync hook's half.
+        volunteer.reload()
+        volunteer.save()
+
+        self.assertEqual(
+            frappe.db.get_value("Volunteer", volunteer.name, "user"),
+            own_account.name,
+            "an independently-issued Volunteer.user must survive an ordinary "
+            "save of the Volunteer too, not just a Member.user change",
+        )
+
+    def test_volunteer_user_field_declares_fetch_if_empty(self):
+        """Pin the derivation mechanism itself, so a future edit can't silently
+        turn this back into a blind, destructive `fetch_from` (see #270's
+        review history) or drop it back to a plain stored Link.
+        """
+        meta = frappe.get_meta("Volunteer")
+        user_field = meta.get_field("user")
+        self.assertEqual(
+            user_field.fetch_from,
+            "member.user",
+            "Volunteer.user must be declared fetch_from member.user",
+        )
+        self.assertTrue(
+            user_field.fetch_if_empty,
+            "Volunteer.user must be fetch_if_empty -- WITHOUT it, an ordinary "
+            "save of a Volunteer with its own independent account would "
+            "overwrite it from Member.user on every save",
+        )
+
+    def test_backfill_patch_fills_a_blank_volunteer_user(self):
+        """The migration-time half of #270: `fetch_if_empty` and the resync
+        hook only correct a row the next time something touches it. A row
+        nobody ever saves again, created before this fix with an empty
+        `user`, needs the one-time backfill patch to fill it.
+        """
+        from verenigingen.patches.v2_2.backfill_volunteer_user_from_member import execute
+
+        user = self.create_test_user(f"vol270c-{frappe.generate_hash(length=8)}@test.invalid")
+        member = self.create_test_member(user=user.name)
+        volunteer = self.create_test_volunteer(member.name)
+
+        # Force the DB into the pre-fix blank shape directly (bypassing the
+        # controller-side fetch_if_empty, which would otherwise fill it on save).
+        frappe.db.set_value("Volunteer", volunteer.name, "user", None, update_modified=False)
+        self.assertIsNone(
+            frappe.db.get_value("Volunteer", volunteer.name, "user"),
+            "fixture invalid: the row must start out blank",
+        )
+
+        execute()
+
+        self.assertEqual(
+            frappe.db.get_value("Volunteer", volunteer.name, "user"),
+            user.name,
+            "the backfill patch must fill a blank Volunteer.user from the linked Member",
+        )
+
+    def test_backfill_patch_never_overwrites_a_populated_volunteer_user(self):
+        """The other half of the same regression test, at the patch level:
+        the patch must be additive-only. A row where `user` is already
+        populated -- whether mirroring the member or independently issued --
+        must be left exactly as it is, even if it differs from Member.user.
+        """
+        from verenigingen.patches.v2_2.backfill_volunteer_user_from_member import execute
+
+        own_account = self.create_test_user(f"vol270f-own-{frappe.generate_hash(length=8)}@test.invalid")
+        member_account = self.create_test_user(f"vol270f-mem-{frappe.generate_hash(length=8)}@test.invalid")
+        member = self.create_test_member(user=member_account.name)
+        volunteer = self.create_test_volunteer(member.name)
+        frappe.db.set_value("Volunteer", volunteer.name, "user", own_account.name, update_modified=False)
+
+        execute()
+
+        self.assertEqual(
+            frappe.db.get_value("Volunteer", volunteer.name, "user"),
+            own_account.name,
+            "the backfill patch must never overwrite an already-populated "
+            "Volunteer.user, even where it diverges from Member.user",
+        )
