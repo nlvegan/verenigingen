@@ -315,11 +315,66 @@ class TestMembershipDuesCoverageAnalysisReport(VereningingenTestCase):
             self.assertEqual(p["billing_frequency"], "Monthly")
 
     def test_calculate_billing_periods_annual(self):
+        # Control: a gap that stays within a single book year is unaffected.
         periods = report.calculate_billing_periods_for_gap(
             getdate("2025-01-01"), getdate("2025-12-31"), "Annual", 100.0
         )
         self.assertEqual(len(periods), 1)
         self.assertEqual(periods[0]["amount"], 100.0)
+
+    def test_calculate_billing_periods_annual_crossing_book_year_is_one_period(self):
+        # #207: schedule-generated invoices run a full period from their anchor date
+        # with no book-year clipping (coverage_calculator.py, PR #212), so an Annual
+        # member's coverage genuinely spans two book years when their cycle crosses
+        # 1 January. A single missed Annual period covering 2024-07-01..2025-06-30
+        # (12 months, crossing the boundary) must be filled by ONE catch-up period
+        # billed once - not split at the book-year boundary into two full-rate halves.
+        periods = report.calculate_billing_periods_for_gap(
+            getdate("2024-07-01"), getdate("2025-06-30"), "Annual", 100.0
+        )
+        self.assertEqual(len(periods), 1)
+        self.assertEqual(periods[0]["amount"], 100.0)
+        self.assertEqual(periods[0]["start"], getdate("2024-07-01"))
+        self.assertEqual(periods[0]["end"], getdate("2025-06-30"))
+
+    def test_calculate_billing_periods_annual_multi_year_gap_bills_once_per_year(self):
+        # A gap spanning THREE missed annual periods must still generate THREE
+        # catch-up periods (one full-rate charge per actually-missed year), not
+        # collapse into a single charge just because book-year splitting was
+        # removed. This is the failure mode a fix that simply stops chunking
+        # altogether would introduce: a member who missed 3 years of dues would
+        # otherwise be catch-up-billed for only 1.
+        periods = report.calculate_billing_periods_for_gap(
+            getdate("2022-01-01"), getdate("2024-12-31"), "Annual", 100.0
+        )
+        self.assertEqual(len(periods), 3)
+        for p in periods:
+            self.assertEqual(p["amount"], 100.0)
+        self.assertEqual(periods[0]["start"], getdate("2022-01-01"))
+        self.assertEqual(periods[0]["end"], getdate("2022-12-31"))
+        self.assertEqual(periods[1]["start"], getdate("2023-01-01"))
+        self.assertEqual(periods[1]["end"], getdate("2023-12-31"))
+        self.assertEqual(periods[2]["start"], getdate("2024-01-01"))
+        self.assertEqual(periods[2]["end"], getdate("2024-12-31"))
+
+    def test_calculate_billing_periods_annual_multi_year_gap_crossing_offset(self):
+        # Same multi-year control, but the cycle is offset from the calendar year
+        # (anchored on the member's own join date, not 1 January) so each of the
+        # three natural periods straddles a book-year boundary. Must still be
+        # exactly 3 periods, each billed once, matching what the schedule itself
+        # would have generated for 3 consecutive missed years.
+        periods = report.calculate_billing_periods_for_gap(
+            getdate("2022-07-01"), getdate("2025-06-30"), "Annual", 100.0
+        )
+        self.assertEqual(len(periods), 3)
+        for p in periods:
+            self.assertEqual(p["amount"], 100.0)
+        self.assertEqual(periods[0]["start"], getdate("2022-07-01"))
+        self.assertEqual(periods[0]["end"], getdate("2023-06-30"))
+        self.assertEqual(periods[1]["start"], getdate("2023-07-01"))
+        self.assertEqual(periods[1]["end"], getdate("2024-06-30"))
+        self.assertEqual(periods[2]["start"], getdate("2024-07-01"))
+        self.assertEqual(periods[2]["end"], getdate("2025-06-30"))
 
     def test_calculate_billing_periods_quarterly(self):
         periods = report.calculate_billing_periods_for_gap(
