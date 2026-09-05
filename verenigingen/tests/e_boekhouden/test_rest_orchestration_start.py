@@ -42,10 +42,22 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 ABBR = "EBST"
 COMPANY = "TEST-EB-Start-Company"
 
-INCOME_LEDGER = "8100"
-EXPENSE_LEDGER = "4100"
-RECEIVABLE_LEDGER = "1310"
-PAYABLE_LEDGER = "1610"
+# Prefixed with a suite-specific "98" so these ledger IDs cannot collide with
+# any other e_boekhouden test suite's own company. "E-Boekhouden Ledger
+# Mapping" is a global doctype (autoname: field:ledger_id, no company field --
+# it mirrors production's single-company-per-site assumption), so two suites
+# sharing a bare ledger id like "8100" fight over which company's account it
+# resolves to; whichever suite's setUpClass ran first in the shard wins, and
+# the other posts a real Journal Entry to an account belonging to someone
+# else's company, which ERPNext rejects outright (see #894). Every sibling
+# e_boekhouden suite already follows this convention (test_rest_orchestration_
+# batch.py uses "97...", test_rest_party_dispatch.py uses "95...", etc.) --
+# this file and test_rest_orchestration_dispatch.py were the only two still
+# using the bare, colliding literals.
+INCOME_LEDGER = "9808100"
+EXPENSE_LEDGER = "9804100"
+RECEIVABLE_LEDGER = "9801310"
+PAYABLE_LEDGER = "9801610"
 
 ITERATOR_TARGET = "verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator.EBoekhoudenRESTIterator"
 
@@ -425,8 +437,8 @@ class TestStartImportHappyPath(_StartImportBase):
         # default account would fail this.
         accounts = set(frappe.get_all("Journal Entry Account", filters={"parent": je_name}, pluck="account"))
         expected_accounts = {
-            frappe.db.get_value("E-Boekhouden Ledger Mapping", {"ledger_id": "8100"}, "erpnext_account"),
-            frappe.db.get_value("E-Boekhouden Ledger Mapping", {"ledger_id": "4100"}, "erpnext_account"),
+            frappe.db.get_value("E-Boekhouden Ledger Mapping", {"ledger_id": INCOME_LEDGER}, "erpnext_account"),
+            frappe.db.get_value("E-Boekhouden Ledger Mapping", {"ledger_id": EXPENSE_LEDGER}, "erpnext_account"),
         }
         self.assertEqual(accounts, expected_accounts)
 
