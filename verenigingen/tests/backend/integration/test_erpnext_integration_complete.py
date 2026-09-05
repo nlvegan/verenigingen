@@ -49,15 +49,24 @@ class TestERPNextIntegrationComplete(EnhancedTestCase):
         # v16 makes selling_price_list / price_list_currency / plc_conversion_rate
         # mandatory on Sales Invoice; without a matching price list the framework
         # cannot derive them and insert() raises MandatoryError.
-        cls.selling_price_list = cls._ensure_selling_price_list()
+        cls.selling_price_list = cls._ensure_own_selling_price_list()
 
         # Create test member and volunteer
         cls.test_member = cls._create_test_member()
         cls.test_volunteer = cls._create_test_volunteer()
 
     @classmethod
-    def _ensure_selling_price_list(cls):
-        """Ensure a selling Price List in the company's currency exists."""
+    def _ensure_own_selling_price_list(cls):
+        """Ensure a selling Price List in the company's currency exists.
+
+        Renamed from `_ensure_selling_price_list` (#496): that name shadows
+        `EnhancedTestCase._ensure_selling_price_list(currency="EUR")`, which
+        `create_test_sales_invoice()` calls internally as
+        `self._ensure_selling_price_list(company_currency)`. This classmethod
+        takes no arguments, so that call would raise TypeError ("too many
+        positional arguments") -- latent because this class never calls
+        `create_test_sales_invoice()` today.
+        """
         currency = frappe.db.get_value("Company", cls.company.name, "default_currency") or "EUR"
 
         # Named, not queried. Asking for "any enabled selling price list in this
