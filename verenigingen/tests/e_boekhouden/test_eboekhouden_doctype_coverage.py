@@ -694,7 +694,7 @@ class TestEBoekhoudenItemMapping(EnhancedTestCase):
         # Ensure a test account with account_number exists
         self.test_account = self._ensure_test_account()
         # Ensure a test item exists
-        self.test_item = self._ensure_test_item()
+        self.test_item = self._ensure_eb_test_item()
 
     def _ensure_test_account(self):
         """Ensure an Account with account_number exists for testing."""
@@ -715,8 +715,16 @@ class TestEBoekhoudenItemMapping(EnhancedTestCase):
         doc.insert(ignore_permissions=True)
         return doc.name
 
-    def _ensure_test_item(self):
-        """Ensure a test Item exists."""
+    def _ensure_eb_test_item(self):
+        """Ensure a test Item exists.
+
+        Renamed from `_ensure_test_item` (#496): that name shadows
+        `EnhancedTestCase._ensure_test_item(item_code)`, which
+        `create_test_sales_invoice()` calls internally as
+        `self._ensure_test_item(item_code)`. This override takes no
+        arguments, so that call would raise TypeError -- latent because this
+        class never calls `create_test_sales_invoice()` today.
+        """
         item_name = "EBTEST-Item-Mapping"
         if not frappe.db.exists("Item", item_name):
             item = frappe.new_doc("Item")
