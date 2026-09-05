@@ -590,24 +590,6 @@ class TestBulkProcessBatching(_PageTest):
 # bulk_retrieve_all_member_payments — param clamping + global_payments mode
 # ===========================================================================
 class TestBulkRetrieve(_PageTest):
-    def setUp(self):
-        super().setUp()
-        # The matcher is a module-level singleton with cached member lookups;
-        # reset so newly created test members are seen.
-        from verenigingen.verenigingen_payments.mollie.utils.member_payment_matcher import (
-            get_member_payment_matcher,
-        )
-
-        get_member_payment_matcher().reset()
-
-    def tearDown(self):
-        from verenigingen.verenigingen_payments.mollie.utils.member_payment_matcher import (
-            get_member_payment_matcher,
-        )
-
-        get_member_payment_matcher().reset()
-        super().tearDown()
-
     def test_global_mode_matches_member_and_classifies_orphan(self):
         from verenigingen.templates.pages import mollie_payment_processing as pp
 

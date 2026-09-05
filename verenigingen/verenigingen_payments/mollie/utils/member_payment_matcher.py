@@ -13,7 +13,8 @@ over time and historical payments would have outdated subscription IDs.
 """
 
 import re
-from typing import Optional
+from datetime import datetime
+from typing import Optional, Tuple
 
 import frappe
 
@@ -40,10 +41,69 @@ class MemberPaymentMatcher:
         self._customer_id_map: dict = {}
         self._all_members: list = []
         self._loaded: bool = False
+        self._loaded_signature: Optional[Tuple[str, int, Optional[datetime]]] = None
+
+    def _current_signature(self) -> Tuple[str, int, Optional[datetime]]:
+        """Cheap fingerprint of the Member rows this matcher cares about.
+
+        (site, count, max(modified)) over Members carrying a mollie_customer_id.
+
+        mollie_customer_id is NOT indexed, so this is a full scan of tabMember
+        -- but it reads two aggregates instead of materialising every row's
+        fields into Python dicts, measured 0.75ms vs 27.8ms for the reload it
+        guards (748 members, 536 in set, veg11 2026-09-05). It is O(total
+        members): if Member grows an order of magnitude, add an index on
+        mollie_customer_id rather than assuming this stays cheap.
+
+        The site is part of the fingerprint because this matcher is a
+        module-level singleton (see get_member_payment_matcher below) and RQ
+        worker processes are multi-tenant: queues are namespaced by bench, not
+        by site (frappe.utils.background_jobs.generate_qname), so one worker
+        process can serve several sites' jobs in turn via frappe.init(site).
+        Without the site in the key, two sites whose (count, max(modified))
+        happened to coincide could serve one site's cached members to another.
+
+        Known blind spot: a write with update_modified=False that does not
+        change the row count (e.g. changing mollie_customer_id/status/email on
+        a member already in the set) is invisible to this fingerprint --
+        verified on test_site_1 2026-09-05. All current production writers of
+        Member.mollie_customer_id go through doc.save(), which bumps modified,
+        so this is latent, not live. If a set_value(..., update_modified=False)
+        writer is ever added for a cached field (name, full_name,
+        mollie_customer_id, email, status), call
+        reset_member_payment_matcher() alongside it.
+        """
+        row = frappe.db.sql(
+            """
+            SELECT COUNT(*), MAX(modified)
+            FROM `tabMember`
+            WHERE mollie_customer_id IS NOT NULL AND mollie_customer_id != ''
+            """
+        )
+        count, max_modified = row[0]
+        return (frappe.local.site, count, max_modified)
 
     def _load_lookups(self) -> None:
-        """Load member lookup tables from database."""
-        if self._loaded:
+        """Load member lookup tables from database.
+
+        The process-global singleton (see get_member_payment_matcher below) can
+        stay alive for the lifetime of a worker process, spanning many separate
+        payment runs. A member created -- or one that only gets its
+        mollie_customer_id set -- after the first load must still be visible on
+        the next lookup, so a cached-and-still-fresh signature is required, not
+        just "have we ever loaded" (#255).
+
+        A doc_events hook on Member cannot fix this on its own: Members are
+        written from web request processes, but matching runs in RQ worker
+        processes (frappe.enqueue in mollie_bulk_run_service.py /
+        bulk_payment_admin_service.py), and a hook fired in the web process
+        would only clear that process's copy of this module global, leaving
+        every worker's singleton untouched. A signature derived from the
+        database itself is the one invalidation source visible to every
+        process.
+        """
+        current_signature = self._current_signature()
+        if self._loaded and current_signature == self._loaded_signature:
             return
 
         # Load ALL members with mollie_customer_id (no status filter for bookkeeping)
@@ -57,6 +117,7 @@ class MemberPaymentMatcher:
         self._customer_id_map = {m.mollie_customer_id: m for m in self._all_members}
 
         self._loaded = True
+        self._loaded_signature = current_signature
 
     def find_member_for_payment(self, payment) -> Optional[dict]:
         """
@@ -159,6 +220,7 @@ class MemberPaymentMatcher:
         self._customer_id_map = {}
         self._all_members = []
         self._loaded = False
+        self._loaded_signature = None
 
 
 # Module-level singleton for reuse across calls
