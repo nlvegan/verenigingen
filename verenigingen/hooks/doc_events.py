@@ -483,6 +483,30 @@ doc_events = {
         "on_update": [
             "verenigingen.verenigingen.doctype.member.member_utils.sync_member_counter_with_settings",
             "verenigingen.services.chapter.optimized_chapter_lookup.invalidate_chapter_lookup_cache",
+            # #866/#867: this doctype backs both the SEPA config manager's
+            # cached company_sepa config (frappe.get_single("Verenigingen
+            # Settings")) and the Mollie payment orchestrator's cached bank
+            # config (its company comes from here via
+            # MollieConfigurationService.get_default_company).
+            "verenigingen.verenigingen_payments.utils.sepa_config_manager.clear_cache_on_settings_update",
+            "verenigingen.verenigingen_payments.services.mollie_payment_orchestrator.reset_payment_orchestrator",
+        ],
+    },
+    "Verenigingen Payments Settings": {
+        # #866: SEPAConfigManager.get_company_sepa_config() also reads this
+        # doctype (via get_payments_settings()) into the same singleton cache
+        # cleared above for "Verenigingen Settings" -- a direct edit here
+        # bypasses update_setting()'s own clear_cache() call.
+        "on_update": [
+            "verenigingen.verenigingen_payments.utils.sepa_config_manager.clear_cache_on_settings_update",
+        ],
+    },
+    "Bank Account": {
+        # #867: get_mollie_bank_account_config() looks up the Bank Account
+        # linked to the Mollie clearing GL account; changing that link must
+        # invalidate the payment orchestrator's cached config.
+        "on_update": [
+            "verenigingen.verenigingen_payments.services.mollie_payment_orchestrator.reset_payment_orchestrator",
         ],
     },
     # =========================================================================
