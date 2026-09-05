@@ -176,6 +176,27 @@ class TestCreatePaymentEntryWithInvoice(FrappeTestCase):
         si.submit()
         return si
 
+    def _make_draft_invoice(self, rate):
+        """A never-submitted Sales Invoice - docstatus 0, left uncancelled/unsubmitted."""
+        customer = self._ensure_customer()
+        item = self._ensure_item()
+        si = frappe.get_doc(
+            {
+                "doctype": "Sales Invoice",
+                "company": TEST_COMPANY,
+                "customer": customer,
+                "currency": "INR",
+                "debit_to": "Debtors - _TC",
+                "items": [{"item_code": item, "qty": 1, "rate": rate, "income_account": "Sales - _TC"}],
+            }
+        )
+        si.insert(ignore_permissions=True)
+        if si.get("taxes") or si.get("taxes_and_charges"):
+            si.set("taxes", [])
+            si.taxes_and_charges = ""
+            si.save(ignore_permissions=True)
+        return si
+
     def _ensure_customer(self):
         name = "ING-TxnSvc-Test-Customer"
         if not frappe.db.exists("Customer", name):
@@ -257,6 +278,42 @@ class TestCreatePaymentEntryWithInvoice(FrappeTestCase):
         )
         self.assertFalse(second["success"])
         self.assertEqual(second["error"], "Invoice already paid")
+
+    def test_draft_invoice_is_refused_not_allocated(self):
+        """#856: a DRAFT reference document must never reach the allocator.
+
+        A draft Sales Invoice does NOT carry outstanding_amount == 0 - it carries its
+        full grand_total, since calculate_outstanding_amount runs on every save that
+        is not cancelled. The old code read only `outstanding_amount <= 0` ("already
+        paid") with no docstatus check, so a draft fell through as a normal unpaid
+        invoice and was hit with `min(transaction_amount, outstanding_amount)` and a
+        Payment Entry create+submit, which ERPNext refuses ("... must be submitted").
+        Pin both the premise (non-zero outstanding on a draft) and the fix (a clean
+        refusal, not a caught exception).
+        """
+        self.service._settings = {"ing_checkout_bank_account": TEST_BANK_ACCOUNT}
+        draft = self._make_draft_invoice(rate=25.00)
+        self.assertEqual(draft.docstatus, 0, "premise: the invoice must be a draft")
+        self.assertGreater(
+            flt(draft.outstanding_amount),
+            0,
+            "premise: a draft's outstanding_amount is its grand_total, not 0",
+        )
+
+        result = self.service.create_payment_entry_for_transaction(
+            transaction_name="TXN-DRAFT",
+            transaction_id="EX-DRAFT",
+            reference_doctype="Sales Invoice",
+            reference_name=draft.name,
+            amount=25.00,
+        )
+
+        self.assertFalse(result["success"])
+        self.assertIn("not submitted", result["error"].lower())
+        self.assertFalse(
+            frappe.db.exists("Payment Entry", {"reference_no": "EX-DRAFT"}),
+            "no Payment Entry may be created against a draft reference document",
+        )
 
     def test_happy_path_creates_and_submits_payment_entry(self):
         self.service._settings = {"ing_checkout_bank_account": TEST_BANK_ACCOUNT}

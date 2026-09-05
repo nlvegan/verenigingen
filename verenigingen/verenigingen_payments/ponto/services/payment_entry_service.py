@@ -39,6 +39,19 @@ def create_ponto_payment_entry(payment_link_doc, invoice_name: str) -> Optional[
         # Get invoice document
         invoice_doc = frappe.get_doc("Sales Invoice", invoice_name)
 
+        # A draft (docstatus 0) does NOT carry outstanding_amount == 0 - it carries its
+        # full grand_total (calculate_outstanding_amount runs on every save that is not
+        # cancelled). So this must be checked BEFORE the outstanding_amount <= 0 "already
+        # paid" branch below, or a draft falls through as a normal unpaid invoice and is
+        # handed to the allocator, which ERPNext then refuses at Payment Entry submit
+        # time ("... must be submitted", payment_entry.py:725-727). #856/#209.
+        if invoice_doc.docstatus != 1:
+            frappe.logger().warning(
+                f"Sales Invoice {invoice_name} is not submitted (docstatus: "
+                f"{invoice_doc.docstatus}) - refusing to allocate a payment, needs manual review"
+            )
+            return None
+
         if invoice_doc.outstanding_amount <= 0:
             frappe.logger().info(
                 f"Sales Invoice {invoice_name} already paid (outstanding: {invoice_doc.outstanding_amount})"
