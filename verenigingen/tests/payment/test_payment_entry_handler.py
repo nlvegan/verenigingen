@@ -88,18 +88,25 @@ class TestPaymentEntryHandler(EnhancedTestCase):
         cls._ensure_bank_account_master(company, gl_account)
         return gl_account
 
+    # Bank Account autonames account_name + " - " + bank; guarding on
+    # {"account": gl_account, "company": company} instead can miss a row that
+    # already carries this literal name under a different `account`, and then
+    # collide on insert with a DuplicateEntryError -- same guard-key-vs-
+    # autoname-key gap as _ensure_bank_account above (#308).
+    OWN_BANK_ACCOUNT_NAME = "Test Bank Triodos Account"
+
     @classmethod
     def _ensure_bank_account_master(cls, company, gl_account):
         """Create a Bank Account master linking a Bank to the GL account."""
-        if frappe.db.exists("Bank Account", {"account": gl_account, "company": company}):
-            return
         bank_name = "Test Bank (Triodos)"
+        if frappe.db.exists("Bank Account", {"account_name": cls.OWN_BANK_ACCOUNT_NAME, "bank": bank_name}):
+            return
         if not frappe.db.exists("Bank", bank_name):
             frappe.get_doc({"doctype": "Bank", "bank_name": bank_name}).insert(ignore_permissions=True)
         frappe.get_doc(
             {
                 "doctype": "Bank Account",
-                "account_name": "Test Bank Triodos Account",
+                "account_name": cls.OWN_BANK_ACCOUNT_NAME,
                 "bank": bank_name,
                 "account": gl_account,
                 "company": company,

@@ -61,11 +61,16 @@ class MT940ControllerTestBase(EnhancedTestCase):
         super().tearDown()
 
     # Bank Account autonames account_name + " - " + bank with no company
-    # component (the guard-key rule), so this must be the existence-check key,
-    # not the shared SAMPLE_IBAN -- another suite's Bank Account can carry the
-    # same IBAN, and querying on the IBAN alone adopts whichever one was
-    # created most recently (frappe.db.get_value orders creation DESC) rather
-    # than owning this class's own row. See #308.
+    # component (the guard-key rule), so this (account_name + bank, its full
+    # autoname key) must be the existence-check, not the shared SAMPLE_IBAN --
+    # another suite's Bank Account can carry the same IBAN, and querying on
+    # the IBAN alone adopts whichever one was created most recently
+    # (frappe.db.get_value orders creation DESC) rather than owning this
+    # class's own row. See #308. The company filter is defensive, not part of
+    # the autoname key: self.company is currently a stable, deterministic
+    # singleton (frappe.get_list("Company", limit=1) sorts oldest-first), but
+    # if #532 ever repoints it, this stops a stale row on the old company from
+    # being adopted too.
     OWN_ACCOUNT_NAME = "MT940 Ctrl Account"
 
     def _ensure_bank_account(self):
@@ -73,7 +78,11 @@ class MT940ControllerTestBase(EnhancedTestCase):
         from verenigingen.verenigingen_payments.utils.bank_utils import get_or_create_unknown_bank
 
         bank = get_or_create_unknown_bank()
-        existing = frappe.db.get_value("Bank Account", {"account_name": self.OWN_ACCOUNT_NAME}, "name")
+        existing = frappe.db.get_value(
+            "Bank Account",
+            {"account_name": self.OWN_ACCOUNT_NAME, "bank": bank, "company": self.company},
+            "name",
+        )
         if existing:
             return existing
         ba = frappe.new_doc("Bank Account")
@@ -177,6 +186,14 @@ class TestMT940ImportControllerValidation(MT940ControllerTestBase):
             resolved,
             self.bank_account,
             "must resolve to its own owned account, not a competitor sharing the IBAN",
+        )
+        # Pin the owned identity itself, not just equality with a value the
+        # same helper produced on the same instance -- a regression that
+        # reintroduces a per-instance-unique account_name would still pass
+        # the assertEqual above (both sides freshly created by this call).
+        self.assertTrue(
+            resolved.startswith(self.OWN_ACCOUNT_NAME),
+            f"must own the stable '{self.OWN_ACCOUNT_NAME}' row, got {resolved!r}",
         )
 
     def test_file_import_requires_mt940_file(self):

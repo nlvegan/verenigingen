@@ -107,6 +107,11 @@ def _ensure_bank_account_linked(company, gl_account):
 def _ensure_clearing_gl_account(company):
     """Module-scope fixture: a leaf (non-group) Bank GL account owned by this suite.
 
+    A freshly-provisioned EUR test company on a CI runner has no non-group Bank
+    account, so an unmet clearing-account lookup would make the Mollie
+    processor reject the config ("Clearing Account not configured"). Create
+    one idempotently so the config always resolves.
+
     Keyed on its own account_name, not on "any leaf Bank account for the
     company": get_eur_test_company() is intentionally a SHARED company used by
     many suites and routinely already has several Bank leaves (e.g. from
