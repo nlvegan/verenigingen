@@ -12,6 +12,10 @@ from verenigingen.utils.security.api_security_framework import (
     public_api,
     standard_api,
 )
+from verenigingen.verenigingen.doctype.chapter.validators.postal_code_validator import (
+    PostalCodeValidator,
+    chapter_postal_codes_match,
+)
 from verenigingen.verenigingen_payments.utils.mandate_candidates import (
     cancel_active_mandates,
     carry_forward_purposes,
@@ -524,15 +528,18 @@ def find_chapter_by_postal_code(postal_code):
 
     chapters = frappe.get_all("Chapter", filters={"published": 1}, fields=["name", "region", "postal_codes"])
 
-    matching_chapters = []
-
-    for chapter in chapters:
-        if not chapter.get("postal_codes"):
-            continue
-
-        chapter_doc = frappe.get_doc("Chapter", chapter.name)
-        if chapter_doc.matches_postal_code(postal_code):
-            matching_chapters.append({"name": chapter.name, "region": chapter.region})
+    # #845: matching used to frappe.get_doc() every published chapter just to
+    # call matches_postal_code() -- an N+1 Document load (Chapter has 4 child
+    # tables) per row, on a guest-reachable endpoint. matches_postal_code()
+    # only ever reads the postal_codes text already fetched above, so match
+    # against that directly. One shared validator avoids re-reading the
+    # max-patterns setting per chapter.
+    validator = PostalCodeValidator()
+    matching_chapters = [
+        {"name": chapter.name, "region": chapter.region}
+        for chapter in chapters
+        if chapter_postal_codes_match(chapter.postal_codes, postal_code, validator)
+    ]
 
     return {"success": True, "matching_chapters": matching_chapters}
 
@@ -1020,6 +1027,10 @@ def debug_postal_code_matching(postal_code):
         "non_matching_chapters": [],
     }
 
+    # Same N+1 shape as #845/#846 (matches_postal_code() only ever reads the
+    # postal_codes text already fetched above, so no Chapter Document needs
+    # to be loaded per row).
+    validator = PostalCodeValidator()
     for chapter in chapters:
         if not chapter.get("postal_codes"):
             results["non_matching_chapters"].append(
@@ -1028,8 +1039,7 @@ def debug_postal_code_matching(postal_code):
             continue
 
         try:
-            chapter_doc = frappe.get_doc("Chapter", chapter.name)
-            matches = chapter_doc.matches_postal_code(postal_code)
+            matches = chapter_postal_codes_match(chapter.postal_codes, postal_code, validator)
 
             if matches:
                 results["matching_chapters"].append(

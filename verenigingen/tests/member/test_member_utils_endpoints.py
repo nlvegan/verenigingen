@@ -423,3 +423,51 @@ class TestMemberUtilsEndpoints(VereningingenTestCase):
     def test_debug_postal_code_matching_no_input(self):
         result = mu.debug_postal_code_matching("")
         self.assertIn("error", result)
+
+    def test_find_chapter_by_postal_code_query_count_does_not_scale_with_chapters(self):
+        """#845: find_chapter_by_postal_code used to frappe.get_doc() every
+        published chapter just to call matches_postal_code() -- a per-row
+        Document load (Chapter has 4 child tables) on a guest-reachable
+        endpoint. An unauthenticated caller could drive N document loads with
+        one request. The fix reads ``postal_codes`` off the bulk
+        frappe.get_all() rows already fetched, so the query count must stay
+        flat as the number of published chapters grows.
+        """
+        self._enable_chapter_management()
+
+        # Warm meta / table-column caches so a first-touch introspection
+        # query inside the measured window isn't mistaken for the N+1 (a
+        # cold `table_columns::tab<DocType>` cache issues an
+        # information_schema query the first time a table is touched --
+        # see tests/sepa/test_sepa_performance_optimization.py).
+        frappe.get_meta("Chapter")
+        frappe.db.get_table_columns("Chapter")
+        frappe.get_meta("Verenigingen Settings")
+        frappe.db.get_single_value("Verenigingen Settings", "enable_chapter_management")
+
+        for i in range(8):
+            self.create_test_chapter(
+                chapter_name=f"Postal Scale {i} {frappe.generate_hash(length=6)}",
+                postal_codes="1000-9999" if i % 2 == 0 else "5000-5099",
+                published=1,
+            )
+
+        # find_chapter_by_postal_code is wrapped by
+        # @frappe.whitelist(allow_guest=True) + @public_api, whose
+        # audit/rate-limit machinery issues a fixed, N-independent number of
+        # extra queries. Those are constant overhead, not the N+1 under
+        # test, so measure the bare business function (reached via
+        # __wrapped__), matching the precedent in
+        # tests/sepa/test_sepa_performance_optimization.py.
+        business_fn = mu.find_chapter_by_postal_code
+        while hasattr(business_fn, "__wrapped__"):
+            business_fn = business_fn.__wrapped__
+
+        # 1 query for the bulk Chapter fetch + 1 for the settings check --
+        # must NOT scale with the number of chapters (measured: unfixed code
+        # issues 172 queries here; see #845 for the before/after numbers).
+        with self.assertQueryCount(2):
+            result = business_fn("1234")
+
+        self.assertTrue(result["success"])
+        self.assertGreaterEqual(len(result["matching_chapters"]), 4)

@@ -1,6 +1,6 @@
 # verenigingen/verenigingen/doctype/chapter/validators/postal_codevalidator.py
 import re
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import frappe
 
@@ -23,7 +23,25 @@ class PostalCodeValidator(BaseValidator):
     def __init__(self, chapter_doc=None, default_country="NL"):
         super().__init__(chapter_doc)
         self.default_country = default_country
-        self.max_patterns = self._get_setting("max_postal_patterns", 50)
+        self._max_patterns = None
+
+    @property
+    def max_patterns(self) -> int:
+        """Lazily read the max-postal-patterns setting.
+
+        Only ``validate_postal_codes()`` needs this; loading it eagerly in
+        ``__init__`` meant every match-only use of this validator (e.g. the
+        bulk postal-code matching in #845/#846) paid for a
+        "Verenigingen Settings" Document load (plus its 3 child tables) it
+        never uses.
+        """
+        if self._max_patterns is None:
+            self._max_patterns = self._get_setting("max_postal_patterns", 50)
+        return self._max_patterns
+
+    @max_patterns.setter
+    def max_patterns(self, value: int) -> None:
+        self._max_patterns = value
 
     def validate_postal_codes(self, postal_codes: str) -> ValidationResult:
         """Validate postal code patterns string"""
@@ -441,3 +459,27 @@ class PostalCodeValidator(BaseValidator):
             return getattr(settings, setting_name, default_value)
         except Exception:
             return default_value
+
+
+def chapter_postal_codes_match(
+    postal_codes: str, postal_code: str, validator: Optional["PostalCodeValidator"] = None
+) -> bool:
+    """Test a postal code against a chapter's raw ``postal_codes`` text.
+
+    Mirrors ``Chapter.matches_postal_code()`` (which delegates to this same
+    ``PostalCodeValidator``), but works directly off the ``postal_codes``
+    string -- no Chapter Document needs to be loaded to answer the question.
+
+    Bulk callers that already fetched ``postal_codes`` via ``frappe.get_all``
+    (e.g. matching a postal code against every published chapter) previously
+    called ``frappe.get_doc("Chapter", ...)`` per row just to reach this
+    check, an N+1 query fan-out on guest-reachable endpoints (#845, #846).
+    Pass a shared ``validator`` when calling this in a loop to avoid
+    re-instantiating ``PostalCodeValidator`` (and its settings lookup) per row.
+    """
+    if not postal_codes or not postal_code:
+        return False
+
+    validator = validator or PostalCodeValidator()
+    patterns = validator._parse_postal_codes(postal_codes)
+    return validator.test_postal_code_match(postal_code, patterns)
