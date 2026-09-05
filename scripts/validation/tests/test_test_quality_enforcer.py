@@ -365,6 +365,87 @@ class FactoryFileScopeTest(unittest.TestCase):
         self.assertEqual([], _kinds(src, name="factory_helper.py"))
 
 
+class DirectoryMarkerScopeTest(unittest.TestCase):
+    """#801: `/tests/fixtures/` and `/tests/utils/` (and the other
+    `helper_path_markers`) excluded anything under those paths outright, with no
+    `test_`-prefix carve-out -- same shape as #798's `_factory` substring bug,
+    just keyed on a directory instead of a substring.
+
+    This is the positive control #801 asks for: a `test_`-prefixed module planted
+    under a marker directory (`tests/utils/`, here) IS scanned and its violation IS
+    flagged; a non-`test_`-prefixed helper alongside it is still skipped. Proven by
+    breaking the fix (removing the `not path.name.startswith("test_")` guard) and
+    watching `test_a_real_test_under_a_marker_directory_is_scanned` go red -- see
+    the reproduction steps in the PR description.
+    """
+
+    def _write_and_scan(self, tmp_root: Path, rel_path: str, src: str):
+        p = tmp_root / rel_path
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(src)
+        enforcer = tqe.TestQualityEnforcer()
+        enforcer.validate_file(str(p))
+        return enforcer, p
+
+    def test_a_real_test_under_a_marker_directory_is_scanned(self):
+        """`verenigingen/tests/utils/test_something.py` is a real test module by
+        this repo's own `test_`-prefix convention, even though it lives under a
+        `helper_path_markers` directory -- it must be scanned, and a DB mock in it
+        must be flagged."""
+        src = (
+            "class TestThing:\n"
+            "    def test_it(self):\n"
+            f"        with {_PATCH_DB}:\n"
+            "            pass\n"
+        )
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            enforcer, p = self._write_and_scan(
+                root, "verenigingen/tests/utils/test_something.py", src
+            )
+            self.assertTrue(
+                enforcer._is_test_file(str(p)),
+                "a test_-prefixed module under tests/utils/ must not be excluded",
+            )
+            self.assertIn("DATABASE MOCK", [f.kind for f in enforcer.findings])
+
+    def test_a_helper_under_a_marker_directory_is_still_skipped(self):
+        """A non-`test_`-prefixed helper alongside it (`db_helpers.py`) is the
+        shape these markers exist to skip, and must stay skipped."""
+        src = (
+            "class TestThing:\n"
+            "    def test_it(self):\n"
+            f"        with {_PATCH_DB}:\n"
+            "            pass\n"
+        )
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            enforcer, p = self._write_and_scan(
+                root, "verenigingen/tests/utils/db_helpers.py", src
+            )
+            self.assertFalse(
+                enforcer._is_test_file(str(p)),
+                "a non-test_-prefixed helper under tests/utils/ must stay excluded",
+            )
+            self.assertEqual([], enforcer.findings)
+
+    def test_a_real_test_under_fixtures_marker_is_also_scanned(self):
+        """Same guard, the other marker directory named in #801."""
+        src = (
+            "class TestThing:\n"
+            "    def test_it(self):\n"
+            f"        with {_PATCH_DB}:\n"
+            "            pass\n"
+        )
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            enforcer, p = self._write_and_scan(
+                root, "verenigingen/tests/fixtures/test_something.py", src
+            )
+            self.assertTrue(enforcer._is_test_file(str(p)))
+            self.assertIn("DATABASE MOCK", [f.kind for f in enforcer.findings])
+
+
 class WholeTreeTotalsTest(unittest.TestCase):
     """The control that makes 'detection broke' visible.
 
@@ -443,8 +524,21 @@ class WholeTreeTotalsTest(unittest.TestCase):
         # one of them, `test_payment_entry_factory.py`, was carrying a violation
         # -- 2 DATABASE MOCK findings (its own f-string mock targets, cited in
         # #798 as the concrete cost of the blind spot). The other 6 are clean.
-        self.assertEqual(203, len(self.findings), "finding count moved")
-        self.assertEqual(186, len(tqe.counts_of(self.findings)), "key count moved")
+        #
+        # 203 -> 213 findings, 186 -> 194 keys (#801): same shape of bug, one
+        # level up -- the `/tests/fixtures/` and `/tests/utils/` (and other)
+        # `helper_path_markers` directory checks excluded anything under those
+        # paths outright, with no `test_`-prefix carve-out. Un-excluding the 40
+        # `test_`-prefixed modules that live under a marker directory (measured
+        # against current develop; the issue's own count was ~38 and had already
+        # grown by 2 by the time this landed) brings 8 new keys / 10 new findings
+        # into scope, all in 3 files: `tests/utils/csv/test_base_csv_import.py`
+        # (8 findings across 6 keys: 5 PERMISSION BYPASS, 3 DATABASE MOCK),
+        # `tests/utils/test_api_classifier.py` (1 PERMISSION BYPASS) and
+        # `tests/utils/test_email_mocking.py` (1 PERMISSION BYPASS, keyed to
+        # `<module>`). The other 37 newly-scanned files are clean.
+        self.assertEqual(213, len(self.findings), "finding count moved")
+        self.assertEqual(194, len(tqe.counts_of(self.findings)), "key count moved")
 
     def test_findings_are_keyed_to_a_named_scope(self):
         """A key of '<module>' is legitimate but should stay rare; a flood of them
