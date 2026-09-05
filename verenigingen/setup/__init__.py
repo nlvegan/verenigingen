@@ -297,7 +297,9 @@ def _is_initial_setup_complete() -> bool:
     Returns True if the initial_setup_complete flag is set in Verenigingen Settings.
     """
     try:
-        if not frappe.db.exists("Verenigingen Settings", "Verenigingen Settings"):
+        # frappe.db.exists(dt, dt) is unconditionally truthy for a Single
+        # (#889); check whether it has actually been saved instead.
+        if not frappe.db.get_singles_dict("Verenigingen Settings"):
             return False
         return bool(
             frappe.db.get_value("Verenigingen Settings", "Verenigingen Settings", "initial_setup_complete")
@@ -311,7 +313,9 @@ def _mark_initial_setup_complete():
     Mark initial setup as complete by setting the flag in Verenigingen Settings.
     """
     try:
-        if frappe.db.exists("Verenigingen Settings", "Verenigingen Settings"):
+        # frappe.db.exists(dt, dt) is unconditionally truthy for a Single
+        # (#889); check whether it has actually been saved instead.
+        if frappe.db.get_singles_dict("Verenigingen Settings"):
             frappe.db.set_value(
                 "Verenigingen Settings",
                 "Verenigingen Settings",
@@ -677,8 +681,10 @@ def setup_termination_settings():
     """Setup termination system settings"""
 
     try:
-        # Get or create Verenigingen Settings
-        if not frappe.db.exists("Verenigingen Settings", "Verenigingen Settings"):
+        # Get or create Verenigingen Settings. frappe.db.exists(dt, dt) is
+        # unconditionally truthy for a Single (#889); check whether it has
+        # actually been saved instead.
+        if not frappe.db.get_singles_dict("Verenigingen Settings"):
             # This should already be created by the main setup, but just in case
             return
 
@@ -788,8 +794,10 @@ def check_termination_system_status():
     }
 
     try:
-        # Check settings
-        if frappe.db.exists("Verenigingen Settings", "Verenigingen Settings"):
+        # Check settings. frappe.db.exists(dt, dt) is unconditionally truthy
+        # for a Single (#889); check whether it has actually been saved
+        # instead, so this diagnostic reflects real configuration state.
+        if frappe.db.get_singles_dict("Verenigingen Settings"):
             from verenigingen.utils.settings_utils import get_verenigingen_settings
 
             settings = get_verenigingen_settings()
