@@ -159,6 +159,49 @@ class TestCreatePontoPaymentEntry(EnhancedTestCase):
 
         self.assertIsNone(create_ponto_payment_entry(link, invoice.name))
 
+    def test_draft_invoice_is_not_treated_as_an_allocation_target(self):
+        """A DRAFT invoice must not be handed to the Payment Entry allocator.
+
+        #856 (the class #209/#220 were fixed for): a draft Sales Invoice does not
+        carry `outstanding_amount == 0` - `calculate_outstanding_amount` runs on every
+        save that is not cancelled, so a fresh draft carries its full `grand_total` as
+        outstanding. The old code read only `outstanding_amount <= 0` ("already paid,
+        skip") with no `docstatus` check, so a draft fell through as a normal *unpaid*
+        invoice and was passed straight to `create_payment_entry_from_invoice`, which
+        would raise when ERPNext refuses to submit a Payment Entry referencing an
+        unsubmitted document (`payment_entry.py:725-727`, "... must be submitted").
+
+        This pins both the premise and the fix: the draft's outstanding_amount is
+        confirmed non-zero (so the old code's branch is genuinely reachable), and the
+        call must return None - no Payment Entry, no exception - rather than either
+        creating one against a draft or letting the ValidationError propagate.
+        """
+        member = self._member_with_customer(first_name="PontoDraft")
+        invoice = self.sepa.create_test_sales_invoice(
+            customer=member.customer,
+            grand_total=30.0,
+            company=self.company,
+            posting_date=today(),
+            due_date=today(),
+            is_membership_invoice=1,
+        )
+        self.assertEqual(invoice.docstatus, 0, "premise: the invoice must be a draft")
+        self.assertGreater(
+            flt(invoice.outstanding_amount),
+            0,
+            "premise: a draft's outstanding_amount is its grand_total, not 0",
+        )
+        link = self._payment_link(member)
+
+        with self.assertNoErrorLog():
+            pe_name = create_ponto_payment_entry(link, invoice.name)
+
+        self.assertIsNone(pe_name, "a draft invoice must never be used as an allocation target")
+        self.assertFalse(
+            frappe.db.exists("Payment Entry", {"reference_no": link.ponto_request_id}),
+            "no Payment Entry may be left behind for a refused draft",
+        )
+
     def test_allocation_is_capped_at_the_outstanding_amount(self):
         """An overpaying link allocates only what the invoice still owes.
 
