@@ -518,15 +518,23 @@ class TestMT940TrcdDescriptionFallback(EnhancedTestCase):
         self.bank_account = self._ensure_bank_account()
         self._cleanup_bank_transactions()
 
+    # Bank Account autonames account_name + " - " + bank with no company
+    # component (the guard-key rule), so this must be the existence-check key,
+    # not the shared IBAN below -- another suite's Bank Account can carry the
+    # same IBAN, and querying on the IBAN alone adopts whichever one was
+    # created most recently (frappe.db.get_value orders creation DESC) rather
+    # than owning this class's own row. See #308.
+    OWN_ACCOUNT_NAME = "MT940 TRCD Test"
+
     def _ensure_bank_account(self):
         from verenigingen.verenigingen_payments.utils.bank_utils import get_or_create_unknown_bank
 
         iban = "NL02ABNA0123456789"
-        existing = frappe.db.get_value("Bank Account", {"bank_account_no": iban}, "name")
+        existing = frappe.db.get_value("Bank Account", {"account_name": self.OWN_ACCOUNT_NAME}, "name")
         if existing:
             return existing
         ba = frappe.new_doc("Bank Account")
-        ba.account_name = f"MT940 TRCD Test {self.uid}"
+        ba.account_name = self.OWN_ACCOUNT_NAME
         ba.bank = get_or_create_unknown_bank()
         ba.company = self.company
         ba.bank_account_no = iban
@@ -548,6 +556,31 @@ class TestMT940TrcdDescriptionFallback(EnhancedTestCase):
     def tearDown(self):
         self._cleanup_bank_transactions()
         super().tearDown()
+
+    def test_ensure_bank_account_owns_its_row_not_a_shared_iban_query(self):
+        """A competing Bank Account sharing the sample IBAN, created by some
+        other suite (not by this class), must not be adopted (#308). Before
+        the fix, _ensure_bank_account resolved by bank_account_no alone, so
+        the most recently created row with that IBAN won -- regardless of
+        who owns it."""
+        from verenigingen.verenigingen_payments.utils.bank_utils import get_or_create_unknown_bank
+
+        competitor = frappe.new_doc("Bank Account")
+        competitor.account_name = f"Some Other Suite's Account {frappe.generate_hash()[:6]}"
+        competitor.bank = get_or_create_unknown_bank()
+        competitor.company = self.company
+        competitor.bank_account_no = "NL02ABNA0123456789"
+        competitor.iban = "NL02ABNA0123456789"
+        competitor.insert()
+        self.created_records.append(("Bank Account", competitor.name))
+
+        resolved = self._ensure_bank_account()
+
+        self.assertEqual(
+            resolved,
+            self.bank_account,
+            "must resolve to its own owned account, not a competitor sharing the IBAN",
+        )
 
     def test_trcd_in_extra_details_translated(self):
         """Unit-level check of the TRCD-translation branch via a hand-built
