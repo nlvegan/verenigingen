@@ -10,6 +10,7 @@ Uses Enhanced Test Factory for real database operations - no mocks.
 
 import unittest
 from datetime import date
+from unittest.mock import patch
 
 import frappe
 
@@ -630,3 +631,40 @@ class TestInvoiceGeneratorPeriodAnchorGuard(EnhancedTestCase):
             },
         )
         self.assertEqual(len(comments), 1, "Expected exactly one anchor-violation comment on the invoice")
+
+    def test_guard_internal_failure_produces_error_log_not_silence(self):
+        """If the guard's own check raises (e.g. a DB error inside the
+        previous-coverage-end lookup), the failure must be recorded via
+        frappe.log_error() (a durable, queryable Error Log row) - NOT only via
+        self.logger.warning(), which resolves to a LazyServiceLogger at level
+        ERROR under this harness and silently drops anything below it. A
+        guard whose own failure path is invisible defeats the guard."""
+        self.expectErrorLog("Period Anchor Guard Failed")
+        marker = frappe.utils.now_datetime()
+
+        with patch(
+            "verenigingen.services.billing.coverage_calculator.CoverageCalculator."
+            "get_latest_coverage_end_date",
+            side_effect=RuntimeError("forced failure for test"),
+        ):
+            generator = InvoiceGenerator(self.schedule)
+            result = generator.generate_invoice(
+                coverage_start=self.ANCHOR,
+                coverage_end=date(2025, 2, 14),
+                member_doc=self.member,
+            )
+
+        # Non-blocking: generation must still succeed despite the guard failing.
+        self.assertTrue(result.success, f"Invoice generation failed: {result.error_message}")
+
+        guard_failure_logs = frappe.db.count(
+            "Error Log",
+            filters={"creation": [">=", marker], "method": ["like", "%Period Anchor Guard Failed%"]},
+        )
+        self.assertEqual(
+            guard_failure_logs,
+            1,
+            "Expected exactly one 'Period Anchor Guard Failed' Error Log entry when the "
+            "guard itself raises - a silent guard failure is the exact defect this guard "
+            "exists to prevent",
+        )

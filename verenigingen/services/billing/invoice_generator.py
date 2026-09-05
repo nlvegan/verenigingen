@@ -414,10 +414,30 @@ class InvoiceGenerator(StatelessService):
             return detail
         except Exception as guard_error:  # swallow-ok: best-effort
             # The guard itself must never block invoice generation - see the
-            # non-blocking rationale in this method's docstring.
+            # non-blocking rationale in this method's docstring. But a silent
+            # failure here is exactly the failure mode this guard exists to
+            # prevent: self.logger (LazyServiceLogger -> frappe.logger()) is
+            # level ERROR under this harness (measured: level=40), so a bare
+            # .warning() call is filtered before any handler runs and records
+            # nothing anywhere - not a log file, not the Error Log doctype.
+            # frappe.log_error() writes a durable, queryable tabError Log row
+            # instead, independently wrapped so a failure THERE cannot escape
+            # either.
             self.logger.warning(
                 f"Period anchor guard failed for schedule {self.schedule_name}: {guard_error}"
             )
+            try:
+                frappe.log_error(
+                    title=f"Period Anchor Guard Failed - {self.schedule_name[:50]}",
+                    message=(
+                        f"Schedule: {self.schedule_name}\n"
+                        f"Member: {self.member_name}\n"
+                        f"The period-anchor invariant guard raised and could not complete "
+                        f"its check:\n{guard_error}"
+                    ),
+                )
+            except Exception:  # swallow-ok: best-effort
+                pass
             return None
 
     def _validate_authorization(self) -> Optional[str]:
