@@ -498,5 +498,110 @@ class TestSEPAXMLAdapterXMLGeneration(FrappeTestCase):
         self.assertEqual(self.adapter._validation_summary.skipped_transactions, 1)
 
 
+class TestStrictModeRefusesUnresolvableMandateSignDates(FrappeTestCase):
+    """#631: with strict mode on (the new default), a batch whose mandate sign
+    date cannot be resolved must be refused rather than sent to the bank with
+    a fabricated `DtOfSgntr`. A resolvable mandate must still generate fine."""
+
+    def setUp(self):
+        super().setUp()
+        self.adapter = SEPAXMLAdapter()
+        # Simulate the post-#631 default: strict mode on. Explicit rather than
+        # relying on the site's actual stored value/migration state, so this
+        # test exercises the CODE PATH regardless of what has been migrated.
+        self._original_strict = frappe.db.get_single_value(
+            "Verenigingen Settings", "sepa_strict_mandate_validation"
+        )
+        frappe.db.set_single_value("Verenigingen Settings", "sepa_strict_mandate_validation", 1)
+
+    def tearDown(self):
+        frappe.db.set_single_value(
+            "Verenigingen Settings", "sepa_strict_mandate_validation", self._original_strict or 0
+        )
+        super().tearDown()
+
+    @staticmethod
+    def _mock_batch(invoices):
+        mock_batch = MagicMock()
+        mock_batch.name = "BATCH-STRICT-DEFAULT-001"
+        mock_batch.batch_date = date.today()
+        mock_batch.batch_type = "CORE"
+        mock_batch.sequence_type = "RCUR"
+        mock_batch.entry_count = len(invoices)
+        mock_batch.total_amount = 50.00 * len(invoices)
+        mock_batch.invoices = invoices
+        return mock_batch
+
+    @staticmethod
+    def _mock_invoice(invoice_id, mandate_reference, mandate_sign_date):
+        inv = MagicMock()
+        inv.invoice = invoice_id
+        inv.amount = 50.00
+        inv.currency = "EUR"
+        inv.member_name = "Test Member"
+        inv.iban = "NL91ABNA0417164300"
+        inv.bic = "ABNANL2A"
+        inv.mandate_reference = mandate_reference
+        inv.mandate_sign_date = mandate_sign_date
+        inv.member = None
+        inv.sequence_type = "RCUR"
+        return inv
+
+    @staticmethod
+    def _mock_settings():
+        return {
+            "organization_name": "Test Vereniging",
+            "iban": "NL91ABNA0417164300",
+            "bic": "ABNANL2A",
+            "creditor_id": "NL12ZZZ123456789",
+        }
+
+    def test_resolvable_mandate_still_generates_under_strict_mode(self):
+        """A mandate whose sign date IS known must still generate fine in
+        strict mode -- strict mode only refuses UNKNOWN dates."""
+        mock_batch = self._mock_batch(
+            [self._mock_invoice("INV-STRICT-OK-001", "MAND-STRICT-OK-001", date(2024, 6, 15))]
+        )
+
+        from verenigingen.verenigingen_payments.services.sepa_configuration_service import (
+            sepa_config_service,
+        )
+
+        with patch.object(sepa_config_service, "get_sepa_settings", return_value=self._mock_settings()):
+            xml_string = self.adapter.generate_xml_for_batch(
+                batch_doc=mock_batch,
+                message_id="MSG-STRICT-OK-001",
+                payment_info_id="PMT-STRICT-OK-001",
+            )
+
+        self.assertIn("2024-06-15", xml_string)
+        self.assertEqual(self.adapter._validation_summary.missing_mandate_dates, 0)
+
+    def test_unresolvable_mandate_refuses_and_names_it(self):
+        """A mandate reference that resolves to nothing must REFUSE XML
+        generation under strict mode (the new default), naming the invoice and
+        mandate so an operator knows what to fix -- not silently stamp today's
+        date as the (fabricated) signature date."""
+        mock_batch = self._mock_batch(
+            [self._mock_invoice("INV-STRICT-MISSING-002", "MAND-DOES-NOT-EXIST-631", None)]
+        )
+
+        from verenigingen.verenigingen_payments.services.sepa_configuration_service import (
+            sepa_config_service,
+        )
+
+        with patch.object(sepa_config_service, "get_sepa_settings", return_value=self._mock_settings()):
+            with self.assertRaises(frappe.exceptions.ValidationError) as ctx:
+                self.adapter.generate_xml_for_batch(
+                    batch_doc=mock_batch,
+                    message_id="MSG-STRICT-MISSING-002",
+                    payment_info_id="PMT-STRICT-MISSING-002",
+                )
+
+        message = str(ctx.exception)
+        self.assertIn("INV-STRICT-MISSING-002", message)
+        self.assertIn("MAND-DOES-NOT-EXIST-631", message)
+
+
 if __name__ == "__main__":
     unittest.main()
