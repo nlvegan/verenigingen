@@ -34,8 +34,11 @@ Sales Invoice). No logic under test is mocked.
 
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import frappe
+from frappe.model.document import Document as FrappeDocument
+from frappe.utils import cint
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.mollie.domain.payment_classification import PaymentClassifier
@@ -496,6 +499,103 @@ class TestLogBulkOperationAudit(EnhancedTestCase):
         self.assertIsNotNone(row, "processing audit row must be persisted")
         self.assertEqual(row["severity"], "warning")
         self.assertIn("bulk_payment_processing", row["details"])
+
+
+# ===========================================================================
+# _log_bulk_operation_audit -- the CRITICAL alarm on a swallowed audit write
+# (#197 second half)
+#
+# log_security_event() -> log_event() cannot be trusted to report failure by
+# its return value: _store_audit_event/_store_api_audit_event/_log_to_file/
+# _check_alert_conditions (audit_logging.py) each catch and log their OWN
+# exceptions internally, so log_event's outer try never sees a storage
+# failure -- it always returns a normal-looking event id even when the row
+# was never written. The `except` block in _log_bulk_operation_audit was
+# written specifically to raise "Audit Logging Failure - CRITICAL" plus bump
+# a monitoring counter on a failed audit write -- but nothing upstream of it
+# could ever detect that failure, so it could never run. The fix verifies
+# the row actually landed in API Audit Log instead of trusting the return
+# value. These tests force a REAL storage failure (Document.insert raising
+# for API Audit Log specifically, exactly the layer that swallows it in
+# production) and assert the alarm fires -- plus a negative test proving a
+# genuinely successful audit write stays silent (an "always fire" guard
+# would pass the positive test alone).
+# ===========================================================================
+# A real Document.insert() failure, scoped to API Audit Log only -- this is
+# exactly the layer _store_api_audit_event() (audit_logging.py) catches and
+# swallows internally in production, which is why the caller's return value
+# cannot be used to detect it.
+_real_document_insert = FrappeDocument.insert
+
+
+def _insert_that_fails_for_api_audit_log(doc, *args, **kwargs):
+    if doc.doctype == "API Audit Log":
+        raise Exception("Simulated storage failure for #197 test")
+    return _real_document_insert(doc, *args, **kwargs)
+
+
+class TestLogBulkOperationAuditCriticalAlarm(EnhancedTestCase):
+    CACHE_KEY = "audit_log_failures_count"
+
+    def setUp(self):
+        super().setUp()
+        self.checker = _make_checker()
+        frappe.cache().delete(self.CACHE_KEY)
+        self.expectErrorLog("API Audit Database Error", "Audit Logging Failure - CRITICAL")
+
+    def tearDown(self):
+        frappe.cache().delete(self.CACHE_KEY)
+        super().tearDown()
+
+    def _critical_error_log_count(self):
+        return frappe.db.count("Error Log", {"method": ["like", "%Audit Logging Failure - CRITICAL%"]})
+
+    def _discovery_result(self):
+        return {
+            "members_checked": 1,
+            "total_members": 1,
+            "total_payments_found": 0,
+            "total_new_payments": 0,
+            "errors": 0,
+            "circuit_breaker_triggered": False,
+        }
+
+    def test_real_storage_failure_triggers_critical_alarm(self):
+        before = self._critical_error_log_count()
+
+        with patch.object(FrappeDocument, "insert", new=_insert_that_fails_for_api_audit_log):
+            self.checker._log_bulk_operation_audit(
+                self._discovery_result(), "discovery", days_back=7, all_history=False
+            )
+
+        after = self._critical_error_log_count()
+        self.assertEqual(
+            after,
+            before + 1,
+            "a genuine API Audit Log insert failure must trigger the CRITICAL alert -- "
+            "this is the alarm #197 found to be dead code",
+        )
+
+        self.assertEqual(
+            cint(frappe.cache().get(self.CACHE_KEY)),
+            1,
+            "the monitoring-dashboard failure counter must be bumped when the alarm fires",
+        )
+
+    def test_successful_audit_write_does_not_trigger_critical_alarm(self):
+        # Negative control: an "always fire" guard would pass the positive
+        # test above alone. A genuinely successful write (no patching) must
+        # NOT raise the CRITICAL alert.
+        with self.assertNoErrorLog():
+            self.checker._log_bulk_operation_audit(
+                self._discovery_result(), "discovery", days_back=7, all_history=False
+            )
+
+        self.assertEqual(
+            cint(frappe.cache().get(self.CACHE_KEY)),
+            0,
+            "a successful audit write must not bump the failure counter",
+        )
 
 
 # ===========================================================================
