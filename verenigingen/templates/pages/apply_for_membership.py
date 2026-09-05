@@ -82,14 +82,14 @@ def get_context(context):
 
     context.is_dutch_installation = is_dutch_installation()
 
-    # Get membership types with enhanced contribution options
-    from verenigingen.services.member.application.membership_application_service import (
-        get_membership_application_service,
-    )
+    # Get membership types with enhanced contribution options. Shares a
+    # cache (#439) with the get_application_form_data API endpoint the page's
+    # own JS calls -- this computation costs ~11 SQL queries per Membership
+    # Type, so an anonymous page load must not pay it twice (once here,
+    # server-side, and again via the JS call) nor pay it fresh on every load.
+    from verenigingen.api.membership_application import get_cached_form_data
 
-    context.enhanced_membership_types = (
-        get_membership_application_service().get_membership_types_with_contributions()
-    )
+    context.enhanced_membership_types = get_cached_form_data().get("membership_types", [])
 
     # Basic context setup
     context.already_member = False
