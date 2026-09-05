@@ -1501,12 +1501,40 @@ class EnhancedTestDataFactory:
         )
 
     def ensure_membership_type(self, type_name: str, attributes: dict = None) -> frappe._dict:
-        """Ensure a membership type exists, create if not"""
+        """Ensure a membership type exists, create if not.
+
+        Get-or-create keyed on a stable, human-meaningful name (e.g. "Standard
+        Member") that many tests deliberately share, because the production
+        code under test looks the type up by that literal name. Previously,
+        once any caller created the row, every later caller silently got that
+        FIRST caller's amount back untouched, no matter what it asked for -- a
+        caller requesting amount=25.00 could receive an existing €50 type
+        created by an earlier, unrelated caller (#263; test_data_factory.py's
+        ensure_membership_type_exists() had the identical defect, hit for real
+        as #248).
+
+        If the row already exists and the caller passed an explicit amount --
+        via `attributes["amount"]` or `attributes["minimum_amount"]`, both
+        appear across real call sites for this method -- realign the row -- and
+        its dues-schedule template, which enforces "dues rate >= type minimum"
+        -- to it. A caller that passes neither key (or passes one as None) is
+        only asking for existence and leaves the row untouched, so it can never
+        clobber a value some OTHER, opinionated caller is relying on.
+        """
+        requested_amount = None
+        if attributes:
+            requested_amount = attributes.get("amount")
+            if requested_amount is None:
+                requested_amount = attributes.get("minimum_amount")
+        explicit_amount = requested_amount is not None
+        amount = requested_amount if explicit_amount else 50.00
+
         if frappe.db.exists("Membership Type", type_name):
+            if explicit_amount:
+                self._align_membership_type_amount(type_name, amount)
             return frappe.get_doc("Membership Type", type_name)
 
         billing_period = attributes.get("billing_period", "Monthly") if attributes else "Monthly"
-        amount = attributes.get("amount", 50.00) if attributes else 50.00
 
         # Get a role profile for the membership type (required field)
         role_profile = attributes.get("role_profile") if attributes else None
@@ -1566,6 +1594,25 @@ class EnhancedTestDataFactory:
                 membership_type.save()
 
         return membership_type
+
+    def _align_membership_type_amount(self, type_name: str, amount: float) -> None:
+        """Correct an existing Membership Type + its dues template to `amount`.
+
+        Delegates to test_data_factory.py's copy rather than keeping a second
+        one here: the duplicate-helper validator (pre-push) treats two
+        near-identical copies of a new helper as the exact clone-family pattern
+        it exists to catch (see e.g. the app-wide `_persist_eur_company`
+        history it cites), so this file gets ONE implementation, not two to
+        keep in sync by hand. Function-local import: importing
+        test_data_factory at module load time was measured to cost ~6.5s here
+        (see this file's own import-cost note near the top) versus ~0.05s for
+        a function-local one.
+        """
+        from verenigingen.tests.fixtures.test_data_factory import (
+            _align_membership_type_amount as _shared_align_membership_type_amount,
+        )
+
+        _shared_align_membership_type_amount(type_name, amount)
 
     def ensure_chapter_role(self, role_name: str, attributes: dict = None) -> frappe._dict:
         """Ensure a chapter role exists, create if not"""
