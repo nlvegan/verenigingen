@@ -54,10 +54,16 @@ ITERATOR_TARGET = "verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator.EBo
 ABBR = "EBCO"
 COMPANY = "TEST-EB-Coord-Company"
 
-INCOME_LEDGER = "8100"
-EXPENSE_LEDGER = "4100"
-RECEIVABLE_LEDGER = "1310"
-PAYABLE_LEDGER = "1610"
+# Prefixed with a suite-specific "96" so these ledger IDs cannot collide with
+# any other e_boekhouden test suite's own company -- see the matching note in
+# test_rest_orchestration_start.py (#894): this file and that one were sharing
+# the bare "8100"/"4100"/"1310"/"1610" literals against the global (no
+# company field) E-Boekhouden Ledger Mapping doctype, so whichever suite's
+# setUpClass ran first in a shard silently won the mapping for the other.
+INCOME_LEDGER = "9608100"
+EXPENSE_LEDGER = "9604100"
+RECEIVABLE_LEDGER = "9601310"
+PAYABLE_LEDGER = "9601610"
 
 
 class _FakeDoc:

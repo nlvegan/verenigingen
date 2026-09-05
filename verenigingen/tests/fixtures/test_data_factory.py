@@ -1253,17 +1253,22 @@ def _ensure_member_role_profile():
 #
 # Those tests used the name "Daglid", which is also referenced by
 # create_test_membership(membership_type="Daglid") elsewhere. That made it a shared
-# master, and ensure_membership_type_exists() returns an existing row WITHOUT
-# correcting its amount while defaulting to 100.0 -- so whichever caller touched the
-# name first fixed its amount for the whole run. When a caller that passes no amount
-# won the race, "Daglid" was created at €100 and the payment tests' €2 dues schedules
-# died on `Dues rate (€2.00) cannot be less than minimum amount (€100.00)`.
-# Order-dependent, so it only ever surfaced in CI (issue #248).
+# master: before #263's fix, ensure_membership_type_exists() returned an existing row
+# WITHOUT correcting its amount no matter what a later caller asked for, so whichever
+# caller touched the name first fixed its amount for the whole run. When a caller that
+# passed no amount won the race, "Daglid" was created at €100 and the payment tests'
+# €2 dues schedules died on `Dues rate (€2.00) cannot be less than minimum amount
+# (€100.00)`. Order-dependent, so it only ever surfaced in CI (issue #248).
 #
-# The fix is to stop sharing rather than to repair the shared row mid-run: a name no
-# other test references can never be created with the wrong amount in the first place.
-# Keep it stable (not tokenised) so it behaves like the bootstrap master it is and
-# does not accumulate a row per run.
+# #263 fixed ensure_membership_type_exists() itself to realign an existing row when a
+# caller passes an explicit amount, which closes this class of contamination
+# generally -- but this dedicated, unshared name (and the belt-and-braces check in
+# ensure_payment_test_daily_type() below) is kept anyway. Nothing else references this
+# name, so a mismatch here can only mean a bug in the shared helper or a still-in-flight
+# run-parallel-tests race (see _align_membership_type_amount()'s docstring), and failing
+# loudly beats trusting the row silently either way. Keep the name stable (not
+# tokenised) so it behaves like the bootstrap master it is and does not accumulate a
+# row per run.
 PAYMENT_TEST_DAILY_TYPE = "TEST Payment Daily 2EUR"
 PAYMENT_TEST_DAILY_AMOUNT = 2.0
 
@@ -1271,13 +1276,13 @@ PAYMENT_TEST_DAILY_AMOUNT = 2.0
 def ensure_payment_test_daily_type():
     """Get-or-create the payment tests' own €2 membership type; return its name.
 
-    Verifies the amount instead of trusting it. ensure_membership_type_exists()
-    returns an existing row untouched, so if anything ever creates this name via the
-    no-amount path -- create_test_membership() does exactly that, at the 100.0 default
-    -- the type would silently be wrong and every dues schedule built on it would fail
-    with an error naming the schedule rather than the type. Since no other test
-    references this name, a mismatch means real contamination, and failing here points
-    straight at it.
+    Verifies the amount instead of trusting it. #263 made ensure_membership_type_exists()
+    realign an existing row to an explicitly-requested amount, like the one passed
+    below -- the general fix for cross-caller contamination -- but this name is kept
+    unshared regardless, so nothing else can legitimately touch it. A mismatch here can
+    therefore only mean a bug in that shared helper, or a run-parallel-tests worker
+    racing between this call and the check below; the assertion still catches that
+    rather than silently trusting the row.
     """
     existed = frappe.db.exists("Membership Type", PAYMENT_TEST_DAILY_TYPE)
     name = ensure_membership_type_exists(PAYMENT_TEST_DAILY_TYPE, amount=PAYMENT_TEST_DAILY_AMOUNT)
@@ -1329,7 +1334,70 @@ def ensure_payment_test_daily_type():
     return name
 
 
-def ensure_membership_type_exists(name, *, amount=100.0):
+def _align_membership_type_amount(name, amount):
+    """Correct an existing Membership Type + its dues template to `amount`.
+
+    ensure_membership_type_exists() is a get-or-create keyed on a stable,
+    human-meaningful name (e.g. "Standard Member", "Monthly Membership") that
+    ~40 call sites deliberately share, because the production code under test
+    looks the type up by that literal name -- unlike create_test_membership_type()'s
+    synthetic names, this name cannot be made unique per caller.
+
+    Previously, once ANY caller created the row, every later caller silently
+    got back that FIRST caller's amount untouched, no matter what it asked for:
+    a caller requesting amount=5.0 could receive an existing €100 type created
+    by an earlier, unrelated caller (#263). PAYMENT_TEST_DAILY_TYPE's comment
+    above documents this biting for real as #248, worked around there by giving
+    that one type a name nothing else references -- this instead fixes the
+    shared get-or-create itself so no caller needs that workaround.
+
+    Realign the row -- and the dues-schedule template Membership Type.after_insert
+    auto-creates for it, which enforces "dues rate >= type minimum" -- to the
+    CURRENT caller's amount, unconditionally: the writes are cheap enough that a
+    "skip if already equal" optimization isn't worth the correctness gap it
+    opens (a prior version compared only the TYPE's amount, so a caller could
+    return successfully while the TEMPLATE was still misaligned).
+
+    This is safe to call for a row a DIFFERENT worker just committed (the
+    TOCTOU branch in ensure_membership_type_exists()): the Membership Type
+    write goes through frappe.db.set_value(), which -- like any UPDATE -- is a
+    locking read that always sees the latest committed row regardless of this
+    transaction's REPEATABLE READ snapshot. The template write below uses a
+    direct UPDATE ... WHERE for the same reason: a SELECT-then-update-by-id
+    here previously could miss the winner's just-committed template (a plain
+    SELECT does NOT refresh an already-established REPEATABLE READ view), and
+    silently skip the one alignment #248 was actually about. An UPDATE ... WHERE
+    also naturally corrects every matching template if more than one exists,
+    rather than picking an arbitrary one via an unordered SELECT.
+    """
+    amount = flt(amount, 2)
+    if amount < 0:
+        raise ValueError(f"_align_membership_type_amount({name!r}, ...): amount cannot be negative")
+
+    frappe.db.set_value("Membership Type", name, "minimum_amount", amount, update_modified=False)
+
+    half = flt(amount * 0.5, 2)
+    frappe.db.sql(
+        """
+        UPDATE `tabMembership Dues Schedule`
+        SET suggested_amount = %(amount)s,
+            dues_rate = %(amount)s,
+            minimum_amount = %(half)s
+        WHERE membership_type = %(name)s AND is_template = 1
+        """,
+        {"amount": amount, "half": half, "name": name},
+    )
+
+
+# Sentinel distinguishing "caller passed no amount" from "caller explicitly
+# passed 100.0" -- ensure_membership_type_exists() needs the distinction (#263):
+# a caller with no opinion on amount (e.g. create_test_membership()'s internal
+# existence check) must NOT clobber an amount some earlier, opinionated caller
+# already set; a caller that DOES pass an amount must always get it.
+_AMOUNT_NOT_GIVEN = object()
+
+
+def ensure_membership_type_exists(name, *, amount=_AMOUNT_NOT_GIVEN):
     """Get-or-create a Membership Type with the EXACT given name; return the name.
 
     Many tests pass a membership_type_name (e.g. "Regular Member", "Daglid",
@@ -1340,21 +1408,30 @@ def ensure_membership_type_exists(name, *, amount=100.0):
     it (get-or-create -> no collision, no per-test cleanup; it behaves like a
     bootstrap master, the same way the default Team Roles do).
 
-    Callers that need a type with *specific* properties (amount, billing period,
-    contribution mode) should still build it explicitly via
-    create_test_membership_type(); this helper only guarantees a referenced name
-    resolves to a valid, active Membership Type.
+    If the row already exists and the caller passed an explicit `amount`, it is
+    realigned to that amount (and its dues-schedule template with it) rather
+    than silently keeping whatever an earlier, unrelated caller set (#263). A
+    caller that does not pass `amount` is only asking for existence and leaves
+    the row untouched either way, so it can never clobber a value a DIFFERENT,
+    opinionated caller is relying on. `amount=None` counts as "no opinion" too
+    (not a request for a null amount, which the DocType doesn't support).
     """
     if not name:
         raise ValueError("ensure_membership_type_exists() requires a non-empty name")
+
+    explicit_amount = amount is not _AMOUNT_NOT_GIVEN and amount is not None
+    effective_amount = amount if explicit_amount else 100.0
+
     if frappe.db.exists("Membership Type", name):
+        if explicit_amount:
+            _align_membership_type_amount(name, effective_amount)
         return name
 
     membership_type = frappe.new_doc("Membership Type")
     membership_type.membership_type_name = name
     membership_type.is_active = 1
     membership_type.contribution_mode = "Fixed Amount"
-    membership_type.minimum_amount = amount
+    membership_type.minimum_amount = effective_amount
     membership_type.billing_period = "Annual"
     membership_type.role_profile = _ensure_member_role_profile()
 
@@ -1373,6 +1450,11 @@ def ensure_membership_type_exists(name, *, amount=100.0):
         membership_type.insert(ignore_permissions=True)
     except (frappe.exceptions.DuplicateEntryError, frappe.exceptions.UniqueValidationError):
         frappe.db.rollback(save_point=sp)
+        # The winner's amount may not be ours -- correct it rather than
+        # silently returning whatever it happened to create, but only if we
+        # actually asked for something specific (#263).
+        if explicit_amount:
+            _align_membership_type_amount(name, effective_amount)
         return name
     frappe.db.release_savepoint(sp)
 
@@ -1390,9 +1472,9 @@ def ensure_membership_type_exists(name, *, amount=100.0):
     )
     if template:
         template_doc = frappe.get_doc("Membership Dues Schedule", template)
-        template_doc.suggested_amount = amount
-        template_doc.dues_rate = amount
-        template_doc.minimum_amount = amount * 0.5
+        template_doc.suggested_amount = effective_amount
+        template_doc.dues_rate = effective_amount
+        template_doc.minimum_amount = effective_amount * 0.5
         template_doc.save(ignore_permissions=True)
         if membership_type.dues_schedule_template != template:
             membership_type.dues_schedule_template = template

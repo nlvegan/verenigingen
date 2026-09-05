@@ -135,7 +135,9 @@
    "read_only": 1
   },
   {
-   "description": "System user account for this volunteer",
+   "description": "System user account for this volunteer. Auto-filled from the linked Member's account when created blank (#270); NOT overwritten once set, since a volunteer can also get their own dedicated account (see services/member/account/account_creation_manager.py) independent of the member's.",
+   "fetch_from": "member.user",
+   "fetch_if_empty": 1,
    "fieldname": "user",
    "fieldtype": "Link",
    "label": "User Account",

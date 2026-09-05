@@ -1501,12 +1501,40 @@ class EnhancedTestDataFactory:
         )
 
     def ensure_membership_type(self, type_name: str, attributes: dict = None) -> frappe._dict:
-        """Ensure a membership type exists, create if not"""
+        """Ensure a membership type exists, create if not.
+
+        Get-or-create keyed on a stable, human-meaningful name (e.g. "Standard
+        Member") that many tests deliberately share, because the production
+        code under test looks the type up by that literal name. Previously,
+        once any caller created the row, every later caller silently got that
+        FIRST caller's amount back untouched, no matter what it asked for -- a
+        caller requesting amount=25.00 could receive an existing €50 type
+        created by an earlier, unrelated caller (#263; test_data_factory.py's
+        ensure_membership_type_exists() had the identical defect, hit for real
+        as #248).
+
+        If the row already exists and the caller passed an explicit amount --
+        via `attributes["amount"]` or `attributes["minimum_amount"]`, both
+        appear across real call sites for this method -- realign the row -- and
+        its dues-schedule template, which enforces "dues rate >= type minimum"
+        -- to it. A caller that passes neither key (or passes one as None) is
+        only asking for existence and leaves the row untouched, so it can never
+        clobber a value some OTHER, opinionated caller is relying on.
+        """
+        requested_amount = None
+        if attributes:
+            requested_amount = attributes.get("amount")
+            if requested_amount is None:
+                requested_amount = attributes.get("minimum_amount")
+        explicit_amount = requested_amount is not None
+        amount = requested_amount if explicit_amount else 50.00
+
         if frappe.db.exists("Membership Type", type_name):
+            if explicit_amount:
+                self._align_membership_type_amount(type_name, amount)
             return frappe.get_doc("Membership Type", type_name)
 
         billing_period = attributes.get("billing_period", "Monthly") if attributes else "Monthly"
-        amount = attributes.get("amount", 50.00) if attributes else 50.00
 
         # Get a role profile for the membership type (required field)
         role_profile = attributes.get("role_profile") if attributes else None
@@ -1566,6 +1594,25 @@ class EnhancedTestDataFactory:
                 membership_type.save()
 
         return membership_type
+
+    def _align_membership_type_amount(self, type_name: str, amount: float) -> None:
+        """Correct an existing Membership Type + its dues template to `amount`.
+
+        Delegates to test_data_factory.py's copy rather than keeping a second
+        one here: the duplicate-helper validator (pre-push) treats two
+        near-identical copies of a new helper as the exact clone-family pattern
+        it exists to catch (see e.g. the app-wide `_persist_eur_company`
+        history it cites), so this file gets ONE implementation, not two to
+        keep in sync by hand. Function-local import: importing
+        test_data_factory at module load time was measured to cost ~6.5s here
+        (see this file's own import-cost note near the top) versus ~0.05s for
+        a function-local one.
+        """
+        from verenigingen.tests.fixtures.test_data_factory import (
+            _align_membership_type_amount as _shared_align_membership_type_amount,
+        )
+
+        _shared_align_membership_type_amount(type_name, amount)
 
     def ensure_chapter_role(self, role_name: str, attributes: dict = None) -> frappe._dict:
         """Ensure a chapter role exists, create if not"""
@@ -3602,11 +3649,9 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         use the same setup as production installations.
         """
         try:
-            # Use the proper installation setup function
-            from verenigingen.setup import create_default_verenigingen_settings
-
-            # Ensure settings exist (same as production installation)
-            create_default_verenigingen_settings()
+            # Ensure settings exist (same as production installation), and that
+            # they actually took -- see _require_settings_installer_succeeded.
+            self._require_settings_installer_succeeded()
 
             # ENHANCED FIXTURE LOADING: Load all essential fixtures
             self._load_essential_fixtures()
@@ -3660,6 +3705,57 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 f"Test master-data setup failed, so fixtures would link to records that "
                 f"do not exist. Fix the setup rather than the downstream test: {e}"
             ) from e
+
+    def _require_settings_installer_succeeded(self):
+        """Seed Verenigingen Settings, then assert the seed actually took.
+
+        Named distinctly from ``_ensure_verenigingen_settings`` (below, ~1800
+        lines away) -- that one repoints an EXISTING Single at the test
+        company; this one is about whether the Single's initial seed ran at
+        all.
+
+        ``create_default_verenigingen_settings()`` (verenigingen/setup/__init__.py)
+        is deliberately best-effort: it catches its own exception, prints a
+        warning, and returns ``None`` rather than raising -- defensible in a
+        real install, where "don't fail installation" is a real requirement.
+        The harness used to just call it for the side effect and move on, so a
+        failure there was invisible until some unrelated later test read
+        Verenigingen Settings and hit a confusing, unrelated error (#309).
+
+        The fix is not to change the installer's policy -- production installs
+        still get the best-effort behaviour -- it is to check, from the
+        harness side, whether the call actually took. Read the function's own
+        return value (``settings`` on success, ``None`` on its internal
+        swallow) rather than probing existence: ``frappe.db.exists(
+        "Verenigingen Settings", "Verenigingen Settings")`` is UNCONDITIONALLY
+        truthy for a Single (frappe's database layer short-circuits to
+        "single always exists" whenever doctype == docname), so that check can
+        never fire -- the installer's own identical guard is the antipattern
+        that makes ITS create branch dead code in the first place (a separate,
+        out-of-scope defect: the same shape recurs at ~19 sites outside
+        tests/, not just this one).
+
+        Seeding ``creation_user``/``company`` here first, the same way
+        ``before_tests`` does for a full suite run, keeps this check from
+        being the first thing to fail on a site an isolated module run left
+        fresh (the two reqd fields the installer's dead branch never sets);
+        it is idempotent and already called from ~19 test modules' own
+        ``setUpClass``, so calling it again here is not new exposure.
+        """
+        from verenigingen.setup import create_default_verenigingen_settings
+        from verenigingen.tests.setup import _seed_verenigingen_test_system_user
+
+        _seed_verenigingen_test_system_user()
+
+        if create_default_verenigingen_settings() is None:
+            raise RuntimeError(
+                "Verenigingen Settings could not be created (see the installer's own "
+                "warning printed above); tests that read it would otherwise fail with "
+                "a far less useful, unrelated error somewhere else. Run the full suite "
+                "so before_tests seeds Verenigingen Settings.creation_user/company, or "
+                "call verenigingen.tests.setup.ensure_member_test_masters() from this "
+                "module's setUpClass (#309)."
+            )
 
     def _ensure_required_roles(self):
         """

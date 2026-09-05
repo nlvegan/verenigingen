@@ -10,6 +10,24 @@ on:
     paths:
       - 'verenigingen/**/*.py'
 
+concurrency:
+  # A per-REF group, unlike server-tests.yml's per-COMMIT group for trunk pushes.
+  # server-tests.yml deliberately gives every trunk push its own group so that no
+  # merge cancels the run verifying the merge before it -- that buys per-merge
+  # ATTRIBUTION, at the cost of runner contention, and its own comment says so.
+  #
+  # That trade is only worth paying for the 14-job test suite. For this workflow a
+  # superseded trunk run tells you nothing the newer one does not, so collapse them:
+  # a newer push to the same ref cancels the older run. On a pull_request `github.ref`
+  # is refs/pull/<n>/merge, so PR runs still cancel only their own supersedes and
+  # never collide with trunk.
+  #
+  # Added 2026-09-05: develop took ~7 merges in 70 minutes and each fired 5-6
+  # workflows with no concurrency group at all, leaving 43 of 83 active runs on
+  # develop alone and jobs queued 5h+ without ever being assigned a runner.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   pull-requests: write

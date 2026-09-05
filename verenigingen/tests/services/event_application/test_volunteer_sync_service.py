@@ -1399,19 +1399,18 @@ class TestRoleRevocationClosesAccess(EnhancedTestCase):
         self.assertEqual(row.is_active, 0)
         self._assertProfileRevoked(user_name)
 
-    def test_revocation_reports_the_access_it_does_not_withdraw(self):
-        """With ``add_to_team`` off nothing is revoked — the message must say so.
+    def test_revocation_withdraws_the_directly_granted_role(self):
+        """#208: with ``add_to_team`` off, the direct grant must actually go.
 
         ``_ensure_volunteer`` grants ``verenigingen_role`` directly on the addition
         path (``_ensure_user_role`` → ``User.add_roles``), and hands ``role_profile``
-        to ``create_volunteer_from_member``. The removal branch has no counterpart
-        for either, so a bare "ROLE_ADMIN removed" would be a false safety claim on
-        an event ``apply_event`` then marks Applied.
+        to ``create_volunteer_from_member``. Before the fix the removal branch had
+        no counterpart for either — a bare "ROLE_ADMIN removed" was a false safety
+        claim on an event ``apply_event`` then marks Applied. Now it withdraws the
+        role via ``_revoke_direct_grants``.
 
-        The config names both, but this user only holds the role — so the message
-        must name the role and stay silent about the profile. Both directions are
-        asserted in one call because the failure mode is exactly a message that
-        recites the config regardless of state.
+        The config names both, but this user only holds the role — so only the
+        role is touched, and the profile (never held) produces no message.
         """
         probe_role = self._create_probe_role()
         member_name, user_name = self._create_member_with_role(probe_role)
@@ -1431,27 +1430,49 @@ class TestRoleRevocationClosesAccess(EnhancedTestCase):
             role_config=role_config,
         )
 
-        # The role really is retained — so the message has to admit it.
-        self.assertIn(probe_role, frappe.get_roles(user_name))
-        retained_msgs = [m for m in msgs if "NOT withdrawn" in m]
-        self.assertTrue(retained_msgs, f"retained role never reported: {msgs}")
-        self.assertIn(probe_role, " ".join(retained_msgs))
+        # The role is gone, and the messages say so.
+        self.assertNotIn(probe_role, frappe.get_roles(user_name))
+        withdrawn_msgs = [m for m in msgs if "withdrawn" in m]
+        self.assertTrue(withdrawn_msgs, f"withdrawal never reported: {msgs}")
+        self.assertIn(probe_role, " ".join(withdrawn_msgs))
         # ...and stay silent about the profile, which this user never had.
         self.assertNotIn(self.TEAM_PROFILE, self._role_profiles(user_name))
-        self.assertNotIn(self.TEAM_PROFILE, " ".join(retained_msgs))
+        self.assertNotIn(self.TEAM_PROFILE, " ".join(withdrawn_msgs))
 
-    def test_retained_message_names_a_role_profile_that_is_still_attached(self):
-        """The profile line, like the role line, is gated on observed state.
+    def test_revocation_withdraws_a_directly_granted_role_profile(self):
+        """The profile grant, like the role grant, must actually be withdrawn —
+        including the roles the profile granted, not just the profile link.
+
+        Detaching only the *link* is not enough: ``User.populate_role_profile_roles()``
+        derives ``roles`` from ``role_profiles`` on every save, but returns
+        immediately once ``role_profiles`` is empty — so a direct child-table edit
+        that removes the last profile leaves every role that profile granted still
+        attached while reporting the profile "withdrawn" (#208 review, measured:
+        9 roles for ``Verenigingen Staff`` survived a profile-link-only removal).
+        ``_revoke_direct_grants`` must route through ``sync_user_role_profile``
+        instead, which always sets *some* ground-truth profile and so always
+        re-triggers the role recompute.
 
         ``Verenigingen Staff`` here comes from nothing this sync manages, so with
-        ``add_to_team`` off it survives the revocation and must be named. (The
-        user cannot also hold ``verenigingen_role``: with a profile attached,
+        ``add_to_team`` off it used to survive the revocation entirely. (The user
+        cannot also hold ``verenigingen_role``: with a profile attached,
         ``User.populate_role_profile_roles()`` strips every role outside it on each
         save — the same mechanism that makes ``_ensure_volunteer`` skip individual
         role assignment when a team is configured.)
         """
+        # Baseline roles every user carries (or falls back to once the profile is
+        # gone) regardless of this fix — asserting their absence would fail for
+        # reasons unrelated to what is being tested here. Read what the profile
+        # actually granted from observed state rather than the Role Profile's
+        # nominal role list: not every listed role is necessarily populated onto
+        # a bare test User (e.g. one gated on an Employee record existing).
+        baseline_roles = {"All", "Guest", "Desk User", "Verenigingen Member"}
+
         probe_role = self._create_probe_role()
         member_name, user_name = self._create_member_with_role(None, role_profile=self.TEAM_PROFILE)
+        profile_specific_roles = set(frappe.get_roles(user_name)) - baseline_roles
+        self.assertTrue(profile_specific_roles, "fixture is not exercising the escalation")
+
         role_config = {
             "ROLE_ADMIN": {
                 "create_volunteer": True,
@@ -1468,23 +1489,27 @@ class TestRoleRevocationClosesAccess(EnhancedTestCase):
             role_config=role_config,
         )
 
-        retained_msgs = [m for m in msgs if "NOT withdrawn" in m]
-        self.assertTrue(retained_msgs, f"retained profile never reported: {msgs}")
-        self.assertIn(self.TEAM_PROFILE, " ".join(retained_msgs))
+        withdrawn_msgs = [m for m in msgs if "withdrawn" in m]
+        self.assertTrue(withdrawn_msgs, f"profile withdrawal never reported: {msgs}")
+        self.assertIn(self.TEAM_PROFILE, " ".join(withdrawn_msgs))
+        self.assertNotIn(self.TEAM_PROFILE, self._role_profiles(user_name))
         self.assertNotIn(probe_role, frappe.get_roles(user_name))
-        self.assertNotIn(probe_role, " ".join(retained_msgs))
+        self.assertNotIn(probe_role, " ".join(withdrawn_msgs))
 
-    def test_retained_message_omits_access_the_revocation_withdrew(self):
-        """The warning must describe observed state, not configuration.
+        # The point of the fix: not just the profile link, the roles it granted.
+        frappe.clear_cache(user=user_name)
+        for r in profile_specific_roles:
+            self.assertNotIn(r, frappe.get_roles(user_name), f"role '{r}' survived profile withdrawal")
 
-        With ``add_to_team`` on, the team hook DID withdraw ``role_profile``; and
-        ``_ensure_volunteer`` never granted ``verenigingen_role`` in this config —
-        it returns early precisely because ``populate_role_profile_roles()``
-        overwrites individually added roles on every User.save(). Telling the
-        operator to revoke both by hand invites stripping access the user
-        legitimately holds from another team or a chapter board: over-revocation
-        by human, on a security path, which is the exact failure the deferral
-        rationale existed to avoid.
+    def test_direct_grant_revocation_is_a_noop_when_the_team_hook_already_withdrew_it(self):
+        """The team-derived access must not be reported as withdrawn a second time.
+
+        With ``add_to_team`` on, the team hook already withdrew ``role_profile``,
+        and ``_ensure_volunteer`` never granted ``verenigingen_role`` in this
+        config — it returns early precisely because
+        ``populate_role_profile_roles()`` overwrites individually added roles on
+        every ``User.save()``. ``_revoke_direct_grants`` must see neither as held
+        and emit no message for either.
         """
         team_name = self._create_staff_team("RevokeReport")
         member_name, user_name, _volunteer_name = self._create_admin_on_team("Report", team_name)
@@ -1512,19 +1537,198 @@ class TestRoleRevocationClosesAccess(EnhancedTestCase):
         self.assertNotIn(self.TEAM_PROFILE, self._role_profiles(user_name))
         self.assertNotIn(probe_role, frappe.get_roles(user_name))
 
-        misreported = [m for m in msgs if "NOT withdrawn" in m]
+        # Nothing left for _revoke_direct_grants to withdraw, so it must be silent.
+        misreported = [m for m in msgs if "Role" in m and "withdrawn" in m]
         self.assertFalse(
             misreported,
-            f"told the operator to manually revoke access that is not held: {misreported}",
+            f"claimed to withdraw access that was already gone: {misreported}",
         )
 
-    def test_applied_event_persists_the_retained_access_warning(self):
-        """A warning only a service log file sees is not a mitigation.
+    def test_direct_role_survives_when_still_granted_by_active_division_contact_mapping(self):
+        """#208's flagged cross-mapping case: both configs name the same role.
 
-        ``apply_event`` clears ``error_message`` on success and never persists
-        ``result["message"]``; the form button shows a fixed green alert and the
-        batch worker discards the result on success. So the "revoke manually"
-        text reached nobody who could act on it.
+        ROLE_ADMIN and ROLE_DIVISION_CONTACT may configure the identical
+        ``verenigingen_role``. The member is still a division contact — driven
+        through the real entry point (_process_member_roles) with a realistic
+        ROLE_ADMIN-removal payload, which never carries ``managed_division_ids``
+        (that comes from a separate junction-table poll, #208 review) — so
+        "still a division contact" must be established from live MijnRood state
+        (MijnRood Sync State + Settings.last_division_contacts_hash), not the
+        event's own payload. Stripping the role here would be exactly the
+        over-revocation #208 says is unsafe without provenance.
+        """
+        probe_role = self._create_probe_role()
+        member_name, user_name = self._create_member_with_role(probe_role)
+        self._create_live_admin_member_state(member_name, mijnrood_row_id=770001, roles=None)
+        self._set_live_division_contacts({770001: [55]})
+        role_config = {
+            "ROLE_ADMIN": {
+                "create_volunteer": True,
+                "verenigingen_role": probe_role,
+                "add_to_team": 0,
+            },
+            "ROLE_DIVISION_CONTACT": {
+                "create_volunteer": True,
+                "add_to_chapter_board": True,
+                "verenigingen_role": probe_role,
+            },
+        }
+
+        with patch(
+            "verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service.get_role_mapping",
+            return_value=role_config,
+        ):
+            msgs = get_volunteer_sync_service()._process_member_roles(
+                member_name,
+                mijnrood_data={"roles": "[]"},
+                old_data={"roles": '["ROLE_ADMIN"]'},
+            )
+
+        self.assertIn(probe_role, frappe.get_roles(user_name))
+        self.assertFalse(
+            [m for m in msgs if "withdrawn" in m],
+            f"stripped a role still granted by the active division-contact mapping: {msgs}",
+        )
+
+    def test_revocation_is_not_a_blanket_role_wipe(self):
+        """Control: a role granted through a completely unrelated route survives.
+
+        ``_revoke_direct_grants`` only ever acts on the exact role / role_profile
+        named in ``config`` — never a blanket removal — so a role granted under a
+        different name, through any other route, must survive.
+        """
+        probe_role = self._create_probe_role()
+        member_name, user_name = self._create_member_with_role(probe_role)
+        independent_role = self._create_probe_role()
+        user_doc = frappe.get_doc("User", user_name)
+        user_doc.add_roles(independent_role)
+        self.assertIn(independent_role, frappe.get_roles(user_name))
+
+        role_config = {
+            "ROLE_ADMIN": {
+                "create_volunteer": True,
+                "verenigingen_role": probe_role,
+                "add_to_team": 0,
+            }
+        }
+
+        get_volunteer_sync_service()._handle_admin_role_change(
+            member_name,
+            current_roles=set(),
+            old_roles={"ROLE_ADMIN"},
+            role_config=role_config,
+        )
+
+        frappe.clear_cache(user=user_name)
+        self.assertNotIn(probe_role, frappe.get_roles(user_name))
+        self.assertIn(independent_role, frappe.get_roles(user_name))
+
+    def test_role_survives_when_reinstated_by_an_attached_ground_truth_profile(self):
+        """A role also granted by the user's real, independently-justified profile
+        must not raise — it must survive, quietly.
+
+        ``User.populate_role_profile_roles()`` re-derives ``roles`` from
+        ``role_profiles`` on every save, so removing a role that the user's
+        surviving profile also grants is undone within that same
+        ``user_doc.remove_roles()`` save — it is re-added, not left removed. That
+        is not a failed revocation: the profile (real, from team membership, not
+        this MijnRood config) is what grants it, the same reasoning
+        ``_outstanding_board_access`` already applies by gating the
+        ``CHAPTER_BOARD_MEMBER`` role check on ``is_active_board_member()``.
+
+        ``_create_probe_role()`` cannot reach this branch — a throwaway Role is in
+        no Role Profile — so this uses a real shipped role that IS part of
+        ``TEAM_PROFILE``'s own role list: ``Verenigingen Staff`` is itself one of
+        the roles ``Verenigingen Staff`` (the profile) grants.
+        """
+        team_name = self._create_staff_team("RevokeReinstate")
+        member_name, user_name, _volunteer_name = self._create_admin_on_team("Reinstate", team_name)
+        self.assertIn(
+            self.TEAM_PROFILE,
+            frappe.get_roles(user_name),
+            "fixture assumption: the profile grants its own name as a role",
+        )
+
+        role_config = {
+            "ROLE_ADMIN": {
+                "create_volunteer": True,
+                "verenigingen_role": self.TEAM_PROFILE,
+                "add_to_team": 0,
+            }
+        }
+
+        msgs = get_volunteer_sync_service()._handle_admin_role_change(
+            member_name,
+            current_roles=set(),
+            old_roles={"ROLE_ADMIN"},
+            role_config=role_config,
+        )
+
+        # Must not raise (the bug: remove_roles() is undone within its own save
+        # by the still-attached team profile, and the old code treated that as a
+        # failed revocation). The role survives — legitimately, via team
+        # membership — and no message claims it was withdrawn.
+        self.assertIn(self.TEAM_PROFILE, frappe.get_roles(user_name))
+        self.assertFalse(
+            [m for m in msgs if "withdrawn" in m and self.TEAM_PROFILE in m],
+            f"claimed to withdraw a role still granted by the attached team profile: {msgs}",
+        )
+
+    def test_revocation_preserves_a_profile_independently_justified_by_team_ground_truth(self):
+        """The harder control: the config's role_profile is ALSO the member's real,
+        independently-justified profile — via team membership, not this grant.
+
+        This is the case a naive "just detach the profile" implementation cannot
+        pass: ``sync_user_role_profile`` recomputes ground truth independently of
+        this MijnRood grant, and since the team membership is real, ground truth
+        still resolves to the same profile — so it must survive, the same
+        property ``_assert_team_profile_withdrawn`` already protects on the
+        team-membership revocation path.
+
+        Not asserted here: a role added directly (``add_roles``) to a user who
+        already carries a role_profile. That combination is not stable in this
+        system independent of this fix — ``User.populate_role_profile_roles()``
+        strips any role outside the current profile on *every* ``User.save()``,
+        which is exactly why ``_ensure_volunteer`` skips individual role
+        assignment once a role profile is in play (see its own docstring). A
+        control asserting that survival would fail for a reason unrelated to
+        ``_revoke_direct_grants``.
+        """
+        team_name = self._create_staff_team("RevokeBlanket")
+        member_name, user_name, _volunteer_name = self._create_admin_on_team("Blanket", team_name)
+        probe_role = self._create_probe_role()
+
+        role_config = {
+            "ROLE_ADMIN": {
+                "create_volunteer": True,
+                "verenigingen_role": probe_role,
+                "role_profile": self.TEAM_PROFILE,
+                "add_to_team": 0,
+            }
+        }
+
+        get_volunteer_sync_service()._handle_admin_role_change(
+            member_name,
+            current_roles=set(),
+            old_roles={"ROLE_ADMIN"},
+            role_config=role_config,
+        )
+
+        frappe.clear_cache(user=user_name)
+        self.assertIn(
+            self.TEAM_PROFILE,
+            self._role_profiles(user_name),
+            "stripped a profile still justified by real team membership",
+        )
+
+    def test_applied_event_actually_withdraws_the_directly_granted_role(self):
+        """End-to-end via ``apply_event``: the role is gone, not merely reported gone.
+
+        Before #208's fix this event applied successfully while leaving
+        ``probe_role`` attached, with only a "revoke manually" warning that reached
+        nobody who could act on it (the form button renders a fixed green alert,
+        and ``_batch_event_worker`` discards the result). Now the role is actually
+        withdrawn, so there is nothing left to warn about.
         """
         from verenigingen.mijnrood_sync.services.event_application.dispatcher import (
             get_event_application_service,
@@ -1547,9 +1751,8 @@ class TestRoleRevocationClosesAccess(EnhancedTestCase):
         self.assertTrue(result.get("success"), result)
         event.reload()
         self.assertEqual(event.status, "Applied")
-        # The access really is retained, so the row an operator can see must say so.
-        self.assertIn(probe_role, frappe.get_roles(user_name))
-        self.assertIn(probe_role, event.error_message or "")
+        self.assertNotIn(probe_role, frappe.get_roles(user_name))
+        self.assertFalse(event.error_message)
 
     # ── failure must not be reported as success ────────────────────────
 
@@ -1768,6 +1971,57 @@ class TestRoleRevocationClosesAccess(EnhancedTestCase):
             frappe.delete_doc("Role", role_name, ignore_permissions=True, force=True)
         except Exception:
             pass
+        frappe.db.commit()
+
+    def _create_live_admin_member_state(self, member_name, mijnrood_row_id, roles=None):
+        """A MijnRood Sync State row mirroring the last-polled admin_member row.
+
+        ``_live_admin_active`` / ``_live_division_contact_active`` read this
+        rather than the event being processed (#208 review): a ROLE_ADMIN-change
+        event never carries ``managed_division_ids``, and a division-contact
+        synthetic event never carries "roles" — so the cross-mapping check has to
+        come from here instead of either event's own payload.
+        """
+        raw_data = {"roles": json.dumps(list(roles)) if roles else "[]"}
+        doc = frappe.get_doc(
+            {
+                "doctype": "MijnRood Sync State",
+                "state_key": f"admin_member-test-{frappe.generate_hash(length=8)}",
+                "mijnrood_table": "admin_member",
+                "mijnrood_row_id": mijnrood_row_id,
+                "row_checksum": "test",
+                "last_seen": now_datetime(),
+                "linked_member": member_name,
+                "raw_data": json.dumps(raw_data),
+            }
+        ).insert(ignore_permissions=True)
+        frappe.db.commit()
+        self.addCleanup(self._cleanup_sync_state, doc.name)
+        return doc.name
+
+    def _cleanup_sync_state(self, name):
+        try:
+            frappe.delete_doc("MijnRood Sync State", name, ignore_permissions=True, force=True)
+        except Exception:
+            pass
+        frappe.db.commit()
+
+    def _set_live_division_contacts(self, mapping):
+        """Snapshot/restore ``MijnRood Sync Settings.last_division_contacts_hash``.
+
+        ``mapping`` is ``{mijnrood_row_id: [division_id, ...]}``; keys are
+        stringified to match the JSON round-trip ``_poll_division_contacts``
+        performs on the real Single doctype value.
+        """
+        settings = frappe.get_single("MijnRood Sync Settings")
+        previous = settings.last_division_contacts_hash
+        self.addCleanup(self._restore_live_division_contacts, previous)
+        encoded = json.dumps({str(k): v for k, v in mapping.items()})
+        frappe.db.set_single_value("MijnRood Sync Settings", "last_division_contacts_hash", encoded)
+        frappe.db.commit()
+
+    def _restore_live_division_contacts(self, previous):
+        frappe.db.set_single_value("MijnRood Sync Settings", "last_division_contacts_hash", previous)
         frappe.db.commit()
 
     def _create_role_removal_event(self, member_name):
@@ -2061,15 +2315,14 @@ class TestBoardRevocationClosesAccess(EnhancedTestCase):
 
     # ── retained access reporting ──────────────────────────────────────
 
-    def test_division_contact_revocation_reports_the_access_it_does_not_withdraw(self):
+    def test_division_contact_revocation_withdraws_the_directly_granted_role(self):
         """The board seat is not the only access ROLE_DIVISION_CONTACT granted.
 
         ``_apply_role_actions`` also runs ``_ensure_volunteer`` for this config, which
         grants ``verenigingen_role`` directly (``_ensure_user_role`` →
-        ``User.add_roles``) and hands ``role_profile`` to
-        ``create_volunteer_from_member``. The removal branch has no counterpart for
-        either, so a bare "Removed from chapter" on an event marked Applied is a false
-        safety claim — the same gap ``_handle_admin_role_change`` already reports.
+        ``User.add_roles``). #208: the removal branch had no counterpart for it at
+        all; now it withdraws it via ``_revoke_direct_grants``, the same gap
+        ``_handle_admin_role_change`` closes.
         """
         probe_role = self._create_probe_role()
         member_name, user_name = self._create_member_without_board(role_name=probe_role)
@@ -2090,17 +2343,16 @@ class TestBoardRevocationClosesAccess(EnhancedTestCase):
                 role_config=role_config,
             )
 
-        self.assertIn(probe_role, frappe.get_roles(user_name))
-        retained_msgs = [m for m in msgs if "NOT withdrawn" in m]
-        self.assertTrue(retained_msgs, f"retained role never reported: {msgs}")
-        self.assertIn(probe_role, " ".join(retained_msgs))
+        self.assertNotIn(probe_role, frappe.get_roles(user_name))
+        withdrawn_msgs = [m for m in msgs if "withdrawn" in m]
+        self.assertTrue(withdrawn_msgs, f"withdrawal never reported: {msgs}")
+        self.assertIn(probe_role, " ".join(withdrawn_msgs))
 
-    def test_retained_access_is_not_reported_while_other_divisions_remain(self):
-        """Still a division contact somewhere — the config-granted access is theirs.
+    def test_role_survives_while_other_divisions_remain(self):
+        """Still a division contact somewhere — the config-granted role is theirs.
 
-        Reporting it would tell an operator to hand-revoke a role the member still
-        legitimately holds: over-revocation by human, the failure the deferral
-        rationale exists to avoid.
+        Revoking it would strip access the member still legitimately holds:
+        over-revocation, the failure the ``if not new_set`` guard exists to avoid.
         """
         probe_role = self._create_probe_role()
         member_name, user_name = self._create_member_without_board(role_name=probe_role)
@@ -2124,8 +2376,55 @@ class TestBoardRevocationClosesAccess(EnhancedTestCase):
 
         self.assertIn(probe_role, frappe.get_roles(user_name))
         self.assertFalse(
-            [m for m in msgs if "NOT withdrawn" in m],
-            f"told the operator to revoke access the member still holds: {msgs}",
+            [m for m in msgs if "withdrawn" in m],
+            f"attempted revocation while the member still holds another division: {msgs}",
+        )
+
+    def test_direct_role_survives_when_still_granted_by_active_admin_mapping(self):
+        """#208's flagged cross-mapping case, mirrored: both configs name the same role.
+
+        Driven through the real entry point (_process_member_roles) with a
+        realistic division-contact synthetic payload, which never carries
+        "roles" at all (that comes from a separate admin_member poll, #208
+        review) — so "still holds ROLE_ADMIN" must come from live MijnRood state
+        (MijnRood Sync State), not the event's own payload. The member currently
+        still holds ROLE_ADMIN, whose config names the identical
+        ``verenigingen_role`` — legitimately theirs through that route, so
+        ROLE_DIVISION_CONTACT's own removal must leave it alone.
+        """
+        probe_role = self._create_probe_role()
+        member_name, user_name = self._create_member_without_board(role_name=probe_role)
+        self._create_live_admin_member_state(member_name, mijnrood_row_id=770002, roles={"ROLE_ADMIN"})
+        unresolved = self._free_division_id()
+        role_config = {
+            "ROLE_ADMIN": {
+                "create_volunteer": True,
+                "verenigingen_role": probe_role,
+                "add_to_team": 0,
+            },
+            "ROLE_DIVISION_CONTACT": {
+                "create_volunteer": True,
+                "add_to_chapter_board": True,
+                "verenigingen_role": probe_role,
+            },
+        }
+
+        with self._captured_notifications():
+            with patch(
+                "verenigingen.mijnrood_sync.services.event_application."
+                "volunteer_sync_service.get_role_mapping",
+                return_value=role_config,
+            ):
+                msgs = get_volunteer_sync_service()._process_member_roles(
+                    member_name,
+                    mijnrood_data={"managed_division_ids": []},
+                    old_data={"managed_division_ids": [unresolved]},
+                )
+
+        self.assertIn(probe_role, frappe.get_roles(user_name))
+        self.assertFalse(
+            [m for m in msgs if "withdrawn" in m],
+            f"stripped a role still granted by the active ROLE_ADMIN mapping: {msgs}",
         )
 
     # ── assertions ─────────────────────────────────────────────────────
@@ -2329,5 +2628,9 @@ class TestBoardRevocationClosesAccess(EnhancedTestCase):
     _create_probe_role = TestRoleRevocationClosesAccess._create_probe_role
     _cleanup_role = TestRoleRevocationClosesAccess._cleanup_role
     _cleanup_user = TestRoleRevocationClosesAccess._cleanup_user
+    _create_live_admin_member_state = TestRoleRevocationClosesAccess._create_live_admin_member_state
+    _cleanup_sync_state = TestRoleRevocationClosesAccess._cleanup_sync_state
+    _set_live_division_contacts = TestRoleRevocationClosesAccess._set_live_division_contacts
+    _restore_live_division_contacts = TestRoleRevocationClosesAccess._restore_live_division_contacts
     _cleanup_member_and_customer = TestEnsureTeamMembership._cleanup_member_and_customer
     _cleanup_volunteer = TestEnsureTeamMembership._cleanup_volunteer

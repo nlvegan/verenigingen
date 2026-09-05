@@ -36,17 +36,34 @@ class TestMT940ImportIntegration(EnhancedTestCase):
         # previous test in this class before each test so counts are deterministic.
         self._cleanup_bank_transactions()
 
+    # Bank Account autonames account_name + " - " + bank with no company
+    # component (the guard-key rule), so this (account_name + bank, its full
+    # autoname key) must be the existence-check, not the shared IBAN below --
+    # another suite's Bank Account can carry the same IBAN, and querying on
+    # the IBAN alone adopts whichever one was created most recently
+    # (frappe.db.get_value orders creation DESC) rather than owning this
+    # class's own row. See #308. The company filter is defensive, not part of
+    # the autoname key: self.company is currently a stable, deterministic
+    # singleton (frappe.get_list("Company", limit=1) sorts oldest-first), but
+    # if #532 ever repoints it, this stops a stale row on the old company from
+    # being adopted too.
+    OWN_ACCOUNT_NAME = "MT940 Test Account"
+
     def _ensure_bank_account(self):
         """Create (idempotently) a Bank Account whose IBAN matches the samples."""
         from verenigingen.verenigingen_payments.utils.bank_utils import get_or_create_unknown_bank
 
         bank = get_or_create_unknown_bank()
         iban = "NL02ABNA0123456789"
-        existing = frappe.db.get_value("Bank Account", {"bank_account_no": iban}, "name")
+        existing = frappe.db.get_value(
+            "Bank Account",
+            {"account_name": self.OWN_ACCOUNT_NAME, "bank": bank, "company": self.company},
+            "name",
+        )
         if existing:
             return existing
         ba = frappe.new_doc("Bank Account")
-        ba.account_name = f"MT940 Test Account {self.uid}"
+        ba.account_name = self.OWN_ACCOUNT_NAME
         ba.bank = bank
         ba.company = self.company
         ba.bank_account_no = iban
@@ -73,6 +90,39 @@ class TestMT940ImportIntegration(EnhancedTestCase):
         super().tearDown()
 
     # ------------------------------------------------------------------ #
+
+    def test_ensure_bank_account_owns_its_row_not_a_shared_iban_query(self):
+        """A competing Bank Account sharing the sample IBAN, created by some
+        other suite (not by this class), must not be adopted (#308). Before
+        the fix, _ensure_bank_account resolved by bank_account_no alone, so
+        the most recently created row with that IBAN won -- regardless of
+        who owns it."""
+        from verenigingen.verenigingen_payments.utils.bank_utils import get_or_create_unknown_bank
+
+        competitor = frappe.new_doc("Bank Account")
+        competitor.account_name = f"Some Other Suite's Account {frappe.generate_hash()[:6]}"
+        competitor.bank = get_or_create_unknown_bank()
+        competitor.company = self.company
+        competitor.bank_account_no = "NL02ABNA0123456789"
+        competitor.iban = "NL02ABNA0123456789"
+        competitor.insert(ignore_permissions=True)
+        self.created_records.append(("Bank Account", competitor.name))
+
+        resolved = self._ensure_bank_account()
+
+        self.assertEqual(
+            resolved,
+            self.bank_account,
+            "must resolve to its own owned account, not a competitor sharing the IBAN",
+        )
+        # Pin the owned identity itself, not just equality with a value the
+        # same helper produced on the same instance -- a regression that
+        # reintroduces a per-instance-unique account_name would still pass
+        # the assertEqual above (both sides freshly created by this call).
+        self.assertTrue(
+            resolved.startswith(self.OWN_ACCOUNT_NAME),
+            f"must own the stable '{self.OWN_ACCOUNT_NAME}' row, got {resolved!r}",
+        )
 
     def test_single_incoming_credit_creates_deposit(self):
         result = M.process_mt940_document(S.SEPA_INCOMING_CREDIT, self.bank_account, self.company)

@@ -448,6 +448,31 @@ class TestEnsureDonationForRecurringCharge(EnhancedTestCase):
                 self._charge(subscription_id=f"sub_nobody_knows_{self.tag}")
             )
 
+    def test_redelivery_of_an_unattributable_charge_does_not_duplicate_the_audit_row(self):
+        """The origin-missing branch RAISES, so Mollie redelivery is guaranteed
+        rather than conditional -- a worse instance of #354's shape than the
+        agreement repair, since an unattributable subscription rarely resolves
+        itself between deliveries either. Every redelivery must still raise
+        (Mollie must keep retrying until this is fixed); only the audit row
+        must stop multiplying.
+        """
+        self.expectErrorLog("recurring_charge_origin_missing")
+        payload = self._charge(
+            subscription_id=f"sub_nobody_knows_{self.tag}", payment_id=f"tr_unattrib_{self.tag}"
+        )
+
+        with self.assertRaises(RecurringChargeOriginMissing):
+            ensure_donation_for_recurring_charge(payload)
+        # The redelivery: identical payload, still nobody knows this subscription.
+        with self.assertRaises(RecurringChargeOriginMissing):
+            ensure_donation_for_recurring_charge(payload)
+
+        self.assertEqual(
+            len(self._audit_rows("recurring_charge_origin_missing_error", payload["id"])),
+            1,
+            "a redelivery of the same unattributable charge must not multiply the audit row",
+        )
+
     def test_cancelled_agreement_does_not_block_the_booking(self):
         # validate_periodic_donation_agreement throws for a non-Active agreement.
         # A donor who cancels the agreement while Mollie keeps charging must not
@@ -463,6 +488,57 @@ class TestEnsureDonationForRecurringCharge(EnhancedTestCase):
             len(self._audit_rows("recurring_charge_agreement_inactive", payload["id"])),
             1,
             "dropping the link silently is the failure mode; it must be recorded",
+        )
+
+    def test_redelivery_of_an_inactive_agreement_charge_does_not_duplicate_the_audit_row(self):
+        """#354: _repair_agreement_link reruns on every redelivery, and an
+        agreement that STAYS Cancelled reports the identical fact each time --
+        Mollie retries up to 10 times over 26 hours, so one charge against an
+        inactive agreement produced 10 duplicate audit rows.
+
+        CONTROL below proves the dedup is scoped to this one charge, not to
+        the event_type: a genuinely different charge against its own inactive
+        agreement must still be audited.
+        """
+        donor = self._setup_donor()
+        agreement = self._setup_agreement(donor)
+        origin = self._setup_origin(donor=donor, periodic_donation_agreement=agreement.name)
+        frappe.db.set_value("Periodic Donation Agreement", agreement.name, "status", "Cancelled")
+        payload = self._charge(origin.name)
+
+        first = ensure_donation_for_recurring_charge(payload)
+        # The redelivery: same charge, same still-Cancelled agreement.
+        second = ensure_donation_for_recurring_charge(payload)
+
+        self.assertEqual(first, second, "still no second donation")
+        self.assertEqual(
+            len(self._audit_rows("recurring_charge_agreement_inactive", payload["id"])),
+            1,
+            "a redelivery of the same fact must not multiply the audit row",
+        )
+
+        # CONTROL: a different charge, different donor, its own Cancelled
+        # agreement -- a genuinely different repair, not a repeat of the one
+        # above. It must still be audited; the fix must not silence the
+        # event_type altogether.
+        other_donor = self._setup_donor()
+        other_agreement = self._setup_agreement(other_donor)
+        other_origin = self._setup_origin(
+            donor=other_donor,
+            periodic_donation_agreement=other_agreement.name,
+            # self.first_payment_id is _setup_origin's default and is shared
+            # by the first origin above; a second origin needs its own.
+            payment_id=f"tr_the_other_first_one_{self.tag}",
+        )
+        frappe.db.set_value("Periodic Donation Agreement", other_agreement.name, "status", "Cancelled")
+        other_payload = self._charge(other_origin.name, payment_id=f"tr_other_{self.tag}")
+
+        ensure_donation_for_recurring_charge(other_payload)
+
+        self.assertEqual(
+            len(self._audit_rows("recurring_charge_agreement_inactive", other_payload["id"])),
+            1,
+            "a genuinely different charge's inactive agreement must still be audited",
         )
 
     def test_a_failed_agreement_link_is_audited_and_keeps_the_booking(self):

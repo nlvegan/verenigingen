@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 
 import frappe
 from frappe import _
+from frappe.utils import cint
 
 from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
 from verenigingen.verenigingen_payments.mollie.core.mollie_models import Payment as MolliePayment
@@ -747,7 +748,7 @@ class BulkPaymentChecker:
                 details["skipped"] = result.get("skipped", 0)
                 details["dry_run"] = result.get("dry_run", False)
 
-            log_security_event(
+            event_id = log_security_event(
                 event_type="other",  # Use "other" instead of custom event types
                 details={
                     **details,
@@ -755,6 +756,18 @@ class BulkPaymentChecker:
                 },
                 severity=severity,
             )
+
+            # log_security_event() -> log_event() cannot be trusted to report
+            # failure: _store_audit_event/_store_api_audit_event/_log_to_file/
+            # _check_alert_conditions (audit_logging.py) each catch and log
+            # their OWN exceptions internally, so log_event's outer try never
+            # sees a storage failure -- it always returns a normal-looking
+            # event id even when the row was never written. event_type="other"
+            # always routes here to API Audit Log (never SEPA Audit Log; see
+            # SEPAAuditLogger.SEPA_EVENT_TYPES), so verify presence directly
+            # instead of trusting the return value. See #197.
+            if not event_id or not frappe.db.exists("API Audit Log", {"event_id": event_id}):
+                raise RuntimeError(f"Audit event was not persisted to API Audit Log (event_id={event_id!r})")
         except Exception as e:
             # Don't fail bulk operation if audit logging fails, but alert admins
             frappe.logger().warning(f"Failed to log audit event: {e}")
@@ -766,10 +779,20 @@ class BulkPaymentChecker:
                 f"Operation details: {details}",
             )
 
-            # Increment failure counter for monitoring dashboard
-            cache_key = "audit_log_failures_count"
-            failures = frappe.cache().get(cache_key) or 0
-            frappe.cache().set(cache_key, failures + 1, ex=3600)  # 1 hour window
+            # Increment failure counter for monitoring dashboard. cache().get()
+            # returns bytes for a value set by a previous call (cache().set()
+            # stores via raw redis, not frappe's get_value/set_value), so
+            # cint() is required -- a bare `bytes + 1` raises TypeError. This
+            # whole block was unreachable before the fix above, so neither bug
+            # had ever run; wrapped in its own try/except so a Redis outage
+            # here (raw cache calls, no ConnectionError suppression) cannot
+            # turn "don't fail the bulk operation" into a failing one.
+            try:
+                cache_key = "audit_log_failures_count"
+                failures = cint(frappe.cache().get(cache_key))
+                frappe.cache().set(cache_key, failures + 1, ex=3600)  # 1 hour window
+            except Exception as cache_error:
+                frappe.logger().warning(f"Failed to bump audit failure counter: {cache_error}")
 
     def process_discovered_payments(self, payment_ids: List[str], dry_run: bool = False) -> Dict[str, Any]:
         """

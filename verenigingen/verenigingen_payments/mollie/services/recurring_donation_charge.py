@@ -104,7 +104,12 @@ def ensure_donation_for_recurring_charge(payment: Any) -> Optional[str]:
 
     origin = DonationLookup().find_for_subscription_payment(payment_id, payment=payment)
     if not origin:
-        _audit(
+        # _audit_once, not _audit: this branch RAISES, so Mollie redelivery is
+        # guaranteed rather than incidental, and an unattributable subscription
+        # rarely resolves itself between deliveries -- so this is the same
+        # once-per-delivery-not-per-fact shape #354 named for the agreement
+        # repair, just with a 100% redelivery rate instead of a conditional one.
+        _audit_once(
             payment_id,
             "recurring_charge_origin_missing_error",
             f"No donation found for subscription {subscription_id}; charge not booked",
@@ -140,6 +145,13 @@ def _repair_agreement_link(charge_name: str, payment_id: str) -> None:
     "Donation is already linked" on a charge that IS in the child table, which
     would be recorded as a link error -- hence the narrow condition rather than
     relying on that throw.
+
+    This function re-runs on EVERY redelivery of the same charge while the link
+    stays missing -- Mollie retries up to 10 times over 26 hours -- so
+    ``_link_to_agreement``'s own audit writes are deduplicated per payment_id
+    (see ``_audit_once``, #354): the repair still re-attempts the link on every
+    call (an agreement that turns Active again must still get linked), only the
+    noisy "still not linked" audit row is written once.
     """
     charge = frappe.db.get_value(
         "Donation",
@@ -269,7 +281,7 @@ def _link_to_agreement(charge_name: str, origin, payment_id: str) -> None:
     # state this issue exists to prevent. So the status is checked here instead.
     status = frappe.db.get_value("Periodic Donation Agreement", agreement, "status")
     if status not in ("Active", "Completed"):
-        _audit(
+        _audit_once(
             payment_id,
             "recurring_charge_agreement_inactive",
             f"Agreement {agreement} is '{status}'; charge booked without the link",
@@ -281,7 +293,7 @@ def _link_to_agreement(charge_name: str, origin, payment_id: str) -> None:
     try:
         frappe.get_doc("Periodic Donation Agreement", agreement).add_donation_link(charge_name)
     except Exception as e:
-        _audit(
+        _audit_once(
             payment_id,
             "recurring_charge_agreement_link_error",
             f"Charge booked as {charge_name} but linking it to agreement {agreement} failed: {e}",
@@ -321,6 +333,35 @@ def _mode_of_payment(payment, origin, payment_id: str) -> str:
     # Deliberately not donation.create_mode_of_payment(), which would insert a
     # Mode of Payment literally named "directdebit" as a side effect of a webhook.
     return fallback
+
+
+def _audit_once(payment_id, event_type, description, details, severity="info"):
+    """Like ``_audit``, but only the first time this exact fact is recorded.
+
+    Several call sites in this module re-run on every redelivery Mollie sends
+    for a charge that is not yet in its final state -- up to 10 times over 26
+    hours -- and re-attempting the underlying work each time is correct (an
+    agreement that becomes Active again must still get linked; an origin that
+    starts existing must still get found). But when the ``description`` has
+    not changed between deliveries, writing the identical audit row again is
+    pure noise, not a new fact (#354).
+
+    Deliberately an EXACT match on the full, already-formatted description
+    (matching ``_audit``'s ``f"[{payment_id}] {description}"`` verbatim)
+    rather than a ``payment_id``-prefix LIKE scan: a prefix match would also
+    dedup two calls whose *reason* differs -- the agreement's status changing
+    from Cancelled to Draft between deliveries, or a second delivery failing
+    with a different exception -- and that difference is exactly the new fact
+    this must still record. An exact match costs nothing here (no LIKE, no
+    wildcard-escaping) and only ever collapses a truly identical repeat.
+    """
+    exists = frappe.db.exists(
+        "Mollie Audit Log",
+        {"event_type": event_type, "description": f"[{payment_id}] {description}"},
+    )
+    if exists:
+        return
+    _audit(payment_id, event_type, description, details, severity=severity)
 
 
 def _audit(payment_id, event_type, description, details, severity="info"):
