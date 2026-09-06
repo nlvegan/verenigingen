@@ -235,6 +235,43 @@ class TestMembership(EnhancedTestCase):
         finally:
             frappe.flags.allow_multiple_memberships = False
 
+    def test_client_supplied_flag_alone_cannot_bypass_duplicate_membership_check(self):
+        """A client-supplied `allow_multiple_memberships` value (form_dict, or the
+        hidden Check field of the same name, which lands in `frappe.form_dict` on
+        the standard `POST /api/v2/document/Membership` create endpoint via
+        `frappe.api.v2.create_doc()`) must NOT bypass the duplicate-membership
+        guard on its own. Only `frappe.flags.allow_multiple_memberships` -- set
+        exclusively by the ADMIN-gated `allow_multiple_memberships()` whitelisted
+        server action -- may lift it. Without this, any caller able to create a
+        Membership document can defeat an admin-only business rule with no
+        elevated permission at all.
+        """
+        membership1 = frappe.new_doc("Membership")
+        membership1.member = self.member.name
+        membership1.membership_type = self.membership_type_name
+        membership1.start_date = today()
+        membership1.insert()
+        membership1.submit()
+
+        original_form_dict = frappe.local.form_dict
+        # Simulate the request-level state a client controls, WITHOUT going
+        # through allow_multiple_memberships() -- the only sanctioned way to
+        # set frappe.flags.allow_multiple_memberships.
+        frappe.local.form_dict = frappe._dict({"allow_multiple_memberships": 1})
+        frappe.flags.allow_multiple_memberships = False
+        try:
+            membership2 = frappe.new_doc("Membership")
+            membership2.member = self.member.name
+            membership2.membership_type = self.membership_type_name
+            membership2.start_date = add_days(today(), 1)
+            membership2.allow_multiple_memberships = 1
+
+            with self.assertRaises(frappe.exceptions.ValidationError):
+                membership2.insert()
+        finally:
+            frappe.local.form_dict = original_form_dict
+            frappe.flags.allow_multiple_memberships = False
+
 
 if __name__ == "__main__":
     unittest.main()

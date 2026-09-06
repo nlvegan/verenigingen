@@ -352,10 +352,15 @@ class Membership(Document):
                 # Add view memberships link
                 msg += f'<br><br><a href="/app/membership/list?member={self.member}">{_("View All Memberships")}</a>'
 
-                # Add allow creation checkbox
-                allow_creation = frappe.form_dict.get("allow_multiple_memberships")
-
-                if not allow_creation:
+                # The only sanctioned override is frappe.flags.allow_multiple_memberships,
+                # set exclusively by the ADMIN-gated allow_multiple_memberships() whitelisted
+                # server action below. A client-supplied `allow_multiple_memberships` value
+                # (form_dict, or the same-named hidden Check field -- both of which a plain
+                # document create/save request can set with no elevated permission at all,
+                # e.g. via POST /api/v2/document/Membership) must never decide this on its
+                # own: that would let any caller who can create a Membership silently defeat
+                # an admin-only business rule.
+                if not frappe.flags.get("allow_multiple_memberships"):
                     msg += f"<br><br>{_('If you want to create multiple memberships for this member, check the Allow Multiple Memberships box.')}"
 
                     frappe.msgprint(
@@ -369,13 +374,12 @@ class Membership(Document):
                         },
                     )
 
-                    if not frappe.flags.get("allow_multiple_memberships"):
-                        frappe.throw(
-                            _(
-                                "Member already has an active membership. Cancel the existing membership before creating a new one."
-                            ),
-                            title=_("Duplicate Membership"),
-                        )
+                    frappe.throw(
+                        _(
+                            "Member already has an active membership. Cancel the existing membership before creating a new one."
+                        ),
+                        title=_("Duplicate Membership"),
+                    )
 
     def validate_dates(self):
         # Validate renewal date is not before start date
