@@ -396,7 +396,16 @@ class SEPABatchPaginator:
                             ON sm.member = m.name
                             AND sm.status = 'Active'
                             AND sm.used_for_memberships = 1
-                        WHERE m.docstatus = 1
+                        -- The previous WHERE clause pinned this query to a
+                        -- submitted-docstatus Member row (#992/#987/#350):
+                        -- Member has no `is_submittable` in its DocType JSON,
+                        -- so an ordinary row's docstatus column never holds
+                        -- that value, and the predicate matched nothing --
+                        -- every call yielded zero pages regardless of
+                        -- member_filters. Member carries no docstatus
+                        -- semantics worth preserving here, so the predicate
+                        -- is dropped rather than rewritten.
+                        WHERE 1=1
                         {filters}
                         ORDER BY m.creation DESC
                         LIMIT %(limit)s OFFSET %(offset)s

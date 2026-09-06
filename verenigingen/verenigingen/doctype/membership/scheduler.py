@@ -355,7 +355,17 @@ def _get_orphaned_records_data():
                 }
             )
 
-        # Find dues schedules without active memberships
+        # Find dues schedules without active memberships.
+        #
+        # NOT `mds.docstatus = 1`: Membership Dues Schedule has no
+        # `is_submittable` in its DocType JSON (#992/#987/#350), so an
+        # ordinary schedule sits at docstatus 0 for its whole life and that
+        # predicate could never match -- this half of the daily orphaned-
+        # records report (registered in hooks/scheduler.py) has surfaced
+        # nothing since it was written. `status != 'Cancelled'` is this
+        # app's established way to exclude a schedule that is expected to
+        # have no active membership (see termination_integration.py's
+        # identical filter).
         orphaned_schedules = frappe.db.sql(
             """
             SELECT
@@ -364,7 +374,7 @@ def _get_orphaned_records_data():
                 mds.status
             FROM `tabMembership Dues Schedule` mds
             LEFT JOIN `tabMembership` m ON m.name = mds.membership
-            WHERE mds.docstatus = 1
+            WHERE mds.status != 'Cancelled'
             AND (m.name IS NULL OR m.status != 'Active')
         """,
             as_dict=True,

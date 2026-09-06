@@ -259,6 +259,33 @@ class TestMembershipScheduler(VereningingenTestCase):
         ]
         self.assertIn(self.membership.name, orphan_docs)
 
+    def test_get_orphaned_records_data_flags_dues_schedule_without_active_membership(self):
+        # #992: the "orphaned dues schedule" half of this query filtered
+        # `mds.docstatus = 1`. Membership Dues Schedule has no
+        # `is_submittable` in its DocType JSON (default 0), so an ordinary
+        # schedule sits at docstatus 0 for its whole life -- that predicate
+        # can never match, and this branch of the report has surfaced
+        # nothing since it was written. Make the membership our factory
+        # submitted no longer Active; its dues schedule (created by
+        # membership.submit(), status "Active", not "Cancelled") must then
+        # surface as orphaned.
+        schedule_name = frappe.db.get_value(
+            "Membership Dues Schedule", {"membership": self.membership.name}, "name"
+        )
+        self.assertTrue(schedule_name, "factory must have created a dues schedule on submit")
+
+        frappe.db.set_value(
+            "Membership", self.membership.name, "status", "Expired", update_modified=False
+        )
+
+        data = scheduler._get_orphaned_records_data()
+        orphan_docs = [
+            item["document"]
+            for item in data
+            if item["record_type"] == "Membership Dues Schedule"
+        ]
+        self.assertIn(schedule_name, orphan_docs)
+
     def test_notify_about_orphaned_records_runs_without_error(self):
         # Full notification path: query + (optional) templated email. Under
         # frappe.flags.in_test EmailService queues rather than sends, and the

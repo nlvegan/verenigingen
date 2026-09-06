@@ -17,6 +17,8 @@ These cover the whitelisted entry points without touching Pay.nl's live API
   service result verbatim. The HTTP boundary is never reached.
 """
 
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -212,6 +214,34 @@ class TestCancelMandate(MandateAPITestBase):
         result = mandate_api.cancel_mandate(mandate_name="ING-MAND-NOPE")
         self.assertFalse(result["success"])
         self.assertIn("Mandate not found", result["error"])
+
+    def test_success_never_moves_docstatus(self):
+        """#992 looked at this call as a candidate submittability-drift site
+        (a `.cancel()` call on ING Checkout Mandate, which has no
+        `is_submittable` in its DocType JSON). It is NOT one: the controller
+        (`ing_checkout_mandate.py`) defines its own `cancel(self)` method with
+        no `super().cancel()` call, so it fully shadows
+        `Document.cancel()` -- confirmed empirically
+        (`INGCheckoutMandate.cancel is not Document.cancel`) rather than
+        assumed from the method name. This asserts the behaviour that finding
+        rests on, so a future edit that reintroduces a real
+        `super().cancel()` (moving docstatus to 2 on a non-submittable
+        doctype) is caught here.
+        """
+        member = self._ensure_member()
+        mandate_name = self._make_mandate(member, mandate_id="IO-CANCEL-0001", status="Active")
+
+        with patch(
+            "verenigingen.verenigingen_payments.ing_checkout.client.get_client"
+        ) as mock_get_client:
+            mock_get_client.return_value.cancel_mandate.return_value = {}
+            result = mandate_api.cancel_mandate(mandate_name=mandate_name)
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(result["status"], "Cancelled")
+        self.assertEqual(
+            frappe.db.get_value("ING Checkout Mandate", mandate_name, "docstatus"), 0
+        )
 
 
 class TestGetMemberMandates(MandateAPITestBase):
