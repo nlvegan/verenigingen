@@ -31,8 +31,15 @@ class TestDonationFinancialService(EnhancedTestCase):
 
     # ========== create_donation_from_bank_transfer ==========
 
-    def test_create_donation_from_bank_transfer_creates_paid_submitted_donation(self):
-        """Bank-transfer donations are created paid and submitted."""
+    def test_create_donation_from_bank_transfer_creates_paid_donation(self):
+        """Bank-transfer donations are created paid, at docstatus 0.
+
+        Donation has no ``is_submittable`` in its DocType JSON (#987/#350), so
+        calling ``.submit()`` on it is drift, not a supported lifecycle -- the
+        docstring at ``reporting_service.py`` states plainly that "a donation
+        created by any normal path stays at docstatus 0 for its whole life".
+        This service must not submit it either.
+        """
         with self.assertNoErrorLog():
             donation = self.service.create_donation_from_bank_transfer(
                 donor=self.donor.name,
@@ -43,7 +50,7 @@ class TestDonationFinancialService(EnhancedTestCase):
             )
 
         self.assertTrue(frappe.db.exists("Donation", donation.name))
-        self.assertEqual(donation.docstatus, 1)
+        self.assertEqual(donation.docstatus, 0)
         self.assertEqual(donation.paid, 1)
         self.assertEqual(donation.amount, 125.0)
         self.assertEqual(donation.mode_of_payment, "Bank Transfer")
@@ -68,7 +75,7 @@ class TestDonationFinancialService(EnhancedTestCase):
                 # no donation_type -> must not crash
             )
         self.assertTrue(frappe.db.exists("Donation", donation.name))
-        self.assertEqual(donation.docstatus, 1)
+        self.assertEqual(donation.docstatus, 0)
 
     # ========== create_sepa_donation ==========
 

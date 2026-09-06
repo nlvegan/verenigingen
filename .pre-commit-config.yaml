@@ -418,6 +418,34 @@ repos:
         always_run: true
         stages: [pre-push]
 
+      - id: submittability-drift-validator
+        name: 📝 Submittability Drift Guard (ratchet)
+        description: >-
+          Blocks a doctype's submit/cancel workflow being reachable, called, or
+          filtered on when its own DocType JSON says is_submittable=0 (#987, ancestor
+          #350). Frappe's Document._submit()/._cancel() carry no is_submittable guard,
+          so code, hooks and tests can drift into disagreeing about which docstatus
+          values are actually possible. #350 found two production report queries
+          filtering Donation by docstatus=1 that therefore aggregated nothing, on every
+          deployment; #987 found the same class again -- on_submit/on_cancel hooks
+          registered for Donation AND SEPA Mandate despite neither being submittable,
+          and a shared test factory's get-or-create filter that could never match a
+          real SEPA Mandate row, so it silently never reused an existing mandate.
+          Ratcheted against scripts/validation/submittability_drift_baseline.txt (23
+          known sites) so pre-existing drift does not block commits; the baseline
+          should only ever shrink. Resolves doctypes across frappe/erpnext/hrms/payments
+          when a bench is reachable, so genuinely submittable ERPNext/HRMS doctypes
+          (Sales Invoice, Payment Entry, ...) are never reported. Run with --report for
+          the full picture including baselined sites and unresolved calls/predicates.
+          Runs at pre-push, not pre-commit -- it resolves doctypes and cross-references
+          hooks across the whole tree (and, when available, the bench), so the answer
+          cannot change from the file list of one commit.
+        entry: python scripts/validation/submittability_drift_validator.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
       - id: failed-write-validator
         name: 💾 Failed-Write Guard (ratchet) [advisory]
         description: >-

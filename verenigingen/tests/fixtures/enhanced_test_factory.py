@@ -6539,9 +6539,20 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         else:
             member_doc = member
 
-        # Create SEPA mandate if not exists
+        # Create SEPA mandate if not exists.
+        #
+        # NOT `"docstatus": 1`: SEPA Mandate has no `is_submittable` in its
+        # DocType JSON (#987/#350), so an ordinary mandate sits at docstatus 0
+        # for its whole life and that filter can never match -- this
+        # get-or-create silently always took the create branch, and a second
+        # call for the same member hit SEPA Mandate's own "already has an
+        # active mandate for this purpose" guard. `status`/`is_active` is the
+        # established way this app identifies a reusable, live mandate (see
+        # `sepa_mandate_management.py`'s own auto-creation and lookup calls).
         existing_mandate = frappe.db.get_value(
-            "SEPA Mandate", {"member": member_doc.name, "docstatus": 1}, "name"
+            "SEPA Mandate",
+            {"member": member_doc.name, "status": "Active", "is_active": 1},
+            "name",
         )
 
         if not existing_mandate:
