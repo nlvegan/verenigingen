@@ -6,7 +6,7 @@ from frappe import _
 from frappe.utils import add_months, flt, getdate, today
 
 from verenigingen.services.payment.sepa_mandate_manager import get_sepa_mandate_manager
-from verenigingen.utils.constants import Limits, Membership, PaymentStatus
+from verenigingen.utils.constants import Limits, Membership, PaymentStatus, Roles
 from verenigingen.utils.error_handling import cache_with_ttl
 from verenigingen.utils.member_utils import get_member_name_for_user
 from verenigingen.utils.operation_result import OperationResult
@@ -26,7 +26,29 @@ def validate_member_exists(member_id: str | None) -> str:
     member = get_member_from_user(member_id)
     if not member:
         frappe.throw(_("Member not found"), frappe.DoesNotExistError)
+    _authorize_member_access(member_id, member)
     return member
+
+
+def _authorize_member_access(explicit_member_id: str | None, resolved_member: str) -> None:
+    """Refuse a caller-supplied member id that is not the caller's own record.
+
+    The payment_dashboard PAGE (templates/pages/payment_dashboard.py:get_context)
+    already restricts viewing another member's dashboard via ?member=<id> to
+    Roles.ADMIN_ROLES. These API endpoints are independently whitelisted and
+    directly callable (frappe.call), bypassing that page-level gate entirely:
+    any user whose Role Profile clears the endpoint's security level -- e.g. a
+    Chapter Board Member, Treasurer, or Volunteer, not only an admin -- could
+    pass an arbitrary `member` and read another member's payment history, SEPA
+    mandate/IBAN details, and dues schedule. Mirror the page's own rule here.
+    """
+    if not explicit_member_id:
+        return
+    if resolved_member == get_member_from_user():
+        return
+    if set(frappe.get_roles()) & Roles.ADMIN_ROLES:
+        return
+    frappe.throw(_("You don't have permission to access this member's data"), frappe.PermissionError)
 
 
 def _unwrap_internal_result(result):
@@ -535,10 +557,13 @@ def get_next_payment(member: str = None) -> OperationResult[Dict[str, Any]]:
     """Get next scheduled payment"""
     try:
         # Get actual member ID
+        explicit_member = member
         member = get_member_from_user(member)
 
         if not member:
             return OperationResult.ok(None, message=_("No member found for current user"))
+
+        _authorize_member_access(explicit_member, member)
 
         schedule_result = get_payment_schedule(member)
 
