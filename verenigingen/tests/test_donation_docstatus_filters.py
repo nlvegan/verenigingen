@@ -12,9 +12,9 @@ summary and the campaign totals all reported zero on every deployment.
 
 The correct predicate is ``docstatus < 2``, **not** removal. Frappe's
 ``Document._submit()`` / ``._cancel()`` carry no ``is_submittable`` guard, so
-both docstatus 1 and docstatus 2 rows exist in the wild — the live site has one
-of each family — and a cancelled donation must never land in a Belastingdienst
-figure or a GL reconciliation.
+nothing in the framework stops a docstatus 1 or 2 row from being written onto
+a non-submittable doctype like Donation (see #987), and a cancelled donation
+must never land in a Belastingdienst figure or a GL reconciliation.
 
 Every behavioural test therefore builds **two** donations, one live and one
 cancelled, and asserts the consumer counts exactly the live one. That makes each

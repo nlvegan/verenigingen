@@ -213,19 +213,32 @@ class TestAccountingSummaryGLEntriesLinkage(_RefundFixtureMixin, EnhancedTestCas
         donor.donor_email = f"{frappe.generate_hash(length=6)}@example.org"
         donor.donor_type = "Individual"
         donor.preferred_communication_method = "Email"
-        donor.flags.ignore_validate = True
         donor.insert(ignore_permissions=True)
         self.track_test_record("Donor", donor.name)
         return donor.name
 
     def _make_paid_donation(self, donor_name, amount):
+        """Hand-rolled rather than routed through ``EnhancedTestCase.create_test_donation``
+        (#988 item 3): that shared factory method force-sets ``docstatus = 1`` via
+        ``frappe.db.set_value`` whenever ``frappe.flags.in_test`` is true
+        (``enhanced_test_factory.py``'s ``EnhancedTestDataFactory.create_test_donation``),
+        which is a state production can no longer reach post-#987 (Donation is not
+        submittable). Routing this test through that factory would import that same
+        drift instead of removing it. Filed separately as a factory-side defect;
+        this fixture stays independent until that is fixed.
+
+        ``flags.ignore_validate = True`` was also removed here (and on
+        ``_make_reporting_donor`` above): both were previously bypassed, but
+        re-running this module's tests with real ``validate()`` still passes --
+        the bypass was not load-bearing for what this module tests (GL-entry
+        linkage via ``get_donation_accounting_summary``).
+        """
         donation = frappe.new_doc("Donation")
         donation.donor = donor_name
         donation.donation_date = today()
         donation.amount = amount
         donation.mode_of_payment = "Bank Transfer"
         donation.paid = 1
-        donation.flags.ignore_validate = True
         donation.insert(ignore_permissions=True)
         self.track_test_record("Donation", donation.name)
         return donation

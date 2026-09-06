@@ -18,11 +18,21 @@ Targets verenigingen/verenigingen/doctype/donation_campaign/donation_campaign.py
   - get_active_campaigns staticmethod
   - module-level update_campaign_progress (SQL aggregation + db_update)
 
-All real-DB integration tests. No business logic is mocked. frappe.sendmail is
-patched only around Donation inserts (they enqueue a confirmation email).
-"""
+All real-DB integration tests. No business logic is mocked.
 
-from unittest.mock import patch
+A Donation insert's own after_insert()/on_update() enqueue a confirmation /
+payment-confirmation email via frappe.enqueue (see donation.py). That call is
+async by default, so it only ever pushes a real RQ job -- it never invokes
+frappe.sendmail synchronously in this process. A prior version of this file
+patched frappe.sendmail around each Donation insert believing that suppressed
+those emails; it did not; frappe.sendmail is a different function than
+frappe.enqueue and is never reached from this process during a test. Measured
+on develop with an instrumented insert (see #988): the enqueue calls succeed
+(a real Redis job is queued) and frappe.sendmail is never invoked in-process
+either way. There is also no configured Frappe Notification on Donation
+(`fixtures/notification.json` is empty; a live query for one on this site
+returns none), so removing the patch introduces no new mail risk.
+"""
 
 import frappe
 
@@ -76,8 +86,7 @@ class TestDonationCampaignCoverage(EnhancedTestCase):
         donation.campaign = campaign_name
         donation.paid = 1
         donation.anonymous = anonymous
-        with patch("frappe.sendmail"):
-            donation.insert()
+        donation.insert()
         if cancelled:
             # Donation is not submittable, so .cancel() is not a supported route;
             # this is how a docstatus-2 Donation actually comes into existence.
