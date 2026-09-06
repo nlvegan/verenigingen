@@ -223,29 +223,25 @@ class TestDirectDebitBatchAPIRegression(EnhancedTestCase):
     def test_api_response_format_compatibility(self):
         """Test that API response formats remain compatible"""
         # Test dues collection preview response format
-        try:
-            result = get_dues_collection_preview()
+        result = get_dues_collection_preview()
 
-            if isinstance(result, dict):
-                # Check response structure hasn't changed
-                required_keys = ["success"]
-                for key in required_keys:
-                    self.assertIn(key, result)
+        self.assertIsInstance(result, dict)
+        # Check response structure hasn't changed
+        required_keys = ["success"]
+        for key in required_keys:
+            self.assertIn(key, result)
 
-                if result.get("success"):
-                    success_keys = ["collections", "total_dates", "total_schedules", "total_amount"]
-                    for key in success_keys:
-                        if key in result:
-                            # Verify data types
-                            if key == "collections":
-                                self.assertIsInstance(result[key], list)
-                            elif key in ["total_dates", "total_schedules"]:
-                                self.assertIsInstance(result[key], int)
-                            elif key == "total_amount":
-                                self.assertIsInstance(result[key], (int, float))
-
-        except Exception as e:
-            frappe.logger().warning(f"Response format test warning: {str(e)}")
+        if result.get("success"):
+            success_keys = ["collections", "total_dates", "total_schedules", "total_amount"]
+            for key in success_keys:
+                if key in result:
+                    # Verify data types
+                    if key == "collections":
+                        self.assertIsInstance(result[key], list)
+                    elif key in ["total_dates", "total_schedules"]:
+                        self.assertIsInstance(result[key], int)
+                    elif key == "total_amount":
+                        self.assertIsInstance(result[key], (int, float))
 
     def test_batch_document_api_methods(self):
         """Test that Direct Debit Batch document methods still work"""
@@ -260,13 +256,10 @@ class TestDirectDebitBatchAPIRegression(EnhancedTestCase):
             self.assertIsInstance(e, (frappe.ValidationError, AttributeError))
 
         # Test calculate_totals method
-        try:
-            batch_doc.calculate_totals()
-            # Should set totals
-            self.assertIsNotNone(batch_doc.entry_count)
-            self.assertIsNotNone(batch_doc.total_amount)
-        except Exception as e:
-            frappe.logger().warning(f"Calculate totals test warning: {str(e)}")
+        batch_doc.calculate_totals()
+        # Should set totals
+        self.assertIsNotNone(batch_doc.entry_count)
+        self.assertIsNotNone(batch_doc.total_amount)
 
         # Test generate_sepa_xml method
         try:
@@ -299,28 +292,27 @@ class TestDirectDebitBatchAPIRegression(EnhancedTestCase):
         """Test that APIs properly integrate with the new service layer"""
         batch_doc = self._create_minimal_test_batch()
 
-        # Test that document methods use services
-        try:
-            # This should use batch_processing_service internally
-            batch_doc.validate_invoices()
+        # This should use batch_processing_service internally
+        batch_doc.validate_invoices()
 
-            # This should use batch_processing_service internally
-            batch_doc.calculate_totals()
+        # This should use batch_processing_service internally
+        batch_doc.calculate_totals()
 
-            # Verify that services are actually being used
-            # (We can check this by seeing if the service modules are imported)
-            from verenigingen.verenigingen_payments.doctype.direct_debit_batch import (
-                direct_debit_batch as batch_module,
-            )
+        # Verify that services are actually being used
+        # (We can check this by seeing if the service modules are imported)
+        from verenigingen.verenigingen_payments.doctype.direct_debit_batch import (
+            direct_debit_batch as batch_module,
+        )
 
-            # Check that service imports are present
-            self.assertTrue(hasattr(batch_module, "sepa_config_service"))
-            self.assertTrue(hasattr(batch_module, "batch_validation_service"))
-            self.assertTrue(hasattr(batch_module, "sepa_xml_service"))
-            self.assertTrue(hasattr(batch_module, "batch_processing_service"))
-
-        except Exception as e:
-            frappe.logger().warning(f"Service integration test warning: {str(e)}")
+        # Check that service imports are present. #490: this used to also assert
+        # "sepa_config_service" and "batch_validation_service", neither of which
+        # direct_debit_batch.py has ever imported -- grep confirms zero
+        # occurrences of either name in the module. validate_invoices() and
+        # calculate_totals() (exercised above) both delegate to
+        # batch_processing_service, and generate_sepa_xml() to sepa_xml_service;
+        # those are the two services this module actually integrates with today.
+        self.assertTrue(hasattr(batch_module, "sepa_xml_service"))
+        self.assertTrue(hasattr(batch_module, "batch_processing_service"))
 
     def _create_minimal_test_batch(self):
         """Create minimal test batch for API testing.

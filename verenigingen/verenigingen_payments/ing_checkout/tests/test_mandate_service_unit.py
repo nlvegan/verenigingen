@@ -172,6 +172,7 @@ class TestMandateService(FrappeTestCase):
 
         mock_invoice = MagicMock()
         mock_invoice.name = "SINV-00001"
+        mock_invoice.docstatus = 1
         mock_invoice.outstanding_amount = 100.00
 
         with patch("frappe.get_doc") as mock_get_doc:
@@ -240,6 +241,7 @@ class TestMandateService(FrappeTestCase):
         mock_mandate.status = "Active"
 
         mock_invoice = MagicMock()
+        mock_invoice.docstatus = 1
         mock_invoice.outstanding_amount = 0.00
 
         with patch("frappe.get_doc") as mock_get_doc:
@@ -271,6 +273,7 @@ class TestMandateService(FrappeTestCase):
         mock_mandate.execute_debit.side_effect = Exception("Payment processing failed")
 
         mock_invoice = MagicMock()
+        mock_invoice.docstatus = 1
         mock_invoice.outstanding_amount = 100.00
 
         with patch("frappe.get_doc") as mock_get_doc:

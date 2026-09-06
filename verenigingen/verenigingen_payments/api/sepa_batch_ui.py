@@ -13,6 +13,7 @@ from verenigingen.utils.security.api_security_framework import (
     critical_api,
     high_security_api,
 )
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen_payments.utils.mandate_candidates import (
     log_ambiguous_mandate_refusal,
     unambiguous_active_mandate,
@@ -613,6 +614,12 @@ def create_sepa_batch_validated(**params):
             "message": f"SEPA batch created successfully with {len(validated_invoices)} invoices",
         }
 
+    # #505: this catch-all sits below @handle_api_error, right after
+    # batch_doc.insert() -- without this a 1205/1213 here is logged and returned as
+    # a plain failure dict one frame below the decorator's own guard (#504).
+    # Re-raise unconditionally.
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.log_error(f"SEPA batch creation error: {str(e)}", "SEPA Batch Creation")
         return {

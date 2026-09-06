@@ -15,9 +15,17 @@ name: Chaos Shards
 
 on:
   schedule:
-    # 03:17 UTC. Off the hour on purpose -- the top of the hour is when every other
-    # cron on GitHub's shared runners fires.
-    - cron: '17 3 * * *'
+    # 03:17 UTC on SUNDAYS. Off the hour on purpose -- the top of the hour is when
+    # every other cron on GitHub's shared runners fires.
+    #
+    # Weekly, not nightly (#935): this run costs ~287 job-minutes, so nightly spent
+    # ~8,600 job-minutes/month on a telescope rather than a gate. What it looks for
+    # -- latent order-dependence -- is pre-existing debt that accumulates over weeks,
+    # not something a given night introduces, and the workflow is REPORT ONLY by
+    # design (see the header), so a slower cadence delays a report and blocks nothing.
+    # Any specific layout can still be reproduced on demand via workflow_dispatch
+    # with a seed, which is the path actually used when a draw goes red.
+    - cron: '17 3 * * 0'
   workflow_dispatch:
     inputs:
       seed:

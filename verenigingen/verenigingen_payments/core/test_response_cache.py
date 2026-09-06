@@ -349,8 +349,10 @@ class TestMollieBaseClientCacheIntegration(unittest.TestCase):
 
         frappe.set_user("Administrator")
 
-        # Create test Mollie Settings if needed
-        if not frappe.db.exists("Mollie Settings", "Mollie Settings"):
+        # Create test Mollie Settings if needed. frappe.db.exists(dt, dt) is
+        # unconditionally truthy for a Single (#889); check whether it has
+        # actually been saved instead.
+        if not frappe.db.get_singles_dict("Mollie Settings"):
             make_test_records("Mollie Settings")
 
         self.client = MollieBaseClient(

@@ -12,8 +12,11 @@ from verenigingen.utils.security.api_security_framework import OperationType, pu
 def get_brand_css_variables():
     """Get brand color CSS variables for templates"""
     try:
-        # Try to get brand settings
-        if frappe.db.exists("Brand Settings", "Brand Settings"):
+        # Try to get brand settings. frappe.db.exists(dt, dt) is
+        # unconditionally truthy for a Single (#889); check whether it has
+        # actually been saved instead, so the fallback branch below is
+        # reachable on a site where Brand Settings hasn't been configured.
+        if frappe.db.get_singles_dict("Brand Settings"):
             brand_settings = frappe.get_doc("Brand Settings", "Brand Settings")
 
             # Generate CSS variables

@@ -19,6 +19,11 @@ on:
       - '.github/workflows/_base-server-tests.yml'
       - '.github/actions/setup/**'
   pull_request:
+    # `ready_for_review` is REQUIRED by the draft gate on the `tests` job below:
+    # without it, marking a draft ready fires no event and the suite would never
+    # run for that PR. The other three are GitHub's default set, which must be
+    # restated once `types` is given at all.
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [main, develop]
     paths:
       - 'verenigingen/**/*.py'
@@ -85,6 +90,18 @@ permissions:
 jobs:
   tests:
     name: Tests
+    # ~300 job-minutes per run, 63% of a full PR push's CI cost (#935). A draft PR
+    # is by definition not asking for a verdict yet, so it does not buy that. Pushes
+    # to main/develop and workflow_dispatch are unaffected -- only PR events are
+    # gated, and marking the PR ready fires `ready_for_review` above.
+    #
+    # Safe against the merge gate: `develop`'s ruleset requires Code Quality,
+    # Security Scan, Basic Validation (3.10/3.11), API Security Audit, Documentation
+    # Check, API Contract Validation, Controller Testing, Integration Validation,
+    # Quality Gate Summary, validation, fast-validation and the three ratchets --
+    # none of which live in this workflow. Skipping it therefore cannot leave a
+    # required check permanently unreported.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     uses: ./.github/workflows/_base-server-tests.yml
     # Pass org/repo secrets (CODECOV_TOKEN) through to the reusable workflow.
     secrets: inherit
@@ -126,6 +143,13 @@ jobs:
           status="${{ needs.tests.result }}"
           echo "## Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          # `skipped` is the draft-PR path from the gate on `tests`, not a failure.
+          # Without this branch the `if: always()` above turns every draft PR red
+          # here, which is exactly the outcome gating the suite was meant to avoid.
+          if [ "$status" == "skipped" ]; then
+            echo ":fast_forward: Test suite skipped: this PR is a draft. Mark it ready for review to run the full suite." >> $GITHUB_STEP_SUMMARY
+            exit 0
+          fi
           if [ "$status" == "success" ]; then
             echo ":white_check_mark: All test shards passed." >> $GITHUB_STEP_SUMMARY
             exit 0

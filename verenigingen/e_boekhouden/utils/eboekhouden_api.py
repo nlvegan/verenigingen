@@ -527,11 +527,15 @@ def preview_suppliers():
 def update_dashboard_data_periodically():
     """Scheduled task to update dashboard data"""
     try:
-        # Check if dashboard exists
-        if frappe.db.exists("E-Boekhouden Dashboard", "E-Boekhouden Dashboard"):
-            dashboard = frappe.get_single("E-Boekhouden Dashboard")
-            dashboard.load_dashboard_data()
-            frappe.db.commit()
+        # E-Boekhouden Dashboard is a Single with no mandatory fields, so
+        # frappe.get_single() always succeeds regardless of whether it has
+        # been saved before. A `frappe.db.exists("E-Boekhouden Dashboard",
+        # "E-Boekhouden Dashboard")` guard used to sit here, but that check
+        # is unconditionally truthy for a Single and so never actually
+        # gated anything (#889).
+        dashboard = frappe.get_single("E-Boekhouden Dashboard")
+        dashboard.load_dashboard_data()
+        frappe.db.commit()
 
     except Exception as e:
         frappe.log_error(

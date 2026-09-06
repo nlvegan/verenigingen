@@ -25,6 +25,7 @@ from verenigingen.utils.security.api_security_framework import (
     standard_api,
 )
 from verenigingen.utils.security.enhanced_validation import validate_with_schema
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 @frappe.whitelist()
@@ -185,6 +186,12 @@ def get_members_without_chapter(**kwargs) -> OperationResult[Dict[str, Any]]:
 
         return OperationResult.ok({"members": members, "count": len(members)})
 
+    # #505: this catch-all sits BELOW @handle_api_error, so its own guard (#481/#504)
+    # never sees a 1205/1213 raised in here -- it is caught and returned as an
+    # OperationResult one frame below the decorator. Re-raise unconditionally and let
+    # @handle_api_error's own NON_RESUMABLE_DB_ERRORS clause log and propagate it.
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.log_error(f"Error getting members without chapter: {str(e)}", "Members Without Chapter Error")
         return OperationResult.fail(f"Failed to get members: {str(e)}")

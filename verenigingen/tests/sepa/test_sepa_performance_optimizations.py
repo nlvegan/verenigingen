@@ -535,9 +535,18 @@ class TestSEPAProcessorIntegration(EnhancedTestCase):
             payment_terms_template="SEPA Direct Debit"
         )
         
-        # Create invoice (auto-creates + links the Customer for the member)
+        # Create invoice (auto-creates + links the Customer for the member).
+        # #490: SEPA batch validation rejects any non-EUR invoice, and the
+        # harness's default test company is INR (_Test Company) -- without an
+        # explicit EUR company this invoice was rejected with "Unsupported
+        # currency: INR", which create_dues_collection_batch then turned into
+        # "No valid invoices found in batch" and raised before the swallowed
+        # assertions below ever ran.
+        from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+
         invoice = self.create_test_sales_invoice(
             customer=member.name,
+            company=get_eur_test_company(),
             status="Unpaid"
         )
         
@@ -548,26 +557,18 @@ class TestSEPAProcessorIntegration(EnhancedTestCase):
         
         # Monitor the batch creation performance
         with monitor_sepa_operation("batch_creation_test", batch_size=1) as monitor_ctx:
-            try:
-                batch = processor.create_dues_collection_batch(
-                    collection_date=today(),
-                    verify_invoicing=False
-                )
-                
-                if batch:
-                    # Verify batch was created with optimizations
-                    self.assertIsNotNone(batch)
-                    self.assertGreater(len(batch.invoices), 0)
-                    
-                    # Check that performance statistics were tracked
-                    stats = processor.performance_optimizer.get_performance_stats()
-                    self.assertGreaterEqual(stats["query_stats"]["total_queries"], 1)
-                    
-            except Exception as e:
-                # Log the error but don't fail the test if it's due to missing configuration
-                frappe.logger().info(f"Batch creation test encountered: {str(e)}")
-                # The important thing is that the integration exists, not that it fully works
-                # in a test environment without complete SEPA configuration
+            batch = processor.create_dues_collection_batch(
+                collection_date=today(),
+                verify_invoicing=False
+            )
+
+            self.assertIsNotNone(batch)
+            # Verify batch was created with optimizations
+            self.assertGreater(len(batch.invoices), 0)
+
+            # Check that performance statistics were tracked
+            stats = processor.performance_optimizer.get_performance_stats()
+            self.assertGreaterEqual(stats["query_stats"]["total_queries"], 1)
 
 
 class TestDirectDebitBatchOptimizations(EnhancedTestCase):

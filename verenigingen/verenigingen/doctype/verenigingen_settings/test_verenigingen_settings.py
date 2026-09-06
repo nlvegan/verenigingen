@@ -171,3 +171,58 @@ class TestVerenigingenSettings(EnhancedTestCase):
     def _as_admin(self):
         """Switch the session to Administrator to exercise the admin-only endpoint."""
         frappe.set_user("Administrator")
+
+    # ------------------------------------------------ validate_creation_user (#711)
+
+    def _with_creation_user(self, value):
+        """Temporarily point Verenigingen Settings.creation_user at ``value`` and
+        restore the original afterwards. Uses frappe.db.set_value directly (bypassing
+        controller validation) to set up each scenario, since the whole point of these
+        tests is to exercise validate_creation_user() on the NEXT save -- not to prove
+        the Link fieldtype's own existence check, which already runs before it."""
+        orig = frappe.db.get_single_value("Verenigingen Settings", "creation_user")
+        frappe.db.set_value("Verenigingen Settings", None, "creation_user", value, update_modified=False)
+        frappe.clear_document_cache("Verenigingen Settings")
+        self.addCleanup(self._restore_creation_user, orig)
+
+    def _restore_creation_user(self, orig):
+        frappe.db.set_value("Verenigingen Settings", None, "creation_user", orig, update_modified=False)
+        frappe.clear_document_cache("Verenigingen Settings")
+
+    def test_creation_user_nonexistent_rejected_on_save(self):
+        """A value that does not resolve to any User must not be resaveable -- this is
+        exactly the veg11 state #711 measured (creation_user='background.service@
+        verenigingen.local', no such User row) surviving every subsequent Settings
+        save. ignore_links=True bypasses Frappe's own Link existence check so this
+        proves validate_creation_user() itself rejects it, not just the fieldtype."""
+        self._with_creation_user("no-such-creation-user@example.invalid")
+        settings = frappe.get_single("Verenigingen Settings")
+        settings.flags.ignore_links = True
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            settings.save()
+        self.assertIn("does not exist", str(ctx.exception))
+
+    def test_creation_user_disabled_rejected_on_save(self):
+        """A creation_user that exists but has been disabled must also be rejected --
+        the Link fieldtype's existence check alone would let this save through."""
+        disabled = self.factory.create_user_with_roles(roles=["Verenigingen Member"])
+        frappe.db.set_value("User", disabled.name, "enabled", 0)
+        frappe.clear_document_cache("User", disabled.name)
+
+        self._with_creation_user(disabled.name)
+        settings = frappe.get_single("Verenigingen Settings")
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            settings.save()
+        self.assertIn("disabled", str(ctx.exception))
+
+    def test_creation_user_valid_enabled_user_saves_cleanly(self):
+        """Control: an existing, enabled creation_user must not be blocked by the new
+        validation -- without this, a validator that rejected everything would still
+        pass the two tests above."""
+        valid_user = self.factory.create_user_with_roles(roles=["Verenigingen Member"])
+        self._with_creation_user(valid_user.name)
+        settings = frappe.get_single("Verenigingen Settings")
+        settings.save()  # must not raise
+        self.assertEqual(
+            frappe.db.get_single_value("Verenigingen Settings", "creation_user"), valid_user.name
+        )

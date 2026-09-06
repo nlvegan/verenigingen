@@ -1582,6 +1582,86 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         self.assertTrue(rendered_values, "page rendered no volunteer_areas[] checkboxes to check")
         self.assertEqual(rendered_values, set(VOLUNTEER_INTEREST_AREA_MAP))
 
+    def test_submitted_availability_and_experience_level_reach_the_volunteer_record(self):
+        """#821: `volunteer_availability`/`volunteer_experience_level` are collected
+        correctly by `collectFormDataDirectly()` (unlike #410/#412's fields, the
+        elements they read really exist on the page) but no server-side code ever
+        read either key, so a value a person entered was silently discarded.
+
+        Both wire values here are already exact matches for Volunteer's declared
+        Select options (`commitment_level`: Weekly; `experience_level`: Experienced),
+        so this pins the simple pass-through half of the fix.
+        """
+        volunteer_data = self.application_data.copy()
+        volunteer_data["interested_in_volunteering"] = 1
+        volunteer_data["volunteer_availability"] = "Weekly"
+        volunteer_data["volunteer_experience_level"] = "Experienced"
+        volunteer_data["email"] = f"availability_{self.test_email}"
+
+        result = submit_application(**volunteer_data)
+        self.assertTrue(result["success"])
+        member_name = result["data"]["member_record"]
+
+        volunteer_name = frappe.db.get_value("Volunteer", {"member": member_name}, "name")
+        self.assertTrue(volunteer_name, "Volunteer record should be created for a volunteering applicant")
+
+        volunteer = frappe.get_doc("Volunteer", volunteer_name)
+        self.assertEqual(volunteer.commitment_level, "Weekly")
+        self.assertEqual(volunteer.experience_level, "Experienced")
+
+        self._cleanup_member_completely(member_name)
+
+    def test_volunteer_availability_monthly_maps_to_regular_monthly(self):
+        """The form offers `Monthly`; `Volunteer.commitment_level` declares
+        `Regular (Monthly)`. This is the one form value of the four that needs
+        remapping rather than a verbatim pass-through (#821's product decision).
+        """
+        volunteer_data = self.application_data.copy()
+        volunteer_data["interested_in_volunteering"] = 1
+        volunteer_data["volunteer_availability"] = "Monthly"
+        volunteer_data["email"] = f"monthly_{self.test_email}"
+
+        result = submit_application(**volunteer_data)
+        self.assertTrue(result["success"])
+        member_name = result["data"]["member_record"]
+
+        volunteer_name = frappe.db.get_value("Volunteer", {"member": member_name}, "name")
+        volunteer = frappe.get_doc("Volunteer", volunteer_name)
+        self.assertEqual(volunteer.commitment_level, "Regular (Monthly)")
+
+        self._cleanup_member_completely(member_name)
+
+    def test_unmapped_volunteer_availability_falls_back_to_the_field_default(self):
+        """The form's `Project-based` option has no reasonable equivalent on
+        `Volunteer.commitment_level` (#821). It must fall back to the field's own
+        default rather than raising ValidationError on an out-of-vocabulary Select
+        value, or being silently dropped by a swallowed exception elsewhere.
+        """
+        volunteer_data = self.application_data.copy()
+        volunteer_data["interested_in_volunteering"] = 1
+        volunteer_data["volunteer_availability"] = "Project-based"
+        volunteer_data["email"] = f"projectbased_{self.test_email}"
+
+        # assertNoErrorLog is the discriminating half of this assertion: a naive
+        # fix that assigns the wire value straight to commitment_level without
+        # coerce_select_option would fail Volunteer.save() with a ValidationError,
+        # get caught by create_volunteer_record's broad except, and log it -- the
+        # Volunteer would still end up showing "Occasional" (the doctype default
+        # from insert(), never overwritten because the save failed), so a bare
+        # assertEqual below cannot tell that apart from a successful, deliberate
+        # fallback. The pre-existing "Volunteer - JSON Parsing Error" this fixture's
+        # volunteer_skills string produces is unrelated to this fix and expected.
+        with self.assertNoErrorLog(ignore=["Volunteer - JSON Parsing Error"]):
+            result = submit_application(**volunteer_data)
+        self.assertTrue(result["success"])
+        member_name = result["data"]["member_record"]
+
+        volunteer_name = frappe.db.get_value("Volunteer", {"member": member_name}, "name")
+        volunteer = frappe.get_doc("Volunteer", volunteer_name)
+        self.assertEqual(volunteer.commitment_level, "Occasional")
+
+        self._cleanup_member_completely(member_name)
+
     @unittest.skip("Custom amount billing integration needs separate investigation")
     def test_edge_case_zero_custom_amount(self):
         """Test that zero custom amount defaults to standard amount"""

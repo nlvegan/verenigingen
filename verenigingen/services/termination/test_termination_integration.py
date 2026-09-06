@@ -543,6 +543,65 @@ class TestTerminationIntegration(EnhancedTestCase):
         self.assertEqual(result["volunteers_terminated"], 0)
 
     # ==================================================================
+    # #692: the role profile withdrawal must not depend on ordering
+    #
+    # termination_execution_service.py runs DeactivateUserAccountOperation
+    # BEFORE TerminateVolunteerRecordsOperation, so by the time the volunteer
+    # record goes Inactive the User is already disabled. sync_user_role_profile()
+    # deliberately refuses to touch a disabled user (see its docstring), so a
+    # terminated volunteer keeps the "Verenigingen Volunteer" role profile --
+    # measured empirically against test_site_6 before this fix existed.
+    # ==================================================================
+    def _grant_volunteer_role_profile(self, user_email):
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            sync_user_role_profile,
+        )
+
+        result = sync_user_role_profile(user_email)
+        self.assertEqual(result.get("new_profile"), "Verenigingen Volunteer")
+        return result
+
+    def test_terminate_volunteer_records_safe_withdraws_stale_profile_on_disabled_user(self):
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            get_user_role_profiles,
+        )
+
+        member = self._make_member()
+        volunteer = self._make_volunteer(member)
+        user = self._make_user(member, enabled=1)
+        self._grant_volunteer_role_profile(user.name)
+
+        # Reproduce the real termination ORDER: user disabled first.
+        self.assertTrue(ti.deactivate_user_account_safe(member.name, "Voluntary", "left"))
+        self.assertEqual(frappe.db.get_value("User", user.name, "enabled"), 0)
+
+        result = ti.terminate_volunteer_records_safe(member.name, "Voluntary", today(), "left")
+        self.assertEqual(result["volunteers_terminated"], 1)
+        self.assertEqual(frappe.db.get_value("Volunteer", volunteer.name, "status"), "Inactive")
+
+        # The disabled account must not be left holding the volunteer profile.
+        self.assertNotIn("Verenigingen Volunteer", get_user_role_profiles(user.name))
+        self.assertEqual(frappe.db.get_value("User", user.name, "enabled"), 0)
+
+    def test_terminate_volunteer_records_safe_still_syncs_when_user_stays_enabled(self):
+        """Control: without the disable-first ordering, the profile already gets
+        withdrawn correctly -- this proves the withdrawal call isn't a no-op."""
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            get_user_role_profiles,
+        )
+
+        member = self._make_member()
+        volunteer = self._make_volunteer(member)
+        user = self._make_user(member, enabled=1)
+        self._grant_volunteer_role_profile(user.name)
+
+        result = ti.terminate_volunteer_records_safe(member.name, "Voluntary", today(), "left")
+        self.assertEqual(result["volunteers_terminated"], 1)
+        self.assertEqual(frappe.db.get_value("Volunteer", volunteer.name, "status"), "Inactive")
+        self.assertNotIn("Verenigingen Volunteer", get_user_role_profiles(user.name))
+        self.assertIn("Verenigingen Member", get_user_role_profiles(user.name))
+
+    # ==================================================================
     # terminate_employee_records_safe
     # ==================================================================
     def test_terminate_employee_records_safe_no_employee_returns_zero(self):

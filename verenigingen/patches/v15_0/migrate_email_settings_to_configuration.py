@@ -17,12 +17,18 @@ def execute():
         frappe.logger().info("Verenigingen Email Configuration DocType not found, skipping migration")
         return
 
-    # Check if already migrated
-    if frappe.db.exists("Verenigingen Email Configuration", "Verenigingen Email Configuration"):
-        existing = frappe.get_single("Verenigingen Email Configuration")
-        if existing.notification_types and len(existing.notification_types) > 0:
-            frappe.logger().info("Verenigingen Email Configuration already has notification types, skipping")
-            return
+    # Check if already migrated. Verenigingen Email Configuration is a
+    # Single, so frappe.get_single() below always succeeds (it never raises
+    # for a Single that hasn't been saved yet); the real "already migrated"
+    # signal is whether notification_types has been populated. A
+    # `frappe.db.exists("Verenigingen Email Configuration", "Verenigingen
+    # Email Configuration")` guard used to sit around this, but that check
+    # is unconditionally truthy for a Single (#889), so it never gated
+    # anything.
+    existing = frappe.get_single("Verenigingen Email Configuration")
+    if existing.notification_types and len(existing.notification_types) > 0:
+        frappe.logger().info("Verenigingen Email Configuration already has notification types, skipping")
+        return
 
     frappe.logger().info("Starting email settings migration to Verenigingen Email Configuration")
 
@@ -45,11 +51,13 @@ def execute():
         except Exception as e:
             frappe.logger().warning(f"Could not read Verenigingen Settings: {e}")
 
-    # Create or update Verenigingen Email Configuration
-    if frappe.db.exists("Verenigingen Email Configuration", "Verenigingen Email Configuration"):
-        config = frappe.get_single("Verenigingen Email Configuration")
-    else:
-        config = frappe.new_doc("Verenigingen Email Configuration")
+    # Create or update Verenigingen Email Configuration. This is a Single
+    # with no mandatory fields, so frappe.get_single() works whether or not
+    # it has been saved before (a `frappe.db.exists(dt, dt)` guard used to
+    # choose between get_single() and new_doc() here, but that check is
+    # always truthy for a Single and so always picked get_single() anyway,
+    # see #889).
+    config = frappe.get_single("Verenigingen Email Configuration")
 
     # Migrate settings
     config.master_email_enabled = 1

@@ -24,6 +24,7 @@ from frappe.utils import getdate, now_datetime
 
 from verenigingen.utils.error_handling import handle_api_error
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen_payments.utils.sepa_constants import SEPA_CHAR_PATTERN
 from verenigingen.verenigingen_payments.utils.sepa_xml_enhanced_generator import (
     SEPALocalInstrument,
@@ -1213,5 +1214,10 @@ def validate_batch_against_rulebook(batch_name: str) -> Dict[str, Any]:
             },
         }
 
+    # #505: this catch-all sits below @handle_api_error; without this a 1205/1213
+    # here is logged and returned as a plain failure dict one frame below the
+    # decorator's own guard (#504). Re-raise unconditionally.
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         return {"success": False, "error": str(e), "batch_name": batch_name}

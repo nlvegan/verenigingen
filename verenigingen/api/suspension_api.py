@@ -406,6 +406,11 @@ def get_suspension_preview(member_name: str) -> OperationResult[Dict[str, Any]]:
         }
 
         return OperationResult.ok(data, message=_("Suspension preview retrieved successfully"))
+    # #505: this catch-all sits below @handle_api_error; without this a 1205/1213
+    # here is logged and returned as an OperationResult one frame below the
+    # decorator's own guard (#504). Re-raise unconditionally.
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except frappe.DoesNotExistError:
         frappe.log_error(
             f"Member {member_name} not found for suspension preview by {frappe.session.user}",
@@ -640,6 +645,10 @@ def get_suspension_list(
         }
 
         return OperationResult.ok(data, message=_("Suspension list retrieved successfully"))
+    # #505: same shape as get_suspension_preview above -- re-raise unconditionally
+    # so @handle_api_error's own guard (#504) sees the class.
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.log_error(
             f"Error getting suspension list: {str(e)}\n{traceback.format_exc()}", "Suspension API Exception"

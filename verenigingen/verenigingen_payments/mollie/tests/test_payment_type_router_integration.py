@@ -41,7 +41,7 @@ def _payment(**kwargs):
     return SimpleNamespace(**defaults)
 
 
-def _router(*, payment=None, fetch_raises=None, dues=None, order=None):
+def _router(*, payment=None, fetch_raises=None, dues=None, order=None, donation=None):
     """PaymentTypeRouter without __init__; real classifier, stubbed boundaries."""
     router = object.__new__(PaymentTypeRouter)
     router.classifier = PaymentClassifier()
@@ -54,6 +54,7 @@ def _router(*, payment=None, fetch_raises=None, dues=None, order=None):
     router.mollie_client = SimpleNamespace(sdk_client=SimpleNamespace(payments=SimpleNamespace(get=get)))
     router.dues_processor = dues or SimpleNamespace()
     router.order_processor = order or SimpleNamespace()
+    router.donation_processor = donation or SimpleNamespace()
     return router
 
 
@@ -117,20 +118,34 @@ class TestRoutePayment(EnhancedTestCase):
         self.assertEqual(result["payment_type"], "dues")
         self.assertEqual(result["member"], member.name)
 
-    def test_donation_branch_pending_implementation(self):
-        # A payment whose customer_id matches a real Donor classifies as donation;
-        # the router does not yet route it, returning pending_implementation.
+    def test_donation_branch_routes_to_donation_processor(self):
+        # A payment whose customer_id matches a real Donor classifies as
+        # donation; the router must delegate it to DonationProcessor (#872,
+        # part B of #345) instead of returning a hard-coded
+        # "pending_implementation" stub that mollie_bulk_payment_discovery
+        # counts as "skipped" for every donation payment fed to it.
         token = frappe.generate_hash()[:8]
         cid = f"cst_router_don_{token}"
         donation = self.create_test_donation(donor_email=f"router.don.{token}@example.com", amount=20.0)
         donor = frappe.db.get_value("Donation", donation.name, "donor")
         frappe.db.set_value("Donor", donor, "mollie_customer_id", cid)
 
-        router = _router(payment=_payment(customer_id=cid))
+        captured = {}
+
+        def _process_donation(payment_id, payment):
+            captured["payment_id"] = payment_id
+            return {"status": "success", "message": "booked"}
+
+        donation_processor = SimpleNamespace(process_donation_payment=_process_donation)
+        payment = _payment(customer_id=cid)
+        router = _router(payment=payment, donation=donation_processor)
+
         result = router.route_payment("tr_don")
         self.assertEqual(result["payment_type"], "donation")
         self.assertEqual(result["processor"], "DonationProcessor")
-        self.assertEqual(result["status"], "pending_implementation")
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["message"], "booked")
+        self.assertEqual(captured["payment_id"], "tr_don")
 
     def test_unknown_type_is_error(self):
         router = _router(payment=_payment(description="mystery"))

@@ -1416,6 +1416,38 @@ def terminate_volunteer_records_safe(member_name, termination_type, termination_
         frappe.logger().info(
             f"Terminated {results['volunteers_terminated']} volunteer record(s) for member {member_name}"
         )
+
+        # #692: withdraw the now-stale "Verenigingen Volunteer" role profile.
+        #
+        # termination_execution_service.py runs DeactivateUserAccountOperation
+        # BEFORE this operation, so by the time the volunteer record above went
+        # Inactive, the user is already disabled. sync_user_role_profile()
+        # normally refuses to touch a disabled user (deliberately -- see its
+        # docstring), which left every terminated volunteer holding the
+        # "Verenigingen Volunteer" profile indefinitely, regardless of
+        # termination_type. allow_disabled=True opts into the sync here
+        # specifically: it can only downgrade the profile (the volunteer
+        # record is Inactive, so calculate_user_role_profile() can no longer
+        # return PROFILE_VOLUNTEER for this user), and it never provisions the
+        # Employee record that would force the account back on.
+        if results["volunteers_terminated"] > 0:
+            user_email = frappe.db.get_value("Member", member_name, "user")
+            if user_email:
+                from verenigingen.services.member.account.user_role_profile_calculator import (
+                    sync_user_role_profile,
+                )
+
+                sync_result = sync_user_role_profile(user_email, allow_disabled=True)
+                if sync_result.get("changed"):
+                    results["actions_taken"].append(
+                        f"Updated role profile for {user_email}: "
+                        f"{sync_result.get('old_profile')} -> {sync_result.get('new_profile')}"
+                    )
+                elif not sync_result.get("success"):
+                    results["errors"].append(
+                        f"Failed to recalculate role profile for {user_email}: {sync_result.get('error')}"
+                    )
+
         return results
 
     except NON_RESUMABLE_DB_ERRORS:

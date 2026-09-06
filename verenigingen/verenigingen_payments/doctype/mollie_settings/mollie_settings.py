@@ -126,12 +126,20 @@ class MollieSettings(Document):
         deliberate choice (#537) -- so no hook fires and the service would keep
         serving the values a test had written. Registering this in
         `CACHE_CLEARING_METHODS` is what makes a Mollie Settings restore complete.
+
+        Also resets MolliePaymentOrchestrator's own cached bank-account config
+        (#867): that cache is one layer above MollieConfigurationService's and is
+        not cleared by MollieConfigurationService.clear_cache() alone.
         """
         from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
             MollieConfigurationService,
         )
+        from verenigingen.verenigingen_payments.services.mollie_payment_orchestrator import (
+            reset_payment_orchestrator,
+        )
 
         MollieConfigurationService.clear_cache()
+        reset_payment_orchestrator()
 
     def validate(self):
         """Validate the document before saving"""
@@ -143,13 +151,19 @@ class MollieSettings(Document):
 
     def on_update(self):
         """Called after document is saved"""
-        # Clear MollieConfigurationService cache to ensure fresh config
+        # Clear MollieConfigurationService cache, and MolliePaymentOrchestrator's
+        # own cached bank-account config one layer above it (#867), to ensure
+        # fresh config
         try:
             from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
                 MollieConfigurationService,
             )
+            from verenigingen.verenigingen_payments.services.mollie_payment_orchestrator import (
+                reset_payment_orchestrator,
+            )
 
             MollieConfigurationService.clear_cache()
+            reset_payment_orchestrator()
             frappe.logger().info("Cleared MollieConfigurationService cache after settings update")
         except ImportError:
             frappe.logger().warning("Could not import MollieConfigurationService for cache clearing")

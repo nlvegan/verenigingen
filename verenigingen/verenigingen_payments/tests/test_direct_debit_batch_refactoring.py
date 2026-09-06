@@ -233,21 +233,16 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
         batch_doc = self._create_test_batch_with_invoices()
 
         # Test XML generation
-        try:
-            xml_file_url = sepa_xml_service.generate_sepa_xml_for_batch(batch_doc)
+        xml_file_url = sepa_xml_service.generate_sepa_xml_for_batch(batch_doc)
 
-            self.assertIsNotNone(xml_file_url)
-            self.assertTrue(batch_doc.sepa_file_generated)
-            self.assertIsNotNone(batch_doc.sepa_message_id)
-            self.assertIsNotNone(batch_doc.sepa_payment_info_id)
+        self.assertIsNotNone(xml_file_url)
+        self.assertTrue(batch_doc.sepa_file_generated)
+        self.assertIsNotNone(batch_doc.sepa_message_id)
+        self.assertIsNotNone(batch_doc.sepa_payment_info_id)
 
-            # Validate XML structure if file was created
-            if batch_doc.sepa_file:
-                self._validate_sepa_xml_structure(batch_doc)
-
-        except Exception as e:
-            # Log the error but don't fail the test if configuration is incomplete
-            frappe.logger().warning(f"SEPA XML generation test skipped due to configuration: {str(e)}")
+        # Validate XML structure
+        self.assertTrue(batch_doc.sepa_file, "generation must have attached a SEPA file")
+        self._validate_sepa_xml_structure(batch_doc)
 
     def test_batch_processing_service(self):
         """Test Batch Processing Service functionality"""
@@ -293,17 +288,12 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
         )
 
         # Test dues collection preview (should not create any data)
-        try:
-            preview_result = get_dues_collection_preview(
-                collection_date=(datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d"), days_ahead=30
-            )
+        preview_result = get_dues_collection_preview(
+            collection_date=(datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d"), days_ahead=30
+        )
 
-            self.assertIsInstance(preview_result, dict)
-            self.assertIn("success", preview_result)
-
-        except Exception as e:
-            # API might fail due to missing dependencies, but should not crash
-            frappe.logger().warning(f"API test warning: {str(e)}")
+        self.assertIsInstance(preview_result, dict)
+        self.assertIn("success", preview_result)
 
     def test_error_handling_and_fallback_mechanisms(self):
         """Test error handling and fallback mechanisms in the refactored system"""
@@ -468,16 +458,12 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
 
     def _validate_sepa_xml_structure(self, batch_doc):
         """Validate that generated SEPA XML has correct structure"""
-        try:
-            # This would validate the XML file if it exists
-            # For now, we check that the required fields are set
-            self.assertIsNotNone(batch_doc.sepa_message_id)
-            self.assertIsNotNone(batch_doc.sepa_payment_info_id)
-            self.assertIsNotNone(batch_doc.sepa_generation_date)
-            self.assertTrue(batch_doc.sepa_file_generated)
-
-        except Exception as e:
-            frappe.logger().warning(f"XML validation skipped: {str(e)}")
+        # This would validate the XML file if it exists
+        # For now, we check that the required fields are set
+        self.assertIsNotNone(batch_doc.sepa_message_id)
+        self.assertIsNotNone(batch_doc.sepa_payment_info_id)
+        self.assertIsNotNone(batch_doc.sepa_generation_date)
+        self.assertTrue(batch_doc.sepa_file_generated)
 
 
 class TestSEPAUtilities(unittest.TestCase):

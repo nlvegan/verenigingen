@@ -115,6 +115,27 @@ class TransactionService:
 
         ref_doc = frappe.get_doc(reference_doctype, reference_name)
 
+        # A draft (docstatus 0) does NOT carry outstanding_amount == 0 - it carries
+        # its full grand_total (calculate_outstanding_amount runs on every save that
+        # is not cancelled). So this must be checked BEFORE the outstanding_amount
+        # <= 0 "already paid" branch below, or a draft falls through as a normal
+        # unpaid invoice and is handed to the allocator, which ERPNext then refuses
+        # at Payment Entry submit time ("... must be submitted"). #856/#209.
+        if ref_doc.docstatus != 1:
+            not_submitted_msg = (
+                f"{reference_doctype} {reference_name} is not submitted (docstatus {ref_doc.docstatus})"
+            )
+            result["error"] = not_submitted_msg
+            frappe.log_error(
+                title="ING Checkout: Reference document not submitted",
+                message=(
+                    f"Cannot create Payment Entry for transaction {transaction_name}: "
+                    f"{reference_doctype} {reference_name} has docstatus {ref_doc.docstatus}, "
+                    "needs manual review"
+                ),
+            )
+            return result
+
         # Get and validate bank account
         bank_account = self.settings.get("ing_checkout_bank_account")
         if not bank_account:

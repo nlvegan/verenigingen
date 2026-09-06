@@ -169,6 +169,14 @@ verenigingen/tests/services/test_mollie_sync_service.py::TestSyncMollieData.test
 verenigingen/tests/test_harness.py::test_business_workflows::BUSINESS LOGIC MOCK PROHIBITED::1
 verenigingen/tests/unit/utils/test_security_utilities.py::TestSecureDocumentOperationAuthorization.test_authorized_user_can_use_bypass_validations::BUSINESS LOGIC MOCK PROHIBITED::1
 verenigingen/tests/unit/utils/test_security_utilities.py::TestSecureDocumentOperationAuthorization.test_unauthorized_user_cannot_request_escalation::BUSINESS LOGIC MOCK PROHIBITED::1
+verenigingen/tests/utils/csv/test_base_csv_import.py::TestBeforeSubmitGuardIntegration.test_guard_prevents_docstatus_write::PERMISSION BYPASS::2
+verenigingen/tests/utils/csv/test_base_csv_import.py::TestMarkImportFailed.test_empty_string_writes_fallback_diagnostic_not_null::PERMISSION BYPASS::1
+verenigingen/tests/utils/csv/test_base_csv_import.py::TestMarkImportFailed.test_sets_failed_status_and_sanitized_log::PERMISSION BYPASS::2
+verenigingen/tests/utils/csv/test_base_csv_import.py::TestPrepareBackgroundImport.test_happy_path_sets_both_base_flags::DATABASE MOCK::1
+verenigingen/tests/utils/csv/test_base_csv_import.py::TestPrepareBackgroundImport.test_string_test_mode_is_coerced::DATABASE MOCK::1
+verenigingen/tests/utils/csv/test_base_csv_import.py::TestRunCsvValidation.test_ready_for_import_status_returns_success::DATABASE MOCK::1
+verenigingen/tests/utils/test_api_classifier.py::TestClassifierWhitelistedAPIs._strip_admin_roles::PERMISSION BYPASS::1
+verenigingen/tests/utils/test_email_mocking.py::<module>::PERMISSION BYPASS::1
 verenigingen/verenigingen/doctype/chapter_join_request/test_chapter_join_request.py::TestChapterJoinRequest.test_permission_validation::PERMISSION BYPASS::1
 verenigingen/verenigingen/doctype/event_contact_campaign/test_event_contact_campaign.py::TestEventContactCampaign._add_board_member::PERMISSION BYPASS::1
 verenigingen/verenigingen/doctype/event_contact_campaign/test_event_contact_campaign.py::TestEventContactCampaign.test_clear_assignments_none_to_clear::PERMISSION BYPASS::1

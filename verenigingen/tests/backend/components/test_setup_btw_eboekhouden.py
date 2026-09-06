@@ -148,9 +148,13 @@ class TestCreateDefaultEboekhoudenSettings(FrappeTestCase):
     """create_default_eboekhouden_settings() seeds the single doc."""
 
     def test_settings_single_exists_after_seed(self):
+        # frappe.db.exists("E-Boekhouden Settings", "E-Boekhouden Settings") is
+        # always truthy for a Single regardless of whether it was ever saved
+        # (see #889), so it cannot prove seeding happened. Check whether the
+        # singleton has actually been saved instead.
         setup_mod.create_default_eboekhouden_settings()
         self.assertTrue(
-            frappe.db.exists("E-Boekhouden Settings", "E-Boekhouden Settings"),
+            frappe.db.get_singles_dict("E-Boekhouden Settings"),
             "E-Boekhouden Settings single should exist after seeding",
         )
 
@@ -159,9 +163,9 @@ class TestCreateDefaultEboekhoudenSettings(FrappeTestCase):
         # frappe.db.count is invalid. Idempotency means the second call is a
         # no-op (guarded by `if not exists`) and the single still resolves.
         setup_mod.create_default_eboekhouden_settings()
-        self.assertTrue(frappe.db.exists("E-Boekhouden Settings", "E-Boekhouden Settings"))
+        self.assertTrue(frappe.db.get_singles_dict("E-Boekhouden Settings"))
         setup_mod.create_default_eboekhouden_settings()
-        self.assertTrue(frappe.db.exists("E-Boekhouden Settings", "E-Boekhouden Settings"))
+        self.assertTrue(frappe.db.get_singles_dict("E-Boekhouden Settings"))
 
     def test_seed_does_not_clobber_existing_source_application(self):
         """Seeding is guarded by `if not exists`, so on an already-installed
@@ -196,8 +200,11 @@ class TestSetupTaxExemptionOnInstall(FrappeTestCase):
         it swallows errors and logs them. We assert it completes and that the
         settings single still exists (i.e. it didn't corrupt config)."""
         # Should be safe to call regardless of the flag's current value.
+        # frappe.db.exists("Verenigingen Settings", "Verenigingen Settings") is
+        # always truthy for a Single (see #889) and cannot prove the config
+        # wasn't corrupted; check the singleton actually still has data.
         setup_mod.setup_tax_exemption_on_install()
-        self.assertTrue(frappe.db.exists("Verenigingen Settings", "Verenigingen Settings"))
+        self.assertTrue(frappe.db.get_singles_dict("Verenigingen Settings"))
 
     def test_sets_up_templates_when_flag_enabled(self):
         """When tax_exempt_for_contributions is enabled, the install helper must
