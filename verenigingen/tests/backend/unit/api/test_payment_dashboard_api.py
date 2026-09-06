@@ -422,7 +422,6 @@ class TestPaymentDashboardAPI(EnhancedTestCase):
 
         attacker_member = self.create_test_member(first_name="Board", last_name="Probe", status="Active")
         frappe.db.set_value("Member", attacker_member.name, "user", user_email)
-        frappe.db.commit()
 
         from verenigingen.utils.constants import Roles
 
