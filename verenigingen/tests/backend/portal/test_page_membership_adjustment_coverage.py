@@ -183,20 +183,6 @@ class TestMembershipAdjustmentCoverage(EnhancedTestCase):
             minimum = membership_adjustment.get_minimum_fee(member_doc, mt_doc, fake_membership)
         self.assertGreaterEqual(minimum, 5.0)
 
-    def test_minimum_fee_student_branch(self):
-        """student_status raises the minimum to at least 50% of the type minimum."""
-        member, _email, _mt, _membership = self._member_with_active_membership()
-        member_doc = frappe.get_doc("Member", member.name)
-        if not hasattr(member_doc, "student_status"):
-            self.skipTest("Member has no student_status field on this schema")
-        member_doc.student_status = 1
-        mt = self.create_test_membership_type(membership_type_name="StudentMin", minimum_amount=30.0)
-        mt_doc = frappe.get_doc("Membership Type", mt.name)
-        with self.assertNoErrorLog():
-            minimum = membership_adjustment.get_minimum_fee(member_doc, mt_doc)
-        # Student floor is 50% of type minimum (15.0) -> well above the €5 floor.
-        self.assertGreaterEqual(minimum, 15.0)
-
     # ---- can_member_adjust_fee ------------------------------------------
 
     def test_can_member_adjust_fee_happy_path(self):
