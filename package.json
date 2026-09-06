@@ -79,25 +79,6 @@
     "frappe-ui": "^0.1.205",
     "js-yaml": "^4.1.1"
   },
-  "resolutions": {
-    "cookie": "^0.7.0",
-    "js-yaml": "^4.1.1",
-    "glob": "^10.5.0",
-    "lodash": "^4.17.23",
-    "dompurify": "^3.4.0",
-    "defu": "^6.1.5",
-    "axios": "^1.15.0",
-    "qs": "^6.13.0",
-    "minimatch": "^9.0.5",
-    "@xmldom/xmldom": "^0.8.13",
-    "follow-redirects": "^1.15.6",
-    "uuid": "^9.0.1",
-    "picomatch": "^4.0.4",
-    "flatted": "^3.3.2",
-    "markdown-it": "^14.1.0",
-    "socket.io-parser": "^4.2.4",
-    "@tootallnate/once": "^2.0.0"
-  },
   "overrides": {
     "cookie": "^0.7.0",
     "js-yaml": "^4.1.1",
