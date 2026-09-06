@@ -295,7 +295,7 @@ _make_bank_transaction::9  # clone family, 1 near-identical pair(s)
 _make_batch::6  # clone family, 1 near-identical pair(s)
 _make_board_admin_member::2
 _make_board_member::2
-_make_campaign::5
+_make_campaign::6  # clone family, 1 near-identical pair(s)
 _make_chapter::9  # clone family, 1 near-identical pair(s)
 _make_chapter_role::3
 _make_chapter_with_board::2

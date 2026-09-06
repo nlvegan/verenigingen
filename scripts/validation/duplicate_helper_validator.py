@@ -563,7 +563,7 @@ def main() -> int:
         print("\n🔴 NEWLY DUPLICATED HELPERS (not in the baseline):")
         _list(blocking)
         print(
-            "\nEvery copy of these is near-identical to every other, so this is a\n"
+            "\nAt least one pair of these copies is near-identical, so this is a\n"
             "copy-paste, and a copy-pasted helper is where a fix goes to die: the next\n"
             "person fixes one of these and the others keep the bug, silently. Import the\n"
             "existing one, or move it to a shared module.\n\n"
