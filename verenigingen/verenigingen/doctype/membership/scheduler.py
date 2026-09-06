@@ -366,6 +366,29 @@ def _get_orphaned_records_data():
         # app's established way to exclude a schedule that is expected to
         # have no active membership (see termination_integration.py's
         # identical filter).
+        #
+        # The two extra guards are NOT incidental -- without them, fixing the
+        # docstatus predicate turns a query that reported NOTHING into one that
+        # reports almost EVERYTHING, which is worse (a daily staff email nobody
+        # can act on).
+        #
+        #   is_template = 0        -- a template belongs to a membership TYPE,
+        #                             not a member, so it never has a membership
+        #                             and is never "orphaned". Measured on
+        #                             test_site_2: 1589 templates would have been
+        #                             reported.
+        #   membership IS NOT NULL -- `membership` is OPTIONAL on this doctype
+        #                             (reqd=0). With a LEFT JOIN, every row that
+        #                             names no membership matches `m.name IS
+        #                             NULL`. "Orphaned" is only a meaningful
+        #                             question for a schedule that declares one;
+        #                             a schedule that never had one is UNLINKED,
+        #                             a different and legitimate state.
+        #
+        # With those two guards the `m.name IS NULL` disjunct becomes dead (the
+        # join cannot miss for a non-null membership that exists), so the
+        # predicate is now the direct question: this schedule names a membership,
+        # and that membership is not Active.
         orphaned_schedules = frappe.db.sql(
             """
             SELECT
@@ -375,7 +398,9 @@ def _get_orphaned_records_data():
             FROM `tabMembership Dues Schedule` mds
             LEFT JOIN `tabMembership` m ON m.name = mds.membership
             WHERE mds.status != 'Cancelled'
-            AND (m.name IS NULL OR m.status != 'Active')
+            AND mds.is_template = 0
+            AND mds.membership IS NOT NULL AND mds.membership != ''
+            AND m.status != 'Active'
         """,
             as_dict=True,
         )

@@ -286,6 +286,57 @@ class TestMembershipScheduler(VereningingenTestCase):
         ]
         self.assertIn(schedule_name, orphan_docs)
 
+    def test_get_orphaned_records_data_ignores_a_schedule_with_no_membership_link(self):
+        # The NEGATIVE half of the query above, and the reason the fix needs a
+        # `mds.membership IS NOT NULL` guard rather than only a status predicate.
+        #
+        # `membership` is OPTIONAL on Membership Dues Schedule (reqd=0), and the
+        # query LEFT JOINs Membership. So every schedule naming no membership
+        # satisfies `m.name IS NULL` and would be reported as orphaned however
+        # healthy it is. The old `mds.docstatus = 1` predicate made the whole
+        # AND-clause false for every row, which MASKED this; fixing that mask
+        # unmasks it.
+        #
+        # The link is cleared with db.set_value rather than by building such a
+        # schedule through validate(): `MembershipDuesSchedule.validate()` throws
+        # "does not have an active membership", so this state cannot be reached
+        # through the ORM at all -- it arises from legacy rows, CSV import and
+        # direct writes. Reproducing it by the route it actually occurs is the
+        # point; a fixture that validate() accepts would not be this shape.
+        schedule_name = frappe.db.get_value(
+            "Membership Dues Schedule", {"membership": self.membership.name}, "name"
+        )
+        self.assertTrue(schedule_name, "factory must have created a dues schedule on submit")
+
+        frappe.db.set_value(
+            "Membership Dues Schedule", schedule_name, "membership", None, update_modified=False
+        )
+
+        # Controls: the preconditions this test rests on actually hold.
+        self.assertFalse(
+            frappe.db.get_value("Membership Dues Schedule", schedule_name, "membership"),
+            "fixture must have no membership link for this test to mean anything",
+        )
+        self.assertNotEqual(
+            "Cancelled",
+            frappe.db.get_value("Membership Dues Schedule", schedule_name, "status"),
+            "a Cancelled schedule is excluded by the status predicate, which would "
+            "make this test pass for the wrong reason",
+        )
+
+        data = scheduler._get_orphaned_records_data()
+        orphan_docs = [
+            item["document"]
+            for item in data
+            if item["record_type"] == "Membership Dues Schedule"
+        ]
+        self.assertNotIn(
+            schedule_name,
+            orphan_docs,
+            "a schedule that declares no membership is unlinked, not orphaned -- "
+            "reporting it floods the daily staff notification",
+        )
+
     def test_notify_about_orphaned_records_runs_without_error(self):
         # Full notification path: query + (optional) templated email. Under
         # frappe.flags.in_test EmailService queues rather than sends, and the
