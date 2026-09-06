@@ -945,6 +945,10 @@ def leave(title: str, member_id: str, leave_reason: str):
 
     except frappe.DoesNotExistError:
         frappe.throw(_("Chapter {0} not found").format(title))
+    except (frappe.ValidationError, frappe.PermissionError):
+        # Preserve the body's own deliberate refusal instead of masking it
+        # with the generic message below (#374).
+        raise
     except Exception as e:
         frappe.log_error(f"Error removing member {member_id} from chapter {title}: {str(e)}")
         frappe.throw(_("An error occurred while leaving the chapter"))
