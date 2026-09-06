@@ -155,16 +155,67 @@ class WhatCountsTest(unittest.TestCase):
         src = "def outer():\n    class T:\n        def _inner(self):\n            pass\n    return T\n"
         self.assertEqual({}, _census({"a.py": src, "b.py": src}))
 
-    def test_two_helpers_in_the_SAME_file_are_one_file(self):
-        """The census counts FILES, not definitions: a helper redefined in one
-        module is a different problem (and a syntax-level one)."""
+    def test_two_helpers_in_the_SAME_file_are_two_definitions(self):
+        """Inverted by #990. This used to assert `{}` -- the census counted
+        FILES, not definitions, on the theory that "a helper redefined in one
+        module is a different, more obvious problem" and so didn't need
+        counting. That premise did not hold: nothing else counted it either, so
+        `test_rest_migration_helpers.py`'s four per-class copies of
+        `_persist_eur_company` were recorded as one, and every count this tool
+        produced -- including the ones gating CI -- was a floor. See
+        DefinitionCountingTest for the class of fix and its negative control."""
         src = "def _a():\n    pass\n\ndef _a():\n    pass\n"
-        self.assertEqual({}, _census({"a.py": src}))
+        self.assertEqual({"_a": 2}, _census({"a.py": src}))
 
     def test_an_unparseable_file_is_skipped_not_fatal(self):
         good = "def _shared():\n    pass\n"
         self.assertEqual(
             {}, _census({"a.py": good, "b.py": "def ( this is not python\n"})
+        )
+
+
+class DefinitionCountingTest(unittest.TestCase):
+    """#990: the census counted FILES, not DEFINITIONS, so every figure it
+    produced -- including the ones gating CI -- was a floor. Measured: a helper
+    redefined on several classes in one file collapsed to a single recorded
+    copy. Two independent lines of evidence: `test_rest_migration_helpers.py`
+    defines `_persist_eur_company` on FOUR classes and was recorded as one
+    copy, and a sibling file's own docstring counted 20 definitions where the
+    tool reported 17 files -- a 3-copy gap from exactly this collapse.
+    """
+
+    def test_a_helper_redefined_on_several_classes_in_ONE_file_counts_every_definition(
+        self,
+    ):
+        src = "\n".join(
+            f"class T{i}:\n    def _shared(self):\n        pass\n" for i in range(4)
+        )
+        self.assertEqual({"_shared": 4}, _census({"a.py": src}))
+
+    def test_a_genuinely_single_definition_is_counted_as_exactly_one(self):
+        """Negative control. A checker that over-counts everything -- e.g. one
+        that emits each definition twice, or counts a class's methods against
+        the module as well as the class -- would inflate this too. Checked
+        against the raw `_by_name()` map, not `census()`, because a single
+        occurrence never survives census()'s ">1" filter regardless of whether
+        it was counted correctly."""
+        src = "def _solo():\n    pass\n"
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "a.py").write_text(src)
+            families = dhv._by_name(str(root))
+        self.assertEqual(1, len(families.get("_solo", [])))
+
+    def test_same_file_definitions_combine_with_definitions_elsewhere(self):
+        """The realistic shape: some copies of a name collapsed into one file
+        (per-class), others scattered across the tree -- the total must be the
+        sum of both, not just whichever group is counted."""
+        same_file = "\n".join(
+            f"class T{i}:\n    def _shared(self):\n        pass\n" for i in range(3)
+        )
+        elsewhere = "def _shared():\n    pass\n"
+        self.assertEqual(
+            {"_shared": 4}, _census({"a.py": same_file, "b.py": elsewhere})
         )
 
 
@@ -287,6 +338,20 @@ class BlockingRuleTest(unittest.TestCase):
         )
         self.assertLess(worst, dhv.CLONE_RATIO)
 
+    def test_a_same_file_per_class_redefinition_can_be_a_clone_family_on_its_own(self):
+        """#990: near_pairs()/clone_share() must not exempt in-file pairs. Four
+        identical per-class copies of the SAME helper, all in ONE file, are
+        four identical bodies and six identical pairs -- exactly the shape
+        that blocks when the copies are scattered across four separate files
+        (test_a_new_copy_of_a_near_identical_family_blocks, above)."""
+        same_body = "\n".join(f"        x{i} = {i}" for i in range(10))
+        src = "\n".join(
+            f"class T{i}:\n    def _helper(self):\n{same_body}\n" for i in range(4)
+        )
+        blocking, _advisory, families = self._split({"a.py": src})
+        self.assertEqual(4, len(families["_helper"]))
+        self.assertIn("_helper", blocking)
+
     def test_an_unparseable_body_is_not_counted_as_a_clone(self):
         """`SequenceMatcher("", "").ratio()` is 1.0, so two parse failures would
         otherwise be a flawless clone family."""
@@ -386,6 +451,32 @@ class MonotonicityTest(unittest.TestCase):
         blocking, advisory, _f = self._split(self._files(0, 5))
         self.assertNotIn("_helper", blocking)
         self.assertIn("_helper", advisory, "it must still be RECORDED, just not blocked")
+
+    def test_a_dissimilar_copy_added_WITHIN_the_same_file_cannot_dilute_a_clone_family_out(
+        self,
+    ):
+        """#990 extends #949's guarantee to the new counting dimension: a
+        dissimilar redefinition landing in the SAME file as a real clone
+        family must not dilute it out of the gate, exactly as a dissimilar
+        copy in a SEPARATE file must not (see the test above)."""
+        body = "\n".join(f"        x{i} = {i}" for i in range(10))
+        clones = "\n".join(
+            f"class T{i}:\n    def _helper(self):\n{body}\n        return {i}\n"
+            for i in range(3)
+        )
+        unrelated = (
+            "class TOther:\n    def _helper(self):\n"
+            + "\n".join(f"        y{i} = {i} * 3" for i in range(12))
+            + "\n"
+        )
+        blocking, _a, families = self._split({"a.py": clones + "\n" + unrelated})
+        self.assertEqual(4, len(families["_helper"]), "fixture is wrong: expected 4 defs")
+        self.assertIn(
+            "_helper",
+            blocking,
+            "three same-file clones stopped blocking once an unrelated same-file "
+            "copy diluted the ratio -- this extends #949 to same-file copies",
+        )
 
 
 class DeterminismTest(unittest.TestCase):

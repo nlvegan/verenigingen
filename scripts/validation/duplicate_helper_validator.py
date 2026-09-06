@@ -36,6 +36,21 @@ all three copies were METHODS, so the ratchet was blind to every one of them (#4
 The three Mollie/donation fixture helpers in #444 were methods too. That change takes
 the census from 71 names / 190 definitions to 567 / 1948.
 
+DEFINITIONS COUNT, not files, since 2026-09-06 (#990). A helper redefined on several
+classes in one file used to collapse into ONE recorded copy for that file -- on the
+theory that a same-file redefinition is "a different, more obvious problem" and so did
+not need counting. It was not obvious, because nothing else counted it either:
+`tests/e_boekhouden/test_rest_migration_helpers.py` defines `_persist_eur_company` on
+FOUR classes and was recorded as one copy, and a sibling file's own docstring said 20
+definitions where this tool reported 17 files -- a 3-copy gap from exactly that
+collapse. Every count this tool produces was therefore a FLOOR, including the ones
+gating CI. A same-file redefinition gets no special treatment in the clone-family rule
+either: near_pairs()/clone_share() just see more entries in the list and compare every
+pair, in-file pairs included -- four identical per-class copies are four identical
+bodies, and by the same reasoning that makes methods count at all (#445), a fix applied
+to one class's copy and missed on a sibling class in the SAME file is exactly the
+failure mode this gate exists to catch.
+
 Usage:
     python scripts/validation/duplicate_helper_validator.py              # ratchet check
     python scripts/validation/duplicate_helper_validator.py --report     # clone families
@@ -217,27 +232,32 @@ def _normalised(node) -> str:
 
 
 def _by_name(root: str) -> Dict[str, List[Tuple[str, str]]]:
+    """helper name -> every private DEFINITION of it: (path, body, normalised).
+
+    Every definition counts, even two on different classes in the SAME file (#990).
+    See the module docstring's "DEFINITIONS COUNT, not files" section for why the
+    previous per-file collapse made every count this tool produces a floor.
+    """
     found: Dict[str, List[Tuple[str, str]]] = defaultdict(list)
     for path in _iter_python_files(root):
-        seen_here = set()
         for name, body, norm in _private_helpers(path):
-            # Count FILES, not definitions: a helper redefined inside one module is a
-            # different (and more obvious) problem.
-            if name in seen_here:
-                continue
-            seen_here.add(name)
             found[name].append((path, body, norm))
     return found
 
 
 def census(root: str = None) -> Dict[str, int]:
-    """helper name -> number of files defining it, for names in more than one."""
+    """helper name -> number of DEFINITIONS of it (#990), for names defined more
+    than once. A single file can contribute more than one -- see _by_name()."""
     root = root or str(REPO_ROOT / SCAN_ROOT)
     return {name: len(v) for name, v in _by_name(root).items() if len(v) > 1}
 
 
 def clone_families(root: str = None):
-    """(clone_pairs, files, exact_pairs, best_ratio, name, dirs), most-cloned first.
+    """(clone_pairs, defs, exact_pairs, best_ratio, name, dirs), most-cloned first.
+
+    `defs` is the DEFINITION count (#990), which can exceed the number of
+    directories/files listed in `dirs` when one file defines the name more than
+    once (e.g. once per class). `dirs` stays file/directory-level for readability.
 
     Only for --report. The ratchet itself never looks at similarity -- comparing
     every pair is quadratic in the number of copies and would make the gate slow
@@ -422,7 +442,9 @@ def write_baseline(path: Path, counts: Dict[str, int], families: Dict) -> None:
         "# Private helpers -- module-level functions AND methods -- defined in more",
         "# than one file. The ratchet baseline for",
         "# scripts/validation/duplicate_helper_validator.py. Format:",
-        "#     <helper name>::<number of files defining it>",
+        "#     <helper name>::<number of definitions of it (#990) -- can exceed the",
+        "#     number of distinct files: one file can define the name on several",
+        "#     classes; use --report for the file/directory breakdown>",
         "#",
         "# A change fails only if it adds a copy of a name marked `# clone family`",
         "# below -- one whose copies really are near-identical. A new copy of an",
@@ -484,11 +506,11 @@ def main() -> int:
         # landed once. Keying on the worst pair drops it, and takes the band from
         # 89 families to a set where the inference is actually true.
         drifted = [f for f in clone_families() if f[2] == 0 and f[6] >= CLONE_RATIO]
-        print(f"{'pairs':>5} {'files':>5} {'worst':>6} {'best':>6}  helper")
-        for pairs, files, _exact, best, name, dirs, worst, _cos in drifted:
+        print(f"{'pairs':>5} {'defs':>5} {'worst':>6} {'best':>6}  helper")
+        for pairs, defs, _exact, best, name, dirs, worst, _cos in drifted:
             # `best` is rounded to 2dp, so a 0.997 family printed as 1.00 under a
             # header promising "no exact pair". Show 3dp.
-            print(f"{pairs:>5} {files:>5} {worst:>6.3f} {best:>6.3f}  {name}")
+            print(f"{pairs:>5} {defs:>5} {worst:>6.3f} {best:>6.3f}  {name}")
             for d in dirs[:4]:
                 print(f"{'':>26}{d}/")
         cosmetic_only = [f for f in clone_families() if f[2] and f[7] and f[0] == f[2]]
@@ -507,9 +529,9 @@ def main() -> int:
 
     if args.report:
         families = clone_families()
-        print(f"{'pairs':>5} {'files':>5} {'exact':>5} {'best':>5}  helper")
-        for pairs, files, exact, best, name, dirs, _worst, _cos in families:
-            print(f"{pairs:>5} {files:>5} {exact:>5} {best:>5}  {name}")
+        print(f"{'pairs':>5} {'defs':>5} {'exact':>5} {'best':>5}  helper")
+        for pairs, defs, exact, best, name, dirs, _worst, _cos in families:
+            print(f"{pairs:>5} {defs:>5} {exact:>5} {best:>5}  {name}")
             for d in dirs[:4]:
                 print(f"{'':>28}{d}/")
         print(f"\n{len(families)} clone families")
@@ -546,9 +568,16 @@ def main() -> int:
     def _list(names: Dict[str, int]) -> None:
         print("=" * 60)
         for name, count in sorted(names.items()):
-            print(f"\n{name}  (now in {count} files, baseline {baseline.get(name, 0)})")
-            for path in sorted(_rel(x) for x, _, _ in families[name]):
-                print(f"  {path}")
+            print(f"\n{name}  (now in {count} definitions, baseline {baseline.get(name, 0)})")
+            # Definitions, not files (#990) -- so list unique FILES for readability
+            # and note how many of the count each one holds when it is more than one
+            # (e.g. one file defining the helper on several classes).
+            per_file: Dict[str, int] = defaultdict(int)
+            for path, _, _ in families[name]:
+                per_file[_rel(path)] += 1
+            for path in sorted(per_file):
+                n = per_file[path]
+                print(f"  {path}" + (f"  (x{n})" if n > 1 else ""))
 
     if advisory:
         print("\n⚪ NEWLY DUPLICATED -- name collision only, NOT blocking:")
