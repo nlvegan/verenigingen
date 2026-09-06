@@ -9,7 +9,6 @@ guard branches) against real Member documents and the live Verenigingen Settings
 single. No business logic is mocked.
 """
 
-from contextlib import contextmanager
 
 import frappe
 from frappe.utils import cint
@@ -54,19 +53,9 @@ class TestMemberIDManager(EnhancedTestCase):
         member.reload()
         return member
 
-    @contextmanager
-    def as_user(self, user):
-        """Run a block as another user, restoring the session afterwards.
-
-        Used to exercise permission/role guard branches without a bare
-        set_user() call in the test body.
-        """
-        original = frappe.session.user
-        frappe.set_user(user)
-        try:
-            yield
-        finally:
-            frappe.set_user(original)
+    # as_user() removed (#496): it shadowed EnhancedTestCase.as_user(user_email),
+    # and was equivalent to it (restore-on-exit via a context manager). Deleted
+    # rather than renamed since there was nothing local about it to preserve.
 
     # ------------------------------------------------- get_next_member_id (core)
     def test_get_next_member_id_is_monotonic(self):

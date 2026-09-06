@@ -31,13 +31,22 @@ class TestPeriodicDonationAgreement(EnhancedTestCase):
         super().setUp()
 
         # Clean up any stale test data from previous runs
-        self._cleanup_stale_test_data()
+        self._cleanup_stale_pda_test_data()
 
-        self.test_donor = self.create_test_donor()
-        self.test_sepa_mandate = self.create_test_sepa_mandate()
+        self.test_donor = self._get_or_create_pda_test_donor()
+        self.test_sepa_mandate = self._get_or_create_pda_test_sepa_mandate()
 
-    def _cleanup_stale_test_data(self):
-        """Clean up stale test data that may prevent test execution"""
+    def _cleanup_stale_pda_test_data(self):
+        """Clean up stale test data that may prevent test execution.
+
+        Renamed from `_cleanup_stale_test_data` (#496): that name shadows
+        `EnhancedTestCase._cleanup_stale_test_data`, which the harness's own
+        `setUp()` calls unconditionally (gated only by a once-per-class flag).
+        This override deletes exactly the two named PDA fixture donors and
+        their agreements -- unrelated to the harness's site-wide, developer-mode
+        + approved-site-gated cleanup, which this shadow replaced entirely for
+        every test in this class.
+        """
         # Clean up any existing test donors and their agreements
         for donor_name in ["TEST-PDA-Donor-001", "TEST-PDA-Other-Donor"]:
             existing = frappe.db.exists("Donor", {"donor_name": donor_name})
@@ -54,8 +63,17 @@ class TestPeriodicDonationAgreement(EnhancedTestCase):
                         pass
         frappe.db.commit()
 
-    def create_test_donor(self):
-        """Create a test donor with ANBI consent and required fields"""
+    def _get_or_create_pda_test_donor(self):
+        """Create a test donor with ANBI consent and required fields.
+
+        Renamed from `create_test_donor` (#496): that name shadows
+        `EnhancedTestCase.create_test_donor(**kwargs)`, which
+        `create_test_donation()` calls internally for any caller that omits
+        `donor=`. This override takes no arguments and always resolves to a
+        fixed named donor (TEST-PDA-Donor-001), unlike the harness version's
+        unique-per-call donor -- latent because this class never calls
+        `create_test_donation()` today.
+        """
         donor_name = "TEST-PDA-Donor-001"
 
         # Check if donor exists - if so, ensure it has required fields
@@ -91,8 +109,17 @@ class TestPeriodicDonationAgreement(EnhancedTestCase):
         donor.insert()
         return donor
 
-    def create_test_sepa_mandate(self):
-        """Create a test SEPA mandate"""
+    def _get_or_create_pda_test_sepa_mandate(self):
+        """Create a test SEPA mandate.
+
+        Renamed from `create_test_sepa_mandate` (#496): that name shadows
+        `EnhancedTestCase.create_test_sepa_mandate(member_name=None, iban=None,
+        **kwargs)`, which `create_test_mollie_subscription()` calls internally
+        with `member_name=...`. This override takes no arguments and always
+        resolves to a fixed named mandate (TEST-PDA-SEPA-001) linked to a
+        donor, not a member -- latent because this class never calls
+        `create_test_mollie_subscription()` today.
+        """
         mandate_id = "TEST-PDA-SEPA-001"
 
         if not frappe.db.exists("SEPA Mandate", {"mandate_id": mandate_id}):

@@ -44,8 +44,15 @@ class TestVolunteer(EnhancedTestCase):
                 )
                 cat_doc.insert()  # EnhancedTestCase handles cleanup via rollback
 
-    def create_test_volunteer(self, status="Active"):
+    def _create_volunteer_with_skills(self, status="Active"):
         # NOTE: Intentionally local — populates volunteer-specific child tables (interests, skills)
+        #
+        # Renamed from `create_test_volunteer` (#496): that name shadowed
+        # `EnhancedTestCase.create_test_volunteer(member_name=None, **kwargs)`,
+        # which `create_test_board_member()` calls internally with
+        # `member_name=...`. This override takes only `status` and would raise
+        # TypeError on that call -- latent because this class never calls
+        # `create_test_board_member()` today.
         """Create a test volunteer record"""
         # Generate unique name to avoid conflicts
         unique_suffix = self.get_unique_suffix()
@@ -95,7 +102,7 @@ class TestVolunteer(EnhancedTestCase):
 
     def test_volunteer_creation(self):
         """Test creating a volunteer record"""
-        volunteer = self.create_test_volunteer()
+        volunteer = self._create_volunteer_with_skills()
 
         # Verify record was created correctly
         self.assertEqual(volunteer.member, self.test_member.name)
@@ -112,7 +119,7 @@ class TestVolunteer(EnhancedTestCase):
 
     def test_add_activity(self):
         """Test adding an activity to a volunteer"""
-        volunteer = self.create_test_volunteer()
+        volunteer = self._create_volunteer_with_skills()
 
         # Create an activity
         activity = self.create_test_activity(volunteer)
@@ -138,7 +145,7 @@ class TestVolunteer(EnhancedTestCase):
 
     def test_end_activity(self):
         """Test ending an activity"""
-        volunteer = self.create_test_volunteer()
+        volunteer = self._create_volunteer_with_skills()
 
         # Create an activity
         activity = self.create_test_activity(volunteer)
@@ -192,7 +199,7 @@ class TestVolunteer(EnhancedTestCase):
 
     def test_get_skills_by_category(self):
         """Test retrieving skills grouped by category"""
-        volunteer = self.create_test_volunteer()
+        volunteer = self._create_volunteer_with_skills()
 
         # Add more skills in different categories
         volunteer.append(
@@ -266,7 +273,7 @@ class TestVolunteer(EnhancedTestCase):
 
     def test_volunteer_history(self):
         """Test the volunteer assignment history directly"""
-        volunteer = self.create_test_volunteer()
+        volunteer = self._create_volunteer_with_skills()
 
         # Create two activities - one active, one to be completed
         activity1 = self.create_test_activity(volunteer)
@@ -378,7 +385,7 @@ class TestVolunteer(EnhancedTestCase):
 
     def test_volunteer_member_linkage(self):
         """Test volunteer-member linkage and data consistency"""
-        volunteer = self.create_test_volunteer()
+        volunteer = self._create_volunteer_with_skills()
 
         # Verify member linkage
         self.assertEqual(volunteer.member, self.test_member.name)
@@ -402,7 +409,7 @@ class TestVolunteer(EnhancedTestCase):
 
     def test_volunteer_availability_and_commitment(self):
         """Test volunteer availability and commitment level settings"""
-        volunteer = self.create_test_volunteer()
+        volunteer = self._create_volunteer_with_skills()
 
         # Test different commitment levels
         commitment_levels = ["Occasional", "Regular (Monthly)", "Weekly", "Intensive"]
@@ -422,7 +429,7 @@ class TestVolunteer(EnhancedTestCase):
 
     def test_volunteer_status_transitions(self):
         """Test volunteer status transitions and business logic"""
-        volunteer = self.create_test_volunteer()
+        volunteer = self._create_volunteer_with_skills()
 
         # Test status transitions
         status_transitions = [
@@ -445,7 +452,7 @@ class TestVolunteer(EnhancedTestCase):
 
     def test_volunteer_data_integrity(self):
         """Test volunteer data integrity and consistency"""
-        volunteer = self.create_test_volunteer()
+        volunteer = self._create_volunteer_with_skills()
 
         # Test email uniqueness constraint
         with self.assertRaises(Exception):
@@ -463,7 +470,7 @@ class TestVolunteer(EnhancedTestCase):
 
     def test_volunteer_permission_system(self):
         """Test volunteer permission system for member access"""
-        self.create_test_volunteer()
+        self._create_volunteer_with_skills()
 
         # Test that volunteer permission query function exists and works
         from verenigingen.permissions import get_volunteer_permission_query
@@ -491,7 +498,7 @@ class TestVolunteer(EnhancedTestCase):
 
     def test_volunteer_member_integration(self):
         """Test volunteer integration with member system"""
-        volunteer = self.create_test_volunteer()
+        volunteer = self._create_volunteer_with_skills()
 
         # Test member linkage
         self.assertEqual(
@@ -523,7 +530,7 @@ class TestVolunteer(EnhancedTestCase):
             "Chapter creation requires Department/ERPNext organizational hierarchy - production feature works correctly"
         )
 
-        volunteer = self.create_test_volunteer()
+        volunteer = self._create_volunteer_with_skills()
 
         # Create a test chapter for board assignment
         chapter = self.create_test_chapter(status="Active")
@@ -556,7 +563,7 @@ class TestVolunteer(EnhancedTestCase):
 
     def test_volunteer_aggregated_assignments(self):
         """Test volunteer aggregated assignments functionality"""
-        volunteer = self.create_test_volunteer()
+        volunteer = self._create_volunteer_with_skills()
 
         # Create multiple types of assignments
         self.create_test_activity(volunteer)
@@ -588,7 +595,7 @@ class TestVolunteer(EnhancedTestCase):
 
     def test_volunteer_workflow_edge_cases(self):
         """Test volunteer workflow and state management edge cases"""
-        volunteer = self.create_test_volunteer(status="New")
+        volunteer = self._create_volunteer_with_skills(status="New")
 
         # Test status auto-update when adding activities
         self.create_test_activity(volunteer)
@@ -641,7 +648,7 @@ class TestVolunteer(EnhancedTestCase):
     def test_volunteer_activity_lifecycle(self):
         """Test complete volunteer activity lifecycle"""
         # Create a volunteer and activity
-        volunteer = self.create_test_volunteer()
+        volunteer = self._create_volunteer_with_skills()
 
         # Create a volunteer activity
         activity = frappe.new_doc("Volunteer Activity")
@@ -686,7 +693,7 @@ class TestVolunteer(EnhancedTestCase):
 
     def test_volunteer_search_and_filtering(self):
         """Test volunteer search and filtering capabilities"""
-        volunteer = self.create_test_volunteer()
+        volunteer = self._create_volunteer_with_skills()
 
         # Add distinguishing characteristics
         volunteer.append(
@@ -723,7 +730,7 @@ class TestVolunteer(EnhancedTestCase):
 
     def test_volunteer_security_validation(self):
         """Test volunteer security and validation requirements"""
-        volunteer = self.create_test_volunteer()
+        volunteer = self._create_volunteer_with_skills()
 
         # Test required field validation - volunteer_name is required
         try:
@@ -759,7 +766,7 @@ class TestVolunteer(EnhancedTestCase):
 
     def test_volunteer_role_based_access(self):
         """Test role-based access control for volunteers"""
-        self.create_test_volunteer()
+        self._create_volunteer_with_skills()
 
         # Test that the volunteer doctype has proper role permissions configured
         from verenigingen.permissions import get_volunteer_permission_query
@@ -782,7 +789,7 @@ class TestVolunteer(EnhancedTestCase):
 
     def test_volunteer_assignment_lifecycle(self):
         """Test complete volunteer assignment lifecycle management"""
-        volunteer = self.create_test_volunteer()
+        volunteer = self._create_volunteer_with_skills()
 
         # Test assignment creation
         initial_history_count = len(volunteer.assignment_history)
@@ -826,7 +833,7 @@ class TestVolunteer(EnhancedTestCase):
 
     def test_volunteer_skills_management(self):
         """Test comprehensive volunteer skills and qualifications management"""
-        volunteer = self.create_test_volunteer()
+        volunteer = self._create_volunteer_with_skills()
 
         # Test adding multiple skills in different categories
         skills_to_add = [

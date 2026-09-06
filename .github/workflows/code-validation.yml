@@ -145,6 +145,25 @@ jobs:
     - name: Unit-test the validator itself
       run: python -m unittest discover -s scripts/validation/tests -p 'test_error_swallow_validator.py' -v
 
+    # The harness-method-shadow guard (#496). A test-local helper sharing a name with
+    # a method on EnhancedTestCase / VereningingenTestCase overrides it, so the harness's
+    # own `self.<name>(...)` calls dispatch to the wrong implementation via MRO -- the
+    # shape that killed 38/38 tests in one module for 12 days (#194).
+    #
+    # It runs here and not only in .pre-commit-config.yaml for the reason the siblings
+    # above already give: a pre-push hook is skippable with --no-verify, and a
+    # contributor who never installed the hooks gets no enforcement at all. Without this
+    # job the guard's own 8 tests would run nowhere automatically, so a regression in
+    # its import resolution would be silent -- which is the exact defect class the guard
+    # exists to prevent.
+    #
+    # Stdlib-only (ast, pathlib) like its siblings, so no bench and no site needed.
+    - name: Unit-test the harness-method-shadow guard
+      run: python -m unittest discover -s scripts/validation/tests -p 'test_harness_method_shadow_validator.py' -v
+
+    - name: Run the harness-method-shadow guard over the tree
+      run: python scripts/validation/harness_method_shadow_validator.py
+
     # The failed-write guard is the sibling rule (a broad except around a DATABASE
     # WRITE whose failure never reaches the caller). It is ADVISORY for now, so it
     # gets no ratchet/growth gate here — only its unit tests, which are stdlib-only

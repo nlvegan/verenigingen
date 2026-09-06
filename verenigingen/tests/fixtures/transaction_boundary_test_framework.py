@@ -331,7 +331,7 @@ class TransactionBoundaryTestCase(EnhancedTestCase):
         )
 
         # Create payment entry
-        payment = self.create_test_payment_entry(
+        payment = self._create_transaction_boundary_payment_entry(
             invoice=invoice,
             amount=50.00
         )
@@ -439,7 +439,7 @@ class TransactionBoundaryTestCase(EnhancedTestCase):
         if recovery_validation_func:
             recovery_validation_func()
 
-    def create_test_payment_entry(self, invoice, amount, mode_of_payment="Bank Transfer"):
+    def _create_transaction_boundary_payment_entry(self, invoice, amount, mode_of_payment="Bank Transfer"):
         """
         Create a test payment entry for transaction testing
 
@@ -450,6 +450,15 @@ class TransactionBoundaryTestCase(EnhancedTestCase):
 
         Returns:
             Payment Entry document
+
+        Renamed from `create_test_payment_entry` (#496): that name shadows
+        `EnhancedTestCase.create_test_payment_entry(**kwargs)`, which
+        `create_test_mollie_payment()` calls internally. This override's
+        `(invoice, amount, mode_of_payment)` signature is incompatible with
+        that call site (would raise TypeError). Dead code either way: no
+        subclass calls `create_test_mollie_payment()`, and this method's own
+        only caller, `create_test_eboekhouden_sync_scenario()`, is itself
+        never called anywhere.
         """
         from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 

@@ -71,7 +71,7 @@ class TestANBIClarityLifecycle(EnhancedTestCase):
             frappe.delete_doc("Donor", donor, force=True, ignore_permissions=True)
         frappe.db.commit()
 
-    def create_test_donor(self, name_prefix="TEST"):
+    def _create_anbi_test_donor(self, name_prefix="TEST"):
         """Create a test donor.
 
         Individual donors need a valid BSN: the ANBI agreement validation
@@ -81,6 +81,13 @@ class TestANBIClarityLifecycle(EnhancedTestCase):
 
         donor_name carries ``_DONOR_PREFIX`` so _cleanup_test_data can find
         and remove it without touching other files' test donors.
+
+        Renamed from `create_test_donor` (#496): that name shadows
+        `EnhancedTestCase.create_test_donor(**kwargs)`, which
+        `create_test_donation()` calls internally for a caller that omits
+        `donor=`. This positional, prefix-based signature is incompatible with
+        that call site -- latent because this class never calls
+        `create_test_donation()` today.
         """
         donor = frappe.new_doc("Donor")
         donor.donor_name = f"{_DONOR_PREFIX}-{name_prefix}-{frappe.utils.random_string(5)}"
@@ -95,7 +102,7 @@ class TestANBIClarityLifecycle(EnhancedTestCase):
     def test_anbi_agreement_lifecycle(self):
         """Test complete lifecycle of an ANBI agreement (5+ years)"""
         # Step 1: Create donor with ANBI consent
-        donor = self.create_test_donor("TEST-ANBI")
+        donor = self._create_anbi_test_donor("TEST-ANBI")
         
         # Step 2: Create ANBI agreement (5 years)
         agreement = frappe.new_doc("Periodic Donation Agreement")
@@ -141,7 +148,7 @@ class TestANBIClarityLifecycle(EnhancedTestCase):
     def test_pledge_lifecycle(self):
         """Test complete lifecycle of a pledge (< 5 years, no ANBI benefits)"""
         # Step 1: Create donor
-        donor = self.create_test_donor("TEST-PLEDGE")
+        donor = self._create_anbi_test_donor("TEST-PLEDGE")
         
         # Step 2: Create pledge (2 years)
         # anbi_eligible defaults to 1 on the DocType. For a <5-year pledge the
@@ -191,7 +198,7 @@ class TestANBIClarityLifecycle(EnhancedTestCase):
     def test_upgrade_pledge_to_anbi(self):
         """Test upgrading a pledge to ANBI agreement"""
         # Create initial 2-year pledge
-        donor = self.create_test_donor("TEST-UPGRADE")
+        donor = self._create_anbi_test_donor("TEST-UPGRADE")
         
         pledge = frappe.new_doc("Periodic Donation Agreement")
         pledge.donor = donor.name
@@ -234,7 +241,7 @@ class TestANBIClarityLifecycle(EnhancedTestCase):
     def test_anbi_vs_pledge_reporting(self):
         """Test reporting differences between ANBI agreements and pledges"""
         # Create ANBI agreement
-        anbi_donor = self.create_test_donor("TEST-ANBI-REPORT")
+        anbi_donor = self._create_anbi_test_donor("TEST-ANBI-REPORT")
         anbi_agreement = frappe.new_doc("Periodic Donation Agreement")
         anbi_agreement.donor = anbi_donor.name
         anbi_agreement.start_date = today()
@@ -246,7 +253,7 @@ class TestANBIClarityLifecycle(EnhancedTestCase):
         anbi_agreement.insert()
         
         # Create pledge
-        pledge_donor = self.create_test_donor("TEST-PLEDGE-REPORT")
+        pledge_donor = self._create_anbi_test_donor("TEST-PLEDGE-REPORT")
         pledge = frappe.new_doc("Periodic Donation Agreement")
         pledge.donor = pledge_donor.name
         pledge.start_date = today()
@@ -290,7 +297,7 @@ class TestANBIClarityLifecycle(EnhancedTestCase):
     
     def test_duration_change_validation(self):
         """Test validation when changing duration affects ANBI eligibility"""
-        donor = self.create_test_donor("TEST-DURATION-CHANGE")
+        donor = self._create_anbi_test_donor("TEST-DURATION-CHANGE")
         
         # Create 5-year ANBI agreement
         agreement = frappe.new_doc("Periodic Donation Agreement")
