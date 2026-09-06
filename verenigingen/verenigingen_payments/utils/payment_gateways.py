@@ -2704,15 +2704,37 @@ def update_mollie_subscription_amount(subscription_id, new_amount):
         )
 
         if result.get("status") == "success":
-            # Update related donation records
+            # Update related donation records.
+            #
+            # The filter matches CHARGE donations too: recurring_donation_charge.py
+            # copies the origin's mollie_subscription_id onto each charge and leaves
+            # status="Recurring". Rewriting a charge that has already been booked
+            # would change the historical amount a Journal Entry and the GL were
+            # posted against -- the same thing `update_recurring_donation` refuses
+            # to do (#347's charge guard and #355's settled guard). This function
+            # reaches the same rows, so it needs the same protection (#957).
+            #
+            # Settled rows are SKIPPED rather than the whole call refused: raising
+            # the subscription amount is this endpoint's purpose, and the
+            # forward-looking rows must still move.
             donations = frappe.get_all(
                 "Donation",
                 filters={"mollie_subscription_id": subscription_id, "status": "Recurring"},
-                fields=["name"],
+                fields=["name", "paid", "journal_entry", "sales_invoice"],
             )
 
+            skipped = []
             for donation in donations:
+                if donation.paid or donation.journal_entry or donation.sales_invoice:
+                    skipped.append(donation.name)
+                    continue
                 frappe.db.set_value("Donation", donation.name, "amount", new_amount)
+
+            if skipped:
+                frappe.logger("verenigingen.payments").info(
+                    f"update_mollie_subscription_amount({subscription_id}): left "
+                    f"{len(skipped)} already-booked donation(s) untouched: {skipped}"
+                )
 
             frappe.db.commit()
 
