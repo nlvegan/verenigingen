@@ -6549,9 +6549,22 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # active mandate for this purpose" guard. `status`/`is_active` is the
         # established way this app identifies a reusable, live mandate (see
         # `sepa_mandate_management.py`'s own auto-creation and lookup calls).
+        #
+        # Scoped by `used_for_memberships` (#996): "reusable" is a PER-PURPOSE
+        # question. SEPA Mandate models purpose explicitly and validates one
+        # active mandate per purpose, and this factory builds a MEMBERSHIP
+        # subscription -- so a member's donation-only mandate is not a
+        # candidate. `services/payment/sepa_mandate_manager.py` scopes the same
+        # lookup the same way, citing #605: unscoped, a member holding only a
+        # donation mandate was treated as having the mandate their dues need.
         existing_mandate = frappe.db.get_value(
             "SEPA Mandate",
-            {"member": member_doc.name, "status": "Active", "is_active": 1},
+            {
+                "member": member_doc.name,
+                "status": "Active",
+                "is_active": 1,
+                "used_for_memberships": 1,
+            },
             "name",
         )
 
