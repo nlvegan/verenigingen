@@ -19,6 +19,7 @@ from frappe import _
 from frappe.utils import nowdate, nowtime, random_string
 
 from verenigingen.services.payment.sepa_upload_guard import get_sepa_upload_guard
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 from verenigingen.verenigingen_payments.services.sepa_configuration_service import sepa_config_service
 from verenigingen.verenigingen_payments.services.sepa_xml_adapter import get_sepa_xml_adapter
 from verenigingen.verenigingen_payments.utils.sepa_utilities import FileManagementUtilities, SEPAXMLValidator
@@ -209,8 +210,13 @@ class SEPAXMLGenerationService:
                     {"file_hash": atomic_result.file_hash},
                     {"file_name": f"sepa-{batch_doc.name}.xml"},
                 )
+            except NON_RESUMABLE_DB_ERRORS:
+                # A deadlock or timeout has already discarded the whole savepoint
+                # stack; ROLLBACK TO SAVEPOINT would raise 1305 from inside this
+                # except and replace the real error. Let it propagate untouched.
+                raise
             except Exception:
-                frappe.db.rollback(save_point=finalize_savepoint)
+                rollback_to_savepoint(finalize_savepoint)
                 raise
 
             return file_url
