@@ -51,15 +51,19 @@ def _persist_eur_company():
     later class in the shard (#328/#330). CLAUDE.md's rule is to mark a shared fixture at
     its BUILD SITE, and this is the build site.
 
-    Scope note: there are **20** module-level/classmethod definitions of this same helper
-    name across ``tests/e_boekhouden`` and this is the only decorated one. That divergence
-    is the #444 shape, and it is NOT covered by
-    ``test_no_shared_fixture_helper_is_decorated_in_one_copy_and_not_its_clone`` --
-    measured: decorating this copy leaves that guard green, because the guard only inspects
-    METHODS whose class reaches ``EnhancedTestCase`` and these are module-level functions.
-    Decorating the other 19 changes the drain behaviour of 19 modules and needs its own
-    measured commit; this one is decorated because this change is what made it
-    body-reachable.
+    Scope note (updated by #989): there are **20** module-level/classmethod definitions of
+    this same helper name across ``tests/e_boekhouden``, but only 3 of them -- this one,
+    ``test_payment_entry_handler.py`` and ``test_processors_stock.py`` -- build this SAME
+    literal company (``"EBKH EUR Test Co"``); the other 17 are coincidentally-named
+    functions building their own separately-named, self-contained companies and are not
+    part of this fixture family at all.
+    ``test_no_shared_fixture_helper_is_decorated_in_one_copy_and_not_its_clone`` originally
+    inspected class METHODS only, so a module-level clone like these three was invisible to
+    it -- decorating this copy alone left that guard green. It has since been extended to a
+    SEPARATE module-level population, narrowed by matching the identity literal each
+    ``frappe.db.exists(...)`` call resolves to (so the 17 unrelated namesakes cannot false-
+    positive against each other or against this trio), and the other two copies of this
+    company are now decorated as well.
     """
     name = "EBKH EUR Test Co"
     if frappe.db.exists("Company", name):

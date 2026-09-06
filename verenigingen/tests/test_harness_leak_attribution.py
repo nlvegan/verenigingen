@@ -441,15 +441,27 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
         Deliberately narrow, so that it stays at zero and stays believable. A copy
         is only flagged when ALL of these hold:
 
-        * some other module defines the same private helper name WITH the
-          decorator -- i.e. the fix landed once and its clone was missed;
+        * some other copy of the same private helper name is WITH the decorator --
+          i.e. the fix landed once and its clone was missed;
         * this copy actually calls `.insert(`, so there are rows to claim;
         * it does not build them under `suspend_insert_capture()` instead;
-        * its class reaches `EnhancedTestCase`, which is the only base that
-          installs the captured-insert hook. `VereningingenTestCase` is a SIBLING
-          of it, not a subclass, so an undecorated helper there is exposed to
-          nothing -- two of the six raw name-divergences on develop were that, and
-          a third was two unrelated methods that merely share a name.
+        * it is actually reachable through the captured-insert hook -- for a class
+          METHOD, that its class reaches `EnhancedTestCase` (the only base that
+          installs the hook; `VereningingenTestCase` is a SIBLING of it, not a
+          subclass, so an undecorated helper there is exposed to nothing -- two of
+          the six raw name-divergences on develop were that); for a MODULE-LEVEL
+          function (#989 -- three `_persist_eur_company` copies, only one
+          decorated, none of them a class method so this check could not even look
+          at them), that some class DEFINED IN THE SAME MODULE reaches
+          `EnhancedTestCase`;
+        * for a module-level function specifically, that it builds the SAME
+          identity -- the literal doc-name passed to its `frappe.db.exists(...)`
+          call -- as the decorated exemplar. Module-level helpers coincidentally
+          share a name far more often than class methods do: #989 alone measured
+          seven other `_persist_eur_company` definitions building five entirely
+          different companies. Matching by name alone would flag all of them, which
+          is the "a third was two unrelated methods that merely share a name" trap
+          recurring one level up -- see `identity_literal` below.
         """
         flagged = self._divergent_shared_fixture_copies()
         self.assertEqual(
@@ -460,15 +472,136 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
             + "\n  ".join(flagged),
         )
 
+    def _write_fixture_module(self, root, relpath, source):
+        path = root / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(source)
+        return path
+
+    def _module_level_probe_source(self, fn_name, decorated, identity, insert_line=None, class_name="TestFoo"):
+        """A minimal test module shaped like the #989 trio.
+
+        Just enough AST for the walk in `_divergent_shared_fixture_copies` to see:
+        an import that resolves to `EnhancedTestCase` (so the module-scope
+        reachability check fires without needing the real class defined anywhere),
+        a module-level get-or-create helper following the same
+        `frappe.db.exists("Company", name)` shape the real fixtures use, and a
+        class that calls it from `setUpClass`.
+        """
+        decorator = "@shared_fixture\n" if decorated else ""
+        body = insert_line or "    doc.insert(ignore_permissions=True)\n"
+        return (
+            "from verenigingen.tests.fixtures.enhanced_test_factory import (\n"
+            "    EnhancedTestCase,\n"
+            "    shared_fixture,\n"
+            ")\n\n\n"
+            f"{decorator}def {fn_name}():\n"
+            f'    name = "{identity}"\n'
+            '    if frappe.db.exists("Company", name):\n'
+            "        return name\n"
+            '    doc = frappe.new_doc("Company")\n'
+            f"{body}"
+            "    return name\n\n\n"
+            f"class {class_name}(EnhancedTestCase):\n"
+            "    @classmethod\n"
+            "    def setUpClass(cls):\n"
+            f"        cls.company = {fn_name}()\n"
+        )
+
+    def test_extended_guard_flags_a_module_level_clone(self):
+        """RED-then-GREEN control 1: the guard fires on a module-level divergence.
+
+        Two modules define the same-named, same-identity helper; only one carries
+        `@shared_fixture`. This is the #989 shape reduced to its minimum -- no real
+        `EnhancedTestCase` or `frappe` import needed, since the walk resolves
+        reachability from the `ast.ImportFrom` shape alone.
+        """
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp) / "pkg"
+            self._write_fixture_module(
+                root,
+                "decorated_module.py",
+                self._module_level_probe_source("_persist_thing", decorated=True, identity="Foo Co"),
+            )
+            self._write_fixture_module(
+                root,
+                "undecorated_clone.py",
+                self._module_level_probe_source("_persist_thing", decorated=False, identity="Foo Co"),
+            )
+
+            flagged = self._divergent_shared_fixture_copies(root=root)
+
+        self.assertEqual(len(flagged), 1, flagged)
+        self.assertIn("undecorated_clone.py", flagged[0])
+
+    def test_extended_guard_ignores_a_suspended_module_level_copy(self):
+        """Negative control: the undecorated copy is protected by suspension instead."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp) / "pkg"
+            self._write_fixture_module(
+                root,
+                "decorated_module.py",
+                self._module_level_probe_source("_persist_thing", decorated=True, identity="Foo Co"),
+            )
+            self._write_fixture_module(
+                root,
+                "suspended_clone.py",
+                self._module_level_probe_source(
+                    "_persist_thing",
+                    decorated=False,
+                    identity="Foo Co",
+                    insert_line=(
+                        "    with suspend_insert_capture():\n"
+                        "        doc.insert(ignore_permissions=True)\n"
+                    ),
+                ),
+            )
+
+            flagged = self._divergent_shared_fixture_copies(root=root)
+
+        self.assertEqual([], flagged)
+
+    def test_extended_guard_ignores_a_same_named_unrelated_module_level_helper(self):
+        """Negative control: same helper NAME, different identity -- not a clone.
+
+        This is the shape that made a name-only match unsafe at module scope:
+        #989 measured seven `_persist_eur_company` definitions building five
+        different companies. A guard that flagged on name alone would have
+        reported all of them.
+        """
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp) / "pkg"
+            self._write_fixture_module(
+                root,
+                "decorated_module.py",
+                self._module_level_probe_source("_persist_thing", decorated=True, identity="Foo Co"),
+            )
+            self._write_fixture_module(
+                root,
+                "unrelated_namesake.py",
+                self._module_level_probe_source("_persist_thing", decorated=False, identity="Bar Co"),
+            )
+
+            flagged = self._divergent_shared_fixture_copies(root=root)
+
+        self.assertEqual([], flagged)
+
     # -- the AST walk behind the gate above ---------------------------------
 
-    def _divergent_shared_fixture_copies(self):
+    def _divergent_shared_fixture_copies(self, root=None):
         import ast
         import collections
 
-        import verenigingen
+        if root is None:
+            import verenigingen
 
-        root = pathlib.Path(verenigingen.__file__).parent
+            root = pathlib.Path(verenigingen.__file__).parent
 
         def is_shared(fn):
             return any(
@@ -491,6 +624,45 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
                 for n in ast.walk(fn)
             )
 
+        def identity_literal(fn):
+            """The literal doc-name this get-or-create builder is keyed on, if findable.
+
+            Module-level helpers -- unlike class methods -- routinely share a leading-
+            underscore NAME by coincidence (#989 measured 7 distinct ``_persist_eur_company``
+            definitions building 5 different companies). A name match alone would flag
+            every one of those as a clone of the one real shared fixture. This resolves
+            the 2nd positional argument of the ``frappe.db.exists(<doctype>, <name>)``
+            call every one of these fixtures opens with -- through a same-function
+            var-assignment / default-argument map when it is a bare name, not a literal --
+            and two copies are only the same fixture if that literal matches.
+            """
+            literals = {}
+            for a, d in zip(reversed(fn.args.args), reversed(fn.args.defaults or [])):
+                if isinstance(d, ast.Constant) and isinstance(d.value, str):
+                    literals[a.arg] = d.value
+            for n in ast.walk(fn):
+                if (
+                    isinstance(n, ast.Assign)
+                    and len(n.targets) == 1
+                    and isinstance(n.targets[0], ast.Name)
+                    and isinstance(n.value, ast.Constant)
+                    and isinstance(n.value.value, str)
+                ):
+                    literals[n.targets[0].id] = n.value.value
+            for n in ast.walk(fn):
+                if (
+                    isinstance(n, ast.Call)
+                    and isinstance(n.func, ast.Attribute)
+                    and n.func.attr == "exists"
+                    and len(n.args) >= 2
+                ):
+                    arg = n.args[1]
+                    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                        return arg.value
+                    if isinstance(arg, ast.Name) and arg.id in literals:
+                        return literals[arg.id]
+            return None
+
         # (module, class) -> base names, plus (module, local name) -> (module, real
         # name) for every `from X import Y as Z`. Both are needed:
         #
@@ -504,6 +676,13 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
         bases = {}
         aliases = {}
         copies = collections.defaultdict(list)
+        # Module-level functions are a SEPARATE population from class methods, kept in
+        # its own dict rather than merged into `copies` by name. Merging them would
+        # let a module-level helper and a same-named but unrelated class method decide
+        # each other's fate purely by sharing an identifier (see `identity_literal`
+        # above for the same trap recurring one level up, between module-level copies).
+        module_copies = collections.defaultdict(list)
+        module_classes = collections.defaultdict(list)
         for path in sorted(root.rglob("*.py")):
             try:
                 tree = ast.parse(path.read_text(), filename=str(path))
@@ -516,6 +695,7 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
                         aliases[(str(path), local)] = (node.module, alias.name)
             for cls in [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]:
                 bases[(str(path), cls.name)] = [ast.unparse(b).split("[")[0] for b in cls.bases]
+                module_classes[str(path)].append(cls.name)
                 for fn in cls.body:
                     if isinstance(fn, ast.FunctionDef) and fn.name.startswith("_"):
                         copies[fn.name].append(
@@ -528,6 +708,19 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
                                 suspends(fn),
                             )
                         )
+            for fn in tree.body:
+                if isinstance(fn, ast.FunctionDef) and fn.name.startswith("_"):
+                    module_copies[fn.name].append(
+                        (
+                            path.relative_to(root.parent),
+                            fn.lineno,
+                            is_shared(fn),
+                            inserts(fn),
+                            suspends(fn),
+                            str(path),
+                            identity_literal(fn),
+                        )
+                    )
 
         def reaches_drained_base(module, cls_name, seen=None):
             """Does this class inherit from `EnhancedTestCase`?
@@ -575,6 +768,19 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
                     return True
             return False
 
+        def module_reaches_drained_base(abs_path_str):
+            """The module-scope analogue of `reaches_drained_base` for a class.
+
+            A module-level function has no owning class, so "its class reaches
+            EnhancedTestCase" cannot hold for it. What is actually reachable through
+            the harness is: some class DEFINED IN THIS MODULE reaches EnhancedTestCase
+            -- i.e. this module's tests do run under the captured-insert hook at all.
+            """
+            return any(
+                reaches_drained_base(abs_path_str, cls_name)
+                for cls_name in module_classes.get(abs_path_str, [])
+            )
+
         flagged = []
         for name, found in sorted(copies.items()):
             if len({c[0] for c in found}) < 2 or not any(c[3] for c in found):
@@ -582,6 +788,24 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
             for path, cls, line, shared, ins, susp in found:
                 if not shared and ins and not susp and reaches_drained_base(str(root.parent / path), cls):
                     flagged.append(f"{name}  <-  {path}:{line} ({cls})")
+
+        for name, found in sorted(module_copies.items()):
+            # Only compare copies against an ALREADY-decorated exemplar's identity --
+            # never against each other's -- so a fixture family with no decorated
+            # member yet cannot be flagged (that would be #444's problem, not this
+            # guard's; the exemplar is what proves the fix "landed once").
+            shared_identities = {
+                ident for _p, _l, shared, _i, _s, _a, ident in found if shared and ident is not None
+            }
+            if not shared_identities:
+                continue
+            for path, line, shared, ins, susp, abspath, ident in found:
+                if shared or not ins or susp:
+                    continue
+                if ident is None or ident not in shared_identities:
+                    continue
+                if module_reaches_drained_base(abspath):
+                    flagged.append(f"{name}  <-  {path}:{line} (<module>)")
         return flagged
 
 
