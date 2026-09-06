@@ -79,13 +79,23 @@ class TestCreateMissingSepaMandatesDryRun(_SepaMemberMixin, EnhancedTestCase):
 
 
 class TestCreateMissingSepaMandatesRealCreate(_SepaMemberMixin, EnhancedTestCase):
-    def test_real_create_makes_active_submitted_mandate(self):
+    def test_real_create_makes_active_mandate(self):
         """The real-create path links a newly-created mandate to the member.
 
         Regression: the child-link append omitted ``sepa_mandate_doctype`` for the
         Dynamic Link field, so linking failed ("SEPA Mandate DocType must be set
         first") and the member landed in ``results['errors']`` instead of
         ``results['created']``. The append now sets ``sepa_mandate_doctype``.
+
+        docstatus 0, NOT 1: SEPA Mandate has no ``is_submittable`` in its DocType
+        JSON (#987, same drift class as #350's Donation), so it is never
+        "submitted" in the Frappe workflow sense -- this endpoint's own
+        ``existing_active`` lookup two lines above already identifies a usable
+        mandate by ``status``/``is_active``, never by docstatus. This test
+        previously asserted ``docstatus == 1  # submitted`` because
+        ``create_missing_sepa_mandates`` used to call ``mandate.submit()``;
+        that call has been removed to match decision 1 for #987 (schema is
+        authoritative -- code that submits a non-submittable doctype is wrong).
         """
         member = self._make_sepa_member()
         result = mgmt.create_missing_sepa_mandates(dry_run=False)
@@ -99,13 +109,13 @@ class TestCreateMissingSepaMandatesRealCreate(_SepaMemberMixin, EnhancedTestCase
             msg=f"PRODUCT BUG: mandate creation errored: {errors_for_member}",
         )
 
-        # A real, active, submitted mandate now exists for the member.
+        # A real, active mandate now exists for the member.
         mandate_name = frappe.db.get_value(
             "SEPA Mandate", {"member": member.name, "status": "Active", "is_active": 1}, "name"
         )
         self.assertIsNotNone(mandate_name, "expected an active mandate to be created")
         mandate = frappe.get_doc("SEPA Mandate", mandate_name)
-        self.assertEqual(mandate.docstatus, 1)  # submitted
+        self.assertEqual(mandate.docstatus, 0)
         self.assertEqual(mandate.mandate_type, "RCUR")
         self.assertEqual(mandate.iban, member.iban)
 

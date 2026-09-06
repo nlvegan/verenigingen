@@ -164,6 +164,28 @@ jobs:
     - name: Run the harness-method-shadow guard over the tree
       run: python scripts/validation/harness_method_shadow_validator.py
 
+    # The submittability-drift guard (#987, ancestor #350). Frappe's
+    # Document._submit()/._cancel() carry no is_submittable guard, so a doctype
+    # whose own DocType JSON says is_submittable=0 can still be submitted/cancelled,
+    # have on_submit/on_cancel hooks registered for it, or be filtered by
+    # docstatus -- and #350/#987 both found production code that had drifted into
+    # exactly that. Ratcheted against submittability_drift_baseline.txt (23 known
+    # sites) so this job blocks only NEW drift, not the ones already tracked.
+    #
+    # This job's checkout has no apps/erpnext, apps/hrms, etc. (standalone app
+    # checkout, no bench ancestor), so the validator resolves doctypes from THIS
+    # app's own JSONs only here -- a genuinely submittable ERPNext/HRMS doctype
+    # (Sales Invoice, Payment Entry, ...) is reported UNRESOLVED, never as a
+    # violation, so that gap does not cry wolf; see the module's own docstring.
+    #
+    # Stdlib-only (ast, json, pathlib) like its siblings, so no bench and no site
+    # needed.
+    - name: Unit-test the submittability-drift guard
+      run: python -m unittest discover -s scripts/validation/tests -p 'test_submittability_drift_validator.py' -v
+
+    - name: Run the submittability-drift guard over the tree
+      run: python scripts/validation/submittability_drift_validator.py
+
     # The failed-write guard is the sibling rule (a broad except around a DATABASE
     # WRITE whose failure never reaches the caller). It is ADVISORY for now, so it
     # gets no ratchet/growth gate here — only its unit tests, which are stdlib-only
