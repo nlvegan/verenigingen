@@ -19,15 +19,15 @@ machinery so "diverged" means the same thing in both places.
 ## Why divergence, not a general clone census
 
 A raw census of every name in >1 production file is NOT what this reports --
-measured at 745 duplicated names / 1531 redundant copies, and legitimate
+measured at 611 duplicated names / 1341 redundant copies, and legitimate
 production near-duplication (per-gateway handlers, adapters, interface
 implementations) makes a plain-count gate noisy. #949 documents what a noisy gate
 earns: it gets disarmed by more copy-pasting, because the standing response to a
 gate that cries wolf is to mute it. So this reports only families where at least
 one pair has ACTUALLY diverged from a common origin -- near-identical after
 normalising away docstrings/annotations, but not byte-identical -- while every
-other pair may be (and usually is) unrelated. Measured: this band holds 25
-families, not 745.
+other pair may be (and usually is) unrelated. Measured: this band holds 17
+families, not 611.
 
 ## Why "at least one near pair", not "every pair near" (`--drift`'s rule)
 
@@ -58,7 +58,7 @@ carries a comment cross-referencing the other copy). Building a literal-duplicat
 detector would mean walking every `Assign` to a dict/list literal, at ANY nesting
 level (this map lives inside a method body, not at module scope) -- and unlike
 function names, local variable names are not distinctive, so that scan is very
-likely far noisier than the 745-name function census this module avoided turning
+likely far noisier than the 611-name function census this module avoided turning
 into a gate. Not built here; if divergent literal maps turn out to be a recurring
 class rather than this one instance, that is a separate, differently-shaped
 follow-up, not a widening of this one.
