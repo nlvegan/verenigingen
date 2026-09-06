@@ -297,6 +297,97 @@ class BlockingRuleTest(unittest.TestCase):
         self.assertEqual(0.0, dhv.clone_share([("a.py", "x", "x")]))
 
 
+class MonotonicityTest(unittest.TestCase):
+    """#949: the blocking rule must not move the wrong way when copies change.
+
+    The fraction rule (`near_pairs / all_pairs >= 0.25`) is not monotone in
+    duplication, in EITHER direction, because the denominator grows quadratically
+    while the numerator does not:
+
+      * adding a DISSIMILAR copy can push a real clone family BELOW the threshold
+        and out of the gate -- measured on develop, `_new_customer` kept its 0.93
+        pair and went 33% -> 17% when a fourth unrelated copy landed;
+      * removing a dissimilar copy can pull a family back IN and add its whole
+        count to the tracked total -- which failed PR #922, a consolidation PR,
+        for consolidating.
+
+    An absolute count of near-identical pairs cannot move either way: adding a
+    dissimilar copy leaves `near` unchanged, and removing one can only leave it
+    unchanged or reduce it.
+    """
+
+    _BODY = "\n".join(f"    x{i} = {i}" for i in range(10))
+
+    def _same(self, tail=0):
+        return f"def _helper():\n{self._BODY}\n    return {tail}\n"
+
+    def _different(self, seed):
+        lines = "\n".join(f"    y{seed}_{i} = {seed * i!r}" for i in range(10))
+        return f"def _helper():\n{lines}\n    return {seed!r}\n"
+
+    def _split(self, files):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            for rel, src in files.items():
+                q = root / rel
+                q.parent.mkdir(parents=True, exist_ok=True)
+                q.write_text(src)
+            families = dhv._by_name(str(root))
+            counts = {n: len(v) for n, v in families.items() if len(v) > 1}
+            blocking, advisory = dhv.split_regressions(dhv.regressions(counts, {}), families)
+            return blocking, advisory, families
+
+    def _files(self, n_same, n_diff):
+        files = {f"s{i}.py": self._same(i) for i in range(n_same)}
+        files.update({f"d{i}.py": self._different(100 + i) for i in range(n_diff)})
+        return files
+
+    def test_dissimilar_copies_cannot_dilute_a_clone_family_out_of_the_gate(self):
+        """Three genuine clones stay gated however many unrelated copies join them."""
+        blocking, _a, families = self._split(self._files(3, 0))
+        self.assertIn("_helper", blocking, "three near-identical copies must block")
+
+        blocking, _a, families = self._split(self._files(3, 3))
+        self.assertIn(
+            "_helper",
+            blocking,
+            "the same three clones stopped blocking once unrelated copies diluted "
+            "the ratio -- this is #949",
+        )
+
+        # Control: the OLD fraction rule really does drop it, so this test
+        # discriminates between the two aggregations rather than merely passing.
+        copies = families["_helper"]
+        self.assertLess(
+            dhv.clone_share(copies),
+            0.25,
+            "fixture is wrong: the share must fall below the old threshold, "
+            "otherwise the old rule would have blocked it too and this proves nothing",
+        )
+
+    def test_removing_a_dissimilar_copy_does_not_newly_gate_a_family(self):
+        """The #922 direction: consolidating must not push a family INTO the gate.
+
+        Under the fraction rule, dropping an unrelated copy raises the share and can
+        newly mark a family, adding its whole count to the tracked total -- so a
+        consolidation PR fails the duplication gate. Under a count, the two states
+        agree.
+        """
+        wide, _a, _f = self._split(self._files(3, 3))
+        narrow, _a2, _f2 = self._split(self._files(3, 2))
+        self.assertEqual(
+            "_helper" in wide,
+            "_helper" in narrow,
+            "removing an unrelated copy changed the blocking decision",
+        )
+
+    def test_a_pure_name_collision_still_does_not_block(self):
+        """#769's fix must survive: shared name, no near-identical pair, no block."""
+        blocking, advisory, _f = self._split(self._files(0, 5))
+        self.assertNotIn("_helper", blocking)
+        self.assertIn("_helper", advisory, "it must still be RECORDED, just not blocked")
+
+
 class DeterminismTest(unittest.TestCase):
     """The same tree must give the same answer on every machine.
 
