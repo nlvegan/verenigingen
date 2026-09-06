@@ -287,13 +287,27 @@ class TestPeriodicDonationOperations(VereningingenTestCase):
     # five have no equivalent Select option here.
     # ------------------------------------------------------------------ #
     def test_create_agreement_accepts_exact_select_options_unchanged(self):
+        """The three exact Select options must pass through unmapped.
+
+        "SEPA Direct Debit" additionally needs a mandate: #781 (merged to develop
+        after this test was written) refuses that method without one, because the
+        collection pipeline resolves mandates by Member and an agreement created
+        without one could never be collected. This test predates that guard and
+        asserted the method was accepted bare, which was true when written and is
+        not any more. Supplying a mandate keeps the assertion about what this test
+        is actually for -- that the value is stored unmapped -- instead of
+        re-asserting #781's refusal, which its own tests already cover.
+        """
         donor = self._make_donor(anbi_consent=1)
+        mandate = self.create_test_sepa_mandate()
         for value in ("SEPA Direct Debit", "Bank Transfer", "Other"):
+            extra = {"sepa_mandate": mandate.name} if value == "SEPA Direct Debit" else {}
             result = create_periodic_agreement(
                 donor=donor.name,
                 annual_amount=1200,
                 payment_frequency="Monthly",
                 payment_method=value,
+                **extra,
             )
             self.assertTrue(self._ok(result), f"{value} should be accepted as-is: {self._errors(result)}")
             agreement_name = self._data(result)["agreement"]
