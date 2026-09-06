@@ -155,14 +155,19 @@ def update_personal_details():
     # Validate birth date if provided
     birth_date = form_data.get("birth_date", "").strip()
     if birth_date:
-        try:
-            from frappe.utils import getdate
+        from frappe.utils import getdate
 
+        # Only the parsing itself is wrapped: a malformed string should say
+        # "please enter a valid birth date", but a well-formed date in the
+        # future must reach the caller with its OWN reason (#374) rather than
+        # being caught by the same broad handler and relabelled as malformed.
+        try:
             birth_date_obj = getdate(birth_date)
-            if birth_date_obj >= getdate(today()):
-                frappe.throw(_("Birth date cannot be in the future"))
         except Exception:
             frappe.throw(_("Please enter a valid birth date"))
+
+        if birth_date_obj >= getdate(today()):
+            frappe.throw(_("Birth date cannot be in the future"))
 
     # Handle pronouns
     pronouns = form_data.get("pronouns", "").strip()

@@ -405,6 +405,10 @@ def process_recovery_queues():
 
         return result
 
+    except (frappe.ValidationError, frappe.PermissionError):
+        # Preserve the body's own deliberate refusal (e.g. "Recovery queue
+        # '<name>' not found") instead of masking it below (#374).
+        raise
     except Exception as e:
         logger = MollieLogger("recovery_queue_admin")
         logger.error("Recovery queue processing failed", error=e)

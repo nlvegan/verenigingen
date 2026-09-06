@@ -311,6 +311,10 @@ def update_member_address(address_data):
             "action": action,
         }
 
+    except (frappe.ValidationError, frappe.PermissionError):
+        # Preserve the body's own deliberate refusal (message and type) instead
+        # of masking it with the generic message below (#374).
+        raise
     except Exception as e:
         frappe.log_error(
             message=f"Error updating address for member {member_name}: {str(e)}", title="Address Update Error"

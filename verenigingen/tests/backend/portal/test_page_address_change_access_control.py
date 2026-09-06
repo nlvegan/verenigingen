@@ -180,12 +180,12 @@ class TestPageAddressChangeAccessControl(EnhancedTestCase):
         from verenigingen.templates.pages.address_change import update_member_address
 
         self._point_primary_address_at(self.intruder, self.victim_address)
-        # The ownership PermissionError is raised inside the endpoint's own
-        # try/except, which logs it and re-throws a generic ValidationError.
-        self.expectErrorLog("Address Update Error")
+        # The ownership PermissionError raised inside the endpoint's own
+        # try/except now propagates with its own type and message (#374)
+        # instead of being logged and re-thrown as a generic ValidationError.
 
         with self.as_user(self.intruder_user):
-            with self.assertRaises(frappe.ValidationError):
+            with self.assertRaises(frappe.PermissionError) as raised:
                 update_member_address(
                     {
                         "address_line1": "Overgenomen 99",
@@ -195,6 +195,7 @@ class TestPageAddressChangeAccessControl(EnhancedTestCase):
                         "phone": "+31 20 0000000",
                     }
                 )
+        self.assertIn("does not belong", str(raised.exception))
 
         victim_address = frappe.get_doc("Address", self.victim_address)
         self.assertEqual(victim_address.address_line1, "Slachtofferstraat 5")
