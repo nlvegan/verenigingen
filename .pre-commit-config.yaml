@@ -912,3 +912,27 @@ repos:
         files: '\.(py)$'
         stages: [pre-push]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
+
+      - id: production-divergence-scanner
+        name: 🧭 Production Function Divergence Census (advisory)
+        description: >-
+          Reports PUBLIC production functions/methods duplicated across files where
+          at least one pair has diverged (near-identical, not byte-identical) after
+          normalising away docstrings/annotations — the complement of the Duplicate
+          Helper Guard above, which is deliberately restricted to leading-underscore
+          names (#991). #495 is the motivating case: four-then-six independent
+          copies of calculate_next_invoice_date, none byte-identical, agreeing today
+          but each reachable from a different caller — #206 was the damage when one
+          of these paths drifted silently. Measured over verenigingen/ (production
+          files only, tests/ and test_*.py excluded — those are the sibling gate's
+          job): 611 duplicated public names, but only 17 families where a real
+          divergence signal (not just a shared name) is present. ADVISORY ONLY —
+          always exits 0. Whether this becomes a blocking gate is a decision for
+          later, made after the 17-family list has actually been triaged; see #401
+          and #985 for what a pre-existing baseline does to a gate's credibility on
+          day one. Runs manual-only: a full-tree AST similarity scan takes ~90s.
+        entry: python scripts/validation/production_divergence_scanner.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [manual]
