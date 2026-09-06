@@ -1,0 +1,62 @@
+# Known DATABASE-clock date-window predicates -- the ratchet baseline for
+# scripts/validation/db_clock_date_window_validator.py. Format:
+#     <path>::<qualified function>::<number of finding sites>
+#
+# Frappe writes creation/modified from the SITE clock (frappe.utils.now()),
+# not the database server's NOW()/CURDATE() -- the two drift independently
+# (#668, measured 3h30m skew on test_site_4). A commit fails only if it
+# introduces a site not covered here, or raises the count for a function
+# already listed.
+#
+# This file should only ever SHRINK. Do not regenerate it to make a new
+# finding go away; either fix the predicate (compute the boundary with
+# frappe.utils.add_to_date()/now_datetime()/today() and pass it as a bound
+# parameter) or mark it `# db-clock-window-ok: <reason>`. The one legitimate
+# reason it may GROW is a change to the validator's own detection rules,
+# which must land in the same commit as the regeneration.
+
+scripts/database/fix_sepa_invoice_index.py::fix_sepa_invoice_index::1
+scripts/import_tracking_monitor.py::get_stuck_account_creation_requests::1
+scripts/monitoring/zabbix_integration.py::get_business_metrics::1
+scripts/monitoring/zabbix_integration.py::get_dues_schedule_metrics::1
+verenigingen/api/donor_auto_creation_management.py::get_auto_creation_dashboard::2
+verenigingen/api/fix_stuck_dues_schedule.py::find_all_stuck_schedules::8
+verenigingen/e_boekhouden/utils/eboekhouden_rest_full_migration.py::analyze_import_failures::1
+verenigingen/email/advanced_segmentation.py::AdvancedSegmentationManager._get_built_in_segment_recipients::6
+verenigingen/email/advanced_segmentation.py::AdvancedSegmentationManager.get_segment_suggestions::4
+verenigingen/tasks/address_optimization.py::refresh_member_address_displays::1
+verenigingen/utils/address_matching/optimized_matcher.py::OptimizedAddressMatcher._fingerprint_lookup::3
+verenigingen/utils/address_matching/optimized_matcher.py::OptimizedAddressMatcher._join_lookup::3
+verenigingen/utils/address_matching/optimized_matcher.py::OptimizedAddressMatcher._normalized_lookup::3
+verenigingen/utils/address_matching/simple_optimized_matcher.py::SimpleOptimizedAddressMatcher._join_lookup_simple::3
+verenigingen/utils/address_matching/simple_optimized_matcher.py::SimpleOptimizedAddressMatcher.get_other_members_at_address_simple::3
+verenigingen/utils/deleted_document_cleanup.py::clear_deleted_documents_by_doctype::1
+verenigingen/utils/deleted_document_cleanup.py::clear_deleted_documents_older_than_days::2
+verenigingen/utils/financial_utils.py::get_customer_payment_summary::1
+verenigingen/utils/member_performance_optimizer.py::MemberPerformanceOptimizer._validate_member_data_bulk::1
+verenigingen/utils/member_performance_optimizer.py::MemberPerformanceOptimizer.bulk_load_members_optimized::1
+verenigingen/utils/member_performance_optimizer.py::MemberPerformanceOptimizer.get_member_dashboard_cached::2
+verenigingen/utils/membership_dues_integration.py::_calculate_member_paid_ytd_optimized::1
+verenigingen/utils/optimized_queries.py::OptimizedVolunteerQueries.get_volunteer_assignments_bulk::3
+verenigingen/utils/performance_dashboard.py::PerformanceDashboard._check_scheduler_health::1
+verenigingen/utils/version_cleanup.py::clear_versions_by_doctype::1
+verenigingen/utils/version_cleanup.py::clear_versions_older_than_days::2
+verenigingen/verenigingen/doctype/account_creation_request/account_creation_request.py::get_request_statistics::1
+verenigingen/verenigingen/doctype/analytics_alert_rule/analytics_alert_rule.py::AnalyticsAlertRule.calculate_current_revenue::1
+verenigingen/verenigingen/doctype/analytics_alert_rule/analytics_alert_rule.py::AnalyticsAlertRule.calculate_growth_rate::1
+verenigingen/verenigingen/doctype/expulsion_report_entry/expulsion_report_entry.py::get_expulsion_statistics::1
+verenigingen/verenigingen/doctype/member/scheduler.py::get_member_history_refresh_status::1
+verenigingen/verenigingen/doctype/member_contact_request/contact_request_automation.py::get_contact_request_analytics::1
+verenigingen/verenigingen/doctype/membership_analytics_snapshot/membership_analytics_snapshot.py::calculate_segmentation_data::6
+verenigingen/verenigingen/doctype/membership_termination_request/membership_termination_request.py::get_termination_statistics::1
+verenigingen/verenigingen/page/membership_analytics/membership_analytics.py::get_age_group_condition::7
+verenigingen/verenigingen/page/membership_analytics/predictive_analytics.py::analyze_churn_risk::3
+verenigingen/verenigingen/page/membership_analytics/predictive_analytics.py::calculate_historical_growth_rate::1
+verenigingen/verenigingen/page/membership_analytics/predictive_analytics.py::detect_seasonal_patterns::1
+verenigingen/verenigingen/page/membership_analytics/predictive_analytics.py::forecast_member_growth::1
+verenigingen/verenigingen/page/membership_analytics/predictive_analytics.py::get_initial_member_count::1
+verenigingen/verenigingen/report/members_without_active_memberships/members_without_active_memberships.py::get_data::1
+verenigingen/verenigingen/report/pending_membership_applications/pending_membership_applications.py::get_data::1
+verenigingen/verenigingen_payments/utils/sepa_monitoring_dashboard.py::SEPAMonitoringDashboard.get_mandate_health_report::2
+verenigingen/verenigingen_payments/utils/sepa_monitoring_dashboard.py::SEPAMonitoringDashboard.get_system_alerts::1
+verenigingen/verenigingen_payments/utils/sepa_zabbix_enhanced.py::SEPAZabbixIntegration.get_zabbix_discovery_data::1

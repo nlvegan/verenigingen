@@ -202,6 +202,39 @@ class TestChapterMatchingService(EnhancedTestCase):
         result = svc.get_chapters_by_postal_code("9999ZZ")
         self.assertIsInstance(result, list)
 
+    def test_get_chapters_by_postal_code_query_count_does_not_scale_with_chapters(self):
+        """#846: get_chapters_by_postal_code used to frappe.get_doc() every
+        published chapter just to call matches_postal_code() -- reachable
+        (two hops) from the guest-whitelisted suggest_chapters_for_member.
+        The fix reads ``postal_codes`` off the bulk frappe.get_all() rows
+        already fetched, so the query count must stay flat as the number of
+        published chapters grows.
+        """
+        # Warm meta / table-column caches so a first-touch introspection
+        # query inside the measured window isn't mistaken for the N+1 (a
+        # cold `table_columns::tab<DocType>` cache issues an
+        # information_schema query the first time a table is touched --
+        # see tests/sepa/test_sepa_performance_optimization.py).
+        frappe.get_meta("Chapter")
+        frappe.db.get_table_columns("Chapter")
+
+        for i in range(8):
+            self.create_test_chapter(
+                chapter_name=f"Postal Scale Svc {i} {frappe.generate_hash(length=6)}",
+                postal_codes="1000-9999" if i % 2 == 0 else "5000-5099",
+                published=1,
+            )
+
+        svc = self._get_service()
+
+        # 1 query for the bulk Chapter fetch -- must NOT scale with the
+        # number of chapters (measured: unfixed code issues 181 queries
+        # here; see #846 for the before/after numbers).
+        with self.assertQueryCount(1):
+            result = svc.get_chapters_by_postal_code("1234")
+
+        self.assertGreaterEqual(len(result), 4)
+
     def test_suggest_chapters_for_member_returns_list(self):
         """suggest_chapters_for_member returns a list."""
         member = self.create_test_member(first_name="Match", last_name="Test")

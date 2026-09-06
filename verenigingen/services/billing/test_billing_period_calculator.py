@@ -10,10 +10,12 @@ gap-reset logic in derive_coverage_from_invoice_data).
 from frappe.utils import add_days, getdate, today
 
 from verenigingen.services.billing.billing_period_calculator import (
+    assert_coverage_start_anchored,
     calculate_billing_period,
     calculate_next_invoice_date,
     derive_coverage_from_invoice_data,
     get_nominal_period_days,
+    is_coverage_start_anchored,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
@@ -314,3 +316,121 @@ class TestDeriveCoverageFromInvoiceData(EnhancedTestCase):
         start, end = derive_coverage_from_invoice_data("2025-03-01", billing_frequency="Fortnightly")
         self.assertEqual(start, getdate("2025-03-01"))
         self.assertEqual(end, getdate("2025-03-31"))
+
+
+class TestIsCoverageStartAnchored(EnhancedTestCase):
+    """is_coverage_start_anchored() backs the #882/#884/#890 invariant guard: a
+    generated period's coverage_start must derive from the member's own cycle, not
+    merely be one-period long. Every fixture below is anchored off a calendar
+    boundary (the 15th, not 1 Jan, not a quarter start) - a boundary-anchored
+    fixture would pass identically whether the guard works or not, and prove
+    nothing (see #890 comment history)."""
+
+    ANCHOR = "2025-11-15"
+
+    # ---- previous_coverage_end mode: must be exactly anchor + 1 ----
+
+    def test_previous_coverage_end_plus_one_is_anchored(self):
+        self.assertTrue(
+            is_coverage_start_anchored("2025-11-16", "Monthly", previous_coverage_end="2025-11-15")
+        )
+
+    def test_one_day_after_expected_start_is_not_anchored(self):
+        self.assertFalse(
+            is_coverage_start_anchored("2025-11-17", "Monthly", previous_coverage_end="2025-11-15")
+        )
+
+    def test_one_day_before_expected_start_is_not_anchored(self):
+        self.assertFalse(
+            is_coverage_start_anchored("2025-11-15", "Monthly", previous_coverage_end="2025-11-15")
+        )
+
+    def test_previous_coverage_end_wins_over_anchor_date(self):
+        # Both are provided: previous_coverage_end takes priority (it is the more
+        # specific, more recent anchor - the member's cycle has already advanced
+        # past their original join date).
+        self.assertTrue(
+            is_coverage_start_anchored(
+                "2025-11-16",
+                "Monthly",
+                anchor_date=self.ANCHOR,
+                previous_coverage_end="2025-11-15",
+            )
+        )
+
+    # ---- first-period mode: coverage_start must equal anchor, or anchor rolled
+    #      forward by whole periods ----
+
+    def test_first_period_exactly_on_anchor_is_anchored(self):
+        self.assertTrue(is_coverage_start_anchored(self.ANCHOR, "Annual", anchor_date=self.ANCHOR))
+
+    def test_annual_one_period_forward_of_anchor_is_anchored(self):
+        self.assertTrue(is_coverage_start_anchored("2026-11-15", "Annual", anchor_date=self.ANCHOR))
+
+    def test_annual_calendar_boundary_shape_is_not_anchored(self):
+        # The #890 shape: a 15-Nov-anchored member's current period computed from
+        # calculate_billing_period() would start 1 January instead of 15 November -
+        # same LENGTH class (it is still a full year later), wrong START.
+        self.assertFalse(is_coverage_start_anchored("2026-01-01", "Annual", anchor_date=self.ANCHOR))
+
+    def test_monthly_one_period_forward_of_anchor_is_anchored(self):
+        self.assertTrue(is_coverage_start_anchored("2025-12-15", "Monthly", anchor_date=self.ANCHOR))
+
+    def test_monthly_calendar_boundary_shape_is_not_anchored(self):
+        # The #884 shape: calendar-month-anchored instead of cycle-anchored.
+        self.assertFalse(is_coverage_start_anchored("2025-12-01", "Monthly", anchor_date=self.ANCHOR))
+
+    def test_quarterly_two_periods_forward_of_anchor_is_anchored(self):
+        self.assertTrue(is_coverage_start_anchored("2026-05-15", "Quarterly", anchor_date=self.ANCHOR))
+
+    def test_quarterly_calendar_boundary_shape_is_not_anchored(self):
+        # The #884 shape: calendar-quarter-anchored (1 January) instead of
+        # cycle-anchored (15 November + 3 months = 15 February).
+        self.assertFalse(is_coverage_start_anchored("2026-01-01", "Quarterly", anchor_date=self.ANCHOR))
+
+    def test_length_only_match_is_still_rejected(self):
+        # Exactly one quarter LONG (92 days, matching Quarterly's length), but
+        # starting on the calendar grid rather than the member's own cycle. A
+        # length-only check would pass this; the guard must not.
+        self.assertFalse(is_coverage_start_anchored("2025-10-01", "Quarterly", anchor_date=self.ANCHOR))
+
+    def test_coverage_start_before_anchor_is_not_anchored(self):
+        self.assertFalse(is_coverage_start_anchored("2025-01-01", "Annual", anchor_date=self.ANCHOR))
+
+    def test_custom_frequency_is_honoured(self):
+        self.assertTrue(
+            is_coverage_start_anchored(
+                "2025-12-15",
+                "Custom",
+                anchor_date=self.ANCHOR,
+                custom_frequency_number=1,
+                custom_frequency_unit="Months",
+            )
+        )
+        self.assertFalse(
+            is_coverage_start_anchored(
+                "2025-12-01",
+                "Custom",
+                anchor_date=self.ANCHOR,
+                custom_frequency_number=1,
+                custom_frequency_unit="Months",
+            )
+        )
+
+    # ---- nothing to check against: pass, do not manufacture a violation ----
+
+    def test_no_previous_coverage_and_no_anchor_passes(self):
+        self.assertTrue(is_coverage_start_anchored("2025-11-15", "Monthly"))
+
+
+class TestAssertCoverageStartAnchored(EnhancedTestCase):
+    """The hard-assertion counterpart used directly by tests that need a
+    fail-the-test rather than a boolean - e.g. regression tests for #890."""
+
+    def test_anchored_period_does_not_raise(self):
+        assert_coverage_start_anchored("2025-12-15", "Monthly", anchor_date="2025-11-15")
+
+    def test_violating_period_raises_with_detail(self):
+        with self.assertRaises(AssertionError) as ctx:
+            assert_coverage_start_anchored("2025-12-01", "Monthly", anchor_date="2025-11-15")
+        self.assertIn("2025-12-01", str(ctx.exception))

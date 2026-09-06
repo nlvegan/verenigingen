@@ -513,7 +513,13 @@ class TestCacheInvalidationCoverage(VereningingenTestCase):
         self.addCleanup(lambda: frappe.delete_doc("User", email, force=True, ignore_permissions=True))
         return user
 
-    def test_user_update_hook_invalidates_on_role_profile_change(self):
+    def test_user_update_hook_invalidates_unconditionally_on_update(self):
+        """#693: doc_events.py only ever calls this with method="on_update"
+        (on_update fires on insert too -- there is no separate after_insert
+        registration for "User"), and it must invalidate on every such call
+        rather than gating on has_value_changed("role_profile_name"), which
+        misses role grants/withdrawals made via user_doc.append("roles", ...)
+        + user_doc.save()."""
         from verenigingen.utils.security.authorization_engine import get_authorization_engine
 
         user = self._make_user()
@@ -522,8 +528,7 @@ class TestCacheInvalidationCoverage(VereningingenTestCase):
         engine.get_user_role_profiles(user.name)
         cache_key = engine._get_versioned_cache_key(user.name)
         self.assertIsNotNone(frappe.cache.get_value(cache_key), "cache should be seeded")
-        # after_insert branch unconditionally invalidates -> the entry must be gone.
-        invalidate_user_role_cache_on_user_update(user, "after_insert")
+        invalidate_user_role_cache_on_user_update(user, "on_update")
         self.assertIsNone(frappe.cache.get_value(cache_key), "hook must actually drop the user's cache entry")
 
     def test_user_update_hook_ignores_unrelated_methods(self):

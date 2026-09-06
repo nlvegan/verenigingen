@@ -1179,7 +1179,7 @@ class MemberManager(BaseManager):
     def _members_needing_history_update(self, old_doc):
         """Member names this save's three handle_member_* passes will call
         ChapterMembershipHistoryManager for -- the precise candidate set for
-        _prelock_members_for_save.
+        prelock_members_for_save.
 
         Deliberately NOT "every member in old_doc.members or self.chapter_doc.members":
         on a chapter with a large roster (measured on veg11: some chapters carry 100+
@@ -1233,7 +1233,7 @@ class MemberManager(BaseManager):
         touched.discard("")
         return touched
 
-    def _prelock_members_for_save(self, old_doc):
+    def prelock_members_for_save(self, old_doc):
         """Take a FOR UPDATE lock on every Member row this save's history handlers
         will touch, in ONE sorted pass, before any of them runs (#469).
 
@@ -1244,25 +1244,37 @@ class MemberManager(BaseManager):
         "additions" pass still locks P then Q, in PASS order, not name order. A second
         chapter whose save disables Q and adds P would lock them the other way round
         and deadlock -- sorting within a pass cannot fix an ordering problem that spans
-        passes. (Measured on this branch with `ParentLockRecorder` during review: two
-        chapters sharing the same two members, one save disabling+adding them in one
-        order and the other save disabling+adding the same two the other way round,
-        produced inverted lock sequences before this pre-lock existed -- for both the
-        (changes, additions) pass-pair and the (deletions, additions) pass-pair.)
+        passes. (Measured during #469's review with `ParentLockRecorder`: two chapters
+        sharing the same two members, one save disabling+adding them in one order and
+        the other save disabling+adding the same two the other way round, produced
+        inverted lock sequences before this pre-lock existed -- for both the (changes,
+        additions) pass-pair and the (deletions, additions) pass-pair.)
 
         Locking `_members_needing_history_update(old_doc)`, sorted, before any pass
         runs, collapses the three passes into the one order that matters: by the time
         a pass's own `_with_doc` call asks for the same row, this transaction already
-        holds it, and re-locking an already-held row is a no-op. This runs first among
-        the member/board handlers (`Chapter._handle_document_changes` calls
-        `handle_member_changes` before `handle_member_additions` and before the board
-        handlers), and only AFTER `seat_board_members_as_chapter_members`, which takes
-        no row lock of its own -- so this is still the first row lock the save takes,
-        preserving the Donor -> Member -> Volunteer canonical order from #459.
+        holds it, and re-locking an already-held row is a no-op.
 
-        Idempotent, so calling it from more than one of the passes it protects (see
-        handle_member_additions) is safe -- a second call finds every candidate row
-        already locked.
+        Called EXACTLY ONCE per save, from `Chapter._handle_document_changes`, before
+        `handle_member_changes`/`handle_member_additions` run and only AFTER
+        `seat_board_members_as_chapter_members` (which takes no row lock of its own) --
+        so this is still the first row lock the save takes, preserving the
+        Donor -> Member -> Volunteer canonical order from #459.
+
+        NOTE (#885): this used to also be called defensively from inside
+        `handle_member_changes` and `handle_member_additions`, on the reasoning that a
+        second, idempotent call is a harmless no-op re-lock protecting a future direct
+        caller of either method. It IS idempotent -- but "harmless" was true only for
+        correctness, not for cost: each of those two in-handler calls re-issued a
+        `SELECT ... FOR UPDATE` round-trip per touched Member, on every save. Measured
+        on `test_bulk_member_operations_performance` (10 members, all newly added, one
+        `Chapter.save()`): 277 queries with both in-handler calls present, 267 with
+        this method's single call site as the only one -- exactly the 10 redundant
+        lock queries one whole extra pass costs, confirmed by also measuring the
+        pre-#844 tree (before this pre-lock existed at all) in the same environment at
+        257. Both in-handler calls were removed; `handle_member_changes` and
+        `handle_member_additions` are no longer safe to call directly without this
+        method having run first for the same `old_doc` (see `_handle_document_changes`).
         """
         for member_id in sorted(self._members_needing_history_update(old_doc)):
             frappe.db.get_value("Member", member_id, "name", for_update=True)
@@ -1273,19 +1285,22 @@ class MemberManager(BaseManager):
 
         Args:
             old_doc: Previous version of the chapter document
+
+        Requires `prelock_members_for_save(old_doc)` to have already run this save
+        (see `Chapter._handle_document_changes`) -- this method no longer takes that
+        lock itself (#885).
         """
         if not old_doc:
             return
-
-        self._prelock_members_for_save(old_doc)
 
         # Create lookup for old members
         old_members = {m.name: m for m in old_doc.members if m.name}
 
         # Check each current member for changes, in Member-name order. This sort is
         # no longer what makes lock order deterministic across the WHOLE save --
-        # _prelock_members_for_save above does that -- but it is kept because it also
-        # makes the per-pass `log_action` emission order deterministic, and because a
+        # prelock_members_for_save (called once by _handle_document_changes before
+        # this pass runs, #885) does that -- but it is kept because it also makes
+        # the per-pass `log_action` emission order deterministic, and because a
         # single pass touching two members still benefits if the pre-lock is ever
         # removed (#469).
         for member in sorted(self.chapter_doc.members or [], key=lambda m: m.member or ""):
@@ -1355,8 +1370,9 @@ class MemberManager(BaseManager):
 
         # Check for deleted members, in Member-name order. As with
         # handle_member_changes, cross-pass lock ordering is established by
-        # MemberManager._prelock_members_for_save, called before this pass runs
-        # (#469); this sort only orders emission within THIS pass.
+        # MemberManager.prelock_members_for_save, called once by
+        # _handle_document_changes before this pass runs (#469, #885); this sort
+        # only orders emission within THIS pass.
         for old_member in sorted(old_doc.members or [], key=lambda m: m.member or ""):
             if (
                 old_member.name
@@ -1389,6 +1405,10 @@ class MemberManager(BaseManager):
 
         Args:
             old_doc: Previous version of the chapter document
+
+        Requires `prelock_members_for_save(old_doc)` to have already run this save
+        (see `Chapter._handle_document_changes`) -- this method no longer takes that
+        lock itself (#885).
         """
         if not old_doc:
             # For new chapters, add all enabled members to history, in Member-name
@@ -1410,20 +1430,14 @@ class MemberManager(BaseManager):
                     )
             return
 
-        # Defensive, not load-bearing on the real save path: chapter.py's
-        # _handle_document_changes always calls handle_member_changes (which does
-        # this same pre-lock) before this method, so the rows are already locked by
-        # the time we get here. Calling it again is a no-op re-lock, and it protects
-        # any FUTURE caller that invokes this method on its own (#469).
-        self._prelock_members_for_save(old_doc)
-
         # Create lookup for old members
         old_member_ids = {m.member for m in old_doc.members if m.member and m.enabled}
 
         # Check for new members, in Member-name order. As with handle_member_changes,
         # cross-pass lock ordering is established by
-        # MemberManager._prelock_members_for_save, called before this pass runs
-        # (#469); this sort only orders emission within THIS pass.
+        # MemberManager.prelock_members_for_save, called once by
+        # _handle_document_changes before this pass runs (#469, #885); this sort
+        # only orders emission within THIS pass.
         for member in sorted(self.chapter_doc.members or [], key=lambda m: m.member or ""):
             if member.enabled and member.member and member.member not in old_member_ids:
                 # New member added - create history entry with actual status

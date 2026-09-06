@@ -305,8 +305,15 @@ class Donor(Document):
             # Update sync status on error
             self.customer_sync_status = "Error"
             frappe.db.set_value("Donor", self.name, "customer_sync_status", "Error")
+            # Explicit title=/message=: log_error is (title, message), and the previous
+            # positional call had no "\n" in the first argument, so frappe's swap-heuristic
+            # (frappe/utils/error.py) never rescued it -- the diagnostic (e.g. the
+            # ConfigurationError raised for a creation_user that does not exist, #711)
+            # landed in the 140-char `method` column, truncated, while the traceback
+            # column held only the literal label.
             frappe.log_error(
-                f"Error syncing donor {self.name} with customer: {str(e)}", "Donor-Customer Sync Error"
+                title="Donor-Customer Sync Error",
+                message=f"Error syncing donor {self.name} with customer: {str(e)}",
             )
 
     def get_or_create_customer(self):
@@ -547,9 +554,10 @@ class Donor(Document):
                     print("⏭️ No changes made, skipping customer save")
 
         except Exception as e:
+            # Explicit title=/message=: see the note at sync_with_customer's handler.
             frappe.log_error(
-                f"Error syncing data from donor {self.name} to customer {customer_name}: {str(e)}",
-                "Donor-Customer Data Sync Error",
+                title="Donor-Customer Data Sync Error",
+                message=f"Error syncing data from donor {self.name} to customer {customer_name}: {str(e)}",
             )
             # Swallowing here let sync_with_customer fall through to
             # customer_sync_status = "Synced" for a sync that failed (#666). Re-raise so
@@ -666,9 +674,10 @@ class Donor(Document):
             return changes_made
 
         except Exception as e:
+            # Explicit title=/message=: see the note at sync_with_customer's handler.
             frappe.log_error(
-                f"Error syncing donor {self.name} contact info to customer {customer_name}: {str(e)}",
-                "Donor-Customer Contact Sync Error",
+                title="Donor-Customer Contact Sync Error",
+                message=f"Error syncing donor {self.name} contact info to customer {customer_name}: {str(e)}",
             )
             # `return False` reads as "the contact needed no update"; the caller then
             # saved the Customer and reported "Synced" for a donor whose email never
@@ -702,9 +711,10 @@ class Donor(Document):
             return self.create_new_customer_contact(customer_name)
 
         except Exception as e:
+            # Explicit title=/message=: see the note at sync_with_customer's handler.
             frappe.log_error(
-                f"Error getting/creating contact for customer {customer_name}: {str(e)}",
-                "Customer Contact Creation Error",
+                title="Customer Contact Creation Error",
+                message=f"Error getting/creating contact for customer {customer_name}: {str(e)}",
             )
             # Not one of the four sites #666 lists -- no literal frappe.throw in this try
             # body, so the AST predicate misses it -- but it swallows the one
@@ -769,11 +779,14 @@ class Donor(Document):
                     print(f"❌ Contact creation attempt {attempt_num}/{max_retries} failed: {str(e)}")
 
                 if is_last_attempt:
-                    # Final failure - log comprehensive error
+                    # Final failure - log comprehensive error.
+                    # Explicit title=/message=: see the note at sync_with_customer's handler.
                     frappe.log_error(
-                        f"Error creating contact for customer {customer_name} and donor {self.name} "
-                        f"after {max_retries} attempts: {str(e)}",
-                        "Donor Customer Contact Creation Error",
+                        title="Donor Customer Contact Creation Error",
+                        message=(
+                            f"Error creating contact for customer {customer_name} and donor {self.name} "
+                            f"after {max_retries} attempts: {str(e)}"
+                        ),
                     )
                     if frappe.flags.get("in_test"):
                         print(
@@ -837,9 +850,10 @@ class Donor(Document):
                     print("   ERPNext will handle fetch_from fields automatically")
 
         except Exception as e:
+            # Explicit title=/message=: see the note at sync_with_customer's handler.
             frappe.log_error(
-                f"Error setting customer {customer_name} primary contact to {contact_name}: {str(e)}",
-                "Customer Contact Link Error",
+                title="Customer Contact Link Error",
+                message=f"Error setting customer {customer_name} primary contact to {contact_name}: {str(e)}",
             )
             # This method saves the Customer on the caller's behalf, and the caller then
             # sets _contact_triggered_customer_save to suppress its own save. Swallowing
@@ -889,9 +903,10 @@ class Donor(Document):
         except Exception as e:
             if frappe.flags.get("in_test"):
                 print(f"❌ Failed to auto-create 'Donors' customer group: {str(e)}")
+            # Explicit title=/message=: see the note at sync_with_customer's handler.
             frappe.log_error(
-                f"Failed to auto-create 'Donors' customer group: {str(e)}",
-                "Customer Group Auto-Creation Error",
+                title="Customer Group Auto-Creation Error",
+                message=f"Failed to auto-create 'Donors' customer group: {str(e)}",
             )
 
         # Shared resolver: returns Selling Settings default if it's a leaf,

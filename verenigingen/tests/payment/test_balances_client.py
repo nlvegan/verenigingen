@@ -290,7 +290,9 @@ class TestBalancesClientCacheBehavior(unittest.TestCase):
     def setUp(self):
         """Set up test client with caching enabled"""
         frappe.set_user("Administrator")
-        if not frappe.db.exists("Mollie Settings", "Mollie Settings"):
+        # frappe.db.exists(dt, dt) is unconditionally truthy for a Single
+        # (#889); check whether it has actually been saved instead.
+        if not frappe.db.get_singles_dict("Mollie Settings"):
             make_test_records("Mollie Settings")
 
         # Initialize client with cache enabled

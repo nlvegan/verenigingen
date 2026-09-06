@@ -58,8 +58,10 @@ class TestMollieSubscriptionLifecycle(EnhancedTestCase):
 
     def create_test_mollie_settings(self):
         """Create realistic Mollie settings for testing"""
-        # Check if settings already exist
-        existing = frappe.db.exists("Mollie Settings", "Mollie Settings")
+        # Check if settings already exist. frappe.db.exists(dt, dt) is
+        # unconditionally truthy for a Single (#889); check whether it has
+        # actually been saved instead.
+        existing = frappe.db.get_singles_dict("Mollie Settings")
         if existing:
             settings = frappe.get_doc("Mollie Settings", "Mollie Settings")
         else:

@@ -37,14 +37,16 @@ Compliance Focus:
 """
 
 import random
+import secrets
+import string
 from datetime import datetime, date
 from typing import Dict, Any, Optional, List, Union
 
 import frappe
 from frappe import _
 from frappe.utils import (
-    add_days, 
-    today, 
+    add_days,
+    today,
     getdate,
     random_string,
     flt,
@@ -63,7 +65,8 @@ try:
     from verenigingen.utils.validation.iban_validator import (
         validate_iban,
         format_iban,
-        derive_bic_from_iban
+        derive_bic_from_iban,
+        generate_test_iban,
     )
     HAS_IBAN_VALIDATOR = True
 except ImportError:
@@ -229,20 +232,41 @@ class SEPAMandateTestDataFactory:
             
     def get_random_dutch_iban(self, bank_code: Optional[str] = None) -> str:
         """
-        Get a random valid Dutch test IBAN.
-        
+        Generate a fresh, MOD-97-valid Dutch test IBAN.
+
+        This used to sample from a hardcoded pool of at most 3 IBANs per bank
+        (only 1 for ASNB), so two co-tenant tests reaching for the same bank
+        code in the same CI shard had a real chance of drawing the identical
+        IBAN. It was worse than "1 in 3", too: `SEPAMandateTestMixin.setUp()`
+        seeds the GLOBAL `random` module to the same constant (12345) for
+        every test class that uses this factory, so any two classes whose
+        first post-setUp random draw is this call got the IDENTICAL "random"
+        IBAN deterministically (#852).
+
+        Generating the account number with `secrets` -- which does not read
+        `random.seed()` and is not reset by it -- removes the shared,
+        reseedable pool entirely while still producing a checksum-valid IBAN
+        via the same generator the rest of the suite trusts
+        (`iban_validator.generate_test_iban`).
+
         Args:
             bank_code: Specific Dutch bank code (ABNA, INGB, RABO, etc.)
-            
+
         Returns:
             Valid Dutch test IBAN
         """
-        if bank_code and bank_code in self.DUTCH_BANKS:
-            return random.choice(self.DUTCH_BANKS[bank_code]["test_ibans"])
-            
-        # Get random bank and random IBAN from that bank
-        random_bank = random.choice(list(self.DUTCH_BANKS.keys()))
-        return random.choice(self.DUTCH_BANKS[random_bank]["test_ibans"])
+        if not bank_code or bank_code not in self.DUTCH_BANKS:
+            bank_code = random.choice(list(self.DUTCH_BANKS.keys()))
+
+        account_number = "".join(secrets.choice(string.digits) for _ in range(10))
+
+        if HAS_IBAN_VALIDATOR:
+            return generate_test_iban(bank_code=bank_code, account_number=account_number)
+
+        # Defensive fallback only: exercised solely if the validator import
+        # itself fails (e.g. a circular-import edge case), in which case we
+        # cannot compute a fresh checksum and fall back to the old pool.
+        return random.choice(self.DUTCH_BANKS[bank_code]["test_ibans"])
         
     def get_random_european_iban(self, country: Optional[str] = None) -> str:
         """

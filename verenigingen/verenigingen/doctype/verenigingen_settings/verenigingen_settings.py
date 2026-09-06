@@ -14,6 +14,7 @@ class VerenigingenSettings(Document):
         self.validate_donation_accounts()
         self.validate_grace_period_settings()  # Moved from hooks.py
         self.validate_chapter_dues_accounts()
+        self.validate_creation_user()
         self._check_deprecated_email_fields()
 
     def on_update(self):
@@ -81,6 +82,34 @@ class VerenigingenSettings(Document):
             default_pct = float(self.default_chapter_split_percentage)
             if default_pct < 0 or default_pct > 100:
                 frappe.throw(_("Default Chapter Split Percentage must be between 0 and 100"))
+
+    def validate_creation_user(self):
+        """Ensure Creation User resolves to a real, enabled account.
+
+        creation_user (verenigingen/utils/secure_operations.py:get_system_user_for_operation)
+        is the account many flows escalate to when the acting user lacks direct create
+        permission -- donor->customer sync, membership/volunteer application intake,
+        the chapter-join portal, and public donation handling all go through it. The
+        Link fieldtype only checks existence at the moment THIS document is saved; it
+        does not notice the target User being disabled, or deleted, afterwards, so a
+        value that was valid when set can go stale silently (#711). Catch both cases
+        here with a clear message instead of letting every future escalation attempt
+        fail with a generic, hard-to-trace ConfigurationError.
+        """
+        if not self.creation_user:
+            return  # reqd:1 already enforces this; nothing further to check.
+
+        if not frappe.db.exists("User", self.creation_user):
+            frappe.throw(
+                _("Creation User '{0}' does not exist. Configure an existing, enabled User.").format(
+                    self.creation_user
+                )
+            )
+
+        if not frappe.db.get_value("User", self.creation_user, "enabled"):
+            frappe.throw(
+                _("Creation User '{0}' is disabled. Configure an enabled User.").format(self.creation_user)
+            )
 
     def _check_deprecated_email_fields(self):
         """Show deprecation warnings for fields now managed by Verenigingen Email Configuration.

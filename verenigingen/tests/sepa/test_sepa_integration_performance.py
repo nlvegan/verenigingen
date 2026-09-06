@@ -65,36 +65,30 @@ class TestSEPAIntegrationPerformance(EnhancedTestCase):
 
         # Monitor the complete workflow
         with monitor_sepa_operation("complete_workflow", batch_size=10):
-            try:
-                # Test batch processing with performance optimization
-                from verenigingen.verenigingen_payments.doctype.direct_debit_batch.sepa_processor import (
-                    SEPAProcessor,
+            # Test batch processing with performance optimization
+            from verenigingen.verenigingen_payments.doctype.direct_debit_batch.sepa_processor import (
+                SEPAProcessor,
+            )
+
+            processor = SEPAProcessor()
+
+            # Verify optimizer integration
+            self.assertIsNotNone(processor.performance_optimizer)
+
+            # Process invoices using optimized path
+            invoice_names = [inv.name for inv in scenario["invoices"]]
+
+            with self.assertQueryCount(25):  # Should be much less than N*multiple_queries
+                processed = processor.performance_optimizer.process_batch_invoices_optimized(
+                    invoice_names
                 )
 
-                processor = SEPAProcessor()
+            # Verify processing results
+            self.assertGreaterEqual(len(processed), 8)  # Most invoices should be processed
 
-                # Verify optimizer integration
-                self.assertIsNotNone(processor.performance_optimizer)
-
-                # Process invoices using optimized path
-                invoice_names = [inv.name for inv in scenario["invoices"]]
-
-                with self.assertQueryCount(25):  # Should be much less than N*multiple_queries
-                    processed = processor.performance_optimizer.process_batch_invoices_optimized(
-                        invoice_names
-                    )
-
-                # Verify processing results
-                self.assertGreaterEqual(len(processed), 8)  # Most invoices should be processed
-
-                # Verify performance statistics
-                stats = processor.performance_optimizer.get_performance_stats()
-                self.assertGreater(stats["query_stats"]["optimized_queries"], 0)
-
-            except Exception as e:
-                frappe.logger().info(f"Workflow test note: {str(e)}")
-                # Integration test - verify components exist even if workflow incomplete
-                pass
+            # Verify performance statistics
+            stats = processor.performance_optimizer.get_performance_stats()
+            self.assertGreater(stats["query_stats"]["optimized_queries"], 0)
 
         # Verify monitoring recorded the operation
         self.assertGreater(len(self.performance_monitor.metrics_history), 0)

@@ -11,25 +11,51 @@ import frappe
 
 def invalidate_user_role_cache_on_user_update(doc, method):
     """
-    Hook for User doctype: Invalidate role cache when user's role_profile_name changes
+    Hook for User doctype: invalidate the role-profile cache on every User save.
 
-    This hook is triggered on User save/update operations.
+    This hook is triggered on User save/update operations (`on_update` also
+    fires on insert -- see hooks/doc_events.py -- so no separate after_insert
+    registration is needed).
+
+    #693: this previously fired only when
+    ``doc.has_value_changed("role_profile_name")`` was True, which misses
+    almost every real writer of a user's roles/role profile in this app:
+
+    - Every role GRANT/WITHDRAWAL goes through
+      ``user_doc.append("roles", ...)`` / ``user_doc.roles.remove(...)`` +
+      ``user_doc.save()`` (ChapterBoardMember.assign_board_member_role,
+      ``withdraw_board_member_role_if_unseated``, member_role_service, ...).
+      None of those touch ``role_profile_name`` at all, and "Has Role" is a
+      child table whose own doc_events never fire for rows written through
+      the parent User save (see hooks/doc_events.py's CHILD TABLES note) --
+      so this User handler is the ONLY doc event any of them dispatch.
+    - Frappe v16 moves role-profile assignment into the ``role_profiles``
+      child table (``User.move_role_profile_name_to_role_profiles()``), so a
+      v16 profile change can leave ``role_profile_name`` itself unchanged.
+
+    A narrower field-level check can't be made reliable either:
+    ``has_value_changed`` on a Table field (``role_profiles``) compares lists
+    of child Document objects from two different in-memory loads by identity,
+    which is not a meaningful equality test. So this invalidates
+    unconditionally on every save rather than trying to enumerate every field
+    that can carry a role change -- the cost is one extra Redis delete on a
+    save that touched neither role, versus a stale security-adjacent cache on
+    a miss.
     """
-    if method in ["on_update", "after_insert"]:
-        try:
-            from verenigingen.utils.security.api_security_framework import APISecurityFramework
+    if method != "on_update":
+        return
+    try:
+        from verenigingen.utils.security.api_security_framework import APISecurityFramework
 
-            # Check if role_profile_name field was changed
-            if doc.has_value_changed("role_profile_name") or method == "after_insert":
-                APISecurityFramework.invalidate_user_role_cache(doc.name)
-                frappe.logger("verenigingen.cache_invalidation").info(
-                    f"User role cache invalidated for {doc.name} due to role profile change"
-                )
-        except Exception as e:
-            # Don't fail the user save if cache invalidation fails
-            frappe.logger("verenigingen.cache_invalidation").error(
-                f"Failed to invalidate user role cache for {doc.name}: {str(e)}"
-            )
+        APISecurityFramework.invalidate_user_role_cache(doc.name)
+        frappe.logger("verenigingen.cache_invalidation").info(
+            f"User role cache invalidated for {doc.name} on User save"
+        )
+    except Exception as e:
+        # Don't fail the user save if cache invalidation fails
+        frappe.logger("verenigingen.cache_invalidation").error(
+            f"Failed to invalidate user role cache for {doc.name}: {str(e)}"
+        )
 
 
 def invalidate_all_user_caches_on_role_profile_update(doc, method):

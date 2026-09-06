@@ -527,10 +527,86 @@ class SEPAMandateIntegrationTests(EnhancedTestCase, SEPAMandateTestMixin):
                 self.assertLess(len(active_mandates), 10)
 
 
+class SEPATestIBANPoolRegressionTests(unittest.TestCase):
+    """
+    Regression coverage for #852.
+
+    `SEPAMandateTestDataFactory.get_random_dutch_iban()` used to sample from a
+    hardcoded pool of at most 3 IBANs per bank (1 for ASNB). Because
+    `SEPAMandateTestMixin.setUp()` seeds the GLOBAL `random` module to the same
+    constant (12345) for every test class using this factory, any two
+    co-tenant test classes whose first post-setUp random draw was this call
+    got the IDENTICAL "random" IBAN every time -- not merely a 1-in-3 (or
+    1-in-1, for ASNB) chance. These tests do not touch the database: they
+    exercise the pure IBAN generation, which is what changed.
+    """
+
+    def test_same_seed_no_longer_collides(self):
+        """Two factories sharing the mixin's fixed seed must not draw the same IBAN.
+
+        Before the fix this failed deterministically (both draws were
+        "NL02ABNA0123456789") -- see the issue's measured collision.
+        """
+        from verenigingen.tests.fixtures.sepa_mandate_test_factory import (
+            SEPAMandateTestDataFactory,
+        )
+
+        factory_a = SEPAMandateTestDataFactory(seed=12345)
+        iban_a = factory_a.get_random_dutch_iban("ABNA")
+
+        factory_b = SEPAMandateTestDataFactory(seed=12345)
+        iban_b = factory_b.get_random_dutch_iban("ABNA")
+
+        self.assertNotEqual(
+            iban_a, iban_b, "Two co-tenant factories drew the identical pooled IBAN"
+        )
+
+    def test_pool_of_one_bank_no_longer_constant(self):
+        """ASNB's pool held exactly one IBAN, so every draw for it was a constant.
+
+        Before the fix, both draws below were "NL57ASNB0123456789".
+        """
+        from verenigingen.tests.fixtures.sepa_mandate_test_factory import (
+            SEPAMandateTestDataFactory,
+        )
+
+        iban_a = SEPAMandateTestDataFactory(seed=12345).get_random_dutch_iban("ASNB")
+        iban_b = SEPAMandateTestDataFactory(seed=12345).get_random_dutch_iban("ASNB")
+
+        self.assertNotEqual(iban_a, iban_b, "ASNB's pool-of-one still returns a constant IBAN")
+
+    def test_generated_iban_passes_mod97_validation(self):
+        """The fix must keep generating VALID IBANs, not merely distinct ones."""
+        from verenigingen.tests.fixtures.sepa_mandate_test_factory import (
+            SEPAMandateTestDataFactory,
+        )
+        from verenigingen.utils.validation.iban_validator import validate_iban
+
+        factory = SEPAMandateTestDataFactory(seed=12345)
+        for bank_code in factory.DUTCH_BANKS:
+            iban = factory.get_random_dutch_iban(bank_code)
+            result = validate_iban(iban)
+            self.assertTrue(result["valid"], f"{bank_code}: {iban} failed validation: {result}")
+
+    def test_many_draws_stay_unique(self):
+        """A larger sample of same-seed draws (simulating many co-tenant classes)
+        should not repeat -- the old pool guaranteed repeats past 3 draws (1 for ASNB)."""
+        from verenigingen.tests.fixtures.sepa_mandate_test_factory import (
+            SEPAMandateTestDataFactory,
+        )
+
+        seen = set()
+        for _ in range(50):
+            factory = SEPAMandateTestDataFactory(seed=12345)
+            iban = factory.get_random_dutch_iban("ABNA")
+            self.assertNotIn(iban, seen, "Duplicate IBAN drawn across same-seed factories")
+            seen.add(iban)
+
+
 class SEPAMandateTestSuite:
     """
     Comprehensive test suite runner for SEPA mandate functionality.
-    
+
     This class provides a convenient way to run all SEPA mandate tests
     with proper categorization and reporting.
     """

@@ -25,6 +25,7 @@ class PaymentTypeRouter:
 
     def __init__(self):
         from ..core.client import MollieClient
+        from .donation_processor import DonationProcessor
         from .dues_payment_processor import DuesPaymentProcessor
         from .order_payment_processor import OrderPaymentProcessor
 
@@ -32,6 +33,7 @@ class PaymentTypeRouter:
         self.classifier = PaymentClassifier()
         self.dues_processor = DuesPaymentProcessor()
         self.order_processor = OrderPaymentProcessor()
+        self.donation_processor = DonationProcessor()
 
     def fetch_payment(self, payment_id: str) -> Any:
         """
@@ -141,16 +143,12 @@ class PaymentTypeRouter:
             elif classification["payment_type"] == PaymentType.DONATION:
                 frappe.logger().info(f"💝 Routing payment {payment_id} to donation processor")
                 result["processor"] = "DonationProcessor"
-                result["status"] = "pending_implementation"
-                result["message"] = (
-                    f"Donation payment routing not yet implemented. "
-                    f"Payment will be processed via fallback donation logic in webhook handler. "
-                    f"Donor: {classification.get('donor_id', 'Unknown')}"
-                )
 
-                # NOTE: Donation processing currently handled by existing logic in
-                # webhook_wrapper_service_unified.py. This should be refactored into
-                # a dedicated DonationProcessor to complete the routing architecture.
+                # Books via the same pipeline the Mollie webhook uses (first
+                # payment and recurring-charge cases both) -- see
+                # DonationProcessor's docstring. #872, part B of #345.
+                donation_result = self.donation_processor.process_donation_payment(payment_id, payment)
+                result.update(donation_result)
 
             else:
                 # Unknown payment type

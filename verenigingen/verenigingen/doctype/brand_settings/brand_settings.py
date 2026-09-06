@@ -902,8 +902,11 @@ def get_organization_logo():
 @high_security_api(operation_type=OperationType.ADMIN)
 def create_default_brand_settings():
     """Create default brand settings if none exist"""
-    # Brand Settings is a Single DocType, check if it exists properly
-    if frappe.db.exists("Brand Settings", "Brand Settings"):
+    # Brand Settings is a Single DocType: frappe.db.exists(dt, dt) is
+    # unconditionally truthy for a Single (dt == dn short-circuits in
+    # frappe.db.exists), so it can never detect a fresh, unconfigured site.
+    # Check whether the singleton has actually been saved instead (see #889).
+    if frappe.db.get_singles_dict("Brand Settings"):
         return False
 
     default_settings = frappe.get_doc(
@@ -925,6 +928,12 @@ def create_default_brand_settings():
             "text_secondary_color": "#666666",
             "background_primary_color": "#ffffff",
             "background_secondary_color": "#f8f9fa",
+            # required (see brand_settings.json); previously omitted, which
+            # would have made the create branch fail its own validation the
+            # first time this guard was fixed to actually run.
+            "primary_button_text_color": "#ffffff",
+            "secondary_button_text_color": "#ffffff",
+            "accent_button_text_color": "#ffffff",
         }
     )
 

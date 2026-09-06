@@ -85,17 +85,22 @@ class TestSetupTerminationSettings(FrappeTestCase):
         must leave the single doc present."""
         setup_mod.setup_termination_settings()
         setup_mod.setup_termination_settings()
+        # frappe.db.exists(dt, dt) is always truthy for a Single (#889) and
+        # cannot prove the doc still has data; check get_singles_dict instead.
         self.assertTrue(
-            frappe.db.exists("Verenigingen Settings", "Verenigingen Settings"),
+            frappe.db.get_singles_dict("Verenigingen Settings"),
             "The Verenigingen Settings single doc must still exist after re-run",
         )
 
     def test_early_return_when_settings_missing(self):
-        """If the Verenigingen Settings single does not exist the function
-        returns early without touching settings. Simulate the missing-single
-        branch by making exists() report False, and assert
-        get_verenigingen_settings is never reached."""
-        with patch.object(frappe.db, "exists", return_value=False):
+        """If the Verenigingen Settings single has never been saved, the
+        function returns early without touching settings. Simulate the
+        missing-single branch by making get_singles_dict report empty (the
+        real "has this Single ever been saved" check -- frappe.db.exists(dt,
+        dt) is unconditionally truthy for a Single and so cannot be used to
+        simulate this branch, see #889), and assert get_verenigingen_settings
+        is never reached."""
+        with patch.object(frappe.db, "get_singles_dict", return_value={}):
             with patch("verenigingen.utils.settings_utils.get_verenigingen_settings") as mock_get:
                 setup_mod.setup_termination_settings()
                 mock_get.assert_not_called()

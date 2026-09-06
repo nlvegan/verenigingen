@@ -406,6 +406,25 @@ def get_sepa_config_manager() -> SEPAConfigManager:
     return _config_manager
 
 
+def clear_cache_on_settings_update(doc=None, method=None) -> None:
+    """doc_events hook: clear the SEPAConfigManager singleton's cache.
+
+    get_company_sepa_config() caches every read into self._settings_cache (and
+    validate_sepa_config() into self._validation_cache) with no TTL, and
+    get_sepa_config_manager() returns a module-level singleton that survives
+    for the life of the worker process. update_setting() already clears the
+    cache after writes made *through this manager*, but "Verenigingen
+    Settings" / "Verenigingen Payments Settings" can also be edited directly
+    (Desk UI, another script, doc.save() outside this manager) -- those bypass
+    update_setting() entirely, leaving the cache stale for the rest of the
+    process's life (#866). Wired via hooks/doc_events.py on both doctypes'
+    on_update.
+
+    Signature matches Frappe's doc_events call convention: fn(doc, method=None).
+    """
+    get_sepa_config_manager().clear_cache()
+
+
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
 def get_sepa_config(section: str = None):

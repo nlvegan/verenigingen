@@ -754,13 +754,20 @@ def get_user_role_profiles(user_name: str) -> list[str]:
     return [single] if single else []
 
 
-def sync_user_role_profile(user: str, dry_run: bool = False) -> dict:
+def sync_user_role_profile(user: str, dry_run: bool = False, allow_disabled: bool = False) -> dict:
     """
     Calculate and apply the correct role profile to a user.
 
     Args:
         user: User email/ID
         dry_run: If True, only calculate but don't apply changes
+        allow_disabled: If True, sync a disabled user too (see #692). Only
+            withdraws/downgrades a profile -- it never calls
+            _ensure_employee_for_profile(), so it cannot grant an
+            Employee-requiring profile to a disabled account (that creation is
+            what forces the account back on, see the note below). Callers that
+            pass this must be downgrading access (e.g. a termination pipeline),
+            not restoring it.
 
     Returns:
         dict: {
@@ -776,7 +783,8 @@ def sync_user_role_profile(user: str, dry_run: bool = False) -> dict:
         if not frappe.db.exists("User", user):
             return {"success": False, "error": f"User {user} not found", "user": user}
 
-        # A disabled account is never synced: doing so silently re-enables it.
+        # A disabled account is normally never synced: doing so can silently
+        # re-enable it.
         #
         # _ensure_employee_for_profile() below creates an Employee with status
         # "Active", and ERPNext's Employee.validate_for_enabled_user_id()
@@ -791,7 +799,16 @@ def sync_user_role_profile(user: str, dry_run: bool = False) -> dict:
         # later chapter save touching an already-seated member — would resurrect a
         # deliberately disabled account. A disabled user has no permissions to
         # govern, so there is nothing to sync and nothing lost by skipping.
-        if not frappe.db.get_value("User", user, "enabled"):
+        #
+        # allow_disabled=True (#692) opts out of the skip for a termination
+        # pipeline that disables the account before it withdraws the volunteer
+        # role profile -- otherwise the disabled account is left holding
+        # "Verenigingen Volunteer" indefinitely. It is still safe: below, the
+        # Employee-creating call is gated on the user being enabled, so this
+        # path can only ever downgrade role_profiles, never provision the
+        # Employee record that would force the account back on.
+        user_enabled = frappe.db.get_value("User", user, "enabled")
+        if not user_enabled and not allow_disabled:
             return {
                 "success": True,
                 "user": user,
@@ -843,8 +860,16 @@ def sync_user_role_profile(user: str, dry_run: bool = False) -> dict:
             # to assign all applicable profiles instead of just the highest.
 
             # Ensure Employee record exists before saving User, otherwise
-            # ERPNext's validate_employee_role() hook strips Employee/ESS roles
-            if role_changed:
+            # ERPNext's validate_employee_role() hook strips Employee/ESS roles.
+            #
+            # Only do this for an enabled user: _ensure_employee_for_profile()
+            # creates an Employee with status "Active", and inserting it while
+            # the User is disabled is exactly what forces the account back on
+            # (see the docstring above) -- so a disabled/allow_disabled sync
+            # must never reach it. The new profile's Employee-only roles are
+            # then silently stripped by ERPNext's own validate_employee_role()
+            # hook instead, which is the safe outcome for a disabled account.
+            if role_changed and user_enabled:
                 _ensure_employee_for_profile(user, new_profile)
                 # Inserting Employee triggers ERPNext hooks that modify the
                 # User doc (notably adding the Employee role). Without a

@@ -1279,7 +1279,7 @@ def generate_catchup_invoices(members: str | list, from_date=None, to_date=None)
     import html
     from datetime import timedelta
 
-    from verenigingen.services.billing.coverage_calculator import get_coverage_calculator
+    from verenigingen.services.billing.billing_period_calculator import calculate_coverage_end
     from verenigingen.services.billing.invoice_generator import InvoiceGenerator
 
     # Check permissions
@@ -1360,12 +1360,19 @@ def generate_catchup_invoices(members: str | list, from_date=None, to_date=None)
                 is_current_period = abs((getdate(period_end) - getdate(today())).days) <= 7
 
                 if is_current_period and not member_end_date:
-                    # This period ends around today and member hasn't indicated end date
-                    # Extend to proper billing period end
-                    billing_period = get_coverage_calculator().calculate_billing_period(
-                        schedule_doc.billing_frequency, period_start
+                    # This period ends around today and member hasn't indicated end date.
+                    # Extend to a full RUNNING period from period_start (the member's own
+                    # anchor) - NOT the calendar period surrounding it. calculate_coverage_end
+                    # is how the coverage sequence is actually built (see its docstring and
+                    # CLAUDE.md's "running periods" section); calculate_billing_period returns
+                    # the calendar period and over/under-bills anyone not anchored to a
+                    # calendar boundary (#890).
+                    period_end = calculate_coverage_end(
+                        schedule_doc.billing_frequency,
+                        period_start,
+                        getattr(schedule_doc, "custom_frequency_number", None),
+                        getattr(schedule_doc, "custom_frequency_unit", None),
                     )
-                    period_end = billing_period[1]  # Use end date from (start, end) tuple
                 elif is_current_period and member_end_date and getdate(member_end_date) < getdate(period_end):
                     # Member is quitting - use their end date as the period end
                     period_end = getdate(member_end_date)

@@ -11,6 +11,7 @@ from frappe.utils import now_datetime, today
 
 from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
 from verenigingen.utils.dutch_name_utils import format_dutch_full_name
+from verenigingen.utils.select_options import coerce_select_option
 
 
 def safe_log_error(message, title=None):
@@ -657,6 +658,17 @@ def create_member_from_application(data, application_id, address=None):
     if volunteer_interests:
         member.volunteer_interests = volunteer_interests
 
+    # Store volunteer availability/experience level as temporary attributes for
+    # volunteer record creation (#821 -- collected by the form, previously never
+    # read here at all).
+    volunteer_availability = data.get("volunteer_availability", "")
+    if volunteer_availability:
+        member.volunteer_availability = volunteer_availability
+
+    volunteer_experience_level = data.get("volunteer_experience_level", "")
+    if volunteer_experience_level:
+        member.volunteer_experience_level = volunteer_experience_level
+
     # Handle custom membership amount using fee override fields
     _apply_custom_contribution_fee(member, data, context_label="application")
 
@@ -764,6 +776,16 @@ def update_member_from_reapplication(member_name, data, application_id, address=
     if volunteer_interests:
         member.volunteer_interests = volunteer_interests
 
+    # Transfer volunteer availability/experience level (consistency with new
+    # applications, #821)
+    volunteer_availability = data.get("volunteer_availability", "")
+    if volunteer_availability:
+        member.volunteer_availability = volunteer_availability
+
+    volunteer_experience_level = data.get("volunteer_experience_level", "")
+    if volunteer_experience_level:
+        member.volunteer_experience_level = volunteer_experience_level
+
     # Add chapter information to notes for approver visibility
     _append_chapter_notes(member, data.get("selected_chapter"), label="Selected Chapter (Reapplication)")
 
@@ -860,6 +882,45 @@ def _add_volunteer_interest_areas(volunteer, raw_interests):
         volunteer.save()
 
 
+# Wire-level codes the public application form's `volunteer_availability`
+# <select> sends (apply_for_membership.html), mapped onto
+# `Volunteer.commitment_level`'s declared options. Two of the form's four
+# options ("Occasional", "Weekly") are already exact matches and pass through
+# unchanged; only "Monthly" needs remapping onto "Regular (Monthly)".
+# "Project-based" has no reasonable equivalent on the Select at all (#821) and
+# is deliberately left unmapped, so coerce_select_option below falls back to
+# the field's own default rather than raising or inventing one.
+VOLUNTEER_AVAILABILITY_MAP = {
+    "Monthly": "Regular (Monthly)",
+}
+
+
+def _apply_volunteer_availability_and_experience(volunteer, raw_availability, raw_experience_level):
+    """Set commitment_level/experience_level on a just-created Volunteer.
+
+    Both are Select fields on an unauthenticated, publicly reachable endpoint
+    (submit_application), so each value is clamped with coerce_select_option to
+    the field's own default rather than assigned verbatim -- an out-of-
+    vocabulary Select value fails validation on save, which would otherwise
+    turn a bad availability/experience value into a lost Volunteer creation
+    for an applicant who is already linked to their Member record.
+    """
+    changed = False
+    if raw_availability:
+        mapped = VOLUNTEER_AVAILABILITY_MAP.get(raw_availability, raw_availability)
+        volunteer.commitment_level = coerce_select_option(
+            "Volunteer", "commitment_level", mapped, "Occasional"
+        )
+        changed = True
+    if raw_experience_level:
+        volunteer.experience_level = coerce_select_option(
+            "Volunteer", "experience_level", raw_experience_level, "Beginner"
+        )
+        changed = True
+    if changed:
+        volunteer.save()
+
+
 def create_volunteer_record(member):
     """Create volunteer record if member is interested - relinks existing volunteer if found.
 
@@ -920,6 +981,8 @@ def create_volunteer_record(member):
         # Get volunteer skills from member if available
         volunteer_skills = getattr(member, "volunteer_skills", None)
         volunteer_interests = getattr(member, "volunteer_interests", None)
+        volunteer_availability = getattr(member, "volunteer_availability", None)
+        volunteer_experience_level = getattr(member, "volunteer_experience_level", None)
 
         system_user = get_system_user_for_operation("volunteer_creation_during_application")
         with secure_user_context(system_user, f"Volunteer creation for member {member.name}"):
@@ -954,6 +1017,23 @@ def create_volunteer_record(member):
                         frappe.log_error(
                             title="Volunteer Interest Area Error",
                             message=f"Failed to add interest areas for volunteer {volunteer_name}: {e}",
+                        )
+
+                if volunteer_availability or volunteer_experience_level:
+                    try:
+                        _apply_volunteer_availability_and_experience(
+                            volunteer, volunteer_availability, volunteer_experience_level
+                        )
+                    except Exception as e:
+                        # Non-fatal for the same reason as the interest-area append
+                        # above: the volunteer already exists and is linked to the
+                        # member, so this must not fail the whole submission.
+                        frappe.log_error(
+                            title="Volunteer Availability/Experience Error",
+                            message=(
+                                f"Failed to set availability/experience for volunteer "
+                                f"{volunteer_name}: {e}"
+                            ),
                         )
 
                 frappe.logger().info(

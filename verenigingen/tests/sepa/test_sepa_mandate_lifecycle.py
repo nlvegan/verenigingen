@@ -95,18 +95,17 @@ class TestSEPAMandateLifecycle(VereningingenTestCase):
         self.assertTrue(len(sepa_links) > 0,
                        "Member should have an active SEPA mandate for direct debit")
         
-        # 4. Test invoice generation (if implemented)
+        # 4. Test invoice generation (if implemented). #490: generate_invoice()'s
+        # own docstring says it "returns invoice doc or None" -- this used to
+        # treat that return value as a document NAME and pass it back into
+        # frappe.get_doc(), which raised (a Document is not a valid filters
+        # argument) rather than exercising the assertion below.
         if hasattr(dues_schedule, 'generate_invoice'):
-            try:
-                invoice_name = dues_schedule.generate_invoice()
-                if invoice_name:
-                    invoice = frappe.get_doc("Sales Invoice", invoice_name)
-                    self.assertEqual(invoice.customer, member.customer,
-                                   "Generated invoice should be for member's customer")
-                    self.track_doc("Sales Invoice", invoice_name)
-            except Exception as e:
-                # Log but don't fail test if invoice generation has issues
-                frappe.logger().info(f"Invoice generation test skipped: {e}")
+            invoice = dues_schedule.generate_invoice()
+            if invoice:
+                self.assertEqual(invoice.customer, member.customer,
+                               "Generated invoice should be for member's customer")
+                self.track_doc("Sales Invoice", invoice.name)
 
     def test_sepa_mandate_pattern_in_lifecycle(self):
         """Test that SEPA mandate IDs are generated correctly in full lifecycle"""

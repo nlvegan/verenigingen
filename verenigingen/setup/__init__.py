@@ -297,7 +297,9 @@ def _is_initial_setup_complete() -> bool:
     Returns True if the initial_setup_complete flag is set in Verenigingen Settings.
     """
     try:
-        if not frappe.db.exists("Verenigingen Settings", "Verenigingen Settings"):
+        # frappe.db.exists(dt, dt) is unconditionally truthy for a Single
+        # (#889); check whether it has actually been saved instead.
+        if not frappe.db.get_singles_dict("Verenigingen Settings"):
             return False
         return bool(
             frappe.db.get_value("Verenigingen Settings", "Verenigingen Settings", "initial_setup_complete")
@@ -311,7 +313,9 @@ def _mark_initial_setup_complete():
     Mark initial setup as complete by setting the flag in Verenigingen Settings.
     """
     try:
-        if frappe.db.exists("Verenigingen Settings", "Verenigingen Settings"):
+        # frappe.db.exists(dt, dt) is unconditionally truthy for a Single
+        # (#889); check whether it has actually been saved instead.
+        if frappe.db.get_singles_dict("Verenigingen Settings"):
             frappe.db.set_value(
                 "Verenigingen Settings",
                 "Verenigingen Settings",
@@ -536,15 +540,24 @@ def _seed_default_document_categories(settings):
 def create_default_eboekhouden_settings():
     """Create default E-Boekhouden Settings single document"""
     try:
-        if not frappe.db.exists("E-Boekhouden Settings", "E-Boekhouden Settings"):
+        # E-Boekhouden Settings is a Single: frappe.db.exists(dt, dt) is
+        # unconditionally truthy for a Single (dt == dn short-circuits in
+        # frappe.db.exists), so it never actually detected "not yet seeded".
+        # Check whether the singleton has ever been saved instead (see #889).
+        if not frappe.db.get_singles_dict("E-Boekhouden Settings"):
             settings = frappe.get_doc(
                 {
                     "doctype": "E-Boekhouden Settings",
                     "api_url": "https://secure.e-boekhouden.nl/verhuur/api_rpc.php",
                     "source_application": "Verenigingen App",
+                    "default_currency": "EUR",
                 }
             )
-            settings.insert(ignore_permissions=True)
+            # default_company and api_token cannot be known at install time
+            # (no Company may exist yet, and the API token is operator
+            # credentials), so ignore_mandatory lets the placeholder be
+            # created for an administrator to complete via the Desk UI.
+            settings.insert(ignore_permissions=True, ignore_mandatory=True)
             print("✅ Created default E-Boekhouden Settings")
         else:
             print("✅ E-Boekhouden Settings already exists")
@@ -668,8 +681,10 @@ def setup_termination_settings():
     """Setup termination system settings"""
 
     try:
-        # Get or create Verenigingen Settings
-        if not frappe.db.exists("Verenigingen Settings", "Verenigingen Settings"):
+        # Get or create Verenigingen Settings. frappe.db.exists(dt, dt) is
+        # unconditionally truthy for a Single (#889); check whether it has
+        # actually been saved instead.
+        if not frappe.db.get_singles_dict("Verenigingen Settings"):
             # This should already be created by the main setup, but just in case
             return
 
@@ -779,8 +794,10 @@ def check_termination_system_status():
     }
 
     try:
-        # Check settings
-        if frappe.db.exists("Verenigingen Settings", "Verenigingen Settings"):
+        # Check settings. frappe.db.exists(dt, dt) is unconditionally truthy
+        # for a Single (#889); check whether it has actually been saved
+        # instead, so this diagnostic reflects real configuration state.
+        if frappe.db.get_singles_dict("Verenigingen Settings"):
             from verenigingen.utils.settings_utils import get_verenigingen_settings
 
             settings = get_verenigingen_settings()

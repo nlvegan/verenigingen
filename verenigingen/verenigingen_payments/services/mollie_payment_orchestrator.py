@@ -192,6 +192,19 @@ class MolliePaymentOrchestrator:
             self._bank_config_cache = self.bt_creator.get_mollie_bank_account_config()
         return self._bank_config_cache
 
+    def clear_bank_config_cache(self) -> None:
+        """Reset the cached Mollie bank-account configuration (#867).
+
+        `_get_bank_account_config` populates `self._bank_config_cache` from
+        `bt_creator.get_mollie_bank_account_config()` exactly once and reuses it
+        forever after, because `get_payment_orchestrator()` returns a module-level
+        singleton that survives for the life of the worker process. Unlike the
+        sibling caches in this app (`sepa_config_manager`, `sepa_xml_adapter`),
+        this one previously had no reset method at all -- see
+        `reset_payment_orchestrator` below, wired via `hooks/doc_events.py`.
+        """
+        self._bank_config_cache = None
+
     def get_processing_status(self, payment_id: str) -> ProcessingStatus:
         """
         Check what documents exist for a Mollie payment.
@@ -1572,3 +1585,23 @@ def get_payment_orchestrator() -> MolliePaymentOrchestrator:
     if _orchestrator_instance is None:
         _orchestrator_instance = MolliePaymentOrchestrator()
     return _orchestrator_instance
+
+
+def reset_payment_orchestrator(doc=None, method=None) -> None:
+    """Reset the singleton orchestrator's cached bank-account configuration (#867).
+
+    Wired via hooks/doc_events.py on "Mollie Settings" (mollie_settings.py's own
+    on_update/clear_configuration_cache call this directly), "Bank Account" and
+    "Verenigingen Settings" on_update -- the doctypes
+    `get_mollie_bank_account_config()` reads through
+    MollieConfigurationService.validate_all_mollie_accounts / get_clearing_account
+    (Mollie Settings), the Bank Account lookup by clearing GL account, and
+    `_get_default_company` (Verenigingen Settings).
+
+    Does not construct the orchestrator if it does not exist yet -- there is
+    nothing to clear, and building one here would run its (expensive) __init__.
+
+    Signature matches Frappe's doc_events call convention: fn(doc, method=None).
+    """
+    if _orchestrator_instance is not None:
+        _orchestrator_instance.clear_bank_config_cache()
