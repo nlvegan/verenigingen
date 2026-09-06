@@ -49,6 +49,35 @@ explains the signature in #452's traceback, its mitigations are on develop, and 
 normaliser measurably does not fire here. #452 stays open. PR #980 pins the shape and
 says so.
 
+## One symptom, two causes — and the first fix revealed the second
+
+Worth reading alongside the assertion failures, because the shape is the same: a green
+result that would have licensed the wrong conclusion.
+
+#919's Order-Dependence red was diagnosed by review as a staleness artifact — its single
+delta was `test_volunteer_sync_service.py`, a file the branch never touches — and
+predicted to clear on rebase. I rebased it. It stayed red, with a *different* delta:
+
+```
+COMMIT_EXEMPT tests/services/payment/test_sepa_upload_integration.py::5 -> ::6
+```
+
+That one is the branch's own. Its first commit adds `TestSEPABatchStatusRollbackOnFailure`,
+whose `_cleanup_upload_logs` calls `frappe.db.commit()` — the recognised `_cleanup_*`
+exempt pattern. develop's copy of the file carries 6 commits; the branch carries 7. So
+the staleness diagnosis was correct *and* incomplete: fixing it uncovered a legitimate
+entry that had been masked by the first.
+
+The gated total is unchanged (1005 = 1005) because `COMMIT_EXEMPT` carries its own
+marker that the no-growth grep deliberately does not match, so the entry just needed
+recording — a one-line diff.
+
+The transferable part: "it cleared on rebase" was never safe to assert from a prediction,
+and a re-run that turned green would have been read as confirming the original
+diagnosis. My report at the time said rebasing "should confirm or refute that — I have
+not asserted it", which is the hedge that made the second cause findable rather than
+surprising.
+
 ## Every fix that got reviewed had something wrong in it — five for five
 
 | PR | found by review |
