@@ -75,6 +75,19 @@ repos:
         fail_fast: true
       # Original validation hooks
 
+      - id: js-installer-pin-parity
+        name: JS installer / package.json pin parity (#272)
+        description: >-
+          The CI JS installer must pick yarn vs npm per app (this app has no
+          yarn.lock and is npm-managed); package.json must carry no dead
+          `resolutions` block that can drift from the `overrides` block npm
+          actually reads.
+        entry: python scripts/validation/js_installer_pin_parity_validator.py
+        language: system
+        pass_filenames: false
+        files: '^(package\.json|\.github/actions/setup/action\.yml)$'
+        stages: [pre-commit]
+
       - id: doctype-field-validator
         name: DocType field attribute access validator
         entry: python scripts/validation/archived/doctype_field_validator.py --pre-commit --reduced-fp-mode

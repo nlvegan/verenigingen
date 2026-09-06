@@ -177,6 +177,17 @@ jobs:
     - name: Unit-test the shared baseline shrink gate
       run: python -m unittest discover -s scripts/validation/tests -p 'test_baseline_shrink_gate.py' -v
 
+    # Guards the CI JS installer / package.json pin parity (#272): the
+    # installer must pick yarn vs npm per app (this app has no yarn.lock and
+    # is npm-managed, unlike frappe/erpnext/hrms/builder), and package.json
+    # must carry no dead `resolutions` block that can drift from the
+    # `overrides` block npm actually reads. Stdlib-only, no bench needed.
+    - name: Unit-test the JS installer / pin-parity validator
+      run: python -m unittest discover -s scripts/validation/tests -p 'test_js_installer_pin_parity_validator.py' -v
+
+    - name: Check JS installer / package.json pin parity
+      run: python scripts/validation/js_installer_pin_parity_validator.py
+
     # Tests for the scripts/testing tools live outside the verenigingen package, and
     # get_all_tests() only walks apps/verenigingen/verenigingen, so the app suite never
     # sees them -- they were added green and unrun, and a location-dependent test in them
