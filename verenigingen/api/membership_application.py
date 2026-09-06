@@ -683,7 +683,14 @@ def _validate_membership_amount(data):
 
     Returns None if valid (or not applicable), or an OperationResult.fail() if invalid.
     """
-    if not (data.get("membership_amount") or data.get("uses_custom_amount")):
+    # uses_custom_amount is a client-set UI hint -- on /apply_for_membership it is
+    # only ever written by the income calculator's "Apply" button, so an applicant
+    # who types a custom amount directly (or picks a "custom" flex payment plan)
+    # submits a custom_contribution_fee with that flag left False. Gate on the
+    # amount actually submitted, not on how the client says it was chosen (#428).
+    if not (
+        data.get("membership_amount") or data.get("uses_custom_amount") or data.get("custom_contribution_fee")
+    ):
         return None
 
     membership_type = data.get("selected_membership_type")

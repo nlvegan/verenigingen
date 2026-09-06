@@ -263,6 +263,46 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
         self.assertFalse(result.get("success"), "Application with invalid membership type should fail")
         self.assertIn("error", result, "Error should be reported for invalid membership type")
 
+    def test_custom_amount_below_minimum_is_rejected_without_uses_custom_amount_flag(self):
+        """#428: _validate_membership_amount used to gate entirely on the client-set
+        `uses_custom_amount` flag, which the live /apply_for_membership page only ever
+        sets from the income calculator's "Apply" button -- typing a custom amount
+        directly into #custom_contribution_fee (or picking a "custom" flex payment
+        plan) never sets it. A submitted `custom_contribution_fee` must be validated
+        against the membership type's minimum regardless of that flag.
+
+        self.membership_type_name has amount=10.0 (see setUp), so the 50% floor is
+        5.0; 1.0 must be rejected.
+        """
+        test_data = {
+            "first_name": "Bypass",
+            "last_name": "CustomAmount",
+            "email": "bypass.custom.amount@example.com",
+            "birth_date": "1990-01-01",
+            "address_line1": "Test Street 123",
+            "city": "Amsterdam",
+            "postal_code": "1000AA",
+            "country": "Netherlands",
+            "selected_membership_type": self.membership_type_name,
+            "custom_contribution_fee": 1.0,
+            # uses_custom_amount deliberately omitted -- the client never sets it
+            # for this path.
+            "payment_method": "Bank Transfer"}
+
+        from verenigingen.api.membership_application import submit_application
+
+        result = submit_application(data=test_data)
+
+        if result.get("success"):
+            member_record = (result.get("data") or {}).get("member_record") or result.get("member_record")
+            self.add_cleanup_record("Member", member_record)
+
+        self.assertFalse(
+            result.get("success"),
+            f"A custom_contribution_fee below the membership type's minimum must be "
+            f"rejected even without uses_custom_amount=True. Got: {result}",
+        )
+
     def test_special_character_handling_in_volunteer_creation(self):
         """Test that special characters in names are handled correctly in volunteer creation"""
 
