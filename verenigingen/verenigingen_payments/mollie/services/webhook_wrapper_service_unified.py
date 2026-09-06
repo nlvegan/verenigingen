@@ -31,12 +31,27 @@ from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_
 from ..exceptions import MolliePaymentError, MollieSecurityError, MollieWebhookError
 
 # Import logging and monitoring utilities
+from ..utils import subscription_activation_reasons
 from ..utils.logging import MollieLogger, log_payment_processing, log_webhook_received
 from ..utils.monitoring import record_operation_performance
 
 # REMOVED: Old payment_webhook functions archived to break hybrid system
 # These functions were causing duplicate Payment Entries by competing with unified idempotency
 # TODO: Reimplement needed functionality using UnifiedIdempotencyManager
+
+
+def is_permanent_subscription_refusal(reason: Optional[str]) -> bool:
+    """Is ``reason`` one of the refusals a webhook redelivery cannot get past?
+
+    ``reason`` comes from ``payment_gateways``'s error-response dicts (an
+    invalid interval, missing metadata, or ``_permanent_refusal_reason``'s
+    naming of a permanent Mollie 400). Membership is checked against
+    ``subscription_activation_reasons.PERMANENT_SUBSCRIPTION_ACTIVATION_REASONS``
+    -- the single source both modules import, so a reason renamed on one side
+    and not the other is caught as a missing name rather than agreeing only
+    by spelling (issue #353).
+    """
+    return reason in subscription_activation_reasons.PERMANENT_SUBSCRIPTION_ACTIVATION_REASONS
 
 
 def _reversal_history_row(
@@ -2407,14 +2422,7 @@ class UnifiedWebhookWrapperService:
             reason = (result or {}).get("reason")
             return {
                 "status": "error",
-                "permanent": reason
-                in (
-                    "invalid_interval",
-                    "missing_subscription_details",
-                    "missing_customer_id",
-                    "idempotency_key_conflict",
-                    "mollie_bad_request",
-                ),
+                "permanent": is_permanent_subscription_refusal(reason),
                 "reason": reason,
                 "message": (result or {}).get("message") or f"activation failed: {result}",
             }
