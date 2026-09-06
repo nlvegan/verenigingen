@@ -19,6 +19,7 @@ from frappe import _
 from frappe.utils import nowdate, nowtime, random_string
 
 from verenigingen.services.payment.sepa_upload_guard import get_sepa_upload_guard
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 from verenigingen.verenigingen_payments.services.sepa_configuration_service import sepa_config_service
 from verenigingen.verenigingen_payments.services.sepa_xml_adapter import get_sepa_xml_adapter
 from verenigingen.verenigingen_payments.utils.sepa_utilities import FileManagementUtilities, SEPAXMLValidator
@@ -182,18 +183,41 @@ class SEPAXMLGenerationService:
                 temp_file_path, batch_doc.doctype, batch_doc.name
             )
 
-            # Update batch document
-            batch_doc.db_set("sepa_file", file_url)
-            batch_doc.db_set("sepa_file_generated", 1)
-            batch_doc.db_set("status", "Generated")
+            # Everything below must land as one unit. db_set() writes straight
+            # to the DB connection with no rollback of its own (#796), so a
+            # failure in any one of these writes -- most plausibly the
+            # upload-log filename update, since it runs last -- would
+            # otherwise leave the batch claiming status="Generated" (and
+            # sepa_file/sepa_file_generated set) even though this function
+            # goes on to raise and the caller sees a failed generation. A
+            # savepoint scoped to just this block keeps the group atomic
+            # without touching the upload guard's own hash reservation,
+            # which was already registered above this point and must survive
+            # regardless (it is what blocks a retry from re-uploading
+            # identical content).
+            finalize_savepoint = "sepa_batch_finalize"
+            frappe.db.savepoint(finalize_savepoint)
+            try:
+                # Update batch document
+                batch_doc.db_set("sepa_file", file_url)
+                batch_doc.db_set("sepa_file_generated", 1)
+                batch_doc.db_set("status", "Generated")
 
-            # Optionally update the upload log with file info
-            # Find log by file_hash and set file_name
-            frappe.db.set_value(
-                "SEPA Batch Upload Log",
-                {"file_hash": atomic_result.file_hash},
-                {"file_name": f"sepa-{batch_doc.name}.xml"},
-            )
+                # Optionally update the upload log with file info
+                # Find log by file_hash and set file_name
+                frappe.db.set_value(
+                    "SEPA Batch Upload Log",
+                    {"file_hash": atomic_result.file_hash},
+                    {"file_name": f"sepa-{batch_doc.name}.xml"},
+                )
+            except NON_RESUMABLE_DB_ERRORS:
+                # A deadlock or timeout has already discarded the whole savepoint
+                # stack; ROLLBACK TO SAVEPOINT would raise 1305 from inside this
+                # except and replace the real error. Let it propagate untouched.
+                raise
+            except Exception:
+                rollback_to_savepoint(finalize_savepoint)
+                raise
 
             return file_url
 

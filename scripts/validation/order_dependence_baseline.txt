@@ -398,7 +398,7 @@ COMMIT_EXEMPT tests/services/event_application/test_termination_sync_service.py:
 COMMIT_EXEMPT tests/services/event_application/test_volunteer_sync_service.py::27  # order-dep-exempt
 COMMIT_EXEMPT tests/services/payment/test_pain002_ingestion.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/services/payment/test_sepa_upload_guard.py::3  # order-dep-exempt
-COMMIT_EXEMPT tests/services/payment/test_sepa_upload_integration.py::5  # order-dep-exempt
+COMMIT_EXEMPT tests/services/payment/test_sepa_upload_integration.py::6  # order-dep-exempt
 COMMIT_EXEMPT tests/services/test_chapter_permission_service_integration.py::3  # order-dep-exempt
 COMMIT_EXEMPT tests/services/test_customer_handling_service_coverage.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/services/test_customer_handling_service_integration.py::1  # order-dep-exempt
