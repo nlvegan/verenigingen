@@ -23,6 +23,7 @@ from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import SEPAError, handle_api_error, log_error
 from verenigingen.utils.performance_utils import performance_monitor
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen_payments.utils.shared.backoff import calculate_backoff_delay
 from verenigingen.verenigingen_payments.utils.shared.db_helpers import ensure_table_exists
 
@@ -536,6 +537,17 @@ class SEPABatchRaceConditionManager:
                 "message": f"Batch created successfully with {len(validation_result['validated_invoices'])} invoices",
             }
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # #958: a 1213/1205 here must reach `handle_api_error` (on the public
+            # `create_sepa_batch_with_race_protection` endpoint) as itself, not as a
+            # SEPAError -- that decorator has a dedicated guard which re-raises a
+            # non-resumable DB error instead of returning it as an ordinary
+            # OperationResult.fail(...), specifically so the request cannot reach its
+            # success path and commit half-applied work (#481). A SEPAError is a
+            # VerenigingenException, which that guard cannot distinguish from an
+            # ordinary batch-validation failure.
+            frappe.db.rollback()
+            raise
         except Exception as e:
             frappe.db.rollback()
             error_msg = f"Batch creation failed: {str(e)}"
@@ -585,6 +597,12 @@ class SEPABatchRaceConditionManager:
 
             return locked_invoices
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # #958: this is the SELECT ... FOR UPDATE that actually contends for row
+            # locks, so it is the most likely site in the batch-creation path for a
+            # real 1213/1205. Let it propagate as itself -- see the matching guard
+            # in _execute_batch_creation_with_isolation for why the type must survive.
+            raise
         except Exception as e:
             raise SEPAError(_(f"Failed to lock invoices for processing: {str(e)}"))
 
