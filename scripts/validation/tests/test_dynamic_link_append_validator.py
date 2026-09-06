@@ -82,6 +82,27 @@ UNRELATED_APPEND_SOURCE = (
     "    results.append('some string')\n"
 )
 
+# Document.extend(key, value) (frappe/model/base_document.py) is implemented as
+# `for v in value: self.append(key, v)` -- identical runtime shape to a loop of
+# `.append()` calls, so a literal list of literal dicts must be checked the same way.
+EXTEND_OFFENDING_SOURCE = (
+    "def link(parent, widget_name):\n"
+    "    parent.extend('widgets', [{'widget': widget_name, 'is_current': 1}])\n"
+)
+
+EXTEND_INNOCENT_SOURCE = (
+    "def link(parent, widget_name):\n"
+    "    parent.extend(\n"
+    "        'widgets',\n"
+    "        [{'widget': widget_name, 'widget_doctype': 'Widget', 'is_current': 1}],\n"
+    "    )\n"
+)
+
+EXTEND_NON_LITERAL_LIST_SOURCE = (
+    "def link(parent, rows):\n"
+    "    parent.extend('widgets', rows)\n"
+)
+
 
 class TestBuildSchemaMaps(unittest.TestCase):
     def test_maps_table_field_and_dynamic_link(self):
@@ -161,6 +182,25 @@ class TestFindOffendingAppends(unittest.TestCase):
 
     def test_does_not_flag_dynamic_link_field_absent(self):
         self.assertEqual(self._findings(DYNLINK_ABSENT_SOURCE), [])
+
+    def test_flags_dynamic_link_value_without_companion_via_extend(self):
+        # #667's class, reached via .extend() instead of .append() -- same
+        # db_update()-only persistence path, same silent-NULL companion.
+        findings = self._findings(EXTEND_OFFENDING_SOURCE)
+        self.assertEqual(len(findings), 1)
+        lineno, child_doctype, dynlink_field, companion_field = findings[0]
+        self.assertEqual(child_doctype, "Widget Link")
+        self.assertEqual(dynlink_field, "widget")
+        self.assertEqual(companion_field, "widget_doctype")
+
+    def test_does_not_flag_extend_when_companion_is_set(self):
+        self.assertEqual(self._findings(EXTEND_INNOCENT_SOURCE), [])
+
+    def test_does_not_flag_extend_with_non_literal_list(self):
+        # Document.extend() also accepts a variable list -- cannot verify
+        # statically, so (like a non-dict .append() argument) this is a
+        # deliberate false negative, not a bug.
+        self.assertEqual(self._findings(EXTEND_NON_LITERAL_LIST_SOURCE), [])
 
 
 class TestIsTestPath(unittest.TestCase):
