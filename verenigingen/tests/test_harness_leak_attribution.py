@@ -925,19 +925,30 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
         self.assertEqual([], unresolved)
 
     def test_the_real_tree_has_no_shared_fixture_with_an_unresolvable_identity(self):
-        """#995's requested measurement: how many `@shared_fixture` module-level
-        helpers have an identity this guard cannot read, TODAY, on the real tree.
+        """A ratchet: no MULTI-COPY `@shared_fixture` family on the real tree has
+        an identity this guard cannot read.
 
-        Before this fix: 1 (`_ensure_payment_company` in
-        `test_rest_migration_payments.py`, via its module-scope `COMPANY_NAME`).
-        After: 0 -- the added shapes close every real occurrence currently in the
-        tree. This does not claim no OTHER shape could ever be unresolvable (a
-        name built by calling a function, string formatting with a spec, etc. --
-        see `test_extended_guard_reports_an_unresolvable_identity_instead_of_
-        silently_skipping` above for that case handled honestly) -- only that none
-        exists in the tree right now. A future helper written in an unresolvable
-        shape reddens this test rather than silently disabling the guard for its
-        family, which is the whole point of #995.
+        SCOPE -- read before citing this test as evidence. It reports only
+        families with two or more copies, because the `unresolved` bucket is
+        gated on `len(...) >= 2`: a singleton has no clone to be confused with,
+        so an unreadable identity costs nothing there.
+
+        That means this test does NOT demonstrate the fix on
+        `_ensure_payment_company` (`test_rest_migration_payments.py`), the
+        module-constant case #995 was filed over -- that helper is a singleton,
+        so it is excluded from this bucket and this test passes identically with
+        the resolver's module-constant support disabled. Verified by mutation;
+        an earlier version of this docstring claimed a "before 1 / after 0"
+        measurement here, which was false. The per-shape tests above are what
+        demonstrate the resolver; the 1 -> 0 count came from a standalone sweep,
+        which is a PR-description claim, not something this test reproduces.
+
+        What this test IS worth: a future multi-copy family written in an
+        unresolvable shape reddens here instead of silently disabling the guard
+        for that family. It does not claim no other shape could ever be
+        unresolvable -- see
+        `test_extended_guard_reports_an_unresolvable_identity_instead_of_silently_skipping`
+        for that case handled honestly.
         """
         _flagged, unresolved = self._divergent_shared_fixture_copies(include_unresolved=True)
         self.assertEqual(
