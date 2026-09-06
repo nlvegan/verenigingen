@@ -21,7 +21,7 @@
 # near-identical copies with NO exact pair, i.e. a fix that already landed in
 # one of them.
 
-_abort_on_duplicates::2
+_abort_on_duplicates::3
 _account::3  # clone family, 33% of pairs near-identical
 _accounts::6  # clone family, 67% of pairs near-identical
 _acquire_idempotency_lock::2
@@ -35,6 +35,7 @@ _add_chapter_with_documents::2  # clone family, 100% of pairs near-identical
 _add_member_to_chapter::5
 _add_team_member::4
 _add_team_membership::2  # clone family, 100% of pairs near-identical
+_align_membership_type_amount::2
 _append_member::2
 _as_admin::9  # clone family, 100% of pairs near-identical
 _as_user::3
@@ -282,6 +283,7 @@ _load_volunteer::3  # clone family, 100% of pairs near-identical
 _log_blocked_members_summary::2
 _make_account::13  # clone family, 36% of pairs near-identical
 _make_acr::3
+_make_active_mandate::2
 _make_active_member::6
 _make_active_schedule::2
 _make_agreement::2
@@ -309,6 +311,7 @@ _make_donation::13
 _make_donor::13
 _make_draft_bt::2
 _make_draft_expense_claim::2
+_make_draft_invoice::2
 _make_draft_payment_entry::2
 _make_dues_schedule::3  # clone family, 33% of pairs near-identical
 _make_eligible_member_invoice::2  # clone family, 100% of pairs near-identical
@@ -328,7 +331,7 @@ _make_import_doc_from_content::2  # clone family, 100% of pairs near-identical
 _make_individual_donor::2
 _make_internal_transfer_pe::2
 _make_invoice::7
-_make_je::3
+_make_je::4
 _make_leaf_account::3
 _make_ledger_map::8  # clone family, 32% of pairs near-identical
 _make_ledger_mapping::4
@@ -345,7 +348,7 @@ _make_member_with_mandate::3
 _make_member_with_membership::4
 _make_member_with_mollie::2
 _make_member_with_schedule::3  # clone family, 33% of pairs near-identical
-_make_member_with_user::18
+_make_member_with_user::19
 _make_membership_type::8
 _make_migration::10
 _make_migration_doc::4  # clone family, 50% of pairs near-identical
@@ -360,10 +363,11 @@ _make_payment_entry::3
 _make_payment_link::3
 _make_payment_mapping::2
 _make_payment_request::2
-_make_plain_user::2
+_make_plain_user::3
 _make_ponto_link::2
 _make_processor::2
 _make_raw::2  # clone family, 100% of pairs near-identical
+_make_refund_pe::2
 _make_request::8
 _make_role::9  # clone family, 28% of pairs near-identical
 _make_role_profile::6  # clone family, 80% of pairs near-identical
@@ -409,7 +413,7 @@ _member_row::2
 _member_user::2
 _member_with_active_membership::4
 _member_with_address::3
-_member_with_customer::10
+_member_with_customer::11
 _member_with_membership::6
 _member_with_mollie::2  # clone family, 100% of pairs near-identical
 _member_with_schedule::5
@@ -421,7 +425,7 @@ _migration::2
 _mollie_payment::2
 _mr::2  # clone family, 100% of pairs near-identical
 _new_batch::2
-_new_customer::3  # clone family, 33% of pairs near-identical
+_new_customer::4
 _new_je::3  # clone family, 33% of pairs near-identical
 _new_mandate::2  # clone family, 100% of pairs near-identical
 _new_subscription::2
@@ -442,7 +446,7 @@ _patch_sdk::5  # clone family, 100% of pairs near-identical
 _patch_service::4  # clone family, 50% of pairs near-identical
 _pay_invoice::4
 _payload::2
-_payment::17
+_payment::18
 _pdf::3  # clone family, 100% of pairs near-identical
 _pending_member::3  # clone family, 33% of pairs near-identical
 _percentile::4  # clone family, 33% of pairs near-identical
@@ -507,7 +511,7 @@ _sdk_payment::2
 _seat::5
 _seat_board_member::2
 _seat_on_board::3
-_seed::2
+_seed::3
 _seed_pending_write::2  # clone family, 100% of pairs near-identical
 _send_email::3
 _send_kwargs::2  # clone family, 100% of pairs near-identical
