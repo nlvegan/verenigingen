@@ -106,6 +106,10 @@ CLONE_RATIO = 0.90
 # name has ZERO pairs at or above CLONE_RATIO and is still only recorded.
 CLONE_MIN_NEAR_PAIRS = 1
 
+# Bodies smaller than this are discounted ONLY when the copies share a FILE.
+# The same-file half is load-bearing -- see _is_trivial_same_file_pair.
+TRIVIAL_BODY_STATEMENTS = 3
+
 
 def _rel(path: str) -> str:
     """Repo-relative, so output is the same wherever the checkout lives."""
@@ -330,18 +334,65 @@ def _ratio(a: str, b: str) -> float:
     return difflib.SequenceMatcher(None, first, second).ratio()
 
 
+def _statement_count(normalised: str) -> int:
+    """Statements in a normalised body: unparsed lines, less the `def` line."""
+    return max(0, len([ln for ln in normalised.splitlines() if ln.strip()]) - 1)
+
+
+def _is_trivial_same_file_pair(a_path, a_norm, b_path, b_norm) -> bool:
+    """A pair too small, and too close together, to hide a missed fix (#1009).
+
+    TWO conditions, BOTH required -- this is deliberately not a plain size floor:
+
+    * both bodies under TRIVIAL_BODY_STATEMENTS statements, AND
+    * both definitions in the SAME FILE.
+
+    The size half: a one- or two-statement helper repeated across sibling test
+    classes carries no "a fix landed in one copy and its siblings were missed"
+    risk. `_run` was 10 copies of `return self.v._validate_rule(...)`; there is
+    nothing in it to miss, and the copies fit on one screen.
+
+    The same-file half is the load-bearing one. A short body CAN hide a divergence
+    when the copies are far apart, and the counter-example is in this tree:
+    `_sanitize_error_message` has five ONE-statement copies whose divergence is in
+    the ARGUMENT LIST -- two pass `filter_sensitive_keywords=True`, two take the
+    `False` default and so never filter API keys or database details out of an
+    error message. Measured on this tree: a size-only floor drops 72 families
+    INCLUDING that one; adding the same-file condition drops 8 and keeps it.
+
+    Deliberately NOT addressed: Template-Method / Strategy overrides such as
+    `_calculate_delay` (four subclasses in `retry_policy.py`, each a 5-statement
+    wrapper delegating to the shared `calculate_backoff_delay()`). Those bodies are
+    not trivial by size, and "these differ only by a strategy argument, and the real
+    logic is already shared" is a semantic judgement no size heuristic can make.
+    See #1009.
+    """
+    return (
+        a_path == b_path
+        and _statement_count(a_norm) < TRIVIAL_BODY_STATEMENTS
+        and _statement_count(b_norm) < TRIVIAL_BODY_STATEMENTS
+    )
+
+
 def near_pairs(copies) -> int:
     """How many of a name's pairs are near-identical. The blocking rule (#949).
 
     Counts pairs at or above CLONE_RATIO after normalising. A pair whose body failed
     to unparse counts as NOT near-identical, so a parse failure can never be read as
     a clone -- `SequenceMatcher("", "").ratio()` is 1.0.
+
+    Trivial same-file pairs are skipped -- see `_is_trivial_same_file_pair`. That
+    exclusion is MONOTONE, which #949 requires: whether a pair is skipped depends
+    only on the two definitions in it, so adding a copy can never remove a near pair
+    that already counted, and so can never push a real family out of the gate.
     """
     near = 0
     for i in range(len(copies)):
         for j in range(i + 1, len(copies)):
             a, b = copies[i][2], copies[j][2]
             if not a or not b:
+                continue
+            if _is_trivial_same_file_pair(copies[i][0], a, copies[j][0], b):
                 continue
             if a == b or _ratio(a, b) >= CLONE_RATIO:
                 near += 1

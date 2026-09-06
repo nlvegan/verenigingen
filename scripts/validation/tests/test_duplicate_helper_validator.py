@@ -352,6 +352,50 @@ class BlockingRuleTest(unittest.TestCase):
         self.assertEqual(4, len(families["_helper"]))
         self.assertIn("_helper", blocking)
 
+    def test_a_trivial_helper_duplicated_in_ONE_file_is_not_a_clone_family(self):
+        """#1009: sibling test classes each carrying the same one-line delegator
+        carry no "a fix landed in one copy and the others were missed" risk --
+        there is nothing in a one-liner to miss, and the copies are visible on one
+        screen. `_run` was 10 copies of `return self.v._validate_rule(...)`."""
+        src = "\n".join(
+            f"class T{i}:\n    def _run(self):\n        return self.v.check()\n" for i in range(4)
+        )
+        blocking, _advisory, families = self._split({"a.py": src})
+        self.assertEqual(4, len(families["_run"]), "all four definitions still COUNT")
+        self.assertNotIn("_run", blocking, "but they must not BLOCK")
+
+    def test_a_trivial_helper_duplicated_ACROSS_files_is_still_a_clone_family(self):
+        """The same-file half of the exclusion is the load-bearing half.
+
+        A short body can absolutely hide a divergence when the copies are far
+        apart, and the counter-example is real: `_sanitize_error_message` has five
+        ONE-statement copies whose divergence is in the argument list -- two pass
+        `filter_sensitive_keywords=True`, two take the `False` default and never
+        filter API keys or database details out of an error message. A plain size
+        floor would have dropped that family from the gate.
+
+        If this test ever goes green while the one above does too, the exclusion
+        has stopped depending on file identity and the gate has quietly lost the
+        `_sanitize_error_message` class."""
+        body = "        return sanitize(msg, filter_keywords=True)\n"
+        blocking, _advisory, families = self._split(
+            {f"m{i}.py": f"def _sanitize(msg):\n{body}" for i in range(3)}
+        )
+        self.assertEqual(3, len(families["_sanitize"]))
+        self.assertIn("_sanitize", blocking)
+
+    def test_a_SUBSTANTIAL_helper_duplicated_in_ONE_file_is_still_a_clone_family(self):
+        """The size half must not swallow real same-file clones. The motivating
+        case is `_get_or_create_parent_account`: ~7 statements of account-lookup
+        logic, byte-identical across five sibling classes in one file."""
+        body = "\n".join(f"        step{i} = lookup({i})" for i in range(7))
+        src = "\n".join(
+            f"class T{i}:\n    def _helper(self):\n{body}\n" for i in range(3)
+        )
+        blocking, _advisory, families = self._split({"a.py": src})
+        self.assertEqual(3, len(families["_helper"]))
+        self.assertIn("_helper", blocking)
+
     def test_an_unparseable_body_is_not_counted_as_a_clone(self):
         """`SequenceMatcher("", "").ratio()` is 1.0, so two parse failures would
         otherwise be a flawless clone family."""
