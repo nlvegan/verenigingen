@@ -797,7 +797,8 @@ class TestMollieResourceStubsMatchTheSdk(unittest.TestCase):
 # ``form_data`` -- the ORIGINAL #341 surface -- is scanned too, by
 # ``TestDonateFormKeysHaveWriters`` below. Its writers are not Python, but they
 # are plain files in this repo: ``name="..."`` attributes in donate.html and
-# ``formData.X`` / ``getElementById('X')`` in donation_form.js. "The writer is
+# campaign.html, and ``formData.X`` / ``getElementById('X')`` in
+# donation_form.js. "The writer is
 # not Python" is a reason the scan cannot be AST-only, not a reason it cannot
 # exist -- and this is the boundary that actually shipped the bug.
 # ---------------------------------------------------------------------------
@@ -1214,6 +1215,11 @@ class TestNormalisedPaymentDictContract(EnhancedTestCase):
 # ===========================================================================
 DONATE_TEMPLATE = os.path.join(PACKAGE_ROOT, "templates", "pages", "donate.html")
 DONATE_JS = os.path.join(PACKAGE_ROOT, "public", "js", "donation_form.js")
+# The campaign page is the SECOND writer into the same service: its form posts to
+# donation_api.process_campaign_donation, which hands form_data straight to
+# get_public_donation_service().submit() (donation_api.py:44). Scanning only the
+# /donate pair reported every campaign-only key as an orphan.
+CAMPAIGN_TEMPLATE = os.path.join(PACKAGE_ROOT, "templates", "pages", "campaign.html")
 DONATION_READER_FILES = (
     os.path.join(PACKAGE_ROOT, "services", "donation", "public_donation_service.py"),
     os.path.join(PACKAGE_ROOT, "templates", "pages", "donate.py"),
@@ -1274,16 +1280,24 @@ def _read_text(path):
 
 
 def _donate_form_writers():
-    """Keys the browser actually posts, read from the two files that post them.
+    """Keys the browser actually posts, read from the files that post them.
 
     Not AST-parseable, which is exactly why this boundary went unchecked and
-    why #341 shipped. A regex over two known files is cruder than an AST walk
+    why #341 shipped. A regex over known files is cruder than an AST walk
     and still strictly better than no check at all.
+
+    Both public donation forms are scanned, because both feed the SAME reader.
+    ``PublicDonationService.submit`` has exactly two entry points --
+    ``donate.py:172`` (driven by donate.html/donation_form.js) and
+    ``donation_api.py:44`` (driven by campaign.html) -- so a key posted by only
+    one of them is still a real writer. Scanning just the first made every
+    campaign-only key look orphaned; ``anonymous`` was the one that surfaced it.
     """
     writers = set()
-    template = _read_text(DONATE_TEMPLATE)
-    writers |= set(re.findall(r"""\bname=["']([A-Za-z_][\w]*)["']""", template))
-    writers |= set(re.findall(r"""\bid=["']([A-Za-z_][\w]*)["']""", template))
+    for path in (DONATE_TEMPLATE, CAMPAIGN_TEMPLATE):
+        template = _read_text(path)
+        writers |= set(re.findall(r"""\bname=["']([A-Za-z_][\w]*)["']""", template))
+        writers |= set(re.findall(r"""\bid=["']([A-Za-z_][\w]*)["']""", template))
     js = _read_text(DONATE_JS)
     writers |= set(re.findall(r"""formData\.([A-Za-z_][\w]*)""", js))
     writers |= set(re.findall(r"""formData\[["']([A-Za-z_][\w]*)["']\]""", js))
@@ -1358,6 +1372,15 @@ class TestDonateFormKeysHaveWriters(unittest.TestCase):
             "subscription_interval",
             self.reads,
             f"Scanner found no form_data reader for subscription_interval; " f"readers={sorted(self.reads)}",
+        )
+        # Same control for the campaign half of the scan. `anonymous` is posted
+        # ONLY by campaign.html, so if that file ever drops out of the scan this
+        # assertion fails instead of the orphan test quietly gaining a finding.
+        self.assertIn(
+            "anonymous",
+            self.writers,
+            f"Scanner found no writer for anonymous in campaign.html; "
+            f"writers={sorted(self.writers)[:40]}",
         )
 
     def test_no_new_form_data_key_is_read_without_a_writer(self):

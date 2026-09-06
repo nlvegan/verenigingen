@@ -6,6 +6,7 @@ from frappe import _
 from frappe.utils import add_months, flt, getdate, today
 
 from verenigingen.services.payment.sepa_mandate_manager import get_sepa_mandate_manager
+from verenigingen.utils.boolean_utils import cbool
 from verenigingen.utils.constants import Limits, Membership, PaymentStatus
 from verenigingen.utils.error_handling import cache_with_ttl
 from verenigingen.utils.member_utils import get_member_name_for_user
@@ -695,6 +696,128 @@ def export_payment_history_csv(year=None) -> OperationResult[Dict[str, Any]]:
     except Exception as e:
         frappe.log_error(title=_("CSV Export Error"), message=traceback.format_exc())
         return OperationResult.fail(_("Failed to export payment history: {0}").format(str(e)))
+
+
+@frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
+def export_all_financial_data() -> OperationResult[Dict[str, Any]]:
+    """Export the current user's full payment and SEPA mandate history as one CSV.
+
+    Mirrors export_payment_history_csv (always resolves the current session's own
+    member, ignoring any ``member`` argument a caller sends) but combines every
+    year of payment history with mandate history instead of a single year of
+    payments.
+    """
+    try:
+        member = get_member_from_user()
+
+        if not member:
+            return OperationResult.fail(_("No member found for current user"))
+
+        # "All" financial data means all of it: get_payment_history's own default
+        # (Limits.DEFAULT_PAGE_SIZE * 5 = 100) would otherwise truncate the CSV
+        # silently while the mandate history below carries every row.
+        success, history, raw = _unwrap_internal_result(
+            get_payment_history(member, limit=Limits.MAX_PAGE_SIZE)
+        )
+        if not success:
+            return raw
+
+        mandate_success, mandates, mandate_raw = _unwrap_internal_result(get_mandate_history(member))
+        if not mandate_success:
+            return mandate_raw
+
+        import csv
+        from io import StringIO
+
+        output = StringIO()
+        writer = csv.writer(output)
+
+        writer.writerow(["Payment History"])
+        writer.writerow(["Date", "Description", "Amount", "Status", "Reference"])
+        for payment in history:
+            writer.writerow(
+                [payment["date"], payment["description"], payment["amount"], payment["status"], payment["id"]]
+            )
+
+        writer.writerow([])
+        writer.writerow(["SEPA Mandate History"])
+        writer.writerow(["Mandate ID", "IBAN", "Bank", "Status", "Signed", "Expiry"])
+        for mandate in mandates:
+            writer.writerow(
+                [
+                    mandate["mandate_id"],
+                    mandate["iban_formatted"],
+                    mandate["bank_name"],
+                    mandate["status"],
+                    mandate["sign_date"],
+                    mandate["expiry_date"],
+                ]
+            )
+
+        csv_content = output.getvalue()
+
+        frappe.local.response.filename = "financial_data_export.csv"
+        frappe.local.response.filecontent = csv_content
+        frappe.local.response.type = "csv"
+
+        return OperationResult.ok(
+            {"filename": "financial_data_export.csv"},
+            message=_("Financial data exported successfully"),
+        )
+
+    except Exception as e:
+        frappe.log_error(title=_("Financial Data Export Error"), message=traceback.format_exc())
+        return OperationResult.fail(_("Failed to export financial data: {0}").format(str(e)))
+
+
+# Toggles the payment dashboard's "Notification Settings" panel exposes. Any key
+# outside this set is dropped rather than persisted, so the endpoint can't be used
+# to write arbitrary data onto the Member document.
+_NOTIFICATION_SETTING_KEYS = {"email_notifications", "reminder_notifications", "failure_notifications"}
+
+
+@frappe.whitelist(methods=["POST"])
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
+def save_notification_settings(settings) -> OperationResult[Dict[str, Any]]:
+    """Persist the payment dashboard's notification-preference toggles.
+
+    Always writes to the current session's own member (like export_payment_history_csv,
+    ignores any ``member`` argument a caller sends) -- this is a write endpoint, so
+    resolving an explicit member id here would let one user edit another's settings.
+
+    @high_security_api, not @critical_api: this is ordinary self-service (any member
+    manages their own toggles), and @critical_api's authorization rules only grant
+    access to admin-tier role profiles -- switching to it locked out the plain
+    "Verenigingen Member" role this endpoint exists for (measured: a plain-member
+    test call 403'd with "No authorization rule grants critical access"). POST-only
+    is enforced at the Frappe dispatch layer instead, via @frappe.whitelist's own
+    ``methods=`` (frappe/handler.py checks this before the function -- or its
+    security decorator -- ever runs), independent of and unaffected by which
+    security tier the app-level framework assigns.
+    """
+    try:
+        member = get_member_from_user()
+        if not member:
+            return OperationResult.fail(_("No member found for current user"))
+
+        if isinstance(settings, str):
+            settings = frappe.parse_json(settings)
+
+        # cbool, not bool(): bool("false") is True, and a JS boolean posted through
+        # frappe.call can arrive here as the string "false".
+        preferences = {k: cbool(v) for k, v in (settings or {}).items() if k in _NOTIFICATION_SETTING_KEYS}
+
+        # db_set bypasses the read-only/hidden field to write this internal blob;
+        # see CLAUDE.md's "Pattern 1: Explicit Commit After db_set()".
+        frappe.db.set_value("Member", member, "payment_notification_preferences", frappe.as_json(preferences))
+        frappe.db.commit()
+
+        return OperationResult.ok(preferences, message=_("Notification settings saved"))
+
+    except Exception as e:
+        frappe.log_error(title=_("Save Notification Settings Error"), message=traceback.format_exc())
+        return OperationResult.fail(_("Failed to save notification settings: {0}").format(str(e)))
 
 
 @cache_with_ttl(ttl=300)  # Cache for 5 minutes - frequently accessed lookup

@@ -33,6 +33,7 @@
   "email",
   "contact_number",
   "accepts_optional_communications",
+  "payment_notification_preferences",
   "notes_section",
   "notes",
   "membership_tab",
@@ -376,6 +377,15 @@
    "fieldname": "accepts_optional_communications",
    "fieldtype": "Check",
    "label": "Accepts Optional Communications"
+  },
+  {
+   "description": "JSON blob of the payment dashboard's notification toggles (email/reminder/failure). Written via frappe.db.set_value from verenigingen.api.payment_dashboard.save_notification_settings, not through the form.",
+   "fieldname": "payment_notification_preferences",
+   "fieldtype": "Small Text",
+   "hidden": 1,
+   "label": "Payment Notification Preferences",
+   "no_copy": 1,
+   "read_only": 1
   },
   {
    "fieldname": "bic",

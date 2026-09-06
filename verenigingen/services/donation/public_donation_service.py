@@ -11,7 +11,7 @@ load-order cycle: the Donation DocType controller imports services.donation.*.
 
 import frappe
 from frappe import _
-from frappe.utils import flt, getdate
+from frappe.utils import cint, flt, getdate
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.secure_operations import (
@@ -73,6 +73,10 @@ class PublicDonationService(StatelessService):
             ),
             "donation_purpose_type": purpose_type,
             "donation_notes": form_data.get("donation_notes", ""),
+            # get_top_donors() already filters `anonymous = 0` (donation_campaign.py),
+            # but nothing on either public form set the field, so it was always 0 --
+            # an anonymous donor showed up in the campaign's top-donor list anyway.
+            "anonymous": cint(form_data.get("anonymous", 0)),
             "paid": 0,
         }
 

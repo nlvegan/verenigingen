@@ -102,7 +102,6 @@ class TestContributionAmendmentRequestCoverage(VereningingenTestCase):
     # factory's auto-created template uses a base of 100, but compute it from the
     # live record so the tests stay correct if that default changes.
     MINIMUM_FEE_PERCENTAGE = 0.3
-    STUDENT_MINIMUM_FEE_PERCENTAGE = 0.5
     ABSOLUTE_MINIMUM_FEE = 5.0
 
     def _base_amount(self):
@@ -113,9 +112,8 @@ class TestContributionAmendmentRequestCoverage(VereningingenTestCase):
         mt = frappe.get_doc("Membership Type", self.membership_type.name)
         return float(load_template_for_membership_type(mt).suggested_amount)
 
-    def _minimum_fee(self, student=False):
-        pct = self.STUDENT_MINIMUM_FEE_PERCENTAGE if student else self.MINIMUM_FEE_PERCENTAGE
-        return max(self._base_amount() * pct, self.ABSOLUTE_MINIMUM_FEE)
+    def _minimum_fee(self):
+        return max(self._base_amount() * self.MINIMUM_FEE_PERCENTAGE, self.ABSOLUTE_MINIMUM_FEE)
 
     def _make(self, **overrides):
         data = {
@@ -234,22 +232,6 @@ class TestContributionAmendmentRequestCoverage(VereningingenTestCase):
         below = max(self._minimum_fee() - 1.0, 1.0)
         with self.assertRaises(frappe.ValidationError):
             self._make(requested_amount=below).insert()
-
-    def test_student_higher_minimum_fee_throws(self):
-        """Students face a 50% minimum. A value between the non-student floor and
-        the student floor passes for a normal member but fails for a student."""
-        non_student_min = self._minimum_fee(student=False)
-        student_min = self._minimum_fee(student=True)
-        # Only meaningful when the student floor is strictly higher.
-        if student_min <= non_student_min:
-            self.skipTest("Student minimum not higher than standard for this base amount")
-        between = (non_student_min + student_min) / 2.0
-        if not hasattr(self.member, "student_status"):
-            self.skipTest("Member doctype has no student_status field")
-        self.member.db_set("student_status", 1)
-        self.member.reload()
-        with self.assertRaises(frappe.ValidationError):
-            self._make(requested_amount=between).insert()
 
     def test_valid_fee_change_inserts(self):
         """A reasonable increase above the minimum and different from current

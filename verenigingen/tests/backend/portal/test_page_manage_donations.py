@@ -482,6 +482,36 @@ class TestPageManageDonations(EnhancedTestCase):
         origin.reload()
         self.assertEqual(origin.amount, 99.0)
 
+    # ----- #355: a settled ORIGIN is a settled financial record too --------
+    #
+    # The charge guard above (#347) only excludes recurring_origin_donation
+    # rows. The very first payment on a subscription books directly against
+    # the origin itself -- paid=1 and journal_entry get set on the origin's
+    # own record, not a separate charge -- so an origin can be exactly as
+    # settled as a charge, and the endpoint let it through regardless.
+
+    def test_update_rejects_a_settled_origin_donation(self):
+        from verenigingen.templates.pages.manage_donations import update_recurring_donation
+
+        origin = self._make_donation(status="Recurring", amount=25.0, recurring_freq="Monthly", paid=1)
+        origin.db_set("journal_entry", "not-a-real-je")
+
+        with self.as_user(self.user):
+            frappe.form_dict = frappe._dict({"donation_id": origin.name, "new_amount": 99.0})
+            try:
+                with self.assertRaises(frappe.ValidationError):
+                    update_recurring_donation()
+            finally:
+                frappe.form_dict = frappe._dict()
+
+        origin.reload()
+        self.assertEqual(
+            origin.amount,
+            25.0,
+            "a settled origin's historical amount must not be rewritten -- its Journal Entry and "
+            "the GL keep the real figure",
+        )
+
     def test_cancel_rejects_a_charge_donation(self):
         from verenigingen.templates.pages.manage_donations import cancel_recurring_donation
 

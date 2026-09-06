@@ -66,10 +66,30 @@ PRUNE_DIRS = {"node_modules", ".git", "__pycache__", "worktrees", ".claude", "ar
 # A pair at or above this similarity is treated as a genuine clone in --report.
 CLONE_RATIO = 0.90
 
-# A family this fraction of whose pairs are near-identical is a real clone family,
-# and adding another copy FAILS the gate. Below it the shared name is treated as a
-# coincidence and only reported. See clone_share() for how this was chosen.
-CLONE_SHARE = 0.25
+# A family with at least this many near-identical PAIRS is a real clone family, and
+# adding another copy FAILS the gate. With none, the shared name is treated as a
+# coincidence and only reported.
+#
+# This is a COUNT, not a fraction, and that is the whole point (#949). The previous
+# rule was `near_pairs / all_pairs >= 0.25`, whose denominator is C(n,2) -- so it
+# moved the wrong way in both directions:
+#
+#   * adding a DISSIMILAR copy grew the denominator and pushed real clone families
+#     OUT of the gate. Measured on develop: `_new_customer` kept its 0.93 pair and
+#     went 33% -> 17% when a fourth, unrelated copy landed. 57 families sat unmarked
+#     while still containing a near-identical pair; `_ensure_company` had 22
+#     BYTE-IDENTICAL pairs at 24%, one point under the line.
+#   * removing a dissimilar copy raised the share and pulled families back IN,
+#     adding their whole count to the tracked total -- which failed PR #922, a
+#     consolidation PR, with "recorded into the baseline instead of consolidated".
+#
+# A count cannot do either: adding a dissimilar copy leaves `near` unchanged, and
+# removing one can only leave it unchanged or reduce it.
+#
+# The threshold is 1 because that is the honest reading of "contains a real clone".
+# It does NOT reintroduce the #769 complaint: a family whose copies merely share a
+# name has ZERO pairs at or above CLONE_RATIO and is still only recorded.
+CLONE_MIN_NEAR_PAIRS = 1
 
 
 def _rel(path: str) -> str:
@@ -290,6 +310,24 @@ def _ratio(a: str, b: str) -> float:
     return difflib.SequenceMatcher(None, first, second).ratio()
 
 
+def near_pairs(copies) -> int:
+    """How many of a name's pairs are near-identical. The blocking rule (#949).
+
+    Counts pairs at or above CLONE_RATIO after normalising. A pair whose body failed
+    to unparse counts as NOT near-identical, so a parse failure can never be read as
+    a clone -- `SequenceMatcher("", "").ratio()` is 1.0.
+    """
+    near = 0
+    for i in range(len(copies)):
+        for j in range(i + 1, len(copies)):
+            a, b = copies[i][2], copies[j][2]
+            if not a or not b:
+                continue
+            if a == b or _ratio(a, b) >= CLONE_RATIO:
+                near += 1
+    return near
+
+
 def clone_share(copies) -> float:
     """What FRACTION of a name's pairs are near-identical, after normalising.
 
@@ -311,7 +349,13 @@ def clone_share(copies) -> float:
     The share separates them: 0.5% for `_make_member`, 3.8% for `_make_donor`,
     32% for `_persist_eur_company`, 100% for the three Mollie fixture helpers.
 
-    CLONE_SHARE is a knob, not a natural boundary. The distribution is strongly
+    NOTE (#949): this is no longer the BLOCKING rule -- see near_pairs() and
+    CLONE_MIN_NEAR_PAIRS. It is kept because --report reads it and because the
+    share is a useful description of a family. The reasoning below explains why a
+    share beat best-pair and worst-pair aggregation; it does not survive contact
+    with the fact that a share is not monotone in duplication.
+
+    The old threshold was a knob, not a natural boundary. The distribution is strongly
     bimodal -- 342 of 567 families sit at exactly 0% and 110 at 100% -- but the
     middle is a continuum, and lowering the threshold to 0.10 would pull in 38 more
     families (`_ensure_company`, `_make_account`, ...). It is set where it is
@@ -348,7 +392,9 @@ def split_regressions(new: Dict[str, int], families: Dict):
     Separate from main() so it can be tested against real source trees rather than
     against similarity numbers a test made up.
     """
-    blocking = {n: c for n, c in new.items() if clone_share(families.get(n, [])) >= CLONE_SHARE}
+    blocking = {
+        n: c for n, c in new.items() if near_pairs(families.get(n, [])) >= CLONE_MIN_NEAR_PAIRS
+    }
     return blocking, {n: c for n, c in new.items() if n not in blocking}
 
 
@@ -404,8 +450,8 @@ def write_baseline(path: Path, counts: Dict[str, int], families: Dict) -> None:
     # this validator just stopped doing.
     body = []
     for name, count in sorted(counts.items()):
-        share = clone_share(families.get(name, []))
-        mark = f"  {CLONE_MARK}, {share:.0%} of pairs near-identical" if share >= CLONE_SHARE else ""
+        near = near_pairs(families.get(name, []))
+        mark = f"  {CLONE_MARK}, {near} near-identical pair(s)" if near >= CLONE_MIN_NEAR_PAIRS else ""
         body.append(f"{name}::{count}{mark}")
     path.write_text("\n".join(header + body) + "\n", encoding="utf-8")
 
@@ -486,7 +532,7 @@ def main() -> int:
     new = regressions(counts, baseline)
 
     # A new copy FAILS the gate only when the name is a real clone family -- at
-    # least CLONE_SHARE of its pairs near-identical (see clone_share()). A name
+    # at least CLONE_MIN_NEAR_PAIRS near-identical pairs (see near_pairs()). A name
     # collision is reported and does not fail.
     #
     # Replaying the last 400 commits: blocking on the NAME alone fires on 61.2% of
@@ -517,7 +563,7 @@ def main() -> int:
         print("\n🔴 NEWLY DUPLICATED HELPERS (not in the baseline):")
         _list(blocking)
         print(
-            "\nEvery copy of these is near-identical to every other, so this is a\n"
+            "\nAt least one pair of these copies is near-identical, so this is a\n"
             "copy-paste, and a copy-pasted helper is where a fix goes to die: the next\n"
             "person fixes one of these and the others keep the bug, silently. Import the\n"
             "existing one, or move it to a shared module.\n\n"

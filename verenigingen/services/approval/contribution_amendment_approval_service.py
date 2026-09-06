@@ -32,7 +32,6 @@ if TYPE_CHECKING:
 
 # Configuration Constants
 MINIMUM_FEE_PERCENTAGE = 0.3  # 30% of base amount
-STUDENT_MINIMUM_FEE_PERCENTAGE = 0.5  # 50% of base amount for students
 ABSOLUTE_MINIMUM_FEE = 5.0  # EUR 5 absolute minimum
 
 
@@ -92,12 +91,6 @@ class ContributionAmendmentApprovalService(StatefulService):
 
             # Calculate minimum fee (configurable percentage of base or absolute minimum)
             minimum_fee = max(base_amount * MINIMUM_FEE_PERCENTAGE, ABSOLUTE_MINIMUM_FEE)
-
-            # Check if member is a student (gets higher minimum percentage)
-            if self.request.member:
-                member = frappe.get_doc("Member", self.request.member)
-                if getattr(member, "student_status", 0):
-                    minimum_fee = max(base_amount * STUDENT_MINIMUM_FEE_PERCENTAGE, ABSOLUTE_MINIMUM_FEE)
 
             # CRITICAL: Ensure minimum respects template's minimum_amount and membership type minimum
             template_minimum = float(template.minimum_amount or 0)
