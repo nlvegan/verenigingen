@@ -181,7 +181,6 @@ class TestPersonas:
                 iban=generate_test_iban("MOCK"),
                 bank_account_name="Fiona FeeAdjuster",
                 status="Active",
-                student_status=1,  # Student for testing minimum fee rules
             )
             .with_membership(membership_type="Monthly Membership", payment_method="SEPA Direct Debit")
             .build()

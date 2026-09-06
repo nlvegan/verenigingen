@@ -17,7 +17,6 @@ from verenigingen.utils.validation_utilities import DateRangeValidator, Document
 
 # Configuration Constants
 MINIMUM_FEE_PERCENTAGE = 0.3  # 30% of base amount
-STUDENT_MINIMUM_FEE_PERCENTAGE = 0.5  # 50% of base amount for students
 ABSOLUTE_MINIMUM_FEE = 5.0  # EUR 5 absolute minimum
 SMALL_ADJUSTMENT_THRESHOLD = 0.05  # 5% threshold for auto-approval
 ERROR_MESSAGE_MAX_LENGTH = 200  # Maximum error message length for logging
@@ -115,14 +114,6 @@ class ContributionAmendmentRequest(Document):
 
                     # Calculate minimum fee (configurable percentage of base or absolute minimum)
                     minimum_fee = max(base_amount * MINIMUM_FEE_PERCENTAGE, ABSOLUTE_MINIMUM_FEE)
-
-                    # Check if member is a student (gets higher minimum percentage)
-                    if self.member:
-                        member = frappe.get_doc("Member", self.member)
-                        if getattr(member, "student_status", 0):
-                            minimum_fee = max(
-                                base_amount * STUDENT_MINIMUM_FEE_PERCENTAGE, ABSOLUTE_MINIMUM_FEE
-                            )
 
                     if self.requested_amount < minimum_fee:
                         frappe.throw(
