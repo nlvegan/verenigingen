@@ -461,6 +461,18 @@ def update_recurring_donation():
         if donation.recurring_origin_donation:
             frappe.throw(_("This is a past charge, not the recurring donation. Use the subscription itself."))
 
+        # #355: the ORIGIN itself can be exactly as settled as a charge. The very
+        # first payment on a subscription books directly against the origin's own
+        # record -- paid=1 and journal_entry get set on it, not on a separate
+        # charge -- so an origin that has already been charged once carries the
+        # same historical amount a Journal Entry and the GL rely on. Rewriting it
+        # here would make the Donation disagree with the books it was booked
+        # against.
+        if donation.paid or donation.journal_entry or donation.sales_invoice:
+            frappe.throw(
+                _("This recurring donation has already been charged and its amount cannot be changed here.")
+            )
+
         # Verify it's a recurring donation
         if donation.status != "Recurring":
             frappe.throw(_("This is not a recurring donation"))
