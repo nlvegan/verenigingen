@@ -74,7 +74,6 @@ _cleanup_customer_dependencies::2
 _cleanup_document_with_retry::2
 _cleanup_event::3  # clone family, 1 near-identical pair(s)
 _cleanup_member_and_customer::5  # clone family, 1 near-identical pair(s)
-_cleanup_stale_test_data::2
 _cleanup_status_mapping::3  # clone family, 3 near-identical pair(s)
 _cleanup_test_data::2
 _cleanup_thread_context::2  # clone family, 1 near-identical pair(s)
@@ -86,6 +85,7 @@ _company::13  # clone family, 17 near-identical pair(s)
 _compute_file_hash::2
 _coverage_invoice::3
 _create_active_membership::3
+_create_active_test_membership::2
 _create_address::2
 _create_audit_log::4
 _create_bank_account::2
@@ -182,11 +182,11 @@ _ensure_outgoing_email_account::6  # clone family, 4 near-identical pair(s)
 _ensure_parties::2  # clone family, 1 near-identical pair(s)
 _ensure_region::6  # clone family, 2 near-identical pair(s)
 _ensure_role::4  # clone family, 1 near-identical pair(s)
-_ensure_selling_price_list::3  # clone family, 1 near-identical pair(s)
+_ensure_selling_price_list::2  # clone family, 1 near-identical pair(s)
 _ensure_team_role::2  # clone family, 1 near-identical pair(s)
 _ensure_territory::3  # clone family, 3 near-identical pair(s)
 _ensure_test_company::3
-_ensure_test_item::4  # clone family, 1 near-identical pair(s)
+_ensure_test_item::3  # clone family, 1 near-identical pair(s)
 _ensure_test_uom::2
 _ensure_user::8  # clone family, 15 near-identical pair(s)
 _err::2
@@ -233,6 +233,7 @@ _get_notification_recipients::2
 _get_or_create_customer::3
 _get_or_create_historical_invoice::2
 _get_or_create_income_account::2
+_get_or_create_local_membership::2
 _get_or_create_membership_item::2
 _get_or_create_receivable_account::2
 _get_or_create_supplier::2
@@ -243,7 +244,7 @@ _get_setting::2  # clone family, 1 near-identical pair(s)
 _get_settings::5  # clone family, 1 near-identical pair(s)
 _get_template::2
 _get_termination_reason::2
-_get_test_company::5  # clone family, 3 near-identical pair(s)
+_get_test_company::4  # clone family, 3 near-identical pair(s)
 _get_test_membership_type::2
 _get_user_chapters::2
 _get_user_from_member_doc::3
@@ -357,7 +358,7 @@ _make_mollie_client::2  # clone family, 1 near-identical pair(s)
 _make_mutation::2  # clone family, 1 near-identical pair(s)
 _make_org_doc::2
 _make_org_donor::2
-_make_paid_donation::2
+_make_paid_donation::3
 _make_party_bank_account::2
 _make_payment_entry::3
 _make_payment_link::3
@@ -390,7 +391,7 @@ _make_team_with_member::4
 _make_termination_request::2
 _make_tracker::4
 _make_type::2
-_make_unpaid_invoice::2
+_make_unpaid_invoice::3
 _make_unprivileged_user::3
 _make_unsubmitted_donation::2  # clone family, 1 near-identical pair(s)
 _make_user::19  # clone family, 7 near-identical pair(s)
