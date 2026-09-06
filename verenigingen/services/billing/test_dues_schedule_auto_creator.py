@@ -349,10 +349,23 @@ class TestDuesScheduleAutoCreator(EnhancedTestCase):
         #     under this freeze_time the value reads back as '...51' with no
         #     fraction at all, which satisfies it while being the bug shape.
         #   * `assertNotEqual(get_datetime(modified).microsecond, 0)` FAILS here,
-        #     because #609's normaliser does NOT fire on this path. It is the
-        #     wrong mechanism to demand: this insert is safe not because the
-        #     microseconds were bumped but because BOTH sides are fractionless
-        #     and therefore compare equal.
+        #     and could never have worked. Under a frozen whole-second clock the
+        #     INSTANT has microsecond == 0, so `get_datetime()` parses both the
+        #     suffixed ('...51.000000') and the stripped ('...51') form to the
+        #     same value -- the assertion inspects a property of the timestamp,
+        #     not of the normalisation, so it fails identically whether or not
+        #     any mitigation ran.
+        #
+        #     An earlier version of this comment said "#609's normaliser does NOT
+        #     fire on this path". That was WRONG, and it would have told the next
+        #     reader the production hook is inert for Membership. Measured by
+        #     instrumenting `normalize_whole_second_timestamps` and running this
+        #     very test: it IS invoked -- and reports `touched=[]`, because
+        #     EnhancedTestCase's `db_insert` patch runs earlier in insert()'s call
+        #     graph (at the physical write, before run_post_save_methods() fires
+        #     on_change) and has already stripped the suffix. The hook fires and
+        #     finds nothing to do. So inside this test only the HARNESS mitigation
+        #     is exercised end to end; the production one is present but idle.
         db_modified = frappe.db.get_value("Membership", membership.name, "modified")
         self.assertEqual(
             str(membership.modified),
