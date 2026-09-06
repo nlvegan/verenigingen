@@ -44,6 +44,20 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
         )["membership_type"]
         self.membership_type_name = self.membership_type.name
 
+    def _standard_amount(self):
+        """The rate `validate_membership_amount_selection` compares against.
+
+        Mirrors its resolution order: the dues-schedule template's dues_rate or
+        suggested_amount, falling back to the type's minimum_amount.
+        """
+        mt = frappe.get_doc("Membership Type", self.membership_type_name)
+        if mt.get("dues_schedule_template"):
+            template = frappe.get_doc("Membership Dues Schedule", mt.dues_schedule_template)
+            rate = template.dues_rate or template.suggested_amount
+            if rate:
+                return float(rate)
+        return float(mt.minimum_amount or 0)
+
     def tearDown(self):
         """Clean up test records"""
         try:
@@ -262,6 +276,102 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
         result = submit_application(data=invalid_data)
         self.assertFalse(result.get("success"), "Application with invalid membership type should fail")
         self.assertIn("error", result, "Error should be reported for invalid membership type")
+
+    def test_custom_amount_below_minimum_is_rejected_without_uses_custom_amount_flag(self):
+        """#428: _validate_membership_amount used to gate entirely on the client-set
+        `uses_custom_amount` flag, which the live /apply_for_membership page only ever
+        sets from the income calculator's "Apply" button -- typing a custom amount
+        directly into #custom_contribution_fee (or picking a "custom" flex payment
+        plan) never sets it. A submitted `custom_contribution_fee` must be validated
+        against the membership type's minimum regardless of that flag.
+
+        setUp's `amount=10.0` kwarg is a SILENT NO-OP -- "Membership Type" has no
+        `amount` field -- and the template it builds carries dues_rate=15.0, so the
+        50% floor is 7.50, not 5.00. Either way 1.0 is below it and must be rejected.
+        """
+        test_data = {
+            "first_name": "Bypass",
+            "last_name": "CustomAmount",
+            "email": "bypass.custom.amount@example.com",
+            "birth_date": "1990-01-01",
+            "address_line1": "Test Street 123",
+            "city": "Amsterdam",
+            "postal_code": "1000AA",
+            "country": "Netherlands",
+            "selected_membership_type": self.membership_type_name,
+            "custom_contribution_fee": 1.0,
+            # uses_custom_amount deliberately omitted -- the client never sets it
+            # for this path.
+            "payment_method": "Bank Transfer"}
+
+        from verenigingen.api.membership_application import submit_application
+
+        result = submit_application(data=test_data)
+
+        if result.get("success"):
+            member_record = (result.get("data") or {}).get("member_record") or result.get("member_record")
+            self.add_cleanup_record("Member", member_record)
+
+        self.assertFalse(
+            result.get("success"),
+            f"A custom_contribution_fee below the membership type's minimum must be "
+            f"rejected even without uses_custom_amount=True. Got: {result}",
+        )
+
+    def test_valid_custom_amount_is_accepted_without_uses_custom_amount_flag(self):
+        """The positive counterpart of the test above, and the one whose absence let a
+        regression through review.
+
+        Widening only the OUTER gate makes validation run, but the inner branch still
+        selected its rule from the same client flag:
+
+            uses_custom = data.get("uses_custom_amount", False)
+            validate_membership_amount_selection(membership_type, fee, uses_custom)
+
+        With uses_custom falsy that helper takes its "standard amount" branch and
+        demands the fee equal the type's amount EXACTLY, so every legitimate custom
+        amount submitted the way #428 describes was rejected with "Amount does not
+        match membership type standard amount" -- a path that worked before the fix.
+
+        The amount is derived from the fixture's own standard rate rather than
+        hardcoded. The setUp helper's `amount=10.0` kwarg is a SILENT NO-OP --
+        "Membership Type" has no `amount` field -- and the template it builds
+        actually carries dues_rate=15.0. A hardcoded 15.0 here would equal the
+        standard amount exactly, pass the else-branch for the wrong reason, and
+        assert nothing. Reading the rate and adding to it keeps the value both
+        above the 50% floor and provably not the standard.
+        """
+        standard = self._standard_amount()
+        custom_fee = standard + 5.0
+        test_data = {
+            "first_name": "Valid",
+            "last_name": "CustomAmount",
+            "email": "valid.custom.amount@example.com",
+            "birth_date": "1990-01-01",
+            "address_line1": "Test Street 123",
+            "city": "Amsterdam",
+            "postal_code": "1000AA",
+            "country": "Netherlands",
+            "selected_membership_type": self.membership_type_name,
+            "custom_contribution_fee": custom_fee,
+            # uses_custom_amount deliberately omitted, exactly as the live page leaves
+            # it when the applicant types an amount instead of using the calculator.
+            "payment_method": "Bank Transfer"}
+
+        from verenigingen.api.membership_application import submit_application
+
+        result = submit_application(data=test_data)
+
+        if result.get("success"):
+            member_record = (result.get("data") or {}).get("member_record") or result.get("member_record")
+            self.add_cleanup_record("Member", member_record)
+
+        self.assertTrue(
+            result.get("success"),
+            f"A custom_contribution_fee above the minimum must be ACCEPTED without "
+            f"uses_custom_amount=True -- rejecting it breaks every path #428 describes. "
+            f"Got: {result}",
+        )
 
     def test_special_character_handling_in_volunteer_creation(self):
         """Test that special characters in names are handled correctly in volunteer creation"""
