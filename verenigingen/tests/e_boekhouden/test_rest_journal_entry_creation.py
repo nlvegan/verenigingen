@@ -38,6 +38,8 @@ Run with:
         --module verenigingen.tests.e_boekhouden.test_rest_journal_entry_creation
 """
 
+from unittest.mock import patch
+
 import frappe
 from frappe.utils import flt, getdate, nowdate
 
@@ -52,6 +54,7 @@ from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
     _validate_memorial_booking,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.non_resumable_errors import deadlock
 
 ABBR = "EBJC"
 COMPANY = "TEST-EB-Journal-Company"
@@ -744,6 +747,33 @@ class TestCreateJournalEntryEndToEnd(_JournalClusterBase):
         td, tc = self._balanced(je)
         self.assertAlmostEqual(td, tc, places=2)
         self.assertEqual(je.docstatus, 1)
+
+
+# ---------------------------------------------------------------------------
+# _create_journal_entry -- must not flatten a non-resumable DB error (#958)
+# ---------------------------------------------------------------------------
+class TestCreateJournalEntryPreservesNonResumableErrors(_JournalClusterBase):
+    """`_create_journal_entry`'s final `except Exception as e: raise
+    Exception(error_msg)` (eboekhouden_rest_full_migration.py) flattens ANY
+    error from `je.save()`/`je.submit()` -- including a real
+    `frappe.QueryDeadlockError` -- into a bare `Exception`.
+
+    `_process_mutation_with_coordinator`, which calls this (via
+    `_process_single_mutation`, the legacy fallback), has its OWN
+    `except NON_RESUMABLE_DB_ERRORS: raise` guard specifically so a 1213/1205
+    is never converted into `{"action": "error", ...}` and counted as an
+    ordinary per-mutation failure on a transaction the server has already
+    discarded or half-applied (#572). A bare `Exception` can never satisfy
+    that guard, so the flattening here silently defeats it.
+    """
+
+    def test_deadlock_during_save_propagates_as_deadlock_not_generic_exception(self):
+        debug = []
+        mut = self._memorial_mutation(id=700200)
+
+        with patch("frappe.model.document.Document.save", side_effect=deadlock()):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                _create_journal_entry(mut, self.company, self.cost_center, debug)
 
 
 if __name__ == "__main__":
