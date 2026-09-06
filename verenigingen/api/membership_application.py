@@ -695,7 +695,14 @@ def _validate_membership_amount(data):
 
     membership_type = data.get("selected_membership_type")
     custom_contribution_fee = data.get("custom_contribution_fee")
-    uses_custom = data.get("uses_custom_amount", False)
+    # Derive this rather than trusting the client flag. Widening only the gate above
+    # made validation RUN for a typed amount, but validate_membership_amount_selection
+    # picks its RULE from this value: falsy takes the "standard amount" branch, which
+    # demands the fee equal the type's rate exactly. So a legitimate typed amount was
+    # rejected with "Amount does not match membership type standard amount" -- turning
+    # a bypass into a refusal of every path #428 is about. A submitted
+    # custom_contribution_fee IS a custom amount, whatever the client says.
+    uses_custom = bool(data.get("uses_custom_amount", False) or custom_contribution_fee)
 
     if not (membership_type and custom_contribution_fee):
         return None
