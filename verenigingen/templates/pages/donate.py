@@ -191,8 +191,13 @@ def mark_donation_paid(donation_id, payment_reference: str | None = None):
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.FINANCIAL)
-def retry_payment(donation_id):
-    """Retry payment for a failed donation by redirecting to Mollie payment page."""
-    payment_url = get_public_donation_service().retry_payment_impl(donation_id)
+def retry_payment(donation_id, donor_email: str | None = None):
+    """Retry payment for a failed donation by redirecting to Mollie payment page.
+
+    Guest-reachable by design (see retry_payment_impl's docstring). Since
+    there is no session to check ownership against, the caller must supply
+    the donor_email on file for the donation (#969).
+    """
+    payment_url = get_public_donation_service().retry_payment_impl(donation_id, donor_email)
     frappe.local.response["type"] = "redirect"
     frappe.local.response["location"] = payment_url

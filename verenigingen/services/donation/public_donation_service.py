@@ -505,24 +505,56 @@ class PublicDonationService(StatelessService):
 
         return {"success": True, "message": "Donation marked as paid"}
 
-    def retry_payment_impl(self, donation_id):
+    def retry_payment_impl(self, donation_id, donor_email=None):
         """Retry payment for a failed donation (moved from donate.py:retry_payment).
 
-        Returns the payment_url on success; raises otherwise (the outer
-        except wraps every failure, including "no redirect obtained", into
-        the generic "Unable to retry payment" error, matching the original
-        endpoint's behavior).
+        This endpoint is guest-reachable by design: a donor whose Mollie
+        payment failed has no session to authenticate with, so requiring
+        login would break the account-less retry flow that is the whole
+        point of the endpoint (#969). With no session, ``donor_email`` is
+        the only ownership signal available -- the caller must supply the
+        email address on file for the donation's donor. No other
+        guest-reachable endpoint in this module discloses a donation's
+        donor_email, so it is not derivable from ``donation_id`` alone
+        (which, being a sequential naming-series value, is enumerable).
+
+        Returns the payment_url on success; raises otherwise. Every inner
+        throw below (missing id, no/wrong donor_email, already paid, wrong
+        payment method, provider failure) is converted by the outer
+        ``except`` into the same "Unable to retry payment" text, so the
+        *returned message* does not distinguish "wrong email" from "no such
+        donation" from any other failure.
+
+        That message-level uniformity is NOT a complete oracle defense,
+        though: a wrong/missing donor_email is rejected by
+        ``_verify_donor_email_matches`` before any network call, while a
+        correct one proceeds into ``process_mollie_payment`` -- a real,
+        network-bound request -- before it can fail for some other reason.
+        Measured directly: a wrong email returns in single-digit-to-tens of
+        milliseconds; a correct one takes over a second, a ~30-400x gap. That
+        timing difference is observable via wall-clock time even though the
+        response text is identical, and it is new -- before this endpoint had
+        an email check at all, every caller (right or wrong "email", since
+        there was no such parameter) reached the slow path. This is not
+        mitigated here; the intended mitigation is the per_ip Critical
+        Operation Rule (see fixtures/critical_operation_rule.json's
+        "retry_payment" entries), which bounds how many timing samples a
+        single attacker can collect per hour rather than trying to make the
+        two paths take equal time.
         """
         try:
             if not donation_id:
                 frappe.throw(_("Donation ID is required"))
 
-            # Get the donation record
+            # Get the donation record. frappe.get_doc raises DoesNotExistError
+            # here for a missing donation_id -- there is no falsy `donation`
+            # to check afterwards.
             donation = frappe.get_doc("Donation", donation_id)
 
-            # Check if donation exists and belongs to current user (or allow public retry)
-            if not donation:
-                frappe.throw(_("Donation not found"))
+            # Get the donor information for payment retry
+            donor = frappe.get_doc("Donor", donation.donor)
+
+            self._verify_donor_email_matches(donor, donor_email)
 
             # Only allow retry for unpaid donations with payment method Mollie
             if donation.paid:
@@ -530,9 +562,6 @@ class PublicDonationService(StatelessService):
 
             if donation.mode_of_payment != "Mollie":
                 frappe.throw(_("Payment retry is only available for Mollie payments"))
-
-            # Get the donor information for payment retry
-            donor = frappe.get_doc("Donor", donation.donor)
 
             # Prepare form data for retry (similar to original payment creation)
             form_data = {
@@ -562,6 +591,21 @@ class PublicDonationService(StatelessService):
                 f"Payment retry error for donation {donation_id}: {str(e)}", "Payment Retry Error"
             )
             frappe.throw(_("Unable to retry payment. Please try again or contact support."))
+
+    @staticmethod
+    def _verify_donor_email_matches(donor, donor_email):
+        """Refuse a retry unless the caller supplied the donor's own email.
+
+        Raises the same generic message every other failure in
+        retry_payment_impl's outer ``except`` ends up producing, so the
+        response TEXT does not distinguish "wrong email" from any other
+        failure. It does not, by itself, close the timing side-channel this
+        check introduces -- see retry_payment_impl's docstring.
+        """
+        on_file = (donor.donor_email or "").strip().lower()
+        supplied = (donor_email or "").strip().lower()
+        if not supplied or supplied != on_file:
+            frappe.throw(_("Donation not found"))
 
     def process_mollie_payment(self, donation, form_data):
         """Handle Mollie payment using the enhanced service layer architecture"""

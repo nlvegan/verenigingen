@@ -691,8 +691,17 @@
 <script>
 // Retry payment function
 function retryPayment(donationId) {
-    // Redirect to Mollie payment page for retry
-    window.location.href = `/api/method/verenigingen.templates.pages.donate.retry_payment?donation_id=${donationId}`;
+    // No session exists for a guest donor, so the email on file is the only
+    // proof of ownership the retry endpoint can check for (#969). Ask for it
+    // rather than sending the request unauthenticated.
+    const donorEmail = window.prompt(
+        "Please confirm the email address you used for this donation to retry payment:"
+    );
+    if (!donorEmail) {
+        return;
+    }
+    const params = new URLSearchParams({donation_id: donationId, donor_email: donorEmail});
+    window.location.href = `/api/method/verenigingen.templates.pages.donate.retry_payment?${params.toString()}`;
 }
 </script>
 {% endblock %}
