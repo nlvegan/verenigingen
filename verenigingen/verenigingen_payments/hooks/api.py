@@ -13,39 +13,10 @@ from frappe.utils import flt
 
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
 from verenigingen.verenigingen_payments.hooks.payment_hook import PaymentHook
-
-# Reference doctypes a guest may pay through this endpoint. Deliberately
-# narrower than templates.pages.payment_success.ALLOWED_PAYMENT_DOCTYPES and
-# matching verenigingen_payments.templates.pages.mollie_checkout's
-# independently-verified ALLOWED_REFERENCE_DOCTYPES (#1032/PR #1047) --
-# "Member Application" is dropped there because it is not an installed
-# DocType. Kept as a separate copy here rather than imported from that
-# template-page module to avoid a hooks-module -> templates-module
-# dependency; see #1048's PR body for the cross-copy duplication this
-# creates and the follow-up filed for it.
-ALLOWED_REFERENCE_DOCTYPES = {"Donation", "Sales Invoice", "Payment Plan Payment"}
-
-
-def _resolve_reference_owner_email(reference_doctype: str, doc) -> str:
-    """Resolve the email address on file for a payment reference document.
-
-    initiate_payment is guest-reachable by design (a payer has no session
-    before their payment succeeds), so this is the only ownership signal
-    available -- mirrors mollie_checkout._resolve_reference_owner_email
-    (#1032/PR #1047) and donate.py's _verify_donor_email_matches (#969/PR
-    #1028). Returns "" (never None) for any doctype/document this cannot
-    resolve an email for, so callers fail closed instead of skipping the
-    comparison.
-    """
-    if reference_doctype == "Donation":
-        return (getattr(doc, "donor_email", None) or "").strip().lower()
-    if reference_doctype == "Sales Invoice":
-        return (getattr(doc, "contact_email", None) or "").strip().lower()
-    if reference_doctype == "Payment Plan Payment":
-        member = getattr(doc, "member", None)
-        member_email = frappe.db.get_value("Member", member, "email") if member else None
-        return (member_email or "").strip().lower()
-    return ""
+from verenigingen.verenigingen_payments.utils.reference_ownership import (
+    ALLOWED_REFERENCE_DOCTYPES,
+    verify_payer_owns_reference as _verify_payer_owns_reference,
+)
 
 
 def _resolve_reference_amount(reference_doctype: str, doc) -> float:
@@ -68,29 +39,6 @@ def _resolve_reference_amount(reference_doctype: str, doc) -> float:
     if reference_doctype == "Payment Plan Payment":
         return flt(getattr(doc, "amount", 0))
     return 0.0
-
-
-def _verify_payer_owns_reference(reference_doctype: str, doc, payer_email: str) -> None:
-    """Refuse unless payer_email matches the reference document's on-file email.
-
-    Raises frappe.ValidationError. The caller wraps this in a broad except
-    that converts every failure here into the same generic "Payment
-    reference not found" response, so the response TEXT does not
-    distinguish "wrong/missing email" or "disallowed doctype" from any
-    other failure -- mirrors mollie_checkout._verify_payer_owns_reference
-    (#1032/PR #1047). That uniformity does NOT close a timing side-channel
-    by itself: a refusal here is a string compare, while a matching email
-    proceeds into a real, network-bound gateway call before it can fail for
-    an unrelated reason. Not mitigated here; the intended mitigation is the
-    dedicated per_ip Critical Operation Rule added alongside this fix
-    (fixtures/critical_operation_rule.json's "initiate_payment" entry),
-    which bounds how many timing samples one attacker can collect per
-    minute rather than trying to equalize latency.
-    """
-    owner_email = _resolve_reference_owner_email(reference_doctype, doc)
-    supplied = (payer_email or "").strip().lower()
-    if not owner_email or not supplied or supplied != owner_email:
-        frappe.throw(_("Payment reference not found"))
 
 
 @frappe.whitelist(allow_guest=True)

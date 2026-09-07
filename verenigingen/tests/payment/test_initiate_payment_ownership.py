@@ -23,29 +23,17 @@ tests/backend/portal/test_page_mollie_checkout.py (#1032/PR #1047), the
 sibling fix for the analogous mollie_checkout.make_payment endpoint.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import frappe
 from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.gateway_stub import stub_redirect_gateway as _stub_gateway
 
 _GATEWAY_FACTORY_PATH = (
     "verenigingen.verenigingen_payments.utils.payment_gateways.PaymentGatewayFactory.get_gateway"
 )
-
-
-def _stub_gateway():
-    """A gateway stub that would report a real-looking redirect if reached,
-    and records the form_data it was actually called with so tests can
-    assert on what was forwarded (amount, recurring, interval)."""
-    gateway = MagicMock()
-    gateway.process_payment.return_value = {
-        "status": "redirect_required",
-        "payment_url": "https://pay.example.test/checkout/xyz",
-        "payment_id": "tr_stubbed",
-    }
-    return gateway
 
 
 class TestInitiatePaymentOwnership(EnhancedTestCase):
@@ -71,7 +59,7 @@ class TestInitiatePaymentOwnership(EnhancedTestCase):
         frappe.set_user(self._original_user)
         super().tearDown()
 
-    def _make_donation(self, *, donor_email, amount=20.0):
+    def _make_test_donation_for_ownership_check(self, *, donor_email, amount=20.0):
         donor = self.create_test_donor(donor_email=donor_email)
         doc = frappe.get_doc(
             {
@@ -88,7 +76,7 @@ class TestInitiatePaymentOwnership(EnhancedTestCase):
         doc.insert(ignore_permissions=True)
         return doc
 
-    def _make_member(self):
+    def _make_disallowed_doctype_target(self):
         member = frappe.get_doc(
             {
                 "doctype": "Member",
@@ -128,7 +116,9 @@ class TestInitiatePaymentOwnership(EnhancedTestCase):
     def test_refuses_stranger_with_no_payer_email(self):
         """A guest supplying only the (enumerable) donation name is refused."""
         self.expectErrorLog("Initiate Payment Ownership Check Failed")
-        donation = self._make_donation(donor_email=f"owner-{frappe.generate_hash()[:8]}@example.com")
+        donation = self._make_test_donation_for_ownership_check(
+            donor_email=f"owner-{frappe.generate_hash()[:8]}@example.com"
+        )
         gateway = _stub_gateway()
 
         with self.as_user("Guest"):
@@ -143,7 +133,9 @@ class TestInitiatePaymentOwnership(EnhancedTestCase):
     def test_refuses_stranger_with_wrong_payer_email(self):
         """A guest supplying an unrelated email is refused, same as no email at all."""
         self.expectErrorLog("Initiate Payment Ownership Check Failed")
-        donation = self._make_donation(donor_email=f"owner-{frappe.generate_hash()[:8]}@example.com")
+        donation = self._make_test_donation_for_ownership_check(
+            donor_email=f"owner-{frappe.generate_hash()[:8]}@example.com"
+        )
         gateway = _stub_gateway()
 
         with self.as_user("Guest"):
@@ -160,7 +152,7 @@ class TestInitiatePaymentOwnership(EnhancedTestCase):
     def test_allows_guest_with_correct_payer_email(self):
         """The real donor -- identified only by their own email, no session -- may pay."""
         donor_email = f"owner-{frappe.generate_hash()[:8]}@example.com"
-        donation = self._make_donation(donor_email=donor_email)
+        donation = self._make_test_donation_for_ownership_check(donor_email=donor_email)
         gateway = _stub_gateway()
 
         with self.as_user("Guest"):
@@ -177,7 +169,7 @@ class TestInitiatePaymentOwnership(EnhancedTestCase):
     def test_email_comparison_is_case_and_whitespace_insensitive(self):
         """A legitimate donor should not be refused over formatting differences."""
         donor_email = f"owner-{frappe.generate_hash()[:8]}@example.com"
-        donation = self._make_donation(donor_email=donor_email)
+        donation = self._make_test_donation_for_ownership_check(donor_email=donor_email)
         gateway = _stub_gateway()
 
         with self.as_user("Guest"):
@@ -195,7 +187,7 @@ class TestInitiatePaymentOwnership(EnhancedTestCase):
         """An arbitrary, non-payment doctype is refused outright -- no allowlist
         match, no gateway call -- regardless of any email supplied."""
         self.expectErrorLog("Initiate Payment Ownership Check Failed")
-        member = self._make_member()
+        member = self._make_disallowed_doctype_target()
         gateway = _stub_gateway()
 
         with self.as_user("Guest"):
@@ -215,7 +207,7 @@ class TestInitiatePaymentOwnership(EnhancedTestCase):
         unauthenticated caller must not be able to name an arbitrary sum for
         a real gateway call (#1048)."""
         donor_email = f"owner-{frappe.generate_hash()[:8]}@example.com"
-        donation = self._make_donation(donor_email=donor_email, amount=20.0)
+        donation = self._make_test_donation_for_ownership_check(donor_email=donor_email, amount=20.0)
         gateway = _stub_gateway()
 
         with self.as_user("Guest"):
@@ -239,7 +231,7 @@ class TestInitiatePaymentOwnership(EnhancedTestCase):
         ownership checks). recurring=True from this endpoint must not reach
         the gateway as a recurring request."""
         donor_email = f"owner-{frappe.generate_hash()[:8]}@example.com"
-        donation = self._make_donation(donor_email=donor_email)
+        donation = self._make_test_donation_for_ownership_check(donor_email=donor_email)
         gateway = _stub_gateway()
 
         with self.as_user("Guest"):
