@@ -683,6 +683,121 @@ class MarkerLiteralTest(unittest.TestCase):
         )
 
 
+class NearPairEvidenceTest(unittest.TestCase):
+    """#1022: `--drift`/`--report` named the family that produced a verdict but
+    printed a truncated, alphabetically-sorted directory list (`dirs[:4]`)
+    instead of the actual near-identical pair -- for a family with more than
+    ~4 directories, the true pair's directories can sort past position 4 and
+    never be printed. Same defect class as #1008, fixed in the sibling
+    `production_divergence_scanner.py` by PR #1029; this reproduces the same
+    shape here: four mutually-unrelated copies (sorting first, alphabetically)
+    plus one near-identical PAIR whose directories sort last, so `dirs[:4]`
+    structurally cannot reach either side of it.
+    """
+
+    # 11 lines so a one-line edit is a small ratio change, not a large one.
+    _BODY = "\n".join(f"    x{i} = {i}" for i in range(10))
+
+    def _unrelated(self, seed):
+        return (
+            "def _helper():\n"
+            + "\n".join(f"    q{seed}_{i} = {i} ** 2" for i in range(14))
+            + "\n"
+        )
+
+    def _near(self, tail):
+        return f"def _helper():\n{self._BODY}\n    return {tail}\n"
+
+    def _write_tree(self, root: Path) -> None:
+        files = {
+            "aaa_unrelated/a.py": self._unrelated(1),
+            "bbb_unrelated/a.py": self._unrelated(2),
+            "ccc_unrelated/a.py": self._unrelated(3),
+            "ddd_unrelated/a.py": self._unrelated(4),
+            # Sorts LAST alphabetically -- exactly where dirs[:4] cannot reach --
+            # and neither side of the pair shares a directory with the other
+            # three, so the OLD dirs[:4] output could not name either half.
+            "zzz_pair_one/a.py": self._near("1"),
+            "zzz_pair_two/a.py": self._near("2"),
+        }
+        for rel, src in files.items():
+            p = root / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(src)
+
+    def test_clone_families_reports_the_actual_near_pair_paths(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self._write_tree(root)
+            families = {f[4]: f for f in dhv.clone_families(str(root))}
+
+        self.assertIn("_helper", families)
+        pairs, defs, exact, best, name, dirs, worst, cos, near_pairs = families["_helper"]
+        self.assertEqual(6, defs)
+        self.assertEqual(1, pairs, "only the zzz_pair_one/two copies are near-identical")
+
+        # The defect: the true pair's directories do not appear in the first
+        # four of the alphabetically-sorted directory list at all. A temp root
+        # outside REPO_ROOT falls through `_rel()` to the raw absolute path
+        # (see `_rel`'s docstring/behaviour), so compare against that same
+        # fallback form rather than a bare repo-relative one.
+        self.assertFalse(any(d.endswith("zzz_pair_one") for d in dirs[:4]))
+        self.assertFalse(any(d.endswith("zzz_pair_two") for d in dirs[:4]))
+
+        # The fix: the actual pair is named directly, regardless of where its
+        # directories would fall in an alphabetical truncation.
+        self.assertEqual(1, len(near_pairs))
+        pair_paths = {near_pairs[0][0], near_pairs[0][1]}
+        self.assertEqual(
+            {
+                str(root / "zzz_pair_one" / "a.py"),
+                str(root / "zzz_pair_two" / "a.py"),
+            },
+            pair_paths,
+            "the report must name the pair that produced the verdict, not a "
+            "truncated, alphabetically-sorted directory list that can drop it",
+        )
+
+    def test_multiple_near_pairs_are_ALL_reported_not_just_the_best(self):
+        """The reviewer on #1029 verified that fix prints EVERY pair reaching
+        CLONE_RATIO, a superset guarantee stronger than "the single best pair".
+        Build a family with THREE mutually near-identical copies (3 pairs) and
+        confirm all three are named."""
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "zzz_pair_one").mkdir(parents=True)
+            (root / "zzz_pair_two").mkdir(parents=True)
+            (root / "zzz_pair_three").mkdir(parents=True)
+            (root / "zzz_pair_one" / "a.py").write_text(self._near("1"))
+            (root / "zzz_pair_two" / "a.py").write_text(self._near("2"))
+            (root / "zzz_pair_three" / "a.py").write_text(self._near("3"))
+            families = {f[4]: f for f in dhv.clone_families(str(root))}
+
+        *_, near_pairs = families["_helper"]
+        self.assertEqual(3, len(near_pairs), "all three pairwise combinations must be reported")
+
+    def test_report_output_names_the_pair_not_just_dirs(self):
+        """Integration-level: the actual --report print loop must emit the
+        pair's paths in the text a human reads, not just directory names."""
+        import contextlib
+        import io
+
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self._write_tree(root)
+            families = dhv.clone_families(str(root))
+
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for pairs, defs, exact, best, name, dirs, _worst, _cos, near_pairs in families:
+                    print(f"{pairs:>5} {defs:>5} {exact:>5} {best:>5}  {name}")
+                    dhv._print_near_pairs(near_pairs, 28)
+            output = buf.getvalue()
+
+            self.assertIn(str(root / "zzz_pair_one" / "a.py"), output)
+            self.assertIn(str(root / "zzz_pair_two" / "a.py"), output)
+
+
 class WholeTreeTest(unittest.TestCase):
     """Pinned totals. Without a hard number, every test above is satisfied by a
     census that finds nothing."""
