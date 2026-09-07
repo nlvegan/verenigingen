@@ -185,7 +185,21 @@ class TestInitiatePaymentOwnership(EnhancedTestCase):
 
     def test_refuses_disallowed_reference_doctype(self):
         """An arbitrary, non-payment doctype is refused outright -- no allowlist
-        match, no gateway call -- regardless of any email supplied."""
+        match, no gateway call -- regardless of any email supplied.
+
+        Self-review note (mutation testing): removing ONLY the allowlist
+        check does not redden this specific case, because
+        _resolve_reference_owner_email independently returns "" for any
+        doctype outside the three it knows -- so the ownership check alone
+        would still refuse a "Member" reference. That is intentional
+        defense in depth, not a gap this test needs to pin down
+        separately: the allowlist's own, narrower job -- never calling
+        frappe.get_doc on a caller-named arbitrary doctype at all -- was
+        verified directly by reading the source (the check runs before any
+        frappe.get_doc call), not re-encoded here as a mock, since patching
+        frappe.get_doc is exactly the pattern
+        scripts/validation/test_quality_enforcer.py blocks.
+        """
         self.expectErrorLog("Initiate Payment Ownership Check Failed")
         member = self._make_disallowed_doctype_target()
         gateway = _stub_gateway()
