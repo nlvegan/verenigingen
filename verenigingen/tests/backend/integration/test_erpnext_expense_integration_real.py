@@ -23,7 +23,7 @@ import unittest
 import frappe
 from frappe.utils import today, add_days
 
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
 from verenigingen.templates.pages.volunteer.expenses import (
     submit_expense,
@@ -97,13 +97,22 @@ class TestERPNextExpenseIntegrationReal(EnhancedTestCase):
         else:
             frappe.defaults.clear_default("company")
 
-    @shared_fixture
     def _ensure_expense_category(self, category_name):
         """Ensure an Expense Category with a real expense account exists.
 
-        @shared_fixture (#1026): Expense Category is site-wide master data, no
-        company/test scope, keyed on the literal ``category_name`` (called with
-        "Travel" and other fixed labels from test bodies).
+        Deliberately NOT `@shared_fixture` (#1026 originally added one, #1073
+        review round 3 corrected it): `self._track_test_document(...)` below
+        is registered at the DEFAULT priority (0, not -1), so the TRACKED
+        drain deletes this row unconditionally at the end of whichever test
+        created it -- before the captured-insert drain runs, and without ever
+        consulting `_insert_capture_suspended` -- so `@shared_fixture` was a
+        no-op, exactly like the seven sites fixed earlier in this PR.
+        `_ensure_expense_category` is a singleton name (no other file defines
+        it), and the literal category names used here ("Travel",
+        "Meals and Entertainment", etc.) key the "category" field of a
+        DIFFERENT doctype (Volunteer Expense) everywhere else they appear in
+        the tree -- confirmed by grep -- not this Expense Category master, so
+        there is no cross-file dependency to protect.
         """
         if frappe.db.exists("Expense Category", category_name):
             return category_name

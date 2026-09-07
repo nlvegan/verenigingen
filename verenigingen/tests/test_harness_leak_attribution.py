@@ -592,7 +592,6 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
         from verenigingen.services.billing import test_sales_invoice_account_handler
         from verenigingen.services.document import test_document_portal_service
         from verenigingen.tests.backend.comprehensive import test_doctype_validation
-        from verenigingen.tests.backend.integration import test_erpnext_expense_integration_real
         from verenigingen.tests.backend.portal import (
             test_page_chapter_dashboard,
             test_page_member_portal_coverage,
@@ -618,7 +617,6 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
         from verenigingen.tests.security import test_secure_operations_coverage
         from verenigingen.tests.services import (
             test_chapter_board_chapters,
-            test_chapter_management_service,
             test_chapter_permission_service_integration,
         )
 
@@ -642,10 +640,6 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
                 test_doctype_validation.TestDoctypeValidationComprehensive._ensure_membership_type,
             ),
             (
-                "test_erpnext_expense_integration_real.TestERPNextExpenseIntegrationReal._ensure_expense_category",
-                test_erpnext_expense_integration_real.TestERPNextExpenseIntegrationReal._ensure_expense_category,
-            ),
-            (
                 "test_page_chapter_dashboard.TestPageChapterDashboard._ensure_chapter_role",
                 test_page_chapter_dashboard.TestPageChapterDashboard._ensure_chapter_role,
             ),
@@ -660,10 +654,6 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
             (
                 "test_chapter_permission_service_integration.TestChapterPermissionServiceIntegration._ensure_chapter_role",
                 test_chapter_permission_service_integration.TestChapterPermissionServiceIntegration._ensure_chapter_role,
-            ),
-            (
-                "test_chapter_management_service.ChapterServiceTestBase._ensure_chapter_role",
-                test_chapter_management_service.ChapterServiceTestBase._ensure_chapter_role,
             ),
             (
                 "test_page_member_portal_coverage.TestMemberPortalPage._ensure_chapter_role",
@@ -744,11 +734,14 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
         ]
 
         self.assertEqual(
-            29,
+            27,
             len(targets),
-            "recount before trusting this list -- was 35 before #1073's own review "
-            "found 6 of those (plus a 7th its track_doc(/addCleanup( grep missed) were "
-            "@shared_fixture no-ops, downgraded below to 29; see the docstring above",
+            "recount before trusting this list -- was 35, then 29 after #1073's "
+            "review round found 6 @shared_fixture no-ops (plus a 7th its "
+            "track_doc(/addCleanup( grep missed), then 27 after round 3's AST "
+            "sweep (see GENUINELY_SHARED_TARGET_NAMES below) found 2 MORE "
+            "no-ops this enumeration test itself could not see -- see the "
+            "docstring above",
         )
 
         for label, fn in targets:
@@ -764,6 +757,176 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
                 f"{label} must be wrapped by @shared_fixture specifically, not merely "
                 f"by something that sets __wrapped__",
             )
+
+    def test_no_shared_fixture_target_races_a_competing_cleanup_mechanism(self):
+        """Closes the class #1073's own review process under-counted THREE times.
+
+        `@shared_fixture` only flips `_insert_capture_suspended`, consulted in
+        exactly one place -- the CAPTURED-INSERT drain. It has ZERO effect on
+        the TRACKED drain (`_drain_tracked_documents`, which runs BEFORE the
+        captured-insert drain in `tearDown()` and deletes anything tracked at
+        a non-negative priority unconditionally), on `addCleanup(...)`, or on
+        a hand-rolled `tearDown()` force-delete loop. A helper decorated
+        `@shared_fixture` that ALSO registers its row with one of those is
+        exposed to #1026/#330 exactly as if undecorated.
+
+        This was found three times by HAND, each time under-counting:
+        the original #1026 PR missed 6 sites entirely; round 2's self-review
+        found a 7th only because the reviewer named `_track_test_document`
+        explicitly; round 3's independent review then AST-swept the
+        REMAINING targets (not just the ones already suspected) and found 2
+        more. A fixed list of wrapper names inspected by a human keeps
+        missing whichever wrapper -- or file -- nobody thought to check next.
+
+        So this walks the WHOLE TREE for every `@shared_fixture`-decorated
+        function -- not a maintained list of "the ones we already fixed" --
+        and checks each one's body against every known entry point into
+        either competing mechanism:
+
+        * `track_document`/`_track_test_document` are the only two that
+          expose a `priority` kwarg; a literal `-1` there is the ONE
+          documented way to make `@shared_fixture` and the tracked drain
+          complementary (CLAUDE.md's caveat), so those are flagged only when
+          priority is NOT `-1`.
+        * `track_doc` (both definitions -- `tests/utils/base.py`'s takes
+          `depends_on`, `EnhancedTestCase`'s own at
+          `enhanced_test_factory.py:5859` forwards to `track_document()`
+          with NO priority argument at all, so it can never reach -1),
+          `track_record`/`_track_record`/`track_test_record`, and
+          `addCleanup` have no priority escape whatsoever and are ALWAYS
+          flagged when found in a `@shared_fixture` body.
+        * A bespoke tracked-list shape (`self.X.append(...)` inside the
+          fixture, with the SAME class's `tearDown()` iterating `self.X` and
+          calling `delete_doc` unconditionally) -- the exact shape
+          `_ensure_item_group` had before #1073 removed it from
+          `self._tracked`.
+
+        `suspend_insert_capture()` is deliberately NOT treated as a fix for
+        any of these: it only affects the captured-insert drain, which has
+        nothing to do with why these mechanisms delete the row.
+        """
+        findings = self._shared_fixture_tracked_drain_races()
+        self.assertEqual(
+            [],
+            findings,
+            "these @shared_fixture helpers ALSO register their row with an "
+            "unconditional competing cleanup mechanism (the tracked drain, "
+            "addCleanup, or a bespoke tearDown force-delete loop), making "
+            "@shared_fixture a no-op -- the row is exposed to #1026/#330 "
+            "exactly as if undecorated:\n  " + "\n  ".join(findings),
+        )
+
+    def _shared_fixture_tracked_drain_races(self, root=None):
+        """The AST walk behind the test above. See its docstring for why."""
+        import ast
+
+        if root is None:
+            import verenigingen
+
+            root = pathlib.Path(verenigingen.__file__).parent
+
+        no_escape = {"track_doc", "track_record", "_track_record", "track_test_record", "addCleanup"}
+        priority_aware = {"track_document", "_track_test_document"}
+
+        def is_shared(fn):
+            return any(
+                (d.attr if isinstance(d, ast.Attribute) else getattr(d, "id", None))
+                == "shared_fixture"
+                for d in fn.decorator_list
+            )
+
+        def is_minus_one(node):
+            return (
+                isinstance(node, ast.UnaryOp)
+                and isinstance(node.op, ast.USub)
+                and isinstance(node.operand, ast.Constant)
+                and node.operand.value == 1
+            )
+
+        def priority_is_minus_one(call):
+            for kw in call.keywords:
+                if kw.arg == "priority":
+                    return is_minus_one(kw.value)
+            # positional form: track_document(doctype, name, priority)
+            if len(call.args) >= 3:
+                return is_minus_one(call.args[2])
+            return False
+
+        def appended_self_attrs(fn):
+            """Attribute names this function does `self.<name>.append(...)` on."""
+            names = set()
+            for n in ast.walk(fn):
+                if (
+                    isinstance(n, ast.Call)
+                    and isinstance(n.func, ast.Attribute)
+                    and n.func.attr == "append"
+                    and isinstance(n.func.value, ast.Attribute)
+                    and isinstance(n.func.value.value, ast.Name)
+                    and n.func.value.value.id == "self"
+                ):
+                    names.add(n.func.value.attr)
+            return names
+
+        def teardown_force_deletes(cls_node, attr_name):
+            for item in cls_node.body:
+                if isinstance(item, ast.FunctionDef) and item.name == "tearDown":
+                    reads_attr = any(
+                        isinstance(n, ast.Attribute)
+                        and n.attr == attr_name
+                        and isinstance(n.value, ast.Name)
+                        and n.value.id == "self"
+                        for n in ast.walk(item)
+                    )
+                    calls_delete = any(
+                        isinstance(n, ast.Call)
+                        and isinstance(n.func, ast.Attribute)
+                        and n.func.attr == "delete_doc"
+                        for n in ast.walk(item)
+                    )
+                    if reads_attr and calls_delete:
+                        return True
+            return False
+
+        def check_body(fn, label, findings):
+            for n in ast.walk(fn):
+                if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute):
+                    attr = n.func.attr
+                    if attr in no_escape:
+                        findings.append(
+                            f"{label}: calls .{attr}(...) -- no priority escape exists "
+                            f"for this method, always races the tracked drain / addCleanup"
+                        )
+                    elif attr in priority_aware and not priority_is_minus_one(n):
+                        findings.append(
+                            f"{label}: calls .{attr}(...) at a non -1 priority -- the "
+                            f"tracked drain deletes this row regardless of @shared_fixture"
+                        )
+
+        findings = []
+        for path in sorted(root.rglob("*.py")):
+            try:
+                tree = ast.parse(path.read_text(), filename=str(path))
+            except (SyntaxError, UnicodeDecodeError):
+                continue
+            rel = path.relative_to(root.parent)
+            for cls in [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]:
+                for fn in cls.body:
+                    if not (isinstance(fn, ast.FunctionDef) and is_shared(fn)):
+                        continue
+                    label = f"{rel}:{fn.lineno} ({cls.name}.{fn.name})"
+                    check_body(fn, label, findings)
+                    for attr_name in appended_self_attrs(fn):
+                        if teardown_force_deletes(cls, attr_name):
+                            findings.append(
+                                f"{label}: appends to self.{attr_name}, force-deleted "
+                                f"unconditionally in {cls.name}.tearDown() independent "
+                                f"of both drains"
+                            )
+            for fn in tree.body:
+                if isinstance(fn, ast.FunctionDef) and is_shared(fn):
+                    label = f"{rel}:{fn.lineno} (<module> {fn.name})"
+                    check_body(fn, label, findings)
+        return findings
 
     def test_no_shared_fixture_helper_is_decorated_in_one_copy_and_not_its_clone(self):
         """A helper family must not disagree with itself about being shared.
