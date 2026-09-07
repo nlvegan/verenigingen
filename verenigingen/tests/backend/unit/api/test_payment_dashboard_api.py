@@ -474,3 +474,68 @@ class TestPaymentDashboardAPI(EnhancedTestCase):
         result = retry_failed_payment("ACC-SINV-DOES-NOT-EXIST")
         self.assertFalse(result["success"])
         self.assertIn("not found", (result["error"]["message"] or "").lower())
+
+    # ------------------------------------------------------------------
+    # cross-member ownership (#957-adjacent): a caller-supplied `member` must
+    # be the caller's own record unless the caller holds an admin role.
+    # ------------------------------------------------------------------
+    def _board_member_user(self):
+        """A non-admin user whose Role Profile clears the HIGH security level.
+
+        "Verenigingen Chapter Board Member" is a real, common elected role
+        that satisfies Rule 4 of the authorization policy (HIGH access via
+        role profile), but holds none of Roles.ADMIN_ROLES -- see
+        role_profile_helper.py's docstring for the Rule-5 cap this works
+        around. That security-LEVEL check is orthogonal to member OWNERSHIP,
+        which is what this test targets.
+        """
+        from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
+
+        user_email = f"board.probe.{self.member.name}@example.com".lower()
+        if not frappe.db.exists("User", user_email):
+            frappe.get_doc(
+                {
+                    "doctype": "User",
+                    "email": user_email,
+                    "first_name": "Board",
+                    "last_name": "Probe",
+                    "send_welcome_email": 0,
+                    "roles": [{"role": "Verenigingen Member"}],
+                }
+            ).insert()
+        grant_matching_role_profiles(user_email, "Verenigingen Chapter Board Member")
+
+        attacker_member = self.create_test_member(first_name="Board", last_name="Probe", status="Active")
+        frappe.db.set_value("Member", attacker_member.name, "user", user_email)
+
+        from verenigingen.utils.constants import Roles
+
+        self.assertFalse(
+            set(frappe.get_roles(user_email)) & Roles.ADMIN_ROLES,
+            "test setup: attacker must NOT hold an admin role",
+        )
+        return user_email, attacker_member.name
+
+    def test_get_dashboard_data_refuses_cross_member_for_non_admin_board_role(self):
+        user_email, _attacker_member = self._board_member_user()
+        with self.set_user(user_email):
+            result = get_dashboard_data(self.member.name)
+        self.assertFalse(result["success"], msg=result)
+        self.assertIn("permission", (result["error"]["message"] or "").lower())
+
+    def test_get_dashboard_data_allows_own_member_for_non_admin_board_role(self):
+        # Same non-admin board-profile user, reading their OWN dashboard, must
+        # still succeed -- the ownership fix must not break self-service.
+        user_email, attacker_member = self._board_member_user()
+        with self.set_user(user_email):
+            result = get_dashboard_data(attacker_member)
+        self.assertTrue(result["success"], msg=result)
+
+    def test_get_next_payment_refuses_cross_member_for_non_admin_board_role(self):
+        # get_next_payment resolves `member` itself rather than going through
+        # validate_member_exists -- a separate code path, needs its own test.
+        user_email, _attacker_member = self._board_member_user()
+        with self.set_user(user_email):
+            result = get_next_payment(self.member.name)
+        self.assertFalse(result["success"], msg=result)
+        self.assertIn("permission", (result["error"]["message"] or "").lower())
