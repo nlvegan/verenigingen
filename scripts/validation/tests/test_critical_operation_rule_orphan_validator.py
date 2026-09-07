@@ -24,7 +24,9 @@ _spec.loader.exec_module(corov)
 
 def _build_fake_repo(tmp_dir: Path, fixture_rows: dict, py_files: dict) -> Path:
     """fixture_rows: {fixture_filename: [operation_name, ...]}
-    py_files: {relative_path_under_verenigingen: source_text}
+    py_files: {relative_path: source_text} -- relative to `tmp_dir` itself, so
+        a path must include its scan-root prefix, e.g. "verenigingen/api/foo.py"
+        or "scripts/database/create_sepa_indexes.py".
     """
     fixtures_dir = tmp_dir / "verenigingen" / "fixtures"
     fixtures_dir.mkdir(parents=True)
@@ -33,7 +35,7 @@ def _build_fake_repo(tmp_dir: Path, fixture_rows: dict, py_files: dict) -> Path:
         (fixtures_dir / fname).write_text(json.dumps(rows))
 
     for rel_path, source in py_files.items():
-        full = tmp_dir / "verenigingen" / rel_path
+        full = tmp_dir / rel_path
         full.parent.mkdir(parents=True, exist_ok=True)
         full.write_text(source)
 
@@ -49,7 +51,7 @@ class FindOrphansTest(unittest.TestCase):
             root = _build_fake_repo(
                 Path(d),
                 fixture_rows={"critical_operation_rule.json": ["deleted_long_ago_function"]},
-                py_files={"api/foo.py": "def some_other_function():\n    pass\n"},
+                py_files={"verenigingen/api/foo.py": "def some_other_function():\n    pass\n"},
             )
             orphans = corov.find_orphans(root)
             self.assertEqual(
@@ -63,7 +65,7 @@ class FindOrphansTest(unittest.TestCase):
                 Path(d),
                 fixture_rows={"critical_operation_rule.json": ["submit_sepa_batch"]},
                 py_files={
-                    "api/sepa.py": (
+                    "verenigingen/api/sepa.py": (
                         "@frappe.whitelist()\n"
                         "@critical_api()\n"
                         "def submit_sepa_batch(batch_id):\n"
@@ -79,7 +81,7 @@ class FindOrphansTest(unittest.TestCase):
             root = _build_fake_repo(
                 Path(d),
                 fixture_rows={"critical_operation_rule.json": ["_generic_api_fallback"]},
-                py_files={"api/foo.py": "def unrelated():\n    pass\n"},
+                py_files={"verenigingen/api/foo.py": "def unrelated():\n    pass\n"},
             )
             orphans = corov.find_orphans(root)
             self.assertEqual(orphans, {})
@@ -95,7 +97,7 @@ class FindOrphansTest(unittest.TestCase):
                     "critical_operation_rule.json": [],
                     "critical_operation_rule_ponto_debug.json": ["renamed_away_ponto_helper"],
                 },
-                py_files={"api/foo.py": "def some_other_function():\n    pass\n"},
+                py_files={"verenigingen/api/foo.py": "def some_other_function():\n    pass\n"},
             )
             orphans = corov.find_orphans(root)
             self.assertEqual(
@@ -107,6 +109,30 @@ class FindOrphansTest(unittest.TestCase):
                 },
             )
 
+    def test_def_under_scripts_root_is_not_orphaned(self):
+        """Regression: `scripts/` is a real importable package at the app root
+        (its own __init__.py; `import scripts` resolves from <bench>/sites)
+        holding whitelisted, security-decorated endpoints of its own
+        (e.g. scripts.database.create_sepa_indexes). A validator that only
+        scanned verenigingen/ mislabelled 122 such live functions as orphans
+        (11% of the baseline) -- caught by a skeptical review before merge.
+        """
+        with tempfile.TemporaryDirectory() as d:
+            root = _build_fake_repo(
+                Path(d),
+                fixture_rows={"critical_operation_rule.json": ["create_sepa_indexes_api"]},
+                py_files={
+                    "scripts/database/create_sepa_indexes.py": (
+                        "@frappe.whitelist()\n"
+                        "@critical_api()\n"
+                        "def create_sepa_indexes_api():\n"
+                        "    pass\n"
+                    )
+                },
+            )
+            orphans = corov.find_orphans(root)
+            self.assertEqual(orphans, {})
+
     def test_matching_is_by_bare_name_not_qualified_path(self):
         """rate_limit_engine.py:96 keys off operation_key.split('.')[-1] -- the
         BARE function name -- so a def nested arbitrarily deep still counts as a
@@ -116,7 +142,7 @@ class FindOrphansTest(unittest.TestCase):
                 Path(d),
                 fixture_rows={"critical_operation_rule.json": ["get_dashboard_stats"]},
                 py_files={
-                    "deep/nested/module.py": (
+                    "verenigingen/deep/nested/module.py": (
                         "class Foo:\n" "    def get_dashboard_stats(self):\n" "        pass\n"
                     )
                 },

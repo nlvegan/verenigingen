@@ -40,7 +40,11 @@ Every distinct ``operation_name`` across the four COR fixture files
 (``critical_operation_rule.json`` and its three sibling files -- see
 ``FIXTURE_FILES``) that is NOT ``_generic_api_fallback`` (the one hardcoded,
 deliberately-nameless fallback key -- see ``ALLOWLIST``) and does not match
-the bare name of any ``def``/``async def`` anywhere under ``verenigingen/``.
+the bare name of any ``def``/``async def`` anywhere under ``SCAN_ROOTS``
+(``verenigingen/`` and ``scripts/`` -- the latter is a real importable
+package at the app root with its own whitelisted, security-decorated
+endpoints; missing it mislabelled 122 live functions as orphans, see
+``SCAN_ROOTS``'s own comment).
 
 WHY A RATCHET, NOT A BIG-BANG FIX
 -----------------------------------
@@ -90,8 +94,23 @@ FIXTURE_FILES = (
 # deliberate sentinel, not a stale rename.
 ALLOWLIST = {"_generic_api_fallback"}
 
-# Directories under verenigingen/ never worth scanning for `def`s: they hold
-# no application code, only noise that would slow the walk down.
+# The roots that can define a function `frappe.get_attr`/an operation_key can
+# ever name. `scripts/` is a real importable package at the app root (it has
+# its own `__init__.py`, confirmed by `import scripts` resolving from
+# <bench>/sites) holding whitelisted, security-framework-decorated endpoints
+# of its own (`scripts.database.create_sepa_indexes.create_sepa_indexes_api`,
+# `scripts.job_management.cancel_job`, ...) -- exactly the sibling ratchet's
+# own SCAN_ROOTS (log_error_arg_order_validator.py). Scanning `verenigingen/`
+# alone mislabelled 122 of these as orphans (11% of the baseline), several of
+# them live FINANCIAL/ADMIN `critical_api` endpoints -- following this
+# validator's own "prune the row" remediation on one of those would have
+# DELETED a real rate limit and dropped a live endpoint onto the shared
+# `_generic_api_fallback` bucket, reproducing #1033's bug via the fix meant
+# to close it. Caught by a skeptical review before merge; see the PR.
+SCAN_ROOTS = ("verenigingen", "scripts")
+
+# Directories never worth scanning for `def`s: they hold no application code,
+# only noise that would slow the walk down.
 _SKIP_DIR_NAMES = {".git", "node_modules", "__pycache__"}
 
 
@@ -134,7 +153,13 @@ def collect_def_names(root: Path) -> set[str]:
         try:
             source = py.read_text(encoding="utf-8", errors="replace")
             tree = ast.parse(source, filename=str(py))
-        except (OSError, SyntaxError, ValueError):
+        except (OSError, SyntaxError, ValueError) as exc:
+            # A file that fails to parse contributes NO defs -- silently
+            # dropping this would manufacture false orphans for every real
+            # function it contains. Zero files hit this today (confirmed by
+            # a skeptical review), but a future encoding/syntax problem
+            # should be visible, not absorbed into the orphan count.
+            print(f"::warning file={py}::could not parse for def collection: {exc}", file=sys.stderr)
             continue
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -145,7 +170,11 @@ def collect_def_names(root: Path) -> set[str]:
 def find_orphans(repo_root: Path = REPO_ROOT) -> dict[str, str]:
     """Return {f"{fixture_file}::{operation_name}": operation_name} for every orphan."""
     operation_names = load_operation_names(repo_root)
-    def_names = collect_def_names(repo_root / "verenigingen")
+    def_names: set[str] = set()
+    for root_name in SCAN_ROOTS:
+        root = repo_root / root_name
+        if root.exists():
+            def_names |= collect_def_names(root)
 
     orphans: dict[str, str] = {}
     for op, fixture_files in sorted(operation_names.items()):
