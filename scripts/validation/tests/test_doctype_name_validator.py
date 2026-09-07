@@ -32,6 +32,26 @@ br = importlib.util.module_from_spec(_br_spec)
 sys.modules[_br_spec.name] = br
 _br_spec.loader.exec_module(br)
 
+# A handful of tests below deliberately exercise the REAL authority
+# (dnv.known_doctypes() with no override), not a synthetic one, so they only mean
+# anything on a bench that actually has frappe/erpnext/hrms/payments installed
+# alongside verenigingen. .github/workflows/code-validation.yml checks this app out
+# standalone -- no bench, no sibling apps -- which is exactly the case
+# .pre-commit-config.yaml's doctype-name-validator entry already documents as
+# "deliberately NO Code Validation job" for the validator itself, for the identical
+# reason: the census would be about a different tree than the baseline. Whole-tree
+# enforcement against a REAL bench already runs in CI at
+# verenigingen/tests/test_doctype_name_ratchet.py (bench run-tests, where
+# frappe/erpnext/hrms/payments are all present) -- the tests marked below are this
+# validator's OWN unit tests, not an additional gate, and are only meaningful where
+# the sibling apps exist to probe. Measured 2026-09-07 (#1068's catch-all PR): CI's
+# standalone checkout loads 142 doctypes (verenigingen's own) and 0 elsewhere.
+_REAL_BENCH_PROBLEM = dnv.authority_problem(dnv.known_doctypes())
+_needs_real_bench = unittest.skipIf(
+    _REAL_BENCH_PROBLEM is not None,
+    f"needs a full multi-app bench (frappe/erpnext/hrms/payments): {_REAL_BENCH_PROBLEM}",
+)
+
 
 def _names(source, known=("Member", "Chapter", "Chapter Board Member")):
     """Unknown doctype names the scanner reports for one source string."""
@@ -155,6 +175,7 @@ class TestDetection(unittest.TestCase):
 class TestAuthority(unittest.TestCase):
     """The authority is DocType JSONs on the bench, so it has to find the bench."""
 
+    @_needs_real_bench
     def test_bench_apps_resolves_past_a_worktree(self):
         known = dnv.known_doctypes()
         for required in ("User", "DocType", "Sales Invoice", "Member", "Chapter Board Member"):
@@ -164,6 +185,7 @@ class TestAuthority(unittest.TestCase):
                 "the bench's apps/ directory (this is what a git worktree breaks)",
             )
 
+    @_needs_real_bench
     def test_the_role_names_behind_677_are_not_doctypes(self):
         known = dnv.known_doctypes()
         for role_name in (
@@ -183,6 +205,7 @@ class TestAuthority(unittest.TestCase):
             with unittest.mock.patch.dict(os.environ, {"BENCH_APPS": str(override)}):
                 self.assertEqual(dnv._find_bench_apps(dnv.REPO_ROOT), override)
 
+    @_needs_real_bench
     def test_bench_apps_resolves_via_git_from_a_worktree_with_no_bench_ancestor(self):
         """#752's actual regression: a real linked worktree of THIS repo, placed
         outside the bench, has no bench ancestor for a filesystem walk-up to
@@ -262,11 +285,13 @@ class TestAuthorityGuard(unittest.TestCase):
         known = {v: k for k, v in dnv.AUTHORITY_PROBES.items()}
         self.assertIsNone(dnv.authority_problem(known))
 
+    @_needs_real_bench
     def test_the_real_authority_on_this_bench_is_accepted(self):
         self.assertIsNone(dnv.authority_problem(dnv.known_doctypes()))
 
 
 class TestSelfCheck(unittest.TestCase):
+    @_needs_real_bench
     def test_self_check_passes(self):
         self.assertEqual(dnv.self_check(), 0)
 
@@ -281,6 +306,7 @@ class TestBaseline(unittest.TestCase):
             dnv.write_baseline(path, counts)
             self.assertEqual(dnv.load_baseline(path), dict(counts))
 
+    @_needs_real_bench
     def test_committed_baseline_covers_the_tree(self):
         """A baseline that does not match is a gate that fires on unrelated edits."""
         counts, _ = dnv.census(dnv.SCAN_ROOTS)
