@@ -34,8 +34,21 @@ def _resolve_reference_amount(reference_doctype: str, doc) -> float:
     if reference_doctype == "Donation":
         return flt(getattr(doc, "amount", 0))
     if reference_doctype == "Sales Invoice":
+        # #209/#856: a DRAFT Sales Invoice's outstanding_amount mirrors its
+        # grand_total (never 0) -- it does NOT mean "nothing owed yet" --
+        # so outstanding_amount alone cannot distinguish "draft, unsubmitted"
+        # from "submitted and fully settled". Require docstatus == 1
+        # (submitted) before trusting the balance at all. This is NOT used
+        # as evidence a payment posted (#382) -- only that the invoice
+        # itself is a real, finalized financial document.
+        if getattr(doc, "docstatus", 0) != 1:
+            return 0.0
+        # #1066: once submitted, outstanding_amount <= 0 means settled (or
+        # over-credited) -- nothing left to collect. The previous fallback
+        # to grand_total here recharged the FULL original amount on an
+        # already-paid invoice.
         outstanding = flt(getattr(doc, "outstanding_amount", 0))
-        return outstanding if outstanding > 0 else flt(getattr(doc, "grand_total", 0))
+        return outstanding if outstanding > 0 else 0.0
     if reference_doctype == "Payment Plan Payment":
         return flt(getattr(doc, "amount", 0))
     return 0.0

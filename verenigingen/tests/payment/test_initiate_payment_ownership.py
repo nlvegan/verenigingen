@@ -358,3 +358,120 @@ class TestInitiatePaymentOwnership(EnhancedTestCase):
         self.assertEqual(
             frappe.db.get_value("Payment Plan Payment", intent.name, "status"), "Pending"
         )
+
+    def _make_sales_invoice(self, *, contact_email, grand_total=100.0, outstanding_amount=None, status=None):
+        """A Sales Invoice against a fresh Member/Customer, with contact_email
+        set directly (the field _resolve_reference_owner_email reads) and
+        outstanding_amount forced to a specific value via db_set -- see
+        create_test_sales_invoice's own docstring: this MUST happen after
+        submit(), since submit() posts GL entries that recompute
+        outstanding_amount and would otherwise silently discard an
+        earlier override (#609).
+        """
+        member = self.create_test_member(
+            first_name="Invoice", last_name=f"Owner{frappe.generate_hash()[:6]}"
+        )
+        kwargs = {"grand_total": grand_total}
+        if outstanding_amount is not None:
+            kwargs["outstanding_amount"] = outstanding_amount
+        if status is not None:
+            kwargs["status"] = status
+        invoice = self.create_test_sales_invoice(customer=member.name, **kwargs)
+        invoice.db_set("contact_email", contact_email)
+        invoice.reload()
+        return invoice
+
+    def test_settled_sales_invoice_amount_resolves_to_zero_and_refuses(self):
+        """#1066: a SUBMITTED, fully-settled invoice (outstanding_amount == 0)
+        must resolve to amount 0 and be refused -- not recharge the full
+        original grand_total. Fails with the pre-fix fallback
+        (`outstanding if outstanding > 0 else grand_total`), which returns
+        grand_total here."""
+        self.expectErrorLog("Initiate Payment Ownership Check Failed")
+        contact_email = f"invoice-owner-{frappe.generate_hash()[:8]}@example.com"
+        invoice = self._make_sales_invoice(
+            contact_email=contact_email, grand_total=100.0, outstanding_amount=0.0
+        )
+        gateway = _stub_gateway()
+
+        with self.as_user("Guest"):
+            with patch(_GATEWAY_FACTORY_PATH, return_value=gateway):
+                result = self._call_initiate_payment(
+                    reference_doctype="Sales Invoice",
+                    reference_name=invoice.name,
+                    payer_email=contact_email,
+                )
+
+        self.assertFalse(result["success"])
+        gateway.process_payment.assert_not_called()
+
+    def test_overcredited_sales_invoice_amount_resolves_to_zero_and_refuses(self):
+        """#1066: a negative outstanding_amount (over-credited/credit-noted)
+        must also resolve to 0, not the (positive) grand_total."""
+        self.expectErrorLog("Initiate Payment Ownership Check Failed")
+        contact_email = f"invoice-owner-{frappe.generate_hash()[:8]}@example.com"
+        invoice = self._make_sales_invoice(
+            contact_email=contact_email, grand_total=100.0, outstanding_amount=-20.0
+        )
+        gateway = _stub_gateway()
+
+        with self.as_user("Guest"):
+            with patch(_GATEWAY_FACTORY_PATH, return_value=gateway):
+                result = self._call_initiate_payment(
+                    reference_doctype="Sales Invoice",
+                    reference_name=invoice.name,
+                    payer_email=contact_email,
+                )
+
+        self.assertFalse(result["success"])
+        gateway.process_payment.assert_not_called()
+
+    def test_draft_sales_invoice_is_refused(self):
+        """#209/#856's class: a DRAFT invoice's outstanding_amount mirrors
+        grand_total (never 0), so it cannot be told apart from a genuine
+        unpaid submitted invoice by outstanding_amount alone. A draft is not
+        a finalized financial document -- require docstatus == 1 before
+        trusting the balance at all, not as evidence a payment posted
+        (#382), only that the invoice itself is real."""
+        self.expectErrorLog("Initiate Payment Ownership Check Failed")
+        contact_email = f"invoice-owner-{frappe.generate_hash()[:8]}@example.com"
+        invoice = self._make_sales_invoice(
+            contact_email=contact_email, grand_total=100.0, status="Draft"
+        )
+        self.assertEqual(invoice.docstatus, 0)
+        self.assertEqual(float(invoice.outstanding_amount), 100.0)
+        gateway = _stub_gateway()
+
+        with self.as_user("Guest"):
+            with patch(_GATEWAY_FACTORY_PATH, return_value=gateway):
+                result = self._call_initiate_payment(
+                    reference_doctype="Sales Invoice",
+                    reference_name=invoice.name,
+                    payer_email=contact_email,
+                )
+
+        self.assertFalse(result["success"])
+        gateway.process_payment.assert_not_called()
+
+    def test_partly_paid_sales_invoice_charges_the_outstanding_balance(self):
+        """The legitimate case the fix must not regress: a submitted invoice
+        genuinely partly paid must still resolve to its real outstanding
+        balance (not grand_total, not 0) and succeed."""
+        contact_email = f"invoice-owner-{frappe.generate_hash()[:8]}@example.com"
+        invoice = self._make_sales_invoice(
+            contact_email=contact_email, grand_total=100.0, outstanding_amount=30.0
+        )
+        gateway = _stub_gateway()
+
+        with self.as_user("Guest"):
+            with patch(_GATEWAY_FACTORY_PATH, return_value=gateway):
+                result = self._call_initiate_payment(
+                    reference_doctype="Sales Invoice",
+                    reference_name=invoice.name,
+                    payer_email=contact_email,
+                )
+
+        self.assertTrue(result["success"], result)
+        gateway.process_payment.assert_called_once()
+        forwarded_form_data = gateway.process_payment.call_args[0][1]
+        self.assertEqual(float(forwarded_form_data["amount"]), 30.0)
