@@ -372,3 +372,112 @@ class TestRefundPermissions(EnhancedTestCase):
         # refund permission -> True (assertIsInstance(bool) would pass on False too).
         result = validate_refund_permissions()
         self.assertTrue(result)
+
+
+class TestRefundEndpointsEnforcePermissionCheck(EnhancedTestCase):
+    """Regression test for #968.
+
+    validate_refund_permissions() exists and is unit-tested, but neither
+    initiate_refund() nor initiate_donation_refund() ever called it -- dead
+    code protecting nothing. "Verenigingen National Board Member" is a real
+    Role Profile that ROLE_PROFILE_SECURITY_MAPPING (authorization_policy.py)
+    grants SecurityLevel.CRITICAL, so a user holding only that profile clears
+    the @critical_api framework gate on both endpoints (Rule 4). That profile's
+    own fixture-defined role list (role_profile.json) does NOT include
+    "Accounts Manager" or the Verenigingen Admin role, so
+    validate_refund_permissions() -- the narrower, function-specific check its
+    own docstring documents -- must refuse them once it is actually wired in.
+    """
+
+    UNAUTHORIZED_USER = "test-nbm-968@example.com"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls._bank_company = get_eur_test_company()
+        get_eur_bank_account(cls._bank_company)
+
+    def setUp(self):
+        super().setUp()
+        ensure_mollie_reversal_accounts()
+        self.original_user = frappe.session.user
+
+        frappe.set_user("Administrator")
+        if frappe.db.exists("User", self.UNAUTHORIZED_USER):
+            user = frappe.get_doc("User", self.UNAUTHORIZED_USER)
+        else:
+            user = frappe.get_doc(
+                {
+                    "doctype": "User",
+                    "email": self.UNAUTHORIZED_USER,
+                    "first_name": "Board",
+                    "last_name": "Member968",
+                    "enabled": 1,
+                    "send_welcome_email": 0,
+                    "user_type": "System User",
+                }
+            )
+            user.insert(ignore_permissions=True)
+            self.track_doc("User", user.name)
+
+        # Provision the same way production actually does: a "role_profiles"
+        # Table MultiSelect entry, not the deprecated role_profile_name field
+        # directly (User.validate() treats a role_profile_name set without a
+        # matching role_profiles row as stale and clears it -- see
+        # move_role_profile_name_to_role_profiles() in frappe's User
+        # controller). Assigning via role_profiles also exercises the real
+        # populate_role_profile_roles() sync, so this user ends up with
+        # exactly the roles a genuinely-provisioned National Board Member
+        # would have -- neither "Accounts Manager" nor the Verenigingen Admin
+        # role, per role_profile.json.
+        user.role_profiles = []
+        user.append("role_profiles", {"role_profile": "Verenigingen National Board Member"})
+        user.save(ignore_permissions=True)
+        # No frappe.db.commit() here: the harness's own DB connection sees its
+        # own uncommitted writes immediately, and a bare commit in a test body
+        # both escapes the per-test rollback (a real leak risk) and reddens
+        # the Order-Dependence Ratchet -- see #933/#934.
+
+        # Confirm the test's own premise before relying on it: this user must
+        # actually fail validate_refund_permissions(), or the test proves nothing.
+        self.assertFalse(
+            validate_refund_permissions(self.UNAUTHORIZED_USER),
+            "test setup invalid: National Board Member must fail validate_refund_permissions()",
+        )
+
+    def tearDown(self):
+        frappe.set_user(self.original_user)
+        super().tearDown()
+
+    def test_unauthorized_role_profile_cannot_initiate_refund(self):
+        payment_id = f"tr_968_{frappe.generate_hash(length=8)}"
+        pe = self.create_test_payment_entry(
+            payment_type="Receive", paid_amount=100.0, reference_no=payment_id
+        )
+
+        frappe.set_user(self.UNAUTHORIZED_USER)
+        with patch(f"{REFUND_MODULE}.MolliePaymentService") as mock_mollie:
+            result = initiate_refund(payment_entry_name=pe.name, amount=40.0)
+            mock_mollie.return_value.create_refund.assert_not_called()
+
+        self.assertEqual(result.get("status"), "error")
+        self.assertEqual(result.get("error_code"), "PERMISSION_DENIED")
+
+    def test_unauthorized_role_profile_cannot_initiate_donation_refund(self):
+        donation = self.create_test_donation(amount=100.0)
+        payment_id = f"tr_968don_{frappe.generate_hash(length=8)}"
+        self.create_test_payment_entry(
+            payment_type="Receive",
+            paid_amount=100.0,
+            reference_no=payment_id,
+            custom_donation=donation.name,
+            submit=True,
+        )
+
+        frappe.set_user(self.UNAUTHORIZED_USER)
+        with patch(f"{REFUND_MODULE}.MolliePaymentService") as mock_mollie:
+            result = initiate_donation_refund(donation.name, amount=40.0)
+            mock_mollie.return_value.create_refund.assert_not_called()
+
+        self.assertEqual(result.get("status"), "error")
+        self.assertEqual(result.get("error_code"), "PERMISSION_DENIED")

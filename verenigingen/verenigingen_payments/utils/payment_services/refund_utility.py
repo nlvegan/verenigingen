@@ -134,6 +134,16 @@ def initiate_refund(
         Dict with refund status and details
     """
     try:
+        # Permission check: @critical_api only confirms the caller's role
+        # profile is entitled to CRITICAL-level operations in general; it does
+        # not know this operation needs Accounts Manager / Verenigingen Admin
+        # specifically. That narrower check lives in validate_refund_permissions()
+        # and must actually run here (see #968).
+        if not validate_refund_permissions():
+            return _create_error_response(
+                "You do not have permission to process refunds", "PERMISSION_DENIED"
+            )
+
         # Input validation
         if not payment_entry_name:
             return _create_error_response("Payment Entry name is required", "MISSING_PAYMENT_ENTRY")
@@ -489,6 +499,15 @@ def initiate_donation_refund(
         Dict with refund status and details
     """
     try:
+        # Permission check: see the matching comment in initiate_refund() (#968).
+        # This function also routes into initiate_refund() below, which repeats
+        # the check, but failing fast here avoids doing the donation/payment
+        # lookups for a caller who was never going to be allowed to refund.
+        if not validate_refund_permissions():
+            return _create_error_response(
+                "You do not have permission to process refunds", "PERMISSION_DENIED"
+            )
+
         # Validate custom fields exist before proceeding
         field_validation = _validate_custom_fields_exist()
         if field_validation:
