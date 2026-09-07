@@ -615,6 +615,90 @@ class BaselineIOTest(unittest.TestCase):
             self.assertEqual({"_thing": 4}, dhv.load_baseline(p))
 
 
+class ScanRootFlagTest(unittest.TestCase):
+    """#1044: SCAN_ROOT was hardcoded to "verenigingen", so scripts/ -- 320
+    files, every ratchet and gate -- was structurally unscannable for its own
+    clones. `--root` lets main() scan a different repo-relative directory
+    against its own baseline, without changing the default (still
+    "verenigingen") that the pre-commit hook and CI step already rely on.
+
+    Exercises `main()` itself, not just `_by_name()`, because the gap this
+    closes is in the CLI wiring (which directory main() ever looks at), not
+    in the scanning primitives -- those already accepted an arbitrary root.
+    """
+
+    _BODY = "\n".join(f"    x{i} = {i}" for i in range(10))
+
+    def _tree(self, d):
+        root = Path(d)
+        (root / "verenigingen").mkdir()
+        (root / "scripts").mkdir()
+        # A private helper duplicated ONLY under scripts/ -- verenigingen/
+        # holds an unrelated, singly-defined helper so the default scan has
+        # something to find without tripping over this family.
+        (root / "verenigingen" / "only_here.py").write_text(
+            f"def _lonely_helper():\n{self._BODY}\n"
+        )
+        (root / "scripts" / "a.py").write_text(f"def _scripts_only_clone():\n{self._BODY}\n")
+        (root / "scripts" / "b.py").write_text(f"def _scripts_only_clone():\n{self._BODY}\n")
+        return root
+
+    def _run_main(self, argv):
+        old_argv = sys.argv
+        sys.argv = ["duplicate_helper_validator.py"] + argv
+        try:
+            return dhv.main()
+        finally:
+            sys.argv = old_argv
+
+    def test_default_root_does_not_see_a_clone_confined_to_scripts(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = self._tree(d)
+            baseline = root / "verenigingen_baseline.txt"
+            dhv.write_baseline(baseline, {}, {})
+            old_repo_root = dhv.REPO_ROOT
+            dhv.REPO_ROOT = root
+            try:
+                # No --root: defaults to SCAN_ROOT ("verenigingen"), which
+                # does not contain the planted clone.
+                rc = self._run_main(["--baseline", str(baseline)])
+            finally:
+                dhv.REPO_ROOT = old_repo_root
+            self.assertEqual(0, rc, "the default root must be unaffected by scripts/ content")
+
+    def test_root_scripts_flag_finds_the_clone_scripts_only_holds(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = self._tree(d)
+            baseline = root / "scripts_baseline.txt"
+            dhv.write_baseline(baseline, {}, {})  # empty: nothing pre-recorded
+            old_repo_root = dhv.REPO_ROOT
+            dhv.REPO_ROOT = root
+            try:
+                rc = self._run_main(["--root", "scripts", "--baseline", str(baseline)])
+            finally:
+                dhv.REPO_ROOT = old_repo_root
+            self.assertEqual(
+                1, rc, "a fresh clone confined to scripts/ must block when --root scripts is used"
+            )
+
+    def test_root_scripts_flag_respects_its_own_baseline(self):
+        """Once the scripts-only clone is recorded in the scripts baseline, the
+        SAME --root scan passes -- proving the baseline, not the scan, is what
+        changed (mutate this away by deleting the baseline write and watch it
+        redden again, exactly the previous test)."""
+        with tempfile.TemporaryDirectory() as d:
+            root = self._tree(d)
+            baseline = root / "scripts_baseline.txt"
+            dhv.write_baseline(baseline, {"_scripts_only_clone": 2}, {})
+            old_repo_root = dhv.REPO_ROOT
+            dhv.REPO_ROOT = root
+            try:
+                rc = self._run_main(["--root", "scripts", "--baseline", str(baseline)])
+            finally:
+                dhv.REPO_ROOT = old_repo_root
+            self.assertEqual(0, rc)
+
+
 class KnownGapTest(unittest.TestCase):
     """A gap #769 documents rather than fixes.
 

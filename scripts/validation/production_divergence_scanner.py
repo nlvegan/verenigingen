@@ -249,14 +249,19 @@ def divergent_families(root: str = None):
 
 
 def _print_report(root: str = None) -> None:
+    resolved_root = root or str(REPO_ROOT / SCAN_ROOT)
+    # Repo-relative for the header, so the label matches whatever --root
+    # scanned instead of always claiming SCAN_ROOT ("verenigingen") even
+    # when a different directory was actually walked (#1044).
+    root_label = dhv._rel(resolved_root)
     total = 0
     excluded = 0
-    for path in dhv._iter_python_files(root or str(REPO_ROOT / SCAN_ROOT)):
+    for path in dhv._iter_python_files(resolved_root):
         total += 1
         if is_test_path(path):
             excluded += 1
     print(
-        f"{total} .py files under {SCAN_ROOT}/, {excluded} excluded as test code "
+        f"{total} .py files under {root_label}/, {excluded} excluded as test code "
         f"(tests/ dir or test_*.py/*_test.py) -- {total - excluded} scanned as production."
     )
 
@@ -298,8 +303,19 @@ def main() -> int:
     parser.add_argument(
         "--report", action="store_true", help="print the census and diverged families (default)"
     )
-    parser.parse_args()
-    _print_report()
+    parser.add_argument(
+        "--root",
+        default=SCAN_ROOT,
+        help=(
+            "repo-relative directory to scan (default: %(default)s). #1044: this "
+            "scanner shares its sibling duplicate_helper_validator.py's SCAN_ROOT, "
+            "which never covered scripts/. Advisory-only report, so widening it "
+            "here changes nothing blocking -- pass --root scripts to see the "
+            "PUBLIC-name divergence census for scripts/ itself."
+        ),
+    )
+    args = parser.parse_args()
+    _print_report(str(REPO_ROOT / args.root))
     return 0
 
 

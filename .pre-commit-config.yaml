@@ -724,42 +724,69 @@ repos:
       # Security and API Validation
       - id: api-security-validator
         name: 🛡️ API Security Validator
-        description: Validate API security decorators and patterns
+        description: >-
+          Validate API security decorators and patterns. #1083/#1076: files:
+          widened to also match scripts/ -- a real importable package with its
+          own dispatch-reachable frappe.whitelisted endpoints (#1069) -- so a
+          scripts/-only push actually triggers this hook's full SCAN_ROOTS
+          scan instead of being skipped entirely (previously: only a push
+          also touching verenigingen/api/ ever ran this at all).
         entry: python scripts/validation/security/api_security_validator.py
         language: system
         pass_filenames: false
-        files: '^verenigingen/api/.*\.py$'
+        files: '^(verenigingen/api|scripts)/.*\.py$'
         stages: [pre-push]
         verbose: true
 
       - id: insecure-api-detector
         name: 🚨 Insecure API Detector
-        description: Detect API endpoints lacking proper security decorators
+        description: >-
+          Detect API endpoints lacking proper security decorators. #1083:
+          files: widened to also match scripts/. pass_filenames stays true
+          deliberately -- scan_files() partitions scripts/ findings through
+          its own shrink-only baseline (scripts_dir_baseline.py) regardless of
+          whether it receives explicit file_paths or does a full scan, so
+          per-file invocation still consults the baseline correctly.
         entry: python scripts/validation/security/insecure_api_detector.py
         language: system
         pass_filenames: true
-        files: '^verenigingen/api/.*\.py$'
+        files: '^(verenigingen/api|scripts)/.*\.py$'
         stages: [pre-push]
         verbose: true
 
       - id: whitelist-type-safety
         name: 🔒 Whitelist Type Safety (Frappe v15+)
-        description: Validate type annotations on @whitelist params to prevent type confusion attacks
+        description: >-
+          Validate type annotations on @whitelist params to prevent type
+          confusion attacks. #1076: files: widened to also match scripts/ --
+          previously this hook was never even triggered by a scripts/-only
+          change. The validator's own scripts/ ERROR findings are shrink-only
+          baselined (whitelist_type_safety_scripts_baseline.txt);
+          verenigingen/ stays zero-tolerance.
         entry: python scripts/validation/security/whitelist_type_safety_validator.py
         language: system
         pass_filenames: true
-        files: '^verenigingen/.*\.py$'
+        files: '^(verenigingen|scripts)/.*\.py$'
         exclude: '^(verenigingen/tests/|.*test.*\.py|.*debug.*\.py|archived_.*)'
         stages: [pre-commit]
         verbose: true
 
       - id: permission-bypass-validator
         name: 🔐 Permission Bypass Validator
-        description: Detect ignore_permissions=True without security justification
+        description: >-
+          Detect ignore_permissions=True without security justification.
+          #1076: files: widened to also match scripts/ -- previously this
+          hook was never even triggered by a scripts/-only change, and its own
+          --all full-scan default missed scripts/ entirely. No shrink-only
+          baseline exists for this validator (unlike its API-security
+          siblings): a pre-existing HIGH-risk finding under scripts/
+          (scripts/fix_chapter_document_permissions.py, tracked separately)
+          will block the NEXT edit to that file until justified -- a real,
+          if narrow, finding this widening is expected to surface.
         entry: python scripts/validation/security/permission_bypass_validator.py --pre-commit
         language: system
         pass_filenames: true
-        files: '^verenigingen/.*\.py$'
+        files: '^(verenigingen|scripts)/.*\.py$'
         exclude: '^(verenigingen/tests/|.*test.*\.py|.*debug.*\.py|archived_.*|.*patch.*\.py|.*setup.*\.py|.*fixture.*\.py)'
         stages: [pre-commit]
         verbose: true

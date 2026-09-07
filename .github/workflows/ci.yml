@@ -200,53 +200,81 @@ jobs:
         high_risk_patterns = ['payment', 'sepa', 'invoice', 'financial', 'settlement', 'batch', 'mandate', 'sync', 'audit']
         unprotected_high_risk = []
 
-        for root, dirs, files in os.walk('verenigingen'):
-            # Skip test files and __pycache__
-            if 'test' in root.lower() or '__pycache__' in root:
-                continue
+        # #1076: this job's only scan root used to be 'verenigingen', so scripts/
+        # -- a real importable package with its own frappe.whitelisted endpoints --
+        # was never audited. Same class as #1069's fix to the standalone API
+        # security validators.
+        #
+        # Pre-existing false positive under scripts/, baselined explicitly rather
+        # than silently excluded: scripts/optimization/optimize_payment_dashboard.py
+        # embeds the literal text '@frappe.whitelist()\ndef get_dashboard_data(' as
+        # part of a multi-line STRING it uses to rewrite another file -- not a real
+        # decorator. This line-based scanner cannot tell a string literal from
+        # actual source. Follow-up: file an issue if this false-positive shape
+        # recurs elsewhere in scripts/.
+        KNOWN_FALSE_POSITIVES = {
+            ('scripts/optimization/optimize_payment_dashboard.py', 'get_dashboard_data'),
+        }
 
-            for file in files:
-                if not file.endswith('.py') or file.startswith('__'):
+        # A checkout missing BOTH scan roots (wrong cwd, a renamed directory)
+        # must hard-fail rather than silently report '0 endpoints scanned,
+        # audit passed' -- the same fail-open shape #1078 already fixed once
+        # in the standalone validators.
+        if not any(os.path.isdir(r) for r in ('verenigingen', 'scripts')):
+            print('❌ Neither scan root (verenigingen/, scripts/) was found.')
+            sys.exit(1)
+
+        for scan_root in ('verenigingen', 'scripts'):
+            for root, dirs, files in os.walk(scan_root):
+                # Skip test files and __pycache__
+                if 'test' in root.lower() or '__pycache__' in root:
                     continue
 
-                filepath = os.path.join(root, file)
+                for file in files:
+                    if not file.endswith('.py') or file.startswith('__'):
+                        continue
 
-                # Check if file is high-risk
-                is_high_risk = any(p in filepath.lower() for p in high_risk_patterns)
+                    filepath = os.path.join(root, file)
 
-                try:
-                    with open(filepath, 'r') as f:
-                        content = f.read()
-                        lines = content.split('\n')
-                except:
-                    continue
+                    # Check if file is high-risk
+                    is_high_risk = any(p in filepath.lower() for p in high_risk_patterns)
 
-                i = 0
-                while i < len(lines):
-                    line = lines[i].strip()
-                    # Only match actual decorator lines, not mentions in docstrings/comments
-                    if line.startswith('@frappe.whitelist'):
-                        # Look for security decorator in surrounding lines
-                        has_security = False
-                        func_name = None
-                        is_class_method = False
+                    try:
+                        with open(filepath, 'r') as f:
+                            content = f.read()
+                            lines = content.split('\n')
+                    except:
+                        continue
 
-                        # Check 5 lines before and 8 lines after
-                        for j in range(max(0, i-5), min(len(lines), i+8)):
-                            if any(d in lines[j] for d in security_decorators):
-                                has_security = True
-                                break
-                            func_match = re.search(r'def\s+(\w+)\s*\(', lines[j])
-                            if func_match and not func_name:
-                                func_name = func_match.group(1)
-                                # Skip class methods - protected by DocType permissions
-                                params = lines[j][func_match.end():]
-                                if params.strip().startswith('self') or params.strip().startswith('self,'):
-                                    is_class_method = True
+                    i = 0
+                    while i < len(lines):
+                        line = lines[i].strip()
+                        # Only match actual decorator lines, not mentions in docstrings/comments
+                        if line.startswith('@frappe.whitelist'):
+                            # Look for security decorator in surrounding lines
+                            has_security = False
+                            func_name = None
+                            is_class_method = False
 
-                        if not has_security and is_high_risk and func_name and not is_class_method:
-                            unprotected_high_risk.append((filepath, func_name))
-                    i += 1
+                            # Check 5 lines before and 8 lines after
+                            for j in range(max(0, i-5), min(len(lines), i+8)):
+                                if any(d in lines[j] for d in security_decorators):
+                                    has_security = True
+                                    break
+                                func_match = re.search(r'def\s+(\w+)\s*\(', lines[j])
+                                if func_match and not func_name:
+                                    func_name = func_match.group(1)
+                                    # Skip class methods - protected by DocType permissions
+                                    params = lines[j][func_match.end():]
+                                    if params.strip().startswith('self') or params.strip().startswith('self,'):
+                                        is_class_method = True
+
+                            if (
+                                not has_security and is_high_risk and func_name and not is_class_method
+                                and (filepath, func_name) not in KNOWN_FALSE_POSITIVES
+                            ):
+                                unprotected_high_risk.append((filepath, func_name))
+                        i += 1
 
         if unprotected_high_risk:
             print('❌ SECURITY AUDIT FAILED: Unprotected high-risk API endpoints found!')
@@ -289,7 +317,10 @@ jobs:
             '@webhook_api'
         ]
 
-        for root, dirs, files in os.walk('verenigingen'):
+        # #1076: report over the SAME scan roots as the audit step above, so
+        # the report's counts describe what was actually audited.
+        for scan_root in ('verenigingen', 'scripts'):
+          for root, dirs, files in os.walk(scan_root):
             if 'test' in root.lower() or '__pycache__' in root:
                 continue
 
