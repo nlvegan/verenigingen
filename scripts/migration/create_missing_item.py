@@ -6,7 +6,6 @@ Create the missing eBoekhouden Import Item
 import frappe
 
 
-@frappe.whitelist()
 def create_missing_item():
     """Create eBoekhouden Import Item (without hyphen)"""
 

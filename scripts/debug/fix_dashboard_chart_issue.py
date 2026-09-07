@@ -3,7 +3,6 @@
 import frappe
 
 
-@frappe.whitelist()
 def fix_dashboard_chart_issue():
     """Fix the dashboard chart issue causing page navigation errors"""
 

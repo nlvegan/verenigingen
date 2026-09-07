@@ -608,7 +608,6 @@ def create_coverage_fields():
     return "\n".join(results)
 
 
-@frappe.whitelist() 
 def populate_coverage_dates():
     """Populate coverage dates for existing invoices based on membership dues schedule"""
     

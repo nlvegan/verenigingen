@@ -23,7 +23,6 @@ ROLE_MAPPINGS = {
     "Verenigingen Governance Auditor": "Verenigingen Governance Auditor"
 }
 
-@frappe.whitelist()
 def rename_verenigingen_roles():
     """
     Rename all verenigingen roles to have proper prefix
@@ -243,7 +242,6 @@ def get_current_role_status():
     
     return status
 
-@frappe.whitelist() 
 def rollback_role_rename(role_mappings=None):
     """
     Rollback role renames if needed

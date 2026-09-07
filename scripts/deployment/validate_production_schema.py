@@ -281,7 +281,6 @@ def validate_production_schema():
         }
 
 
-@frappe.whitelist()
 def create_production_indexes():
     """Create recommended database indexes for production performance"""
     
