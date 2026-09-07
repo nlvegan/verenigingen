@@ -238,7 +238,20 @@ $(document).ready(() => {
 		updateButton('redirecting', __('Redirecting...'));
 		showLoading();
 
-		const successUrl = `/payment-success?doctype=${pageConfig.reference_doctype}&docname=${pageConfig.reference_docname}`;
+		// payment_success.py now requires proof of ownership before disclosing
+		// anything (#1055) -- the real Mollie payment id this checkout just
+		// created/polled to completion is that proof (it's checked against the
+		// document's own on-file payment reference). Known whenever a payment
+		// was created this session (currentPayment.paymentID persists through
+		// status polling); not known if this page loaded onto an already-
+		// completed payment without ever creating/polling a new one this
+		// session, in which case the success page will refuse rather than
+		// disclose -- fails safe instead of leaking.
+		const paymentIdParam =
+			currentPayment && currentPayment.paymentID
+				? `&payment_id=${encodeURIComponent(currentPayment.paymentID)}`
+				: '';
+		const successUrl = `/payment-success?doctype=${pageConfig.reference_doctype}&docname=${pageConfig.reference_docname}${paymentIdParam}`;
 
 		setTimeout(() => {
 			window.location.href = successUrl;

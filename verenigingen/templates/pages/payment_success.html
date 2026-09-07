@@ -318,7 +318,8 @@ function refreshPaymentStatus(isAutoRefresh = false) {
             args: {
                 doctype: '{{ document_info.doctype }}',
                 docname: '{{ document_info.docname }}',
-                payment_id: '{{ frappe.form_dict.get("payment_id", "") }}'
+                payment_id: '{{ frappe.form_dict.get("payment_id", "") }}',
+                token: '{{ frappe.form_dict.get("token", "") }}'
             },
             callback(response) {
                 handleRefreshResponse(response.message, isAutoRefresh);
@@ -339,7 +340,8 @@ function refreshPaymentStatus(isAutoRefresh = false) {
             body: JSON.stringify({
                 doctype: '{{ document_info.doctype }}',
                 docname: '{{ document_info.docname }}',
-                payment_id: '{{ frappe.form_dict.get("payment_id", "") }}'
+                payment_id: '{{ frappe.form_dict.get("payment_id", "") }}',
+                token: '{{ frappe.form_dict.get("token", "") }}'
             })
         })
         .then(response => response.json())

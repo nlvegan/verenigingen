@@ -462,12 +462,25 @@ class MollieSettings(Document):
 
         Returns:
             str: Redirect URL
+
+        This is the one point we control when building the redirect URL
+        Mollie is told to send the payer back to -- at this point in the
+        flow (before the Mollie payment even exists) `payment_id` is not
+        yet known, so it cannot serve as an ownership proof. A return token
+        is minted here instead and required by
+        payment_success.py::validate_payment_document_access (#1055): a
+        guest supplying only a guessable doctype/docname pair used to
+        disclose the document's amount/paid status with no proof at all.
         """
         if self.redirect_url:
             return self.redirect_url
 
+        from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
+
+        token = generate_guest_return_token("payment_success", f"{reference_doctype}:{reference_docname}")
+
         # Default redirect to success page with payment tracking
-        url_params = f"doctype={reference_doctype}&docname={reference_docname}"
+        url_params = f"doctype={reference_doctype}&docname={reference_docname}&token={token}"
         if payment_id:
             url_params += f"&payment_id={payment_id}"
 

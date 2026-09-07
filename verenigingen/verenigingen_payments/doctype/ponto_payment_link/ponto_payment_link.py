@@ -425,8 +425,25 @@ class PontoPaymentLink(Document):
         Get the customer-facing payment URL.
 
         Returns a URL that can be shared with the customer to initiate payment.
+
+        Embeds an HMAC proof (#1053) since /ponto_pay's `id` query param is a
+        small sequential, guessable counter and the page has no session to
+        check ownership against.
+
+        Note: this previously returned `/ponto-pay/{name}` (a hyphenated path
+        segment) with no route rule to serve it -- confirmed via
+        PathResolver on test_site_5 that this 404s, since the page is only
+        registered at the underscored `/ponto_pay` route and reads its id
+        from the `id` query param, not a path segment. Fixed here alongside
+        the token, since a token embedded in an unreachable URL fixes
+        nothing; filed separately (see PR description) as its own
+        pre-existing-bug finding.
         """
-        return get_url(f"/ponto-pay/{self.name}")
+        from verenigingen.templates.pages.ponto_pay import PONTO_PAY_TOKEN_PURPOSE
+        from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
+
+        token = generate_guest_return_token(PONTO_PAY_TOKEN_PURPOSE, self.name)
+        return get_url(f"/ponto_pay?id={self.name}&token={token}")
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.FINANCIAL)

@@ -22,7 +22,9 @@ from unittest.mock import patch
 import frappe
 
 from verenigingen.templates.pages import payment_success
+from verenigingen.templates.pages.payment_success import PONTO_RETURN_TOKEN_PURPOSE
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
 
 
 class TestPagePaymentSuccess(EnhancedTestCase):
@@ -62,12 +64,36 @@ class TestPagePaymentSuccess(EnhancedTestCase):
         self.assertFalse(is_valid)
         self.assertIsInstance(result, str)
 
-    def test_validate_accepts_when_no_payment_id_required(self):
-        """A real, allowed document with no payment_id check passes and returns the doc."""
+    def test_validate_rejects_when_neither_payment_id_nor_token_given(self):
+        """A real, allowed document with NEITHER payment_id NOR token is refused (#1055).
+
+        This used to pass (see git history) simply by omitting payment_id --
+        exactly what MollieSettings.get_redirect_url() and mollie_checkout.js's
+        own return-URL construction did by default, disclosing amount/paid to
+        any guest supplying only a guessable doctype/docname pair.
+        """
         donation = self._make_donation()
         is_valid, result = payment_success.validate_payment_document_access("Donation", donation.name, None)
+        self.assertFalse(is_valid)
+        self.assertIsInstance(result, str)
+
+    def test_validate_accepts_a_valid_return_token_with_no_payment_id(self):
+        """A valid return token (minted by get_redirect_url) is accepted with no payment_id."""
+        donation = self._make_donation()
+        token = generate_guest_return_token("payment_success", f"Donation:{donation.name}")
+        is_valid, result = payment_success.validate_payment_document_access(
+            "Donation", donation.name, None, token
+        )
         self.assertTrue(is_valid)
         self.assertEqual(result.name, donation.name)
+
+    def test_validate_rejects_a_wrong_return_token(self):
+        """A wrong token with no payment_id is refused, same as no token at all."""
+        donation = self._make_donation()
+        is_valid, result = payment_success.validate_payment_document_access(
+            "Donation", donation.name, None, "0" * 64
+        )
+        self.assertFalse(is_valid)
 
     def test_validate_payment_id_mismatch_is_rejected(self):
         """A wrong payment_id for an existing document is rejected (IDOR / reference forgery)."""
@@ -117,14 +143,29 @@ class TestPagePaymentSuccess(EnhancedTestCase):
         self.assertEqual(context.document_info, {})
 
     def test_get_context_paid_document_reports_completed(self):
-        """An already-paid document (no payment_id) is reported as completed with next steps."""
+        """An already-paid document with a valid return token (no payment_id) reports completed."""
         donation = self._make_donation(paid=1)
-        frappe.local.form_dict = frappe._dict({"doctype": "Donation", "docname": donation.name})
+        token = generate_guest_return_token("payment_success", f"Donation:{donation.name}")
+        frappe.local.form_dict = frappe._dict(
+            {"doctype": "Donation", "docname": donation.name, "token": token}
+        )
         context = frappe._dict()
         payment_success.get_context(context)
         self.assertEqual(context.payment_status, "completed")
         self.assertEqual(context.document_info["docname"], donation.name)
         self.assertTrue(len(context.next_steps) > 0)
+
+    def test_get_context_paid_document_with_no_token_discloses_nothing(self):
+        """A guest with only a real, guessable doctype/docname pair -- NO payment_id, NO
+        token -- gets refused exactly like an unknown reference (#1055 finding 2), not
+        the document's amount/paid status.
+        """
+        donation = self._make_donation(paid=1, amount=456.78)
+        frappe.local.form_dict = frappe._dict({"doctype": "Donation", "docname": donation.name})
+        context = frappe._dict()
+        payment_success.get_context(context)
+        self.assertEqual(context.payment_status, "error")
+        self.assertEqual(context.document_info, {})
 
     def test_get_context_payment_id_non_mollie_reports_unknown(self):
         """A validated payment_id on a non-Mollie document yields the 'unknown' fallback.
@@ -199,6 +240,47 @@ class TestPagePaymentSuccess(EnhancedTestCase):
         payment_success.handle_ponto_payment_link_return(context, "PONTO-LINK-DOES-NOT-EXIST")
         self.assertEqual(context.payment_status, "error")
 
+    _PONTO_IBAN = "NL39RABO0300065264"
+
+    def _make_ponto_link(self, **kwargs):
+        data = {
+            "doctype": "Ponto Payment Link",
+            "amount": kwargs.pop("amount", 25.0),
+            "currency": "EUR",
+            "description": kwargs.pop("description", "Membership payment"),
+            "creditor_name": kwargs.pop("creditor_name", "Test Org"),
+            "creditor_iban": self._PONTO_IBAN,
+            "payment_type": "One-Time",
+            "status": kwargs.pop("status", "Pending Authorization"),
+        }
+        data.update(kwargs)
+        link = frappe.get_doc(data)
+        link.insert()
+        self.track_doc("Ponto Payment Link", link.name)
+        return link
+
+    def test_ponto_link_with_no_token_discloses_nothing(self):
+        """A real Ponto Payment Link id with NO token is refused, not disclosed (#1055
+        finding 1) -- this branch used to bypass the file's own ownership check
+        (validate_payment_document_access) entirely.
+        """
+        link = self._make_ponto_link(amount=1234.56, creditor_name="Real Creditor")
+        context = frappe._dict()
+        payment_success.handle_ponto_payment_link_return(context, link.name)
+        self.assertEqual(context.payment_status, "error")
+        self.assertEqual(context.document_info, {})
+
+    def test_ponto_link_with_valid_token_discloses_status(self):
+        """The token minted at the one construction site (betaalverzoek_callback.py)
+        is accepted and the real status is disclosed."""
+        link = self._make_ponto_link(amount=1234.56)
+        frappe.db.set_value("Ponto Payment Link", link.name, "status", "Executed")
+        token = generate_guest_return_token(PONTO_RETURN_TOKEN_PURPOSE, link.name)
+        context = frappe._dict()
+        payment_success.handle_ponto_payment_link_return(context, link.name, token)
+        self.assertEqual(context.payment_status, "completed")
+        self.assertEqual(context.document_info["docname"], link.name)
+
     # ------------------------------------------------------------------
     # get_next_steps - pure helper, all branches
     # ------------------------------------------------------------------
@@ -243,3 +325,19 @@ class TestPagePaymentSuccess(EnhancedTestCase):
         donation = self._make_donation(payment_id="tr_real")
         result = payment_success.refresh_payment_status("Donation", donation.name, "tr_forged")
         self.assertFalse(result["success"])
+
+    def test_refresh_status_empty_payment_id_no_longer_bypasses_ownership(self):
+        """An empty-string payment_id (the page's own default when the URL carries no
+        payment_id) is refused, not treated as "no check requested" (#1055 finding 2).
+        """
+        donation = self._make_donation(paid=1, amount=456.78)
+        result = payment_success.refresh_payment_status("Donation", donation.name, "")
+        self.assertFalse(result["success"])
+
+    def test_refresh_status_accepts_a_valid_return_token(self):
+        """A valid return token (forwarded from the rendered page's form_dict) works
+        with no payment_id."""
+        donation = self._make_donation(paid=0)
+        token = generate_guest_return_token("payment_success", f"Donation:{donation.name}")
+        result = payment_success.refresh_payment_status("Donation", donation.name, "", token)
+        self.assertTrue(result["success"])
