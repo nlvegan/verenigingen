@@ -30,9 +30,12 @@ Mollie HTTP calls are OUT OF SCOPE (no live token) so subscription-creation
 success paths are not driven here.
 """
 
+from unittest.mock import patch
+
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.utils.constants import Roles
 from verenigingen.verenigingen_payments.utils import payment_gateways as pg
 
 
@@ -112,6 +115,158 @@ class TestCancelMemberSubscriptionOwnership(EnhancedTestCase):
         with self.as_user(other.user):
             with self.assertRaises(frappe.PermissionError):
                 pg.cancel_member_subscription(member_id=member.name)
+
+
+class TestUpdateSubscriptionAmountOwnership(EnhancedTestCase):
+    """update_mollie_subscription_amount enforces ownership on subscription_id (#957).
+
+    subscription_id is caller-supplied; get_member_by_subscription_id looks it
+    up but performs no ownership check of its own. Per #965's role-profile
+    measurement, the reachable population for this HIGH-level endpoint is
+    board/staff/treasurer level, not only System-Manager-style admins, so the
+    attacker here holds a real non-admin role profile ("Verenigingen Chapter
+    Board Member") that clears the endpoint's security level but must still be
+    refused someone else's subscription.
+    """
+
+    class _StubGateway:
+        def update_subscription(self, customer_id, subscription_id, payload):
+            return {"status": "success"}
+
+    def _board_member_user(self):
+        """A non-admin user whose Role Profile clears the HIGH security level.
+
+        Mirrors payment_dashboard.py's own board-member probe added for the
+        sibling #957-adjacent fix (PR #974): "Verenigingen Chapter Board
+        Member" satisfies Rule 4 of the authorization policy (HIGH access via
+        role profile) but holds none of Roles.ADMIN_ROLES, isolating the
+        ownership check under test from the separate (already-covered)
+        security-level gate.
+        """
+        from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
+
+        user_email = f"board.subprobe.{frappe.generate_hash(length=8)}@example.com".lower()
+        frappe.get_doc(
+            {
+                "doctype": "User",
+                "email": user_email,
+                "first_name": "Board",
+                "last_name": "SubProbe",
+                "send_welcome_email": 0,
+                "roles": [{"role": "Verenigingen Member"}],
+            }
+        ).insert()
+        grant_matching_role_profiles(user_email, "Verenigingen Chapter Board Member")
+
+        attacker_member = self.create_test_member(
+            first_name="Board", last_name="SubProbe", status="Active"
+        )
+        frappe.db.set_value("Member", attacker_member.name, "user", user_email)
+
+        self.assertFalse(
+            set(frappe.get_roles(user_email)) & Roles.ADMIN_ROLES,
+            "test setup: attacker must NOT hold an admin role",
+        )
+        return user_email, attacker_member.name
+
+    def test_update_amount_refuses_foreign_subscription_for_non_admin_board_role(self):
+        victim = self.create_test_member(first_name="SubAmtVictim")
+        frappe.db.set_value(
+            "Member",
+            victim.name,
+            {"mollie_customer_id": "cst_victim", "mollie_subscription_id": "sub_victim_amt"},
+        )
+        user_email, _attacker_member = self._board_member_user()
+
+        with self.set_user(user_email):
+            with self.assertRaises(frappe.PermissionError):
+                pg.update_mollie_subscription_amount(
+                    subscription_id="sub_victim_amt", new_amount=999.0
+                )
+
+        # The victim's subscription id is unchanged and no gateway call was
+        # attempted on their behalf.
+        self.assertEqual(
+            frappe.db.get_value("Member", victim.name, "mollie_subscription_id"),
+            "sub_victim_amt",
+        )
+
+    def test_update_amount_allows_own_subscription_for_non_admin_board_role(self):
+        # Same non-admin board-profile user, managing THEIR OWN subscription,
+        # must still succeed -- the ownership fix must not break self-service
+        # for the population that legitimately reaches this endpoint.
+        user_email, attacker_member = self._board_member_user()
+        frappe.db.set_value(
+            "Member",
+            attacker_member,
+            {"mollie_customer_id": "cst_self", "mollie_subscription_id": "sub_self_amt"},
+        )
+        with self.set_user(user_email):
+            with patch.object(
+                pg.PaymentGatewayFactory, "get_gateway", return_value=self._StubGateway()
+            ):
+                result = pg.update_mollie_subscription_amount(
+                    subscription_id="sub_self_amt", new_amount=30.0
+                )
+        self.assertEqual(result["status"], "success", result)
+
+
+class TestCancelByIdOwnership(EnhancedTestCase):
+    """cancel_mollie_subscription_by_id (the #957 sibling #965 flagged) already
+    delegates ownership enforcement to cancel_member_subscription()'s own
+    validate_member_ownership() call -- confirmed empirically here rather than
+    assumed from reading the code, since #965's own census claimed this
+    function had "no ownership check" (it resolves subscription_id via the
+    identical get_member_by_subscription_id lookup, same as
+    update_mollie_subscription_amount). Reading the delegation
+    (`return cancel_member_subscription(member_id)`) shows the check DOES run;
+    this test is the control that proves it actually fires for this entry
+    point, not just for direct calls to cancel_member_subscription().
+    """
+
+    def test_cancel_by_id_refuses_foreign_subscription_for_non_admin_board_role(self):
+        from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
+
+        victim = self.create_test_member(first_name="SubCancelVictim")
+        frappe.db.set_value(
+            "Member",
+            victim.name,
+            {"mollie_customer_id": "cst_cvictim", "mollie_subscription_id": "sub_cvictim"},
+        )
+
+        user_email = f"board.cancelprobe.{frappe.generate_hash(length=8)}@example.com".lower()
+        frappe.get_doc(
+            {
+                "doctype": "User",
+                "email": user_email,
+                "first_name": "Board",
+                "last_name": "CancelProbe",
+                "send_welcome_email": 0,
+                "roles": [{"role": "Verenigingen Member"}],
+            }
+        ).insert()
+        grant_matching_role_profiles(user_email, "Verenigingen Chapter Board Member")
+        attacker_member = self.create_test_member(
+            first_name="Board", last_name="CancelProbe", status="Active"
+        )
+        frappe.db.set_value("Member", attacker_member.name, "user", user_email)
+
+        with self.set_user(user_email):
+            # Read roles AFTER the switch: a pre-switch read can resolve
+            # through the stale cache of the previous session user
+            # (cache-guard-validator).
+            self.assertFalse(
+                set(frappe.get_roles()) & Roles.ADMIN_ROLES,
+                "test setup: attacker must NOT hold an admin role",
+            )
+            result = pg.cancel_mollie_subscription_by_id(subscription_id="sub_cvictim")
+
+        # cancel_mollie_subscription_by_id's own except-Exception wrapper
+        # catches the PermissionError raised deep inside
+        # cancel_member_subscription() and turns it into an error dict rather
+        # than letting it propagate -- so the observable contract here is
+        # "not success", not a raised exception.
+        self.assertEqual(result.get("status"), "error", result)
 
 
 class TestGetMemberSubscriptionStatusGatewayError(EnhancedTestCase):

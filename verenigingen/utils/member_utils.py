@@ -12,6 +12,7 @@ import frappe
 from frappe import _
 
 from verenigingen.repositories.dues_schedule_repository import DuesScheduleRepository
+from verenigingen.utils.constants import Roles
 
 
 def require_login():
@@ -291,13 +292,18 @@ def has_mollie_subscription() -> bool:
     return has_payment_method and has_customer_id and has_subscription_id and has_active_status
 
 
-def validate_member_ownership(member_id: str, error_message: str = None) -> None:
+def validate_member_ownership(member_id: str, error_message: str = None, allow_admin: bool = False) -> None:
     """
     Validate that the current user owns the specified member record with improved security.
 
     Args:
         member_id: Member document name/ID to validate
         error_message: Custom error message for ownership violation
+        allow_admin: If True, a caller holding one of Roles.ADMIN_ROLES also
+            passes, even without an owning Member record of their own (e.g.
+            Administrator, who has none) or when acting on someone else's
+            record. Off by default so existing self-only callers (e.g.
+            cancel_member_subscription) keep their current, stricter contract.
 
     Raises:
         frappe.DoesNotExistError: If current user has no member record
@@ -315,6 +321,10 @@ def validate_member_ownership(member_id: str, error_message: str = None) -> None
 
     # Get current user's member record
     current_member = get_current_user_member_name()
+
+    if allow_admin and set(frappe.get_roles()) & Roles.ADMIN_ROLES:
+        return
+
     if not current_member:
         frappe.throw(_("No member record found for your account"), frappe.DoesNotExistError)
 
