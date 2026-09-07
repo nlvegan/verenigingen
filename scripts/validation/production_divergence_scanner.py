@@ -179,16 +179,23 @@ def census(root: str = None) -> Dict[str, int]:
 
 
 def _pair_stats(copies: List[Tuple[str, str, str]]):
-    """(exact, near, best, worst, cosmetic) over every pair in a family.
+    """(exact, near, best, worst, cosmetic, near_pairs) over every pair in a family.
 
     Mirrors `duplicate_helper_validator.clone_families`'s per-family loop exactly,
     so "near", "exact" and "cosmetic" mean the same thing in both tools. `near`
     counts only ratio-based near pairs, NOT exact ones -- an exact pair is plain
     duplication, not a diverged pair, and is tracked separately in `exact`.
+
+    `near_pairs` is the actual evidence for the verdict: the (path, path, ratio)
+    of every pair that reached CLONE_RATIO, absolute paths. #1008: a report that
+    names only the family and a truncated, alphabetically-sorted directory list
+    gives a human no way back to the pair that produced it -- for a family with
+    more than ~4 directories, alphabetical truncation can drop the pair entirely.
     """
     exact = near = cosmetic = 0
     best = 0.0
     worst = 1.0
+    near_pairs: List[Tuple[str, str, float]] = []
     for i in range(len(copies)):
         for j in range(i + 1, len(copies)):
             a, b = copies[i][2], copies[j][2]
@@ -207,7 +214,8 @@ def _pair_stats(copies: List[Tuple[str, str, str]]):
             worst = min(worst, ratio)
             if ratio >= CLONE_RATIO:
                 near += 1
-    return exact, near, best, worst, cosmetic
+                near_pairs.append((copies[i][0], copies[j][0], ratio))
+    return exact, near, best, worst, cosmetic, near_pairs
 
 
 def divergent_families(root: str = None):
@@ -219,17 +227,23 @@ def divergent_families(root: str = None):
     band than `--drift`'s "every pair near" rule, and why that widening is
     necessary rather than optional.
 
-    Returns a list of (near_pairs, files, best, worst, name, dirs), most-diverged
-    first, most-copied as tiebreak.
+    Returns a list of (near, files, best, worst, name, dirs, near_pairs),
+    most-diverged first, most-copied as tiebreak. `near_pairs` is a sorted list
+    of (rel_path, rel_path, ratio) for every pair that reached CLONE_RATIO --
+    the actual evidence for the verdict (#1008), not just the directories the
+    family's copies happen to live in.
     """
     out = []
     for name, copies in _by_name(root).items():
         if len(copies) < 2:
             continue
-        exact, near, best, worst, _cosmetic = _pair_stats(copies)
+        exact, near, best, worst, _cosmetic, raw_near_pairs = _pair_stats(copies)
         if exact == 0 and near >= 1:
             dirs = sorted({os.path.dirname(dhv._rel(p)) for p, _, _ in copies})
-            out.append((near, len(copies), round(best, 3), round(worst, 3), name, dirs))
+            near_pairs = sorted(
+                (dhv._rel(a), dhv._rel(b), round(ratio, 3)) for a, b, ratio in raw_near_pairs
+            )
+            out.append((near, len(copies), round(best, 3), round(worst, 3), name, dirs, near_pairs))
     out.sort(key=lambda f: (-f[0], -f[1]))
     return out
 
@@ -261,10 +275,15 @@ def _print_report(root: str = None) -> None:
         f"normalising away\ndocstrings/annotations, none byte-identical: {len(families)} families.\n"
     )
     print(f"{'near':>5} {'files':>5} {'best':>6} {'worst':>6}  name")
-    for near, files, best, worst, name, dirs in families:
+    for near, files, best, worst, name, dirs, near_pairs in families:
         print(f"{near:>5} {files:>5} {best:>6.3f} {worst:>6.3f}  {name}")
-        for d in dirs[:4]:
-            print(f"{'':>26}{d}/")
+        # #1008: name the actual near-identical pair(s) that produced this
+        # verdict, not a truncated, alphabetically-sorted directory list --
+        # for a family with more than ~4 directories that truncation can drop
+        # the pair a human is meant to triage entirely.
+        for a, b, ratio in near_pairs:
+            print(f"{'':>26}{a}")
+            print(f"{'':>28}<-> {b}   ratio {ratio:.3f}")
 
     print(
         "\nAdvisory only -- this does not fail CI. Read the flagged pairs; if one "
