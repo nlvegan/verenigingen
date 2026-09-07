@@ -13,7 +13,6 @@ verenigingen/hooks/doc_events.py::hook::SEPA Mandate::1
 verenigingen/tests/backend/components/test_member_lifecycle_iban.py::submit::SEPA Mandate::1
 verenigingen/tests/backend/components/test_payment_plan_system.py::cancel::Payment Plan::1
 verenigingen/tests/backend/components/test_payment_plan_system.py::submit::Payment Plan::2
-verenigingen/tests/backend/comprehensive/test_periodic_donation_agreement_comprehensive.py::submit::Donation::3
 verenigingen/tests/donor/test_campaign_donation_integration.py::submit::Donation::5
 verenigingen/tests/fixtures/anbi_test_personas.py::cancel::Donation::1
 verenigingen/tests/fixtures/anbi_test_personas.py::docstatus:compare::Donation::1
@@ -23,8 +22,5 @@ verenigingen/tests/payment/test_payment_gateways_sweep2_coverage.py::cancel::Don
 verenigingen/tests/payment/test_payment_gateways_sweep2_coverage.py::docstatus:compare::Donation::1
 verenigingen/tests/payment/test_payment_plan_system_proper.py::submit::Payment Plan::1
 verenigingen/tests/services/test_termination_execution_service.py::submit::Membership Termination Request::2
-verenigingen/verenigingen/doctype/membership/scheduler.py::docstatus:sql_text::Membership Dues Schedule::1
-verenigingen/verenigingen_payments/doctype/payment_plan/payment_plan.py::submit::Payment Plan::1
 verenigingen/verenigingen_payments/ing_checkout/api/mandate.py::cancel::ING Checkout Mandate::1
 verenigingen/verenigingen_payments/mollie/tests/test_webhook_wrapper_unified_sweep.py::submit::Donation::1
-verenigingen/verenigingen_payments/utils/sepa_memory_optimizer.py::docstatus:sql_text::Member::1
