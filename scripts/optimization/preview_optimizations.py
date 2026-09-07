@@ -10,11 +10,19 @@ import re
 from pathlib import Path
 from datetime import datetime
 
+import frappe
+
+
+def _api_dir() -> Path:
+    """Resolve verenigingen/api/ via the installed app rather than a
+    hardcoded, non-existent /home/frappe/... path (#1036/#1027)."""
+    return Path(frappe.get_app_path("verenigingen")) / "api"
+
 
 def preview_optimizations():
     """Preview optimizations for high-priority endpoints"""
-    
-    api_dir = Path("/home/frappe/frappe-bench/apps/verenigingen/verenigingen/api")
+
+    api_dir = _api_dir()
     
     # High-impact endpoints to optimize
     priority_files = {
@@ -140,12 +148,14 @@ def get_dashboard_data(**kwargs):
 
 def check_existing_optimizations():
     """Check how many endpoints already have optimizations"""
-    api_dir = Path("/home/frappe/frappe-bench/apps/verenigingen/verenigingen/api")
-    
+    api_dir = _api_dir()
+
     total_endpoints = 0
     optimized_endpoints = 0
-    
-    for file_path in api_dir.glob("*.py"):
+
+    # rglob: verenigingen/api/ has real subdirectories (e.g. api/member/)
+    # that a non-recursive glob("*.py") silently never sees (#972/#1036).
+    for file_path in api_dir.rglob("*.py"):
         if file_path.name == "__init__.py":
             continue
             

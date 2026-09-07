@@ -10,8 +10,25 @@ and maps existing security patterns vs required coverage.
 import os
 import re
 import json
+from pathlib import Path
 from typing import Dict, List, Set
 import frappe
+
+
+def _api_directory() -> str:
+    """Resolve verenigingen/api/ via the installed app rather than a
+    hardcoded, non-existent /home/frappe/... path (#1036/#1027)."""
+    return str(Path(frappe.get_app_path("verenigingen")) / "api")
+
+
+def _iter_api_python_files(api_directory: str):
+    """Yield (relative_filename, absolute_path) for every .py file under
+    api_directory, including subdirectories -- os.listdir() only sees the
+    top level and silently misses populated ones like api/member/
+    (#972/#1036)."""
+    for path in sorted(Path(api_directory).rglob("*.py")):
+        yield str(path.relative_to(api_directory)), str(path)
+
 
 def analyze_security_coverage() -> Dict[str, any]:
     """
@@ -151,21 +168,21 @@ def find_unprotected_apis() -> Dict[str, List[Dict]]:
     """
     
     unprotected_apis = {}
-    
-    api_directory = '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/api'
-    
+
+    api_directory = _api_directory()
+
     if not os.path.exists(api_directory):
         return unprotected_apis
-    
-    for filename in os.listdir(api_directory):
-        if filename.endswith('.py') and filename != '__init__.py':
-            file_path = os.path.join(api_directory, filename)
-            unprotected_functions = find_unprotected_functions_in_file(file_path)
-            
-            if unprotected_functions:
-                relative_path = f"verenigingen/api/{filename}"
-                unprotected_apis[relative_path] = unprotected_functions
-    
+
+    for filename, file_path in _iter_api_python_files(api_directory):
+        if os.path.basename(filename) == '__init__.py':
+            continue
+        unprotected_functions = find_unprotected_functions_in_file(file_path)
+
+        if unprotected_functions:
+            relative_path = f"verenigingen/api/{filename}"
+            unprotected_apis[relative_path] = unprotected_functions
+
     return unprotected_apis
 
 def find_unprotected_functions_in_file(file_path: str) -> List[Dict]:
@@ -241,20 +258,18 @@ def find_permission_check_patterns() -> List[Dict]:
         r'validate_permission\('
     ]
     
-    api_directory = '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/api'
-    
+    api_directory = _api_directory()
+
     if os.path.exists(api_directory):
-        for filename in os.listdir(api_directory):
-            if filename.endswith('.py'):
-                file_path = os.path.join(api_directory, filename)
-                patterns_in_file = find_patterns_in_file(file_path, patterns_to_find)
-                
-                if patterns_in_file:
-                    permission_patterns.extend([{
-                        'file': f"verenigingen/api/{filename}",
-                        'pattern': pattern,
-                        'count': count
-                    } for pattern, count in patterns_in_file.items() if count > 0])
+        for filename, file_path in _iter_api_python_files(api_directory):
+            patterns_in_file = find_patterns_in_file(file_path, patterns_to_find)
+            
+            if patterns_in_file:
+                permission_patterns.extend([{
+                    'file': f"verenigingen/api/{filename}",
+                    'pattern': pattern,
+                    'count': count
+                } for pattern, count in patterns_in_file.items() if count > 0])
     
     return permission_patterns
 
@@ -271,20 +286,18 @@ def find_role_validation_patterns() -> List[Dict]:
         r'validate_role\('
     ]
     
-    api_directory = '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/api'
-    
+    api_directory = _api_directory()
+
     if os.path.exists(api_directory):
-        for filename in os.listdir(api_directory):
-            if filename.endswith('.py'):
-                file_path = os.path.join(api_directory, filename)
-                patterns_in_file = find_patterns_in_file(file_path, role_check_patterns)
-                
-                if patterns_in_file:
-                    role_patterns.extend([{
-                        'file': f"verenigingen/api/{filename}",
-                        'pattern': pattern,
-                        'count': count
-                    } for pattern, count in patterns_in_file.items() if count > 0])
+        for filename, file_path in _iter_api_python_files(api_directory):
+            patterns_in_file = find_patterns_in_file(file_path, role_check_patterns)
+            
+            if patterns_in_file:
+                role_patterns.extend([{
+                    'file': f"verenigingen/api/{filename}",
+                    'pattern': pattern,
+                    'count': count
+                } for pattern, count in patterns_in_file.items() if count > 0])
     
     return role_patterns
 
@@ -301,20 +314,18 @@ def find_data_isolation_patterns() -> List[Dict]:
         r'chapter_specific'
     ]
     
-    api_directory = '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/api'
-    
+    api_directory = _api_directory()
+
     if os.path.exists(api_directory):
-        for filename in os.listdir(api_directory):
-            if filename.endswith('.py'):
-                file_path = os.path.join(api_directory, filename)
-                patterns_in_file = find_patterns_in_file(file_path, isolation_check_patterns)
-                
-                if patterns_in_file:
-                    isolation_patterns.extend([{
-                        'file': f"verenigingen/api/{filename}",
-                        'pattern': pattern,
-                        'count': count
-                    } for pattern, count in patterns_in_file.items() if count > 0])
+        for filename, file_path in _iter_api_python_files(api_directory):
+            patterns_in_file = find_patterns_in_file(file_path, isolation_check_patterns)
+            
+            if patterns_in_file:
+                isolation_patterns.extend([{
+                    'file': f"verenigingen/api/{filename}",
+                    'pattern': pattern,
+                    'count': count
+                } for pattern, count in patterns_in_file.items() if count > 0])
     
     return isolation_patterns
 
@@ -331,20 +342,18 @@ def find_input_validation_patterns() -> List[Dict]:
         r'ValidationError'
     ]
     
-    api_directory = '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/api'
-    
+    api_directory = _api_directory()
+
     if os.path.exists(api_directory):
-        for filename in os.listdir(api_directory):
-            if filename.endswith('.py'):
-                file_path = os.path.join(api_directory, filename)
-                patterns_in_file = find_patterns_in_file(file_path, validation_check_patterns)
-                
-                if patterns_in_file:
-                    validation_patterns.extend([{
-                        'file': f"verenigingen/api/{filename}",
-                        'pattern': pattern,
-                        'count': count
-                    } for pattern, count in patterns_in_file.items() if count > 0])
+        for filename, file_path in _iter_api_python_files(api_directory):
+            patterns_in_file = find_patterns_in_file(file_path, validation_check_patterns)
+            
+            if patterns_in_file:
+                validation_patterns.extend([{
+                    'file': f"verenigingen/api/{filename}",
+                    'pattern': pattern,
+                    'count': count
+                } for pattern, count in patterns_in_file.items() if count > 0])
     
     return validation_patterns
 
