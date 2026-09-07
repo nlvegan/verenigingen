@@ -831,17 +831,53 @@ class NearPairEvidenceTest(unittest.TestCase):
             dhv._print_near_pairs(pairs, 4)
         output = buf.getvalue()
 
+        # Ratios that appear in an actual SHOWN "<->" pair line -- not merely
+        # anywhere in the printed text. A plain substring check on the whole
+        # output (`assertIn("0.900", output)`) cannot distinguish "the
+        # minimum was SHOWN" from "the minimum happens to be the low end of
+        # the elision range printed for whatever got dropped" -- the review
+        # on #1059 reproduced exactly that hole with a naive first-N cap:
+        # the true minimum was wrongly excluded from `shown` yet still
+        # appeared as the low end of "... 3 more pair(s) elided, ratio
+        # 0.900-0.996", so a whole-output substring check passed anyway.
+        # Scoping to "<->" lines closes it.
+        shown_ratios = {
+            round(float(m), 3)
+            for ln in output.splitlines()
+            if "<->" in ln
+            for m in re.findall(r"ratio ([\d.]+)$", ln.strip())
+        }
+
+        # Closes the other mutation the same review reproduced: an off-by-one
+        # in the padding loop that shows one pair MORE than the cap. Neither
+        # the substring checks above nor a raw output-length check would
+        # catch that, since the extra pair still gets printed as a normal
+        # "<->" line and the elision line still describes whatever is left.
+        self.assertEqual(
+            dhv.NEAR_PAIRS_PRINT_CAP,
+            len(shown_ratios),
+            "the cap must bound the number of pairs actually SHOWN",
+        )
+        self.assertIn(
+            0.999,
+            shown_ratios,
+            "the highest-ratio pair must be SHOWN, not just referenced in the elision range",
+        )
+        self.assertIn(
+            0.900,
+            shown_ratios,
+            "a first-N-by-alphabetical-order cap would drop this pair from the SHOWN set",
+        )
+
         # Fewer lines than the full cross-product: 2 lines per pair shown,
         # plus one elision line -- never all len(pairs) * 2 lines.
         printed_pair_lines = sum(1 for ln in output.splitlines() if "<->" in ln)
+        self.assertEqual(len(shown_ratios), printed_pair_lines)
         self.assertLess(
             printed_pair_lines,
             len(pairs),
             "the print must stop scaling with the number of pairs",
         )
-
-        self.assertIn("0.999", output, "the highest-ratio pair is the family's other extreme")
-        self.assertIn("0.900", output, "a first-N-by-alphabetical-order cap would drop this")
 
         elided = len(pairs) - printed_pair_lines
         self.assertGreater(elided, 0)
@@ -850,15 +886,7 @@ class NearPairEvidenceTest(unittest.TestCase):
 
         # The elided pairs are whatever is left after the shown ones -- their
         # ratios must fall within the stated range, so a reader can tell the
-        # elided pairs are not outliers hiding beyond it. Only the "<->" pair
-        # lines carry a single ratio value; the elision line's "X-Y" range is
-        # excluded here so it cannot masquerade as a shown pair's ratio.
-        shown_ratios = {
-            round(float(m), 3)
-            for ln in output.splitlines()
-            if "<->" in ln
-            for m in re.findall(r"ratio ([\d.]+)$", ln.strip())
-        }
+        # elided pairs are not outliers hiding beyond it.
         elided_ratios = [r for _, _, r in pairs if round(r, 3) not in shown_ratios]
         self.assertEqual(elided, len(elided_ratios))
         elision_line = next(ln for ln in output.splitlines() if "elided" in ln.lower())
