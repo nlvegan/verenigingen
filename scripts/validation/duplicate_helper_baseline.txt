@@ -180,7 +180,7 @@ _ensure_accounts::10  # clone family, 14 near-identical pair(s)
 _ensure_active_membership::2
 _ensure_bank_account::12  # clone family, 6 near-identical pair(s)
 _ensure_bank_account_master::2
-_ensure_chapter_role::16  # clone family, 9 near-identical pair(s)
+_ensure_chapter_role::16  # clone family, 10 near-identical pair(s)
 _ensure_clearing_account::3  # clone family, 1 near-identical pair(s)
 _ensure_company::15  # clone family, 22 near-identical pair(s)
 _ensure_cost_center::12  # clone family, 35 near-identical pair(s)
