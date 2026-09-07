@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Hard gate: a literal `.append("<child_table>", {...})` dict that sets a Dynamic
-Link field's value must also set that field's companion doctype field, in the same
-literal.
+"""Hard gate: a literal `.append("<child_table>", {...})` (or `.extend("<child_table>",
+[{...}, ...])`) dict that sets a Dynamic Link field's value must also set that
+field's companion doctype field, in the same literal.
 
 ## The mechanism (#667)
 
@@ -35,6 +35,14 @@ takes: the two sites that already set it explicitly
 so before this gate existed, for exactly this reason.
 
 ## Scope, deliberately
+
+Also covers `parent.extend(fieldname, [{...}, {...}])`: `Document.extend(key,
+value)` (`frappe/model/base_document.py`) is implemented as `for v in value:
+self.append(key, v)` -- the identical runtime shape, one dict per list
+element -- so a literal `ast.List`/`ast.Tuple` of literal dicts is checked the
+same way `.append()`'s single dict is. A non-literal list
+(`parent.extend("sepa_mandates", rows)`) is skipped for the same reason a
+non-dict `.append()` argument is: it cannot be read statically.
 
 Only a literal `ast.Dict` with **all string-literal keys** is checked. A `**spread`
 key (`{"sepa_mandate": x, **link_values}`) or a non-dict argument
@@ -209,16 +217,55 @@ def _is_none_literal(node: ast.expr) -> bool:
     return isinstance(node, ast.Constant) and node.value is None
 
 
+def _offending_dict_literal(
+    lineno: int,
+    dict_arg: ast.expr,
+    child_doctype: str,
+    dynlink_fields: dict[str, list[tuple[str, str]]],
+) -> list[tuple[int, str, str, str]]:
+    """Findings for one literal dict row of `child_doctype`, or [] if the dict
+    cannot be read statically (spread, computed key, ...) or sets nothing
+    offending. Shared by the `.append()` (one dict) and `.extend()` (a list of
+    these) call shapes."""
+    if not isinstance(dict_arg, ast.Dict):
+        return []
+
+    pairs = dynlink_fields.get(child_doctype)
+    if not pairs:
+        return []
+
+    literal_pairs = _dict_literal_pairs(dict_arg)
+    if literal_pairs is None:
+        return []  # spread or computed key: cannot verify statically
+
+    findings = []
+    for dynlink_field, companion_field in pairs:
+        dynlink_value = literal_pairs.get(dynlink_field)
+        if dynlink_value is None or _is_none_literal(dynlink_value):
+            continue  # unset (or explicitly None): _validate_links never
+            # inspects this field's companion, since it skips a falsy
+            # Dynamic Link value entirely
+        companion_value = literal_pairs.get(companion_field)
+        if companion_value is None or _is_none_literal(companion_value):
+            findings.append((lineno, child_doctype, dynlink_field, companion_field))
+    return findings
+
+
 def find_offending_appends(
     py_path: Path,
     table_fields: dict[str, set[str]],
     dynlink_fields: dict[str, list[tuple[str, str]]],
 ) -> list[tuple[int, str, str, str]]:
     """[(lineno, child_doctype, dynlink_field, companion_field), ...] for each
-    `.append("<table_field>", {...})` call in `py_path` that sets a Dynamic Link
-    field's value (to something other than a literal `None`) without also
-    setting its companion doctype field to something other than a literal
-    `None`, in the same literal dict."""
+    `.append("<table_field>", {...})` or `.extend("<table_field>", [{...}, ...])`
+    call in `py_path` that sets a Dynamic Link field's value (to something
+    other than a literal `None`) without also setting its companion doctype
+    field to something other than a literal `None`, in the same literal dict.
+
+    `.extend()` is included because `Document.extend(key, value)`
+    (frappe/model/base_document.py) is implemented as `for v in value:
+    self.append(key, v)` -- the identical runtime shape to a loop of
+    `.append()` calls, one dict per list element."""
     try:
         source = py_path.read_text()
         tree = ast.parse(source, filename=str(py_path))
@@ -229,15 +276,13 @@ def find_offending_appends(
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
-        if not isinstance(node.func, ast.Attribute) or node.func.attr != "append":
+        if not isinstance(node.func, ast.Attribute) or node.func.attr not in ("append", "extend"):
             continue
         if len(node.args) < 2:
             continue
 
-        field_arg, dict_arg = node.args[0], node.args[1]
+        field_arg, second_arg = node.args[0], node.args[1]
         if not (isinstance(field_arg, ast.Constant) and isinstance(field_arg.value, str)):
-            continue
-        if not isinstance(dict_arg, ast.Dict):
             continue
 
         child_doctypes = table_fields.get(field_arg.value)
@@ -245,23 +290,15 @@ def find_offending_appends(
             continue  # unknown or ambiguous table fieldname
         (child_doctype,) = child_doctypes
 
-        pairs = dynlink_fields.get(child_doctype)
-        if not pairs:
-            continue
+        if node.func.attr == "append":
+            dict_args = [second_arg]
+        else:
+            if not isinstance(second_arg, (ast.List, ast.Tuple)):
+                continue  # a variable list: cannot verify statically
+            dict_args = second_arg.elts
 
-        literal_pairs = _dict_literal_pairs(dict_arg)
-        if literal_pairs is None:
-            continue  # spread or computed key: cannot verify statically
-
-        for dynlink_field, companion_field in pairs:
-            dynlink_value = literal_pairs.get(dynlink_field)
-            if dynlink_value is None or _is_none_literal(dynlink_value):
-                continue  # unset (or explicitly None): _validate_links never
-                # inspects this field's companion, since it skips a falsy
-                # Dynamic Link value entirely
-            companion_value = literal_pairs.get(companion_field)
-            if companion_value is None or _is_none_literal(companion_value):
-                findings.append((node.lineno, child_doctype, dynlink_field, companion_field))
+        for dict_arg in dict_args:
+            findings.extend(_offending_dict_literal(node.lineno, dict_arg, child_doctype, dynlink_fields))
 
     return findings
 

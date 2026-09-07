@@ -31,7 +31,7 @@ class TestFeeOverrideMigration(VereningingenTestCase):
         """get_effective_fee_for_member returns the active dues schedule's rate."""
         from verenigingen.templates.pages.membership_adjustment import get_effective_fee_for_member
 
-        membership = self.create_test_membership()
+        membership = self._get_or_create_local_membership()
         # Reconfigures the membership's auto-created Active schedule to €25.
         self.create_test_dues_schedule(25.0)
 
@@ -49,7 +49,7 @@ class TestFeeOverrideMigration(VereningingenTestCase):
         """
         from verenigingen.templates.pages.membership_adjustment import get_effective_fee_for_member
 
-        membership = self.create_test_membership()
+        membership = self._get_or_create_local_membership()
 
         # Cancel the auto-created Active schedule so no Active schedule remains.
         schedule = self.create_test_dues_schedule(20.0)
@@ -71,7 +71,7 @@ class TestFeeOverrideMigration(VereningingenTestCase):
         """create_new_dues_schedule() is permanently deprecated and always raises."""
         from verenigingen.templates.pages.membership_adjustment import create_new_dues_schedule
 
-        self.create_test_membership()
+        self._get_or_create_local_membership()
 
         with self.assertRaises(frappe.ValidationError) as ctx:
             create_new_dues_schedule(self.test_member, 35.0, "Testing new schedule")
@@ -80,7 +80,7 @@ class TestFeeOverrideMigration(VereningingenTestCase):
 
     def test_zero_amount_fee_change_rejected(self):
         """A Fee Change amendment with a non-positive amount is rejected."""
-        membership = self.create_test_membership()
+        membership = self._get_or_create_local_membership()
         self.create_test_dues_schedule(25.0)
 
         with self.assertRaises(frappe.ValidationError) as ctx:
@@ -104,7 +104,7 @@ class TestFeeOverrideMigration(VereningingenTestCase):
         with no custom_amount_reason. Regression for the empty-reason fee-change
         row that previously aborted apply_membership_type_change.
         """
-        membership = self.create_test_membership()
+        membership = self._get_or_create_local_membership()
         # create_test_dues_schedule sets uses_custom_amount=1 WITHOUT a
         # custom_amount_reason -- the exact trigger for the empty-reason row.
         original_schedule = self.create_test_dues_schedule(100.0)
@@ -150,7 +150,7 @@ class TestFeeOverrideMigration(VereningingenTestCase):
         )
         from verenigingen.templates.pages.membership_adjustment import get_member_fee_history
 
-        self.create_test_membership()
+        self._get_or_create_local_membership()
         self.create_test_dues_schedule(100.0)
 
         amendment = create_fee_change_amendment(
@@ -186,7 +186,7 @@ class TestFeeOverrideMigration(VereningingenTestCase):
         # Simulate migration
         from scripts.migration.migrate_fee_overrides_to_dues_schedules import migrate_member_override
 
-        membership = self.create_test_membership()
+        membership = self._get_or_create_local_membership()
 
         member_data = {
             "name": self.test_member.name,
@@ -215,7 +215,7 @@ class TestFeeOverrideMigration(VereningingenTestCase):
         from verenigingen.templates.pages.membership_adjustment import get_fee_calculation_info
 
         # Create membership
-        membership = self.create_test_membership()
+        membership = self._get_or_create_local_membership()
 
         # Create dues schedule
         dues_schedule = self.create_test_dues_schedule(30.0)
@@ -254,8 +254,16 @@ class TestFeeOverrideMigration(VereningingenTestCase):
 
     # Helper methods
 
-    def create_test_membership(self):
-        """Create a test membership for the test member"""
+    def _get_or_create_local_membership(self):
+        """Create a test membership for the test member.
+
+        Renamed from `create_test_membership` (#496): that name shadows
+        `VereningingenTestCase.create_test_membership(**kwargs)`, which
+        `create_test_direct_debit_batch()` calls internally as
+        `self.create_test_membership(member=...)`. This zero-argument
+        override would raise TypeError against that call -- latent because
+        this class never calls `create_test_direct_debit_batch()` today.
+        """
         # Check if membership already exists
         existing_membership = frappe.db.get_value(
             "Membership", {"member": self.test_member.name, "status": "Active"}, "name"
@@ -281,9 +289,9 @@ class TestFeeOverrideMigration(VereningingenTestCase):
         one active schedule per member is allowed, so reconfigure that schedule
         rather than insert a colliding new one.
         """
-        # The local create_test_membership() helper takes no arguments and
-        # already submits (which auto-creates the Active dues schedule).
-        self.create_test_membership()
+        # The local _get_or_create_local_membership() helper takes no arguments
+        # and already submits (which auto-creates the Active dues schedule).
+        self._get_or_create_local_membership()
 
         schedule_name = frappe.db.get_value(
             "Membership Dues Schedule",

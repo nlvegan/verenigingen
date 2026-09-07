@@ -12,6 +12,8 @@ to verify end-to-end functionality of the duplicate prevention system.
 Author: Verenigingen Development Team
 """
 
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -521,3 +523,170 @@ class TestPhantomHashRetry(FrappeTestCase):
         self.assertEqual(log_row.is_phantom, 1)
         self.assertIn("Retry failed", log_row.bank_error_message or "")
         self.assertNotIn("[RETRY_IN_PROGRESS]", log_row.bank_error_message or "")
+
+
+class TestSEPABatchStatusRollbackOnFailure(FrappeTestCase):
+    """
+    Regression tests for #796.
+
+    ``_save_xml_file`` (called from ``generate_sepa_xml_for_batch``) writes
+    ``sepa_file``, ``sepa_file_generated`` and ``status="Generated"`` via
+    ``db_set`` *before* its own final step (recording the file name on the
+    SEPA Batch Upload Log entry). ``db_set`` bypasses the in-memory document
+    and writes straight to the DB connection with no rollback safety net, so
+    if that final step throws, the exception propagates to the caller (who
+    sees "generation failed") while the batch row is left claiming
+    status="Generated" — an inert-but-wrong signal on a money/SEPA path.
+
+    ``verenigingen/api/sepa_phantom_hash_admin.py::retry_phantom_attachment``
+    already guards its own, analogous db_set sequence with a
+    ``frappe.db.rollback()`` in its except handler (see
+    ``TestPhantomHashRetry.test_failed_retry_records_the_failure_and_leaves_no_orphan_file``
+    above) — this test asserts the same atomicity for
+    ``generate_sepa_xml_for_batch``.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.factory = SEPATestDataFactory(seed=13579)
+        _ensure_sepa_settings_for_xml_generation()
+
+    def setUp(self):
+        super().setUp()
+        _ensure_sepa_settings_for_xml_generation()
+        self.service = SEPAXMLGenerationService()
+        self._cleanup_upload_logs()
+
+    def tearDown(self):
+        self._cleanup_upload_logs()
+        super().tearDown()
+
+    def _cleanup_upload_logs(self):
+        frappe.db.delete("SEPA Batch Upload Log", {})
+        frappe.db.commit()
+
+    def test_status_not_flipped_to_generated_when_final_step_fails(self):
+        """
+        Inject a failure in the LAST write _save_xml_file makes (the upload
+        log's file_name update, which runs after status is already set to
+        "Generated") and confirm the batch is not left reporting a
+        generation that did not actually complete.
+        """
+        batch = self.factory.create_test_direct_debit_batch(invoice_count=1)
+
+        original_set_value = frappe.db.set_value
+
+        def _fail_on_upload_log_update(doctype, *args, **kwargs):
+            if doctype == "SEPA Batch Upload Log":
+                raise RuntimeError("injected failure: upload log update failed")
+            return original_set_value(doctype, *args, **kwargs)
+
+        with patch.object(frappe.db, "set_value", side_effect=_fail_on_upload_log_update):
+            with self.assertRaises(Exception):
+                self.service.generate_sepa_xml_for_batch(batch)
+
+        # Read persisted state fresh via SQL - db_set bypasses the in-memory
+        # document, so batch.status here would just reflect what we set
+        # in-process rather than what actually reached the database.
+        persisted = frappe.db.get_value(
+            "Direct Debit Batch",
+            batch.name,
+            ["status", "sepa_file_generated", "sepa_file"],
+            as_dict=True,
+        )
+
+        self.assertNotEqual(
+            persisted.status,
+            "Generated",
+            "batch status was left as 'Generated' even though generation failed",
+        )
+        self.assertFalse(
+            persisted.sepa_file_generated,
+            "sepa_file_generated was left set even though generation failed",
+        )
+        self.assertFalse(
+            persisted.sepa_file,
+            "sepa_file was left attached even though generation failed",
+        )
+
+    def test_a_deadlock_reaches_the_caller_unmasked(self):
+        """A non-resumable DB error must arrive at the caller as itself.
+
+        This is the behaviour the savepoint cleanup exists to protect and that
+        the AST ratchet cannot see. The ratchet proves only that no hand-rolled
+        `frappe.db.rollback(save_point=...)` is written here; it says nothing
+        about what the caller receives.
+
+        The distinction is load-bearing. A 1213 deadlock makes the server roll
+        the whole transaction back and discard every savepoint in it, so a
+        following ROLLBACK TO SAVEPOINT raises 1305 "SAVEPOINT does not exist".
+        Raising from inside an `except` REPLACES the exception being handled, so
+        the operator would be told the savepoint was missing instead of that the
+        batch deadlocked -- a wrong diagnosis on a money path.
+
+        `except NON_RESUMABLE_DB_ERRORS: raise` is what prevents that, and this
+        test is what proves it: revert that arm to a bare
+        `frappe.db.rollback(save_point=...)` and the assertion below stops
+        seeing QueryDeadlockError.
+        """
+        batch = self.factory.create_test_direct_debit_batch(invoice_count=1)
+
+        original_set_value = frappe.db.set_value
+        calls = {"n": 0}
+
+        def _deadlock_on_upload_log_update(doctype, *args, **kwargs):
+            # Fail ONLY the finalize block's write. The outer handler marks the
+            # same doctype phantom on its way out, and failing that one too would
+            # raise a second time from inside an `except` -- which is the very
+            # error-replacement this test is about, and would mask what the inner
+            # arm actually did.
+            if doctype == "SEPA Batch Upload Log":
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    raise frappe.QueryDeadlockError("injected: deadlock found when trying to get lock")
+            return original_set_value(doctype, *args, **kwargs)
+
+        original_rollback = frappe.db.rollback
+
+        def _savepoint_is_already_gone(*args, **kwargs):
+            # A real 1213 makes the server roll the whole transaction back and
+            # DISCARD every savepoint in it, so the ROLLBACK TO SAVEPOINT that
+            # follows raises 1305. Injecting a Python-level deadlock alone does not
+            # reproduce that -- the savepoint is still there and the hand-rolled
+            # rollback succeeds -- so without this the test passes either way.
+            # Verified: with this stub removed, mutating the fix away does NOT
+            # redden the test.
+            if kwargs.get("save_point") or args:
+                raise Exception("SAVEPOINT sepa_batch_finalize does not exist")
+            return original_rollback()
+
+        with patch.object(frappe.db, "set_value", side_effect=_deadlock_on_upload_log_update), patch.object(
+            frappe.db, "rollback", side_effect=_savepoint_is_already_gone
+        ):
+            with self.assertRaises(Exception) as caught:
+                self.service.generate_sepa_xml_for_batch(batch)
+
+        raised = str(caught.exception)
+
+        # What the fix guarantees: the cleanup did not REPLACE the error.
+        self.assertIn(
+            "deadlock found when trying to get lock",
+            raised,
+            f"the deadlock was replaced on its way out: {raised}",
+        )
+        self.assertNotIn(
+            "SAVEPOINT",
+            raised.upper(),
+            "the savepoint cleanup raised 1305 and masked the real error -- this is "
+            f"exactly what `except NON_RESUMABLE_DB_ERRORS: raise` prevents: {raised}",
+        )
+
+        # NOT asserted, deliberately: that the caller receives QueryDeadlockError.
+        # It does not. generate_sepa_xml_for_batch flattens every exception into
+        # `raise frappe.ValidationError(error_msg)` (sepa_xml_generation_service.py:119),
+        # so the TYPE is lost one frame above the fix and only the message survives.
+        # That is a separate, pre-existing defect -- a retry layer keying on
+        # QueryDeadlockError cannot see a deadlock here -- filed rather than widened
+        # into this branch. Asserting the message is the strongest claim this
+        # boundary currently supports.

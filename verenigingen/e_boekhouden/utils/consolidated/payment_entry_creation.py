@@ -11,6 +11,8 @@ from typing import Any, Dict, List, Optional
 
 import frappe
 
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+
 
 def create_payment_entry(
     mutation: Dict[str, Any],
@@ -72,6 +74,15 @@ def create_payment_entry(
 
     except frappe.ValidationError:
         # Re-raise validation errors (already logged)
+        raise
+    except NON_RESUMABLE_DB_ERRORS:
+        # #958: this function is reached via PaymentProcessor.process() ->
+        # coordinator.process_mutation(...) inside
+        # _process_mutation_with_coordinator (eboekhouden_rest_full_migration.py),
+        # which has its own `except NON_RESUMABLE_DB_ERRORS: raise` guard so a
+        # 1213/1205 is never folded into an ordinary "processor failed, fall back
+        # to legacy" case against a transaction the server has already discarded
+        # or half-applied (#572). A ValidationError can never satisfy that guard.
         raise
     except Exception as e:
         error_msg = f"Payment creation failed for mutation {mutation_id}: {str(e)}"

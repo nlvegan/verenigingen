@@ -303,6 +303,7 @@ class DonationReportingService(StatelessService):
                 "donation_purpose_type",
                 "chapter_reference",
                 "campaign",
+                "journal_entry",
             ],
         )
 
@@ -317,11 +318,20 @@ class DonationReportingService(StatelessService):
                 accounting_summary["by_purpose"][purpose] = 0
             accounting_summary["by_purpose"][purpose] += amount
 
-            # Get related GL entries for this donation
-            gl_entries = frappe.get_all(
-                "GL Entry",
-                filters={"voucher_no": donation.name, "voucher_type": "Payment Entry"},
-                fields=["account", "debit", "credit", "posting_date"],
+            # Get related GL entries for this donation. Donations post via
+            # Journal Entry, not Payment Entry (donation_journal_entry_creator.py),
+            # and a Journal Entry's own voucher_no is never the donation's name --
+            # it is the Journal Entry's own name, which the creator writes back
+            # onto Donation.journal_entry. So the join key is journal_entry, not
+            # donation.name (issue #369).
+            gl_entries = (
+                frappe.get_all(
+                    "GL Entry",
+                    filters={"voucher_no": donation.journal_entry, "voucher_type": "Journal Entry"},
+                    fields=["account", "debit", "credit", "posting_date"],
+                )
+                if donation.journal_entry
+                else []
             )
 
             for gl in gl_entries:

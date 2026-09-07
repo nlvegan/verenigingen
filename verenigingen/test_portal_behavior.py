@@ -7,8 +7,15 @@ import frappe
 from frappe.utils import now_datetime, today
 
 
-def create_test_donation():
-    """Create a test donation for portal testing"""
+def make_manual_test_donation():
+    """Create a test donation for portal testing.
+
+    Named distinctly from ``create_test_donation`` (the shared factory helpers
+    in ``enhanced_test_factory.py`` / ``tests/utils/base.py``) -- this is a
+    standalone, unimported manual script, not part of the discovered test
+    suite, and it built its own Donation independently of those factories.
+    See #988.
+    """
 
     # Create test member if needed
     test_member_name = "Test-Member-Portal-001"
@@ -36,8 +43,10 @@ def create_test_donation():
         }
     )
 
+    # Donation.is_submittable is 0 -- it stays at docstatus 0 for its whole
+    # life (see #987/#988). This used to call donation.submit(), which
+    # contradicted that and every other Donation fixture in this suite.
     donation.insert()
-    donation.submit()
 
     print(f"Created test donation: {donation.name}")
     return donation.name
@@ -80,7 +89,7 @@ def test_update_donation_amount():
     """Test the update_recurring_donation_amount function"""
 
     # Create fresh donation for this test
-    donation_id = create_test_donation()
+    donation_id = make_manual_test_donation()
 
     from verenigingen.templates.pages.manage_donations import update_recurring_donation_amount
 
@@ -121,7 +130,7 @@ def run_baseline_tests():
     print("=" * 60)
 
     # Create test donation
-    donation_id = create_test_donation()
+    donation_id = make_manual_test_donation()
 
     # Run tests
     cancel_result = test_cancel_recurring_donation(donation_id)

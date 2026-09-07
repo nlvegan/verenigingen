@@ -25,9 +25,10 @@ from verenigingen.e_boekhouden.utils.payment_processing.payment_entry_handler im
     PaymentEntryHandler,
 )
 from verenigingen.e_boekhouden.utils.processors.payment_processor import PaymentProcessor
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 
 
+@shared_fixture
 def _persist_eur_company():
     """Return a DEDICATED EUR company name, creating it if needed.
 
@@ -38,6 +39,13 @@ def _persist_eur_company():
     varied run to run and broke the EUR-vs-document-currency validation on a fresh
     sharded CI site. Always use our own named company so the fixture chain is
     self-contained.
+
+    ``@shared_fixture`` because ``"EBKH EUR Test Co"`` is shared master data built
+    identically by ``test_processors_base.py`` and ``test_processors_stock.py``
+    (#989): without the decorator, the first test BODY anywhere to call this after
+    an earlier class's ``setUpClass`` has already built the company would have its
+    insert attributed to that one test, and the drain would take the company away
+    from every later class in the shard (#328/#330).
     """
     name = "EBKH EUR Test Co"
     if frappe.db.exists("Company", name):

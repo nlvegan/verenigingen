@@ -500,10 +500,15 @@ def _notify_subscription_status_change(member, old_status, new_status, subscript
             notification_key=notification_key,
         )
 
-        if result.get("status") == "success":
+        # send_templated_email returns an OperationResult dataclass (which has no
+        # dict-style .get); read its .success flag rather than result.get("status"),
+        # otherwise this raised AttributeError on every send and logged a spurious
+        # error even when the email went out fine (same class as the sibling fix
+        # in payment_webhook.py's payment-failure notifier).
+        if result.success:
             frappe.logger().info(f"✅ Subscription status notification sent to {member.email}")
         else:
-            frappe.logger().warning(f"⚠️ Failed to send status notification: {result.get('message')}")
+            frappe.logger().warning(f"⚠️ Failed to send status notification: {result.error_message}")
 
     except Exception as e:
         frappe.logger().error(f"❌ Error sending subscription status notification: {e}")

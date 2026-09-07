@@ -2857,6 +2857,16 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
         je.submit()
         debug_info.append(f"Created Journal Entry {je.name}")
         return je
+    except NON_RESUMABLE_DB_ERRORS:
+        # #958: `_process_mutation_with_coordinator` (this module) has its own
+        # `except NON_RESUMABLE_DB_ERRORS: raise` around both the new-processor
+        # and legacy-fallback calls that reach this function, specifically so a
+        # 1213/1205 during je.save()/je.submit() is never folded into
+        # {"action": "error", ...} and counted as an ordinary per-mutation
+        # failure against a transaction the server has already discarded or
+        # half-applied (#572). A bare `Exception` below can never satisfy that
+        # guard, so the type must survive past this frame.
+        raise
     except Exception as e:
         error_msg = f"Failed to create Journal Entry: {str(e)}"
         debug_info.append(error_msg)

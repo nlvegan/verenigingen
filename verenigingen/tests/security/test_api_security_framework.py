@@ -15,6 +15,9 @@ from datetime import datetime, timedelta
 import frappe
 from frappe.test_runner import make_test_records
 
+from verenigingen.tests.security.security_monitor_test_helpers import (
+    make_isolated_security_monitor,
+)
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.utils.security.api_security_framework import (
     APISecurityFramework,
@@ -34,7 +37,7 @@ from verenigingen.utils.security.enhanced_validation import (
     ValidationSeverity,
 )
 from verenigingen.utils.security.api_classifier import get_api_classifier
-from verenigingen.utils.security.security_monitoring import get_security_monitor, ThreatLevel
+from verenigingen.utils.security.security_monitoring import ThreatLevel
 from verenigingen.utils.security.audit_logging import get_audit_logger
 # Note: CSRFProtection removed - using Frappe's native CSRF (auth.py)
 # Note: rate_limiting module removed - rate limiting now handled by COR
@@ -488,13 +491,21 @@ class TestAPIClassifier(VereningingenTestCase):
         self.assertLessEqual(priority, 2)  # Should be high priority
 
 
-class TestSecurityMonitoring(VereningingenTestCase):
-    """Test security monitoring and threat detection"""
+class TestSecurityMonitoringThreatDetection(VereningingenTestCase):
+    """Test security monitoring and threat detection
 
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls.monitor = get_security_monitor()
+    Uses an isolated ``SecurityMonitor`` (see #630) rather than the shared
+    ``get_security_monitor()`` singleton: these tests deliberately drive the
+    monitor past its incident thresholds (15 auth failures, 60 rate-limit
+    violations), and nothing ever removes a HIGH/MEDIUM incident from
+    ``active_threats`` except a manual ``resolve_incident()`` -- so doing this
+    on the real singleton would leak incidents into every other test in the
+    same worker process for the rest of the run.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.monitor = make_isolated_security_monitor()
 
     def test_api_call_recording(self):
         """Test API call monitoring"""

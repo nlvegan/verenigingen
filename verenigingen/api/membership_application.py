@@ -683,12 +683,26 @@ def _validate_membership_amount(data):
 
     Returns None if valid (or not applicable), or an OperationResult.fail() if invalid.
     """
-    if not (data.get("membership_amount") or data.get("uses_custom_amount")):
+    # uses_custom_amount is a client-set UI hint -- on /apply_for_membership it is
+    # only ever written by the income calculator's "Apply" button, so an applicant
+    # who types a custom amount directly (or picks a "custom" flex payment plan)
+    # submits a custom_contribution_fee with that flag left False. Gate on the
+    # amount actually submitted, not on how the client says it was chosen (#428).
+    if not (
+        data.get("membership_amount") or data.get("uses_custom_amount") or data.get("custom_contribution_fee")
+    ):
         return None
 
     membership_type = data.get("selected_membership_type")
     custom_contribution_fee = data.get("custom_contribution_fee")
-    uses_custom = data.get("uses_custom_amount", False)
+    # Derive this rather than trusting the client flag. Widening only the gate above
+    # made validation RUN for a typed amount, but validate_membership_amount_selection
+    # picks its RULE from this value: falsy takes the "standard amount" branch, which
+    # demands the fee equal the type's rate exactly. So a legitimate typed amount was
+    # rejected with "Amount does not match membership type standard amount" -- turning
+    # a bypass into a refusal of every path #428 is about. A submitted
+    # custom_contribution_fee IS a custom amount, whatever the client says.
+    uses_custom = bool(data.get("uses_custom_amount", False) or custom_contribution_fee)
 
     if not (membership_type and custom_contribution_fee):
         return None

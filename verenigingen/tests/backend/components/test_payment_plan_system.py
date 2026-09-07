@@ -255,6 +255,49 @@ class TestPaymentPlanSystem(VereningingenTestCase):
         self.assertEqual(payment_plan.approved_by, frappe.session.user)
         self.assertIsNotNone(payment_plan.approval_date)
 
+    def test_approve_payment_plan_api_does_not_submit(self):
+        """#992: `approve_payment_plan`'s `plan.submit()` set docstatus=1 on
+        Payment Plan, which has no `is_submittable` in its DocType JSON
+        (default 0) -- exactly the #987/#350 submittability-drift shape. The
+        approval API must activate the plan (and pause the linked dues
+        schedule, same as `on_submit` did) without ever moving docstatus off
+        0.
+        """
+        from verenigingen.verenigingen_payments.doctype.payment_plan.payment_plan import (
+            approve_payment_plan,
+        )
+
+        membership_type = self.create_test_membership_type()
+        dues_schedule = self.create_test_dues_schedule(membership_type)
+
+        payment_plan = frappe.new_doc("Payment Plan")
+        payment_plan.member = self.test_member.name
+        payment_plan.membership_dues_schedule = dues_schedule.name
+        payment_plan.plan_type = "Equal Installments"
+        payment_plan.total_amount = dues_schedule.dues_rate * 3
+        payment_plan.number_of_installments = 3
+        payment_plan.frequency = "Monthly"
+        payment_plan.start_date = today()
+        payment_plan.status = "Pending Approval"
+        payment_plan.approval_required = 1
+        payment_plan.reason = "Financial hardship"
+        payment_plan.save()
+        self.track_doc("Payment Plan", payment_plan.name)
+
+        result = approve_payment_plan(payment_plan.name)
+        self.assertTrue(result)
+
+        payment_plan.reload()
+        self.assertEqual(payment_plan.docstatus, 0)
+        self.assertEqual(payment_plan.status, "Active")
+        self.assertEqual(payment_plan.approved_by, frappe.session.user)
+
+        # The dues schedule must still be paused -- the behaviour `on_submit`
+        # provided must not be lost when the submit() call is removed.
+        dues_schedule.reload()
+        self.assertEqual(dues_schedule.status, "Payment Plan Active")
+        self.assertEqual(dues_schedule.payment_plan, payment_plan.name)
+
     def test_payment_plan_api_request(self):
         """Test payment plan API request functionality.
 

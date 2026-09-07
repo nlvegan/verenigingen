@@ -252,10 +252,6 @@ def get_minimum_fee(member, membership_type, membership=None):
     else:
         base_minimum = flt(base_amount * 0.3)  # 30% of standard fee as absolute minimum
 
-    # Student discount
-    if getattr(member, "student_status", False):
-        base_minimum = max(base_minimum, flt(membership_type.minimum_amount * 0.5))  # Students minimum 50%
-
     # Income-based minimum (if available)
     if hasattr(member, "annual_income") and member.annual_income:
         if member.annual_income in ["Under €25,000", "€25,000 - €40,000"]:

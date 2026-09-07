@@ -222,8 +222,18 @@ class TestDonationJournalEntryCreatorIntegration(EnhancedTestCase):
         frappe.db.rollback()
         super().tearDown()
 
-    def _get_test_company(self) -> Optional[str]:
-        """Get a valid company for testing"""
+    def _get_configured_company(self) -> Optional[str]:
+        """Get the company configured in Verenigingen Settings, or the first Company row.
+
+        Renamed from `_get_test_company` (#496): that name shadows
+        `EnhancedTestCase._get_test_company`, which `_ensure_master_data()` calls
+        unconditionally on every `setUp()` (via `_ensure_production_ready_setup`).
+        The harness version picks a harness-OWNED company by name and ensures its
+        chart of accounts; this one instead reads Settings or grabs an arbitrary
+        first Company. Same arity (both take no arguments), so the shadow never
+        raised -- it silently skipped the harness's CoA-ensure step for every test
+        in this class instead.
+        """
         settings = frappe.get_single("Verenigingen Settings")
         if settings.company:
             return settings.company
@@ -260,7 +270,7 @@ class TestDonationJournalEntryCreatorIntegration(EnhancedTestCase):
 
     def test_resolve_company_from_donation_integration(self):
         """Integration test: company resolution from donation document"""
-        company = self._get_test_company()
+        company = self._get_configured_company()
         if not company:
             self.skipTest("No company configured")
 
@@ -271,7 +281,7 @@ class TestDonationJournalEntryCreatorIntegration(EnhancedTestCase):
 
     def test_resolve_company_fallback_integration(self):
         """Integration test: company resolution fallback to settings"""
-        company = self._get_test_company()
+        company = self._get_configured_company()
         if not company:
             self.skipTest("No company configured")
 
@@ -288,7 +298,7 @@ class TestDonationJournalEntryCreatorIntegration(EnhancedTestCase):
 
     def test_get_config_returns_valid_config(self):
         """Integration test: configuration retrieval returns valid accounts"""
-        company = self._get_test_company()
+        company = self._get_configured_company()
         if not company:
             self.skipTest("No company configured")
 

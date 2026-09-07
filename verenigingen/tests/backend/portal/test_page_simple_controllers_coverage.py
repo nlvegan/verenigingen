@@ -118,21 +118,17 @@ class TestSimplePortalControllers(EnhancedTestCase):
             with self.assertRaises(frappe.PermissionError):
                 schedule_maintenance.get_context(frappe._dict())
 
-    def test_generate_test_data_admin_allowed(self):
-        from verenigingen.templates.pages import generate_test_data
-
-        context = frappe._dict()
-        with self.assertNoErrorLog():
-            generate_test_data.get_context(context)
-        self.assertEqual(context.title, "Generate Test Data")
-        self.assertTrue(context.description)
-
-    def test_generate_test_data_guest_denied(self):
-        from verenigingen.templates.pages import generate_test_data
-
-        with self.as_user("Guest"):
-            with self.assertRaises(frappe.PermissionError):
-                generate_test_data.get_context(frappe._dict())
+    # generate_test_data was removed (#430): its core buttons posted to
+    # verenigingen.api.generate_test_members.*, a module that never existed, so --
+    # like /membership_application before it -- a passing get_context() test here
+    # read as coverage for a page that could not do its job.
+    #
+    # eboekhouden_item_mapping was NOT removed, despite an earlier pass in this
+    # same PR wrongly deleting it: its two calls were pointed at
+    # verenigingen.api.eboekhouden_item_mapping_tool, but the module actually lives
+    # at verenigingen.e_boekhouden.api.eboekhouden_item_mapping_tool -- the same
+    # kind of stale-path bug the DD batch optimizer repoint two commits earlier
+    # fixed correctly. Repointed instead; its tests stay below.
 
     # ------------------------------------------------------------------ #
     # eBoekhouden tool pages (permission-gated, build dropdown context)

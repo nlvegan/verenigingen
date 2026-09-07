@@ -21,7 +21,10 @@ Covered:
     - PaymentGatewayFactory.get_gateway("Ponto")
 """
 
+from unittest.mock import patch
+
 import frappe
+from frappe.utils import flt
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.utils import payment_gateways as pg
@@ -109,6 +112,64 @@ class TestSubscriptionByIdEndpoints(EnhancedTestCase):
         )
         self.assertEqual(result["status"], "error")
         self.assertIn("No member found", result["message"])
+
+
+class TestSubscriptionAmountDoesNotRewriteSettledDonations(EnhancedTestCase):
+    """#355 sibling path: update_mollie_subscription_amount reaches the same rows.
+
+    `update_recurring_donation` refuses to rewrite a donation that is already
+    booked (#347's charge guard, and #355's paid/journal_entry/sales_invoice
+    guard). This function writes `amount` on EVERY Donation carrying the
+    subscription id -- settled charges included -- with neither guard, so the
+    protection on the donor-facing path was reachable around.
+    """
+
+    class _StubGateway:
+        def update_subscription(self, customer_id, subscription_id, payload):
+            return {"status": "success"}
+
+    def test_a_settled_donation_keeps_its_amount(self):
+        member = self.create_test_member(first_name="SubAmtSettled")
+        frappe.db.set_value(
+            "Member",
+            member.name,
+            {"mollie_customer_id": "cst_settled", "mollie_subscription_id": "sub_settled"},
+        )
+
+        settled = self.create_test_donation(amount=10.0, mode_of_payment="Bank Transfer", paid=1)
+        frappe.db.set_value(
+            "Donation",
+            settled.name,
+            {"mollie_subscription_id": "sub_settled", "status": "Recurring", "paid": 1},
+        )
+        still_open = self.create_test_donation(amount=10.0, mode_of_payment="Bank Transfer", paid=0)
+        frappe.db.set_value(
+            "Donation",
+            still_open.name,
+            {"mollie_subscription_id": "sub_settled", "status": "Recurring"},
+        )
+
+        with patch.object(pg.PaymentGatewayFactory, "get_gateway", return_value=self._StubGateway()):
+            result = pg.update_mollie_subscription_amount(
+                subscription_id="sub_settled", new_amount=25.0
+            )
+
+        self.assertEqual(result["status"], "success", result)
+
+        self.assertEqual(
+            flt(frappe.db.get_value("Donation", settled.name, "amount")),
+            10.0,
+            "a settled donation's historical amount was rewritten -- it is what the "
+            "Journal Entry and GL were booked against",
+        )
+        # The forward-looking row SHOULD move: updating the subscription amount is
+        # this endpoint's whole purpose. Without this half the guard could be
+        # satisfied by refusing everything.
+        self.assertEqual(
+            flt(frappe.db.get_value("Donation", still_open.name, "amount")),
+            25.0,
+            "the unsettled donation should carry the new subscription amount",
+        )
 
 
 class TestPontoGateway(EnhancedTestCase):

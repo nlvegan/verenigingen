@@ -56,7 +56,10 @@ class DonationFinancialService(StatelessService):
             }
         ).insert()
 
-        donation.submit()
+        # NOT donation.submit(): Donation has no `is_submittable` in its DocType
+        # JSON (#987/#350), so every other normal creation path (SEPA, chapter)
+        # leaves it at docstatus 0 for its whole life -- see the docstring at
+        # reporting_service.py, which this call used to directly contradict.
         # Note: Payment Entry should be created separately by bank reconciliation system
         return donation
 

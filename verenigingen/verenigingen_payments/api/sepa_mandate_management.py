@@ -132,7 +132,13 @@ def create_missing_sepa_mandates(dry_run=True, member_name: str | None = None):
                         f"Failed to create SEPA mandate for {member.name}: {'; '.join(mandate_result.errors)}"
                     )
 
-                mandate.submit()
+                # NOT mandate.submit(): SEPA Mandate has no `is_submittable` in
+                # its DocType JSON (#987, same drift class as #350's Donation),
+                # so submitting it is drift, not a supported lifecycle. Nothing
+                # downstream reads mandate.docstatus -- "is this mandate usable"
+                # is decided by status/is_active everywhere else in this module
+                # (see `existing_active` a few lines below and in
+                # `fix_specific_member_sepa_mandate`).
 
                 # Link mandate to member
                 member_doc = frappe.get_doc("Member", member.name)

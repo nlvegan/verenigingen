@@ -163,11 +163,21 @@ def get_recent_activity(member):
 
 
 def get_notification_settings(member):
-    """Get notification settings for the member"""
+    """Get notification settings for the member.
+
+    Reads the JSON blob api.payment_dashboard.save_notification_settings writes to
+    Member.payment_notification_preferences. Key names differ deliberately: the
+    settings tab's checkboxes (and the save payload) use *_notifications, matching
+    this page's own field ids; the values rendered here use *_enabled, matching
+    the template below. Defaults to enabled for any toggle never saved (including
+    every member before this field existed).
+    """
+    stored = frappe.db.get_value("Member", member, "payment_notification_preferences")
+    preferences = frappe.parse_json(stored) if stored else {}
     return {
-        "email_enabled": True,
-        "reminders_enabled": True,
-        "failure_enabled": True,
+        "email_enabled": preferences.get("email_notifications", True),
+        "reminders_enabled": preferences.get("reminder_notifications", True),
+        "failure_enabled": preferences.get("failure_notifications", True),
     }
 
 

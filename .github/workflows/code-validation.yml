@@ -145,6 +145,47 @@ jobs:
     - name: Unit-test the validator itself
       run: python -m unittest discover -s scripts/validation/tests -p 'test_error_swallow_validator.py' -v
 
+    # The harness-method-shadow guard (#496). A test-local helper sharing a name with
+    # a method on EnhancedTestCase / VereningingenTestCase overrides it, so the harness's
+    # own `self.<name>(...)` calls dispatch to the wrong implementation via MRO -- the
+    # shape that killed 38/38 tests in one module for 12 days (#194).
+    #
+    # It runs here and not only in .pre-commit-config.yaml for the reason the siblings
+    # above already give: a pre-push hook is skippable with --no-verify, and a
+    # contributor who never installed the hooks gets no enforcement at all. Without this
+    # job the guard's own 8 tests would run nowhere automatically, so a regression in
+    # its import resolution would be silent -- which is the exact defect class the guard
+    # exists to prevent.
+    #
+    # Stdlib-only (ast, pathlib) like its siblings, so no bench and no site needed.
+    - name: Unit-test the harness-method-shadow guard
+      run: python -m unittest discover -s scripts/validation/tests -p 'test_harness_method_shadow_validator.py' -v
+
+    - name: Run the harness-method-shadow guard over the tree
+      run: python scripts/validation/harness_method_shadow_validator.py
+
+    # The submittability-drift guard (#987, ancestor #350). Frappe's
+    # Document._submit()/._cancel() carry no is_submittable guard, so a doctype
+    # whose own DocType JSON says is_submittable=0 can still be submitted/cancelled,
+    # have on_submit/on_cancel hooks registered for it, or be filtered by
+    # docstatus -- and #350/#987 both found production code that had drifted into
+    # exactly that. Ratcheted against submittability_drift_baseline.txt (23 known
+    # sites) so this job blocks only NEW drift, not the ones already tracked.
+    #
+    # This job's checkout has no apps/erpnext, apps/hrms, etc. (standalone app
+    # checkout, no bench ancestor), so the validator resolves doctypes from THIS
+    # app's own JSONs only here -- a genuinely submittable ERPNext/HRMS doctype
+    # (Sales Invoice, Payment Entry, ...) is reported UNRESOLVED, never as a
+    # violation, so that gap does not cry wolf; see the module's own docstring.
+    #
+    # Stdlib-only (ast, json, pathlib) like its siblings, so no bench and no site
+    # needed.
+    - name: Unit-test the submittability-drift guard
+      run: python -m unittest discover -s scripts/validation/tests -p 'test_submittability_drift_validator.py' -v
+
+    - name: Run the submittability-drift guard over the tree
+      run: python scripts/validation/submittability_drift_validator.py
+
     # The failed-write guard is the sibling rule (a broad except around a DATABASE
     # WRITE whose failure never reaches the caller). It is ADVISORY for now, so it
     # gets no ratchet/growth gate here — only its unit tests, which are stdlib-only
@@ -176,6 +217,17 @@ jobs:
     # reason as its siblings above.
     - name: Unit-test the shared baseline shrink gate
       run: python -m unittest discover -s scripts/validation/tests -p 'test_baseline_shrink_gate.py' -v
+
+    # Guards the CI JS installer / package.json pin parity (#272): the
+    # installer must pick yarn vs npm per app (this app has no yarn.lock and
+    # is npm-managed, unlike frappe/erpnext/hrms/builder), and package.json
+    # must carry no dead `resolutions` block that can drift from the
+    # `overrides` block npm actually reads. Stdlib-only, no bench needed.
+    - name: Unit-test the JS installer / pin-parity validator
+      run: python -m unittest discover -s scripts/validation/tests -p 'test_js_installer_pin_parity_validator.py' -v
+
+    - name: Check JS installer / package.json pin parity
+      run: python scripts/validation/js_installer_pin_parity_validator.py
 
     # Tests for the scripts/testing tools live outside the verenigingen package, and
     # get_all_tests() only walks apps/verenigingen/verenigingen, so the app suite never

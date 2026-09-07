@@ -565,6 +565,11 @@ def initiate_refund():
         frappe.log_error(f"Refund initiation error: {e}", "Refund Initiation Error")
         frappe.throw(_("Failed to initiate refund. Please try again."))
 
+    except (frappe.ValidationError, frappe.PermissionError):
+        # Preserve the body's own deliberate refusal (e.g. "Payment ID is
+        # required") instead of masking it as an "internal" error below (#374).
+        raise
+
     except Exception as e:
         frappe.log_error(f"Unexpected refund error: {e}", "Refund Processing Error")
         frappe.throw(_("Internal refund processing error"))

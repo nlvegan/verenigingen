@@ -441,15 +441,27 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
         Deliberately narrow, so that it stays at zero and stays believable. A copy
         is only flagged when ALL of these hold:
 
-        * some other module defines the same private helper name WITH the
-          decorator -- i.e. the fix landed once and its clone was missed;
+        * some other copy of the same private helper name is WITH the decorator --
+          i.e. the fix landed once and its clone was missed;
         * this copy actually calls `.insert(`, so there are rows to claim;
         * it does not build them under `suspend_insert_capture()` instead;
-        * its class reaches `EnhancedTestCase`, which is the only base that
-          installs the captured-insert hook. `VereningingenTestCase` is a SIBLING
-          of it, not a subclass, so an undecorated helper there is exposed to
-          nothing -- two of the six raw name-divergences on develop were that, and
-          a third was two unrelated methods that merely share a name.
+        * it is actually reachable through the captured-insert hook -- for a class
+          METHOD, that its class reaches `EnhancedTestCase` (the only base that
+          installs the hook; `VereningingenTestCase` is a SIBLING of it, not a
+          subclass, so an undecorated helper there is exposed to nothing -- two of
+          the six raw name-divergences on develop were that); for a MODULE-LEVEL
+          function (#989 -- three `_persist_eur_company` copies, only one
+          decorated, none of them a class method so this check could not even look
+          at them), that some class DEFINED IN THE SAME MODULE reaches
+          `EnhancedTestCase`;
+        * for a module-level function specifically, that it builds the SAME
+          identity -- the literal doc-name passed to its `frappe.db.exists(...)`
+          call -- as the decorated exemplar. Module-level helpers coincidentally
+          share a name far more often than class methods do: #989 alone measured
+          seven other `_persist_eur_company` definitions building five entirely
+          different companies. Matching by name alone would flag all of them, which
+          is the "a third was two unrelated methods that merely share a name" trap
+          recurring one level up -- see `identity_literal` below.
         """
         flagged = self._divergent_shared_fixture_copies()
         self.assertEqual(
@@ -460,15 +472,518 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
             + "\n  ".join(flagged),
         )
 
+    def _write_fixture_module(self, root, relpath, source):
+        path = root / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(source)
+        return path
+
+    def _module_level_probe_source(
+        self,
+        fn_name,
+        decorated,
+        identity=None,
+        insert_line=None,
+        class_name="TestFoo",
+        identity_stmt=None,
+        module_preamble="",
+    ):
+        """A minimal test module shaped like the #989 trio.
+
+        Just enough AST for the walk in `_divergent_shared_fixture_copies` to see:
+        an import that resolves to `EnhancedTestCase` (so the module-scope
+        reachability check fires without needing the real class defined anywhere),
+        a module-level get-or-create helper following the same
+        `frappe.db.exists("Company", name)` shape the real fixtures use, and a
+        class that calls it from `setUpClass`.
+
+        `identity` produces the default ``name = "<identity>"`` bare-literal
+        statement. `identity_stmt` overrides it with an arbitrary statement (a
+        module-constant reference, an f-string, a `+` concatenation -- #995's
+        three added shapes), and `module_preamble` supplies module-scope source
+        (e.g. a ``COMPANY_NAME = "..."`` constant) inserted before the function.
+        """
+        decorator = "@shared_fixture\n" if decorated else ""
+        body = insert_line or "    doc.insert(ignore_permissions=True)\n"
+        name_stmt = identity_stmt or f'    name = "{identity}"\n'
+        return (
+            "from verenigingen.tests.fixtures.enhanced_test_factory import (\n"
+            "    EnhancedTestCase,\n"
+            "    shared_fixture,\n"
+            ")\n\n\n"
+            f"{module_preamble}"
+            f"{decorator}def {fn_name}():\n"
+            f"{name_stmt}"
+            '    if frappe.db.exists("Company", name):\n'
+            "        return name\n"
+            '    doc = frappe.new_doc("Company")\n'
+            f"{body}"
+            "    return name\n\n\n"
+            f"class {class_name}(EnhancedTestCase):\n"
+            "    @classmethod\n"
+            "    def setUpClass(cls):\n"
+            f"        cls.company = {fn_name}()\n"
+        )
+
+    def test_extended_guard_flags_a_module_level_clone(self):
+        """RED-then-GREEN control 1: the guard fires on a module-level divergence.
+
+        Two modules define the same-named, same-identity helper; only one carries
+        `@shared_fixture`. This is the #989 shape reduced to its minimum -- no real
+        `EnhancedTestCase` or `frappe` import needed, since the walk resolves
+        reachability from the `ast.ImportFrom` shape alone.
+
+        NOTE (found in #993's review): both copies here share the SAME identity
+        literal, so this test does not by itself discriminate identity-aware
+        matching from name-only matching -- it still passes with identity
+        resolution mutated away entirely, since a name match alone also flags this
+        pair. It proves the guard reaches and flags a module-level clone at all.
+        `test_extended_guard_ignores_a_same_named_unrelated_module_level_helper`
+        below is the one that discriminates identity-matching specifically (a
+        name-only guard would wrongly flag it); the #995 shape-specific tests
+        further down pair each new positive control with its own negative control
+        for the same reason.
+        """
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp) / "pkg"
+            self._write_fixture_module(
+                root,
+                "decorated_module.py",
+                self._module_level_probe_source("_persist_thing", decorated=True, identity="Foo Co"),
+            )
+            self._write_fixture_module(
+                root,
+                "undecorated_clone.py",
+                self._module_level_probe_source("_persist_thing", decorated=False, identity="Foo Co"),
+            )
+
+            flagged = self._divergent_shared_fixture_copies(root=root)
+
+        self.assertEqual(len(flagged), 1, flagged)
+        self.assertIn("undecorated_clone.py", flagged[0])
+
+    def test_extended_guard_ignores_a_suspended_module_level_copy(self):
+        """Negative control: the undecorated copy is protected by suspension instead."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp) / "pkg"
+            self._write_fixture_module(
+                root,
+                "decorated_module.py",
+                self._module_level_probe_source("_persist_thing", decorated=True, identity="Foo Co"),
+            )
+            self._write_fixture_module(
+                root,
+                "suspended_clone.py",
+                self._module_level_probe_source(
+                    "_persist_thing",
+                    decorated=False,
+                    identity="Foo Co",
+                    insert_line=(
+                        "    with suspend_insert_capture():\n"
+                        "        doc.insert(ignore_permissions=True)\n"
+                    ),
+                ),
+            )
+
+            flagged = self._divergent_shared_fixture_copies(root=root)
+
+        self.assertEqual([], flagged)
+
+    def test_extended_guard_ignores_a_same_named_unrelated_module_level_helper(self):
+        """Negative control: same helper NAME, different identity -- not a clone.
+
+        This is the shape that made a name-only match unsafe at module scope:
+        #989 measured seven `_persist_eur_company` definitions building five
+        different companies. A guard that flagged on name alone would have
+        reported all of them.
+        """
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp) / "pkg"
+            self._write_fixture_module(
+                root,
+                "decorated_module.py",
+                self._module_level_probe_source("_persist_thing", decorated=True, identity="Foo Co"),
+            )
+            self._write_fixture_module(
+                root,
+                "unrelated_namesake.py",
+                self._module_level_probe_source("_persist_thing", decorated=False, identity="Bar Co"),
+            )
+
+            flagged = self._divergent_shared_fixture_copies(root=root)
+
+        self.assertEqual([], flagged)
+
+    # -- #995: identity shapes `identity_literal` previously resolved to `None` --
+
+    def test_extended_guard_flags_a_module_level_clone_via_module_constant_identity(self):
+        """RED-then-GREEN control: a `Name` resolved through a MODULE-scope constant.
+
+        This is the exact shape already live in the tree (`test_rest_migration_
+        payments.py`'s ``COMPANY_NAME = "TEST-EB-Payment-Company"``, consumed as
+        ``frappe.db.exists("Company", COMPANY_NAME)``) -- #995's issue demonstrated
+        that, pre-fix, this made `identity_literal` return `None` for both copies,
+        so `flagged == []` even though the two copies build the same company.
+        """
+        import tempfile
+
+        preamble = 'COMPANY_NAME = "Foo Co"\n\n\n'
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp) / "pkg"
+            self._write_fixture_module(
+                root,
+                "decorated_module.py",
+                self._module_level_probe_source(
+                    "_persist_thing",
+                    decorated=True,
+                    identity_stmt="    name = COMPANY_NAME\n",
+                    module_preamble=preamble,
+                ),
+            )
+            self._write_fixture_module(
+                root,
+                "undecorated_clone.py",
+                self._module_level_probe_source(
+                    "_persist_thing",
+                    decorated=False,
+                    identity_stmt="    name = COMPANY_NAME\n",
+                    module_preamble=preamble,
+                ),
+            )
+
+            flagged = self._divergent_shared_fixture_copies(root=root)
+
+        self.assertEqual(len(flagged), 1, flagged)
+        self.assertIn("undecorated_clone.py", flagged[0])
+
+    def test_extended_guard_ignores_module_constants_with_different_values(self):
+        """Negative control for the module-constant shape: different constant value.
+
+        Discriminates a real identity read from a "some `Name` resolved, so treat
+        it as a match" bug: if the two modules' `COMPANY_NAME` values differ, this
+        must NOT be flagged, exactly as the bare-literal negative control above
+        requires for plain strings.
+        """
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp) / "pkg"
+            self._write_fixture_module(
+                root,
+                "decorated_module.py",
+                self._module_level_probe_source(
+                    "_persist_thing",
+                    decorated=True,
+                    identity_stmt="    name = COMPANY_NAME\n",
+                    module_preamble='COMPANY_NAME = "Foo Co"\n\n\n',
+                ),
+            )
+            self._write_fixture_module(
+                root,
+                "unrelated_namesake.py",
+                self._module_level_probe_source(
+                    "_persist_thing",
+                    decorated=False,
+                    identity_stmt="    name = COMPANY_NAME\n",
+                    module_preamble='COMPANY_NAME = "Bar Co"\n\n\n',
+                ),
+            )
+
+            flagged = self._divergent_shared_fixture_copies(root=root)
+
+        self.assertEqual([], flagged)
+
+    def test_extended_guard_flags_a_module_level_clone_via_fstring_identity(self):
+        """RED-then-GREEN control: an f-string identity, #995's other demonstrated shape.
+
+        ``name = f"{_PREFIX} Co"`` is the literal reduction from the issue. Both
+        copies share the same module-scope `_PREFIX`, so the interpolated value is
+        identical and this is a genuine clone.
+        """
+        import tempfile
+
+        preamble = '_PREFIX = "Foo"\n\n\n'
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp) / "pkg"
+            self._write_fixture_module(
+                root,
+                "decorated_module.py",
+                self._module_level_probe_source(
+                    "_persist_thing",
+                    decorated=True,
+                    identity_stmt='    name = f"{_PREFIX} Co"\n',
+                    module_preamble=preamble,
+                ),
+            )
+            self._write_fixture_module(
+                root,
+                "undecorated_clone.py",
+                self._module_level_probe_source(
+                    "_persist_thing",
+                    decorated=False,
+                    identity_stmt='    name = f"{_PREFIX} Co"\n',
+                    module_preamble=preamble,
+                ),
+            )
+
+            flagged = self._divergent_shared_fixture_copies(root=root)
+
+        self.assertEqual(len(flagged), 1, flagged)
+        self.assertIn("undecorated_clone.py", flagged[0])
+
+    def test_extended_guard_ignores_fstrings_with_different_interpolated_values(self):
+        """Negative control for the f-string shape: same template, different value."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp) / "pkg"
+            self._write_fixture_module(
+                root,
+                "decorated_module.py",
+                self._module_level_probe_source(
+                    "_persist_thing",
+                    decorated=True,
+                    identity_stmt='    name = f"{_PREFIX} Co"\n',
+                    module_preamble='_PREFIX = "Foo"\n\n\n',
+                ),
+            )
+            self._write_fixture_module(
+                root,
+                "unrelated_namesake.py",
+                self._module_level_probe_source(
+                    "_persist_thing",
+                    decorated=False,
+                    identity_stmt='    name = f"{_PREFIX} Co"\n',
+                    module_preamble='_PREFIX = "Bar"\n\n\n',
+                ),
+            )
+
+            flagged = self._divergent_shared_fixture_copies(root=root)
+
+        self.assertEqual([], flagged)
+
+    def test_extended_guard_flags_a_module_level_clone_via_concatenated_identity(self):
+        """RED-then-GREEN control: `+` string concatenation, #995's third added shape."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp) / "pkg"
+            self._write_fixture_module(
+                root,
+                "decorated_module.py",
+                self._module_level_probe_source(
+                    "_persist_thing",
+                    decorated=True,
+                    identity_stmt='    name = "Foo" + " Co"\n',
+                ),
+            )
+            self._write_fixture_module(
+                root,
+                "undecorated_clone.py",
+                self._module_level_probe_source(
+                    "_persist_thing",
+                    decorated=False,
+                    identity_stmt='    name = "Foo" + " Co"\n',
+                ),
+            )
+
+            flagged = self._divergent_shared_fixture_copies(root=root)
+
+        self.assertEqual(len(flagged), 1, flagged)
+        self.assertIn("undecorated_clone.py", flagged[0])
+
+    def test_extended_guard_ignores_concatenated_identities_with_different_values(self):
+        """Negative control for the concatenation shape: different literal operand."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp) / "pkg"
+            self._write_fixture_module(
+                root,
+                "decorated_module.py",
+                self._module_level_probe_source(
+                    "_persist_thing",
+                    decorated=True,
+                    identity_stmt='    name = "Foo" + " Co"\n',
+                ),
+            )
+            self._write_fixture_module(
+                root,
+                "unrelated_namesake.py",
+                self._module_level_probe_source(
+                    "_persist_thing",
+                    decorated=False,
+                    identity_stmt='    name = "Bar" + " Co"\n',
+                ),
+            )
+
+            flagged = self._divergent_shared_fixture_copies(root=root)
+
+        self.assertEqual([], flagged)
+
+    def test_extended_guard_reports_an_unresolvable_identity_instead_of_silently_skipping(self):
+        """#995's own suggested fix: an unreadable identity is reported, not swallowed.
+
+        A candidate copy whose identity genuinely cannot be read at all (a value
+        built by calling a function -- no shape this guard understands) must NOT
+        be silently treated as "not a clone": that is indistinguishable from a
+        pass and is exactly how #444/#973/#989 stayed invisible. It also must NOT
+        be flagged outright -- that would reopen the name-only false-positive risk
+        (#989's 37-false-positive measurement) since we cannot actually confirm the
+        identity matches. So it is reported in a third bucket: `unresolved`.
+        """
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp) / "pkg"
+            self._write_fixture_module(
+                root,
+                "decorated_module.py",
+                self._module_level_probe_source("_persist_thing", decorated=True, identity="Foo Co"),
+            )
+            self._write_fixture_module(
+                root,
+                "unreadable_clone.py",
+                self._module_level_probe_source(
+                    "_persist_thing",
+                    decorated=False,
+                    identity_stmt="    name = _build_name()\n",
+                ),
+            )
+
+            flagged, unresolved = self._divergent_shared_fixture_copies(root=root, include_unresolved=True)
+
+        self.assertEqual([], flagged, "an unresolvable identity must never be treated as a match")
+        self.assertEqual(len(unresolved), 1, unresolved)
+        self.assertIn("unreadable_clone.py", unresolved[0])
+
+    def test_extended_guard_reports_when_the_exemplars_own_identity_is_unresolvable(self):
+        """Companion control: the EXEMPLAR itself (not a candidate) is unreadable.
+
+        This is #995's exact demonstrated shape: `_ensure_payment_company`'s real,
+        already-`@shared_fixture` copy is the one whose identity a pre-fix
+        `identity_literal` could not read. Such an exemplar can never protect a
+        future clone -- `shared_identities` has nothing to compare against -- so
+        it is reported too, not just an unresolvable candidate.
+        """
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp) / "pkg"
+            self._write_fixture_module(
+                root,
+                "unreadable_exemplar.py",
+                self._module_level_probe_source(
+                    "_persist_thing",
+                    decorated=True,
+                    identity_stmt="    name = _build_name()\n",
+                ),
+            )
+            self._write_fixture_module(
+                root,
+                "some_other_copy.py",
+                self._module_level_probe_source("_persist_thing", decorated=False, identity="Foo Co"),
+            )
+
+            flagged, unresolved = self._divergent_shared_fixture_copies(root=root, include_unresolved=True)
+
+        self.assertEqual([], flagged, "an unresolvable exemplar must never produce a match")
+        self.assertEqual(len(unresolved), 1, unresolved)
+        self.assertIn("unreadable_exemplar.py", unresolved[0])
+
+    def test_extended_guard_ignores_a_singleton_exemplars_unresolvable_identity(self):
+        """Negative control: a SINGLETON `@shared_fixture` with no other copy anywhere.
+
+        Out of scope by design (per #995's brief): this guard's whole trigger is
+        "some other copy exists," which is exactly #973's `_ensure_non_group_cost_
+        center` shape -- a singleton has no clone to diverge from, so reporting its
+        unresolvable identity would be pure noise, not a sizeable gap.
+        """
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp) / "pkg"
+            self._write_fixture_module(
+                root,
+                "only_copy.py",
+                self._module_level_probe_source(
+                    "_persist_singleton_thing",
+                    decorated=True,
+                    identity_stmt="    name = _build_name()\n",
+                ),
+            )
+
+            flagged, unresolved = self._divergent_shared_fixture_copies(root=root, include_unresolved=True)
+
+        self.assertEqual([], flagged)
+        self.assertEqual([], unresolved)
+
+    def test_the_real_tree_has_no_shared_fixture_with_an_unresolvable_identity(self):
+        """A ratchet: no MULTI-COPY `@shared_fixture` family on the real tree has
+        an identity this guard cannot read.
+
+        SCOPE -- read before citing this test as evidence. It reports only
+        families with two or more copies, because the `unresolved` bucket is
+        gated on `len(...) >= 2`: a singleton has no clone to be confused with,
+        so an unreadable identity costs nothing there.
+
+        That means this test does NOT demonstrate the fix on
+        `_ensure_payment_company` (`test_rest_migration_payments.py`), the
+        module-constant case #995 was filed over -- that helper is a singleton,
+        so it is excluded from this bucket and this test passes identically with
+        the resolver's module-constant support disabled. Verified by mutation;
+        an earlier version of this docstring claimed a "before 1 / after 0"
+        measurement here, which was false. The per-shape tests above are what
+        demonstrate the resolver; the 1 -> 0 count came from a standalone sweep,
+        which is a PR-description claim, not something this test reproduces.
+
+        What this test IS worth: a future multi-copy family written in an
+        unresolvable shape reddens here instead of silently disabling the guard
+        for that family. It does not claim no other shape could ever be
+        unresolvable -- see
+        `test_extended_guard_reports_an_unresolvable_identity_instead_of_silently_skipping`
+        for that case handled honestly.
+        """
+        _flagged, unresolved = self._divergent_shared_fixture_copies(include_unresolved=True)
+        self.assertEqual(
+            [],
+            unresolved,
+            "these @shared_fixture module-level helpers (or a same-named candidate "
+            "copy of one) have an identity this guard cannot read, so it cannot "
+            "confirm whether a clone of them would be a real divergence:\n  "
+            + "\n  ".join(unresolved),
+        )
+
     # -- the AST walk behind the gate above ---------------------------------
 
-    def _divergent_shared_fixture_copies(self):
+    def _divergent_shared_fixture_copies(self, root=None, include_unresolved=False):
+        """Return the flagged clones; with `include_unresolved=True`, `(flagged, unresolved)`.
+
+        `unresolved` (#995) is the honest alternative to silently skipping a copy
+        whose identity `identity_literal` cannot read: a family with at least one
+        `@shared_fixture` exemplar (so it is a real, already-acted-on shared-fixture
+        family, not a coincidental name clash -- see `identity_literal`'s docstring)
+        where either the exemplar's own identity, or an otherwise-matching
+        undecorated candidate's identity, could not be resolved. Never mixed into
+        `flagged` -- an unresolved identity is "cannot judge", not "judged to
+        differ", and flagging it would reopen the exact false-positive risk
+        `identity_literal` exists to close (#989's 37-false-positive measurement).
+        Kept out of the default return so the two existing callers of this method
+        (the correctness gate and the three synthetic-fixture tests) are unaffected.
+        """
         import ast
         import collections
 
-        import verenigingen
+        if root is None:
+            import verenigingen
 
-        root = pathlib.Path(verenigingen.__file__).parent
+            root = pathlib.Path(verenigingen.__file__).parent
 
         def is_shared(fn):
             return any(
@@ -491,6 +1006,94 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
                 for n in ast.walk(fn)
             )
 
+        def static_str(node, literals):
+            """Resolve `node` to a compile-time string, or ``None`` if it is not one.
+
+            #995: a bare `ast.Constant` and a `Name` resolved through `literals` were
+            the only two shapes the original walk understood -- so a module-scope
+            constant (``COMPANY_NAME = "..."`` at file scope, then
+            ``frappe.db.exists("Company", COMPANY_NAME)``) or an f-string
+            (``f"{_PREFIX} Co"``) resolved to ``None`` and the copy was silently
+            skipped, not flagged as unmatched. Both shapes are demonstrated in #995
+            and the module-constant one already exists in the tree
+            (``test_rest_migration_payments.py``'s ``COMPANY_NAME``). Adds:
+            * `ast.JoinedStr` (an f-string) -- only when every part is either a
+              literal segment or a `FormattedValue` with no conversion/format spec
+              (``f"{x:.2f}"`` is NOT safe to treat as plain concatenation of ``x``,
+              so that shape still resolves to ``None``, same fail-closed default);
+            * `ast.BinOp` string concatenation (``"a" + "b"``), recursively, so a
+              chain of `+` resolves as long as every operand does.
+            A `Name` still resolves only through `literals`, which the caller seeds
+            with module-scope assignments before function-local ones can shadow them.
+            """
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                return node.value
+            if isinstance(node, ast.Name):
+                return literals.get(node.id)
+            if isinstance(node, ast.JoinedStr):
+                parts = []
+                for value in node.values:
+                    if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                        parts.append(value.value)
+                    elif (
+                        isinstance(value, ast.FormattedValue)
+                        and value.conversion == -1
+                        and value.format_spec is None
+                    ):
+                        resolved = static_str(value.value, literals)
+                        if resolved is None:
+                            return None
+                        parts.append(resolved)
+                    else:
+                        return None
+                return "".join(parts)
+            if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+                left = static_str(node.left, literals)
+                right = static_str(node.right, literals)
+                if left is None or right is None:
+                    return None
+                return left + right
+            return None
+
+        def identity_literal(fn, module_literals):
+            """The literal doc-name this get-or-create builder is keyed on, if findable.
+
+            Module-level helpers -- unlike class methods -- routinely share a leading-
+            underscore NAME by coincidence (#989 measured 7 distinct ``_persist_eur_company``
+            definitions building 5 different companies). A name match alone would flag
+            every one of those as a clone of the one real shared fixture. This resolves
+            the 2nd positional argument of the ``frappe.db.exists(<doctype>, <name>)``
+            call every one of these fixtures opens with -- through a same-function
+            var-assignment / default-argument map, a module-scope constant (seeded via
+            `module_literals`), an f-string, or `+` concatenation (see `static_str`) --
+            and two copies are only the same fixture if that literal matches.
+            """
+            literals = dict(module_literals)
+            for a, d in zip(reversed(fn.args.args), reversed(fn.args.defaults or [])):
+                resolved = static_str(d, literals)
+                if resolved is not None:
+                    literals[a.arg] = resolved
+            for n in ast.walk(fn):
+                if (
+                    isinstance(n, ast.Assign)
+                    and len(n.targets) == 1
+                    and isinstance(n.targets[0], ast.Name)
+                ):
+                    resolved = static_str(n.value, literals)
+                    if resolved is not None:
+                        literals[n.targets[0].id] = resolved
+            for n in ast.walk(fn):
+                if (
+                    isinstance(n, ast.Call)
+                    and isinstance(n.func, ast.Attribute)
+                    and n.func.attr == "exists"
+                    and len(n.args) >= 2
+                ):
+                    resolved = static_str(n.args[1], literals)
+                    if resolved is not None:
+                        return resolved
+            return None
+
         # (module, class) -> base names, plus (module, local name) -> (module, real
         # name) for every `from X import Y as Z`. Both are needed:
         #
@@ -504,6 +1107,13 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
         bases = {}
         aliases = {}
         copies = collections.defaultdict(list)
+        # Module-level functions are a SEPARATE population from class methods, kept in
+        # its own dict rather than merged into `copies` by name. Merging them would
+        # let a module-level helper and a same-named but unrelated class method decide
+        # each other's fate purely by sharing an identifier (see `identity_literal`
+        # above for the same trap recurring one level up, between module-level copies).
+        module_copies = collections.defaultdict(list)
+        module_classes = collections.defaultdict(list)
         for path in sorted(root.rglob("*.py")):
             try:
                 tree = ast.parse(path.read_text(), filename=str(path))
@@ -514,8 +1124,24 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
                     for alias in node.names:
                         local = alias.asname or alias.name
                         aliases[(str(path), local)] = (node.module, alias.name)
+            # Module-scope `NAME = "literal"` assignments (e.g. `COMPANY_NAME` in
+            # test_rest_migration_payments.py), seeded so `identity_literal` can
+            # resolve a `Name` node that refers to one of these instead of a
+            # same-function local (#995). Built left-to-right so a later constant
+            # may itself reference an earlier one.
+            module_literals = {}
+            for node in tree.body:
+                if (
+                    isinstance(node, ast.Assign)
+                    and len(node.targets) == 1
+                    and isinstance(node.targets[0], ast.Name)
+                ):
+                    resolved = static_str(node.value, module_literals)
+                    if resolved is not None:
+                        module_literals[node.targets[0].id] = resolved
             for cls in [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]:
                 bases[(str(path), cls.name)] = [ast.unparse(b).split("[")[0] for b in cls.bases]
+                module_classes[str(path)].append(cls.name)
                 for fn in cls.body:
                     if isinstance(fn, ast.FunctionDef) and fn.name.startswith("_"):
                         copies[fn.name].append(
@@ -528,6 +1154,19 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
                                 suspends(fn),
                             )
                         )
+            for fn in tree.body:
+                if isinstance(fn, ast.FunctionDef) and fn.name.startswith("_"):
+                    module_copies[fn.name].append(
+                        (
+                            path.relative_to(root.parent),
+                            fn.lineno,
+                            is_shared(fn),
+                            inserts(fn),
+                            suspends(fn),
+                            str(path),
+                            identity_literal(fn, module_literals),
+                        )
+                    )
 
         def reaches_drained_base(module, cls_name, seen=None):
             """Does this class inherit from `EnhancedTestCase`?
@@ -575,6 +1214,19 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
                     return True
             return False
 
+        def module_reaches_drained_base(abs_path_str):
+            """The module-scope analogue of `reaches_drained_base` for a class.
+
+            A module-level function has no owning class, so "its class reaches
+            EnhancedTestCase" cannot hold for it. What is actually reachable through
+            the harness is: some class DEFINED IN THIS MODULE reaches EnhancedTestCase
+            -- i.e. this module's tests do run under the captured-insert hook at all.
+            """
+            return any(
+                reaches_drained_base(abs_path_str, cls_name)
+                for cls_name in module_classes.get(abs_path_str, [])
+            )
+
         flagged = []
         for name, found in sorted(copies.items()):
             if len({c[0] for c in found}) < 2 or not any(c[3] for c in found):
@@ -582,6 +1234,44 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
             for path, cls, line, shared, ins, susp in found:
                 if not shared and ins and not susp and reaches_drained_base(str(root.parent / path), cls):
                     flagged.append(f"{name}  <-  {path}:{line} ({cls})")
+
+        unresolved = []
+        for name, found in sorted(module_copies.items()):
+            # Only compare copies against an ALREADY-decorated exemplar's identity --
+            # never against each other's -- so a fixture family with no decorated
+            # member yet cannot be flagged (that would be #444's problem, not this
+            # guard's; the exemplar is what proves the fix "landed once").
+            decorated = [f for f in found if f[2]]
+            if not decorated:
+                continue
+            # A singleton name (one module only) is the exemplar comparing against
+            # itself -- the loop below already no-ops on it (the exemplar is the
+            # only entry and `shared` skips it), and reporting it as "unresolved"
+            # would be noise about a family with no clone, which is #973's
+            # singleton shape, out of scope for this guard by design.
+            if len({c[0] for c in found}) >= 2:
+                for path, line, shared, ins, susp, abspath, ident in decorated:
+                    if ident is None:
+                        unresolved.append(
+                            f"{name}  <-  {path}:{line} (<module>, exemplar identity unresolved)"
+                        )
+            shared_identities = {ident for *_, ident in decorated if ident is not None}
+            if not shared_identities:
+                continue
+            for path, line, shared, ins, susp, abspath, ident in found:
+                if shared or not ins or susp:
+                    continue
+                if not module_reaches_drained_base(abspath):
+                    continue
+                if ident is None:
+                    unresolved.append(
+                        f"{name}  <-  {path}:{line} (<module>, candidate identity unresolved)"
+                    )
+                    continue
+                if ident in shared_identities:
+                    flagged.append(f"{name}  <-  {path}:{line} (<module>)")
+        if include_unresolved:
+            return flagged, unresolved
         return flagged
 
 
