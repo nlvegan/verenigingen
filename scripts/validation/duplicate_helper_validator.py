@@ -110,6 +110,18 @@ CLONE_MIN_NEAR_PAIRS = 1
 # The same-file half is load-bearing -- see _is_trivial_same_file_pair.
 TRIVIAL_BODY_STATEMENTS = 3
 
+# #1045: a family of n uniformly-similar copies has C(n,2) near-identical
+# pairs, and --report printed every one of them -- 150 lines for
+# `_persist_eur_company`'s 75 pairs alone, and 24 families over 10 pairs
+# each (779 -> 2481 total lines). Above this many pairs, _print_near_pairs()
+# prints a representative subset -- always including the family's highest-
+# and lowest-ratio pair, since those are the two facts a reader cannot
+# recover from a truncated alphabetical slice -- and states the count and
+# ratio range of what it elided, so the elision is visible rather than
+# silent (the defect #1008/#1022 fixed was SILENT truncation, not
+# truncation as such).
+NEAR_PAIRS_PRINT_CAP = 3
+
 
 def _rel(path: str) -> str:
     """Repo-relative, so output is the same wherever the checkout lives."""
@@ -258,20 +270,24 @@ def census(root: str = None) -> Dict[str, int]:
 
 def clone_families(root: str = None):
     """(clone_pairs, defs, exact_pairs, best_ratio, name, dirs, worst, cosmetic,
-    near_pairs), most-cloned first.
+    pair_evidence), most-cloned first.
 
     `defs` is the DEFINITION count (#990), which can exceed the number of
     directories/files listed in `dirs` when one file defines the name more than
     once (e.g. once per class). `dirs` stays file/directory-level for readability.
 
-    `near_pairs` is the actual evidence for the verdict: a sorted list of
+    `pair_evidence` is the actual evidence for the verdict: a sorted list of
     (rel_path, rel_path, ratio) for every pair that is exact or reaches
-    CLONE_RATIO. #1022 (same defect class as #1008, fixed for the sibling
-    `production_divergence_scanner.py` by #1029): a report that names only the
-    family and a truncated, alphabetically-sorted `dirs[:4]` list gives a human
-    no way back to the pair that produced it -- for a family with more than ~4
-    directories, alphabetical truncation can drop the pair entirely, on either
-    or both sides.
+    CLONE_RATIO -- the FULL list, not capped; see _print_near_pairs() for the
+    display-time cap (#1045). #1022 (same defect class as #1008, fixed for the
+    sibling `production_divergence_scanner.py` by #1029): a report that names
+    only the family and a truncated, alphabetically-sorted `dirs[:4]` list
+    gives a human no way back to the pair that produced it -- for a family
+    with more than ~4 directories, alphabetical truncation can drop the pair
+    entirely, on either or both sides.
+
+    (Named `pair_evidence`, not `near_pairs`, to avoid shadowing the
+    module-level `near_pairs(copies) -> int` counting function -- #1045.)
 
     Only for --report. The ratchet itself never looks at similarity -- comparing
     every pair is quadratic in the number of copies and would make the gate slow
@@ -285,7 +301,7 @@ def clone_families(root: str = None):
         exact = clones = cosmetic = 0
         best = 0.0
         worst = 1.0
-        near_pairs: List[Tuple[str, str, float]] = []
+        pair_evidence: List[Tuple[str, str, float]] = []
         for i in range(len(copies)):
             for j in range(i + 1, len(copies)):
                 a, b = copies[i][2], copies[j][2]  # normalised
@@ -305,18 +321,18 @@ def clone_families(root: str = None):
                     # search query -- but it is not behavioural drift.
                     if raw_a != raw_b:
                         cosmetic += 1
-                    near_pairs.append((copies[i][0], copies[j][0], 1.0))
+                    pair_evidence.append((copies[i][0], copies[j][0], 1.0))
                     continue
                 ratio = _ratio(a, b)
                 best = max(best, ratio)
                 worst = min(worst, ratio)
                 if ratio >= CLONE_RATIO:
                     clones += 1
-                    near_pairs.append((copies[i][0], copies[j][0], ratio))
+                    pair_evidence.append((copies[i][0], copies[j][0], ratio))
         if exact + clones:
             dirs = sorted({os.path.dirname(_rel(p)) for p, _, _ in copies})
-            sorted_near_pairs = sorted(
-                (_rel(a), _rel(b), round(ratio, 3)) for a, b, ratio in near_pairs
+            sorted_pair_evidence = sorted(
+                (_rel(a), _rel(b), round(ratio, 3)) for a, b, ratio in pair_evidence
             )
             families.append(
                 (
@@ -328,26 +344,51 @@ def clone_families(root: str = None):
                     dirs,
                     round(worst, 3),
                     cosmetic,
-                    sorted_near_pairs,
+                    sorted_pair_evidence,
                 )
             )
     families.sort(key=lambda f: (-f[0], -f[1]))
     return families
 
 
-def _print_near_pairs(near_pairs: List[Tuple[str, str, float]], indent: int) -> None:
-    """Print the actual near-identical pair(s) that produced a family's verdict.
+def _print_near_pairs(pair_evidence: List[Tuple[str, str, float]], indent: int) -> None:
+    """Print the near-identical pair(s) that produced a family's verdict.
 
     #1022: replaces `for d in dirs[:4]: print(...)`, which named an
     alphabetically-sorted, truncated directory list instead of the pair that
     produced the verdict -- for a family with more than ~4 directories, the
     true pair's directories could sort past position 4 and never be printed.
-    Prints EVERY pair reaching CLONE_RATIO (or exact), not just the best one --
-    mirroring #1029's fix in the sibling `production_divergence_scanner.py`.
+
+    #1045: printing EVERY pair reaching CLONE_RATIO is C(n,2) in the number of
+    copies, so a large uniform family drowns the report in lines that all say
+    the same thing. Above NEAR_PAIRS_PRINT_CAP, print a representative subset
+    instead -- the highest- and lowest-ratio pair always survive the cap
+    (those are the two facts a size limit could otherwise hide), padded out
+    to the cap with whatever pairs come first -- and name the count and ratio
+    range of what was left out, so the cut is visible rather than silent.
     """
-    for a, b, ratio in near_pairs:
+    if len(pair_evidence) <= NEAR_PAIRS_PRINT_CAP:
+        shown, elided = pair_evidence, []
+    else:
+        by_ratio = sorted(pair_evidence, key=lambda p: p[2])
+        keep_ids = {id(by_ratio[0]), id(by_ratio[-1])}
+        for pair in pair_evidence:
+            if len(keep_ids) >= NEAR_PAIRS_PRINT_CAP:
+                break
+            keep_ids.add(id(pair))
+        shown = [p for p in pair_evidence if id(p) in keep_ids]
+        elided = [p for p in pair_evidence if id(p) not in keep_ids]
+
+    for a, b, ratio in shown:
         print(f"{'':>{indent}}{a}")
         print(f"{'':>{indent + 2}}<-> {b}   ratio {ratio:.3f}")
+
+    if elided:
+        ratios = [ratio for _, _, ratio in elided]
+        print(
+            f"{'':>{indent}}... {len(elided)} more pair(s) elided, ratio "
+            f"{min(ratios):.3f}-{max(ratios):.3f}"
+        )
 
 
 def _ratio(a: str, b: str) -> float:
@@ -590,11 +631,11 @@ def main() -> int:
         # 89 families to a set where the inference is actually true.
         drifted = [f for f in clone_families() if f[2] == 0 and f[6] >= CLONE_RATIO]
         print(f"{'pairs':>5} {'defs':>5} {'worst':>6} {'best':>6}  helper")
-        for pairs, defs, _exact, best, name, dirs, worst, _cos, near_pairs in drifted:
+        for pairs, defs, _exact, best, name, dirs, worst, _cos, pair_evidence in drifted:
             # `best` is rounded to 2dp, so a 0.997 family printed as 1.00 under a
             # header promising "no exact pair". Show 3dp.
             print(f"{pairs:>5} {defs:>5} {worst:>6.3f} {best:>6.3f}  {name}")
-            _print_near_pairs(near_pairs, 26)
+            _print_near_pairs(pair_evidence, 26)
         cosmetic_only = [f for f in clone_families() if f[2] and f[7] and f[0] == f[2]]
         print(
             f"\n{len(drifted)} families in which EVERY copy is >={CLONE_RATIO:.0%} similar to "
@@ -612,9 +653,9 @@ def main() -> int:
     if args.report:
         families = clone_families()
         print(f"{'pairs':>5} {'defs':>5} {'exact':>5} {'best':>5}  helper")
-        for pairs, defs, exact, best, name, dirs, _worst, _cos, near_pairs in families:
+        for pairs, defs, exact, best, name, dirs, _worst, _cos, pair_evidence in families:
             print(f"{pairs:>5} {defs:>5} {exact:>5} {best:>5}  {name}")
-            _print_near_pairs(near_pairs, 28)
+            _print_near_pairs(pair_evidence, 28)
         print(f"\n{len(families)} clone families")
         return 0
 

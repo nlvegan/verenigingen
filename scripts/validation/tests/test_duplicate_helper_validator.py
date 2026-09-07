@@ -797,6 +797,75 @@ class NearPairEvidenceTest(unittest.TestCase):
             self.assertIn(str(root / "zzz_pair_one" / "a.py"), output)
             self.assertIn(str(root / "zzz_pair_two" / "a.py"), output)
 
+    def test_print_near_pairs_caps_a_large_family_and_reports_the_elision(self):
+        """#1045: a uniform family of N copies emits C(N,2) lines -- measured on
+        this tree, `_persist_eur_company` alone contributed 150 lines from 75
+        pairs, and 24 families printed more than 10 pairs each. Printing must
+        stop scaling with C(N,2).
+
+        A cap that just keeps the first N pairs (the list is sorted
+        alphabetically by path, not by ratio) would be wrong evidence: it could
+        keep six near-identical high-ratio pairs and silently drop the one pair
+        that is barely over CLONE_RATIO, which is the more interesting fact
+        about the family. So build pairs whose ratio order runs opposite their
+        alphabetical order, and require BOTH extremes to survive the cap.
+        """
+        import contextlib
+        import io
+        import re
+
+        pairs = [
+            ("aaa1.py", "aaa1b.py", 0.999),
+            ("bbb2.py", "bbb2b.py", 0.998),
+            ("ccc3.py", "ccc3b.py", 0.997),
+            ("ddd4.py", "ddd4b.py", 0.996),
+            ("eee5.py", "eee5b.py", 0.995),
+            ("zzz9.py", "zzz9b.py", 0.900),  # the true minimum, sorts LAST
+        ]
+        self.assertGreater(
+            len(pairs), dhv.NEAR_PAIRS_PRINT_CAP, "the fixture must exceed the cap to matter"
+        )
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            dhv._print_near_pairs(pairs, 4)
+        output = buf.getvalue()
+
+        # Fewer lines than the full cross-product: 2 lines per pair shown,
+        # plus one elision line -- never all len(pairs) * 2 lines.
+        printed_pair_lines = sum(1 for ln in output.splitlines() if "<->" in ln)
+        self.assertLess(
+            printed_pair_lines,
+            len(pairs),
+            "the print must stop scaling with the number of pairs",
+        )
+
+        self.assertIn("0.999", output, "the highest-ratio pair is the family's other extreme")
+        self.assertIn("0.900", output, "a first-N-by-alphabetical-order cap would drop this")
+
+        elided = len(pairs) - printed_pair_lines
+        self.assertGreater(elided, 0)
+        self.assertIn("elided", output.lower(), "the elision must be stated, not silent")
+        self.assertIn(str(elided), output, "the elided count must be stated, not silent")
+
+        # The elided pairs are whatever is left after the shown ones -- their
+        # ratios must fall within the stated range, so a reader can tell the
+        # elided pairs are not outliers hiding beyond it. Only the "<->" pair
+        # lines carry a single ratio value; the elision line's "X-Y" range is
+        # excluded here so it cannot masquerade as a shown pair's ratio.
+        shown_ratios = {
+            round(float(m), 3)
+            for ln in output.splitlines()
+            if "<->" in ln
+            for m in re.findall(r"ratio ([\d.]+)$", ln.strip())
+        }
+        elided_ratios = [r for _, _, r in pairs if round(r, 3) not in shown_ratios]
+        self.assertEqual(elided, len(elided_ratios))
+        elision_line = next(ln for ln in output.splitlines() if "elided" in ln.lower())
+        range_numbers = [float(n) for n in re.findall(r"\d+\.\d+", elision_line)]
+        self.assertGreaterEqual(min(range_numbers[-2:]), min(elided_ratios) - 0.0005)
+        self.assertLessEqual(max(range_numbers[-2:]), max(elided_ratios) + 0.0005)
+
 
 class WholeTreeTest(unittest.TestCase):
     """Pinned totals. Without a hard number, every test above is satisfied by a
