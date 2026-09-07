@@ -34375,5 +34375,24 @@
   "rate_limit_scope": "per_user",
   "audit_level": "detailed",
   "alert_on_execution": 0
+ },
+ {
+  "doctype": "Critical Operation Rule",
+  "name": "initiate_payment",
+  "operation_name": "initiate_payment",
+  "operation_type": "financial",
+  "description": "Guest-reachable universal payment initiation endpoint (#1048)",
+  "enabled": 1,
+  "security_level": "high",
+  "business_context": "Guest-accessible endpoint restricted to an allowlisted reference_doctype plus a matching on-file email as ownership proof; per_ip scope prevents one abusive client from exhausting every anonymous caller's shared 'Guest' rate-limit bucket and limits the rate of ownership-email guesses against a given reference document",
+  "required_roles": "",
+  "rate_limit_calls": 5,
+  "rate_limit_period_seconds": 60,
+  "rate_limit_scope": "per_ip",
+  "audit_level": "detailed",
+  "alert_on_execution": 0,
+  "batch_rate_limit_calls": 20,
+  "batch_rate_limit_period_seconds": 3600,
+  "apply_batch_limits_to": "Both"
  }
 ]

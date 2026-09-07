@@ -405,7 +405,7 @@ _make_role::9  # clone family, 10 near-identical pair(s)
 _make_role_profile::6  # clone family, 12 near-identical pair(s)
 _make_root::8  # clone family, 28 near-identical pair(s)
 _make_rule::2
-_make_sales_invoice::3
+_make_sales_invoice::4
 _make_schedule::5
 _make_service::5  # clone family, 1 near-identical pair(s)
 _make_settings::4  # clone family, 1 near-identical pair(s)
