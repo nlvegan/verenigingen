@@ -16,12 +16,13 @@ than in CI). See tests/backend/portal/test_page_donate.py's equivalent tests
 (#969/PR #1028) for the precedent this mirrors.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import frappe
 from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.gateway_stub import stub_redirect_gateway
 
 _GATEWAY_FACTORY_PATH = (
     "verenigingen.verenigingen_payments.utils.payment_gateways.PaymentGatewayFactory.get_gateway"
@@ -57,14 +58,14 @@ class TestMollieCheckoutOwnership(EnhancedTestCase):
         return doc
 
     def _stub_gateway(self):
-        """A gateway stub that would report a real-looking redirect if reached."""
-        gateway = MagicMock()
-        gateway.process_payment.return_value = {
-            "status": "redirect_required",
-            "payment_url": "https://pay.mollie.test/checkout/xyz",
-            "payment_id": "tr_stubbed",
-        }
-        return gateway
+        """A gateway stub that would report a real-looking redirect if reached.
+
+        Thin wrapper kept for call-site compatibility -- the body moved to
+        tests/support/gateway_stub.py (#1048) after a second, near-identical
+        copy tripped scripts/validation/duplicate_helper_validator.py's
+        ratchet.
+        """
+        return stub_redirect_gateway(payment_url="https://pay.mollie.test/checkout/xyz")
 
     def _call_make_payment(self, *, reference_doctype, reference_docname, payer_email=None):
         import json
