@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import frappe
 
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 
 
 class TestDonation(EnhancedTestCase):
@@ -191,8 +191,12 @@ class TestDonation(EnhancedTestCase):
     # ------------------------------------------------------------------
     # Helpers (privileged data creation lives here, not in test bodies)
     # ------------------------------------------------------------------
+    @shared_fixture
     def _ensure_mode_of_payment(self, name="Test Payment"):
-        """Ensure a Mode of Payment exists for use in donations."""
+        """Ensure a Mode of Payment exists for use in donations.
+
+        @shared_fixture (#1010): site-wide master data, no company scope.
+        """
         if not frappe.db.exists("Mode of Payment", name):
             mode = frappe.new_doc("Mode of Payment")
             mode.mode_of_payment = name

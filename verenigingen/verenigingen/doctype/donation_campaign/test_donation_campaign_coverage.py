@@ -36,7 +36,7 @@ returns none), so removing the patch introduces no new mail risk.
 
 import frappe
 
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 
 
 class TestDonationCampaignCoverage(EnhancedTestCase):
@@ -69,7 +69,9 @@ class TestDonationCampaignCoverage(EnhancedTestCase):
         donor.insert()
         return donor
 
+    @shared_fixture
     def _ensure_mode_of_payment(self, name="Test Payment"):
+        """@shared_fixture (#1010): site-wide master data, no company scope."""
         if not frappe.db.exists("Mode of Payment", name):
             mode = frappe.new_doc("Mode of Payment")
             mode.mode_of_payment = name

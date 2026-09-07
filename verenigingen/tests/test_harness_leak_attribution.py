@@ -416,6 +416,95 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
             "merely by something that sets __wrapped__",
         )
 
+    def test_the_mode_of_payment_helpers_are_declared_shared(self):
+        """`_ensure_mode_of_payment`: 6 copies (#1010), NONE decorated on develop.
+
+        `Mode of Payment` is site-wide master data (`frappe.db.exists("Mode of
+        Payment", name)`, no company scope), built lazily from inside test
+        bodies -- five of the six are called from a test method or a helper a
+        test method calls (`_make_mapping`, `_make_donation`,
+        `_make_paid_donation`, `setUp`); the sixth (`test_payment_mapping_
+        coverage.py`) is called from BOTH `setUpClass` (safe) and a test body
+        (`_make_mapping`, `test_receivable_mapping_can_be_saved` -- the
+        dangerous side of the #328/#330 boundary). Without `@shared_fixture`
+        the captured-insert drain claims the row for whichever test calls it
+        first and deletes it at that test's own teardown, taking the master
+        away from every later class in the shard that needs it.
+
+        The static AST guard (`_divergent_shared_fixture_copies` below) is
+        blind to this family for three independent reasons, verified by
+        reading its source rather than assumed:
+
+        1. No copy carries `@shared_fixture` yet, so the class-method
+           population's trigger ("some OTHER copy is already decorated") never
+           fires -- there is nothing to compare against.
+        2. Five of the six key `frappe.db.exists("Mode of Payment", name)` on
+           a caller-supplied PARAMETER, not a literal `identity_literal` can
+           resolve from within the function body. This only matters for the
+           module-level population, since class methods are matched by name
+           alone (no identity check at all) -- but see point 3.
+        3. Five of the six are class METHODS and one is a module-level
+           function; the guard deliberately keeps those as two separate
+           populations (#993), so they never compare against each other even
+           once one is decorated.
+
+        `hasattr(fn, "__wrapped__")` alone (what the six `EnhancedTestCase`
+        helpers above assert) only proves SOME `functools.wraps`-based
+        decorator was applied -- not this one specifically (a finding from
+        #1005's review). Compare the wrapped callable's `__code__` against a
+        fresh `shared_fixture` closure instead, exactly as
+        `test_the_shared_region_helper_is_declared_shared` above does; that is
+        identity with this decorator, not merely its shape.
+        """
+        from verenigingen.tests.fixtures import enhanced_test_factory as factory_module
+
+        exemplar_code = factory_module.shared_fixture(lambda: None).__code__
+
+        from verenigingen.tests.e_boekhouden import test_payment_mapping_coverage
+        from verenigingen.verenigingen.doctype.donation import test_donation, test_donation_coverage
+        from verenigingen.verenigingen.doctype.donation_campaign import (
+            test_donation_campaign_coverage,
+        )
+        from verenigingen.verenigingen_payments.ing_checkout.tests import test_transaction_service
+        from verenigingen.verenigingen_payments.mollie.tests import test_webhook_wrapper_unified_sweep
+
+        targets = [
+            ("test_payment_mapping_coverage._ensure_mode_of_payment", test_payment_mapping_coverage._ensure_mode_of_payment),
+            (
+                "WrapperSweepBase._ensure_mode_of_payment",
+                test_webhook_wrapper_unified_sweep.WrapperSweepBase._ensure_mode_of_payment,
+            ),
+            (
+                "TestCreatePaymentEntryWithInvoice._ensure_mode_of_payment",
+                test_transaction_service.TestCreatePaymentEntryWithInvoice._ensure_mode_of_payment,
+            ),
+            (
+                "TestDonationCoverage._ensure_mode_of_payment",
+                test_donation_coverage.TestDonationCoverage._ensure_mode_of_payment,
+            ),
+            ("TestDonation._ensure_mode_of_payment", test_donation.TestDonation._ensure_mode_of_payment),
+            (
+                "TestDonationCampaignCoverage._ensure_mode_of_payment",
+                test_donation_campaign_coverage.TestDonationCampaignCoverage._ensure_mode_of_payment,
+            ),
+        ]
+
+        self.assertEqual(6, len(targets), "recount before trusting this list -- #1010 corrected a prior singleton claim")
+
+        for label, fn in targets:
+            self.assertTrue(
+                hasattr(fn, "__wrapped__"),
+                f"{label} creates shared master data (Mode of Payment) and must be "
+                f"@shared_fixture, or the captured-insert drain will claim its row "
+                f"for whichever test calls it first",
+            )
+            self.assertIs(
+                fn.__code__,
+                exemplar_code,
+                f"{label} must be wrapped by @shared_fixture specifically, not merely "
+                f"by something that sets __wrapped__",
+            )
+
     def test_no_shared_fixture_helper_is_decorated_in_one_copy_and_not_its_clone(self):
         """A helper family must not disagree with itself about being shared.
 

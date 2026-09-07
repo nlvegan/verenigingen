@@ -24,13 +24,22 @@ from verenigingen.e_boekhouden.utils.eboekhouden_payment_mapping import (
     get_payment_account_mappings,
     setup_default_payment_mappings,
 )
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.utils.select_options import get_select_options
 
 
+@shared_fixture
 def _ensure_mode_of_payment(name):
-    """Ensure a Mode of Payment master exists (mode_of_payment is a Link field)."""
+    """Ensure a Mode of Payment master exists (mode_of_payment is a Link field).
+
+    ``@shared_fixture`` (#1010): ``Mode of Payment`` is site-wide master data with
+    no company scope, and this helper is called from inside test BODIES
+    (``_make_mapping``, ``test_receivable_mapping_can_be_saved``) as well as
+    ``setUpClass`` -- the former is on the dangerous side of the #328/#330
+    boundary, where the captured-insert drain would otherwise claim the row for
+    whichever test calls it first and delete it at that test's own teardown.
+    """
     if not frappe.db.exists("Mode of Payment", name):
         mode = frappe.new_doc("Mode of Payment")
         mode.mode_of_payment = name
