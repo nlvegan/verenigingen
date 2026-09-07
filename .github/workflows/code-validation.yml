@@ -558,6 +558,144 @@ jobs:
         python scripts/validation/log_error_arg_order_validator.py \
           --check-shrink "$RUNNER_TEMP/base_log_error_baseline.txt"
 
+  # #1042: this ratchet was `stages: [pre-commit]` ONLY -- no workflow ran
+  # `pre-commit` at all, so it was enforced nowhere except a developer's own
+  # machine, if hooks were installed. 45 recorded entries today; the class it
+  # guards against (a SQL date window built from the database clock instead
+  # of the site clock, #668) produced a deterministically red CI window
+  # between 18:30 and 24:00 UTC (#722/#724), so this is not theoretical.
+  # SCAN_ROOTS already covers both verenigingen/ and scripts/ -- unlike its
+  # #1044/#1076 siblings, this validator's gap was purely "nothing runs it",
+  # not "it doesn't look at the right tree".
+  db-clock-date-window-ratchet:
+    name: 🕒 SQL Date Window Built From The Database Clock (ratchet)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        # Needed by the growth check below, which diffs against the base branch.
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    # Stdlib-only (ast, re, argparse, pathlib) by design: no bench, no site, no install.
+    - name: Unit-test the validator itself
+      run: python -m unittest discover -s scripts/validation/tests -p 'test_db_clock_date_window_validator.py' -v
+
+    - name: Ratchet check (whole tree)
+      run: python scripts/validation/db_clock_date_window_validator.py
+
+    # Same shape as log-error-arg-order-ratchet above: self-heal on pull_request
+    # (the auto-merge checkout already absorbed any prior shrinkage), fail
+    # (naming the exact entries) on push, where it is the only remaining
+    # forcing function that tightens the committed baseline. See
+    # baseline_shrink_gate.py's own docstring for why the two behaviours are
+    # split across triggers instead of picking one for both.
+    - name: Baseline is in sync with the tree
+      env:
+        FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' && '--fail-on-shrink' || '' }}
+      run: |
+        python scripts/validation/db_clock_date_window_validator.py --update-baseline
+        python scripts/validation/baseline_shrink_gate.py \
+          scripts/validation/db_clock_date_window_baseline.txt \
+          "python scripts/validation/db_clock_date_window_validator.py --update-baseline" \
+          --already-regenerated \
+          $FAIL_ON_SHRINK
+
+    # The step above cannot catch the abuse that actually defeats this gate:
+    # regenerating the baseline so a NEW finding is recorded rather than fixed.
+    # That leaves baseline and tree in sync -- and the ratchet green. The only
+    # signal is that the baseline GREW, legitimate solely when the validator's
+    # own detection rules changed in the same PR.
+    - name: Baseline did not grow
+      if: github.event_name == 'pull_request'
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      run: |
+        BASELINE=scripts/validation/db_clock_date_window_baseline.txt
+        VALIDATOR=scripts/validation/db_clock_date_window_validator.py
+        total() { grep -v -e '^#' -e '^$' | awk -F'::' '{s+=$NF} END {print s+0}'; }
+
+        if ! git cat-file -e "$BASE_SHA:$BASELINE" 2>/dev/null; then
+          echo "No baseline on the base branch yet — nothing to compare."
+          exit 0
+        fi
+        if ! git diff --quiet "$BASE_SHA" HEAD -- "$VALIDATOR"; then
+          echo "Validator changed in this PR, so a different baseline count is expected."
+          echo "Review the added entries by hand — they are new DETECTIONS, not new code."
+          exit 0
+        fi
+
+        before=$(git show "$BASE_SHA:$BASELINE" | total)
+        after=$(total < "$BASELINE")
+        echo "baseline sites: base=$before  head=$after"
+        if [ "$after" -gt "$before" ]; then
+          echo "::error file=$BASELINE::Baseline grew from $before to $after without a validator change."
+          echo "A new database-clock date-window site was recorded into the baseline instead of fixed."
+          echo "Either fix the predicate, or mark it deliberately:"
+          echo "    WHERE creation > DATE_SUB(NOW(), INTERVAL 1 HOUR)  # db-clock-window-ok: false-positive"
+          exit 1
+        fi
+        echo "Baseline did not grow."
+
+    # The two steps above cannot catch the abuse that actually defeats this
+    # ratchet: a `# db-clock-window-ok:` pragma added on an EXISTING baselined
+    # site. That call still matches the date-window shape, but the counter
+    # excludes anything suppressed, so the baseline shrinks exactly like a
+    # real fix would. Must compare the BASE branch's baseline against the HEAD
+    # tree: the head's own baseline is kept in sync with the head tree by the
+    # step above, so diffing a freshly-synced baseline against itself would
+    # report nothing every time.
+    - name: Every shrink was actually a fix
+      if: github.event_name == 'pull_request'
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      run: |
+        BASELINE=scripts/validation/db_clock_date_window_baseline.txt
+        if ! git cat-file -e "$BASE_SHA:$BASELINE" 2>/dev/null; then
+          echo "No baseline on the base branch yet — nothing to compare."
+          exit 0
+        fi
+        git show "$BASE_SHA:$BASELINE" > "$RUNNER_TEMP/base_db_clock_baseline.txt"
+        python scripts/validation/db_clock_date_window_validator.py \
+          --check-shrink "$RUNNER_TEMP/base_db_clock_baseline.txt"
+
+  # #1042: this ratchet was ALSO `stages: [pre-commit]` ONLY, so it never ran
+  # in CI either -- and being at ZERO known entries makes that worse, not
+  # better: there is no failing output to notice locally, so the first
+  # regression would also be the first evidence anyone had that the gate
+  # was not running at all. Unlike its sibling above, this validator has its
+  # OWN growth protection built in (`--update-baseline` refuses to grow
+  # without `--force`), so no separate baseline_shrink_gate wiring is needed
+  # here -- --strict is safe today because the corpus is measured clean
+  # (0 unresolved targets, 0-entry baseline).
+  public-js-endpoint-ratchet:
+    name: 🔌 public/js Endpoint Resolver (ratchet)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    # Stdlib-only (ast, argparse, pathlib) by design: no bench, no site, no install.
+    - name: Unit-test the validator itself
+      run: python -m unittest discover -s scripts/validation/tests -p 'test_public_js_endpoint_resolver.py' -v
+
+    - name: Ratchet check (whole tree, strict)
+      run: python scripts/validation/public_js_endpoint_resolver.py --strict
+
   # #1033: Critical Operation Rule.operation_name is matched against the BARE name
   # of the currently-executing function at rate-limit-check time (rate_limit_engine.py:96,
   # operation_key.split(".")[-1]) -- so a fixture row whose operation_name has no
@@ -566,6 +704,70 @@ jobs:
   # chosen limit) or the row is inert dead weight for deleted code. #1042 named
   # exactly this failure mode -- a ratchet with zero CI enforcement -- so this one
   # is wired in from the start rather than left pre-commit-only.
+  # #1023: production_divergence_scanner.py (#991, PR #1006) was `stages: [manual]`
+  # in .pre-commit-config.yaml -- not on the default stages, so it never ran even
+  # locally, let alone in CI. Nothing made its report reachable except a developer
+  # remembering to invoke it by hand. Wired in here as a REPORT, not a gate: it
+  # always exits 0 (see the script's own docstring -- #401/#985 document what a
+  # large pre-existing baseline does to a blocking gate's credibility on day one,
+  # and this census currently holds 17 untriaged families). This step's only job
+  # is to make the report land in every push/PR's CI log instead of nowhere.
+  production-divergence-census:
+    name: 🧭 Production Function Divergence Census (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    # Stdlib-only (ast, difflib, argparse, pathlib) by design: no bench, no site, no install.
+    - name: Unit-test the scanner itself
+      run: python -m unittest discover -s scripts/validation/tests -p 'test_production_divergence_scanner.py' -v
+
+    - name: Census report (always advisory -- see script docstring for why)
+      run: python scripts/validation/production_divergence_scanner.py
+
+  # #1083: api_security_validator.py and insecure_api_detector.py are wired only
+  # into pre-commit/pre-push hooks -- confirmed by grep, neither script is
+  # referenced by ANY .github/workflows/*.yml file. A hook is skippable
+  # (`git push --no-verify`) and only ever runs on a developer's own machine if
+  # hooks are installed at all; this job is the CI-side backstop that runs
+  # regardless. Both validators already fail closed (exit 1) if neither scan
+  # root exists, and both already carry their own scripts/ baselines (#1069),
+  # so this full-tree run is expected to pass cleanly today -- confirmed
+  # locally before wiring this in.
+  api-security-scripts-scan:
+    name: 🛡️ API Security Validators (scripts/ + verenigingen/api/)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    # Stdlib-only by design: no bench, no site, no install.
+    - name: Unit-test the scan-root mechanics
+      run: |
+        python -m unittest discover -s scripts/validation/tests -p 'test_scripts_dir_scan.py' -v
+        python -m unittest discover -s scripts/validation/tests -p 'test_scripts_dir_baseline.py' -v
+
+    - name: API Security Validator (full tree)
+      run: python scripts/validation/security/api_security_validator.py
+
+    - name: Insecure API Detector (full tree)
+      run: python scripts/validation/security/insecure_api_detector.py
+
   critical-operation-rule-orphan-ratchet:
     name: 🔗 Critical Operation Rule Orphan Guard (ratchet)
     runs-on: ubuntu-latest
