@@ -145,6 +145,12 @@ class APISecurityValidator:
         self.verbose = verbose
         self.profiles: List[APISecurityProfile] = []
         self.validations: List[SecurityValidation] = []
+        # Set True when validate_files() finds NONE of its scan roots (e.g. run
+        # from the wrong cwd) -- this must hard-fail independent of the scripts/
+        # baseline logic in main(), or a misconfigured run silently reports
+        # "0 findings -> pass" instead of "found nothing to scan -> fail" (#1078
+        # review, the fail-open regression).
+        self.no_scan_roots_found = False
         self.stats = {
             'total_endpoints': 0,
             'fully_compliant': 0,
@@ -169,15 +175,32 @@ class APISecurityValidator:
         if file_paths:
             files_to_validate = [Path(f) for f in file_paths if f.endswith('.py')]
         else:
-            # Find all API files
-            api_dir = Path('verenigingen/api')
-            if not api_dir.exists():
-                print(f"❌ API directory not found: {api_dir}")
+            # Find all API files. `scripts/` is a second scan root, not an
+            # afterthought: it is a real importable package (scripts/__init__.py
+            # exists) holding 121 dispatch-reachable frappe.whitelisted endpoints
+            # of its own, measured by runtime frappe.whitelisted membership --
+            # none of them were ever checked for a missing security decorator or
+            # unparameterised SQL, because this scan only ever looked at
+            # verenigingen/api/ (#1069). Same SCAN_ROOTS shape already used by
+            # log_error_arg_order_validator.py and (post-#1065)
+            # critical_operation_rule_orphan_validator.py.
+            SCAN_ROOTS = ('verenigingen/api', 'scripts')
+            files_to_validate = []
+            any_root_found = False
+            for root_name in SCAN_ROOTS:
+                root_dir = Path(root_name)
+                if not root_dir.exists():
+                    continue
+                any_root_found = True
+                # rglob: subdirectories (e.g. api/member/) are real and a
+                # non-recursive glob('*.py') silently never sees them (#972).
+                files_to_validate.extend(root_dir.rglob('*.py'))
+
+            if not any_root_found:
+                print(f"❌ None of the scan roots were found: {SCAN_ROOTS}")
+                self.no_scan_roots_found = True
                 return False
-            
-            # rglob: verenigingen/api/ has real subdirectories (e.g. api/member/)
-            # whose files a non-recursive glob('*.py') silently never sees (#972).
-            files_to_validate = list(api_dir.rglob('*.py'))
+
             files_to_validate = [f for f in files_to_validate if not f.name.startswith('__')]
 
         if self.verbose:
@@ -779,27 +802,76 @@ def main():
     parser.add_argument('--json-output', '-j', help='Write JSON report to file')
     parser.add_argument('--check-patterns', action='store_true', help='Check security patterns only')
     parser.add_argument('--generate-report', action='store_true', help='Generate comprehensive report')
-    
+    parser.add_argument(
+        '--update-baseline', action='store_true',
+        help='Write current scripts/ FAIL findings to the shrink-only baseline and exit '
+             '(verenigingen/api/ is never written here -- it stays zero-tolerance)'
+    )
+
     args = parser.parse_args()
-    
+
     try:
         validator = APISecurityValidator(verbose=args.verbose)
-        
+
         # Run validation
-        all_valid = validator.validate_files(args.files)
-        
+        validator.validate_files(args.files)
+
         # Print results
         validator.print_results()
-        
+
         # Generate JSON report if requested
         if args.json_output:
             report = validator.generate_json_report()
             with open(args.json_output, 'w') as f:
                 json.dump(report, f, indent=2)
             print(f"📄 JSON report written to {args.json_output}")
-        
+
+        # A misconfigured run (wrong cwd, a moved/renamed directory) that finds
+        # NEITHER scan root must hard-fail here, before --update-baseline is
+        # even consulted -- otherwise "scanned nothing" reports the same
+        # "✅ pass" as "scanned everything and found nothing wrong" (#1078
+        # review: this exact regression shipped once already), and
+        # --update-baseline would silently overwrite the tracked baseline
+        # with zero entries instead of refusing to run.
+        if validator.no_scan_roots_found:
+            print(f"\n❌ Security framework validation failed: no scan roots found")
+            sys.exit(1)
+
+        # scripts/ carries a shrink-only baseline of pre-existing debt (#1069 /
+        # #1075): a FAIL there only blocks if it is NOT already tracked.
+        # verenigingen/api/ is never read from the baseline and stays
+        # zero-tolerance, exactly as before #1069 widened the scan root.
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from scripts_dir_baseline import load_baseline, partition_by_baseline, write_baseline
+
+        baseline_path = Path(__file__).resolve().with_name('api_security_scripts_baseline.txt')
+        critical_failures = [v for v in validator.validations if v.result == ValidationResult.FAIL]
+        finding_keys = [(v.file_path, v.function_name, v.check_name) for v in critical_failures]
+
+        if args.update_baseline:
+            scripts_keys = [k for k in finding_keys if k[0].startswith('scripts/')]
+            write_baseline(
+                baseline_path,
+                scripts_keys,
+                "# Pre-existing api_security_validator FAIL findings under scripts/,\n"
+                "# tracked as known debt by #1069/#1075. Shrink-only: verenigingen/api/\n"
+                "# is never read from this file and stays zero-tolerance. Regenerate\n"
+                "# with --update-baseline after triaging new debt into its own issue.",
+            )
+            print(f"📝 Wrote {len(scripts_keys)} scripts/ finding(s) to {baseline_path}")
+            sys.exit(0)
+
+        baseline = load_baseline(baseline_path)
+        blocking, known = partition_by_baseline(finding_keys, baseline)
+
+        if known:
+            print(
+                f"\nℹ️  {len(known)} finding(s) under scripts/ are known pre-existing debt "
+                f"(see #1075), not blocking. {len(blocking)} finding(s) are new/blocking."
+            )
+
         # Exit with appropriate code
-        if not all_valid:
+        if blocking:
             print(f"\n❌ Security framework validation failed")
             sys.exit(1)
         else:
