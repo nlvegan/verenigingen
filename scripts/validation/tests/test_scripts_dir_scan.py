@@ -19,6 +19,7 @@ or plain:  python scripts/validation/tests/test_scripts_dir_scan.py
 """
 import importlib.util
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -116,6 +117,87 @@ class InsecureApiDetectorScriptsScanTest(_ChdirToFakeAppTree):
         )
         # Control: the verenigingen/api/ endpoint must still be found too.
         self.assertIn("get_secret_from_api", function_names)
+
+
+class _ChdirToEmptyTree(unittest.TestCase):
+    """Builds an empty <tmp> with NEITHER verenigingen/api/ nor scripts/, and
+    chdirs into it -- reproducing a misconfigured invocation (wrong cwd, a
+    moved/renamed directory)."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self._orig_cwd = os.getcwd()
+        os.chdir(self._tmpdir.name)
+
+    def tearDown(self):
+        os.chdir(self._orig_cwd)
+        self._tmpdir.cleanup()
+
+
+class ApiSecurityValidatorNoRootsFoundTest(_ChdirToEmptyTree):
+    """#1078 review: a refactor accidentally made this fail OPEN (exit 0,
+    "✅ All API endpoints pass") when neither scan root exists. A security
+    gate reporting success after scanning nothing is the exact failure class
+    (#1027/#1036's silent zero-count) this whole line of work exists to
+    remove. This must never regress silently again."""
+
+    def test_instance_flag_is_set_when_no_roots_exist(self):
+        validator = api_security_validator.APISecurityValidator(verbose=False)
+        result = validator.validate_files(None)
+
+        self.assertTrue(
+            validator.no_scan_roots_found,
+            "validate_files() must record that it found no scan root at all, "
+            "distinct from 'scanned everything and found zero issues'.",
+        )
+        self.assertFalse(result, "validate_files() must return False when nothing was scanned.")
+
+    def test_cli_exits_non_zero_when_no_roots_exist(self):
+        """The load-bearing case: the real subprocess exit code, exactly how
+        the pre-push hook would observe it."""
+        script = _SECURITY_DIR / "api_security_validator.py"
+        proc = subprocess.run(
+            [sys.executable, str(script)],
+            cwd=self._tmpdir.name,
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(
+            proc.returncode,
+            0,
+            "A run that finds no scan root must exit non-zero, not silently "
+            f"report success. stdout was:\n{proc.stdout}",
+        )
+
+
+class InsecureApiDetectorNoRootsFoundTest(_ChdirToEmptyTree):
+    def test_instance_flag_is_set_when_no_roots_exist(self):
+        detector = insecure_api_detector.InsecureAPIDetector(verbose=False)
+        result = detector.scan_files(None)
+
+        self.assertTrue(
+            detector.no_scan_roots_found,
+            "scan_files() must record that it found no scan root at all, "
+            "distinct from 'scanned everything and found zero issues'.",
+        )
+        self.assertFalse(result, "scan_files() must return False when nothing was scanned.")
+
+    def test_cli_exits_non_zero_when_no_roots_exist(self):
+        """The load-bearing case: the real subprocess exit code, exactly how
+        the pre-push hook would observe it."""
+        script = _SECURITY_DIR / "insecure_api_detector.py"
+        proc = subprocess.run(
+            [sys.executable, str(script)],
+            cwd=self._tmpdir.name,
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(
+            proc.returncode,
+            0,
+            "A run that finds no scan root must exit non-zero, not silently "
+            f"report success. stdout was:\n{proc.stdout}",
+        )
 
 
 if __name__ == "__main__":

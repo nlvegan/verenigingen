@@ -145,6 +145,12 @@ class APISecurityValidator:
         self.verbose = verbose
         self.profiles: List[APISecurityProfile] = []
         self.validations: List[SecurityValidation] = []
+        # Set True when validate_files() finds NONE of its scan roots (e.g. run
+        # from the wrong cwd) -- this must hard-fail independent of the scripts/
+        # baseline logic in main(), or a misconfigured run silently reports
+        # "0 findings -> pass" instead of "found nothing to scan -> fail" (#1078
+        # review, the fail-open regression).
+        self.no_scan_roots_found = False
         self.stats = {
             'total_endpoints': 0,
             'fully_compliant': 0,
@@ -192,6 +198,7 @@ class APISecurityValidator:
 
             if not any_root_found:
                 print(f"❌ None of the scan roots were found: {SCAN_ROOTS}")
+                self.no_scan_roots_found = True
                 return False
 
             files_to_validate = [f for f in files_to_validate if not f.name.startswith('__')]
@@ -818,6 +825,17 @@ def main():
             with open(args.json_output, 'w') as f:
                 json.dump(report, f, indent=2)
             print(f"📄 JSON report written to {args.json_output}")
+
+        # A misconfigured run (wrong cwd, a moved/renamed directory) that finds
+        # NEITHER scan root must hard-fail here, before --update-baseline is
+        # even consulted -- otherwise "scanned nothing" reports the same
+        # "✅ pass" as "scanned everything and found nothing wrong" (#1078
+        # review: this exact regression shipped once already), and
+        # --update-baseline would silently overwrite the tracked baseline
+        # with zero entries instead of refusing to run.
+        if validator.no_scan_roots_found:
+            print(f"\n❌ Security framework validation failed: no scan roots found")
+            sys.exit(1)
 
         # scripts/ carries a shrink-only baseline of pre-existing debt (#1069 /
         # #1075): a FAIL there only blocks if it is NOT already tracked.

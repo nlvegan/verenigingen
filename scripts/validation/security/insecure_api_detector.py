@@ -189,6 +189,12 @@ class InsecureAPIDetector:
         self.report_only = report_only
         self.issues: List[SecurityIssue] = []
         self.endpoints: List[APIEndpoint] = []
+        # Set True when scan_files() finds NONE of its scan roots (e.g. run
+        # from the wrong cwd) -- this must hard-fail independent of the
+        # scripts/ baseline logic in main(), or a misconfigured run silently
+        # reports "0 findings -> pass" instead of "found nothing to scan ->
+        # fail" (#1078 review, the fail-open regression).
+        self.no_scan_roots_found = False
         self.stats = {
             'total_files': 0,
             'total_endpoints': 0,
@@ -238,6 +244,7 @@ class InsecureAPIDetector:
 
             if not any_root_found:
                 print(f"❌ None of the scan roots were found: {SCAN_ROOTS}")
+                self.no_scan_roots_found = True
                 return False
 
             files_to_scan = [f for f in files_to_scan if not f.name.startswith('__')]
@@ -759,6 +766,17 @@ Examples:
             with open(args.json_output, 'w') as f:
                 json.dump(report, f, indent=2)
             print(f"📄 JSON report written to {args.json_output}")
+
+        # A misconfigured run (wrong cwd, a moved/renamed directory) that
+        # finds NEITHER scan root must hard-fail here, before --report-only
+        # or --update-baseline are even consulted -- otherwise "scanned
+        # nothing" reports the same "✅ secure" as "scanned everything and
+        # found nothing wrong" (#1078 review: this exact regression shipped
+        # once already), and --update-baseline would silently overwrite the
+        # tracked baseline with zero entries instead of refusing to run.
+        if detector.no_scan_roots_found:
+            print(f"\n❌ Insecure API endpoints detected. Please fix the issues above.")
+            sys.exit(1)
 
         # scripts/ carries a shrink-only baseline of pre-existing debt (#1069 /
         # #1075): an issue there only blocks if it is NOT already tracked.
