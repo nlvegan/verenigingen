@@ -25,12 +25,15 @@ tests assert the real persisted documents and their field values.
 """
 
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlparse
 
 import frappe
 
 from verenigingen.services.donation.donor_service import get_donation_donor_service
 from verenigingen.services.donation.public_donation_service import (
+    generate_donation_return_token,
     get_public_donation_service,
+    verify_donation_return_token,
 )
 from verenigingen.templates.pages import donate
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -326,6 +329,32 @@ class TestDonatePageMollie(EnhancedTestCase):
         donation.reload()
         self.assertEqual(donation.mode_of_payment, "Mollie")
 
+    def test_process_mollie_payment_return_url_carries_a_valid_token(self):
+        """#1018: the return_url handed to Mollie must embed a token that
+        get_context can verify for THIS donation -- otherwise a stranger
+        walking the sequential donation_id series would see the same
+        amount/date/purpose the legitimate return trip sees.
+        """
+        donor, donation = self._make_draft_mollie_donation()
+        form_data = frappe._dict({"donor_email": donor.donor_email, "donor_name": donor.donor_name})
+
+        with patch(_CPS_PATH, _FakeCompletePaymentService):
+            get_public_donation_service().process_mollie_payment(donation, form_data)
+
+        return_url = _FakeCompletePaymentService.last_form_data["return_url"]
+        parsed = urlparse(return_url)
+        query = parse_qs(parsed.query)
+        self.assertEqual(query["donation_id"], [donation.name])
+        self.assertIn("token", query)
+        self.assertTrue(
+            verify_donation_return_token(donation.name, query["token"][0]),
+            "return_url token must verify for this donation",
+        )
+        # A token minted for a DIFFERENT donation must not verify here.
+        self.assertFalse(
+            verify_donation_return_token("Some-Other-Donation-0001", query["token"][0])
+        )
+
     def test_process_mollie_payment_recurring_branch(self):
         """donation_status=Recurring routes process_mollie_payment to the recurring method."""
         donor, donation = self._make_draft_mollie_donation()
@@ -400,7 +429,9 @@ class TestDonatePageMollie(EnhancedTestCase):
     def test_get_context_mollie_return_paid_status(self):
         """Returning with a payment_id that Mollie reports 'paid' shows success + webhook flag."""
         donation = self._make_unpaid_mollie_donation()
-        frappe.local.form_dict = frappe._dict({"donation_id": donation.name})
+        frappe.local.form_dict = frappe._dict(
+            {"donation_id": donation.name, "token": generate_donation_return_token(donation.name)}
+        )
 
         fake_client = _FakeMollieClient(status="paid")
         with patch(_MOLLIE_CLIENT_PATH, return_value=fake_client):
@@ -414,7 +445,9 @@ class TestDonatePageMollie(EnhancedTestCase):
     def test_get_context_mollie_return_open_status_pending(self):
         """A Mollie 'open' status on return is reported as pending."""
         donation = self._make_unpaid_mollie_donation()
-        frappe.local.form_dict = frappe._dict({"donation_id": donation.name})
+        frappe.local.form_dict = frappe._dict(
+            {"donation_id": donation.name, "token": generate_donation_return_token(donation.name)}
+        )
 
         fake_client = _FakeMollieClient(status="open")
         with patch(_MOLLIE_CLIENT_PATH, return_value=fake_client):
@@ -426,7 +459,9 @@ class TestDonatePageMollie(EnhancedTestCase):
     def test_get_context_mollie_return_failed_status(self):
         """A Mollie 'failed' status on return is reported as failed."""
         donation = self._make_unpaid_mollie_donation()
-        frappe.local.form_dict = frappe._dict({"donation_id": donation.name})
+        frappe.local.form_dict = frappe._dict(
+            {"donation_id": donation.name, "token": generate_donation_return_token(donation.name)}
+        )
 
         fake_client = _FakeMollieClient(status="failed")
         with patch(_MOLLIE_CLIENT_PATH, return_value=fake_client):
@@ -438,7 +473,9 @@ class TestDonatePageMollie(EnhancedTestCase):
     def test_get_context_mollie_status_check_error_falls_back_to_pending(self):
         """If the Mollie status check itself raises, get_context falls back to pending."""
         donation = self._make_unpaid_mollie_donation()
-        frappe.local.form_dict = frappe._dict({"donation_id": donation.name})
+        frappe.local.form_dict = frappe._dict(
+            {"donation_id": donation.name, "token": generate_donation_return_token(donation.name)}
+        )
 
         with patch(_MOLLIE_CLIENT_PATH, side_effect=RuntimeError("mollie down")):
             context = frappe._dict()
