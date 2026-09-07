@@ -38,7 +38,7 @@ from verenigingen.e_boekhouden.utils.invoice_helpers import (
     get_tax_account,
     process_line_items,
 )
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 
 
@@ -164,7 +164,9 @@ class _TaxFixtureBase(EnhancedTestCase):
         )
 
     @classmethod
+    @shared_fixture
     def _persist_company(cls):
+        """@shared_fixture (#1026): Company is site-wide master data, no test scope."""
         if frappe.db.exists("Company", cls.COMPANY):
             return cls.COMPANY
         doc = frappe.new_doc("Company")

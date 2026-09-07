@@ -16,7 +16,7 @@ import unittest
 
 import frappe
 
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 from verenigingen.utils.migration.migration_error_recovery import (
     MigrationError,
     MigrationErrorRecovery,
@@ -25,7 +25,9 @@ from verenigingen.utils.migration.migration_error_recovery import (
 )
 
 
+@shared_fixture
 def _persist_company(name="ErrRecovery Co", abbr="ERCO"):
+    """@shared_fixture (#1026): Company is site-wide master data, no test scope."""
     if frappe.db.exists("Company", name):
         return name
     company = frappe.new_doc("Company")

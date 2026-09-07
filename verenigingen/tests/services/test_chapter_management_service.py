@@ -14,7 +14,10 @@ import unittest
 
 import frappe
 from frappe.utils import today
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import (
+    EnhancedTestCase,
+    suspend_insert_capture,
+)
 
 from verenigingen.services.member.chapter.chapter_management_service import (
     ChapterManagementService,
@@ -30,18 +33,39 @@ class ChapterServiceTestBase(EnhancedTestCase):
         self.service = ChapterManagementService()
 
     def _ensure_chapter_role(self):
-        """Get-or-create a 'Test Board Role' Chapter Role (self-seed for CI)."""
+        """Get-or-create a 'Test Board Role' Chapter Role (self-seed for CI).
+
+        Deliberately NOT `@shared_fixture` (#1073 review round 3, correcting
+        this file's own #1026 docstring): `self._track_test_document(...)`
+        below is registered at the DEFAULT priority (0, not -1), so the
+        TRACKED drain deletes this row unconditionally at the end of whichever
+        test created it -- before the captured-insert drain runs, and without
+        ever consulting `_insert_capture_suspended` -- so `@shared_fixture`
+        was a no-op here exactly like the seven sites fixed earlier in this
+        PR. Confirmed empirically: the full module runs green regardless
+        (every consumer re-checks `frappe.db.exists` and rebuilds if needed),
+        and "Test Board Role" does not survive past this class's own test.
+        Several OTHER files reference the same literal
+        (test_page_volunteer_skills.py, test_chapter_validation.py, etc.), but
+        each builds/checks it independently rather than depending on THIS
+        copy surviving -- test_page_volunteer_skills.py's own
+        `_ensure_chapter_role` is the one that is genuinely `@shared_fixture`.
+        `suspend_insert_capture()` below changes no observable behaviour; it
+        exists only so the by-name guard does not flag this copy against that
+        genuinely-shared sibling.
+        """
         name = "Test Board Role"
         if not frappe.db.exists("Chapter Role", name):
-            role = frappe.get_doc(
-                {
-                    "doctype": "Chapter Role",
-                    "role_name": name,
-                    "permissions_level": "Basic",
-                    "is_active": 1,
-                }
-            )
-            role.insert(ignore_permissions=True)
+            with suspend_insert_capture():
+                role = frappe.get_doc(
+                    {
+                        "doctype": "Chapter Role",
+                        "role_name": name,
+                        "permissions_level": "Basic",
+                        "is_active": 1,
+                    }
+                )
+                role.insert(ignore_permissions=True)
             self._track_test_document("Chapter Role", role.name)
             return role.name
         return name

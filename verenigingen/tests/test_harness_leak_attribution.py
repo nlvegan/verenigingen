@@ -505,6 +505,429 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
                 f"by something that sets __wrapped__",
             )
 
+    def test_the_1026_shared_master_helpers_are_declared_shared(self):
+        """#1026: 42 more `_ensure_*`/`_persist_*` copies shared #1010's shape.
+
+        #1026 recounted #1010's own "not established: whether roughly two dozen
+        other undecorated helpers share this shape" note into an AST sweep of 62
+        candidates, 42 of which were undecorated, inserted unconditionally, and
+        reached `EnhancedTestCase`. Of those 42, 14 turned out to be a FALSE
+        POSITIVE for this fix (see below) and are deliberately NOT in `targets`;
+        the other 28 build genuinely shared, no-company-scope master data (Role,
+        Chapter Role, Team Role, Item Group, Membership Type, Expense Category,
+        Company) keyed on a literal the call sites confirm is fixed, not
+        per-test-unique -- exactly #1010's Mode of Payment shape, just a
+        different doctype each time.
+
+        Two more populations are folded in here because the by-name guard right
+        below (`_divergent_shared_fixture_copies`) matches class METHODS purely
+        by NAME, with no identity check -- so decorating any one copy of a
+        method family forces every reachable, inserting, undecorated sibling
+        into scope too, or this file's OWN
+        `test_no_shared_fixture_helper_is_decorated_in_one_copy_and_not_its_clone`
+        goes red:
+
+        * 5 more `_ensure_chapter_role` copies the issue's sweep MISSED, because
+          their identity is a hardcoded literal inside the function body, not a
+          caller parameter -- outside the "identity is a parameter" shape the
+          issue searched for, but the exact same danger (a #973-shape
+          same-name-drags-in-siblings dynamic actually observed live: found only
+          by extending this test, not by re-reading the issue).
+        * 4 more `_persist_company` classmethod copies (`cls.COMPANY`/`cls.ABBR`
+          class attributes rather than explicit args) -- CLAUDE.md's own #394
+          precedent ("two copies fixed, a third missed -- eight total") applies
+          here almost verbatim.
+
+        NOT included, and why (the false-positive class, so a future sweep does
+        not re-flag these): 14 `_ensure_user`/`_ensure_member_user` copies whose
+        identity is a per-test email built from `frappe.generate_hash()` or a
+        microsecond timestamp -- reading their call sites (not just the AST
+        shape) shows no two tests, classes or shard co-tenants ever collide on
+        the same address, so the row SHOULD be torn down at that one test's
+        teardown; `@shared_fixture` there would convert correct cleanup into a
+        LEAK (the exact inverse risk this fix has to watch for).
+
+        Also NOT `@shared_fixture` here despite reaching this same danger:
+        `_persist_customer`/`_persist_supplier` in test_payment_entry_handler.py
+        (see that file for why -- a same-named module-level sibling with an
+        equally unresolvable identity would flag the pairing as "unresolved" on
+        `test_the_real_tree_has_no_shared_fixture_with_an_unresolvable_identity`
+        below). Wrapped in `suspend_insert_capture()` instead, which fixes the
+        same underlying #328/#330 drain bug without touching either guard.
+
+        UPDATE (#1073 independent review): `@shared_fixture` only flips
+        `_insert_capture_suspended`, which is consulted in exactly one place
+        (the CAPTURED-INSERT drain). It has ZERO effect on the separate
+        TRACKED drain (`_drain_tracked_documents`, which runs BEFORE the
+        captured-insert drain in `tearDown()` and deletes anything tracked at
+        a non-negative priority unconditionally), on `self.addCleanup(...)`,
+        or on a hand-rolled `tearDown()` force-delete loop. Six of the
+        originally-35 decorated targets ALSO registered their row with one of
+        those, making the decoration a no-op for them -- confirmed by reading
+        `_drain_tracked_documents` (it never checks the suspend flag) and
+        empirically (`test_member_account_coverage_supplement.py` ran 28/28
+        green while its "shared" Team Roles were gone from the DB afterward).
+        A 7th instance (`test_department_hierarchy.py`, `_track_test_document`
+        at `priority=3`) was found the same way, missed by a plain
+        `track_doc(`/`addCleanup(` grep because that helper's name doesn't
+        contain either substring.
+
+        Of those 7: 6 were downgraded to NOT `@shared_fixture` (their identity
+        is per-test/per-file-unique, confirmed by grep showing no other file
+        depends on the literal surviving) and wrapped in
+        `suspend_insert_capture()` purely so the by-name guard below does not
+        flag them against their genuinely-shared same-named siblings -- this
+        changes no observable behaviour, since `track_doc`/`addCleanup`/the
+        `tearDown()` loop already deletes the row regardless. ONE
+        (`test_sales_invoice_account_handler.py::_ensure_item_group`) turned
+        out to be genuinely needed -- `test_verenigingen_settings.py` creates
+        an Item with `item_group="Membership"` directly, with no
+        Item-Group-creation step of its own, so it depends on this row
+        surviving -- and was ACTUALLY fixed by removing it from the
+        `self._tracked` list, not merely re-decorated; see
+        `ItemGroupSurvivesTheTrackedDrainTest` below for the RED/GREEN proof.
+        29 targets remain here, down from 35.
+        """
+        from verenigingen.events.subscribers import test_chapter_subscribers
+        from verenigingen.services.billing import test_sales_invoice_account_handler
+        from verenigingen.services.document import test_document_portal_service
+        from verenigingen.tests.backend.comprehensive import test_doctype_validation
+        from verenigingen.tests.backend.portal import (
+            test_page_chapter_dashboard,
+            test_page_member_portal_coverage,
+            test_page_volunteer_skills,
+        )
+        from verenigingen.tests.chapter import test_chapter_board_lifecycle_notifications
+        from verenigingen.tests.e_boekhouden import (
+            test_cleanup_utils_sweep,
+            test_coa_import,
+            test_coa_import_sweep,
+            test_enhanced_migration_coverage,
+            test_invoice_helpers,
+            test_invoice_helpers_coverage,
+            test_migration_audit_trail,
+            test_migration_controller_accounts_coverage,
+            test_migration_error_recovery,
+            test_migration_transaction_safety,
+            test_tegenrekening_mapper_coverage,
+        )
+        from verenigingen.tests.fixtures import enhanced_test_factory as factory_module
+        from verenigingen.tests.integration import test_payment_processing_api_integration
+        from verenigingen.tests.repositories import test_dues_schedule_repository
+        from verenigingen.tests.security import test_secure_operations_coverage
+        from verenigingen.tests.services import (
+            test_chapter_board_chapters,
+            test_chapter_permission_service_integration,
+        )
+
+        exemplar_code = factory_module.shared_fixture(lambda: None).__code__
+
+        targets = [
+            (
+                "test_chapter_subscribers.TestChapterSubscribers._ensure_role",
+                test_chapter_subscribers.TestChapterSubscribers._ensure_role,
+            ),
+            (
+                "test_chapter_subscribers.TestChapterSubscribers._ensure_chapter_role",
+                test_chapter_subscribers.TestChapterSubscribers._ensure_chapter_role,
+            ),
+            (
+                "test_sales_invoice_account_handler.TestSalesInvoiceAccountHandler._ensure_item_group",
+                test_sales_invoice_account_handler.TestSalesInvoiceAccountHandler._ensure_item_group,
+            ),
+            (
+                "test_doctype_validation.TestDoctypeValidationComprehensive._ensure_membership_type",
+                test_doctype_validation.TestDoctypeValidationComprehensive._ensure_membership_type,
+            ),
+            (
+                "test_page_chapter_dashboard.TestPageChapterDashboard._ensure_chapter_role",
+                test_page_chapter_dashboard.TestPageChapterDashboard._ensure_chapter_role,
+            ),
+            (
+                "test_page_volunteer_skills.TestVolunteerSkillsPage._ensure_chapter_role",
+                test_page_volunteer_skills.TestVolunteerSkillsPage._ensure_chapter_role,
+            ),
+            (
+                "test_chapter_board_chapters.TestGetUserBoardChapters._ensure_chapter_role",
+                test_chapter_board_chapters.TestGetUserBoardChapters._ensure_chapter_role,
+            ),
+            (
+                "test_chapter_permission_service_integration.TestChapterPermissionServiceIntegration._ensure_chapter_role",
+                test_chapter_permission_service_integration.TestChapterPermissionServiceIntegration._ensure_chapter_role,
+            ),
+            (
+                "test_page_member_portal_coverage.TestMemberPortalPage._ensure_chapter_role",
+                test_page_member_portal_coverage.TestMemberPortalPage._ensure_chapter_role,
+            ),
+            (
+                "test_chapter_board_lifecycle_notifications.TestChapterBoardLifecycleNotifications._ensure_chapter_role",
+                test_chapter_board_lifecycle_notifications.TestChapterBoardLifecycleNotifications._ensure_chapter_role,
+            ),
+            (
+                "test_document_portal_service.TestDocumentPortalService._ensure_chapter_role",
+                test_document_portal_service.TestDocumentPortalService._ensure_chapter_role,
+            ),
+            (
+                "test_tegenrekening_mapper_coverage.TestSmartItemResolution._ensure_item_group",
+                test_tegenrekening_mapper_coverage.TestSmartItemResolution._ensure_item_group,
+            ),
+            (
+                "test_tegenrekening_mapper_coverage.TestCreateInvoiceLine._ensure_item_group",
+                test_tegenrekening_mapper_coverage.TestCreateInvoiceLine._ensure_item_group,
+            ),
+            (
+                "test_payment_processing_api_integration.TestPaymentProcessingAPISecurityIntegration._ensure_role",
+                test_payment_processing_api_integration.TestPaymentProcessingAPISecurityIntegration._ensure_role,
+            ),
+            (
+                "test_dues_schedule_repository._ensure_named_membership_type",
+                test_dues_schedule_repository._ensure_named_membership_type,
+            ),
+            (
+                "test_secure_operations_coverage.TestSecureOperationsCoverage._ensure_role",
+                test_secure_operations_coverage.TestSecureOperationsCoverage._ensure_role,
+            ),
+            (
+                "test_cleanup_utils_sweep._SweepBase._persist_company",
+                test_cleanup_utils_sweep._SweepBase._persist_company,
+            ),
+            (
+                "test_migration_controller_accounts_coverage.TestMigrationControllerAccounts._persist_company",
+                test_migration_controller_accounts_coverage.TestMigrationControllerAccounts._persist_company,
+            ),
+            (
+                "test_coa_import._BankFlowBase._persist_company",
+                test_coa_import._BankFlowBase._persist_company,
+            ),
+            (
+                "test_invoice_helpers_coverage._TaxFixtureBase._persist_company",
+                test_invoice_helpers_coverage._TaxFixtureBase._persist_company,
+            ),
+            (
+                "test_coa_import_sweep._CoaSweepBase._persist_company",
+                test_coa_import_sweep._CoaSweepBase._persist_company,
+            ),
+            (
+                "test_invoice_helpers._AccountFixtureBase._persist_company",
+                test_invoice_helpers._AccountFixtureBase._persist_company,
+            ),
+            (
+                "test_migration_audit_trail._persist_company",
+                test_migration_audit_trail._persist_company,
+            ),
+            (
+                "test_migration_error_recovery._persist_company",
+                test_migration_error_recovery._persist_company,
+            ),
+            (
+                "test_migration_transaction_safety._persist_company",
+                test_migration_transaction_safety._persist_company,
+            ),
+            (
+                "test_enhanced_migration_coverage._persist_eur_company",
+                test_enhanced_migration_coverage._persist_eur_company,
+            ),
+            (
+                "test_invoice_helpers.TestGetTaxAccountSuccess._persist_named_account",
+                test_invoice_helpers.TestGetTaxAccountSuccess._persist_named_account,
+            ),
+        ]
+
+        self.assertEqual(
+            27,
+            len(targets),
+            "recount before trusting this list -- was 35, then 29 after #1073's "
+            "review round found 6 @shared_fixture no-ops (plus a 7th its "
+            "track_doc(/addCleanup( grep missed), then 27 after round 3's AST "
+            "sweep (see GENUINELY_SHARED_TARGET_NAMES below) found 2 MORE "
+            "no-ops this enumeration test itself could not see -- see the "
+            "docstring above",
+        )
+
+        for label, fn in targets:
+            self.assertTrue(
+                hasattr(fn, "__wrapped__"),
+                f"{label} creates shared master data and must be @shared_fixture, or "
+                f"the captured-insert drain will claim its row for whichever test "
+                f"calls it first",
+            )
+            self.assertIs(
+                fn.__code__,
+                exemplar_code,
+                f"{label} must be wrapped by @shared_fixture specifically, not merely "
+                f"by something that sets __wrapped__",
+            )
+
+    def test_no_shared_fixture_target_races_a_competing_cleanup_mechanism(self):
+        """Closes the class #1073's own review process under-counted THREE times.
+
+        `@shared_fixture` only flips `_insert_capture_suspended`, consulted in
+        exactly one place -- the CAPTURED-INSERT drain. It has ZERO effect on
+        the TRACKED drain (`_drain_tracked_documents`, which runs BEFORE the
+        captured-insert drain in `tearDown()` and deletes anything tracked at
+        a non-negative priority unconditionally), on `addCleanup(...)`, or on
+        a hand-rolled `tearDown()` force-delete loop. A helper decorated
+        `@shared_fixture` that ALSO registers its row with one of those is
+        exposed to #1026/#330 exactly as if undecorated.
+
+        This was found three times by HAND, each time under-counting:
+        the original #1026 PR missed 6 sites entirely; round 2's self-review
+        found a 7th only because the reviewer named `_track_test_document`
+        explicitly; round 3's independent review then AST-swept the
+        REMAINING targets (not just the ones already suspected) and found 2
+        more. A fixed list of wrapper names inspected by a human keeps
+        missing whichever wrapper -- or file -- nobody thought to check next.
+
+        So this walks the WHOLE TREE for every `@shared_fixture`-decorated
+        function -- not a maintained list of "the ones we already fixed" --
+        and checks each one's body against every known entry point into
+        either competing mechanism:
+
+        * `track_document`/`_track_test_document` are the only two that
+          expose a `priority` kwarg; a literal `-1` there is the ONE
+          documented way to make `@shared_fixture` and the tracked drain
+          complementary (CLAUDE.md's caveat), so those are flagged only when
+          priority is NOT `-1`.
+        * `track_doc` (both definitions -- `tests/utils/base.py`'s takes
+          `depends_on`, `EnhancedTestCase`'s own at
+          `enhanced_test_factory.py:5859` forwards to `track_document()`
+          with NO priority argument at all, so it can never reach -1),
+          `track_record`/`_track_record`/`track_test_record`, and
+          `addCleanup` have no priority escape whatsoever and are ALWAYS
+          flagged when found in a `@shared_fixture` body.
+        * A bespoke tracked-list shape (`self.X.append(...)` inside the
+          fixture, with the SAME class's `tearDown()` iterating `self.X` and
+          calling `delete_doc` unconditionally) -- the exact shape
+          `_ensure_item_group` had before #1073 removed it from
+          `self._tracked`.
+
+        `suspend_insert_capture()` is deliberately NOT treated as a fix for
+        any of these: it only affects the captured-insert drain, which has
+        nothing to do with why these mechanisms delete the row.
+        """
+        findings = self._shared_fixture_tracked_drain_races()
+        self.assertEqual(
+            [],
+            findings,
+            "these @shared_fixture helpers ALSO register their row with an "
+            "unconditional competing cleanup mechanism (the tracked drain, "
+            "addCleanup, or a bespoke tearDown force-delete loop), making "
+            "@shared_fixture a no-op -- the row is exposed to #1026/#330 "
+            "exactly as if undecorated:\n  " + "\n  ".join(findings),
+        )
+
+    def _shared_fixture_tracked_drain_races(self, root=None):
+        """The AST walk behind the test above. See its docstring for why."""
+        import ast
+
+        if root is None:
+            import verenigingen
+
+            root = pathlib.Path(verenigingen.__file__).parent
+
+        no_escape = {"track_doc", "track_record", "_track_record", "track_test_record", "addCleanup"}
+        priority_aware = {"track_document", "_track_test_document"}
+
+        def is_shared(fn):
+            return any(
+                (d.attr if isinstance(d, ast.Attribute) else getattr(d, "id", None))
+                == "shared_fixture"
+                for d in fn.decorator_list
+            )
+
+        def is_minus_one(node):
+            return (
+                isinstance(node, ast.UnaryOp)
+                and isinstance(node.op, ast.USub)
+                and isinstance(node.operand, ast.Constant)
+                and node.operand.value == 1
+            )
+
+        def priority_is_minus_one(call):
+            for kw in call.keywords:
+                if kw.arg == "priority":
+                    return is_minus_one(kw.value)
+            # positional form: track_document(doctype, name, priority)
+            if len(call.args) >= 3:
+                return is_minus_one(call.args[2])
+            return False
+
+        def appended_self_attrs(fn):
+            """Attribute names this function does `self.<name>.append(...)` on."""
+            names = set()
+            for n in ast.walk(fn):
+                if (
+                    isinstance(n, ast.Call)
+                    and isinstance(n.func, ast.Attribute)
+                    and n.func.attr == "append"
+                    and isinstance(n.func.value, ast.Attribute)
+                    and isinstance(n.func.value.value, ast.Name)
+                    and n.func.value.value.id == "self"
+                ):
+                    names.add(n.func.value.attr)
+            return names
+
+        def teardown_force_deletes(cls_node, attr_name):
+            for item in cls_node.body:
+                if isinstance(item, ast.FunctionDef) and item.name == "tearDown":
+                    reads_attr = any(
+                        isinstance(n, ast.Attribute)
+                        and n.attr == attr_name
+                        and isinstance(n.value, ast.Name)
+                        and n.value.id == "self"
+                        for n in ast.walk(item)
+                    )
+                    calls_delete = any(
+                        isinstance(n, ast.Call)
+                        and isinstance(n.func, ast.Attribute)
+                        and n.func.attr == "delete_doc"
+                        for n in ast.walk(item)
+                    )
+                    if reads_attr and calls_delete:
+                        return True
+            return False
+
+        def check_body(fn, label, findings):
+            for n in ast.walk(fn):
+                if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute):
+                    attr = n.func.attr
+                    if attr in no_escape:
+                        findings.append(
+                            f"{label}: calls .{attr}(...) -- no priority escape exists "
+                            f"for this method, always races the tracked drain / addCleanup"
+                        )
+                    elif attr in priority_aware and not priority_is_minus_one(n):
+                        findings.append(
+                            f"{label}: calls .{attr}(...) at a non -1 priority -- the "
+                            f"tracked drain deletes this row regardless of @shared_fixture"
+                        )
+
+        findings = []
+        for path in sorted(root.rglob("*.py")):
+            try:
+                tree = ast.parse(path.read_text(), filename=str(path))
+            except (SyntaxError, UnicodeDecodeError):
+                continue
+            rel = path.relative_to(root.parent)
+            for cls in [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]:
+                for fn in cls.body:
+                    if not (isinstance(fn, ast.FunctionDef) and is_shared(fn)):
+                        continue
+                    label = f"{rel}:{fn.lineno} ({cls.name}.{fn.name})"
+                    check_body(fn, label, findings)
+                    for attr_name in appended_self_attrs(fn):
+                        if teardown_force_deletes(cls, attr_name):
+                            findings.append(
+                                f"{label}: appends to self.{attr_name}, force-deleted "
+                                f"unconditionally in {cls.name}.tearDown() independent "
+                                f"of both drains"
+                            )
+            for fn in tree.body:
+                if isinstance(fn, ast.FunctionDef) and is_shared(fn):
+                    label = f"{rel}:{fn.lineno} (<module> {fn.name})"
+                    check_body(fn, label, findings)
+        return findings
+
     def test_no_shared_fixture_helper_is_decorated_in_one_copy_and_not_its_clone(self):
         """A helper family must not disagree with itself about being shared.
 
@@ -1362,6 +1785,92 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
         if include_unresolved:
             return flagged, unresolved
         return flagged
+
+
+class ItemGroupSurvivesTheTrackedDrainTest(unittest.TestCase):
+    """#1073 review: proves the ACTUAL fix for the one genuinely-shared site
+    among the six/seven `@shared_fixture`-no-op findings.
+
+    `TestSalesInvoiceAccountHandler._ensure_item_group` is `@shared_fixture`,
+    but its class also had its own `tearDown()` force-delete everything
+    appended to `self._tracked` -- independent of BOTH drains, so decorating
+    it changed nothing observable until the `self._tracked.append(...)` call
+    inside `_ensure_item_group` was also removed. This is the one site among
+    #1026/#1073's population where the fix is a real behaviour change, so it
+    gets a real two-class control, not just a docstring correction: build two
+    instances of the REAL class (not a synthetic stand-in), run the first
+    (which creates the Item Group and then runs the class's own `tearDown()`),
+    then check the SECOND can still find it.
+
+    RED/GREEN, same command both times
+    (``PYTHONPATH=<worktree> bench --site test_site_4 run-tests --app
+    verenigingen --module verenigingen.tests.test_harness_leak_attribution``):
+    RED reproduced by restoring the `self._tracked.append(("Item Group", name))`
+    line this fix removed (`git show <pre-fix-commit>:...` the one-line diff)
+    -- the row is gone by the time the second instance's `setUp` looks for it.
+    GREEN is the current tree.
+    """
+
+    ITEM_GROUP = "ZZ 1073 Control Membership"
+
+    def setUp(self):
+        # No frappe.db.commit() here (order-dependence ratchet review,
+        # #1073 round 2): this class is plain unittest.TestCase, not
+        # FrappeTestCase, so nothing wraps it in a transaction to roll back --
+        # a delete_doc() in this same connection/process is visible to the
+        # very next query without committing. The REAL class under test
+        # (TestSalesInvoiceAccountHandler) already commits in its OWN
+        # tearDown(); that is what actually needs to be durable, and it
+        # already is (see the test body). Confirmed by re-running the
+        # RED/GREEN cycle with both commits removed -- unchanged.
+        if frappe.db.exists("Item Group", self.ITEM_GROUP):
+            frappe.delete_doc("Item Group", self.ITEM_GROUP, force=True, ignore_permissions=True)
+
+    def tearDown(self):
+        if frappe.db.exists("Item Group", self.ITEM_GROUP):
+            frappe.delete_doc("Item Group", self.ITEM_GROUP, force=True, ignore_permissions=True)
+
+    def test_a_later_instance_still_finds_the_item_group_after_the_first_tears_down(self):
+        from verenigingen.services.billing.test_sales_invoice_account_handler import (
+            TestSalesInvoiceAccountHandler,
+        )
+
+        first = TestSalesInvoiceAccountHandler("setUp")
+        first.setUp()
+        try:
+            first._ensure_item_group(self.ITEM_GROUP)
+            self.assertTrue(
+                frappe.db.exists("Item Group", self.ITEM_GROUP),
+                "the helper itself did not create the row -- nothing to prove",
+            )
+        finally:
+            first.tearDown()
+
+        # The FIRST instance's own tearDown() just ran -- the class's bespoke
+        # `self._tracked` force-delete loop, then EnhancedTestCase.tearDown()
+        # (both drains). If `_ensure_item_group` still appended this row to
+        # `self._tracked`, it would be gone right here, before a second
+        # instance ever gets a chance to look for it.
+        self.assertTrue(
+            frappe.db.exists("Item Group", self.ITEM_GROUP),
+            "the Item Group did not survive the class's OWN tearDown() -- "
+            "@shared_fixture alone does not protect against a bespoke "
+            "self._tracked force-delete loop, only removing the row from "
+            "that list does (#1073)",
+        )
+
+        second = TestSalesInvoiceAccountHandler("setUp")
+        second.setUp()
+        try:
+            # A later class reusing the row without rebuilding it -- the
+            # actual observable property #1026/#1073 care about.
+            self.assertTrue(
+                frappe.db.exists("Item Group", self.ITEM_GROUP),
+                "a second instance (standing in for a later test class in the "
+                "shard) no longer finds the shared Item Group",
+            )
+        finally:
+            second.tearDown()
 
 
 class DrainCancelsSubmittedDocumentsTest(unittest.TestCase):

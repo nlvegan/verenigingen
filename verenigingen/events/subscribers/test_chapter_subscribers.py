@@ -31,7 +31,7 @@ from unittest.mock import MagicMock, patch
 import frappe
 
 from verenigingen.events.subscribers import chapter_subscribers as cs
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 
 EMAIL_FACTORY = "verenigingen.services.communication.email_service.get_email_service"
 # _sync_board_role_profile imports auto_sync_on_role_change from the deprecated
@@ -89,15 +89,21 @@ class TestChapterSubscribers(EnhancedTestCase):
         with patch(EMAIL_FACTORY, return_value=service):
             yield service
 
+    @shared_fixture
     def _ensure_role(self, role_name="Chapter Member"):
-        """Ensure a user Role master exists (present via fixtures in production)."""
+        """Ensure a user Role master exists (present via fixtures in production).
+
+        @shared_fixture (#1026): site-wide master data, no company/test scope.
+        """
         if not frappe.db.exists("Role", role_name):
             frappe.get_doc({"doctype": "Role", "role_name": role_name, "desk_access": 0}).insert(
                 ignore_permissions=True
             )
         return role_name
 
+    @shared_fixture
     def _ensure_chapter_role(self, role_name="Chair"):
+        """@shared_fixture (#1026): site-wide master data, no company/test scope."""
         if not frappe.db.exists("Chapter Role", role_name):
             frappe.get_doc({"doctype": "Chapter Role", "role_name": role_name, "is_active": 1}).insert(
                 ignore_permissions=True

@@ -34,7 +34,10 @@ import frappe
 from frappe.utils import add_days, add_years
 
 from verenigingen.email.advanced_segmentation import AdvancedSegmentationManager
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import (
+    EnhancedTestCase,
+    suspend_insert_capture,
+)
 
 
 class SegmentationCohortMixin:
@@ -352,17 +355,31 @@ class TestSegmentMembershipRules(SegmentationCohortMixin, EnhancedTestCase):
         )
 
     def _ensure_chapter_role(self):
+        """Get-or-create a Chapter Role, deliberately NOT `@shared_fixture` (#1073
+        review, correcting #1026's own docstring here).
+
+        `track_doc(...)` at the default priority (0, not -1) is deleted
+        unconditionally by the tracked drain in `tearDown()`, which runs
+        BEFORE the captured-insert drain and never checks
+        `_insert_capture_suspended` -- so `@shared_fixture` was a no-op here.
+        "Segmentation Test Board Role" is unique to this file (confirmed by
+        grep), so nothing depends on it surviving across classes.
+        `suspend_insert_capture()` below changes no observable behaviour; it
+        only keeps the by-name guard from flagging this copy against the
+        genuinely-shared `_ensure_chapter_role` copies elsewhere.
+        """
         role_name = "Segmentation Test Board Role"
         if not frappe.db.exists("Chapter Role", role_name):
-            role = frappe.get_doc(
-                {
-                    "doctype": "Chapter Role",
-                    "role_name": role_name,
-                    "permissions_level": "Basic",
-                    "is_active": 1,
-                }
-            )
-            role.insert()
+            with suspend_insert_capture():
+                role = frappe.get_doc(
+                    {
+                        "doctype": "Chapter Role",
+                        "role_name": role_name,
+                        "permissions_level": "Basic",
+                        "is_active": 1,
+                    }
+                )
+                role.insert()
             self.track_doc("Chapter Role", role.name)
             return role.name
         return role_name

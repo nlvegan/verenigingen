@@ -36,7 +36,7 @@ from verenigingen.e_boekhouden.utils.smart_tegenrekening_mapper import (
     create_invoice_line_for_tegenrekening,
     get_item_for_purchase_transaction,
 )
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 
 
 class TestSmartItemResolution(EnhancedTestCase):
@@ -50,7 +50,9 @@ class TestSmartItemResolution(EnhancedTestCase):
         cls.company = get_eur_test_company()
         cls.abbr = frappe.db.get_value("Company", cls.company, "abbr")
 
+    @shared_fixture
     def _ensure_item_group(self, name):
+        """@shared_fixture (#1026): site-wide master data, no company/test scope."""
         if not frappe.db.exists("Item Group", name):
             parent = frappe.db.get_value("Item Group", {"is_group": 1}, "name")
             g = frappe.new_doc("Item Group")
@@ -187,7 +189,9 @@ class TestCreateInvoiceLine(EnhancedTestCase):
     itself is covered by TestSmartItemResolution via the company-scoped mapper.
     """
 
+    @shared_fixture
     def _ensure_item_group(self, name):
+        """@shared_fixture (#1026): site-wide master data, no company/test scope."""
         if not frappe.db.exists("Item Group", name):
             parent = frappe.db.get_value("Item Group", {"is_group": 1}, "name")
             g = frappe.new_doc("Item Group")

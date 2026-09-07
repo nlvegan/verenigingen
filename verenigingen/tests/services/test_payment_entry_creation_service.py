@@ -817,7 +817,19 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         own yet -- just enough to exercise `_create_bank_transaction`'s create
         branch. ERPNext's default Chart of Accounts only creates group accounts,
         so the Bank-type leaf `_create_bank_transaction` looks up must be added
-        explicitly, same as `test_coa_import.py`'s company fixtures do."""
+        explicitly, same as `test_coa_import.py`'s company fixtures do.
+
+        Deliberately NOT `@shared_fixture` (#1026 originally added one, #1073
+        review corrected it): the three call sites build "TEST PECS Regression
+        Co A/B/C", each unique to one test method and never reused anywhere
+        else (confirmed by grep) -- a per-test-unique-identity helper, the same
+        shape as the 14 `_ensure_user` false positives #1026 excluded, just not
+        excluded there. `track_doc(...)` below already deletes it at that
+        test's teardown regardless of any decorator (the tracked drain runs
+        unconditionally, before the captured-insert drain, and never checks
+        `_insert_capture_suspended`), so `@shared_fixture` was a no-op that
+        also mischaracterized this as site-wide master data.
+        """
         if not frappe.db.exists("Company", name):
             doc = frappe.new_doc("Company")
             doc.company_name = name

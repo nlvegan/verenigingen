@@ -31,7 +31,7 @@ import contextlib
 
 import frappe
 
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 
 
 class TestSecureOperationsCoverage(EnhancedTestCase):
@@ -58,7 +58,9 @@ class TestSecureOperationsCoverage(EnhancedTestCase):
         finally:
             frappe.set_user(previous)
 
+    @shared_fixture
     def _ensure_role(self, role_name):
+        """@shared_fixture (#1026): site-wide master data, no company/test scope."""
         if not frappe.db.exists("Role", role_name):
             role = frappe.new_doc("Role")
             role.role_name = role_name

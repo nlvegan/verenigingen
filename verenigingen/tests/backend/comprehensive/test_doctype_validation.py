@@ -4,7 +4,7 @@ Comprehensive unit tests for doctype validation issues to prevent field validati
 
 import frappe
 from frappe.utils import today
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 import unittest
 
@@ -183,11 +183,14 @@ class TestDoctypeValidationComprehensive(EnhancedTestCase):
 
         member.delete()
 
+    @shared_fixture
     def _ensure_membership_type(self, name="Maandlid"):
         """Self-seed the membership type the application submission references.
 
         The test site may not ship the 'Maandlid' master, which would make
         submit_application fail with 'Could not find Selected Membership Type'.
+
+        @shared_fixture (#1026): site-wide master data, no company/test scope.
         """
         if not frappe.db.exists("Membership Type", name):
             role_profile = frappe.db.get_value(

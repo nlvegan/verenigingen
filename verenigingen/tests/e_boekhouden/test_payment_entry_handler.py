@@ -25,7 +25,11 @@ from verenigingen.e_boekhouden.utils.payment_processing.payment_entry_handler im
     PaymentEntryHandler,
 )
 from verenigingen.e_boekhouden.utils.processors.payment_processor import PaymentProcessor
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
+from verenigingen.tests.fixtures.enhanced_test_factory import (
+    EnhancedTestCase,
+    shared_fixture,
+    suspend_insert_capture,
+)
 
 
 @shared_fixture
@@ -430,23 +434,39 @@ def _persist_cash_ledger_mapping(ledger_id, account):
 
 
 def _persist_customer(name):
+    """Get-or-create a Customer master (site-wide, no company scope).
+
+    Wrapped in ``suspend_insert_capture()`` rather than ``@shared_fixture``
+    (#1026): a same-named module-level ``_persist_customer(name, ...)`` exists
+    in test_rest_migration_payments.py whose identity (a bare parameter with no
+    default) the by-name/by-identity guard cannot statically resolve either --
+    decorating this copy would flag that pairing as "unresolved" on the ratchet
+    test even though the two build unrelated customers. Suspending capture here
+    fixes the actual #328/#330 drain bug without touching that guard at all.
+    """
     if frappe.db.exists("Customer", name):
         return name
-    doc = frappe.new_doc("Customer")
-    doc.customer_name = name
-    doc.customer_group = _non_group("Customer Group")
-    doc.territory = _non_group("Territory")
-    doc.insert(ignore_permissions=True)
+    with suspend_insert_capture():
+        doc = frappe.new_doc("Customer")
+        doc.customer_name = name
+        doc.customer_group = _non_group("Customer Group")
+        doc.territory = _non_group("Territory")
+        doc.insert(ignore_permissions=True)
     return doc.name
 
 
 def _persist_supplier(name):
+    """Get-or-create a Supplier master (site-wide, no company scope).
+
+    Same ``suspend_insert_capture()`` reasoning as ``_persist_customer`` above.
+    """
     if frappe.db.exists("Supplier", name):
         return name
-    doc = frappe.new_doc("Supplier")
-    doc.supplier_name = name
-    doc.supplier_group = _non_group("Supplier Group")
-    doc.insert(ignore_permissions=True)
+    with suspend_insert_capture():
+        doc = frappe.new_doc("Supplier")
+        doc.supplier_name = name
+        doc.supplier_group = _non_group("Supplier Group")
+        doc.insert(ignore_permissions=True)
     return doc.name
 
 

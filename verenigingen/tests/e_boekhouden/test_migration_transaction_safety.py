@@ -19,7 +19,7 @@ import unittest
 
 import frappe
 
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 from verenigingen.utils.migration.migration_transaction_safety import (
     MigrationSafetyChecks,
     MigrationTransaction,
@@ -27,7 +27,9 @@ from verenigingen.utils.migration.migration_transaction_safety import (
 )
 
 
+@shared_fixture
 def _persist_company(name="TxnSafety Co", abbr="TSCO"):
+    """@shared_fixture (#1026): Company is site-wide master data, no test scope."""
     if frappe.db.exists("Company", name):
         return name
     company = frappe.new_doc("Company")

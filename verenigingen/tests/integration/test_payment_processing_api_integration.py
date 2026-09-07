@@ -18,7 +18,7 @@ Based on Testing Patterns Guide from Phase 4 Weeks 1-2 A+ implementation.
 import frappe
 from frappe.utils import today, add_days, get_datetime
 from unittest.mock import patch, MagicMock
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 
 
 class TestPaymentProcessingAPIIntegration(EnhancedTestCase):
@@ -590,8 +590,12 @@ class TestPaymentProcessingAPISecurityIntegration(EnhancedTestCase):
     Tests real permission validation (not mocked permissions)
     """
 
+    @shared_fixture
     def _ensure_role(self, role_name):
-        """Get-or-create a Role so role assignment doesn't fail on minimal sites."""
+        """Get-or-create a Role so role assignment doesn't fail on minimal sites.
+
+        @shared_fixture (#1026): site-wide master data, no company/test scope.
+        """
         if not frappe.db.exists("Role", role_name):
             frappe.get_doc({"doctype": "Role", "role_name": role_name, "desk_access": 0}).insert(
                 ignore_permissions=True

@@ -31,7 +31,7 @@ from frappe.utils import nowdate
 from verenigingen.services.billing.sales_invoice_account_handler import (
     set_membership_receivable_account,
 )
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 
 
 class TestSalesInvoiceAccountHandler(EnhancedTestCase):
@@ -74,14 +74,28 @@ class TestSalesInvoiceAccountHandler(EnhancedTestCase):
         doc.insert(ignore_permissions=True)
         return doc
 
+    @shared_fixture
     def _ensure_item_group(self, name):
         """Get-or-create an Item Group the test depends on.
 
         CI seeds a fresh site that lacks the membership Item Groups the handler
         keys on (``set_membership_receivable_account`` matches item_group against
         ["Membership", "Contributie", "Lidmaatschap"]), so the test must create
-        them rather than assume dev-site data exists. Created (not committed) so
-        FrappeTestCase's transaction rollback reclaims it.
+        them rather than assume dev-site data exists. `test_verenigingen_settings.py`
+        creates an Item with `item_group="Membership"` directly, with no
+        Item-Group-creation step of its own -- it depends on THIS site-wide row
+        already existing.
+
+        @shared_fixture (#1026): Item Group is site-wide master data with no
+        company/test scope; without it the captured-insert drain would claim the
+        row for whichever test calls it first.
+
+        NOT appended to `self._tracked` (review finding on #1073): this class's
+        own `tearDown()` force-deletes everything in that list unconditionally,
+        independent of both drains, so `@shared_fixture` was previously a
+        no-op here -- the row was deleted at the end of whichever test created
+        it regardless of the decorator. Confirmed by reading `tearDown()`
+        below: it does not consult `_insert_capture_suspended` at all.
         """
         if not frappe.db.exists("Item Group", name):
             ig = frappe.new_doc("Item Group")
@@ -89,7 +103,6 @@ class TestSalesInvoiceAccountHandler(EnhancedTestCase):
             ig.parent_item_group = "All Item Groups"
             ig.is_group = 0
             ig.insert(ignore_permissions=True)
-            self._tracked.append(("Item Group", name))
         return name
 
     def _set_dues_account(self, account):

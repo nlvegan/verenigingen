@@ -21,7 +21,10 @@ from verenigingen.mijnrood_sync.services.event_application.related_records_orche
 from verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service import (
     get_volunteer_sync_service,
 )
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import (
+    EnhancedTestCase,
+    suspend_insert_capture,
+)
 
 
 class TestParseMijnRoodRoles(EnhancedTestCase):
@@ -530,12 +533,31 @@ class TestEnsureChapterBoardMembership(EnhancedTestCase):
         return chapter_doc
 
     def _ensure_chapter_role(self, role_name):
+        """Get-or-create a Chapter Role, deliberately NOT `@shared_fixture` (#1073
+        review, correcting #1026's own docstring here).
+
+        `addCleanup` below unconditionally deletes this row at the end of
+        WHICHEVER test created it -- independent of both the captured-insert
+        drain and the tracked drain, so `_insert_capture_suspended` never gets
+        a chance to matter. Decorating this with `@shared_fixture` was
+        therefore a no-op: the row never survives past its own test regardless
+        of the decorator, exactly as it did before #1026. Both calls in this
+        class use the same literal ("Test Chair"), so each test simply rebuilds
+        it fresh; nothing depends on it surviving across tests, and nothing
+        outside this class references it. `suspend_insert_capture()` below
+        changes no observable behaviour -- `addCleanup` still deletes the row
+        -- it exists only so the by-name guard
+        (`_divergent_shared_fixture_copies` in test_harness_leak_attribution.py)
+        does not flag this copy as a stray undecorated sibling of the OTHER
+        `_ensure_chapter_role` copies that genuinely are `@shared_fixture`.
+        """
         if not frappe.db.exists("Chapter Role", role_name):
-            doc = frappe.get_doc({
-                "doctype": "Chapter Role",
-                "role_name": role_name,
-                "is_active": 1,
-            }).insert(ignore_permissions=True)
+            with suspend_insert_capture():
+                doc = frappe.get_doc({
+                    "doctype": "Chapter Role",
+                    "role_name": role_name,
+                    "is_active": 1,
+                }).insert(ignore_permissions=True)
             self.addCleanup(self._cleanup_chapter_role, doc.name)
             return doc.name
         return role_name

@@ -33,7 +33,7 @@ from verenigingen.e_boekhouden.utils.eboekhouden_coa_import import (
     is_potential_bank_account,
     validate_bank_account_mappings,
 )
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 
 
 # ---------------------------------------------------------------------------
@@ -350,7 +350,9 @@ class _BankFlowBase(EnhancedTestCase):
         cls.bank_gl_account = cls._persist_bank_gl_account(cls.bank_account_label)
 
     @classmethod
+    @shared_fixture
     def _persist_company(cls):
+        """@shared_fixture (#1026): Company is site-wide master data, no test scope."""
         if frappe.db.exists("Company", cls.COMPANY):
             return cls.COMPANY
         doc = frappe.new_doc("Company")

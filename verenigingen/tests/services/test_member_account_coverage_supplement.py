@@ -39,7 +39,10 @@ from verenigingen.services.member.account import (
     user_role_profile_calculator as calc,
 )
 from verenigingen.services.member.approval import application_helpers as ah
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import (
+    EnhancedTestCase,
+    suspend_insert_capture,
+)
 from verenigingen.utils.team_role_profile_manager import TEAM_CONFIG, _team_manager
 
 
@@ -75,8 +78,29 @@ class TestUserRoleProfileCalculatorSupplement(EnhancedTestCase):
         return self.create_test_volunteer(member=member, status=status).name
 
     def _ensure_chapter_role(self, role_name):
+        """Get-or-create a Chapter Role, deliberately NOT `@shared_fixture` (#1073
+        review, correcting #1026's own docstring here).
+
+        ``track_doc(...)`` at the DEFAULT priority (0, not -1) is registered
+        with the TRACKED drain, which runs unconditionally in `tearDown()`
+        BEFORE the captured-insert drain and does not consult
+        `_insert_capture_suspended` at all -- CLAUDE.md's "track_document
+        priority=-1 is not sufficient" caveat describes the opposite case
+        (priority IS -1, so the tracked drain skips it and the captured-insert
+        drain is the residual threat). Here the row is deleted at the end of
+        whichever test created it regardless of `@shared_fixture`, so
+        decorating this was a no-op. Every OTHER file that references the
+        default role name ("Bestuurslid") builds/checks it itself the same
+        way (test_account_creation_request.py, test_user_role_profile_calculator*.py)
+        rather than assuming it survives from here, so there is no cross-class
+        dependency to protect. `suspend_insert_capture()` below changes no
+        observable behaviour -- it exists only so the by-name guard does not
+        flag this copy as a stray undecorated sibling of the genuinely-shared
+        `_ensure_chapter_role` copies elsewhere.
+        """
         if not frappe.db.exists("Chapter Role", role_name):
-            frappe.get_doc({"doctype": "Chapter Role", "role_name": role_name, "is_active": 1}).insert()
+            with suspend_insert_capture():
+                frappe.get_doc({"doctype": "Chapter Role", "role_name": role_name, "is_active": 1}).insert()
             self.track_doc("Chapter Role", role_name)
 
     def _add_board_position(self, chapter_name, volunteer, role="Bestuurslid"):
@@ -258,8 +282,22 @@ class TestBaseRoleProfileManagerSupplement(EnhancedTestCase):
         return team.name
 
     def _ensure_team_role(self, role_name):
+        """Get-or-create a Team Role, deliberately NOT `@shared_fixture` (#1073
+        review, correcting #1026's own docstring here).
+
+        Same reasoning as `_ensure_chapter_role` above: `track_doc(...)` at the
+        default priority (0) is deleted unconditionally by the tracked drain in
+        `tearDown()`, before the captured-insert drain runs and regardless of
+        `_insert_capture_suspended` -- CLAUDE.md's "priority=-1 is not
+        sufficient" caveat is about the OPPOSITE case. The role names here
+        ("BRPMS Coordinator/Helper/Lead") are unique to this file (no other
+        test references them), so there is nothing to keep alive across
+        classes. `suspend_insert_capture()` is cosmetic here too -- it only
+        keeps the by-name guard from flagging this copy.
+        """
         if not frappe.db.exists("Team Role", role_name):
-            frappe.get_doc({"doctype": "Team Role", "role_name": role_name, "is_active": 1}).insert()
+            with suspend_insert_capture():
+                frappe.get_doc({"doctype": "Team Role", "role_name": role_name, "is_active": 1}).insert()
             self.track_doc("Team Role", role_name)
         return role_name
 

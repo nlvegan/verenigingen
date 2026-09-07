@@ -23,7 +23,7 @@ Real data, no business-logic mocking.
 import frappe
 
 from verenigingen.services.chapter.chapter_permission_service import get_user_board_chapters
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 
 
 class TestGetUserBoardChapters(EnhancedTestCase):
@@ -111,7 +111,9 @@ class TestGetUserBoardChapters(EnhancedTestCase):
             ).insert(ignore_permissions=True)
         return email
 
+    @shared_fixture
     def _ensure_chapter_role(self, role_name):
+        """@shared_fixture (#1026): site-wide master data, no company/test scope."""
         if not frappe.db.exists("Chapter Role", role_name):
             frappe.get_doc({"doctype": "Chapter Role", "role_name": role_name, "is_active": 1}).insert(
                 ignore_permissions=True

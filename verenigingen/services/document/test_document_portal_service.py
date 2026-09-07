@@ -22,7 +22,7 @@ from verenigingen.services.document.document_portal_service import (
     get_document_portal_service,
     get_organization_documents_for_template,
 )
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 
 
 def _png_bytes() -> bytes:
@@ -83,7 +83,10 @@ class TestDocumentPortalService(EnhancedTestCase):
     def _make_volunteer_for(self, member):
         return self.factory.create_volunteer(member_name=member.name)
 
+    @shared_fixture
     def _ensure_chapter_role(self):
+        """@shared_fixture (#1026): part of the ``_ensure_chapter_role`` family the
+        by-name guard treats as one."""
         role_name = "TEST-Board-Role"
         if not frappe.db.exists("Chapter Role", role_name):
             doc = frappe.get_doc(
