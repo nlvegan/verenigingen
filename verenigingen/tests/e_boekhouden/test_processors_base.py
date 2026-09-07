@@ -51,15 +51,19 @@ def _persist_eur_company():
     later class in the shard (#328/#330). CLAUDE.md's rule is to mark a shared fixture at
     its BUILD SITE, and this is the build site.
 
-    Scope note: there are **20** module-level/classmethod definitions of this same helper
-    name across ``tests/e_boekhouden`` and this is the only decorated one. That divergence
-    is the #444 shape, and it is NOT covered by
-    ``test_no_shared_fixture_helper_is_decorated_in_one_copy_and_not_its_clone`` --
-    measured: decorating this copy leaves that guard green, because the guard only inspects
-    METHODS whose class reaches ``EnhancedTestCase`` and these are module-level functions.
-    Decorating the other 19 changes the drain behaviour of 19 modules and needs its own
-    measured commit; this one is decorated because this change is what made it
-    body-reachable.
+    Scope note (updated by #989): there are **20** module-level/classmethod definitions of
+    this same helper name across ``tests/e_boekhouden``, but only 3 of them -- this one,
+    ``test_payment_entry_handler.py`` and ``test_processors_stock.py`` -- build this SAME
+    literal company (``"EBKH EUR Test Co"``); the other 17 are coincidentally-named
+    functions building their own separately-named, self-contained companies and are not
+    part of this fixture family at all.
+    ``test_no_shared_fixture_helper_is_decorated_in_one_copy_and_not_its_clone`` originally
+    inspected class METHODS only, so a module-level clone like these three was invisible to
+    it -- decorating this copy alone left that guard green. It has since been extended to a
+    SEPARATE module-level population, narrowed by matching the identity literal each
+    ``frappe.db.exists(...)`` call resolves to (so the 17 unrelated namesakes cannot false-
+    positive against each other or against this trio), and the other two copies of this
+    company are now decorated as well.
     """
     name = "EBKH EUR Test Co"
     if frappe.db.exists("Company", name):
@@ -74,8 +78,21 @@ def _persist_eur_company():
     return company.name
 
 
+@shared_fixture
 def _ensure_non_group_cost_center(company: str) -> str:
-    """Return the name of a non-group Cost Center on ``company``, creating one if absent."""
+    """Return the name of a non-group Cost Center on ``company``, creating one if absent.
+
+    ``@shared_fixture`` for the same reason as ``_persist_eur_company`` above: this
+    builds shared master data (a non-group Cost Center on the shared
+    ``EBKH EUR Test Co`` company) and is called from inside two test BODIES in
+    this module (``TestBaseProcessorHelpers.test_default_cost_center_resolved``
+    and ``TestTransactionCoordinator.test_validate_prerequisites_runs_for_real_company``),
+    which is on the far side of the setUp/setUpClass boundary where the
+    captured-insert hook is already installed. Without the decorator the Cost
+    Center it creates would be drained as whichever of those two tests happens
+    to run first, taking it away from every later class in the shard (#328/#330,
+    #973).
+    """
     existing = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
     if existing:
         return existing
@@ -146,6 +163,26 @@ class TestBaseProcessorHelpers(EnhancedTestCase):
         # The seeded (or pre-existing) non-group CC is the kind of row the
         # resolver must be able to return.
         self.assertTrue(frappe.db.exists("Cost Center", cc_name))
+
+    def test_ensure_non_group_cost_center_is_declared_shared(self):
+        """`_ensure_non_group_cost_center` builds shared master data (a non-group
+        Cost Center on the shared ``EBKH EUR Test Co`` company, same as
+        ``_persist_eur_company`` two functions above) and is called from inside
+        TWO test bodies in this module (this one, and
+        ``TestTransactionCoordinator.test_validate_prerequisites_runs_for_real_company``)
+        rather than only from ``setUpClass``.
+
+        Without ``@shared_fixture`` the captured-insert drain claims the Cost
+        Center row for whichever of those tests runs first and deletes it at that
+        test's own teardown -- the #328/#330 mechanism CLAUDE.md documents, taking
+        the row away from every later class in the shard (#973).
+        """
+        self.assertTrue(
+            hasattr(_ensure_non_group_cost_center, "__wrapped__"),
+            "_ensure_non_group_cost_center creates shared master data and must be "
+            "@shared_fixture, or the captured-insert drain will claim its row for "
+            "whichever test calls it first",
+        )
 
     def test_explicit_cost_center_preserved(self):
         p = StockProcessor(self.company, cost_center="My CC")

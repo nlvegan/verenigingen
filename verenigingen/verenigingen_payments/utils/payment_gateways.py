@@ -32,6 +32,13 @@ from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
     log_mollie_error,
     validate_mollie_interval,
 )
+from verenigingen.verenigingen_payments.mollie.utils.subscription_activation_reasons import (
+    IDEMPOTENCY_KEY_CONFLICT,
+    INVALID_INTERVAL,
+    MISSING_CUSTOMER_ID,
+    MISSING_SUBSCRIPTION_DETAILS,
+    MOLLIE_BAD_REQUEST,
+)
 from verenigingen.verenigingen_payments.utils.invoice_candidates import (
     log_ambiguous_refusal,
     unambiguous_invoice,
@@ -1473,7 +1480,7 @@ def _permanent_refusal_reason(error):
 
     if not isinstance(error, BadRequestError):
         return None
-    return "idempotency_key_conflict" if getattr(error, "idempotency_key", "") else "mollie_bad_request"
+    return IDEMPOTENCY_KEY_CONFLICT if getattr(error, "idempotency_key", "") else MOLLIE_BAD_REQUEST
 
 
 def _get_or_create_subscription(customer, payment_id, subscription_data, *, key_prefix, log_category):
@@ -1556,7 +1563,7 @@ def _activate_direct_subscription_after_first_payment(gateway, payment):
 
         if not (subscription_interval and subscription_amount):
             return create_error_response(
-                "Missing subscription details in payment metadata", {"reason": "missing_subscription_details"}
+                "Missing subscription details in payment metadata", {"reason": MISSING_SUBSCRIPTION_DETAILS}
             )
 
         # Named here rather than left to Mollie's 422, which arrives inside the broad
@@ -1571,13 +1578,13 @@ def _activate_direct_subscription_after_first_payment(gateway, payment):
             )
             frappe.log_error(message, "Mollie Direct Subscription Creation")
             return create_error_response(
-                message, {"reason": "invalid_interval", "interval": subscription_interval}
+                message, {"reason": INVALID_INTERVAL, "interval": subscription_interval}
             )
 
         # Get customer ID from payment
         customer_id = payment.customer_id
         if not customer_id:
-            return create_error_response("No customer ID found in payment", {"reason": "missing_customer_id"})
+            return create_error_response("No customer ID found in payment", {"reason": MISSING_CUSTOMER_ID})
 
         mollie_settings = frappe.get_single("Mollie Settings")
 
@@ -1683,7 +1690,7 @@ def _activate_donation_subscription_after_first_payment(gateway, payment):
         # Get customer ID from the payment (fall back to the donation's Mollie customer)
         customer_id = payment.customer_id or donation.get("mollie_customer_id")
         if not customer_id:
-            return create_error_response("No customer ID found in payment", {"reason": "missing_customer_id"})
+            return create_error_response("No customer ID found in payment", {"reason": MISSING_CUSTOMER_ID})
 
         # Interval: prefer the Mollie-formatted interval the checkout flow stored in
         # metadata; otherwise derive it from the donation's recurring frequency.
@@ -1701,7 +1708,7 @@ def _activate_donation_subscription_after_first_payment(gateway, payment):
                 f"{donation_id}; an annual subscription must be '12 months'"
             )
             frappe.log_error(message, "Mollie Donation Subscription Creation")
-            return create_error_response(message, {"reason": "invalid_interval", "interval": interval})
+            return create_error_response(message, {"reason": INVALID_INTERVAL, "interval": interval})
 
         mollie_settings = frappe.get_single("Mollie Settings")
 

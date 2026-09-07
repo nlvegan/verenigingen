@@ -20,11 +20,13 @@ Key Features:
 - Comprehensive error handling and edge case coverage
 """
 
+import functools
 import json
 import random
+import types
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, NoReturn, Optional, Any
 
 import frappe
 from frappe.utils import flt, getdate, nowdate, add_days, now_datetime
@@ -38,7 +40,7 @@ from verenigingen.e_boekhouden.utils.payment_processing.payment_entry_handler im
 import unittest
 
 
-def _no_group_account(company: str, root_type: str) -> RuntimeError:
+def _no_group_account(company: str, root_type: str) -> NoReturn:
     """The company has no chart of accounts, and no test here can build one.
 
     Every ``_get_or_create_parent_account`` below used to answer this case by inserting
@@ -49,8 +51,16 @@ def _no_group_account(company: str, root_type: str) -> RuntimeError:
     so a company reaching here was built while some account of its own still existed:
     ``Company.on_update`` skips ``create_default_accounts()`` in that case and the
     company comes out empty. Say that, rather than failing at a symptom.
+
+    Raises directly (rather than returning the exception for the caller to ``raise``):
+    five call sites below each depend on remembering to write ``raise
+    _no_group_account(...)``, and a call site that instead reads as a bare expression
+    is a silent no-op -- nothing in this toolchain's lint config catches a missing
+    ``raise`` on a call expression (#393). Raising here means a call site that forgets
+    the keyword still errors, instead of quietly falling through to the confusing
+    ``[Account, ...]: parent_account`` failure this helper exists to eliminate.
     """
-    return RuntimeError(
+    raise RuntimeError(
         f"{company} has no is_group {root_type} account to parent test accounts under. "
         f"Its chart of accounts is missing -- the company was built while an account of "
         f"its own already existed, so Company.on_update skipped create_default_accounts()."
@@ -1844,6 +1854,20 @@ def setup_comprehensive_test_data():
     pass
 
 
+def _is_declared_shared_fixture(method) -> bool:
+    """True only for a method wrapped by something that actually suspends the
+    captured-insert drain (i.e. ``@shared_fixture``), not merely wrapped.
+
+    ``hasattr(method, "__wrapped__")`` alone proves only that *some*
+    ``functools.wraps``-based decorator is present -- ``@patch``, ``@lru_cache``, a
+    hand-rolled logging wrapper would all satisfy it too, and none of them suspends
+    capture. The wrapper body only ever suspends capture through a call to
+    ``suspend_insert_capture``, so checking for that name in the wrapper's own
+    bytecode is what actually discriminates (#393).
+    """
+    return hasattr(method, "__wrapped__") and "suspend_insert_capture" in method.__code__.co_names
+
+
 class TestCompanyFixturesAreDeclaredShared(unittest.TestCase):
     """Every company in this module is shared master data, not one test's property.
 
@@ -1857,7 +1881,9 @@ class TestCompanyFixturesAreDeclaredShared(unittest.TestCase):
     failure on CI shard 3 (#386).
 
     ``functools.wraps`` leaves ``__wrapped__`` behind, so this sees the decorator itself
-    rather than trusting a comment.
+    rather than trusting a comment -- but ``__wrapped__`` alone does not prove the
+    decorator *suspends* capture (#393), so ``_is_declared_shared_fixture`` also checks
+    the wrapper body for a real call to ``suspend_insert_capture``.
     """
 
     def test_every_ensure_test_company_is_declared_shared(self):
@@ -1870,28 +1896,122 @@ class TestCompanyFixturesAreDeclaredShared(unittest.TestCase):
         ):
             method = cls._ensure_test_company
             self.assertTrue(
-                hasattr(method, "__wrapped__"),
+                _is_declared_shared_fixture(method),
                 f"{cls.__name__}._ensure_test_company builds a Company and its chart of "
-                f"accounts -- shared master data -- so it must be @shared_fixture, or the "
-                f"captured-insert drain will claim the whole chart for one test",
+                f"accounts -- shared master data -- so it must be @shared_fixture (a "
+                f"decorator that actually suspends the captured-insert drain), or the "
+                f"drain will claim the whole chart for one test",
             )
 
     def test_a_company_without_a_chart_says_so(self):
         """The "no group account" path must name the company, not an invented account.
 
         ``_get_or_create_parent_account`` reads only its two arguments, so it can be
-        exercised without building anything. Before this it tried to insert a root
-        account and died on ``Account.parent_account`` being reqd=1, reporting an
-        account name that appears nowhere in the codebase or the database.
-        """
-        with self.assertRaises(RuntimeError) as caught:
-            TestPaymentProcessingIntegration._get_or_create_parent_account(
-                None, "TEST-Company-That-Does-Not-Exist", "Income"
-            )
+        exercised without building anything (a ``types.SimpleNamespace()`` stands in
+        for ``self`` -- ``None`` worked too, since the method never reads ``self``, but
+        degrades to an opaque ``AttributeError`` the moment anyone adds a ``self.``
+        reference). Before this it tried to insert a root account and died on
+        ``Account.parent_account`` being reqd=1, reporting an account name that appears
+        nowhere in the codebase or the database.
 
-        message = str(caught.exception)
-        self.assertIn("TEST-Company-That-Does-Not-Exist", message)
-        self.assertIn("Income", message)
+        Looped over all five classes that each define their own copy of
+        ``_get_or_create_parent_account`` -- only ``TestPaymentProcessingIntegration``'s
+        copy was exercised before, leaving the other four untested (#393).
+        """
+        for cls in (
+            TestEBoekhoudenSecurityIntegration,
+            TestPaymentProcessingIntegration,
+            TestMigrationPipelineIntegration,
+            TestDataIntegrityAndEdgeCases,
+            TestPerformanceAndScalability,
+        ):
+            with self.subTest(cls=cls.__name__):
+                with self.assertRaises(RuntimeError) as caught:
+                    cls._get_or_create_parent_account(
+                        types.SimpleNamespace(), "TEST-Company-That-Does-Not-Exist", "Income"
+                    )
+
+                # assertRegex on the full, ordered sentence -- not two independent
+                # assertIn calls -- so a transposed (root_type, company) call still
+                # fails this check (#393): both substrings appear in the message
+                # either way, so assertIn alone cannot tell the arguments apart.
+                self.assertRegex(
+                    str(caught.exception),
+                    r"^TEST-Company-That-Does-Not-Exist has no is_group Income account",
+                )
+
+
+class TestNoGroupAccountRaisesItself(unittest.TestCase):
+    """#393: ``_no_group_account`` must raise on its own, not return an exception.
+
+    Every one of the five call sites in this module depends on remembering to write
+    ``raise _no_group_account(...)``. A call site that instead reads as a bare
+    expression statement is a silent no-op -- probe-verified against this repo's own
+    pre-commit ruff selection (``ruff check --isolated --select E,W,F,I,B``) to find
+    zero findings on exactly that shape; bugbear's B018 covers constants and attribute
+    access, not call expressions, and pylint's expression-not-assigned explicitly
+    exempts calls. Nothing in this toolchain catches it, so the helper must not depend
+    on the caller remembering ``raise``.
+    """
+
+    def test_a_call_site_without_the_raise_keyword_still_raises(self):
+        """Simulates the exact bug shape #393 describes: a call site written as a bare
+        expression statement, with the ``raise`` keyword forgotten. Before hardening
+        ``_no_group_account`` to raise on its own, this was a silent no-op -- the
+        function under test would fall through to its own return value instead of
+        erroring, regressing to the confusing ``[Account, ...]: parent_account``
+        failure the helper exists to eliminate.
+        """
+
+        def call_site_missing_raise(company, root_type):
+            _no_group_account(company, root_type)  # deliberately no `raise` here
+            return "reached past the guard"  # must never be returned
+
+        with self.assertRaises(RuntimeError) as caught:
+            result = call_site_missing_raise("TEST-Company-That-Does-Not-Exist", "Income")
+            self.fail(f"expected a raise, got a silent return of {result!r}")
+
+        self.assertIn("TEST-Company-That-Does-Not-Exist", str(caught.exception))
+
+
+class TestSharedFixtureGuardDiscriminates(unittest.TestCase):
+    """#393: proves ``_is_declared_shared_fixture`` catches what ``hasattr(__wrapped__)``
+    alone misses -- a decorator that wraps a method but never suspends capture.
+    """
+
+    @staticmethod
+    def _wraps_only_decorator(method):
+        """A decorator shaped like @patch / @lru_cache / a logging wrapper: it uses
+        functools.wraps (so __wrapped__ is set) but never suspends capture."""
+
+        @functools.wraps(method)
+        def wrapper(*args, **kwargs):
+            return method(*args, **kwargs)
+
+        return wrapper
+
+    def test_a_wraps_only_decorator_satisfies_hasattr_wrapped_alone(self):
+        """The OLD guard's condition -- this is exactly what let the weakness through."""
+
+        @self._wraps_only_decorator
+        def fake_ensure_test_company(self):
+            return "x"
+
+        self.assertTrue(hasattr(fake_ensure_test_company, "__wrapped__"))
+
+    def test_a_wraps_only_decorator_fails_the_hardened_check(self):
+        @self._wraps_only_decorator
+        def fake_ensure_test_company(self):
+            return "x"
+
+        self.assertFalse(_is_declared_shared_fixture(fake_ensure_test_company))
+
+    def test_the_real_shared_fixture_decorator_passes_the_hardened_check(self):
+        @shared_fixture
+        def real_ensure_test_company(self):
+            return "x"
+
+        self.assertTrue(_is_declared_shared_fixture(real_ensure_test_company))
 
 
 if __name__ == "__main__":

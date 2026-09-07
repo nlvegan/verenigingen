@@ -75,6 +75,19 @@ repos:
         fail_fast: true
       # Original validation hooks
 
+      - id: js-installer-pin-parity
+        name: JS installer / package.json pin parity (#272)
+        description: >-
+          The CI JS installer must pick yarn vs npm per app (this app has no
+          yarn.lock and is npm-managed); package.json must carry no dead
+          `resolutions` block that can drift from the `overrides` block npm
+          actually reads.
+        entry: python scripts/validation/js_installer_pin_parity_validator.py
+        language: system
+        pass_filenames: false
+        files: '^(package\.json|\.github/actions/setup/action\.yml)$'
+        stages: [pre-commit]
+
       - id: doctype-field-validator
         name: DocType field attribute access validator
         entry: python scripts/validation/archived/doctype_field_validator.py --pre-commit --reduced-fp-mode
@@ -323,9 +336,12 @@ repos:
       - id: dynamic-link-append-validator
         name: 🔗 Dynamic Link Append Guard (hard gate)
         description: >-
-          Blocks a literal `.append("<child_table>", {...})` dict that sets a
-          Dynamic Link field's value without also setting that field's companion
-          doctype field in the same literal. `update_child_table()` (and this
+          Blocks a literal `.append("<child_table>", {...})` (or
+          `.extend("<child_table>", [{...}, ...])`) dict that sets a Dynamic
+          Link field's value without also setting that field's companion
+          doctype field in the same literal -- `.extend()` is covered because
+          `Document.extend()` is implemented as a per-item `.append()` loop, the
+          identical runtime shape. `update_child_table()` (and this
           app's `safe_child_table_update()` wrapper around it) persists a child
           row via `db_update()` directly -- no defaults, no `_validate_links()`,
           no controller hooks at all -- so the companion field is written as a
@@ -367,6 +383,64 @@ repos:
           Runs at pre-push, not pre-commit — it scans the whole tree (~8s), and the
           answer cannot change from the file list of one commit.
         entry: python scripts/validation/duplicate_helper_validator.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: harness-method-shadow-validator
+        name: 🥷 Harness Method Shadow Guard
+        description: >-
+          Blocks a test class defining a method whose name matches one that its
+          harness base (EnhancedTestCase or VereningingenTestCase) calls on itself,
+          with a signature that cannot accept the arguments the harness will pass.
+          Python's MRO resolves the harness's own internal call to the LOCAL
+          override instead, so the harness behaviour everyone assumes is running
+          simply is not (#496). One instance of this shape was FATAL:
+          `MollieBase._ensure_company_cost_center(self)` overrode
+          `EnhancedTestCase._ensure_company_cost_center(self, company_name)`, which
+          the harness calls from every setUp() -- 38/38 tests in that module
+          errored, silently, for 12 days (`e16523d6` to the #194 PR). #496's census
+          found 28 further instances, all latent (the harness call site was never
+          reached), which is why a passing suite never surfaced them. NO ALLOWLIST:
+          this ratchet starts at zero known violations (#496 fixed every one that
+          existed) and any new occurrence fails immediately. Scoped to arity
+          incompatibility only -- a same-arity override that silently returns
+          different data never raises, so a static check cannot tell it apart from
+          a legitimate, compatible override (several of #496's findings were exactly
+          that: a subclass calling `super().<name>(...)` and adding a default).
+          Runs at pre-push, not pre-commit — it walks the whole tree to resolve
+          cross-file inheritance and imports (a few seconds), and the answer cannot
+          change from the file list of one commit.
+        entry: python scripts/validation/harness_method_shadow_validator.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: submittability-drift-validator
+        name: 📝 Submittability Drift Guard (ratchet)
+        description: >-
+          Blocks a doctype's submit/cancel workflow being reachable, called, or
+          filtered on when its own DocType JSON says is_submittable=0 (#987, ancestor
+          #350). Frappe's Document._submit()/._cancel() carry no is_submittable guard,
+          so code, hooks and tests can drift into disagreeing about which docstatus
+          values are actually possible. #350 found two production report queries
+          filtering Donation by docstatus=1 that therefore aggregated nothing, on every
+          deployment; #987 found the same class again -- on_submit/on_cancel hooks
+          registered for Donation AND SEPA Mandate despite neither being submittable,
+          and a shared test factory's get-or-create filter that could never match a
+          real SEPA Mandate row, so it silently never reused an existing mandate.
+          Ratcheted against scripts/validation/submittability_drift_baseline.txt (23
+          known sites) so pre-existing drift does not block commits; the baseline
+          should only ever shrink. Resolves doctypes across frappe/erpnext/hrms/payments
+          when a bench is reachable, so genuinely submittable ERPNext/HRMS doctypes
+          (Sales Invoice, Payment Entry, ...) are never reported. Run with --report for
+          the full picture including baselined sites and unresolved calls/predicates.
+          Runs at pre-push, not pre-commit -- it resolves doctypes and cross-references
+          hooks across the whole tree (and, when available, the bench), so the answer
+          cannot change from the file list of one commit.
+        entry: python scripts/validation/submittability_drift_validator.py
         language: system
         pass_filenames: false
         always_run: true
@@ -838,3 +912,27 @@ repos:
         files: '\.(py)$'
         stages: [pre-push]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
+
+      - id: production-divergence-scanner
+        name: 🧭 Production Function Divergence Census (advisory)
+        description: >-
+          Reports PUBLIC production functions/methods duplicated across files where
+          at least one pair has diverged (near-identical, not byte-identical) after
+          normalising away docstrings/annotations — the complement of the Duplicate
+          Helper Guard above, which is deliberately restricted to leading-underscore
+          names (#991). #495 is the motivating case: four-then-six independent
+          copies of calculate_next_invoice_date, none byte-identical, agreeing today
+          but each reachable from a different caller — #206 was the damage when one
+          of these paths drifted silently. Measured over verenigingen/ (production
+          files only, tests/ and test_*.py excluded — those are the sibling gate's
+          job): 611 duplicated public names, but only 17 families where a real
+          divergence signal (not just a shared name) is present. ADVISORY ONLY —
+          always exits 0. Whether this becomes a blocking gate is a decision for
+          later, made after the 17-family list has actually been triaged; see #401
+          and #985 for what a pre-existing baseline does to a gate's credibility on
+          day one. Runs manual-only: a full-tree AST similarity scan takes ~90s.
+        entry: python scripts/validation/production_divergence_scanner.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [manual]

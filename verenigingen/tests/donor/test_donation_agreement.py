@@ -18,7 +18,7 @@ class TestDonationAgreement(EnhancedTestCase):
         super().setUp()
 
         # Create test donor
-        self.donor = self.create_test_donor(donor_name="Test Donor", donor_email="test@example.com")
+        self.donor = self._create_or_reuse_local_donor(donor_name="Test Donor", donor_email="test@example.com")
 
         # Create test campaign for campaign donation tests with unique name
         # Use hash-based naming to avoid race conditions in parallel execution
@@ -247,8 +247,19 @@ class TestDonationAgreement(EnhancedTestCase):
         self.assertEqual(flt(agreement.total_donated or 0), 0.0)
         self.assertEqual(agreement.donations_count or 0, 0)
 
-    def create_test_donor(self, donor_name, donor_email):
-        """Create test donor with required fields"""
+    def _create_or_reuse_local_donor(self, donor_name, donor_email):
+        """Create test donor with required fields, reusing one already named `donor_name`.
+
+        Renamed from `create_test_donor` (#496): that name shadows
+        `EnhancedTestCase.create_test_donor`, which `create_test_donation()` calls
+        internally (`self.create_test_donor(...)`) whenever a donation is created
+        without an explicit `donor=`. The harness version always makes a fresh,
+        ANBI-valid donor with a unique email; this one instead looks up an existing
+        donor by name and reuses it -- a different, name-based dedup behavior that
+        this test class wants for itself but that silently overrode the harness's
+        internal donor-creation path for every `create_test_donation()` call in this
+        class that omitted `donor=`.
+        """
         if DocumentExistenceValidator.check_document_exists("Donor", {"donor_name": donor_name}):
             return frappe.get_doc("Donor", {"donor_name": donor_name})
 
@@ -290,7 +301,7 @@ class TestDonationAgreement(EnhancedTestCase):
     def test_multiple_donations_campaign_accumulation(self):
         """Test multiple donations accumulating to campaign totals"""
         # Create second donor for unique donor counting test
-        donor2 = self.create_test_donor("Test Donor 2", "test2@example.com")
+        donor2 = self._create_or_reuse_local_donor("Test Donor 2", "test2@example.com")
 
         # Create first donation
         donation1 = self.create_test_donation(

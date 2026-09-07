@@ -30,6 +30,7 @@ exercise the denial branch.
 import unittest
 import unittest.mock
 from datetime import timedelta
+from unittest.mock import patch
 
 import frappe
 from frappe.utils import add_to_date, now
@@ -37,6 +38,7 @@ from frappe.utils import add_to_date, now
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
 from verenigingen.tests.harness_logger import get_harness_logger
+from verenigingen.tests.support.non_resumable_errors import deadlock
 from verenigingen.utils.error_handling import SEPAError
 from verenigingen.verenigingen_payments.utils.sepa_race_condition_manager import (
     SEPABatchRaceConditionManager,
@@ -563,6 +565,17 @@ class TestBatchCreationInnerLogic(EnhancedTestCase):
         self.assertNotIn("member,", message)
         # And it must not be a raw MandatoryError from inside insert().
         self.assertNotIn("Value missing", message)
+
+    def test_execute_batch_creation_deadlock_propagates_as_deadlock_not_sepa_error(self):
+        """Same defect, one frame up: `_execute_batch_creation_with_isolation`'s
+        own catch-all wraps ANYTHING from `_create_batch_document` (including a
+        deadlock surviving past the fix above) into another `SEPAError`."""
+        invoice, member, mandate = self._make_unpaid_invoice()
+        batch_data = self._batch_data(invoice, member, mandate)
+
+        with patch.object(self.manager, "_create_batch_document", side_effect=deadlock()):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                self.manager._execute_batch_creation_with_isolation(batch_data, [invoice.name])
 
     def _force_delete_batch(self, batch_name):
         """Remove the batch AND the fixtures the committing method made durable.

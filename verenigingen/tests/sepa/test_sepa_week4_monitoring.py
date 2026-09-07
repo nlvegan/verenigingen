@@ -649,6 +649,39 @@ class TestSEPAMemoryOptimization(VereningingenTestCase):
         self.assertGreater(after_snapshot.process_memory_mb, 0)
 
 
+class TestSEPABatchPaginatorMemberPagination(VereningingenTestCase):
+    """#992: ``SEPABatchPaginator.paginate_member_data``'s ``WHERE m.docstatus
+    = 1`` filtered Member, which has no ``is_submittable`` in its DocType
+    JSON (default 0) -- an ordinary Member sits at docstatus 0 for its whole
+    life, so that predicate could never match and the method always yielded
+    zero pages regardless of ``member_filters``.
+
+    Note this method has no caller anywhere in the app today (grepped: only
+    its own definition; the two ``SEPABatchPaginator(...)`` call sites in
+    this module both use ``paginate_invoice_query`` instead) -- it is dead
+    code, not a currently-live feature. The fix still matters if it is ever
+    wired up.
+    """
+
+    def test_paginate_member_data_yields_ordinary_members(self):
+        from verenigingen.verenigingen_payments.utils.sepa_memory_optimizer import (
+            PaginationConfig,
+            SEPABatchPaginator,
+        )
+
+        member = self.create_test_member(
+            first_name="Pagin",
+            last_name="ateMe",
+            email=f"paginate.me.{frappe.generate_hash(length=6)}@test.invalid",
+            status="Active",
+        )
+
+        paginator = SEPABatchPaginator(PaginationConfig(page_size=50, enable_adaptive_sizing=False))
+        pages = list(paginator.paginate_member_data({"name": member.name}))
+        members_seen = [row["member"] for page in pages for row in page]
+        self.assertIn(member.name, members_seen)
+
+
 class TestSEPAWeek4Integration(VereningingenTestCase):
     """Test integration between Week 4 components"""
     

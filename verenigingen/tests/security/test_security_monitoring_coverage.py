@@ -21,6 +21,10 @@ singleton so the sliding-window / incident state is deterministic.
 
 import frappe
 
+from verenigingen.tests.security.security_monitor_test_helpers import (
+    RecordingAuditLogger,
+    make_isolated_security_monitor as _make_isolated_monitor,
+)
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.utils.security.security_monitoring import (
     MonitoringMetric,
@@ -36,40 +40,6 @@ from verenigingen.utils.security.security_monitoring import (
     run_security_tests,
     setup_security_monitoring,
 )
-
-
-class RecordingAuditLogger:
-    """A thin collaborator stand-in for the audit logger.
-
-    Creating a HIGH/CRITICAL ``SecurityIncident`` (the behaviour under test in
-    this module) intentionally calls ``audit_logger.log_event("suspicious_
-    activity", ...)``. The REAL audit logger's alert path recurses unbounded for
-    a ``suspicious_activity`` event (audit_logging._check_alert_conditions ->
-    _trigger_security_alert -> log_event -> ... ; threshold is count=1/1min) --
-    a genuine production bug reported separately. We do NOT want the
-    security-monitoring incident tests held hostage by that subsystem bug, and
-    the audit-logging *side effect* (not its internals) is what matters here:
-    we assert the monitor calls the logger with the right event type/severity.
-
-    This is a collaborator double injected onto the monitor's plain
-    ``audit_logger`` attribute -- it is NOT a Frappe auth/permission primitive
-    and NOT the function under test, so it is allowed by the test-quality rules.
-    """
-
-    def __init__(self):
-        self.events = []
-
-    def log_event(self, event_type, severity=None, **kwargs):
-        self.events.append({"event_type": event_type, "severity": severity, **kwargs})
-        return f"audit_stub_{len(self.events)}"
-
-
-def _make_isolated_monitor():
-    """A fresh SecurityMonitor whose audit logger is the recording double."""
-    monitor = SecurityMonitor()
-    monitor.audit_logger = RecordingAuditLogger()
-    return monitor
-
 
 # Error-Log titles emitted by the REAL audit subsystem's recursion bug (see
 # RecordingAuditLogger). Tests that must exercise the SHARED singleton (the

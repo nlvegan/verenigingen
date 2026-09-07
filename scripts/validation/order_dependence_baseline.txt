@@ -45,7 +45,7 @@ COMMIT tests/api/test_volunteer_application.py::1  # order-dependence
 COMMIT tests/api/test_workspace_health.py::2  # order-dependence
 COMMIT tests/backend/components/test_chapter_assignment_edge_cases.py::2  # order-dependence
 COMMIT tests/backend/components/test_member_status_transitions.py::1  # order-dependence
-COMMIT tests/backend/components/test_membership_analytics_permissions.py::2  # order-dependence
+COMMIT tests/backend/components/test_membership_analytics_permissions.py::1  # order-dependence
 COMMIT tests/backend/components/test_membership_dues_system.py::2  # order-dependence
 COMMIT tests/backend/components/test_membership_utilities.py::4  # order-dependence
 COMMIT tests/backend/components/test_payment_processing_api_real.py::1  # order-dependence
@@ -317,7 +317,7 @@ COMMIT_EXEMPT services/csv_import/test_member_import_service.py::2  # order-dep-
 COMMIT_EXEMPT tests/api/test_email_template_manager.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/components/test_chapter_assignment_edge_cases.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/components/test_history_audit_improvements.py::1  # order-dep-exempt
-COMMIT_EXEMPT tests/backend/components/test_membership_analytics_permissions.py::2  # order-dep-exempt
+COMMIT_EXEMPT tests/backend/components/test_membership_analytics_permissions.py::3  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/components/test_membership_application.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/components/test_sepa_reconciliation.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/components/test_setup_add_settings_fields.py::1  # order-dep-exempt

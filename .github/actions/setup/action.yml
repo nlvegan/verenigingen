@@ -366,7 +366,19 @@ runs:
           if [ -f "${app}package.json" ]; then
             echo "Installing JS dependencies for $(basename $app)"
             pushd "$app"
-            yarn --check-files || npm install
+            # Pick the package manager per app, not globally: frappe/erpnext/
+            # hrms/builder ship a committed yarn.lock and are yarn-managed;
+            # this app dropped its yarn.lock in 1ed8cd0d and is npm-managed.
+            # Runners have REAL yarn 1.22.22 (unlike the broken cmdtest stub
+            # on dev boxes), and yarn reads `resolutions` while npm reads
+            # `overrides` -- an unconditional `yarn --check-files` here ran
+            # real yarn for this app too and pinned from the wrong block
+            # (#272).
+            if [ -f "yarn.lock" ]; then
+              yarn --check-files || npm install
+            else
+              npm install
+            fi
             popd
           fi
         done

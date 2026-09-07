@@ -187,7 +187,7 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         dues_schedule.auto_generate = 0
         
         # Save and validate
-        membership = self.create_test_membership()
+        membership = self._get_or_create_local_membership()
         dues_schedule.membership = membership.name
         dues_schedule.save()
         self.track_doc("Membership Dues Schedule", dues_schedule.name)
@@ -881,8 +881,16 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         membership_type.save()
         return membership_type
         
-    def create_test_membership(self):
-        """Create a test membership"""
+    def _get_or_create_local_membership(self):
+        """Create a test membership.
+
+        Renamed from `create_test_membership` (#496): that name shadows
+        `VereningingenTestCase.create_test_membership(**kwargs)`, which
+        `create_test_direct_debit_batch()` calls internally as
+        `self.create_test_membership(member=...)`. This zero-argument
+        override would raise TypeError against that call -- latent because
+        this class never calls `create_test_direct_debit_batch()` today.
+        """
         membership = frappe.new_doc("Membership")
         membership.member = self.test_member.name
         membership.membership_type = frappe.db.get_value("Membership Type", {}, "name")
@@ -895,7 +903,7 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
     def create_test_dues_schedule(self, membership_type, frequency="Monthly", 
                                  amount=None, payment_method="Bank Transfer"):
         """Create a test dues schedule"""
-        membership = self.create_test_membership()
+        membership = self._get_or_create_local_membership()
         membership.membership_type = membership_type.name
         membership.save()
         
@@ -967,7 +975,7 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         
     def create_dues_schedule_with_custom_amount(self, membership_type, amount, reason):
         """Create dues schedule with custom amount and reason"""
-        membership = self.create_test_membership()
+        membership = self._get_or_create_local_membership()
         membership.membership_type = membership_type.name
         membership.save()
         

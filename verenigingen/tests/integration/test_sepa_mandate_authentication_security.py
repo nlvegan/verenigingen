@@ -31,7 +31,6 @@ Security Focus:
 - Prevention of unauthorized financial data access
 """
 
-from contextlib import contextmanager
 from unittest.mock import patch
 
 import frappe
@@ -870,15 +869,9 @@ class TestSEPAMandateAuthenticationSecurity(EnhancedTestCase):
 
     # ===== UTILITY METHODS =====
 
-    @contextmanager
-    def as_user(self, user_email):
-        """Context manager for running code as specific user"""
-        original_user = frappe.session.user
-        try:
-            frappe.set_user(user_email)
-            yield
-        finally:
-            frappe.set_user(original_user)
+    # as_user() removed (#496): it was byte-for-byte identical to
+    # EnhancedTestCase.as_user(user_email), which it shadowed. Deleted rather than
+    # renamed since there was nothing local about it to preserve.
 
     def tearDown(self):
         """Clean up SEPA test data"""

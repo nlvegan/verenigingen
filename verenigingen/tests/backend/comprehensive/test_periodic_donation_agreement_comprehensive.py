@@ -203,7 +203,12 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         self.track_doc("Periodic Donation Agreement", agreement.name)
         
         # Test 1: Link valid donation
-        donation1 = self.create_test_donation(self.test_donor, 100)
+        donation1 = self._build_test_donation(self.test_donor, 100)
+        self.assertEqual(
+            donation1.docstatus,
+            0,
+            "Donation is not submittable (#987/#988) -- it must stay at docstatus 0",
+        )
         agreement.link_donation(donation1.name)
         self.assertEqual(len(agreement.donations), 1)
         
@@ -213,14 +218,14 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         
         # Test 3: Try to link donation from different donor
         other_donor = self.create_test_donor("-other")
-        donation2 = self.create_test_donation(other_donor, 100)
+        donation2 = self._build_test_donation(other_donor, 100)
         
         with self.assertRaises(frappe.ValidationError):
             agreement.link_donation(donation2.name)
         
         # Test 4: Link multiple donations
-        donation3 = self.create_test_donation(self.test_donor, 100)
-        donation4 = self.create_test_donation(self.test_donor, 100)
+        donation3 = self._build_test_donation(self.test_donor, 100)
+        donation4 = self._build_test_donation(self.test_donor, 100)
         
         agreement.link_donation(donation3.name)
         agreement.link_donation(donation4.name)
@@ -229,8 +234,15 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         self.assertEqual(agreement.total_donated, 300)
         self.assertEqual(agreement.donations_count, 3)
     
-    def create_test_donation(self, donor, amount, paid=True):
-        """Helper to create test donation"""
+    def _build_test_donation(self, donor, amount, paid=True):
+        """Helper to create test donation.
+
+        Named distinctly from ``VereningingenTestCase.create_test_donation``
+        (this class's own parent, which takes ``**kwargs`` rather than these
+        positional args) so the two don't collide under the same name (#988
+        item 5). Donation is not submittable -- it stays at docstatus 0 for
+        its whole life (#987/#988); this used to call ``donation.submit()``.
+        """
         donation = frappe.new_doc("Donation")
         donation.donor = donor
         donation.donation_date = today()
@@ -240,7 +252,6 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         donation.company = self.test_company
         donation.paid = 1 if paid else 0
         donation.insert()
-        donation.submit()
         self.track_doc("Donation", donation.name)
         return donation
     
@@ -375,9 +386,8 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         donation.donation_type = "General"
         donation.company = self.test_company
         donation.insert()
-        donation.submit()
         self.track_doc("Donation", donation.name)
-        
+
         # Verify linkage
         self.assertEqual(donation.periodic_donation_agreement, agreement.name)
         self.assertEqual(donation.sepa_mandate, mandate.name)
@@ -492,7 +502,6 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
             donation.periodic_donation_agreement = agreement.name
             donation.paid = 1
             donation.insert()
-            donation.submit()
             self.track_doc("Donation", donation.name)
 
             agreement.link_donation(donation.name)
