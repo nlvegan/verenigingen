@@ -42,6 +42,9 @@ from verenigingen.verenigingen_payments.mollie.exceptions import (
     MolliePaymentError,
     MollieValidationError,
 )
+from verenigingen.verenigingen_payments.utils.payment_services.refund_utility import (
+    validate_refund_permissions,
+)
 
 SERVICE_PATH = (
     "verenigingen.verenigingen_payments.mollie.api.unified_payment_api.CompletePaymentService"
@@ -281,3 +284,140 @@ class TestInitiateRefund(_ApiTestBase):
             with patch(CLIENT_PATH, return_value=client):
                 with self.assertRaises(frappe.ValidationError):
                     unified_payment_api.initiate_refund()
+
+
+class TestInitiateRefundEnforcesPermissionCheck(_ApiTestBase):
+    """Regression test for #1017.
+
+    initiate_refund() here is a *different, sibling* function from
+    refund_utility.py's initiate_refund() (#968/#1021) -- same name, different
+    module, no relation. It is gated only by @high_security_api
+    (SecurityLevel.HIGH), which ROLE_PROFILE_SECURITY_MAPPING
+    (authorization_policy.py) grants to "Verenigingen Chapter Board Member" and
+    "Verenigingen Staff" -- populations wider than the CRITICAL-level Treasurer/
+    National Board Member #968 was about -- and the function body itself had no
+    domain-specific check at all: it read frappe.form_dict and called
+    MollieClient.create_refund directly. This test provisions a real Chapter
+    Board Member (the widest population @high_security_api admits) and proves
+    that population reaches the live Mollie client call before the fix, and is
+    refused after it.
+    """
+
+    UNAUTHORIZED_USER = "test-cbm-1017@example.com"
+
+    def setUp(self):
+        super().setUp()
+        self.original_user = frappe.session.user
+
+        frappe.set_user("Administrator")
+        if frappe.db.exists("User", self.UNAUTHORIZED_USER):
+            user = frappe.get_doc("User", self.UNAUTHORIZED_USER)
+        else:
+            user = frappe.get_doc(
+                {
+                    "doctype": "User",
+                    "email": self.UNAUTHORIZED_USER,
+                    "first_name": "Chapter",
+                    "last_name": "Board1017",
+                    "enabled": 1,
+                    "send_welcome_email": 0,
+                    "user_type": "System User",
+                }
+            )
+            user.insert(ignore_permissions=True)
+            self.track_doc("User", user.name)
+
+        # Provision the same way production actually does: a "role_profiles"
+        # Table MultiSelect entry (this exercises the real
+        # populate_role_profile_roles() sync), not the deprecated
+        # role_profile_name field directly -- see the matching note in
+        # test_refund_utility.py::TestRefundEndpointsEnforcePermissionCheck (#968).
+        user.role_profiles = []
+        user.append("role_profiles", {"role_profile": "Verenigingen Chapter Board Member"})
+        user.save(ignore_permissions=True)
+
+        # Confirm the test's own premise before relying on it: this user must
+        # actually fail validate_refund_permissions(), or the test proves
+        # nothing about the fix.
+        self.assertFalse(
+            validate_refund_permissions(self.UNAUTHORIZED_USER),
+            "test setup invalid: Chapter Board Member must fail validate_refund_permissions()",
+        )
+
+    def tearDown(self):
+        frappe.set_user(self.original_user)
+        super().tearDown()
+
+    def test_unauthorized_role_profile_cannot_initiate_refund(self):
+        refund = types.SimpleNamespace(id="re_1017", amount={"value": "10.00", "currency": "EUR"})
+        client = _MollieClientFake(refund=refund)
+
+        with self.set_user(self.UNAUTHORIZED_USER):
+            frappe.local.form_dict = frappe._dict(payment_id="tr_1017_abc")
+            with patch(CLIENT_PATH, return_value=client):
+                with self.assertRaises(frappe.PermissionError):
+                    unified_payment_api.initiate_refund()
+
+        self.assertNotIn("payment_id", client.captured, "create_refund must never be reached")
+
+
+class TestInitiateRefundStillWorksForAuthorizedUser(_ApiTestBase):
+    """Confirms the #1017 fix does not lock out a legitimate refunder.
+
+    Provisions a real "Verenigingen Treasurer" the same way production does
+    (role_profiles Table MultiSelect + save(), not the deprecated
+    role_profile_name field) and confirms initiate_refund() still completes.
+    Treasurer holds "Accounts Manager" per role_profile.json, so it must pass
+    validate_refund_permissions() -- unlike Chapter Board Member/Staff/National
+    Board Member, which #1017's class of test intentionally excludes.
+    """
+
+    AUTHORIZED_USER = "test-treasurer-1017@example.com"
+
+    def setUp(self):
+        super().setUp()
+        self.original_user = frappe.session.user
+
+        frappe.set_user("Administrator")
+        if frappe.db.exists("User", self.AUTHORIZED_USER):
+            user = frappe.get_doc("User", self.AUTHORIZED_USER)
+        else:
+            user = frappe.get_doc(
+                {
+                    "doctype": "User",
+                    "email": self.AUTHORIZED_USER,
+                    "first_name": "Treasurer",
+                    "last_name": "User1017",
+                    "enabled": 1,
+                    "send_welcome_email": 0,
+                    "user_type": "System User",
+                }
+            )
+            user.insert(ignore_permissions=True)
+            self.track_doc("User", user.name)
+
+        user.role_profiles = []
+        user.append("role_profiles", {"role_profile": "Verenigingen Treasurer"})
+        user.save(ignore_permissions=True)
+
+        self.assertTrue(
+            validate_refund_permissions(self.AUTHORIZED_USER),
+            "test setup invalid: Treasurer must pass validate_refund_permissions()",
+        )
+
+    def tearDown(self):
+        frappe.set_user(self.original_user)
+        super().tearDown()
+
+    def test_authorized_role_profile_can_initiate_refund(self):
+        refund = types.SimpleNamespace(id="re_1017_ok", amount={"value": "10.00", "currency": "EUR"})
+        client = _MollieClientFake(refund=refund)
+
+        with self.set_user(self.AUTHORIZED_USER):
+            frappe.local.form_dict = frappe._dict(payment_id="tr_1017_ok")
+            with patch(CLIENT_PATH, return_value=client):
+                result = unified_payment_api.initiate_refund()
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["refund_id"], "re_1017_ok")
+        self.assertEqual(client.captured["payment_id"], "tr_1017_ok")
