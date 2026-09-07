@@ -14,7 +14,7 @@ import unittest
 
 import frappe
 from frappe.utils import today
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 
 from verenigingen.services.member.chapter.chapter_management_service import (
     ChapterManagementService,
@@ -29,8 +29,19 @@ class ChapterServiceTestBase(EnhancedTestCase):
         super().setUp()
         self.service = ChapterManagementService()
 
+    @shared_fixture
     def _ensure_chapter_role(self):
-        """Get-or-create a 'Test Board Role' Chapter Role (self-seed for CI)."""
+        """Get-or-create a 'Test Board Role' Chapter Role (self-seed for CI).
+
+        @shared_fixture (#1026, found via the by-name guard while fixing the
+        issue's 42-item list -- not itself one of the 42, because its identity
+        is a hardcoded literal, not a caller parameter, so the issue's AST sweep
+        did not match it; but it is undecorated, inserts unconditionally, and
+        reaches ``EnhancedTestCase`` exactly like the rest of the
+        ``_ensure_chapter_role`` family, which the by-name guard
+        (``test_no_shared_fixture_helper_is_decorated_in_one_copy_and_not_its_clone``)
+        treats as one family regardless of parameter shape).
+        """
         name = "Test Board Role"
         if not frappe.db.exists("Chapter Role", name):
             role = frappe.get_doc(

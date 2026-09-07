@@ -39,7 +39,7 @@ from verenigingen.services.member.account import (
     user_role_profile_calculator as calc,
 )
 from verenigingen.services.member.approval import application_helpers as ah
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 from verenigingen.utils.team_role_profile_manager import TEAM_CONFIG, _team_manager
 
 
@@ -74,7 +74,14 @@ class TestUserRoleProfileCalculatorSupplement(EnhancedTestCase):
     def _make_volunteer(self, member, status="Active"):
         return self.create_test_volunteer(member=member, status=status).name
 
+    @shared_fixture
     def _ensure_chapter_role(self, role_name):
+        """@shared_fixture (#1026): site-wide master data, no company/test scope.
+
+        ``track_doc(...)`` alone is NOT sufficient (CLAUDE.md) -- it binds only
+        the tracked drain, not the captured-insert drain that would otherwise
+        claim this row for whichever test calls it first.
+        """
         if not frappe.db.exists("Chapter Role", role_name):
             frappe.get_doc({"doctype": "Chapter Role", "role_name": role_name, "is_active": 1}).insert()
             self.track_doc("Chapter Role", role_name)
@@ -257,7 +264,13 @@ class TestBaseRoleProfileManagerSupplement(EnhancedTestCase):
         self.track_doc("Team", team.name)
         return team.name
 
+    @shared_fixture
     def _ensure_team_role(self, role_name):
+        """@shared_fixture (#1026): site-wide master data, no company/test scope.
+
+        ``track_doc(...)`` alone is NOT sufficient (CLAUDE.md) -- it binds only
+        the tracked drain, not the captured-insert drain.
+        """
         if not frappe.db.exists("Team Role", role_name):
             frappe.get_doc({"doctype": "Team Role", "role_name": role_name, "is_active": 1}).insert()
             self.track_doc("Team Role", role_name)

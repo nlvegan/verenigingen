@@ -3,7 +3,7 @@
 import frappe
 
 from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 
 
 class TestChapterBoardLifecycleNotifications(EnhancedTestCase):
@@ -149,8 +149,13 @@ class TestChapterBoardLifecycleNotifications(EnhancedTestCase):
         if changed:
             config.save(ignore_permissions=True)
 
+    @shared_fixture
     def _ensure_chapter_role(self):
-        """Ensure a basic Chapter Role exists for board-member rows."""
+        """Ensure a basic Chapter Role exists for board-member rows.
+
+        @shared_fixture (#1026): part of the ``_ensure_chapter_role`` family the
+        by-name guard treats as one.
+        """
         name = "Test Board Role"
         if not frappe.db.exists("Chapter Role", name):
             frappe.get_doc({

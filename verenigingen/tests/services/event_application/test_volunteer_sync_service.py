@@ -21,7 +21,7 @@ from verenigingen.mijnrood_sync.services.event_application.related_records_orche
 from verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service import (
     get_volunteer_sync_service,
 )
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 
 
 class TestParseMijnRoodRoles(EnhancedTestCase):
@@ -529,7 +529,15 @@ class TestEnsureChapterBoardMembership(EnhancedTestCase):
         chapter_doc.save(ignore_permissions=True)
         return chapter_doc
 
+    @shared_fixture
     def _ensure_chapter_role(self, role_name):
+        """@shared_fixture (#1026): site-wide master data, no company/test scope.
+
+        The ``addCleanup`` below deletes it again at THIS test's end regardless
+        -- keep both: @shared_fixture stops the generic captured-insert drain
+        from claiming the row for a class that runs later in the shard and
+        still needs it to exist.
+        """
         if not frappe.db.exists("Chapter Role", role_name):
             doc = frappe.get_doc({
                 "doctype": "Chapter Role",

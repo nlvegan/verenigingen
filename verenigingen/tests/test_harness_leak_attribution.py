@@ -505,6 +505,267 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
                 f"by something that sets __wrapped__",
             )
 
+    def test_the_1026_shared_master_helpers_are_declared_shared(self):
+        """#1026: 42 more `_ensure_*`/`_persist_*` copies shared #1010's shape.
+
+        #1026 recounted #1010's own "not established: whether roughly two dozen
+        other undecorated helpers share this shape" note into an AST sweep of 62
+        candidates, 42 of which were undecorated, inserted unconditionally, and
+        reached `EnhancedTestCase`. Of those 42, 14 turned out to be a FALSE
+        POSITIVE for this fix (see below) and are deliberately NOT in `targets`;
+        the other 28 build genuinely shared, no-company-scope master data (Role,
+        Chapter Role, Team Role, Item Group, Membership Type, Expense Category,
+        Company) keyed on a literal the call sites confirm is fixed, not
+        per-test-unique -- exactly #1010's Mode of Payment shape, just a
+        different doctype each time.
+
+        Two more populations are folded in here because the by-name guard right
+        below (`_divergent_shared_fixture_copies`) matches class METHODS purely
+        by NAME, with no identity check -- so decorating any one copy of a
+        method family forces every reachable, inserting, undecorated sibling
+        into scope too, or this file's OWN
+        `test_no_shared_fixture_helper_is_decorated_in_one_copy_and_not_its_clone`
+        goes red:
+
+        * 5 more `_ensure_chapter_role` copies the issue's sweep MISSED, because
+          their identity is a hardcoded literal inside the function body, not a
+          caller parameter -- outside the "identity is a parameter" shape the
+          issue searched for, but the exact same danger (a #973-shape
+          same-name-drags-in-siblings dynamic actually observed live: found only
+          by extending this test, not by re-reading the issue).
+        * 4 more `_persist_company` classmethod copies (`cls.COMPANY`/`cls.ABBR`
+          class attributes rather than explicit args) -- CLAUDE.md's own #394
+          precedent ("two copies fixed, a third missed -- eight total") applies
+          here almost verbatim.
+
+        NOT included, and why (the false-positive class, so a future sweep does
+        not re-flag these): 14 `_ensure_user`/`_ensure_member_user` copies whose
+        identity is a per-test email built from `frappe.generate_hash()` or a
+        microsecond timestamp -- reading their call sites (not just the AST
+        shape) shows no two tests, classes or shard co-tenants ever collide on
+        the same address, so the row SHOULD be torn down at that one test's
+        teardown; `@shared_fixture` there would convert correct cleanup into a
+        LEAK (the exact inverse risk this fix has to watch for).
+
+        Also NOT `@shared_fixture` here despite reaching this same danger:
+        `_persist_customer`/`_persist_supplier` in test_payment_entry_handler.py
+        (see that file for why -- a same-named module-level sibling with an
+        equally unresolvable identity would flag the pairing as "unresolved" on
+        `test_the_real_tree_has_no_shared_fixture_with_an_unresolvable_identity`
+        below). Wrapped in `suspend_insert_capture()` instead, which fixes the
+        same underlying #328/#330 drain bug without touching either guard.
+        """
+        from verenigingen.events.subscribers import test_chapter_subscribers
+        from verenigingen.services.billing import test_sales_invoice_account_handler
+        from verenigingen.services.document import test_document_portal_service
+        from verenigingen.tests.backend.comprehensive import test_doctype_validation
+        from verenigingen.tests.backend.integration import test_erpnext_expense_integration_real
+        from verenigingen.tests.backend.portal import (
+            test_page_chapter_dashboard,
+            test_page_member_portal_coverage,
+            test_page_volunteer_skills,
+        )
+        from verenigingen.tests.chapter import test_chapter_board_lifecycle_notifications
+        from verenigingen.tests.e_boekhouden import (
+            test_cleanup_utils_sweep,
+            test_coa_import,
+            test_coa_import_sweep,
+            test_enhanced_migration_coverage,
+            test_invoice_helpers,
+            test_invoice_helpers_coverage,
+            test_migration_audit_trail,
+            test_migration_controller_accounts_coverage,
+            test_migration_error_recovery,
+            test_migration_transaction_safety,
+            test_tegenrekening_mapper_coverage,
+        )
+        from verenigingen.tests.email import test_advanced_segmentation
+        from verenigingen.tests.fixtures import enhanced_test_factory as factory_module
+        from verenigingen.tests.integration import test_payment_processing_api_integration
+        from verenigingen.tests.repositories import test_dues_schedule_repository
+        from verenigingen.tests.security import test_secure_operations_coverage
+        from verenigingen.tests.services import (
+            test_chapter_board_chapters,
+            test_chapter_management_service,
+            test_chapter_permission_service_integration,
+            test_member_account_coverage_supplement,
+            test_payment_entry_creation_service,
+        )
+        from verenigingen.tests.services.event_application import test_volunteer_sync_service
+        from verenigingen.tests.utils import test_department_hierarchy
+
+        exemplar_code = factory_module.shared_fixture(lambda: None).__code__
+
+        targets = [
+            (
+                "test_chapter_subscribers.TestChapterSubscribers._ensure_role",
+                test_chapter_subscribers.TestChapterSubscribers._ensure_role,
+            ),
+            (
+                "test_chapter_subscribers.TestChapterSubscribers._ensure_chapter_role",
+                test_chapter_subscribers.TestChapterSubscribers._ensure_chapter_role,
+            ),
+            (
+                "test_sales_invoice_account_handler.TestSalesInvoiceAccountHandler._ensure_item_group",
+                test_sales_invoice_account_handler.TestSalesInvoiceAccountHandler._ensure_item_group,
+            ),
+            (
+                "test_doctype_validation.TestDoctypeValidationComprehensive._ensure_membership_type",
+                test_doctype_validation.TestDoctypeValidationComprehensive._ensure_membership_type,
+            ),
+            (
+                "test_erpnext_expense_integration_real.TestERPNextExpenseIntegrationReal._ensure_expense_category",
+                test_erpnext_expense_integration_real.TestERPNextExpenseIntegrationReal._ensure_expense_category,
+            ),
+            (
+                "test_page_chapter_dashboard.TestPageChapterDashboard._ensure_chapter_role",
+                test_page_chapter_dashboard.TestPageChapterDashboard._ensure_chapter_role,
+            ),
+            (
+                "test_page_volunteer_skills.TestVolunteerSkillsPage._ensure_chapter_role",
+                test_page_volunteer_skills.TestVolunteerSkillsPage._ensure_chapter_role,
+            ),
+            (
+                "test_volunteer_sync_service.TestEnsureChapterBoardMembership._ensure_chapter_role",
+                test_volunteer_sync_service.TestEnsureChapterBoardMembership._ensure_chapter_role,
+            ),
+            (
+                "test_chapter_board_chapters.TestGetUserBoardChapters._ensure_chapter_role",
+                test_chapter_board_chapters.TestGetUserBoardChapters._ensure_chapter_role,
+            ),
+            (
+                "test_chapter_permission_service_integration.TestChapterPermissionServiceIntegration._ensure_chapter_role",
+                test_chapter_permission_service_integration.TestChapterPermissionServiceIntegration._ensure_chapter_role,
+            ),
+            (
+                "test_member_account_coverage_supplement.TestUserRoleProfileCalculatorSupplement._ensure_chapter_role",
+                test_member_account_coverage_supplement.TestUserRoleProfileCalculatorSupplement._ensure_chapter_role,
+            ),
+            (
+                "test_member_account_coverage_supplement.TestBaseRoleProfileManagerSupplement._ensure_team_role",
+                test_member_account_coverage_supplement.TestBaseRoleProfileManagerSupplement._ensure_team_role,
+            ),
+            (
+                "test_department_hierarchy.TestDepartmentHierarchy._ensure_chapter_role",
+                test_department_hierarchy.TestDepartmentHierarchy._ensure_chapter_role,
+            ),
+            (
+                "test_chapter_management_service.ChapterServiceTestBase._ensure_chapter_role",
+                test_chapter_management_service.ChapterServiceTestBase._ensure_chapter_role,
+            ),
+            (
+                "test_page_member_portal_coverage.TestMemberPortalPage._ensure_chapter_role",
+                test_page_member_portal_coverage.TestMemberPortalPage._ensure_chapter_role,
+            ),
+            (
+                "test_chapter_board_lifecycle_notifications.TestChapterBoardLifecycleNotifications._ensure_chapter_role",
+                test_chapter_board_lifecycle_notifications.TestChapterBoardLifecycleNotifications._ensure_chapter_role,
+            ),
+            (
+                "test_document_portal_service.TestDocumentPortalService._ensure_chapter_role",
+                test_document_portal_service.TestDocumentPortalService._ensure_chapter_role,
+            ),
+            (
+                "test_advanced_segmentation.TestSegmentMembershipRules._ensure_chapter_role",
+                test_advanced_segmentation.TestSegmentMembershipRules._ensure_chapter_role,
+            ),
+            (
+                "test_tegenrekening_mapper_coverage.TestSmartItemResolution._ensure_item_group",
+                test_tegenrekening_mapper_coverage.TestSmartItemResolution._ensure_item_group,
+            ),
+            (
+                "test_tegenrekening_mapper_coverage.TestCreateInvoiceLine._ensure_item_group",
+                test_tegenrekening_mapper_coverage.TestCreateInvoiceLine._ensure_item_group,
+            ),
+            (
+                "test_payment_processing_api_integration.TestPaymentProcessingAPISecurityIntegration._ensure_role",
+                test_payment_processing_api_integration.TestPaymentProcessingAPISecurityIntegration._ensure_role,
+            ),
+            (
+                "test_dues_schedule_repository._ensure_named_membership_type",
+                test_dues_schedule_repository._ensure_named_membership_type,
+            ),
+            (
+                "test_secure_operations_coverage.TestSecureOperationsCoverage._ensure_role",
+                test_secure_operations_coverage.TestSecureOperationsCoverage._ensure_role,
+            ),
+            (
+                "test_cleanup_utils_sweep._SweepBase._persist_company",
+                test_cleanup_utils_sweep._SweepBase._persist_company,
+            ),
+            (
+                "test_migration_controller_accounts_coverage.TestMigrationControllerAccounts._persist_company",
+                test_migration_controller_accounts_coverage.TestMigrationControllerAccounts._persist_company,
+            ),
+            (
+                "test_coa_import._BankFlowBase._persist_company",
+                test_coa_import._BankFlowBase._persist_company,
+            ),
+            (
+                "test_invoice_helpers_coverage._TaxFixtureBase._persist_company",
+                test_invoice_helpers_coverage._TaxFixtureBase._persist_company,
+            ),
+            (
+                "test_coa_import_sweep._CoaSweepBase._persist_company",
+                test_coa_import_sweep._CoaSweepBase._persist_company,
+            ),
+            (
+                "test_invoice_helpers._AccountFixtureBase._persist_company",
+                test_invoice_helpers._AccountFixtureBase._persist_company,
+            ),
+            (
+                "test_migration_audit_trail._persist_company",
+                test_migration_audit_trail._persist_company,
+            ),
+            (
+                "test_migration_error_recovery._persist_company",
+                test_migration_error_recovery._persist_company,
+            ),
+            (
+                "test_migration_transaction_safety._persist_company",
+                test_migration_transaction_safety._persist_company,
+            ),
+            (
+                "test_enhanced_migration_coverage._persist_eur_company",
+                test_enhanced_migration_coverage._persist_eur_company,
+            ),
+            (
+                "test_invoice_helpers.TestGetTaxAccountSuccess._persist_named_account",
+                test_invoice_helpers.TestGetTaxAccountSuccess._persist_named_account,
+            ),
+            (
+                "test_payment_entry_creation_service.TestPaymentEntryCreationService._persist_minimal_company",
+                test_payment_entry_creation_service.TestPaymentEntryCreationService._persist_minimal_company,
+            ),
+        ]
+
+        self.assertEqual(
+            35,
+            len(targets),
+            "recount before trusting this list -- #1026's own AST sweep found 42 "
+            "candidates, of which 28 were genuinely shared master data (14 of the 42 "
+            "were a per-test-unique-identity false positive, see the docstring above); "
+            "the by-name guard below then pulled in 7 more reachable, inserting, "
+            "undecorated siblings sharing a name with one of those 28 (5 more "
+            "_ensure_chapter_role copies whose identity is a hardcoded literal rather "
+            "than a caller parameter, 4 more _persist_company classmethod copies, minus "
+            "2 already counted among the issue's 28) -- 28 + 7 = 35",
+        )
+
+        for label, fn in targets:
+            self.assertTrue(
+                hasattr(fn, "__wrapped__"),
+                f"{label} creates shared master data and must be @shared_fixture, or "
+                f"the captured-insert drain will claim its row for whichever test "
+                f"calls it first",
+            )
+            self.assertIs(
+                fn.__code__,
+                exemplar_code,
+                f"{label} must be wrapped by @shared_fixture specifically, not merely "
+                f"by something that sets __wrapped__",
+            )
+
     def test_no_shared_fixture_helper_is_decorated_in_one_copy_and_not_its_clone(self):
         """A helper family must not disagree with itself about being shared.
 

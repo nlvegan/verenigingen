@@ -25,7 +25,8 @@ from verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migra
     cleanup_chart_of_accounts,
     get_account_type_recommendations,
 )
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
+from verenigingen.tests.support.test_accounts import make_disposable_company
 
 
 class TestMigrationControllerAccounts(EnhancedTestCase):
@@ -39,7 +40,15 @@ class TestMigrationControllerAccounts(EnhancedTestCase):
         cls.abbr = frappe.db.get_value("Company", cls.company, "abbr")
 
     @classmethod
+    @shared_fixture
     def _persist_company(cls, name, abbr):
+        """@shared_fixture (#1026): Company is site-wide master data, no test scope.
+
+        Used from setUpClass ONLY. The six "throwaway"-labelled companies built
+        from inside individual test methods below (Empty/Rec/ShowAll/Clean/
+        Susp/Temp Co) must NOT call this -- see `make_disposable_company`
+        (tests/support/test_accounts.py).
+        """
         if frappe.db.exists("Company", name):
             return name
         doc = frappe.new_doc("Company")
@@ -235,7 +244,7 @@ class TestMigrationControllerAccounts(EnhancedTestCase):
     def test_account_type_recommendations_empty_when_no_grootboek(self):
         """A company with no grootboek-flagged accounts yields an empty list."""
         # Use a throwaway company that has no eboekhouden accounts.
-        empty_company = self._persist_company("TEST EBkh MigCtrl Empty Co", "TEME")
+        empty_company = make_disposable_company("TEST EBkh MigCtrl Empty Co", "TEME")
         result = get_account_type_recommendations(empty_company, show_all=True)
         self.assertTrue(result["success"])
         self.assertEqual(result["recommendations"], [])
@@ -249,7 +258,7 @@ class TestMigrationControllerAccounts(EnhancedTestCase):
         if not self.has_grootboek_field:
             self.skipTest("eboekhouden_grootboek_nummer custom field not installed")
 
-        rec_company = self._persist_company("TEST EBkh MigCtrl Rec Co", "TEMR")
+        rec_company = make_disposable_company("TEST EBkh MigCtrl Rec Co", "TEMR")
         acct = self._make_account("EBkh Rec Bank", company=rec_company, grootboek="10100", root_type="Asset")
 
         from verenigingen.e_boekhouden.services.account_classification_service import (
@@ -274,7 +283,7 @@ class TestMigrationControllerAccounts(EnhancedTestCase):
         if not self.has_grootboek_field:
             self.skipTest("eboekhouden_grootboek_nummer custom field not installed")
 
-        rec_company = self._persist_company("TEST EBkh MigCtrl ShowAll Co", "TEMS")
+        rec_company = make_disposable_company("TEST EBkh MigCtrl ShowAll Co", "TEMS")
         # Typed account: has account_type -> excluded from the untyped query.
         typed = self._make_account(
             "EBkh Typed Bank", company=rec_company, grootboek="10200", root_type="Asset"
@@ -296,7 +305,7 @@ class TestMigrationControllerAccounts(EnhancedTestCase):
     # --------------------------------------------- cleanup_chart_of_accounts (fn)
     def test_cleanup_chart_of_accounts_safe_default(self):
         """Module-level delegate runs the safe (delete_all=False) path sensibly."""
-        clean_company = self._persist_company("TEST EBkh MigCtrl Clean Co", "TEMK")
+        clean_company = make_disposable_company("TEST EBkh MigCtrl Clean Co", "TEMK")
         result = cleanup_chart_of_accounts(clean_company, delete_all_accounts=False)
         self.assertTrue(result["success"])
         self.assertIn("results", result)
@@ -307,14 +316,14 @@ class TestMigrationControllerAccounts(EnhancedTestCase):
     # ------------------------------------------------------ get_suspense_account
     def test_get_suspense_account_matches_suspense_named_account(self):
         """A %suspense%-named account is returned by the first lookup branch."""
-        susp_company = self._persist_company("TEST EBkh MigCtrl Susp Co", "TEMP")
+        susp_company = make_disposable_company("TEST EBkh MigCtrl Susp Co", "TEMP")
         susp = self._make_account("EBkh Suspense Holding", company=susp_company, root_type="Liability")
         doc = self._make_migration()
         self.assertEqual(doc.get_suspense_account(susp_company), susp)
 
     def test_get_suspense_account_falls_back_to_temporary(self):
         """With no %suspense% account, a %temporary%-named account is returned."""
-        temp_company = self._persist_company("TEST EBkh MigCtrl Temp Co", "TEMT")
+        temp_company = make_disposable_company("TEST EBkh MigCtrl Temp Co", "TEMT")
         # Guard: ensure no suspense account exists so the temporary branch is hit.
         self.assertIsNone(
             frappe.db.get_value(

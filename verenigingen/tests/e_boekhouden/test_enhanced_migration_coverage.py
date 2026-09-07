@@ -26,7 +26,7 @@ import unittest
 import frappe
 
 from verenigingen.e_boekhouden.utils.eboekhouden_enhanced_migration import EnhancedEBoekhoudenMigration
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 
 
 class _SettingsStub:
@@ -42,7 +42,9 @@ class _SettingsStub:
         self.standaard_item = None
 
 
+@shared_fixture
 def _persist_eur_company(name="EBkh EnhMig Co", abbr="EENM"):
+    """@shared_fixture (#1026): Company is site-wide master data, no test scope."""
     if frappe.db.exists("Company", name):
         return name
     company = frappe.new_doc("Company")

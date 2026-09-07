@@ -56,6 +56,34 @@ def make_leaf_account(company, abbr, account_name, *, account_type="", root_type
     return doc.name
 
 
+def make_disposable_company(name, abbr):
+    """Get-or-create a bare EUR/Netherlands Company, deliberately NOT `@shared_fixture`.
+
+    For a test that needs its OWN one-off company -- built, used, and then left
+    to the captured-insert drain to clean up at that test's teardown (#1026,
+    #1070): decorating a get-or-create with `@shared_fixture` is correct for a
+    company reused across a class or the whole suite, but wrong for one that
+    exists for a single test method. Two call sites tried to reuse the SAME
+    `_persist_company` for both roles (one setUpClass-shared use, several
+    single-test "throwaway" uses each) and decorating it to fix the shared use
+    leaked the throwaway companies permanently -- confirmed empirically on
+    test_site_4 (a company plus two of its root accounts survived a full test
+    run with nothing left to reuse them). Landing the throwaway builder here,
+    once, is what stopped a second copy-paste of the same fix from becoming a
+    new duplicate-helper clone family (the duplicate-helper ratchet flagged
+    exactly that on the first attempt: `_persist_throwaway_company` in 2 files).
+    """
+    if frappe.db.exists("Company", name):
+        return name
+    doc = frappe.new_doc("Company")
+    doc.company_name = name
+    doc.abbr = abbr
+    doc.default_currency = "EUR"
+    doc.country = "Netherlands"
+    doc.insert(ignore_permissions=True)
+    return name
+
+
 def make_submitted_journal_entry(company, debit_account, credit_account, amount, posting_date=None):
     """Submit a balanced two-line Journal Entry. Returns the document.
 

@@ -16,15 +16,18 @@ import frappe
 from frappe.utils import add_months, today
 
 from verenigingen.repositories import DuesScheduleRepository, ScheduleInfo, ScheduleStatus
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 
 
+@shared_fixture
 def _ensure_named_membership_type(type_name):
     """Idempotently ensure a Membership Type with a specific literal `name`.
 
     The enhanced factory uniquifies names, so it cannot produce a record named
     exactly "Regular". These schedules reference the type by literal name, which
     is not seeded on fresh CI-mirror sites.
+
+    @shared_fixture (#1026): site-wide master data, no company/test scope.
     """
     if frappe.db.exists("Membership Type", type_name):
         return type_name

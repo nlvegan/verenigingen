@@ -18,7 +18,7 @@ import frappe
 from frappe.utils import today
 
 from verenigingen.templates.pages.volunteer import skills
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 
 
 class TestVolunteerSkillsPage(EnhancedTestCase):
@@ -37,11 +37,15 @@ class TestVolunteerSkillsPage(EnhancedTestCase):
         self.chapter = self._make_board_chapter(self.member.name, self.volunteer.name)
         self._add_skill(self.volunteer.name, "Technical", "Python Programming", "4 - Advanced")
 
+    @shared_fixture
     def _ensure_chapter_role(self, role_name):
         """Ensure the Chapter Role master exists (board_members.chapter_role links
         to it). It is seeded on long-lived sites but absent on a fresh CI site,
         where its absence made the board fixture raise LinkValidationError in
-        setUp and failed every test in this class."""
+        setUp and failed every test in this class.
+
+        @shared_fixture (#1026): site-wide master data, no company/test scope.
+        """
         if not frappe.db.exists("Chapter Role", role_name):
             frappe.get_doc({"doctype": "Chapter Role", "role_name": role_name, "is_active": 1}).insert(
                 ignore_permissions=True

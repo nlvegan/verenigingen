@@ -31,7 +31,7 @@ from frappe.utils import nowdate
 from verenigingen.services.billing.sales_invoice_account_handler import (
     set_membership_receivable_account,
 )
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 
 
 class TestSalesInvoiceAccountHandler(EnhancedTestCase):
@@ -74,14 +74,18 @@ class TestSalesInvoiceAccountHandler(EnhancedTestCase):
         doc.insert(ignore_permissions=True)
         return doc
 
+    @shared_fixture
     def _ensure_item_group(self, name):
         """Get-or-create an Item Group the test depends on.
 
         CI seeds a fresh site that lacks the membership Item Groups the handler
         keys on (``set_membership_receivable_account`` matches item_group against
         ["Membership", "Contributie", "Lidmaatschap"]), so the test must create
-        them rather than assume dev-site data exists. Created (not committed) so
-        FrappeTestCase's transaction rollback reclaims it.
+        them rather than assume dev-site data exists.
+
+        @shared_fixture (#1026): Item Group is site-wide master data with no
+        company/test scope; without it the captured-insert drain would claim the
+        row for whichever test calls it first.
         """
         if not frappe.db.exists("Item Group", name):
             ig = frappe.new_doc("Item Group")

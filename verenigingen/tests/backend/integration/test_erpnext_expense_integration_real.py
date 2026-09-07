@@ -23,7 +23,7 @@ import unittest
 import frappe
 from frappe.utils import today, add_days
 
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
 from verenigingen.templates.pages.volunteer.expenses import (
     submit_expense,
@@ -97,8 +97,14 @@ class TestERPNextExpenseIntegrationReal(EnhancedTestCase):
         else:
             frappe.defaults.clear_default("company")
 
+    @shared_fixture
     def _ensure_expense_category(self, category_name):
-        """Ensure an Expense Category with a real expense account exists."""
+        """Ensure an Expense Category with a real expense account exists.
+
+        @shared_fixture (#1026): Expense Category is site-wide master data, no
+        company/test scope, keyed on the literal ``category_name`` (called with
+        "Travel" and other fixed labels from test bodies).
+        """
         if frappe.db.exists("Expense Category", category_name):
             return category_name
 

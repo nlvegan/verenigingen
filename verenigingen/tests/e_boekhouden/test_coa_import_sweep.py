@@ -29,7 +29,7 @@ from verenigingen.e_boekhouden.utils.eboekhouden_coa_import import (
     extract_bank_info_from_account_name,
     get_or_create_bank,
 )
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 
 
 class _CoaSweepBase(EnhancedTestCase):
@@ -47,7 +47,9 @@ class _CoaSweepBase(EnhancedTestCase):
         cls.bank_gl_account = cls._persist_account(cls.LABEL, "Bank")
 
     @classmethod
+    @shared_fixture
     def _persist_company(cls):
+        """@shared_fixture (#1026): Company is site-wide master data, no test scope."""
         if frappe.db.exists("Company", cls.COMPANY):
             return cls.COMPANY
         doc = frappe.new_doc("Company")

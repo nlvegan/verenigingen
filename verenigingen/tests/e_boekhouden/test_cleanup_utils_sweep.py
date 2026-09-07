@@ -46,7 +46,8 @@ from verenigingen.e_boekhouden.utils.cleanup_utils import (
     nuclear_cleanup_all_imported_data,
     test_cleanup_small_batch,
 )
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
+from verenigingen.tests.support.test_accounts import make_disposable_company
 
 
 class _SweepBase(EnhancedTestCase):
@@ -57,7 +58,16 @@ class _SweepBase(EnhancedTestCase):
         cls.abbr = frappe.db.get_value("Company", cls.company, "abbr")
 
     @classmethod
+    @shared_fixture
     def _persist_company(cls, name, abbr):
+        """@shared_fixture (#1026): Company is site-wide master data, no test scope.
+
+        Used from setUpClass ONLY. `TestCleanupChartOfAccountsForceMultiPass`
+        below needs a genuinely THROWAWAY company (it force-deletes the CoA
+        itself and relies on the captured-insert drain to remove the leftover
+        Company + protected root accounts afterwards) -- it must NOT call this
+        method; see `make_disposable_company` (tests/support/test_accounts.py).
+        """
         if frappe.db.exists("Company", name):
             return name
         doc = frappe.new_doc("Company")
@@ -138,7 +148,7 @@ class TestCleanupChartOfAccountsForceMultiPass(_SweepBase):
         # across multiple passes (children before parents), but the five root system
         # accounts are SKIPPED even in force mode. This exercises the force-mode root
         # skip branch, the per-pass refetch, and the "no deletions -> stop" break.
-        company = self._persist_company("TEST EBkh Cleanup Sweep Force Co", "TECSWF")
+        company = make_disposable_company("TEST EBkh Cleanup Sweep Force Co", "TECSWF")
 
         # Sanity: the vanilla CoA exists with the protected root names.
         roots_before = frappe.get_all(

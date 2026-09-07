@@ -18,7 +18,7 @@ import frappe
 from frappe.utils import today
 
 from verenigingen.templates.pages import member_portal
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 
 
 class TestMemberPortalPage(EnhancedTestCase):
@@ -62,7 +62,12 @@ class TestMemberPortalPage(EnhancedTestCase):
             ).insert(ignore_permissions=True)
         return email
 
+    @shared_fixture
     def _ensure_chapter_role(self):
+        """@shared_fixture (#1026): part of the ``_ensure_chapter_role`` family the
+        by-name guard treats as one; see test_chapter_management_service.py for why
+        a hardcoded-literal copy like this one is in scope even though it was not
+        itself in the issue's 42-item "identity is a parameter" list."""
         name = "Member Portal Board Role"
         if not frappe.db.exists("Chapter Role", name):
             frappe.get_doc(

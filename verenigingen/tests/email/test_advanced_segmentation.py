@@ -34,7 +34,7 @@ import frappe
 from frappe.utils import add_days, add_years
 
 from verenigingen.email.advanced_segmentation import AdvancedSegmentationManager
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 
 
 class SegmentationCohortMixin:
@@ -351,7 +351,11 @@ class TestSegmentMembershipRules(SegmentationCohortMixin, EnhancedTestCase):
             f"got extras {mine - {current.email}}",
         )
 
+    @shared_fixture
     def _ensure_chapter_role(self):
+        """@shared_fixture (#1026): part of the ``_ensure_chapter_role`` family the
+        by-name guard treats as one. ``track_doc(...)`` alone (below) is NOT
+        sufficient per CLAUDE.md -- it binds only the tracked drain."""
         role_name = "Segmentation Test Board Role"
         if not frappe.db.exists("Chapter Role", role_name):
             role = frappe.get_doc(

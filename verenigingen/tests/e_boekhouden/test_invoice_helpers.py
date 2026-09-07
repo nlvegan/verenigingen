@@ -37,7 +37,7 @@ from verenigingen.e_boekhouden.utils.invoice_helpers import (
     map_unit_of_measure,
     process_line_items,
 )
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 
 
 class _InvoiceStub:
@@ -289,7 +289,9 @@ class _AccountFixtureBase(EnhancedTestCase):
         cls.coded_income = cls._persist_account("80100 - Omzet algemeen", "Income Account", "Income")
 
     @classmethod
+    @shared_fixture
     def _persist_company(cls):
+        """@shared_fixture (#1026): Company is site-wide master data, no test scope."""
         if frappe.db.exists("Company", cls.COMPANY):
             return cls.COMPANY
         doc = frappe.new_doc("Company")
@@ -414,10 +416,15 @@ class TestDetermineAccountType(_AccountFixtureBase):
 
 
 class TestGetTaxAccountSuccess(_AccountFixtureBase):
+    @shared_fixture
     def _persist_named_account(self, full_name, root_type="Liability"):
         """Materialise an Account whose full name (incl. " - <abbr>") equals
         ``full_name`` on this test company, so get_tax_account's
-        frappe.db.exists("Account", <mapped name>) lookup hits it."""
+        frappe.db.exists("Account", <mapped name>) lookup hits it.
+
+        @shared_fixture (#1026): adds a leaf onto the SHARED test company (see
+        sepa_test_company.py); no company/test scope of its own.
+        """
         if frappe.db.exists("Account", full_name):
             return full_name
         # The mapped BTW account name is fully qualified; recreating it verbatim on

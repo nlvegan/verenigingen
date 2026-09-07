@@ -32,7 +32,7 @@ Covered:
 import frappe
 from frappe.utils import today
 
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 from verenigingen.utils.department_hierarchy import (
     DepartmentHierarchyManager,
     get_volunteer_department,
@@ -55,8 +55,12 @@ class TestDepartmentHierarchy(EnhancedTestCase):
             frappe.db.set_value("Verenigingen Settings", "Verenigingen Settings", "company", company)
         return company
 
+    @shared_fixture
     def _ensure_chapter_role(self, role_name):
-        """Create a Chapter Role with the exact (financial) name the manager filters on."""
+        """Create a Chapter Role with the exact (financial) name the manager filters on.
+
+        @shared_fixture (#1026): site-wide master data, no company/test scope.
+        """
         if not frappe.db.exists("Chapter Role", role_name):
             role = frappe.get_doc(
                 {

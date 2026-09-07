@@ -21,7 +21,7 @@ import unittest
 from unittest.mock import patch
 import frappe
 from frappe.utils import today
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 from verenigingen.services.chapter.chapter_permission_service import (
     ChapterPermissionService,
     get_chapter_permission_service,
@@ -254,8 +254,12 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
         return roles
 
     @classmethod
+    @shared_fixture
     def _ensure_chapter_role(cls, role_name):
-        """Ensure a Chapter Role exists (used as board_members.chapter_role)."""
+        """Ensure a Chapter Role exists (used as board_members.chapter_role).
+
+        @shared_fixture (#1026): site-wide master data, no company/test scope.
+        """
         if not frappe.db.exists("Chapter Role", role_name):
             frappe.get_doc(
                 {

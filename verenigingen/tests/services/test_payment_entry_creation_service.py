@@ -35,7 +35,7 @@ from unittest.mock import patch
 import frappe
 from frappe.utils import flt, getdate
 
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 from verenigingen.verenigingen_payments.services.payment.payment_entry_creation_service import (
     payment_entry_service,
 )
@@ -812,12 +812,18 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         bank_transaction.insert(ignore_permissions=True)
         return bank_transaction
 
+    @shared_fixture
     def _persist_minimal_company(self, name, abbr):
         """A throwaway company with a Bank-type GL leaf but no Bank Account of its
         own yet -- just enough to exercise `_create_bank_transaction`'s create
         branch. ERPNext's default Chart of Accounts only creates group accounts,
         so the Bank-type leaf `_create_bank_transaction` looks up must be added
-        explicitly, same as `test_coa_import.py`'s company fixtures do."""
+        explicitly, same as `test_coa_import.py`'s company fixtures do.
+
+        @shared_fixture (#1026): Company is site-wide master data, no test scope
+        of its own; ``track_doc(...)`` (below) alone is NOT sufficient per
+        CLAUDE.md -- it binds only the tracked drain.
+        """
         if not frappe.db.exists("Company", name):
             doc = frappe.new_doc("Company")
             doc.company_name = name
