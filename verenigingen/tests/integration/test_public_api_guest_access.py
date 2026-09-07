@@ -171,14 +171,25 @@ class TestPublicAPIDecoratorConsistency(EnhancedTestCase):
     def get_api_files(self) -> List[Path]:
         """Get all API files in the verenigingen app.
 
-        Fails loudly if the directory cannot be resolved or yields an
-        implausibly small number of files, instead of letting every caller
-        silently pass having scanned nothing (#1027).
+        Fails loudly if the directory cannot be resolved, or if the scan is
+        not actually recursive, instead of letting every caller silently pass
+        having scanned nothing -- or scanned only the top level (#1027).
         """
         api_dir = Path(frappe.get_app_path("verenigingen")) / "api"
         # rglob: verenigingen/api/ has real subdirectories (e.g. api/member/)
         # that a non-recursive glob('*.py') silently never sees (#972/#1020).
+        top_level_files = list(api_dir.glob("*.py"))
         files = list(api_dir.rglob("*.py"))
+        self.assertGreater(
+            len(files),
+            len(top_level_files),
+            f"Expected the recursive scan of {api_dir} to find more files than "
+            f"a non-recursive glob ({len(top_level_files)} found). "
+            "verenigingen/api/ has real subdirectories (e.g. api/member/) that "
+            "a plain glob('*.py') silently misses (#972/#1020) -- if this "
+            "fires, rglob was reverted to a non-recursive scan without anyone "
+            "noticing.",
+        )
         self.assertGreater(
             len(files),
             20,
@@ -351,14 +362,25 @@ class TestCriticalOperationRulesExist(EnhancedTestCase):
     def get_public_api_functions(self) -> List[Tuple[str, str]]:
         """Extract all @public_api decorated functions from API files.
 
-        Fails loudly if the directory cannot be resolved or yields an
-        implausibly small number of files, instead of silently returning
-        an empty list of "endpoints missing COR rules" (#1027).
+        Fails loudly if the directory cannot be resolved, or if the scan is
+        not actually recursive, instead of silently returning an incomplete
+        (or empty) list of "endpoints missing COR rules" (#1027).
         """
         api_dir = Path(frappe.get_app_path("verenigingen")) / "api"
         # rglob: verenigingen/api/ has real subdirectories (e.g. api/member/)
         # that a non-recursive glob('*.py') silently never sees (#972/#1020).
+        top_level_files = list(api_dir.glob("*.py"))
         api_files = list(api_dir.rglob("*.py"))
+        self.assertGreater(
+            len(api_files),
+            len(top_level_files),
+            f"Expected the recursive scan of {api_dir} to find more files than "
+            f"a non-recursive glob ({len(top_level_files)} found). "
+            "verenigingen/api/ has real subdirectories (e.g. api/member/) that "
+            "a plain glob('*.py') silently misses (#972/#1020) -- if this "
+            "fires, rglob was reverted to a non-recursive scan without anyone "
+            "noticing.",
+        )
         self.assertGreater(
             len(api_files),
             20,
