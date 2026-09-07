@@ -8,16 +8,21 @@ examining each financial API and its protection status.
 
 import os
 import re
+from pathlib import Path
 from typing import Dict, List, Tuple
+
+import frappe
 
 
 def detailed_security_audit():
     """Perform detailed security coverage audit"""
-    
+
     print("🔒 Detailed Security Coverage Audit")
     print("=" * 60)
-    
-    api_dir = '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/api'
+
+    # Resolve via the installed app rather than a hardcoded, non-existent
+    # /home/frappe/... path (#1036/#1027).
+    api_dir = str(Path(frappe.get_app_path("verenigingen")) / "api")
     
     # Define financial/critical API patterns
     high_risk_patterns = [
@@ -50,7 +55,13 @@ def analyze_api_files(api_dir: str, risk_patterns: List[str]) -> Dict:
     if not os.path.exists(api_dir):
         return analysis
     
-    api_files = [f for f in os.listdir(api_dir) if f.endswith('.py') and f != '__init__.py']
+    # rglob: verenigingen/api/ has real subdirectories (e.g. api/member/)
+    # that os.listdir() -- top-level only -- silently never sees (#972/#1036).
+    api_files = [
+        str(p.relative_to(api_dir))
+        for p in Path(api_dir).rglob("*.py")
+        if p.name != "__init__.py"
+    ]
     analysis['total_files'] = len(api_files)
     
     for filename in api_files:
@@ -379,7 +390,12 @@ def generate_detailed_security_report(analysis: Dict):
     # Save report
     report_text = "\n".join(report)
     
-    with open('/home/frappe/frappe-bench/apps/verenigingen/detailed_security_audit_report.md', 'w') as f:
+    # Write to the current working directory -- matches the "Output:
+    # detailed_security_audit_report.md" documented in
+    # docs/security/SECURITY_MAINTENANCE_GUIDE.md and the print() below,
+    # neither of which expects a hardcoded, non-existent /home/frappe/...
+    # path (#1036/#1027).
+    with open('detailed_security_audit_report.md', 'w') as f:
         f.write(report_text)
     
     print("\n" + "🔒 DETAILED SECURITY AUDIT SUMMARY")
