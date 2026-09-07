@@ -133,6 +133,61 @@ def get_mollie_settings(reference_docname, gateway_name):
         frappe.throw(_("Payment gateway configuration error. Please contact support."))
 
 
+# DocTypes eligible for a Mollie checkout payment, mapped (below, in
+# _resolve_reference_owner_email) to the field that holds the email address on
+# file for that document. This is a NARROWER, independently-verified list than
+# payment_success.ALLOWED_PAYMENT_DOCTYPES -- that set includes "Member
+# Application", which is not an installed DocType in this app (confirmed via
+# frappe.db.exists("DocType", "Member Application") == False), so it was
+# dropped here rather than imported and left permanently unreachable. Grepped
+# app-wide for reference_doctype="..." call sites (#1032): these three are the
+# only payment-bearing doctypes with a resolvable owner email.
+ALLOWED_REFERENCE_DOCTYPES = {"Donation", "Sales Invoice", "Payment Plan Payment"}
+
+
+def _resolve_reference_owner_email(reference_doctype, doc):
+    """Resolve the email address on file for a payment reference document.
+
+    make_payment is guest-reachable by design (a payer has no session before
+    their payment succeeds), so this is the only ownership signal available --
+    mirrors donate.py's PublicDonationService._verify_donor_email_matches
+    (#969, PR #1028). Returns "" (never None) for any doctype/document this
+    cannot resolve an email for, so callers fail closed instead of skipping
+    the comparison.
+    """
+    if reference_doctype == "Donation":
+        return (getattr(doc, "donor_email", None) or "").strip().lower()
+    if reference_doctype == "Sales Invoice":
+        return (getattr(doc, "contact_email", None) or "").strip().lower()
+    if reference_doctype == "Payment Plan Payment":
+        member = getattr(doc, "member", None)
+        member_email = frappe.db.get_value("Member", member, "email") if member else None
+        return (member_email or "").strip().lower()
+    return ""
+
+
+def _verify_payer_owns_reference(reference_doctype, doc, payer_email):
+    """Refuse unless payer_email matches the reference document's on-file email.
+
+    Raises frappe.ValidationError, which make_payment's existing outer
+    ``except Exception`` already converts into the same generic
+    "Payment processing failed" response used for every other failure -- so
+    the response TEXT does not distinguish "wrong/missing email" or
+    "disallowed doctype" from any other failure. That uniformity does NOT
+    close a timing side-channel: a refusal here is a string compare, while a
+    matching email proceeds into a real, network-bound gateway call before it
+    can fail for an unrelated reason (see PR #1028's measured ~30-400x gap for
+    the identical shape in donate.py::retry_payment). This is not mitigated
+    here; a dedicated per_ip Critical Operation Rule (as added for
+    retry_payment) is the recommended mitigation, bounding how many timing
+    samples one attacker can collect rather than equalizing latency.
+    """
+    owner_email = _resolve_reference_owner_email(reference_doctype, doc)
+    supplied = (payer_email or "").strip().lower()
+    if not owner_email or not supplied or supplied != owner_email:
+        frappe.throw(_("Payment reference not found"))
+
+
 @frappe.whitelist(allow_guest=True)
 @public_api
 def make_payment(data, reference_doctype, reference_docname, gateway_name: str = "Default"):
@@ -144,6 +199,13 @@ def make_payment(data, reference_doctype, reference_docname, gateway_name: str =
     - Checking status of existing payments
     - Recreating cancelled/expired payments
     - Updating payment status in the database
+
+    Guest-reachable by design (no session exists yet for a payer who has not
+    logged in). reference_doctype is restricted to ALLOWED_REFERENCE_DOCTYPES
+    and reference_docname's document is resolved only after the caller's
+    ``data.payer_email`` is confirmed to match that document's on-file email
+    (#1032) -- see _verify_payer_owns_reference for what this does and does
+    not close off.
 
     Args:
         data (str): JSON string containing payment data
@@ -158,8 +220,18 @@ def make_payment(data, reference_doctype, reference_docname, gateway_name: str =
         # Parse payment data
         data = json.loads(data)
 
+        # Reject any doctype outside the allowlist before ever touching
+        # frappe.get_doc for it -- an arbitrary caller-supplied doctype has no
+        # business being loaded here at all (#1032).
+        if reference_doctype not in ALLOWED_REFERENCE_DOCTYPES:
+            frappe.throw(_("Payment reference not found"))
+
         # Get the document being paid for
         doc = frappe.get_doc(reference_doctype, reference_docname)
+
+        # Refuse unless the caller proves a relationship to this specific
+        # document via its on-file email (#1032).
+        _verify_payer_owns_reference(reference_doctype, doc, data.get("payer_email"))
 
         # Check if payment already exists
         existing_payment_id = getattr(doc, "payment_id", None)
