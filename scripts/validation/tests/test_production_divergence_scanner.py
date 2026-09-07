@@ -5,6 +5,7 @@ Pure-Python (no bench/site needed). Run with:  python -m pytest this_file.py
 or plain:  python scripts/validation/tests/test_production_divergence_scanner.py
 """
 import importlib.util
+import os
 import sys
 import tempfile
 import unittest
@@ -74,7 +75,7 @@ class DivergenceBandTest(unittest.TestCase):
             for name, copies in pds._by_name(root).items():
                 if len(copies) < 2:
                     continue
-                exact, near, best, worst, _cos = pds._pair_stats(copies)
+                exact, near, best, worst, _cos, _near_pairs = pds._pair_stats(copies)
                 if exact == 0 and worst >= pds.CLONE_RATIO:
                     found.append(name)
             return found
@@ -179,6 +180,88 @@ class DictLiteralGapTest(unittest.TestCase):
         self.assertEqual({}, _census2({"a.py": src, "b.py": src}))
 
 
+class NearPairEvidenceTest(unittest.TestCase):
+    """#1008: `_print_report` named the family that diverged but printed a
+    truncated, alphabetically-sorted directory list (`dirs[:4]`) instead of the
+    actual near-identical pair that produced the verdict -- and for a family
+    with more than ~4 directories, the true pair can be truncated away
+    entirely. Reproduces that exact shape: four mutually-unrelated copies
+    (sorted first) plus one near-identical PAIR whose directories sort last,
+    so `dirs[:4]` would show only the four unrelated ones and never mention
+    the pair a human is meant to triage.
+    """
+
+    # 11 lines so a one-line edit is a small ratio change, not a large one.
+    _BODY = "\n".join(f"    x{i} = {i}" for i in range(10))
+
+    def _unrelated(self, seed):
+        return "def public_fn():\n" + "\n".join(f"    q{seed}_{i} = {i} ** 2" for i in range(14)) + "\n"
+
+    def _near(self, tail):
+        return f"def public_fn():\n{self._BODY}\n    return {tail}\n"
+
+    def _tree(self):
+        return {
+            "aaa_unrelated/a.py": self._unrelated(1),
+            "bbb_unrelated/a.py": self._unrelated(2),
+            "ccc_unrelated/a.py": self._unrelated(3),
+            "ddd_unrelated/a.py": self._unrelated(4),
+            # Sorts LAST alphabetically -- exactly where dirs[:4] cannot reach.
+            "zzz_pair_one/a.py": self._near("1"),
+            "zzz_pair_two/a.py": self._near("2"),
+        }
+
+    def test_divergent_families_reports_the_actual_near_pair_paths(self):
+        result = {}
+
+        def _capture(root):
+            result["root"] = root
+            return pds.divergent_families(root)
+
+        families = {f[4]: f for f in _with_tree(self._tree(), _capture)}
+        self.assertIn("public_fn", families)
+        near, files, best, worst, name, dirs, near_pairs = families["public_fn"]
+        self.assertEqual(6, files)
+        self.assertEqual(1, near, "only the zzz_pair_one/two copies are near-identical")
+
+        # The defect: the true pair's directories do not appear in the first
+        # four of the alphabetically-sorted directory list at all.
+        pair_one_dir = os.path.join(result["root"], "zzz_pair_one")
+        pair_two_dir = os.path.join(result["root"], "zzz_pair_two")
+        self.assertNotIn(pair_one_dir, dirs[:4])
+        self.assertNotIn(pair_two_dir, dirs[:4])
+
+        # The fix: the actual pair is named directly, regardless of where its
+        # directories would fall in an alphabetical truncation.
+        self.assertEqual(1, len(near_pairs))
+        pair_paths = {near_pairs[0][0], near_pairs[0][1]}
+        self.assertEqual(
+            {
+                os.path.join(result["root"], "zzz_pair_one", "a.py"),
+                os.path.join(result["root"], "zzz_pair_two", "a.py"),
+            },
+            pair_paths,
+            "the report must name the pair that produced the verdict, not a "
+            "truncated, alphabetically-sorted directory list that can drop it",
+        )
+
+    def test_print_report_names_the_pair_not_just_dirs(self):
+        """Integration-level check on the actual printed report: the paths of
+        the diverging pair must appear in the text a human reads."""
+        import contextlib
+        import io
+
+        def _run(root):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                pds._print_report(root)
+            return buf.getvalue()
+
+        output = _with_tree(self._tree(), _run)
+        self.assertIn("zzz_pair_one/a.py", output)
+        self.assertIn("zzz_pair_two/a.py", output)
+
+
 class Real495AcceptanceTest(unittest.TestCase):
     """The non-negotiable acceptance test from #991: if this does not find
     #495's family, it does not work. Run against the ACTUAL repo tree, not a
@@ -203,7 +286,7 @@ class Real495AcceptanceTest(unittest.TestCase):
         is NOT reported. If this ever starts passing under the strict rule too,
         that is good news (the copies converged) -- but today it must fail,
         or the module docstring's central claim is untested."""
-        near, files, best, worst, name, dirs = self.families["calculate_next_invoice_date"]
+        near, files, best, worst, name, dirs, _near_pairs = self.families["calculate_next_invoice_date"]
         self.assertGreaterEqual(files, 5, "the six/five known current copies")
         self.assertLess(
             worst,
