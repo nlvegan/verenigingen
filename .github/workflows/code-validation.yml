@@ -33,7 +33,11 @@ permissions:
 jobs:
   validation:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Was 10: the new scripts/validation/tests catch-all step below measured
+    # ~6.5 minutes locally (525 tests, dominated by two real-repo/real-doctype
+    # scans at ~75-80s each) on top of the ~3s the existing steps take, leaving
+    # too little headroom against a slower CI runner.
+    timeout-minutes: 15
 
     steps:
     - name: Checkout code
@@ -71,6 +75,48 @@ jobs:
         cd scripts/validation
         python child_table_creation_validator.py || echo "Child table validation completed with issues"
       continue-on-error: true
+
+    # Catch-all for scripts/validation/tests (#1068): every step below this one in
+    # this file, and every "Unit-test X" step in the ratchet jobs further down,
+    # names ONE exact filename to `unittest discover -p`, which discovers nothing
+    # for any other file in the directory. There is no catch-all anywhere --
+    # .github/workflows/, .pre-commit-config.yaml, Makefile and pytest.ini were all
+    # grepped -- so a new test file runs only if someone also adds a new named
+    # step, and in practice this was skipped 8 times (measured 2026-09-07): six
+    # validators' tests never ran at all, and two heavier ones
+    # (production_divergence_scanner's real-repo scan, doctype_name_validator's
+    # full self-check) never ran either, at ~75-80s each.
+    #
+    # Deliberately ADDITIVE, not a replacement for the named steps below: those
+    # each live in their own dedicated job (swallowed-exception-ratchet,
+    # log-error-arg-order-ratchet, ...) and a failure there names the validator
+    # family at a glance. Collapsing them into this one step would trade that
+    # per-job attribution for a single job whose log you have to open to see
+    # which validator broke -- a real loss of granularity for zero gain, since
+    # this step runs anyway. So the 14 already-named files get run TWICE (here,
+    # and in their own job) -- harmless duplication, not a masked signal -- while
+    # this step is the only thing that will ever catch a FUTURE file added here
+    # without a matching named step.
+    #
+    # ~6.5 minutes locally (525 tests), inside this job's existing 10-minute
+    # budget alongside the ~3s of validators above.
+    #
+    # scripts/testing/tests already has its own catch-all (`-p 'test_*.py'`,
+    # see the swallowed-exception-ratchet job) and does not need one here.
+    #
+    # NOT included: scripts/optimization/tests, scripts/security/tests,
+    # scripts/analysis/tests (added by #1064). All three `import frappe` --
+    # directly, or via the validator module they exec -- and this job installs
+    # no frappe (see "Install dependencies" above): every one of them fails
+    # collection with `ModuleNotFoundError: No module named 'frappe'` before a
+    # single test runs. Filed as #1079 rather than patched here; wiring them in
+    # needs either a real frappe install in this deliberately frappe-free job or
+    # removing frappe as a module-load-time dependency from five production
+    # scripts, both out of scope for a workflow-wiring fix.
+    # TODO(#1079): wire scripts/optimization/tests, scripts/security/tests and
+    # scripts/analysis/tests once that is resolved.
+    - name: Unit-test scripts/validation/tests (catch-all)
+      run: python -m unittest discover -s scripts/validation/tests -p 'test_*.py' -v
 
     - name: Validation Summary
       if: always()
