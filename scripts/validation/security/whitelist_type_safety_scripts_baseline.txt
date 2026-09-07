@@ -1,0 +1,10 @@
+# Pre-existing whitelist_type_safety_validator ERROR issues under scripts/,
+# tracked as known debt by #1076. Shrink-only: verenigingen/api/ is never
+# read from this file and stays zero-tolerance. Regenerate with
+# --update-baseline after triaging new debt into its own issue.
+
+scripts/debug/membership_dues_coverage_debugger.py::quick_coverage_test::missing_type_annotation
+scripts/debug/payment_history_debugger.py::check_member_payment_history::missing_type_annotation
+scripts/debug/payment_history_debugger.py::manually_update_payment_history::missing_type_annotation
+scripts/migration/fix_team_assignment_history.py::fix_team_assignment_history::missing_type_annotation
+scripts/migration/manual_employee_creation.py::create_employee_for_volunteer::missing_type_annotation

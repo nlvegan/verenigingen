@@ -614,7 +614,21 @@ def main() -> int:
         action="store_true",
         help="near-identical copies with NO exact pair -- where a fix landed once",
     )
+    parser.add_argument(
+        "--root",
+        default=SCAN_ROOT,
+        help=(
+            "repo-relative directory to scan (default: %(default)s). #1044: the "
+            "default leaves scripts/ -- 320 files, every ratchet and gate -- "
+            "structurally unable to be scanned for its own clones. Pass "
+            "--root scripts with a scripts-specific --baseline to scan it as its "
+            "OWN population rather than folding it into duplicate_helper_baseline.txt "
+            "(which would redden the push-only shrink gate for a population it was "
+            "never regenerated against)."
+        ),
+    )
     args = parser.parse_args()
+    scan_root = str(REPO_ROOT / args.root)
 
     if args.drift:
         # The band worth triaging. A family whose copies are still byte-identical is
@@ -629,14 +643,14 @@ def main() -> int:
         # similarity is 0.05 -- 45 independently written fixtures, not a fix that
         # landed once. Keying on the worst pair drops it, and takes the band from
         # 89 families to a set where the inference is actually true.
-        drifted = [f for f in clone_families() if f[2] == 0 and f[6] >= CLONE_RATIO]
+        drifted = [f for f in clone_families(scan_root) if f[2] == 0 and f[6] >= CLONE_RATIO]
         print(f"{'pairs':>5} {'defs':>5} {'worst':>6} {'best':>6}  helper")
         for pairs, defs, _exact, best, name, dirs, worst, _cos, pair_evidence in drifted:
             # `best` is rounded to 2dp, so a 0.997 family printed as 1.00 under a
             # header promising "no exact pair". Show 3dp.
             print(f"{pairs:>5} {defs:>5} {worst:>6.3f} {best:>6.3f}  {name}")
             _print_near_pairs(pair_evidence, 26)
-        cosmetic_only = [f for f in clone_families() if f[2] and f[7] and f[0] == f[2]]
+        cosmetic_only = [f for f in clone_families(scan_root) if f[2] and f[7] and f[0] == f[2]]
         print(
             f"\n{len(drifted)} families in which EVERY copy is >={CLONE_RATIO:.0%} similar to "
             "every other and none is identical AFTER normalising away docstrings and\n"
@@ -651,7 +665,7 @@ def main() -> int:
         return 0
 
     if args.report:
-        families = clone_families()
+        families = clone_families(scan_root)
         print(f"{'pairs':>5} {'defs':>5} {'exact':>5} {'best':>5}  helper")
         for pairs, defs, exact, best, name, dirs, _worst, _cos, pair_evidence in families:
             print(f"{pairs:>5} {defs:>5} {exact:>5} {best:>5}  {name}")
@@ -661,7 +675,7 @@ def main() -> int:
 
     # One scan, reused by the writer and by the blocking decision below. census()
     # would repeat it.
-    families = _by_name(str(REPO_ROOT / SCAN_ROOT))
+    families = _by_name(scan_root)
     counts = {name: len(v) for name, v in families.items() if len(v) > 1}
 
     if args.update_baseline:

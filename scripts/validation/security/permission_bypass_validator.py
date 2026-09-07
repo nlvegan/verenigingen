@@ -250,20 +250,29 @@ def get_changed_files() -> List[str]:
         return []
 
 
-def get_all_python_files(base_path: str = 'verenigingen') -> List[str]:
-    """Get all Python files in the codebase"""
+def get_all_python_files(base_paths=('verenigingen', 'scripts')) -> List[str]:
+    """Get all Python files in the codebase.
+
+    #1076: the old single-root default ('verenigingen') meant `--all` never
+    looked at scripts/ -- a real importable package holding permission-bypass
+    usages of its own that have never been triaged. Accepts a single string
+    too, for any external caller still passing one positionally.
+    """
+    if isinstance(base_paths, str):
+        base_paths = (base_paths,)
+
     files = []
-    base = Path(base_path)
-
-    if not base.exists():
-        return files
-
-    for path in base.rglob('*.py'):
-        # Skip archived directories
-        path_str = str(path)
-        if any(skip in path_str for skip in ['archived_', '/archived/', '__pycache__']):
+    for base_path in base_paths:
+        base = Path(base_path)
+        if not base.exists():
             continue
-        files.append(str(path))
+
+        for path in base.rglob('*.py'):
+            # Skip archived directories
+            path_str = str(path)
+            if any(skip in path_str for skip in ['archived_', '/archived/', '__pycache__']):
+                continue
+            files.append(str(path))
 
     return files
 
@@ -384,6 +393,13 @@ def main():
             return 0
     elif args.all:
         files_to_check = get_all_python_files()
+        if not files_to_check:
+            # A misconfigured run (wrong cwd, both scan roots renamed/moved)
+            # must hard-fail here, distinct from the "nothing staged" case
+            # below -- otherwise "scanned nothing" and "scanned everything and
+            # it's clean" print the identical "0 issues found" success message.
+            print("❌ Neither scan root ('verenigingen', 'scripts') was found.")
+            return 2
     elif args.baseline:
         files_to_check = get_changed_files()
     else:

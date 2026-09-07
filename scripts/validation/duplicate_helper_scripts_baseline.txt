@@ -1,0 +1,93 @@
+# Private helpers -- module-level functions AND methods -- defined in more
+# than one file. The ratchet baseline for
+# scripts/validation/duplicate_helper_validator.py. Format:
+#     <helper name>::<number of definitions of it (#990) -- can exceed the
+#     number of distinct files: one file can define the name on several
+#     classes; use --report for the file/directory breakdown>
+#
+# A change fails only if it adds a copy of a name marked `# clone family`
+# below -- one whose copies really are near-identical. A new copy of an
+# unmarked name is reported and recorded, not blocked: those share a name and
+# little else, and the only exit a blocking gate leaves for them is renaming
+# the method. Consolidating never fails the gate.
+#
+# This file should only ever SHRINK. It is a to-do list, not a permission slip:
+# each line is a place where a future fix can be applied to one copy and missed
+# in the others -- which happened four times on 2026-08-19 alone (#392, #394,
+# #399, and a merge collision between two branches fixing the same test).
+#
+# A high count here does NOT mean the copies are clones; same name, unrelated
+# bodies is common (13 `_payment` helpers share 6% similarity) -- which is why
+# only the marked lines block. Run with --report for the similarity view
+# before consolidating anything, and --drift for the band that matters most:
+# near-identical copies with NO exact pair, i.e. a fix that already landed in
+# one of them.
+
+_active::2  # clone family, 1 near-identical pair(s)
+_analyze_function::2
+_build_child_table_mapping::5
+_build_excluded_patterns::2
+_build_valid_patterns::2
+_by_name::2
+_call_name::2  # clone family, 1 near-identical pair(s)
+_commit::3  # clone family, 3 near-identical pair(s)
+_convert_doctypes_for_compatibility::6
+_counts::4  # clone family, 3 near-identical pair(s)
+_different::2
+_disables_raise::2
+_dotted::3  # clone family, 1 near-identical pair(s)
+_extract_function_name::2
+_extract_handlers::2
+_find_bench_apps::2  # clone family, 1 near-identical pair(s)
+_find_similar_fields::5  # clone family, 4 near-identical pair(s)
+_findings::2
+_flagged::4  # clone family, 6 near-identical pair(s)
+_fn::2  # clone family, 1 near-identical pair(s)
+_generate_recommendations::4
+_generate_summary::2
+_get_app_path::2  # clone family, 1 near-identical pair(s)
+_get_context::2
+_get_decorator_name::2
+_get_function_source::2
+_get_line_context::2  # clone family, 1 near-identical pair(s)
+_get_security_decorator::2
+_git::3  # clone family, 1 near-identical pair(s)
+_guess_doctype_from_validation_context::3  # clone family, 1 near-identical pair(s)
+_has_frappe_whitelist::3  # clone family, 1 near-identical pair(s)
+_is_broad::2
+_is_false_positive::2
+_is_falsy_return::2
+_is_test_debug_function::2
+_is_test_file::3
+_is_test_path::2
+_iter_api_python_files::2
+_iter_py::5  # clone family, 6 near-identical pair(s)
+_iter_python_files::3  # clone family, 1 near-identical pair(s)
+_load::6  # clone family, 15 near-identical pair(s)
+_load_properties::2
+_make_bench::2
+_near::2  # clone family, 1 near-identical pair(s)
+_own_nodes::4  # clone family, 1 near-identical pair(s)
+_parse::3  # clone family, 1 near-identical pair(s)
+_propagates::2  # clone family, 1 near-identical pair(s)
+_qualnames::5  # clone family, 3 near-identical pair(s)
+_record::2
+_rel::10  # clone family, 36 near-identical pair(s)
+_run::4
+_run_gate::3
+_run_main::2
+_same::2
+_scan::6  # clone family, 6 near-identical pair(s)
+_scan_file::3
+_should_skip::2
+_should_skip_file::5  # clone family, 3 near-identical pair(s)
+_shrink::3
+_split::2
+_suggest_fix::2
+_suppressed::5  # clone family, 1 near-identical pair(s)
+_suppression::2
+_to_title_case::2  # clone family, 1 near-identical pair(s)
+_tree::6
+_unrelated::2  # clone family, 1 near-identical pair(s)
+_validate_file::2
+_write::7  # clone family, 6 near-identical pair(s)

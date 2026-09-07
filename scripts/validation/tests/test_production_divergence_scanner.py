@@ -262,6 +262,62 @@ class NearPairEvidenceTest(unittest.TestCase):
         self.assertIn("zzz_pair_two/a.py", output)
 
 
+class ScanRootFlagTest(unittest.TestCase):
+    """#1044: this scanner imports SCAN_ROOT from its sibling
+    duplicate_helper_validator.py, so it too never looked at scripts/. Advisory
+    only (always exits 0), but the report content itself must actually change
+    when --root does -- otherwise --root scripts silently reports on
+    verenigingen/ again."""
+
+    def _tree(self):
+        return {
+            # PUBLIC (no leading underscore) diverged pair, confined to a
+            # directory standing in for scripts/.
+            "scripts_stand_in/a.py": "def scripts_only_diverged():\n    return 1\n",
+            "scripts_stand_in/b.py": "def scripts_only_diverged():\n    return 2\n",
+            # An unrelated, singly-defined public function elsewhere, so the
+            # default root has something in it without colliding.
+            "verenigingen_stand_in/only_here.py": "def lonely_public():\n    return 3\n",
+        }
+
+    def _run_main(self, argv, repo_root):
+        old_argv, old_root = sys.argv, pds.REPO_ROOT
+        sys.argv = ["production_divergence_scanner.py"] + argv
+        pds.REPO_ROOT = repo_root
+        try:
+            import contextlib
+            import io
+
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = pds.main()
+            return rc, buf.getvalue()
+        finally:
+            sys.argv, pds.REPO_ROOT = old_argv, old_root
+
+    def test_default_root_report_does_not_mention_the_scripts_only_pair(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            for rel, src in self._tree().items():
+                p = root / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(src)
+            rc, output = self._run_main([], root)
+            self.assertEqual(0, rc, "advisory -- always exits 0")
+            self.assertNotIn("scripts_only_diverged", output)
+
+    def test_root_flag_surfaces_the_pair_confined_to_that_directory(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            for rel, src in self._tree().items():
+                p = root / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(src)
+            rc, output = self._run_main(["--root", "scripts_stand_in"], root)
+            self.assertEqual(0, rc, "advisory -- always exits 0")
+            self.assertIn("scripts_only_diverged", output)
+
+
 class Real495AcceptanceTest(unittest.TestCase):
     """The non-negotiable acceptance test from #991: if this does not find
     #495's family, it does not work. Run against the ACTUAL repo tree, not a

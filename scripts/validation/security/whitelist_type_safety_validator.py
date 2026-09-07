@@ -438,8 +438,8 @@ def main():
     parser.add_argument(
         '--directory', '-d',
         type=str,
-        default='verenigingen/api',
-        help="Directory to validate (default: verenigingen/api)"
+        default=None,
+        help="Directory to validate (default: SCAN_ROOTS, i.e. verenigingen/api AND scripts)"
     )
     parser.add_argument(
         '--strict',
@@ -461,6 +461,12 @@ def main():
         action='store_true',
         help="Output results as JSON"
     )
+    parser.add_argument(
+        '--update-baseline', action='store_true',
+        help="Write current scripts/ ERROR-level issues to the shrink-only baseline "
+             "and exit (verenigingen/api/ is never written here -- it stays "
+             "zero-tolerance)"
+    )
 
     args = parser.parse_args()
 
@@ -471,6 +477,7 @@ def main():
 
     # Determine what to validate
     issues = []
+    no_scan_roots_found = False
 
     # Handle files passed as positional arguments (pre-commit mode)
     if args.files:
@@ -488,13 +495,65 @@ def main():
             print(f"Error: File not found: {args.file}")
             sys.exit(1)
         issues = validator.validate_file(file_path)
-    # Default: validate directory
-    else:
+    # Handle an explicit --directory (single root, unchanged pre-#1044 behavior)
+    elif args.directory:
         directory = Path(args.directory)
         if not directory.exists():
             print(f"Error: Directory not found: {args.directory}")
             sys.exit(1)
         issues = validator.validate_directory(directory)
+    # Default: full-scan BOTH roots. `scripts/` -- 320 files, every ratchet and
+    # gate -- was never covered by the old single 'verenigingen/api' default,
+    # so 121 dispatch-reachable frappe.whitelisted endpoints under it were
+    # never checked for a missing type annotation or permission check (#1076,
+    # same class as #1069's fix to the sibling security validators). Same
+    # SCAN_ROOTS shape as api_security_validator.py / insecure_api_detector.py.
+    else:
+        SCAN_ROOTS = ('verenigingen/api', 'scripts')
+        any_root_found = False
+        for root_name in SCAN_ROOTS:
+            directory = Path(root_name)
+            if not directory.exists():
+                continue
+            any_root_found = True
+            issues.extend(validator.validate_directory(directory))
+        if not any_root_found:
+            print(f"❌ None of the scan roots were found: {SCAN_ROOTS}")
+            no_scan_roots_found = True
+
+    # scripts/ carries a shrink-only baseline of pre-existing debt (#1076,
+    # same mechanism as #1069/#1075): an ERROR there only blocks if it is NOT
+    # already tracked. verenigingen/api/ is never read from the baseline and
+    # stays zero-tolerance.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from scripts_dir_baseline import load_baseline, partition_by_baseline, write_baseline
+
+    baseline_path = Path(__file__).resolve().with_name('whitelist_type_safety_scripts_baseline.txt')
+    error_keys = [
+        (i.file_path, i.function_name, i.issue_type) for i in issues if i.severity == Severity.ERROR
+    ]
+
+    if args.update_baseline:
+        scripts_keys = [k for k in error_keys if k[0].startswith('scripts/')]
+        write_baseline(
+            baseline_path,
+            scripts_keys,
+            "# Pre-existing whitelist_type_safety_validator ERROR issues under scripts/,\n"
+            "# tracked as known debt by #1076. Shrink-only: verenigingen/api/ is never\n"
+            "# read from this file and stays zero-tolerance. Regenerate with\n"
+            "# --update-baseline after triaging new debt into its own issue.",
+        )
+        print(f"📝 Wrote {len(scripts_keys)} scripts/ finding(s) to {baseline_path}")
+        sys.exit(0)
+
+    baseline = load_baseline(baseline_path)
+    blocking, known = partition_by_baseline(error_keys, baseline)
+
+    if known:
+        print(
+            f"\nℹ️  {len(known)} finding(s) under scripts/ are known pre-existing debt, "
+            f"not blocking. {len(blocking)} finding(s) are new/blocking."
+        )
 
     # Output results
     if args.json:
@@ -516,7 +575,14 @@ def main():
     else:
         validator.print_report(issues, show_suggestions=args.fix_suggestions)
 
-    sys.exit(validator.get_exit_code(issues))
+    # A misconfigured run (wrong cwd, a moved/renamed directory) that finds
+    # NEITHER scan root must hard-fail, before the baseline partition above
+    # gets a chance to make "found nothing" look identical to "scanned
+    # everything and it's clean" (the #1078 fail-open shape).
+    if no_scan_roots_found:
+        sys.exit(1)
+
+    sys.exit(1 if blocking else 0)
 
 
 if __name__ == "__main__":
