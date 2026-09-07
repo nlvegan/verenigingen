@@ -215,15 +215,31 @@ class InsecureAPIDetector:
         if file_paths:
             files_to_scan = [Path(f) for f in file_paths if f.endswith('.py')]
         else:
-            # Find all API files
-            api_dir = Path('verenigingen/api')
-            if not api_dir.exists():
-                print(f"❌ API directory not found: {api_dir}")
+            # Find all API files. `scripts/` is a second scan root, not an
+            # afterthought: it is a real importable package (scripts/__init__.py
+            # exists) holding 121 dispatch-reachable frappe.whitelisted endpoints
+            # of its own, measured by runtime frappe.whitelisted membership --
+            # none of them were ever checked for a missing security decorator or
+            # unparameterised SQL, because this scan only ever looked at
+            # verenigingen/api/ (#1069). Same SCAN_ROOTS shape already used by
+            # log_error_arg_order_validator.py and (post-#1065)
+            # critical_operation_rule_orphan_validator.py.
+            SCAN_ROOTS = ('verenigingen/api', 'scripts')
+            files_to_scan = []
+            any_root_found = False
+            for root_name in SCAN_ROOTS:
+                root_dir = Path(root_name)
+                if not root_dir.exists():
+                    continue
+                any_root_found = True
+                # rglob: subdirectories (e.g. api/member/) are real and a
+                # non-recursive glob('*.py') silently never sees them (#972).
+                files_to_scan.extend(root_dir.rglob('*.py'))
+
+            if not any_root_found:
+                print(f"❌ None of the scan roots were found: {SCAN_ROOTS}")
                 return False
-            
-            # rglob: verenigingen/api/ has real subdirectories (e.g. api/member/)
-            # whose files a non-recursive glob('*.py') silently never sees (#972).
-            files_to_scan = list(api_dir.rglob('*.py'))
+
             files_to_scan = [f for f in files_to_scan if not f.name.startswith('__')]
 
         self.stats['total_files'] = len(files_to_scan)
@@ -710,39 +726,76 @@ Examples:
         '--config',
         help='Path to configuration file (JSON)'
     )
-    
+    parser.add_argument(
+        '--update-baseline', action='store_true',
+        help='Write current scripts/ issues to the shrink-only baseline and exit '
+             '(verenigingen/api/ is never written here -- it stays zero-tolerance)'
+    )
+
     args = parser.parse_args()
-    
+
     try:
         # Load configuration if provided
         if args.config and os.path.exists(args.config):
             with open(args.config, 'r') as f:
                 config = json.load(f)
             # Apply configuration overrides here if needed
-            
+
         # Initialize detector
         detector = InsecureAPIDetector(
             verbose=args.verbose,
             report_only=args.report_only
         )
-        
+
         # Scan files
-        is_secure = detector.scan_files(args.files)
-        
+        detector.scan_files(args.files)
+
         # Print results
         detector.print_results()
-        
+
         # Generate JSON report if requested
         if args.json_output:
             report = detector.generate_json_report()
             with open(args.json_output, 'w') as f:
                 json.dump(report, f, indent=2)
             print(f"📄 JSON report written to {args.json_output}")
-        
+
+        # scripts/ carries a shrink-only baseline of pre-existing debt (#1069 /
+        # #1075): an issue there only blocks if it is NOT already tracked.
+        # verenigingen/api/ is never read from the baseline and stays
+        # zero-tolerance, exactly as before #1069 widened the scan root.
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from scripts_dir_baseline import load_baseline, partition_by_baseline, write_baseline
+
+        baseline_path = Path(__file__).resolve().with_name('insecure_api_detector_scripts_baseline.txt')
+        finding_keys = [(i.file_path, i.function_name, i.issue_type) for i in detector.issues]
+
+        if args.update_baseline:
+            scripts_keys = [k for k in finding_keys if k[0].startswith('scripts/')]
+            write_baseline(
+                baseline_path,
+                scripts_keys,
+                "# Pre-existing insecure_api_detector issues under scripts/, tracked as\n"
+                "# known debt by #1069/#1075. Shrink-only: verenigingen/api/ is never\n"
+                "# read from this file and stays zero-tolerance. Regenerate with\n"
+                "# --update-baseline after triaging new debt into its own issue.",
+            )
+            print(f"📝 Wrote {len(scripts_keys)} scripts/ finding(s) to {baseline_path}")
+            sys.exit(0)
+
+        baseline = load_baseline(baseline_path)
+        blocking, known = partition_by_baseline(finding_keys, baseline)
+
+        if known:
+            print(
+                f"\nℹ️  {len(known)} finding(s) under scripts/ are known pre-existing debt "
+                f"(see #1075), not blocking. {len(blocking)} finding(s) are new/blocking."
+            )
+
         # Exit with appropriate code
         if args.report_only:
             sys.exit(0)
-        elif not is_secure:
+        elif blocking:
             print(f"\n❌ Insecure API endpoints detected. Please fix the issues above.")
             sys.exit(1)
         else:
