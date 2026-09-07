@@ -19,6 +19,7 @@ import contextlib
 import inspect
 import os
 import re
+import tempfile
 import unittest
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
@@ -159,6 +160,72 @@ class TestPublicAPIGuestAccess(EnhancedTestCase):
                 self.fail(f"Guest should be able to validate email: {str(e)}")
 
 
+def _decorator_base_name(decorator: ast.expr) -> str:
+    """Return the bare name of a decorator regardless of call/attribute shape.
+
+    ``@public_api`` -> "public_api", ``@public_api(...)`` -> "public_api",
+    ``@frappe.whitelist`` -> "whitelist", ``@frappe.whitelist(...)`` -> "whitelist".
+    """
+    target = decorator.func if isinstance(decorator, ast.Call) else decorator
+    if isinstance(target, ast.Attribute):
+        return target.attr
+    if isinstance(target, ast.Name):
+        return target.id
+    return ""
+
+
+def _whitelist_allows_guest(decorator: ast.expr) -> bool:
+    """True if a ``@frappe.whitelist(...)`` decorator call passes allow_guest=True."""
+    if not isinstance(decorator, ast.Call):
+        return False
+    for keyword in decorator.keywords:
+        if keyword.arg == "allow_guest":
+            return isinstance(keyword.value, ast.Constant) and keyword.value.value is True
+    return False
+
+
+def find_public_api_allow_guest_issues(api_files: List[Path]) -> List[str]:
+    """Scan ``api_files`` for @public_api functions missing allow_guest=True.
+
+    Uses ``ast.parse`` and inspects each function's ``decorator_list`` as a
+    set rather than scanning source lines forward from ``@public_api``
+    looking for ``@frappe.whitelist`` on a following line. The line-based
+    forward scan only ever caught the "public_api, then whitelist" order; it
+    was blind to "whitelist, then public_api", which is the order used by
+    34 of the 35 real @public_api occurrences in this codebase (#1046).
+    Decorator order carries no meaning in Python (both apply to the same
+    function object), so the check must not depend on it either.
+    """
+    issues = []
+    for api_file in api_files:
+        try:
+            tree = ast.parse(api_file.read_text(), filename=str(api_file))
+        except SyntaxError:
+            continue
+
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+
+            decorators = node.decorator_list
+            if not any(_decorator_base_name(d) == "public_api" for d in decorators):
+                continue
+
+            whitelist_decorators = [d for d in decorators if _decorator_base_name(d) == "whitelist"]
+            if not whitelist_decorators:
+                # No @frappe.whitelist at all is a different (and worse) defect
+                # than the one this check exists for; out of scope here.
+                continue
+
+            if not any(_whitelist_allows_guest(d) for d in whitelist_decorators):
+                issues.append(
+                    f"{api_file.name}:{node.lineno} - @public_api on {node.name} "
+                    f"but @frappe.whitelist missing allow_guest=True"
+                )
+
+    return issues
+
+
 class TestPublicAPIDecoratorConsistency(EnhancedTestCase):
     """
     Static analysis tests to verify decorator consistency.
@@ -205,45 +272,118 @@ class TestPublicAPIDecoratorConsistency(EnhancedTestCase):
 
         This catches the exact bug we encountered where @public_api was used
         but @frappe.whitelist() was missing allow_guest=True.
+
+        See find_public_api_allow_guest_issues() for why this is AST-based
+        rather than a directional line scan (#1046).
         """
-        issues = []
-
-        for api_file in self.get_api_files():
-            content = api_file.read_text()
-            lines = content.split("\n")
-
-            for i, line in enumerate(lines):
-                # Look for @public_api decorator
-                if "@public_api" in line and not line.strip().startswith("#"):
-                    # Check the next few lines for @frappe.whitelist
-                    found_whitelist = False
-                    has_allow_guest = False
-
-                    for j in range(i + 1, min(i + 5, len(lines))):
-                        next_line = lines[j]
-                        if "@frappe.whitelist" in next_line:
-                            found_whitelist = True
-                            has_allow_guest = "allow_guest=True" in next_line
-                            break
-                        if next_line.strip().startswith("def "):
-                            break
-
-                    if found_whitelist and not has_allow_guest:
-                        # Find the function name
-                        for j in range(i + 1, min(i + 5, len(lines))):
-                            if lines[j].strip().startswith("def "):
-                                func_match = re.search(r"def (\w+)", lines[j])
-                                func_name = func_match.group(1) if func_match else "unknown"
-                                issues.append(
-                                    f"{api_file.name}:{i+1} - @public_api on {func_name} "
-                                    f"but @frappe.whitelist missing allow_guest=True"
-                                )
-                                break
+        issues = find_public_api_allow_guest_issues(self.get_api_files())
 
         if issues:
             self.fail(
                 "Found @public_api decorators without allow_guest=True:\n"
                 + "\n".join(issues)
+            )
+
+    def test_public_api_allow_guest_scan_is_order_independent(self):
+        """
+        Positive control for #1046.
+
+        The scan in find_public_api_allow_guest_issues() must catch a
+        @public_api endpoint missing allow_guest=True regardless of whether
+        @frappe.whitelist appears above or below @public_api in source, and
+        regardless of nesting under a subdirectory (the real scan is
+        recursive since #1020/#1027). Built as a synthetic temp tree rather
+        than against the real api/ directory, so this test does not depend
+        on -- or get invalidated by -- future changes to real endpoints.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            (tmp_path / "member").mkdir()
+
+            # Real codebase order (34 of 35 real occurrences): whitelist
+            # above public_api. This is the order the pre-fix forward scan
+            # could never see, because it hit the `def` line before it had
+            # scanned backwards to find @frappe.whitelist.
+            (tmp_path / "whitelist_then_public.py").write_text(
+                "import frappe\n"
+                "from verenigingen.utils.security.api_security_framework import (\n"
+                "    OperationType,\n"
+                "    public_api,\n"
+                ")\n\n"
+                "@frappe.whitelist()\n"
+                "@public_api(operation_type=OperationType.PUBLIC)\n"
+                "def broken_real_order():\n"
+                "    pass\n\n"
+                "@frappe.whitelist(allow_guest=True)\n"
+                "@public_api(operation_type=OperationType.PUBLIC)\n"
+                "def ok_real_order():\n"
+                "    pass\n"
+            )
+
+            # Reversed order -- the only order the pre-fix scan could catch.
+            (tmp_path / "public_then_whitelist.py").write_text(
+                "import frappe\n"
+                "from verenigingen.utils.security.api_security_framework import (\n"
+                "    OperationType,\n"
+                "    public_api,\n"
+                ")\n\n"
+                "@public_api(operation_type=OperationType.PUBLIC)\n"
+                "@frappe.whitelist()\n"
+                "def broken_reversed_order():\n"
+                "    pass\n\n"
+                "@public_api(operation_type=OperationType.PUBLIC)\n"
+                "@frappe.whitelist(allow_guest=True)\n"
+                "def ok_reversed_order():\n"
+                "    pass\n"
+            )
+
+            # Subdirectory of api/ -- the recursive scan (#1020) must reach it.
+            (tmp_path / "member" / "nested_broken.py").write_text(
+                "import frappe\n"
+                "from verenigingen.utils.security.api_security_framework import (\n"
+                "    OperationType,\n"
+                "    public_api,\n"
+                ")\n\n"
+                "@frappe.whitelist()\n"
+                "@public_api(operation_type=OperationType.PUBLIC)\n"
+                "def broken_nested():\n"
+                "    pass\n"
+            )
+
+            api_files = list(tmp_path.rglob("*.py"))
+            issues = find_public_api_allow_guest_issues(api_files)
+            issue_text = "\n".join(issues)
+
+            self.assertIn(
+                "broken_real_order",
+                issue_text,
+                "The order used by 34/35 real endpoints (whitelist above "
+                "public_api) must be caught.",
+            )
+            self.assertIn(
+                "broken_reversed_order",
+                issue_text,
+                "The reversed order must still be caught.",
+            )
+            self.assertIn(
+                "broken_nested",
+                issue_text,
+                "A violation nested under a subdirectory of api/ must be caught.",
+            )
+            self.assertNotIn(
+                "ok_real_order",
+                issue_text,
+                "A correctly-configured endpoint must not be flagged.",
+            )
+            self.assertNotIn(
+                "ok_reversed_order",
+                issue_text,
+                "A correctly-configured endpoint must not be flagged.",
+            )
+            self.assertEqual(
+                len(issues),
+                3,
+                f"Expected exactly 3 planted violations, got: {issues}",
             )
 
     def test_no_standard_api_on_guest_endpoints(self):
