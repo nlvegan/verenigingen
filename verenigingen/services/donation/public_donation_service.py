@@ -505,8 +505,18 @@ class PublicDonationService(StatelessService):
 
         return {"success": True, "message": "Donation marked as paid"}
 
-    def retry_payment_impl(self, donation_id):
+    def retry_payment_impl(self, donation_id, donor_email=None):
         """Retry payment for a failed donation (moved from donate.py:retry_payment).
+
+        This endpoint is guest-reachable by design: a donor whose Mollie
+        payment failed has no session to authenticate with, so requiring
+        login would break the account-less retry flow that is the whole
+        point of the endpoint (#969). With no session, ``donor_email`` is
+        the only ownership signal available -- the caller must supply the
+        email address on file for the donation's donor. No other
+        guest-reachable endpoint in this module discloses a donation's
+        donor_email, so it is not derivable from ``donation_id`` alone
+        (which, being a sequential naming-series value, is enumerable).
 
         Returns the payment_url on success; raises otherwise (the outer
         except wraps every failure, including "no redirect obtained", into
@@ -524,15 +534,17 @@ class PublicDonationService(StatelessService):
             if not donation:
                 frappe.throw(_("Donation not found"))
 
+            # Get the donor information for payment retry
+            donor = frappe.get_doc("Donor", donation.donor)
+
+            self._verify_donor_email_matches(donor, donor_email)
+
             # Only allow retry for unpaid donations with payment method Mollie
             if donation.paid:
                 frappe.throw(_("This donation has already been paid"))
 
             if donation.mode_of_payment != "Mollie":
                 frappe.throw(_("Payment retry is only available for Mollie payments"))
-
-            # Get the donor information for payment retry
-            donor = frappe.get_doc("Donor", donation.donor)
 
             # Prepare form data for retry (similar to original payment creation)
             form_data = {
@@ -562,6 +574,20 @@ class PublicDonationService(StatelessService):
                 f"Payment retry error for donation {donation_id}: {str(e)}", "Payment Retry Error"
             )
             frappe.throw(_("Unable to retry payment. Please try again or contact support."))
+
+    @staticmethod
+    def _verify_donor_email_matches(donor, donor_email):
+        """Refuse a retry unless the caller supplied the donor's own email.
+
+        Deliberately raises the same generic message the "no such donation"
+        branch above uses, rather than a distinct "wrong email" message --
+        the retry endpoint's error text should not become an oracle for
+        which emails are correct.
+        """
+        on_file = (donor.donor_email or "").strip().lower()
+        supplied = (donor_email or "").strip().lower()
+        if not supplied or supplied != on_file:
+            frappe.throw(_("Donation not found"))
 
     def process_mollie_payment(self, donation, form_data):
         """Handle Mollie payment using the enhanced service layer architecture"""

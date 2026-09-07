@@ -188,13 +188,86 @@ class TestPageDonate(EnhancedTestCase):
         from verenigingen.templates.pages.donate import retry_payment
 
         donation = self._make_donation(paid=1, mode="Mollie")
+        donor_email = frappe.db.get_value("Donor", donation.donor, "donor_email")
         # The endpoint wraps the "already paid" throw into a generic error.
         with self.assertRaises(frappe.ValidationError):
-            retry_payment(donation.name)
+            retry_payment(donation.name, donor_email=donor_email)
 
     def test_retry_payment_non_mollie(self):
         from verenigingen.templates.pages.donate import retry_payment
 
         donation = self._make_donation(paid=0, mode="Bank Transfer")
+        donor_email = frappe.db.get_value("Donor", donation.donor, "donor_email")
         with self.assertRaises(frappe.ValidationError):
-            retry_payment(donation.name)
+            retry_payment(donation.name, donor_email=donor_email)
+
+    # ----- retry_payment ownership (#969) -------------------------------
+    #
+    # retry_payment is deliberately guest-reachable: a donor whose Mollie
+    # payment failed has no session to authenticate with. With no session,
+    # donor_email is the only ownership signal the endpoint can check --
+    # see PublicDonationService._verify_donor_email_matches.
+    #
+    # All three tests below stub the Mollie boundary so that, absent the
+    # ownership check, the call would SUCCEED and return a real-looking
+    # payment URL. This proves a refusal is the ownership check firing, not
+    # an unrelated failure (e.g. missing Mollie credentials) that would
+    # happen to raise the same exception type for the wrong reason.
+
+    class _FakeCompletePaymentService:
+        def __init__(self, client=None):
+            pass
+
+        def create_donation_payment(self, donation_doc, form_data):
+            return {
+                "status": "redirect_required",
+                "payment_url": "https://pay.mollie.test/checkout/retry",
+                "checkout_url": "https://pay.mollie.test/checkout/retry",
+            }
+
+    _CPS_PATH = (
+        "verenigingen.verenigingen_payments.mollie.services."
+        "complete_payment_service.CompletePaymentService"
+    )
+
+    def test_retry_payment_refuses_stranger_with_no_donor_email(self):
+        """A guest supplying only the (enumerable) donation_id is refused."""
+        from unittest.mock import patch
+
+        from verenigingen.templates.pages.donate import retry_payment
+
+        donation = self._make_donation(paid=0, mode="Mollie")
+        with self.as_user("Guest"):
+            with patch(self._CPS_PATH, self._FakeCompletePaymentService):
+                with self.assertRaises(frappe.ValidationError):
+                    retry_payment(donation.name)
+
+    def test_retry_payment_refuses_stranger_with_wrong_donor_email(self):
+        """A guest supplying an unrelated email is refused, same as no email at all."""
+        from unittest.mock import patch
+
+        from verenigingen.templates.pages.donate import retry_payment
+
+        donation = self._make_donation(paid=0, mode="Mollie")
+        with self.as_user("Guest"):
+            with patch(self._CPS_PATH, self._FakeCompletePaymentService):
+                with self.assertRaises(frappe.ValidationError):
+                    retry_payment(donation.name, donor_email="stranger@example.com")
+
+    def test_retry_payment_allows_guest_with_correct_donor_email(self):
+        """The real donor -- identified only by their own email, no session -- may retry."""
+        from unittest.mock import patch
+
+        from verenigingen.templates.pages.donate import retry_payment
+
+        donation = self._make_donation(paid=0, mode="Mollie")
+        donor_email = frappe.db.get_value("Donor", donation.donor, "donor_email")
+
+        with self.as_user("Guest"):
+            with patch(self._CPS_PATH, self._FakeCompletePaymentService):
+                frappe.local.response = frappe._dict()
+                retry_payment(donation.name, donor_email=donor_email)
+
+        self.assertEqual(
+            frappe.local.response.get("location"), "https://pay.mollie.test/checkout/retry"
+        )

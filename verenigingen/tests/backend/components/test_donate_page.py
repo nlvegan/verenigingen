@@ -466,10 +466,27 @@ class TestDonatePage(VereningingenTestCase):
         donor = self.create_test_donor()
         donation = self.create_test_donation(donor=donor.name, paid=1, mode_of_payment="Cash")
         with self.assertRaises(frappe.exceptions.ValidationError):
-            donate.retry_payment(donation.name)
+            donate.retry_payment(donation.name, donor_email=donor.donor_email)
 
     def test_retry_payment_non_mollie_raises(self):
         donor = self.create_test_donor()
         donation = self.create_test_donation(donor=donor.name, paid=0, mode_of_payment="Cash")
+        with self.assertRaises(frappe.exceptions.ValidationError):
+            donate.retry_payment(donation.name, donor_email=donor.donor_email)
+
+    # ------------------------------------------------------------------
+    # retry_payment ownership (#969): with no session to authenticate a
+    # guest donor against, donor_email is the only ownership signal.
+    # ------------------------------------------------------------------
+
+    def test_retry_payment_refuses_wrong_donor_email(self):
+        donor = self.create_test_donor()
+        donation = self.create_test_donation(donor=donor.name, paid=0, mode_of_payment="Mollie")
+        with self.assertRaises(frappe.exceptions.ValidationError):
+            donate.retry_payment(donation.name, donor_email="not-the-donor@example.com")
+
+    def test_retry_payment_refuses_missing_donor_email(self):
+        donor = self.create_test_donor()
+        donation = self.create_test_donation(donor=donor.name, paid=0, mode_of_payment="Mollie")
         with self.assertRaises(frappe.exceptions.ValidationError):
             donate.retry_payment(donation.name)
