@@ -106,10 +106,14 @@ class TestPageDonate(EnhancedTestCase):
         self.assertEqual(ctx.existing_donor["donor_email"], email)
 
     def test_context_with_paid_donation_id_shows_success(self):
+        from verenigingen.services.donation.public_donation_service import (
+            generate_donation_return_token,
+        )
         from verenigingen.templates.pages.donate import get_context
 
         donation = self._make_donation(paid=1, mode="Bank Transfer")
-        frappe.form_dict = frappe._dict({"donation_id": donation.name})
+        token = generate_donation_return_token(donation.name)
+        frappe.form_dict = frappe._dict({"donation_id": donation.name, "token": token})
         with self.as_user("Guest"):
             ctx = frappe._dict()
             get_context(ctx)
@@ -118,10 +122,14 @@ class TestPageDonate(EnhancedTestCase):
         self.assertEqual(ctx.donation_result.name, donation.name)
 
     def test_context_with_unpaid_no_payment_id_pending(self):
+        from verenigingen.services.donation.public_donation_service import (
+            generate_donation_return_token,
+        )
         from verenigingen.templates.pages.donate import get_context
 
         donation = self._make_donation(paid=0, mode="Bank Transfer")
-        frappe.form_dict = frappe._dict({"donation_id": donation.name})
+        token = generate_donation_return_token(donation.name)
+        frappe.form_dict = frappe._dict({"donation_id": donation.name, "token": token})
         with self.as_user("Guest"):
             ctx = frappe._dict()
             get_context(ctx)
@@ -137,6 +145,44 @@ class TestPageDonate(EnhancedTestCase):
             get_context(ctx)
 
         self.assertEqual(ctx.payment_status, "error")
+
+    # ----- get_context donation_id ownership (#1018) --------------------
+    #
+    # donate.py's return-from-payment path renders a Donation's amount, date
+    # and purpose straight from `frappe.get_doc("Donation", donation_id)`,
+    # with no check that the requesting browser is the one that actually
+    # made this donation. Donation.autoname is naming_series: (sequential),
+    # so a stranger's donation_id is enumerable. The fix requires a `token`
+    # query param -- an HMAC over the donation name, generated only when we
+    # build the Mollie return_url -- and treats a missing/wrong token
+    # identically to an unknown donation_id (same payment_status, no
+    # donation_result key at all), so refusal carries no oracle.
+
+    def test_context_with_strangers_donation_id_and_no_token_discloses_nothing(self):
+        """A guest who only knows another donor's donation_id must get nothing."""
+        from verenigingen.templates.pages.donate import get_context
+
+        donation = self._make_donation(paid=1, mode="Bank Transfer", amount=987.65)
+        frappe.form_dict = frappe._dict({"donation_id": donation.name})
+        with self.as_user("Guest"):
+            ctx = frappe._dict()
+            get_context(ctx)
+
+        self.assertEqual(ctx.payment_status, "error")
+        self.assertNotIn("donation_result", ctx)
+
+    def test_context_with_strangers_donation_id_and_wrong_token_discloses_nothing(self):
+        """A forged/guessed token must be refused exactly like no token at all."""
+        from verenigingen.templates.pages.donate import get_context
+
+        donation = self._make_donation(paid=1, mode="Bank Transfer", amount=987.65)
+        frappe.form_dict = frappe._dict({"donation_id": donation.name, "token": "0" * 64})
+        with self.as_user("Guest"):
+            ctx = frappe._dict()
+            get_context(ctx)
+
+        self.assertEqual(ctx.payment_status, "error")
+        self.assertNotIn("donation_result", ctx)
 
     # ----- get_donation_status -----------------------------------------
 
