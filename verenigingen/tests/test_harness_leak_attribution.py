@@ -554,6 +554,39 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
         `test_the_real_tree_has_no_shared_fixture_with_an_unresolvable_identity`
         below). Wrapped in `suspend_insert_capture()` instead, which fixes the
         same underlying #328/#330 drain bug without touching either guard.
+
+        UPDATE (#1073 independent review): `@shared_fixture` only flips
+        `_insert_capture_suspended`, which is consulted in exactly one place
+        (the CAPTURED-INSERT drain). It has ZERO effect on the separate
+        TRACKED drain (`_drain_tracked_documents`, which runs BEFORE the
+        captured-insert drain in `tearDown()` and deletes anything tracked at
+        a non-negative priority unconditionally), on `self.addCleanup(...)`,
+        or on a hand-rolled `tearDown()` force-delete loop. Six of the
+        originally-35 decorated targets ALSO registered their row with one of
+        those, making the decoration a no-op for them -- confirmed by reading
+        `_drain_tracked_documents` (it never checks the suspend flag) and
+        empirically (`test_member_account_coverage_supplement.py` ran 28/28
+        green while its "shared" Team Roles were gone from the DB afterward).
+        A 7th instance (`test_department_hierarchy.py`, `_track_test_document`
+        at `priority=3`) was found the same way, missed by a plain
+        `track_doc(`/`addCleanup(` grep because that helper's name doesn't
+        contain either substring.
+
+        Of those 7: 6 were downgraded to NOT `@shared_fixture` (their identity
+        is per-test/per-file-unique, confirmed by grep showing no other file
+        depends on the literal surviving) and wrapped in
+        `suspend_insert_capture()` purely so the by-name guard below does not
+        flag them against their genuinely-shared same-named siblings -- this
+        changes no observable behaviour, since `track_doc`/`addCleanup`/the
+        `tearDown()` loop already deletes the row regardless. ONE
+        (`test_sales_invoice_account_handler.py::_ensure_item_group`) turned
+        out to be genuinely needed -- `test_verenigingen_settings.py` creates
+        an Item with `item_group="Membership"` directly, with no
+        Item-Group-creation step of its own, so it depends on this row
+        surviving -- and was ACTUALLY fixed by removing it from the
+        `self._tracked` list, not merely re-decorated; see
+        `ItemGroupSurvivesTheTrackedDrainTest` below for the RED/GREEN proof.
+        29 targets remain here, down from 35.
         """
         from verenigingen.events.subscribers import test_chapter_subscribers
         from verenigingen.services.billing import test_sales_invoice_account_handler
@@ -579,7 +612,6 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
             test_migration_transaction_safety,
             test_tegenrekening_mapper_coverage,
         )
-        from verenigingen.tests.email import test_advanced_segmentation
         from verenigingen.tests.fixtures import enhanced_test_factory as factory_module
         from verenigingen.tests.integration import test_payment_processing_api_integration
         from verenigingen.tests.repositories import test_dues_schedule_repository
@@ -588,11 +620,7 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
             test_chapter_board_chapters,
             test_chapter_management_service,
             test_chapter_permission_service_integration,
-            test_member_account_coverage_supplement,
-            test_payment_entry_creation_service,
         )
-        from verenigingen.tests.services.event_application import test_volunteer_sync_service
-        from verenigingen.tests.utils import test_department_hierarchy
 
         exemplar_code = factory_module.shared_fixture(lambda: None).__code__
 
@@ -626,28 +654,12 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
                 test_page_volunteer_skills.TestVolunteerSkillsPage._ensure_chapter_role,
             ),
             (
-                "test_volunteer_sync_service.TestEnsureChapterBoardMembership._ensure_chapter_role",
-                test_volunteer_sync_service.TestEnsureChapterBoardMembership._ensure_chapter_role,
-            ),
-            (
                 "test_chapter_board_chapters.TestGetUserBoardChapters._ensure_chapter_role",
                 test_chapter_board_chapters.TestGetUserBoardChapters._ensure_chapter_role,
             ),
             (
                 "test_chapter_permission_service_integration.TestChapterPermissionServiceIntegration._ensure_chapter_role",
                 test_chapter_permission_service_integration.TestChapterPermissionServiceIntegration._ensure_chapter_role,
-            ),
-            (
-                "test_member_account_coverage_supplement.TestUserRoleProfileCalculatorSupplement._ensure_chapter_role",
-                test_member_account_coverage_supplement.TestUserRoleProfileCalculatorSupplement._ensure_chapter_role,
-            ),
-            (
-                "test_member_account_coverage_supplement.TestBaseRoleProfileManagerSupplement._ensure_team_role",
-                test_member_account_coverage_supplement.TestBaseRoleProfileManagerSupplement._ensure_team_role,
-            ),
-            (
-                "test_department_hierarchy.TestDepartmentHierarchy._ensure_chapter_role",
-                test_department_hierarchy.TestDepartmentHierarchy._ensure_chapter_role,
             ),
             (
                 "test_chapter_management_service.ChapterServiceTestBase._ensure_chapter_role",
@@ -664,10 +676,6 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
             (
                 "test_document_portal_service.TestDocumentPortalService._ensure_chapter_role",
                 test_document_portal_service.TestDocumentPortalService._ensure_chapter_role,
-            ),
-            (
-                "test_advanced_segmentation.TestSegmentMembershipRules._ensure_chapter_role",
-                test_advanced_segmentation.TestSegmentMembershipRules._ensure_chapter_role,
             ),
             (
                 "test_tegenrekening_mapper_coverage.TestSmartItemResolution._ensure_item_group",
@@ -733,23 +741,14 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
                 "test_invoice_helpers.TestGetTaxAccountSuccess._persist_named_account",
                 test_invoice_helpers.TestGetTaxAccountSuccess._persist_named_account,
             ),
-            (
-                "test_payment_entry_creation_service.TestPaymentEntryCreationService._persist_minimal_company",
-                test_payment_entry_creation_service.TestPaymentEntryCreationService._persist_minimal_company,
-            ),
         ]
 
         self.assertEqual(
-            35,
+            29,
             len(targets),
-            "recount before trusting this list -- #1026's own AST sweep found 42 "
-            "candidates, of which 28 were genuinely shared master data (14 of the 42 "
-            "were a per-test-unique-identity false positive, see the docstring above); "
-            "the by-name guard below then pulled in 7 more reachable, inserting, "
-            "undecorated siblings sharing a name with one of those 28 (5 more "
-            "_ensure_chapter_role copies whose identity is a hardcoded literal rather "
-            "than a caller parameter, 4 more _persist_company classmethod copies, minus "
-            "2 already counted among the issue's 28) -- 28 + 7 = 35",
+            "recount before trusting this list -- was 35 before #1073's own review "
+            "found 6 of those (plus a 7th its track_doc(/addCleanup( grep missed) were "
+            "@shared_fixture no-ops, downgraded below to 29; see the docstring above",
         )
 
         for label, fn in targets:
@@ -1623,6 +1622,85 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
         if include_unresolved:
             return flagged, unresolved
         return flagged
+
+
+class ItemGroupSurvivesTheTrackedDrainTest(unittest.TestCase):
+    """#1073 review: proves the ACTUAL fix for the one genuinely-shared site
+    among the six/seven `@shared_fixture`-no-op findings.
+
+    `TestSalesInvoiceAccountHandler._ensure_item_group` is `@shared_fixture`,
+    but its class also had its own `tearDown()` force-delete everything
+    appended to `self._tracked` -- independent of BOTH drains, so decorating
+    it changed nothing observable until the `self._tracked.append(...)` call
+    inside `_ensure_item_group` was also removed. This is the one site among
+    #1026/#1073's population where the fix is a real behaviour change, so it
+    gets a real two-class control, not just a docstring correction: build two
+    instances of the REAL class (not a synthetic stand-in), run the first
+    (which creates the Item Group and then runs the class's own `tearDown()`),
+    then check the SECOND can still find it.
+
+    RED/GREEN, same command both times
+    (``PYTHONPATH=<worktree> bench --site test_site_4 run-tests --app
+    verenigingen --module verenigingen.tests.test_harness_leak_attribution``):
+    RED reproduced by restoring the `self._tracked.append(("Item Group", name))`
+    line this fix removed (`git show <pre-fix-commit>:...` the one-line diff)
+    -- the row is gone by the time the second instance's `setUp` looks for it.
+    GREEN is the current tree.
+    """
+
+    ITEM_GROUP = "ZZ 1073 Control Membership"
+
+    def setUp(self):
+        if frappe.db.exists("Item Group", self.ITEM_GROUP):
+            frappe.delete_doc("Item Group", self.ITEM_GROUP, force=True, ignore_permissions=True)
+            frappe.db.commit()
+
+    def tearDown(self):
+        if frappe.db.exists("Item Group", self.ITEM_GROUP):
+            frappe.delete_doc("Item Group", self.ITEM_GROUP, force=True, ignore_permissions=True)
+            frappe.db.commit()
+
+    def test_a_later_instance_still_finds_the_item_group_after_the_first_tears_down(self):
+        from verenigingen.services.billing.test_sales_invoice_account_handler import (
+            TestSalesInvoiceAccountHandler,
+        )
+
+        first = TestSalesInvoiceAccountHandler("setUp")
+        first.setUp()
+        try:
+            first._ensure_item_group(self.ITEM_GROUP)
+            self.assertTrue(
+                frappe.db.exists("Item Group", self.ITEM_GROUP),
+                "the helper itself did not create the row -- nothing to prove",
+            )
+        finally:
+            first.tearDown()
+
+        # The FIRST instance's own tearDown() just ran -- the class's bespoke
+        # `self._tracked` force-delete loop, then EnhancedTestCase.tearDown()
+        # (both drains). If `_ensure_item_group` still appended this row to
+        # `self._tracked`, it would be gone right here, before a second
+        # instance ever gets a chance to look for it.
+        self.assertTrue(
+            frappe.db.exists("Item Group", self.ITEM_GROUP),
+            "the Item Group did not survive the class's OWN tearDown() -- "
+            "@shared_fixture alone does not protect against a bespoke "
+            "self._tracked force-delete loop, only removing the row from "
+            "that list does (#1073)",
+        )
+
+        second = TestSalesInvoiceAccountHandler("setUp")
+        second.setUp()
+        try:
+            # A later class reusing the row without rebuilding it -- the
+            # actual observable property #1026/#1073 care about.
+            self.assertTrue(
+                frappe.db.exists("Item Group", self.ITEM_GROUP),
+                "a second instance (standing in for a later test class in the "
+                "shard) no longer finds the shared Item Group",
+            )
+        finally:
+            second.tearDown()
 
 
 class DrainCancelsSubmittedDocumentsTest(unittest.TestCase):

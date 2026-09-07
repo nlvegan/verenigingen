@@ -21,7 +21,10 @@ from verenigingen.mijnrood_sync.services.event_application.related_records_orche
 from verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service import (
     get_volunteer_sync_service,
 )
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
+from verenigingen.tests.fixtures.enhanced_test_factory import (
+    EnhancedTestCase,
+    suspend_insert_capture,
+)
 
 
 class TestParseMijnRoodRoles(EnhancedTestCase):
@@ -529,21 +532,32 @@ class TestEnsureChapterBoardMembership(EnhancedTestCase):
         chapter_doc.save(ignore_permissions=True)
         return chapter_doc
 
-    @shared_fixture
     def _ensure_chapter_role(self, role_name):
-        """@shared_fixture (#1026): site-wide master data, no company/test scope.
+        """Get-or-create a Chapter Role, deliberately NOT `@shared_fixture` (#1073
+        review, correcting #1026's own docstring here).
 
-        The ``addCleanup`` below deletes it again at THIS test's end regardless
-        -- keep both: @shared_fixture stops the generic captured-insert drain
-        from claiming the row for a class that runs later in the shard and
-        still needs it to exist.
+        `addCleanup` below unconditionally deletes this row at the end of
+        WHICHEVER test created it -- independent of both the captured-insert
+        drain and the tracked drain, so `_insert_capture_suspended` never gets
+        a chance to matter. Decorating this with `@shared_fixture` was
+        therefore a no-op: the row never survives past its own test regardless
+        of the decorator, exactly as it did before #1026. Both calls in this
+        class use the same literal ("Test Chair"), so each test simply rebuilds
+        it fresh; nothing depends on it surviving across tests, and nothing
+        outside this class references it. `suspend_insert_capture()` below
+        changes no observable behaviour -- `addCleanup` still deletes the row
+        -- it exists only so the by-name guard
+        (`_divergent_shared_fixture_copies` in test_harness_leak_attribution.py)
+        does not flag this copy as a stray undecorated sibling of the OTHER
+        `_ensure_chapter_role` copies that genuinely are `@shared_fixture`.
         """
         if not frappe.db.exists("Chapter Role", role_name):
-            doc = frappe.get_doc({
-                "doctype": "Chapter Role",
-                "role_name": role_name,
-                "is_active": 1,
-            }).insert(ignore_permissions=True)
+            with suspend_insert_capture():
+                doc = frappe.get_doc({
+                    "doctype": "Chapter Role",
+                    "role_name": role_name,
+                    "is_active": 1,
+                }).insert(ignore_permissions=True)
             self.addCleanup(self._cleanup_chapter_role, doc.name)
             return doc.name
         return role_name

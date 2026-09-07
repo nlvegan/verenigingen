@@ -32,7 +32,10 @@ Covered:
 import frappe
 from frappe.utils import today
 
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
+from verenigingen.tests.fixtures.enhanced_test_factory import (
+    EnhancedTestCase,
+    suspend_insert_capture,
+)
 from verenigingen.utils.department_hierarchy import (
     DepartmentHierarchyManager,
     get_volunteer_department,
@@ -55,22 +58,36 @@ class TestDepartmentHierarchy(EnhancedTestCase):
             frappe.db.set_value("Verenigingen Settings", "Verenigingen Settings", "company", company)
         return company
 
-    @shared_fixture
     def _ensure_chapter_role(self, role_name):
         """Create a Chapter Role with the exact (financial) name the manager filters on.
 
-        @shared_fixture (#1026): site-wide master data, no company/test scope.
+        Deliberately NOT `@shared_fixture` (#1026 originally added one, #1073
+        review found this SEVENTH instance the review's own `track_doc(`/
+        `addCleanup(` grep missed -- `_track_test_document` doesn't match that
+        substring). `priority=3` here is POSITIVE, not -1, so
+        `_track_test_document` -> `track_document` registers this with the
+        TRACKED drain, which deletes it unconditionally in `tearDown()` BEFORE
+        the captured-insert drain runs and never checks
+        `_insert_capture_suspended` -- so `@shared_fixture` was a no-op.
+        "Treasurer"/"Board Chair" are referenced elsewhere (e.g.
+        test_volunteer_assignment_service.py via
+        `self.factory.ensure_chapter_role(...)`), but that is a SEPARATE
+        mechanism building its own row independently, not a dependency on this
+        copy surviving -- confirmed by reading it rather than assumed.
+        `suspend_insert_capture()` below changes no observable behaviour; it
+        exists only so the by-name guard does not flag this copy.
         """
         if not frappe.db.exists("Chapter Role", role_name):
-            role = frappe.get_doc(
-                {
-                    "doctype": "Chapter Role",
-                    "role_name": role_name,
-                    "permissions_level": "Financial",
-                    "is_active": 1,
-                }
-            )
-            role.insert()
+            with suspend_insert_capture():
+                role = frappe.get_doc(
+                    {
+                        "doctype": "Chapter Role",
+                        "role_name": role_name,
+                        "permissions_level": "Financial",
+                        "is_active": 1,
+                    }
+                )
+                role.insert()
             self._track_test_document("Chapter Role", role.name, priority=3)
         return role_name
 

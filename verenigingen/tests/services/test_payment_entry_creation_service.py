@@ -35,7 +35,7 @@ from unittest.mock import patch
 import frappe
 from frappe.utils import flt, getdate
 
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.services.payment.payment_entry_creation_service import (
     payment_entry_service,
 )
@@ -812,7 +812,6 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         bank_transaction.insert(ignore_permissions=True)
         return bank_transaction
 
-    @shared_fixture
     def _persist_minimal_company(self, name, abbr):
         """A throwaway company with a Bank-type GL leaf but no Bank Account of its
         own yet -- just enough to exercise `_create_bank_transaction`'s create
@@ -820,9 +819,16 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         so the Bank-type leaf `_create_bank_transaction` looks up must be added
         explicitly, same as `test_coa_import.py`'s company fixtures do.
 
-        @shared_fixture (#1026): Company is site-wide master data, no test scope
-        of its own; ``track_doc(...)`` (below) alone is NOT sufficient per
-        CLAUDE.md -- it binds only the tracked drain.
+        Deliberately NOT `@shared_fixture` (#1026 originally added one, #1073
+        review corrected it): the three call sites build "TEST PECS Regression
+        Co A/B/C", each unique to one test method and never reused anywhere
+        else (confirmed by grep) -- a per-test-unique-identity helper, the same
+        shape as the 14 `_ensure_user` false positives #1026 excluded, just not
+        excluded there. `track_doc(...)` below already deletes it at that
+        test's teardown regardless of any decorator (the tracked drain runs
+        unconditionally, before the captured-insert drain, and never checks
+        `_insert_capture_suspended`), so `@shared_fixture` was a no-op that
+        also mischaracterized this as site-wide master data.
         """
         if not frappe.db.exists("Company", name):
             doc = frappe.new_doc("Company")
