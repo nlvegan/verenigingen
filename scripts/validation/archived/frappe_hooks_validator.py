@@ -374,7 +374,10 @@ class FrappeHooksValidator:
                     # Look in subscribers directory
                     subscribers_dir = events_dir / "subscribers"
                     if subscribers_dir.exists():
-                        for sub_file in subscribers_dir.glob("*.py"):
+                        # rglob: a subscriber living in a subdirectory of subscribers/
+                        # would silently never be found by a non-recursive glob('*.py')
+                        # (#1016, same shape as api_security_validator.py's #972).
+                        for sub_file in subscribers_dir.rglob("*.py"):
                             sub_content = sub_file.read_text()
                             if event_name in sub_content:
                                 subscriber_found = True
