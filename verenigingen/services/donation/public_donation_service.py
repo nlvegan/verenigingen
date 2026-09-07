@@ -9,6 +9,9 @@ PaymentHook / Mollie imports are function-level (not module-top) to avoid a
 load-order cycle: the Donation DocType controller imports services.donation.*.
 """
 
+import hashlib
+import hmac
+
 import frappe
 from frappe import _
 from frappe.utils import cint, flt, getdate
@@ -18,6 +21,38 @@ from verenigingen.utils.secure_operations import (
     save_as_system_user,
     secure_document_operation,
 )
+
+
+def generate_donation_return_token(donation_name: str) -> str:
+    """Sign a proof that this browser is the one Mollie is redirecting back to
+    after a real payment attempt for `donation_name` (#1018).
+
+    Donation.autoname is naming_series: (sequential), so donation_id alone is
+    enumerable, and donate.py's return-from-payment page renders the
+    donation's amount, date and purpose from it with no session to check
+    ownership against (same guest-reachable shape as retry_payment, #969).
+    This HMAC is embedded only in the return_url handed to the payment
+    provider, so only the browser completing (or having completed) this
+    donation's own payment attempt ever receives one -- a stranger who only
+    guesses donation_id cannot derive it. Uses the site's own encryption key
+    (frappe.utils.password.get_encryption_key) as the HMAC secret so no new
+    stored secret or schema change is needed.
+    """
+    from frappe.utils.password import get_encryption_key
+
+    secret = get_encryption_key().encode("utf-8")
+    return hmac.new(secret, donation_name.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def verify_donation_return_token(donation_name: str, token: str) -> bool:
+    """Constant-time check of a token produced by generate_donation_return_token.
+
+    Fails closed: a missing/empty token is rejected before any comparison.
+    """
+    if not token:
+        return False
+    expected = generate_donation_return_token(donation_name)
+    return hmac.compare_digest(expected, token)
 
 
 class PublicDonationService(StatelessService):
@@ -636,11 +671,18 @@ class PublicDonationService(StatelessService):
             # Initialize enhanced payment service
             payment_service = CompletePaymentService()
 
-            # Prepare form data for the new service
+            # Prepare form data for the new service. The token proves to
+            # get_context that THIS browser's return trip is for a payment
+            # attempt we actually created for this donation (#1018) --
+            # without it, donate.py would render amount/date/purpose for
+            # anyone who guesses a sequential donation_id.
+            return_token = generate_donation_return_token(donation.name)
             payment_form_data = {
                 "amount": str(donation.amount),
                 "currency": "EUR",
-                "return_url": f"{frappe.utils.get_url()}/donate?donation_id={donation.name}",
+                "return_url": (
+                    f"{frappe.utils.get_url()}/donate?donation_id={donation.name}&token={return_token}"
+                ),
                 "description": f"Donation to {frappe.get_single('Verenigingen Settings').company_name or frappe.get_value('Company', frappe.db.get_single_value('Verenigingen Settings', 'company'), 'company_name') or 'organization'}",
             }
 

@@ -32,6 +32,7 @@ from frappe.utils import flt
 
 from verenigingen.services.donation.public_donation_service import (
     get_public_donation_service,
+    verify_donation_return_token,
 )
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
@@ -50,20 +51,36 @@ def get_context(context):
     context.show_sidebar = False
     context.title = _("Make a Donation")
 
-    # Check if returning from payment (donation_id parameter)
+    # Check if returning from payment (donation_id parameter). This is a
+    # guest-reachable GET with no session, so `token` -- an HMAC minted only
+    # when we built this donation's own Mollie return_url -- is the only
+    # ownership proof available. A missing/wrong token is treated exactly
+    # like an unknown donation_id (same payment_status, no donation_result
+    # at all) so a stranger walking the sequential donation_id series
+    # cannot use this page to learn a donation's amount, date or purpose
+    # (#1018).
     donation_id = frappe.form_dict.get("donation_id")
     if donation_id:
         try:
             donation = frappe.get_doc("Donation", donation_id)
-            context.donation_result = donation
-            status = get_public_donation_service().resolve_return_payment_status(donation)
-            context.payment_status = status["payment_status"]
-            context.title = status["title"]
-            if status.get("payment_pending_webhook"):
-                context.payment_pending_webhook = True
         except frappe.DoesNotExistError:
             frappe.log_error(f"Donation {donation_id} not found on return from payment")
             context.payment_status = "error"
+        else:
+            token = frappe.form_dict.get("token")
+            if not verify_donation_return_token(donation.name, token):
+                frappe.log_error(
+                    title="Donation Return Token Mismatch",
+                    message=f"Donation {donation_id} return rejected: missing or invalid token",
+                )
+                context.payment_status = "error"
+            else:
+                context.donation_result = donation
+                status = get_public_donation_service().resolve_return_payment_status(donation)
+                context.payment_status = status["payment_status"]
+                context.title = status["title"]
+                if status.get("payment_pending_webhook"):
+                    context.payment_pending_webhook = True
 
     # Get verenigingen settings
     from verenigingen.utils.settings_utils import get_verenigingen_settings

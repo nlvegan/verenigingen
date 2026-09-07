@@ -17,6 +17,7 @@ import frappe
 
 from verenigingen.services.donation.donor_service import get_donation_donor_service
 from verenigingen.services.donation.public_donation_service import (
+    generate_donation_return_token,
     get_public_donation_service,
 )
 from verenigingen.templates.pages import donate
@@ -91,7 +92,8 @@ class TestDonatePage(VereningingenTestCase):
         donor = self.create_test_donor()
         donation = self.create_test_donation(donor=donor.name, paid=1)
 
-        frappe.local.form_dict = frappe._dict({"donation_id": donation.name})
+        token = generate_donation_return_token(donation.name)
+        frappe.local.form_dict = frappe._dict({"donation_id": donation.name, "token": token})
         context = frappe._dict()
         donate.get_context(context)
 
@@ -103,7 +105,8 @@ class TestDonatePage(VereningingenTestCase):
         donor = self.create_test_donor()
         donation = self.create_test_donation(donor=donor.name, paid=0)
 
-        frappe.local.form_dict = frappe._dict({"donation_id": donation.name})
+        token = generate_donation_return_token(donation.name)
+        frappe.local.form_dict = frappe._dict({"donation_id": donation.name, "token": token})
         context = frappe._dict()
         donate.get_context(context)
 
@@ -116,6 +119,37 @@ class TestDonatePage(VereningingenTestCase):
         donate.get_context(context)
 
         self.assertEqual(context.payment_status, "error")
+
+    # ----- get_context donation_id ownership (#1018) --------------------
+
+    def test_get_context_with_donation_id_but_no_token_is_refused(self):
+        """A real donation_id without the matching return token must be
+        indistinguishable from an unknown donation_id -- no amount, date or
+        purpose disclosed to a caller who only guessed the (sequential,
+        enumerable) donation_id.
+        """
+        donor = self.create_test_donor()
+        donation = self.create_test_donation(donor=donor.name, paid=1, amount=456.78)
+
+        frappe.local.form_dict = frappe._dict({"donation_id": donation.name})
+        context = frappe._dict()
+        donate.get_context(context)
+
+        self.assertEqual(context.payment_status, "error")
+        self.assertNotIn("donation_result", context)
+
+    def test_get_context_with_donation_id_and_wrong_token_is_refused(self):
+        donor = self.create_test_donor()
+        donation = self.create_test_donation(donor=donor.name, paid=1, amount=456.78)
+
+        frappe.local.form_dict = frappe._dict(
+            {"donation_id": donation.name, "token": "f" * 64}
+        )
+        context = frappe._dict()
+        donate.get_context(context)
+
+        self.assertEqual(context.payment_status, "error")
+        self.assertNotIn("donation_result", context)
 
     # ------------------------------------------------------------------
     # map_donation_status (pure helper)

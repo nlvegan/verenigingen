@@ -9,10 +9,14 @@ import os
 import re
 from pathlib import Path
 
+import frappe
+
 
 def analyze_api_files():
     """Analyze all API files for optimization status"""
-    api_dir = Path("/home/frappe/frappe-bench/apps/verenigingen/verenigingen/api")
+    # Resolve via the installed app rather than a hardcoded, non-existent
+    # /home/frappe/... path (#1036/#1027).
+    api_dir = Path(frappe.get_app_path("verenigingen")) / "api"
     
     optimization_markers = {
         "cache_with_ttl": "Caching",
@@ -30,8 +34,10 @@ def analyze_api_files():
         "total_endpoints": 0
     }
     
-    # Scan all Python files in API directory
-    for api_file in api_dir.glob("*.py"):
+    # Scan all Python files in API directory, including subdirectories --
+    # a plain glob("*.py") silently misses populated ones like api/member/
+    # (#972/#1036).
+    for api_file in api_dir.rglob("*.py"):
         if api_file.name == "__init__.py":
             continue
             

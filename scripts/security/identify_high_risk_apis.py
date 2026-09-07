@@ -9,8 +9,18 @@ focusing on financial operations, bulk operations, and sensitive data access.
 import os
 import re
 import ast
+from pathlib import Path
 from typing import Dict, List, Any, Set
 import frappe
+
+
+def _iter_api_python_files(api_dir: str):
+    """Yield (relative_filename, absolute_path) for every .py file under
+    api_dir, including subdirectories -- os.listdir() only sees the top
+    level and silently misses populated ones like api/member/ (#972/#1036)."""
+    for path in sorted(Path(api_dir).rglob("*.py")):
+        if not path.name.startswith("__"):
+            yield str(path.relative_to(api_dir)), str(path)
 
 
 def identify_high_risk_apis() -> Dict[str, Any]:
@@ -27,40 +37,39 @@ def identify_high_risk_apis() -> Dict[str, Any]:
         'recommendations': []
     }
     
-    # Analyze API directory
-    api_dir = 'verenigingen/api/'
-    
+    # Analyze API directory -- resolve via the installed app rather than a
+    # relative path that depends on the caller's cwd (#1036/#1027).
+    api_dir = str(Path(frappe.get_app_path("verenigingen")) / "api")
+
     if not os.path.exists(api_dir):
         results['error'] = f'API directory not found: {api_dir}'
         return results
-    
+
     analyzed_files = 0
     total_apis = 0
-    
-    for filename in os.listdir(api_dir):
-        if filename.endswith('.py') and not filename.startswith('__'):
-            file_path = os.path.join(api_dir, filename)
-            analyzed_files += 1
+
+    for filename, file_path in _iter_api_python_files(api_dir):
+        analyzed_files += 1
+
+        print(f"\nAnalyzing: {filename}")
+
+        # Analyze file for API endpoints
+        file_apis = analyze_api_file(file_path)
+        total_apis += len(file_apis)
+
+        # Categorize APIs by risk level
+        for api in file_apis:
+            risk_level = assess_risk_level(api)
+            api['risk_level'] = risk_level
             
-            print(f"\nAnalyzing: {filename}")
+            if risk_level == 'HIGH' or risk_level == 'CRITICAL':
+                results['high_risk_apis'].append(api)
+            elif risk_level == 'MEDIUM':
+                results['medium_risk_apis'].append(api)
+            else:
+                results['low_risk_apis'].append(api)
             
-            # Analyze file for API endpoints
-            file_apis = analyze_api_file(file_path)
-            total_apis += len(file_apis)
-            
-            # Categorize APIs by risk level
-            for api in file_apis:
-                risk_level = assess_risk_level(api)
-                api['risk_level'] = risk_level
-                
-                if risk_level == 'HIGH' or risk_level == 'CRITICAL':
-                    results['high_risk_apis'].append(api)
-                elif risk_level == 'MEDIUM':
-                    results['medium_risk_apis'].append(api)
-                else:
-                    results['low_risk_apis'].append(api)
-                
-                print(f"  - {api['function_name']}: {risk_level}")
+            print(f"  - {api['function_name']}: {risk_level}")
     
     # Generate analysis summary
     results['analysis_summary'] = {
