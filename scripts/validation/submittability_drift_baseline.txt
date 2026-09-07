@@ -10,7 +10,6 @@ verenigingen/debug_anonymous_error.py::docstatus:filter::Donation::1
 verenigingen/debug_campaign_integration.py::docstatus:filter::Donation::1
 verenigingen/hooks/doc_events.py::hook::Donation::1
 verenigingen/hooks/doc_events.py::hook::SEPA Mandate::1
-verenigingen/test_portal_behavior.py::submit::Donation::1
 verenigingen/tests/backend/components/test_member_lifecycle_iban.py::submit::SEPA Mandate::1
 verenigingen/tests/backend/components/test_payment_plan_system.py::cancel::Payment Plan::1
 verenigingen/tests/backend/components/test_payment_plan_system.py::submit::Payment Plan::2
