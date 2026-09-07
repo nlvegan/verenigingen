@@ -39,7 +39,7 @@ class TestMollieCheckoutOwnership(EnhancedTestCase):
         frappe.set_user(self._original_user)
         super().tearDown()
 
-    def _make_donation(self, *, donor_email):
+    def _make_checkout_donation(self, *, donor_email):
         donor = self.create_test_donor(donor_email=donor_email)
         doc = frappe.get_doc(
             {
@@ -92,7 +92,7 @@ class TestMollieCheckoutOwnership(EnhancedTestCase):
     def test_refuses_stranger_with_no_payer_email(self):
         """A guest supplying only the (enumerable) donation name is refused."""
         self.expectErrorLog("Mollie Payment Error")
-        donation = self._make_donation(donor_email=f"owner-{frappe.generate_hash()[:8]}@example.com")
+        donation = self._make_checkout_donation(donor_email=f"owner-{frappe.generate_hash()[:8]}@example.com")
         gateway = self._stub_gateway()
 
         with self.as_user("Guest"):
@@ -107,7 +107,7 @@ class TestMollieCheckoutOwnership(EnhancedTestCase):
     def test_refuses_stranger_with_wrong_payer_email(self):
         """A guest supplying an unrelated email is refused, same as no email at all."""
         self.expectErrorLog("Mollie Payment Error")
-        donation = self._make_donation(donor_email=f"owner-{frappe.generate_hash()[:8]}@example.com")
+        donation = self._make_checkout_donation(donor_email=f"owner-{frappe.generate_hash()[:8]}@example.com")
         gateway = self._stub_gateway()
 
         with self.as_user("Guest"):
@@ -124,7 +124,7 @@ class TestMollieCheckoutOwnership(EnhancedTestCase):
     def test_allows_guest_with_correct_payer_email(self):
         """The real donor -- identified only by their own email, no session -- may pay."""
         donor_email = f"owner-{frappe.generate_hash()[:8]}@example.com"
-        donation = self._make_donation(donor_email=donor_email)
+        donation = self._make_checkout_donation(donor_email=donor_email)
         gateway = self._stub_gateway()
 
         with self.as_user("Guest"):
@@ -139,7 +139,7 @@ class TestMollieCheckoutOwnership(EnhancedTestCase):
         self.assertEqual(result["paymentUrl"], "https://pay.mollie.test/checkout/xyz")
         gateway.process_payment.assert_called_once()
 
-    def _make_member(self):
+    def _make_checkout_member(self):
         member = frappe.get_doc(
             {
                 "doctype": "Member",
@@ -156,7 +156,7 @@ class TestMollieCheckoutOwnership(EnhancedTestCase):
         """An arbitrary, non-payment doctype is refused outright -- no allowlist match,
         no gateway call -- regardless of any email supplied."""
         self.expectErrorLog("Mollie Payment Error")
-        member = self._make_member()
+        member = self._make_checkout_member()
         gateway = self._stub_gateway()
 
         with self.as_user("Guest"):
@@ -191,7 +191,7 @@ class TestMollieCheckoutOwnership(EnhancedTestCase):
         refusal happens before the write, for every row's payment_status,
         not just before a redirect is returned."""
         self.expectErrorLog("Mollie Payment Error")
-        member = self._make_member()
+        member = self._make_checkout_member()
         row = self._make_member_payment_history_row(member)
         row_name = row.name
         gateway = self._stub_gateway()
@@ -213,7 +213,7 @@ class TestMollieCheckoutOwnership(EnhancedTestCase):
     def test_email_comparison_is_case_and_whitespace_insensitive(self):
         """A legitimate donor should not be refused over formatting differences."""
         donor_email = f"owner-{frappe.generate_hash()[:8]}@example.com"
-        donation = self._make_donation(donor_email=donor_email)
+        donation = self._make_checkout_donation(donor_email=donor_email)
         gateway = self._stub_gateway()
 
         with self.as_user("Guest"):
