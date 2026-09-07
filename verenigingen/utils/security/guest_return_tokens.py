@@ -26,6 +26,14 @@ Trade-offs, carried over from #1054's review and unchanged here:
   headers and server access logs.
 - Keyed by the site encryption key: rotating that key invalidates every
   outstanding return link.
+- Exposure is NOT uniform across callers. ponto_pay.py discloses a linked
+  member's real `full_name` and invoice reference, not just the anonymous
+  amount/date/purpose donate.py exposes. Combined with the no-expiry point
+  above, a forwarded Ponto authorization link permanently identifies a real
+  person. That is inherent to the link's purpose -- the payer has to recognise
+  the payment as their own -- but it is a materially different risk profile
+  from the #1054 surface this pattern came from, so weigh it per page before
+  adding a caller.
 """
 
 import hashlib
@@ -56,4 +64,12 @@ def verify_guest_return_token(purpose: str, identifier: str, token: str) -> bool
     if not token:
         return False
     expected = generate_guest_return_token(purpose, identifier)
-    return hmac.compare_digest(expected, token)
+    try:
+        return hmac.compare_digest(expected, token)
+    except TypeError:
+        # compare_digest rejects non-ASCII str, so a guest-supplied
+        # `?token=h\u00e9llo` raised instead of being refused. Callers are not
+        # uniformly wrapped in a try/except -- ponto_pay.py's check sits
+        # outside its own -- so a raise there produced a traceback rather than
+        # the ordinary refusal. Fail closed here, once, for every caller.
+        return False

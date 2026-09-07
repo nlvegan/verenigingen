@@ -17,7 +17,10 @@ import frappe
 from verenigingen.templates.pages import ponto_pay
 from verenigingen.templates.pages.ponto_pay import PONTO_PAY_TOKEN_PURPOSE
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
+from verenigingen.utils.security.guest_return_tokens import (
+    generate_guest_return_token,
+    verify_guest_return_token,
+)
 
 # A structurally valid Dutch IBAN; creditor_iban is mandatory on the doctype.
 _VALID_IBAN = "NL39RABO0300065264"
@@ -155,6 +158,33 @@ class TestPagePontoPay(EnhancedTestCase):
         ponto_pay.get_context(context)
         self.assertIsNone(context.payment_link)
         self.assertIsNotNone(context.error)
+
+    def test_non_ascii_token_is_refused_not_raised(self):
+        """A non-ASCII token must be REFUSED, not raise.
+
+        ``hmac.compare_digest`` rejects non-ASCII ``str`` with a TypeError, and
+        ponto_pay's token check sits OUTSIDE this controller's try/except -- so
+        before the guard caught it, ``?token=h\u00e9llo`` produced a traceback
+        instead of the ordinary refusal. No document data leaked either way
+        (the raise happens before any get_doc), but a guest-supplied byte
+        should never decide whether a page 500s.
+        """
+        link = self._make_link(amount=99.0, creditor_name="Real Creditor")
+        frappe.local.form_dict = frappe._dict({"id": link.name, "token": "h\u00e9llo"})
+        context = frappe._dict()
+
+        ponto_pay.get_context(context)
+
+        # Same refusal as any other bad token -- not a distinct error, and not a raise.
+        self.assertIsNone(context.payment_link)
+        self.assertIsNotNone(context.error)
+
+    def test_verify_token_refuses_non_ascii_at_the_helper(self):
+        """The helper itself fails closed, so every caller is covered, not just
+        the two that happen to sit inside a try/except."""
+        self.assertFalse(
+            verify_guest_return_token(PONTO_PAY_TOKEN_PURPOSE, "PONTO-LINK-0001", "h\u00e9llo")
+        )
 
     def test_get_payment_url_embeds_a_valid_token(self):
         """Ponto Payment Link.get_payment_url() mints a token get_context accepts."""
