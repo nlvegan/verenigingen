@@ -2697,6 +2697,30 @@ def update_mollie_subscription_amount(subscription_id, new_amount):
         if not member_data:
             return create_error_response("No member found for subscription ID")
 
+        # SECURITY (#957): subscription_id is caller-supplied and
+        # get_member_by_subscription_id only LOOKS UP the owning member -- it
+        # performs no ownership check. Without this, any caller who clears
+        # this endpoint's HIGH security level (board/staff/treasurer, not
+        # only an admin -- see #965's role-profile measurement) could rewrite
+        # another member's subscription amount.
+        #
+        # allow_admin=True lets a Roles.ADMIN_ROLES holder act on a member's
+        # behalf, and notably lets Administrator through at all -- Administrator
+        # has no Member record, so the default contract would refuse it with
+        # "No member record found for your account".
+        #
+        # NOTE the asymmetry, which is deliberate here but NOT settled policy:
+        # the sibling endpoint cancel_member_subscription() (line ~2575) calls
+        # validate_member_ownership() with NO allow_admin, so it blocks admins
+        # outright. These two endpoints act on the same member's subscription
+        # and disagree about whether an admin may do so. Tracked as #1101;
+        # do not "align" one to the other without deciding which is correct.
+        validate_member_ownership(
+            member_data["name"],
+            _("You can only manage your own subscription"),
+            allow_admin=True,
+        )
+
         customer_id = member_data["mollie_customer_id"]
 
         if not customer_id:
@@ -2753,6 +2777,13 @@ def update_mollie_subscription_amount(subscription_id, new_amount):
             }
         else:
             return create_error_response(result.get("message", "Failed to update subscription"))
+
+    except (frappe.PermissionError, frappe.DoesNotExistError):
+        # A real, deliberate refusal from validate_member_ownership -- let it
+        # propagate as-is (fail closed) rather than being re-wrapped below into
+        # a generic {"status": "error"} dict that loses the distinction between
+        # "you don't own this" and an unrelated failure.
+        raise
 
     except Exception as e:
         frappe.log_error(
