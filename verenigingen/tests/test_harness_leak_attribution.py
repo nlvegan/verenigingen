@@ -1651,14 +1651,21 @@ class ItemGroupSurvivesTheTrackedDrainTest(unittest.TestCase):
     ITEM_GROUP = "ZZ 1073 Control Membership"
 
     def setUp(self):
+        # No frappe.db.commit() here (order-dependence ratchet review,
+        # #1073 round 2): this class is plain unittest.TestCase, not
+        # FrappeTestCase, so nothing wraps it in a transaction to roll back --
+        # a delete_doc() in this same connection/process is visible to the
+        # very next query without committing. The REAL class under test
+        # (TestSalesInvoiceAccountHandler) already commits in its OWN
+        # tearDown(); that is what actually needs to be durable, and it
+        # already is (see the test body). Confirmed by re-running the
+        # RED/GREEN cycle with both commits removed -- unchanged.
         if frappe.db.exists("Item Group", self.ITEM_GROUP):
             frappe.delete_doc("Item Group", self.ITEM_GROUP, force=True, ignore_permissions=True)
-            frappe.db.commit()
 
     def tearDown(self):
         if frappe.db.exists("Item Group", self.ITEM_GROUP):
             frappe.delete_doc("Item Group", self.ITEM_GROUP, force=True, ignore_permissions=True)
-            frappe.db.commit()
 
     def test_a_later_instance_still_finds_the_item_group_after_the_first_tears_down(self):
         from verenigingen.services.billing.test_sales_invoice_account_handler import (
