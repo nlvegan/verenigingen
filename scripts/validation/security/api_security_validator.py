@@ -175,7 +175,9 @@ class APISecurityValidator:
                 print(f"❌ API directory not found: {api_dir}")
                 return False
             
-            files_to_validate = list(api_dir.glob('*.py'))
+            # rglob: verenigingen/api/ has real subdirectories (e.g. api/member/)
+            # whose files a non-recursive glob('*.py') silently never sees (#972).
+            files_to_validate = list(api_dir.rglob('*.py'))
             files_to_validate = [f for f in files_to_validate if not f.name.startswith('__')]
 
         if self.verbose:
