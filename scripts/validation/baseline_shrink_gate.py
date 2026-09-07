@@ -22,10 +22,12 @@ touches no logging at all.
 
 WHAT THIS SCRIPT DOES INSTEAD
 ------------------------------
-Given the path to a baseline file that the caller has ALREADY regenerated on
-disk (by running ``<validator> --update-baseline`` before invoking this),
-compare it against ``git show HEAD:<path>`` -- the committed version -- and
-classify every changed key:
+Given the path to a baseline file, ensure it reflects the current tree --
+by default by running ``regenerate_cmd`` itself (see ``--already-regenerated``
+below for the CI shape, which runs that command in a separate step first and
+opts out of running it twice) -- then compare it against
+``git show HEAD:<path>`` -- the committed version -- and classify every
+changed key:
 
 * a key that is NEW, or whose count went UP, is growth -> still a hard
   failure, with the same actionable message as before (plus which keys).
@@ -149,6 +151,28 @@ drifts out of sync with what the validator actually writes, and
 ``test_duplicate_helper_validator.py``'s ``MarkerLiteralTest`` for where the
 literal is pinned at its source instead.
 
+THE TWO-STEP TRAP (``--already-regenerated``)
+------------------------------------------------
+Every real caller of this gate runs `<validator> --update-baseline` as a
+*separate* CI step immediately before this one, so the file this gate reads
+off disk is already the regenerated census by the time it runs -- see the
+module docstring above ("the caller has ALREADY regenerated on disk"). That
+contract is invisible at the call site: the gate's positional
+``regenerate_cmd`` argument *looks* like the complete invocation, because it
+is also passed on the command line. Two people independently ran the gate
+standalone -- baseline path, ``regenerate_cmd``, ``--require-marker``,
+``--fail-on-shrink``, copied verbatim from ``code-validation.yml`` -- on a
+commit CI had just failed with "Baseline census shrank", and got "matches
+the tree, exit 0" instead, because disk still held the same content as
+``HEAD`` (issue #1013).
+
+By default, `main()` now runs ``regenerate_cmd`` itself before comparing, so
+that exact copy-pasted invocation is self-sufficient and reproduces CI's
+verdict correctly. ``--already-regenerated`` opts back out for a caller that
+already ran the command in a separate step and does not want to pay for it
+twice -- namely CI itself, which passes this flag at all five call sites so
+its total cost is unchanged from before this fix.
+
 WHAT THIS DOES NOT COVER
 --------------------------
 Whether a shrink was a GENUINE fix, as opposed to a suppression pragma
@@ -173,6 +197,7 @@ them; see the commit that introduced this file for the tradeoff.
 from __future__ import annotations
 
 import argparse
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -313,7 +338,31 @@ def main(argv: list[str]) -> int:
             "those too, which is where issue #769 came from."
         ),
     )
+    ap.add_argument(
+        "--already-regenerated",
+        action="store_true",
+        help=(
+            "Skip running `regenerate_cmd` -- the caller has already run it in a "
+            "separate step (this is what every real CI caller does) and the file "
+            "on disk is trusted as-is. Without this flag, `regenerate_cmd` is run "
+            "before comparing, which is what makes copying this exact invocation "
+            "on its own -- without the separate step -- a correct reproduction "
+            "instead of the false pass in issue #1013."
+        ),
+    )
     args = ap.parse_args(argv[1:])
+
+    if not args.already_regenerated:
+        try:
+            regen = subprocess.run(shlex.split(args.regenerate_cmd), capture_output=True, text=True)
+        except OSError as exc:
+            print(f"::error file={args.baseline}::Could not run `{args.regenerate_cmd}`: {exc}")
+            return 1
+        if regen.returncode != 0:
+            print(f"::error file={args.baseline}::Failed to regenerate the baseline via `{args.regenerate_cmd}`:")
+            print(regen.stdout)
+            print(regen.stderr)
+            return regen.returncode or 1
 
     new_text = args.baseline.read_text(encoding="utf-8") if args.baseline.exists() else ""
     try:

@@ -168,8 +168,17 @@ class TestGateEndToEnd(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
 
     def _run_gate(self, *extra_args):
+        # `--already-regenerated`: every test in this class simulates "the
+        # caller already ran `--update-baseline`" by writing the post-
+        # regeneration content directly to `self.baseline` -- it never wires
+        # up a real, runnable regenerate_cmd (the placeholder string below
+        # isn't an executable). #1013's own auto-regenerate tests below cover
+        # the flag's absence with a real command.
         return subprocess.run(
-            [sys.executable, str(_MOD_PATH), str(self.baseline), "regen-cmd --update-baseline", *extra_args],
+            [
+                sys.executable, str(_MOD_PATH), str(self.baseline),
+                "regen-cmd --update-baseline", "--already-regenerated", *extra_args,
+            ],
             cwd=str(self.repo),
             capture_output=True,
             text=True,
@@ -289,7 +298,7 @@ class TestGateEndToEnd(unittest.TestCase):
             baseline = Path(not_a_repo) / "some_baseline.txt"
             baseline.write_text("a.py::foo::1\n", encoding="utf-8")
             result = subprocess.run(
-                [sys.executable, str(_MOD_PATH), str(baseline), "regen-cmd"],
+                [sys.executable, str(_MOD_PATH), str(baseline), "regen-cmd", "--already-regenerated"],
                 cwd=not_a_repo, capture_output=True, text=True, timeout=30,
             )
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -348,6 +357,111 @@ class TestGateEndToEnd(unittest.TestCase):
         self.assertNotIn("self-healing", result.stdout)
 
 
+class TestAutoRegenerate(unittest.TestCase):
+    """#1013: two people independently ran the exact invocation
+    `code-validation.yml` shows for a single ratchet -- baseline path,
+    regenerate_cmd, `--require-marker`, `--fail-on-shrink` -- WITHOUT the
+    separate `<validator> --update-baseline` step CI runs immediately before
+    it, on a tree CI had just rejected with "Baseline census shrank". Disk
+    still equalled the committed copy (nobody had touched it), so the fast
+    equality check at the top of `main()` reported "matches the tree, exit
+    0" on the exact commit CI had failed.
+
+    The fix: by default `main()` now runs `regenerate_cmd` itself before
+    comparing, so copying that same invocation verbatim is self-sufficient.
+    `--already-regenerated` opts back out for a caller (namely CI, and the
+    other test classes in this module) that already ran the command in a
+    separate step and does not want to pay for it twice.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.repo = Path(self._tmp.name)
+        _git("init", "-q", cwd=self.repo)
+        _git("config", "user.email", "t@example.com", cwd=self.repo)
+        _git("config", "user.name", "t", cwd=self.repo)
+        self.baseline = self.repo / "some_baseline.txt"
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _commit(self, text: str):
+        self.baseline.write_text(text, encoding="utf-8")
+        _git("add", "some_baseline.txt", cwd=self.repo)
+        r = _git("commit", "-q", "-m", "baseline", cwd=self.repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def _write_regen_script(self, name: str, new_content: str) -> str:
+        """A real, runnable "regenerate" command: overwrite the baseline
+        with `new_content` when invoked, exactly like `<validator>
+        --update-baseline` overwrites it in the real callers."""
+        script = self.repo / name
+        script.write_text(
+            "import pathlib\n"
+            f"pathlib.Path({str(self.baseline)!r}).write_text({new_content!r}, encoding='utf-8')\n",
+            encoding="utf-8",
+        )
+        return f"{sys.executable} {script}"
+
+    def _run_gate(self, regenerate_cmd, *extra_args):
+        return subprocess.run(
+            [sys.executable, str(_MOD_PATH), str(self.baseline), regenerate_cmd, *extra_args],
+            cwd=str(self.repo),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+    def test_reported_false_pass_is_closed_by_running_the_regenerate_cmd(self):
+        """The exact #1013 shape: disk == committed (nobody ran the separate
+        update-baseline step), but the regenerate command -- if actually run,
+        as CI's separate step would have -- produces a genuinely NEW key.
+        Copying the invocation with no `--already-regenerated` flag must
+        catch that, not silently report a pass."""
+        self._commit("a.py::foo::1\n")
+        # Disk still equals the committed copy -- the reported misuse.
+        self.assertEqual(self.baseline.read_text(encoding="utf-8"), "a.py::foo::1\n")
+        regen_cmd = self._write_regen_script(
+            "_regen.py", "a.py::foo::1\nc.py::new_bad::1\n"
+        )
+        result = self._run_gate(regen_cmd)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("out of sync", result.stdout)
+        self.assertIn("c.py::new_bad", result.stdout)
+
+    def test_reported_false_pass_shrink_shape_is_also_closed(self):
+        """The literal shape from the issue's own repro: `--fail-on-shrink`
+        on a tree CI already rejected with "Baseline census shrank". Disk
+        equals committed; the regenerate command would remove a key."""
+        self._commit("a.py::foo::1\nb.py::bar::1\n")
+        regen_cmd = self._write_regen_script("_regen.py", "a.py::foo::1\n")
+        result = self._run_gate(regen_cmd, "--fail-on-shrink")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("shrank", result.stdout)
+        self.assertIn("b.py::bar", result.stdout)
+
+    def test_already_regenerated_flag_skips_execution_and_trusts_disk(self):
+        """CI's shape: the regeneration already ran in a separate step, so
+        `--already-regenerated` must both (a) never invoke the (here,
+        deliberately failing) command again, and (b) still correctly compare
+        whatever is already on disk."""
+        self._commit("a.py::foo::1\n")
+        self.baseline.write_text("a.py::foo::1\nc.py::new_bad::1\n", encoding="utf-8")
+        regen_cmd = f"{sys.executable} -c \"import sys; sys.exit('should not run')\""
+        result = self._run_gate(regen_cmd, "--already-regenerated")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("c.py::new_bad", result.stdout)
+
+    def test_regenerate_cmd_failure_is_a_hard_error(self):
+        """If the regenerate command itself fails, that is a harder problem
+        than any baseline drift -- refuse rather than compare stale/partial
+        output."""
+        self._commit("a.py::foo::1\n")
+        broken_cmd = f"{sys.executable} -c \"import sys; sys.exit(3)\""
+        result = self._run_gate(broken_cmd)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
 class TestRequireMarker(unittest.TestCase):
     """#769: duplicate_helper_baseline.txt mixes marked (`# clone family`,
     genuinely near-identical) and unmarked (name collision only, advisory)
@@ -378,8 +492,13 @@ class TestRequireMarker(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
 
     def _run_gate(self, *extra_args):
+        # See TestGateEndToEnd._run_gate: these tests also simulate an
+        # already-regenerated baseline via a direct write, not a real command.
         return subprocess.run(
-            [sys.executable, str(_MOD_PATH), str(self.baseline), "regen-cmd --update-baseline", *extra_args],
+            [
+                sys.executable, str(_MOD_PATH), str(self.baseline),
+                "regen-cmd --update-baseline", "--already-regenerated", *extra_args,
+            ],
             cwd=str(self.repo),
             capture_output=True,
             text=True,

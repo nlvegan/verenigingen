@@ -265,6 +265,7 @@ jobs:
         python scripts/validation/baseline_shrink_gate.py \
           scripts/validation/error_swallow_baseline.txt \
           "python scripts/validation/error_swallow_validator.py --update-baseline" \
+          --already-regenerated \
           $FAIL_ON_SHRINK
 
     # The step above cannot catch the one abuse that actually defeats this gate:
@@ -395,6 +396,7 @@ jobs:
         python scripts/validation/baseline_shrink_gate.py \
           scripts/validation/log_error_arg_order_baseline.txt \
           "python scripts/validation/log_error_arg_order_validator.py --update-baseline" \
+          --already-regenerated \
           $FAIL_ON_SHRINK
 
     # The step above cannot catch the one abuse that actually defeats this gate:
@@ -507,6 +509,7 @@ jobs:
         python scripts/validation/baseline_shrink_gate.py \
           scripts/validation/test_quality_baseline.txt \
           "python scripts/validation/test_quality_enforcer.py --update-baseline" \
+          --already-regenerated \
           $FAIL_ON_SHRINK
 
     # The step above cannot catch the abuse that actually defeats this gate:
@@ -595,6 +598,7 @@ jobs:
           scripts/validation/duplicate_helper_baseline.txt \
           "python scripts/validation/duplicate_helper_validator.py --update-baseline" \
           --require-marker "# clone family" \
+          --already-regenerated \
           $FAIL_ON_SHRINK
 
     # The step above cannot catch the abuse that defeats this gate: regenerating the
@@ -680,7 +684,7 @@ jobs:
         BASELINE=scripts/validation/order_dependence_baseline.txt
         REGEN="python scripts/testing/scan_order_dependence.py --update-baseline $BASELINE"
         $REGEN
-        python scripts/validation/baseline_shrink_gate.py "$BASELINE" "$REGEN" $FAIL_ON_SHRINK
+        python scripts/validation/baseline_shrink_gate.py "$BASELINE" "$REGEN" --already-regenerated $FAIL_ON_SHRINK
 
     # The step above CANNOT catch the one abuse that defeats this gate: regenerating the
     # baseline in the same PR so a new finding is recorded rather than fixed. It compares
