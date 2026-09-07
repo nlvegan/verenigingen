@@ -37,7 +37,8 @@ EMAIL BOUNDARY:
 """
 
 import frappe
-from frappe.utils import add_days, add_months, add_years, getdate, today
+from frappe.utils import add_days, add_months, add_years, get_datetime, getdate, today
+from freezegun import freeze_time
 
 from verenigingen.services.billing import dues_schedule_auto_creator as dsac
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -295,6 +296,86 @@ class TestDuesScheduleAutoCreator(EnhancedTestCase):
         mt.reload()
         with self.assertRaises(ValueError):
             dsac._validate_final_dues_rate(0, mt)
+
+    # ==================================================================
+    # #452: _make_membership_without_schedule's insert() -> submit() pair
+    # must survive a whole-second `now()` landing on the insert.
+    # ==================================================================
+    def test_membership_insert_then_submit_survives_whole_second_now(self):
+        """Regression for #452: this class's own
+        `_make_membership_without_schedule` does `membership.insert()` then
+        `membership.submit()` with nothing but a Python attribute set in
+        between -- exactly the sequence #452's CI traceback shows dying
+        with `TimestampMismatchError`:
+
+            MEMB-26-08-0032 (Membership) has been modified after you have
+            opened it (2026-08-21 15:10:51, 2026-08-21 15:10:51.005554)
+
+        #609 (found six days after #452 was filed, fixed 2026-09-02)
+        explains that signature exactly: if `frappe.utils.now()` lands on a
+        whole second during `insert()` (microsecond == 0), the value
+        round-trips through the DB and back as a `datetime` whose `str()`
+        drops the trailing '.000000' -- so `submit()`'s `check_if_latest()`
+        later compares a DB-read string with no fraction against an
+        in-memory string that still has one, and raises purely from that
+        formatting mismatch, not a real concurrent write. Neither of #609's
+        two mitigations (the production `doc_events["*"]["on_change"]`
+        hook, nor this harness's own `db_insert` patch -- see
+        `EnhancedTestCase._install_insert_capture`) existed when #452 was
+        filed; both cover the general case now (see
+        `verenigingen/tests/test_timestamp_normalization_609.py` and its
+        harness-fidelity sibling). This test pins it for the Membership
+        insert()->submit() shape specifically, rather than relying on
+        those generic ToDo-doctype tests to stand in for it.
+        """
+        mt = self._make_membership_type(minimum_amount=22.0)
+        member = self._make_member()
+
+        with freeze_time("2026-08-21 15:10:51"):
+            membership = frappe.new_doc("Membership")
+            membership.member = member.name
+            membership.membership_type = mt.name
+            membership.start_date = today()
+            membership.status = "Active"
+            membership.flags.skip_dues_schedule_creation = True
+            membership.insert(ignore_permissions=True)
+        self._committed_docs.append(("Membership", membership.name))
+
+        # Pin the invariant that actually makes check_if_latest safe here:
+        # the in-memory `modified` string and the stored one must be IDENTICAL.
+        #
+        # Two weaker assertions were tried and rejected, both measured:
+        #   * `assertFalse(str(modified).endswith(".000000"))` passes VACUOUSLY --
+        #     under this freeze_time the value reads back as '...51' with no
+        #     fraction at all, which satisfies it while being the bug shape.
+        #   * `assertNotEqual(get_datetime(modified).microsecond, 0)` FAILS here,
+        #     and could never have worked. Under a frozen whole-second clock the
+        #     INSTANT has microsecond == 0, so `get_datetime()` parses both the
+        #     suffixed ('...51.000000') and the stripped ('...51') form to the
+        #     same value -- the assertion inspects a property of the timestamp,
+        #     not of the normalisation, so it fails identically whether or not
+        #     any mitigation ran.
+        #
+        #     An earlier version of this comment said "#609's normaliser does NOT
+        #     fire on this path". That was WRONG, and it would have told the next
+        #     reader the production hook is inert for Membership. Measured by
+        #     instrumenting `normalize_whole_second_timestamps` and running this
+        #     very test: it IS invoked -- and reports `touched=[]`, because
+        #     EnhancedTestCase's `db_insert` patch runs earlier in insert()'s call
+        #     graph (at the physical write, before run_post_save_methods() fires
+        #     on_change) and has already stripped the suffix. The hook fires and
+        #     finds nothing to do. So inside this test only the HARNESS mitigation
+        #     is exercised end to end; the production one is present but idle.
+        db_modified = frappe.db.get_value("Membership", membership.name, "modified")
+        self.assertEqual(
+            str(membership.modified),
+            str(db_modified),
+            "in-memory and stored `modified` disagree, so submit()'s check_if_latest "
+            "compares mismatched string forms -- the #609 shape, reachable again",
+        )
+
+        membership.flags.skip_dues_schedule_creation = True
+        membership.submit()  # must NOT raise TimestampMismatchError
 
     # ==================================================================
     # Pure helper: _get_validated_dues_rate (preview path, swallows errors -> 0)
