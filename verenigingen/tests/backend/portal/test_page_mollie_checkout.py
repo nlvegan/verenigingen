@@ -170,6 +170,46 @@ class TestMollieCheckoutOwnership(EnhancedTestCase):
         self.assertEqual(result["status"], "Error")
         gateway.process_payment.assert_not_called()
 
+    def _make_member_payment_history_row(self, member):
+        row = member.append(
+            "payment_history",
+            {"transaction_type": "Invoice", "amount": 20.0, "payment_status": "Pending"},
+        )
+        member.save(ignore_permissions=True)
+        return row
+
+    def test_disallowed_doctype_write_never_lands(self):
+        """The literal write make_payment attempts (frappe.db.set_value on
+        payment_status) is what #1032 warned about. Every top-level doctype
+        allowed for checkout lacks a payment_status field, so the write is
+        provably inert there -- but "Member Payment History" (a Member's
+        payment_history child table) has one, and a bare frappe.get_doc can
+        load a child-table row directly by its own name, the same as any
+        other document. Confirmed pre-fix this let a guest flip an arbitrary
+        member's payment_history row from "Pending" to "Open" with a stubbed
+        gateway and zero ownership check; this test proves the allowlist
+        refusal happens before the write, for every row's payment_status,
+        not just before a redirect is returned."""
+        self.expectErrorLog("Mollie Payment Error")
+        member = self._make_member()
+        row = self._make_member_payment_history_row(member)
+        row_name = row.name
+        gateway = self._stub_gateway()
+
+        with self.as_user("Guest"):
+            with patch(_GATEWAY_FACTORY_PATH, return_value=gateway):
+                result = self._call_make_payment(
+                    reference_doctype="Member Payment History",
+                    reference_docname=row_name,
+                    payer_email="attacker@example.com",
+                )
+
+        self.assertEqual(result["status"], "Error")
+        gateway.process_payment.assert_not_called()
+        self.assertEqual(
+            frappe.db.get_value("Member Payment History", row_name, "payment_status"), "Pending"
+        )
+
     def test_email_comparison_is_case_and_whitespace_insensitive(self):
         """A legitimate donor should not be refused over formatting differences."""
         donor_email = f"owner-{frappe.generate_hash()[:8]}@example.com"
