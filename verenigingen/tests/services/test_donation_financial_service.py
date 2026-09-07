@@ -18,9 +18,13 @@ from frappe.utils import today
 
 from verenigingen.services.donation.financial_service import DonationFinancialService
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.services.test_donation_refund_journal_entry_creator_coverage import (
+    COMPANY,
+    _RefundFixtureMixin,
+)
 
 
-class TestDonationFinancialService(EnhancedTestCase):
+class TestDonationFinancialService(_RefundFixtureMixin, EnhancedTestCase):
     """Test suite for DonationFinancialService live paths."""
 
     def setUp(self):
@@ -170,11 +174,22 @@ class TestDonationFinancialService(EnhancedTestCase):
 
     # ========== reconcile_donation_accounts ==========
 
-    def test_reconcile_donation_accounts_clean_when_no_gl_entries_match(self):
+    def test_reconcile_donation_accounts_flags_discrepancy_when_unlinked(self):
         """
         Reconciliation runs without crashing (regression: previously selected
         a non-existent ``company`` column -> OperationalError) and reports the
         expected report structure.
+
+        A paid donation with no Journal Entry linked has genuinely posted
+        nothing to the ledger, so it is correctly flagged as a discrepancy.
+        (Previously named '..._clean_when_no_gl_entries_match' and justified
+        with "Our donation has no Donation-type GL entries" -- that comment
+        pinned the bug (#984): the query looked for a voucher_type nothing
+        ever writes, so it discrepancy-flagged EVERY paid donation, linked or
+        not. This test keeps the correct half of that assertion -- an
+        unlinked donation is a real discrepancy -- and
+        test_reconcile_donation_accounts_clean_when_journal_entry_matches
+        below is the control proving a linked one is not.)
         """
         # Create a paid, submitted donation so the report has at least one row
         self.service.create_donation_from_bank_transfer(
@@ -192,9 +207,45 @@ class TestDonationFinancialService(EnhancedTestCase):
         self.assertIn("discrepancies", report)
         self.assertIn("summary", report)
         self.assertIn("reconciliation_status", report["summary"])
-        # Our donation has no Donation-type GL entries, so it shows as a discrepancy
+        # No journal_entry is linked, so no GL credit can be found for it --
+        # a genuine discrepancy, not a query bug.
         self.assertGreaterEqual(report["summary"]["discrepancy_count"], 1)
         self.assertEqual(report["summary"]["reconciliation_status"], "Needs Review")
+
+    def test_reconcile_donation_accounts_clean_when_journal_entry_matches(self):
+        """
+        Regression test for #984: a paid donation that HAS actually posted to
+        the ledger -- via the real Journal Entry path
+        (donation_journal_entry_creator.py), linked back onto
+        Donation.journal_entry -- must reconcile as clean, not as a
+        discrepancy.
+
+        Before the fix, reconcile_donation_accounts queried
+        ``GL Entry WHERE voucher_type = 'Donation'``, a voucher_type nothing
+        in this app ever writes (Donation is not submittable, #987/#350), so
+        this donation's real GL credit was invisible and it was flagged as a
+        discrepancy despite the books being correct. This is the control: it
+        is a case that MUST produce matching GL rows, so a regression back to
+        a query that silently matches zero rows is visible here rather than
+        passing vacuously.
+        """
+        amount = 77.0
+        donation = self._make_paid_donation_without_journal_entry(amount)
+        je_name = self._make_and_submit_matching_journal_entry(donation.name, amount)
+
+        frappe.db.set_value("Donation", donation.name, "journal_entry", je_name)
+        donation.reload()
+        self.assertEqual(donation.journal_entry, je_name)
+
+        report = self.service.reconcile_donation_accounts()
+
+        matching = [d for d in report["discrepancies"] if d["donation"] == donation.name]
+        self.assertEqual(
+            matching,
+            [],
+            f"Expected no discrepancy for {donation.name}, whose Journal Entry {je_name} "
+            f"posted a matching GL credit; got {matching}",
+        )
 
     # ========== earmarking / accounts helpers (no settings configured) ==========
 
@@ -206,6 +257,56 @@ class TestDonationFinancialService(EnhancedTestCase):
         self.assertTrue(frappe.db.exists("Company", company))
 
     # ========== Helpers ==========
+
+    def _make_paid_donation_without_journal_entry(self, amount):
+        """Insert a paid Donation with no journal_entry linked yet.
+
+        Hand-rolled rather than routed through ``self.service.
+        create_donation_from_bank_transfer`` so the caller controls
+        ``journal_entry`` linkage explicitly for the #984 regression test.
+        """
+        donation = frappe.new_doc("Donation")
+        donation.donor = self.donor.name
+        donation.donation_date = today()
+        donation.amount = amount
+        donation.mode_of_payment = "Bank Transfer"
+        donation.paid = 1
+        donation.insert(ignore_permissions=True)
+        self.track_test_record("Donation", donation.name)
+        return donation
+
+    def _make_and_submit_matching_journal_entry(self, donation_name, amount):
+        """Create and submit a real Journal Entry the way
+        ``donation_journal_entry_creator.py`` does: debit clearing, credit
+        income, for the given amount. Returns the Journal Entry name (this
+        is what production writes back onto ``Donation.journal_entry``).
+        """
+        clearing_account = self._ensure_clearing_account()
+        income_account = self._ensure_income_account()
+        cost_center = frappe.get_value("Company", COMPANY, "cost_center")
+
+        je = frappe.new_doc("Journal Entry")
+        je.voucher_type = "Journal Entry"
+        je.company = COMPANY
+        je.posting_date = today()
+        je.user_remark = f"Donation payment: {donation_name}"
+        for account, debit, credit in (
+            (clearing_account, amount, 0),
+            (income_account, 0, amount),
+        ):
+            je.append(
+                "accounts",
+                {
+                    "account": account,
+                    "debit_in_account_currency": debit,
+                    "credit_in_account_currency": credit,
+                    "cost_center": cost_center,
+                },
+            )
+        je.insert(ignore_permissions=True)
+        je.submit()
+        self.track_test_record("Journal Entry", je.name)
+        return je.name
 
     def _chapter_donation_doc(self):
         """Insert a valid Chapter-purpose donation (chapter_reference required)."""

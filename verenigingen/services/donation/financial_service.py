@@ -175,7 +175,7 @@ class DonationFinancialService(StatelessService):
         donations = frappe.get_all(
             "Donation",
             filters={"paid": 1, "docstatus": ["<", 2]},
-            fields=["name", "amount", "donation_date"],
+            fields=["name", "amount", "donation_date", "journal_entry"],
         )
 
         reconciliation_report = {
@@ -189,16 +189,27 @@ class DonationFinancialService(StatelessService):
             amount = flt(donation.amount)
             reconciliation_report["total_donations"] += amount
 
-            # Get GL entries for this donation
-            # Note: Frappe GL Entry uses voucher_no/voucher_type, not reference_name/reference_type
-            gl_credits = frappe.db.sql(
-                """
+            # Get GL entries for this donation. Donations post via Journal
+            # Entry, not a 'Donation' voucher_type -- no code path ever writes
+            # that voucher_type (Donation is not submittable, #987/#350), so a
+            # query for it always matched zero rows (#984). And a Journal
+            # Entry's own voucher_no is never the donation's name -- it is the
+            # Journal Entry's own name, which donation_journal_entry_creator.py
+            # writes back onto Donation.journal_entry. So the join key is
+            # journal_entry, not donation.name (same fix as the sibling query
+            # in reporting_service.py, issue #369 / PR #963).
+            gl_credits = (
+                frappe.db.sql(
+                    """
                 SELECT SUM(credit) as total_credit
                 FROM `tabGL Entry`
-                WHERE voucher_no = %s AND voucher_type = 'Donation'
+                WHERE voucher_no = %s AND voucher_type = 'Journal Entry'
             """,
-                donation.name,
-                as_dict=True,
+                    donation.journal_entry,
+                    as_dict=True,
+                )
+                if donation.journal_entry
+                else []
             )
 
             gl_credit_amount = (
