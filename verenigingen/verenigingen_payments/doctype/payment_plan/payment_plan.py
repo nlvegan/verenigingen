@@ -481,7 +481,16 @@ def approve_payment_plan(plan_name: str, approver_notes=None):
             plan.add_comment(text=f"Approved: {approver_notes}")
 
         plan.save()
-        plan.submit()
+        # NOT `plan.submit()` (#992/#987/#350): Payment Plan has no
+        # `is_submittable` in its DocType JSON, so submitting it moved
+        # docstatus to 1 on a doctype whose own schema says that should
+        # never happen. Status (set above) is how this doctype tracks its
+        # lifecycle; `on_submit`'s only other effect -- pausing the linked
+        # dues schedule -- is reproduced directly here, the same way
+        # `activate_plan()` already does for its own non-submit activation
+        # path.
+        if plan.membership_dues_schedule:
+            plan.update_dues_schedule_for_payment_plan()
 
         return True
 
