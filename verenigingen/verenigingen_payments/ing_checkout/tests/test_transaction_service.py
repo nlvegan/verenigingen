@@ -21,6 +21,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt
 
+from verenigingen.tests.fixtures.enhanced_test_factory import shared_fixture
 from verenigingen.verenigingen_payments.ing_checkout.services.transaction_service import (
     TransactionService,
     get_transaction_service,
@@ -138,9 +139,11 @@ class TestCreatePaymentEntryWithInvoice(FrappeTestCase):
 
     # ---- helpers (privileged data creation lives here, not in test bodies) ----
 
+    @shared_fixture
     def _ensure_mode_of_payment(self):
         # The service stamps mode_of_payment="iDEAL" on the Payment Entry; the
         # link must resolve. Production sites ship this Mode of Payment.
+        # @shared_fixture (#1010): site-wide master data, no company scope.
         if not frappe.db.exists("Mode of Payment", "iDEAL"):
             frappe.get_doc({"doctype": "Mode of Payment", "mode_of_payment": "iDEAL", "type": "Bank"}).insert(
                 ignore_permissions=True

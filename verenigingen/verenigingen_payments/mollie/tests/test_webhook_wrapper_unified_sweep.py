@@ -39,7 +39,7 @@ live in ``_make_`` / setUp helpers per the test-quality enforcer.
 import frappe
 from frappe.utils import getdate, today
 
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.verenigingen_payments.mollie.services.webhook_wrapper_service_unified import (
     UnifiedWebhookWrapperService,
@@ -87,7 +87,9 @@ class WrapperSweepBase(EnhancedTestCase):
         frappe.db.commit()
 
     @classmethod
+    @shared_fixture
     def _ensure_mode_of_payment(cls, name):
+        """``@shared_fixture`` (#1010): site-wide master data, no company scope."""
         if not frappe.db.exists("Mode of Payment", name):
             frappe.get_doc({"doctype": "Mode of Payment", "mode_of_payment": name, "type": "Bank"}).insert(
                 ignore_permissions=True
