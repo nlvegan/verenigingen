@@ -257,11 +257,21 @@ def census(root: str = None) -> Dict[str, int]:
 
 
 def clone_families(root: str = None):
-    """(clone_pairs, defs, exact_pairs, best_ratio, name, dirs), most-cloned first.
+    """(clone_pairs, defs, exact_pairs, best_ratio, name, dirs, worst, cosmetic,
+    near_pairs), most-cloned first.
 
     `defs` is the DEFINITION count (#990), which can exceed the number of
     directories/files listed in `dirs` when one file defines the name more than
     once (e.g. once per class). `dirs` stays file/directory-level for readability.
+
+    `near_pairs` is the actual evidence for the verdict: a sorted list of
+    (rel_path, rel_path, ratio) for every pair that is exact or reaches
+    CLONE_RATIO. #1022 (same defect class as #1008, fixed for the sibling
+    `production_divergence_scanner.py` by #1029): a report that names only the
+    family and a truncated, alphabetically-sorted `dirs[:4]` list gives a human
+    no way back to the pair that produced it -- for a family with more than ~4
+    directories, alphabetical truncation can drop the pair entirely, on either
+    or both sides.
 
     Only for --report. The ratchet itself never looks at similarity -- comparing
     every pair is quadratic in the number of copies and would make the gate slow
@@ -275,6 +285,7 @@ def clone_families(root: str = None):
         exact = clones = cosmetic = 0
         best = 0.0
         worst = 1.0
+        near_pairs: List[Tuple[str, str, float]] = []
         for i in range(len(copies)):
             for j in range(i + 1, len(copies)):
                 a, b = copies[i][2], copies[j][2]  # normalised
@@ -294,14 +305,19 @@ def clone_families(root: str = None):
                     # search query -- but it is not behavioural drift.
                     if raw_a != raw_b:
                         cosmetic += 1
+                    near_pairs.append((copies[i][0], copies[j][0], 1.0))
                     continue
                 ratio = _ratio(a, b)
                 best = max(best, ratio)
                 worst = min(worst, ratio)
                 if ratio >= CLONE_RATIO:
                     clones += 1
+                    near_pairs.append((copies[i][0], copies[j][0], ratio))
         if exact + clones:
             dirs = sorted({os.path.dirname(_rel(p)) for p, _, _ in copies})
+            sorted_near_pairs = sorted(
+                (_rel(a), _rel(b), round(ratio, 3)) for a, b, ratio in near_pairs
+            )
             families.append(
                 (
                     exact + clones,
@@ -312,10 +328,26 @@ def clone_families(root: str = None):
                     dirs,
                     round(worst, 3),
                     cosmetic,
+                    sorted_near_pairs,
                 )
             )
     families.sort(key=lambda f: (-f[0], -f[1]))
     return families
+
+
+def _print_near_pairs(near_pairs: List[Tuple[str, str, float]], indent: int) -> None:
+    """Print the actual near-identical pair(s) that produced a family's verdict.
+
+    #1022: replaces `for d in dirs[:4]: print(...)`, which named an
+    alphabetically-sorted, truncated directory list instead of the pair that
+    produced the verdict -- for a family with more than ~4 directories, the
+    true pair's directories could sort past position 4 and never be printed.
+    Prints EVERY pair reaching CLONE_RATIO (or exact), not just the best one --
+    mirroring #1029's fix in the sibling `production_divergence_scanner.py`.
+    """
+    for a, b, ratio in near_pairs:
+        print(f"{'':>{indent}}{a}")
+        print(f"{'':>{indent + 2}}<-> {b}   ratio {ratio:.3f}")
 
 
 def _ratio(a: str, b: str) -> float:
@@ -558,12 +590,11 @@ def main() -> int:
         # 89 families to a set where the inference is actually true.
         drifted = [f for f in clone_families() if f[2] == 0 and f[6] >= CLONE_RATIO]
         print(f"{'pairs':>5} {'defs':>5} {'worst':>6} {'best':>6}  helper")
-        for pairs, defs, _exact, best, name, dirs, worst, _cos in drifted:
+        for pairs, defs, _exact, best, name, dirs, worst, _cos, near_pairs in drifted:
             # `best` is rounded to 2dp, so a 0.997 family printed as 1.00 under a
             # header promising "no exact pair". Show 3dp.
             print(f"{pairs:>5} {defs:>5} {worst:>6.3f} {best:>6.3f}  {name}")
-            for d in dirs[:4]:
-                print(f"{'':>26}{d}/")
+            _print_near_pairs(near_pairs, 26)
         cosmetic_only = [f for f in clone_families() if f[2] and f[7] and f[0] == f[2]]
         print(
             f"\n{len(drifted)} families in which EVERY copy is >={CLONE_RATIO:.0%} similar to "
@@ -581,10 +612,9 @@ def main() -> int:
     if args.report:
         families = clone_families()
         print(f"{'pairs':>5} {'defs':>5} {'exact':>5} {'best':>5}  helper")
-        for pairs, defs, exact, best, name, dirs, _worst, _cos in families:
+        for pairs, defs, exact, best, name, dirs, _worst, _cos, near_pairs in families:
             print(f"{pairs:>5} {defs:>5} {exact:>5} {best:>5}  {name}")
-            for d in dirs[:4]:
-                print(f"{'':>28}{d}/")
+            _print_near_pairs(near_pairs, 28)
         print(f"\n{len(families)} clone families")
         return 0
 
