@@ -11,7 +11,6 @@ from datetime import datetime
 import frappe
 
 
-@frappe.whitelist()
 def create_period_closing_vouchers():
     """Create Period Closing Vouchers for years 2019-2024"""
 

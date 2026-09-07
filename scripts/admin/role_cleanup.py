@@ -8,7 +8,6 @@ from frappe import _
 from verenigingen.utils.constants import Roles
 
 
-@frappe.whitelist()
 def remove_redundant_admin_roles():
     """Remove redundant Verenigingen Administrator roles from System Manager users"""
 
@@ -56,7 +55,6 @@ def remove_redundant_admin_roles():
         return results
 
 
-@frappe.whitelist()
 def fix_chapter_permission_conflicts():
     """Fix permission conflicts in Chapter DocType for Chapter Board Member role"""
 

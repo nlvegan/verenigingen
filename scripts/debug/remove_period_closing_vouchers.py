@@ -22,7 +22,6 @@ def check_period_closing_vouchers():
     except Exception as e:
         return {"error": str(e)}
 
-@frappe.whitelist()
 def remove_period_closing_vouchers():
     """Remove all period closing vouchers"""
     try:

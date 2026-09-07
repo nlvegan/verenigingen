@@ -90,7 +90,6 @@ def get_role_usage_count(role_name):
         return 0
 
 
-@frappe.whitelist()
 def rename_all_roles():
     """
     Rename all verenigingen roles to have proper prefix
