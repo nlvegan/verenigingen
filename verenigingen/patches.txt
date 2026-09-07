@@ -87,3 +87,4 @@ verenigingen.patches.v2_2.seed_enable_dutch_name_fields
 verenigingen.patches.v2_2.add_mollie_payment_entry_idempotency_key
 verenigingen.patches.v2_2.backfill_volunteer_user_from_member
 verenigingen.patches.v2_2.force_enable_sepa_strict_mandate_validation
+verenigingen.patches.v2_2.add_retry_payment_critical_operation_rule

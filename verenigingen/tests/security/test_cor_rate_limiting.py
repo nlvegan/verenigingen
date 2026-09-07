@@ -507,3 +507,128 @@ class TestRateLimitKeyNamespacing(EnhancedTestCase):
         # The site segment must sit between the prefix and the operation, so two
         # different sites can never produce the same key for the same op/user.
         self.assertIn(f":{site}:", user_key)
+
+
+@contextmanager
+def _guest_request_from_ip(ip: str):
+    """Force INTERACTIVE context with a specific REMOTE_ADDR, as a Guest caller.
+
+    Mirrors mock_http_request() above but parameterizes the source IP, so two
+    "different visitors" can be simulated by varying only the IP -- both run
+    as frappe.session.user == "Guest", which is exactly the case that collapses
+    into a single shared bucket under rate_limit_scope "per_user" (#969).
+    """
+    original_request = getattr(frappe.local, "request", None)
+    original_user = frappe.session.user
+    try:
+        mock_request = MagicMock()
+        mock_request.method = "GET"
+        mock_request.environ = {"REMOTE_ADDR": ip}
+        frappe.local.request = mock_request
+        frappe.set_user("Guest")
+        yield
+    finally:
+        frappe.set_user(original_user)
+        if original_request is None:
+            if hasattr(frappe.local, "request"):
+                delattr(frappe.local, "request")
+        else:
+            frappe.local.request = original_request
+
+
+class TestRetryPaymentRateLimitScope(EnhancedTestCase):
+    """#969 review finding: retry_payment shipped with no dedicated Critical
+    Operation Rule, so it fell back to _generic_api_fallback's per_user scope.
+    For a Guest caller frappe.session.user is the literal string "Guest" for
+    every anonymous visitor, so per_user collapsed into ONE shared bucket for
+    the whole site -- weak against a patient attacker guessing donor_email
+    (see the ownership check added in the same fix) and a live DoS vector
+    against every legitimate donor retrying a failed payment.
+
+    verenigingen/fixtures/critical_operation_rule.json now ships a dedicated
+    per_ip-scoped record for retry_payment (and its donate_/api_ naming
+    variants); a patch seeds it onto already-migrated sites. These tests
+    verify the record's shape and that per_ip genuinely separates Guest
+    callers by IP rather than sharing one bucket.
+    """
+
+    OPERATION_KEY = "verenigingen.templates.pages.donate.retry_payment"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.framework = _get_fresh_framework()
+
+    def setUp(self):
+        super().setUp()
+        # Idempotent: creates the fixture-defined records if a given site's
+        # patches haven't run yet, no-ops (skips) if they're already present.
+        # Real, permanent app configuration -- not a test fixture -- so this
+        # is never torn down.
+        from verenigingen.setup.critical_operation_rules_setup import (
+            add_missing_critical_operation_rules,
+        )
+
+        add_missing_critical_operation_rules()
+        frappe.cache().delete_value("critical_operation_rules")
+        for ip in ("203.0.113.10", "203.0.113.20"):
+            frappe.cache().delete(
+                f"cor_rate_limit:{frappe.local.site}:interactive:retry_payment:{ip}"
+            )
+
+    def test_retry_payment_has_a_dedicated_per_ip_cor_record(self):
+        """retry_payment must no longer inherit the per_user generic fallback."""
+        record = frappe.db.get_value(
+            "Critical Operation Rule",
+            {"operation_name": "retry_payment", "enabled": 1},
+            ["rate_limit_scope", "rate_limit_calls", "rate_limit_period_seconds"],
+            as_dict=True,
+        )
+        self.assertIsNotNone(record, "retry_payment must have its own Critical Operation Rule")
+        self.assertEqual(
+            record.rate_limit_scope,
+            "per_ip",
+            "retry_payment must NOT use per_user scope -- for a Guest caller that "
+            "scope collapses into one shared bucket for every anonymous visitor",
+        )
+        # Distinct from _generic_api_fallback's 100/hour -- proves a dedicated
+        # record is actually being read, not the fallback under a new name.
+        self.assertLess(record.rate_limit_calls, 100)
+
+    def test_guest_callers_from_different_ips_get_separate_buckets(self):
+        """Two anonymous visitors (same session user "Guest", different IPs)
+        must not share one rate-limit counter.
+
+        Before the fix, both of these calls would collide on the identical
+        cache key cor_rate_limit:<site>:interactive:retry_payment:Guest.
+        """
+        max_calls = frappe.db.get_value(
+            "Critical Operation Rule", {"operation_name": "retry_payment"}, "rate_limit_calls"
+        )
+
+        with _guest_request_from_ip("203.0.113.10"):
+            self.assertEqual(frappe.session.user, "Guest")
+            for i in range(max_calls):
+                result = self.framework.rate_limiter.check_rate_limit(
+                    self.OPERATION_KEY, context=ExecutionContext.INTERACTIVE, force_check=True
+                )
+                self.assertTrue(result.allowed, f"IP 1 call {i + 1}/{max_calls} should succeed")
+            # IP 1 has now exhausted its own bucket.
+            exhausted = self.framework.rate_limiter.check_rate_limit(
+                self.OPERATION_KEY, context=ExecutionContext.INTERACTIVE, force_check=True
+            )
+            self.assertFalse(exhausted.allowed, "IP 1 must be refused once its own bucket is exhausted")
+
+        # A second Guest visitor from a DIFFERENT IP must still have a fresh
+        # budget -- if scope were per_user (or global-by-accident for Guest),
+        # this call would already be denied because "Guest" was exhausted above.
+        with _guest_request_from_ip("203.0.113.20"):
+            self.assertEqual(frappe.session.user, "Guest")
+            fresh = self.framework.rate_limiter.check_rate_limit(
+                self.OPERATION_KEY, context=ExecutionContext.INTERACTIVE, force_check=True
+            )
+            self.assertTrue(
+                fresh.allowed,
+                "A different Guest visitor (different IP) must not inherit IP 1's exhausted budget",
+            )
+            self.assertEqual(fresh.current_count, 1)

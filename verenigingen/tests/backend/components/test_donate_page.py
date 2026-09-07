@@ -474,19 +474,16 @@ class TestDonatePage(VereningingenTestCase):
         with self.assertRaises(frappe.exceptions.ValidationError):
             donate.retry_payment(donation.name, donor_email=donor.donor_email)
 
-    # ------------------------------------------------------------------
-    # retry_payment ownership (#969): with no session to authenticate a
-    # guest donor against, donor_email is the only ownership signal.
-    # ------------------------------------------------------------------
-
-    def test_retry_payment_refuses_wrong_donor_email(self):
-        donor = self.create_test_donor()
-        donation = self.create_test_donation(donor=donor.name, paid=0, mode_of_payment="Mollie")
-        with self.assertRaises(frappe.exceptions.ValidationError):
-            donate.retry_payment(donation.name, donor_email="not-the-donor@example.com")
-
-    def test_retry_payment_refuses_missing_donor_email(self):
-        donor = self.create_test_donor()
-        donation = self.create_test_donation(donor=donor.name, paid=0, mode_of_payment="Mollie")
-        with self.assertRaises(frappe.exceptions.ValidationError):
-            donate.retry_payment(donation.name)
+    # retry_payment ownership (#969) is covered in
+    # tests/backend/portal/test_page_donate.py, which stubs the Mollie
+    # boundary so a would-be-refused call has a real "success" path to be
+    # refused FROM. Two equivalent tests were added here without that stub
+    # and removed after review: on this bench (live Mollie test credentials)
+    # they passed even with the ownership check removed, because an
+    # uncredentialed-for-success Mollie attempt happened to raise the same
+    # exception type for an unrelated reason; re-verified with
+    # scripts/testing/run_without_credentials.sh (which shadows those
+    # credentials to match CI) and the same false pass reproduced there too,
+    # for yet another unrelated reason ("Mollie test secret key not
+    # configured"). A test that passes with the fix removed is worse than no
+    # test -- see the portal module for the real regression guard.

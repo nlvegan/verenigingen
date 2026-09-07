@@ -518,21 +518,38 @@ class PublicDonationService(StatelessService):
         donor_email, so it is not derivable from ``donation_id`` alone
         (which, being a sequential naming-series value, is enumerable).
 
-        Returns the payment_url on success; raises otherwise (the outer
-        except wraps every failure, including "no redirect obtained", into
-        the generic "Unable to retry payment" error, matching the original
-        endpoint's behavior).
+        Returns the payment_url on success; raises otherwise. Every inner
+        throw below (missing id, no/wrong donor_email, already paid, wrong
+        payment method, provider failure) is converted by the outer
+        ``except`` into the same "Unable to retry payment" text, so the
+        *returned message* does not distinguish "wrong email" from "no such
+        donation" from any other failure.
+
+        That message-level uniformity is NOT a complete oracle defense,
+        though: a wrong/missing donor_email is rejected by
+        ``_verify_donor_email_matches`` before any network call, while a
+        correct one proceeds into ``process_mollie_payment`` -- a real,
+        network-bound request -- before it can fail for some other reason.
+        Measured directly: a wrong email returns in single-digit-to-tens of
+        milliseconds; a correct one takes over a second, a ~30-400x gap. That
+        timing difference is observable via wall-clock time even though the
+        response text is identical, and it is new -- before this endpoint had
+        an email check at all, every caller (right or wrong "email", since
+        there was no such parameter) reached the slow path. This is not
+        mitigated here; the intended mitigation is the per_ip Critical
+        Operation Rule (see fixtures/critical_operation_rule.json's
+        "retry_payment" entries), which bounds how many timing samples a
+        single attacker can collect per hour rather than trying to make the
+        two paths take equal time.
         """
         try:
             if not donation_id:
                 frappe.throw(_("Donation ID is required"))
 
-            # Get the donation record
+            # Get the donation record. frappe.get_doc raises DoesNotExistError
+            # here for a missing donation_id -- there is no falsy `donation`
+            # to check afterwards.
             donation = frappe.get_doc("Donation", donation_id)
-
-            # Check if donation exists and belongs to current user (or allow public retry)
-            if not donation:
-                frappe.throw(_("Donation not found"))
 
             # Get the donor information for payment retry
             donor = frappe.get_doc("Donor", donation.donor)
@@ -579,10 +596,11 @@ class PublicDonationService(StatelessService):
     def _verify_donor_email_matches(donor, donor_email):
         """Refuse a retry unless the caller supplied the donor's own email.
 
-        Deliberately raises the same generic message the "no such donation"
-        branch above uses, rather than a distinct "wrong email" message --
-        the retry endpoint's error text should not become an oracle for
-        which emails are correct.
+        Raises the same generic message every other failure in
+        retry_payment_impl's outer ``except`` ends up producing, so the
+        response TEXT does not distinguish "wrong email" from any other
+        failure. It does not, by itself, close the timing side-channel this
+        check introduces -- see retry_payment_impl's docstring.
         """
         on_file = (donor.donor_email or "").strip().lower()
         supplied = (donor_email or "").strip().lower()
