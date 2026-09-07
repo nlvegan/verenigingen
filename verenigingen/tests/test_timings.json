@@ -50,7 +50,6 @@
  "verenigingen.services.termination.test_termination_integration_coverage": 5,
  "verenigingen.services.termination.test_termination_integration_extra_coverage": 7,
  "verenigingen.services.termination.test_termination_utils": 16,
- "verenigingen.test_portal_behavior": 1,
  "verenigingen.tests.api.test_anbi_operations": 14,
  "verenigingen.tests.api.test_chapter_validation": 11,
  "verenigingen.tests.api.test_check_account_types": 12,
