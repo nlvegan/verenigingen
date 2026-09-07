@@ -36,6 +36,21 @@ all three copies were METHODS, so the ratchet was blind to every one of them (#4
 The three Mollie/donation fixture helpers in #444 were methods too. That change takes
 the census from 71 names / 190 definitions to 567 / 1948.
 
+DEFINITIONS COUNT, not files, since 2026-09-06 (#990). A helper redefined on several
+classes in one file used to collapse into ONE recorded copy for that file -- on the
+theory that a same-file redefinition is "a different, more obvious problem" and so did
+not need counting. It was not obvious, because nothing else counted it either:
+`tests/e_boekhouden/test_rest_migration_helpers.py` defines `_persist_eur_company` on
+FOUR classes and was recorded as one copy, and a sibling file's own docstring said 20
+definitions where this tool reported 17 files -- a 3-copy gap from exactly that
+collapse. Every count this tool produces was therefore a FLOOR, including the ones
+gating CI. A same-file redefinition gets no special treatment in the clone-family rule
+either: near_pairs()/clone_share() just see more entries in the list and compare every
+pair, in-file pairs included -- four identical per-class copies are four identical
+bodies, and by the same reasoning that makes methods count at all (#445), a fix applied
+to one class's copy and missed on a sibling class in the SAME file is exactly the
+failure mode this gate exists to catch.
+
 Usage:
     python scripts/validation/duplicate_helper_validator.py              # ratchet check
     python scripts/validation/duplicate_helper_validator.py --report     # clone families
@@ -90,6 +105,10 @@ CLONE_RATIO = 0.90
 # It does NOT reintroduce the #769 complaint: a family whose copies merely share a
 # name has ZERO pairs at or above CLONE_RATIO and is still only recorded.
 CLONE_MIN_NEAR_PAIRS = 1
+
+# Bodies smaller than this are discounted ONLY when the copies share a FILE.
+# The same-file half is load-bearing -- see _is_trivial_same_file_pair.
+TRIVIAL_BODY_STATEMENTS = 3
 
 
 def _rel(path: str) -> str:
@@ -217,27 +236,32 @@ def _normalised(node) -> str:
 
 
 def _by_name(root: str) -> Dict[str, List[Tuple[str, str]]]:
+    """helper name -> every private DEFINITION of it: (path, body, normalised).
+
+    Every definition counts, even two on different classes in the SAME file (#990).
+    See the module docstring's "DEFINITIONS COUNT, not files" section for why the
+    previous per-file collapse made every count this tool produces a floor.
+    """
     found: Dict[str, List[Tuple[str, str]]] = defaultdict(list)
     for path in _iter_python_files(root):
-        seen_here = set()
         for name, body, norm in _private_helpers(path):
-            # Count FILES, not definitions: a helper redefined inside one module is a
-            # different (and more obvious) problem.
-            if name in seen_here:
-                continue
-            seen_here.add(name)
             found[name].append((path, body, norm))
     return found
 
 
 def census(root: str = None) -> Dict[str, int]:
-    """helper name -> number of files defining it, for names in more than one."""
+    """helper name -> number of DEFINITIONS of it (#990), for names defined more
+    than once. A single file can contribute more than one -- see _by_name()."""
     root = root or str(REPO_ROOT / SCAN_ROOT)
     return {name: len(v) for name, v in _by_name(root).items() if len(v) > 1}
 
 
 def clone_families(root: str = None):
-    """(clone_pairs, files, exact_pairs, best_ratio, name, dirs), most-cloned first.
+    """(clone_pairs, defs, exact_pairs, best_ratio, name, dirs), most-cloned first.
+
+    `defs` is the DEFINITION count (#990), which can exceed the number of
+    directories/files listed in `dirs` when one file defines the name more than
+    once (e.g. once per class). `dirs` stays file/directory-level for readability.
 
     Only for --report. The ratchet itself never looks at similarity -- comparing
     every pair is quadratic in the number of copies and would make the gate slow
@@ -310,18 +334,65 @@ def _ratio(a: str, b: str) -> float:
     return difflib.SequenceMatcher(None, first, second).ratio()
 
 
+def _statement_count(normalised: str) -> int:
+    """Statements in a normalised body: unparsed lines, less the `def` line."""
+    return max(0, len([ln for ln in normalised.splitlines() if ln.strip()]) - 1)
+
+
+def _is_trivial_same_file_pair(a_path, a_norm, b_path, b_norm) -> bool:
+    """A pair too small, and too close together, to hide a missed fix (#1009).
+
+    TWO conditions, BOTH required -- this is deliberately not a plain size floor:
+
+    * both bodies under TRIVIAL_BODY_STATEMENTS statements, AND
+    * both definitions in the SAME FILE.
+
+    The size half: a one- or two-statement helper repeated across sibling test
+    classes carries no "a fix landed in one copy and its siblings were missed"
+    risk. `_run` was 10 copies of `return self.v._validate_rule(...)`; there is
+    nothing in it to miss, and the copies fit on one screen.
+
+    The same-file half is the load-bearing one. A short body CAN hide a divergence
+    when the copies are far apart, and the counter-example is in this tree:
+    `_sanitize_error_message` has five ONE-statement copies whose divergence is in
+    the ARGUMENT LIST -- two pass `filter_sensitive_keywords=True`, two take the
+    `False` default and so never filter API keys or database details out of an
+    error message. Measured on this tree: a size-only floor drops 72 families
+    INCLUDING that one; adding the same-file condition drops 8 and keeps it.
+
+    Deliberately NOT addressed: Template-Method / Strategy overrides such as
+    `_calculate_delay` (four subclasses in `retry_policy.py`, each a 5-statement
+    wrapper delegating to the shared `calculate_backoff_delay()`). Those bodies are
+    not trivial by size, and "these differ only by a strategy argument, and the real
+    logic is already shared" is a semantic judgement no size heuristic can make.
+    See #1009.
+    """
+    return (
+        a_path == b_path
+        and _statement_count(a_norm) < TRIVIAL_BODY_STATEMENTS
+        and _statement_count(b_norm) < TRIVIAL_BODY_STATEMENTS
+    )
+
+
 def near_pairs(copies) -> int:
     """How many of a name's pairs are near-identical. The blocking rule (#949).
 
     Counts pairs at or above CLONE_RATIO after normalising. A pair whose body failed
     to unparse counts as NOT near-identical, so a parse failure can never be read as
     a clone -- `SequenceMatcher("", "").ratio()` is 1.0.
+
+    Trivial same-file pairs are skipped -- see `_is_trivial_same_file_pair`. That
+    exclusion is MONOTONE, which #949 requires: whether a pair is skipped depends
+    only on the two definitions in it, so adding a copy can never remove a near pair
+    that already counted, and so can never push a real family out of the gate.
     """
     near = 0
     for i in range(len(copies)):
         for j in range(i + 1, len(copies)):
             a, b = copies[i][2], copies[j][2]
             if not a or not b:
+                continue
+            if _is_trivial_same_file_pair(copies[i][0], a, copies[j][0], b):
                 continue
             if a == b or _ratio(a, b) >= CLONE_RATIO:
                 near += 1
@@ -422,7 +493,9 @@ def write_baseline(path: Path, counts: Dict[str, int], families: Dict) -> None:
         "# Private helpers -- module-level functions AND methods -- defined in more",
         "# than one file. The ratchet baseline for",
         "# scripts/validation/duplicate_helper_validator.py. Format:",
-        "#     <helper name>::<number of files defining it>",
+        "#     <helper name>::<number of definitions of it (#990) -- can exceed the",
+        "#     number of distinct files: one file can define the name on several",
+        "#     classes; use --report for the file/directory breakdown>",
         "#",
         "# A change fails only if it adds a copy of a name marked `# clone family`",
         "# below -- one whose copies really are near-identical. A new copy of an",
@@ -484,11 +557,11 @@ def main() -> int:
         # landed once. Keying on the worst pair drops it, and takes the band from
         # 89 families to a set where the inference is actually true.
         drifted = [f for f in clone_families() if f[2] == 0 and f[6] >= CLONE_RATIO]
-        print(f"{'pairs':>5} {'files':>5} {'worst':>6} {'best':>6}  helper")
-        for pairs, files, _exact, best, name, dirs, worst, _cos in drifted:
+        print(f"{'pairs':>5} {'defs':>5} {'worst':>6} {'best':>6}  helper")
+        for pairs, defs, _exact, best, name, dirs, worst, _cos in drifted:
             # `best` is rounded to 2dp, so a 0.997 family printed as 1.00 under a
             # header promising "no exact pair". Show 3dp.
-            print(f"{pairs:>5} {files:>5} {worst:>6.3f} {best:>6.3f}  {name}")
+            print(f"{pairs:>5} {defs:>5} {worst:>6.3f} {best:>6.3f}  {name}")
             for d in dirs[:4]:
                 print(f"{'':>26}{d}/")
         cosmetic_only = [f for f in clone_families() if f[2] and f[7] and f[0] == f[2]]
@@ -507,9 +580,9 @@ def main() -> int:
 
     if args.report:
         families = clone_families()
-        print(f"{'pairs':>5} {'files':>5} {'exact':>5} {'best':>5}  helper")
-        for pairs, files, exact, best, name, dirs, _worst, _cos in families:
-            print(f"{pairs:>5} {files:>5} {exact:>5} {best:>5}  {name}")
+        print(f"{'pairs':>5} {'defs':>5} {'exact':>5} {'best':>5}  helper")
+        for pairs, defs, exact, best, name, dirs, _worst, _cos in families:
+            print(f"{pairs:>5} {defs:>5} {exact:>5} {best:>5}  {name}")
             for d in dirs[:4]:
                 print(f"{'':>28}{d}/")
         print(f"\n{len(families)} clone families")
@@ -546,9 +619,16 @@ def main() -> int:
     def _list(names: Dict[str, int]) -> None:
         print("=" * 60)
         for name, count in sorted(names.items()):
-            print(f"\n{name}  (now in {count} files, baseline {baseline.get(name, 0)})")
-            for path in sorted(_rel(x) for x, _, _ in families[name]):
-                print(f"  {path}")
+            print(f"\n{name}  (now in {count} definitions, baseline {baseline.get(name, 0)})")
+            # Definitions, not files (#990) -- so list unique FILES for readability
+            # and note how many of the count each one holds when it is more than one
+            # (e.g. one file defining the helper on several classes).
+            per_file: Dict[str, int] = defaultdict(int)
+            for path, _, _ in families[name]:
+                per_file[_rel(path)] += 1
+            for path in sorted(per_file):
+                n = per_file[path]
+                print(f"  {path}" + (f"  (x{n})" if n > 1 else ""))
 
     if advisory:
         print("\n⚪ NEWLY DUPLICATED -- name collision only, NOT blocking:")
