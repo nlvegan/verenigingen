@@ -403,7 +403,9 @@ class TestRefundEndpointsEnforcePermissionCheck(EnhancedTestCase):
         self.original_user = frappe.session.user
 
         frappe.set_user("Administrator")
-        if not frappe.db.exists("User", self.UNAUTHORIZED_USER):
+        if frappe.db.exists("User", self.UNAUTHORIZED_USER):
+            user = frappe.get_doc("User", self.UNAUTHORIZED_USER)
+        else:
             user = frappe.get_doc(
                 {
                     "doctype": "User",
@@ -415,19 +417,26 @@ class TestRefundEndpointsEnforcePermissionCheck(EnhancedTestCase):
                     "user_type": "System User",
                 }
             )
-            user.append("roles", {"role": "Verenigingen Member"})
             user.insert(ignore_permissions=True)
             self.track_doc("User", user.name)
-        # Grant CRITICAL-level access via the role profile alone -- no
-        # Accounts Manager / Verenigingen Admin role attached.
-        frappe.db.set_value(
-            "User",
-            self.UNAUTHORIZED_USER,
-            "role_profile_name",
-            "Verenigingen National Board Member",
-            update_modified=False,
-        )
-        frappe.db.commit()
+
+        # Provision the same way production actually does: a "role_profiles"
+        # Table MultiSelect entry, not the deprecated role_profile_name field
+        # directly (User.validate() treats a role_profile_name set without a
+        # matching role_profiles row as stale and clears it -- see
+        # move_role_profile_name_to_role_profiles() in frappe's User
+        # controller). Assigning via role_profiles also exercises the real
+        # populate_role_profile_roles() sync, so this user ends up with
+        # exactly the roles a genuinely-provisioned National Board Member
+        # would have -- neither "Accounts Manager" nor the Verenigingen Admin
+        # role, per role_profile.json.
+        user.role_profiles = []
+        user.append("role_profiles", {"role_profile": "Verenigingen National Board Member"})
+        user.save(ignore_permissions=True)
+        # No frappe.db.commit() here: the harness's own DB connection sees its
+        # own uncommitted writes immediately, and a bare commit in a test body
+        # both escapes the per-test rollback (a real leak risk) and reddens
+        # the Order-Dependence Ratchet -- see #933/#934.
 
         # Confirm the test's own premise before relying on it: this user must
         # actually fail validate_refund_permissions(), or the test proves nothing.
