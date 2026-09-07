@@ -17,7 +17,21 @@ call reached through `from frappe.model.rename_doc import rename_doc`).
 
 This test asserts the fix empirically -- dispatch membership, not decorator
 presence per CLAUDE.md's "never reason about reachability from decorator
-order" -- for every function in the class, not just the one #1084 named.
+order" -- for the 11 endpoints ENUMERATED in ``WRITE_ENDPOINTS`` below.
+
+It is a regression guard, NOT a class invariant, and the distinction matters:
+``WRITE_ENDPOINTS`` is a fixed list, so re-adding ``@frappe.whitelist()`` to
+any of the 11 reddens this test, but a TWELFTH bare-whitelisted writer added
+under ``scripts/`` later would leave it green. Verified by planting exactly
+that -- a new ``scripts/debug/`` module with a bare ``@frappe.whitelist()``
+over ``frappe.db.set_value`` + ``commit`` -- during review: this test still
+passed 3/3.
+
+What does cover the twelfth is the scanner-based ratchet
+``scripts/validation/security/insecure_api_detector.py``, which exits 1 with
+"1 finding(s) are new/blocking" on that same planted file. So the class is
+gated; it is gated there, not here. Do not widen this list in the belief that
+it is the class-level defense -- extend the scanner's coverage instead.
 """
 
 import importlib
