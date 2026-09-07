@@ -19,6 +19,9 @@ from verenigingen.utils.security.api_security_framework import (
 )
 from verenigingen.utils.webhook_rate_limiter import WebhookRateLimitExceeded
 from verenigingen.verenigingen_payments.utils.payment_services.logging_utils import log_webhook_received
+from verenigingen.verenigingen_payments.utils.payment_services.refund_utility import (
+    validate_refund_permissions,
+)
 
 from ..exceptions import MolliePaymentError, MollieValidationError, MollieWebhookError
 from ..services.complete_payment_service import CompletePaymentService
@@ -534,6 +537,17 @@ def initiate_refund():
         Dict with refund initiation results
     """
     try:
+        # Permission check: @high_security_api only confirms the caller's role
+        # profile clears SecurityLevel.HIGH in general -- a population that
+        # includes Chapter Board Member and Staff, not just Treasurer/Admin
+        # tiers. This function has no local Payment Entry/Donation lookup of
+        # its own to gate on, so it reuses the same domain-specific role check
+        # refund_utility.py's initiate_refund() applies (#968/#1021); nothing
+        # here depends on a specific document, so the check is a direct fit
+        # rather than a doc-scoped one. See #1017.
+        if not validate_refund_permissions():
+            frappe.throw(_("You do not have permission to process refunds"), frappe.PermissionError)
+
         payment_id = frappe.form_dict.get("payment_id")
         amount = frappe.form_dict.get("amount")
         description = frappe.form_dict.get("description", "Manual refund")
