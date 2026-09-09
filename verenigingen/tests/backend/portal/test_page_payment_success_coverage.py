@@ -129,13 +129,28 @@ class TestPagePaymentSuccessCoverage(EnhancedTestCase):
         self.assertFalse(is_valid)
         self.assertIsInstance(result, str)
 
-    def test_validate_payment_id_mismatch_logs_security_event(self):
-        """A forged payment_id is rejected AND writes a security Error Log."""
+    def test_validate_payment_id_mismatch_writes_no_error_log(self):
+        """A forged payment_id is rejected and writes NO Error Log (#1105).
+
+        This test used to be named ..._logs_security_event and declared
+        `expectErrorLog("Payment Status Security")`. That call only SUPPRESSES
+        the harness's automatic "errors were logged" check -- it asserts
+        nothing -- so the test kept passing when #1105 deleted the very
+        log_error it was named after, and its docstring silently became false.
+        Rewritten to assert the behaviour that actually holds now, using the
+        assertNoErrorLog() this file already uses elsewhere, so it fails if
+        the write comes back.
+
+        The write is deliberately gone: an unauthenticated caller can trigger
+        this path at will, so it must not append to tabError Log (MyISAM, and
+        so non-transactional), and the INSERT was the largest single component
+        of the existence-timing oracle #1105 fixed.
+        """
         donation = self._make_donation(payment_id="tr_real_id")
-        self.expectErrorLog("Payment Status Security")
-        is_valid, result = payment_success.validate_payment_document_access(
-            "Donation", donation.name, "tr_forged_id"
-        )
+        with self.assertNoErrorLog():
+            is_valid, result = payment_success.validate_payment_document_access(
+                "Donation", donation.name, "tr_forged_id"
+            )
         self.assertFalse(is_valid)
         self.assertIsInstance(result, str)
 

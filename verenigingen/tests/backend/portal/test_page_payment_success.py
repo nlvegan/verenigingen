@@ -17,6 +17,7 @@ creds on CI) and the Pay.nl status API, both of which are stubbed at the
 import seam, never the page's own business logic.
 """
 
+import time
 from unittest.mock import patch
 
 import frappe
@@ -352,18 +353,39 @@ class TestPagePaymentSuccess(EnhancedTestCase):
     # autoname is a sequential naming_series (#1018). Measured before the
     # fix: 10.4x median wall-clock for Donation, 28.4x for Sales Invoice.
     #
-    # These assert the invariant by the queries a refusal issues rather than
-    # by wall-clock, because a latency assertion is inherently flaky while
-    # "what did this path read" is exact. Query capture uses the same seam
-    # frappe's own assertQueryCount uses.
+    # These assert the invariant by the work a refusal does rather than by
+    # wall-clock alone, because a tight latency assertion is inherently flaky
+    # while "what did this path touch" is exact.
     #
-    # Equal query COUNTS are deliberately not the whole assertion. An
-    # accidental tie is easy: mutating the fixed code to load the document
-    # before refusing gives SELECT+INSERT(Error Log) for a missing docname
-    # against SELECT+child-SELECT for an existing one -- 2 == 2, and an
-    # INSERT costs far more than a SELECT. So each test pins the exact
-    # number of queries the invariant permits, and rejects any write on a
-    # path a guest can trigger at will.
+    # Equal COUNTS are deliberately not the whole assertion. An accidental tie
+    # is easy: mutating the fixed code to load the document before refusing
+    # gives SELECT+INSERT(Error Log) for a missing docname against
+    # SELECT+child-SELECT for an existing one -- 2 == 2, and an INSERT costs
+    # far more than a SELECT. So each test pins the exact number of reads the
+    # invariant permits, and rejects any write on a path a guest can trigger
+    # at will.
+    #
+    # SCOPE, and why there are three layers rather than one. A review of this
+    # file's first version demonstrated the limit of counting SQL: re-adding
+    # the removed mismatch audit log, still conditioned on the document
+    # existing, but routed through frappe.cache() instead of frappe.log_error,
+    # reintroduced a measured 1.50x existence-dependent gap with every
+    # SQL-based assertion still green. Counting one channel proves nothing
+    # about the others, so:
+    #
+    #   1. SQL capture (_count_queries)     -- exact, but SQL only.
+    #   2. Cache-call capture (_count_cache_calls) -- closes the channel that
+    #      review actually defeated this file with.
+    #   3. Coarse timing parity (_assert_refusal_latency_parity) -- channel
+    #      agnostic, since it measures the observable itself, but only
+    #      sensitive at the magnitude of the original defect (10.4x-28.4x).
+    #
+    # Layer 3's threshold is deliberately loose and CANNOT distinguish the
+    # ~1.2x residual this fix accepts from a ~1.5x re-added side effect. That
+    # is a real gap: a future side channel through a fourth mechanism, at
+    # small magnitude, would pass all three. Do not read a green run here as
+    # proof of constant-time behaviour -- it is proof of no SQL divergence, no
+    # cache divergence, and no order-of-magnitude latency divergence.
     # ------------------------------------------------------------------
 
     def _count_queries(self, fn):
@@ -382,6 +404,71 @@ class TestPagePaymentSuccess(EnhancedTestCase):
         finally:
             frappe.db.__class__.sql = orig_sql
         return queries
+
+    def _count_cache_calls(self, fn):
+        """Return the names of every frappe.cache() method fn() invokes.
+
+        frappe.cache() is a function returning the Redis wrapper, so replacing
+        it with one that hands back a recording proxy captures any call made
+        through it without needing to know which methods a side channel picks.
+        """
+        calls = []
+        real_cache = frappe.cache
+
+        class _RecordingCache:
+            def __init__(self, wrapped):
+                self._wrapped = wrapped
+
+            def __getattr__(self, name):
+                attr = getattr(self._wrapped, name)
+                if not callable(attr):
+                    return attr
+
+                def _recording(*args, **kwargs):
+                    calls.append(name)
+                    return attr(*args, **kwargs)
+
+                return _recording
+
+        try:
+            frappe.cache = lambda: _RecordingCache(real_cache())
+            fn()
+        finally:
+            frappe.cache = real_cache
+        return calls
+
+    def _assert_refusal_latency_parity(self, label, call_existing, call_missing, max_ratio=3.0):
+        """A refusal must not take an order of magnitude longer for a docname
+        that exists, through ANY channel.
+
+        Compares minimums, not medians: noise can only ADD time, so the
+        smallest observed run is the robust estimate of true cost and this
+        does not turn flaky on a loaded runner. The threshold is loose on
+        purpose -- see the SCOPE note above for what this cannot catch.
+        """
+        for _ in range(20):
+            call_existing()
+            call_missing()
+
+        def fastest(fn, n=200):
+            best = None
+            for _ in range(n):
+                start = time.perf_counter()
+                fn()
+                elapsed = time.perf_counter() - start
+                best = elapsed if best is None else min(best, elapsed)
+            return best
+
+        missing = fastest(call_missing)
+        existing = fastest(call_existing)
+        ratio = existing / missing if missing else float("inf")
+        self.assertLess(
+            ratio,
+            max_ratio,
+            f"{label}: refusing an existing docname was {ratio:.2f}x the cost of refusing a "
+            f"non-existent one ({existing * 1000:.4f}ms vs {missing * 1000:.4f}ms). A refusal "
+            f"whose cost tracks existence is an oracle behind a uniform message (#1105).",
+        )
 
     def _assert_refusal_reads_the_same_either_way(self, label, call_existing, call_missing, permitted):
         """A refusal must issue exactly `permitted` queries, all reads, whether
@@ -416,6 +503,18 @@ class TestPagePaymentSuccess(EnhancedTestCase):
                 f"this path at will, so it must not grow tabError Log (MyISAM, "
                 f"non-transactional) nor cost an INSERT (#1105).\n  " + "\n  ".join(writes),
             )
+
+        # Layer 2: the same comparison for the cache, which layer 1 cannot see.
+        self.assertEqual(
+            self._count_cache_calls(call_existing),
+            self._count_cache_calls(call_missing),
+            f"{label}: the refusal made different frappe.cache() calls depending on "
+            f"whether the document exists. Counting SQL alone does not see this -- it is "
+            f"how a review defeated an earlier version of these tests (#1105).",
+        )
+
+        # Layer 3: the observable itself, for any channel neither above covers.
+        self._assert_refusal_latency_parity(label, call_existing, call_missing)
 
     def test_validate_refusal_without_credentials_reads_nothing(self):
         """No payment_id and a wrong token must refuse without reading the document.
