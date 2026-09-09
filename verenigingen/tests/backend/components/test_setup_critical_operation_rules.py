@@ -353,6 +353,55 @@ class TestSetupCriticalOperationRules(FrappeTestCase):
         self.assertEqual(restored.rate_limit_scope, fixture["rate_limit_scope"])
         self.assertEqual(restored.audit_level, fixture["audit_level"])
 
+    def test_a_fixture_rule_added_by_1105_reaches_an_EXISTING_site(self):
+        """setup_critical_operation_rules runs in after_install ONLY (hooks/lifecycle.py:17),
+        never in after_migrate, so adding a rule to the fixture installs it on a fresh
+        site and on no other. Reaching an existing site takes a patch -- which is why
+        patches.txt already carries add_retry_payment_critical_operation_rule for #1028's
+        rule. #1105's rule needs the same, or its rate limit is inert everywhere the app
+        is already installed.
+        """
+        rule_name = "refresh_payment_status"
+        fixture = self._fixture_for(rule_name)
+        self.assertEqual(fixture["rate_limit_scope"], "per_ip")
+
+        # Restore on the way out even if this test fails: the delete below is
+        # committed by the patch's own commit, so a failure between the delete
+        # and the re-create would strand the rule missing for every sibling
+        # test in this class.
+        self.addCleanup(cor_setup.setup_critical_operation_rules)
+
+        frappe.delete_doc("Critical Operation Rule", rule_name, force=1)
+        self.assertFalse(frappe.db.exists("Critical Operation Rule", rule_name))
+
+        from verenigingen.patches.v2_2.add_refresh_payment_status_critical_operation_rule import (
+            execute,
+        )
+
+        execute()
+
+        self.assertTrue(
+            frappe.db.exists("Critical Operation Rule", rule_name),
+            "the patch did not install the rule, so an existing site never gets it",
+        )
+        restored = frappe.get_doc("Critical Operation Rule", rule_name)
+        # Assert against the fixture, not a re-read of the doc, so a dropped or
+        # renamed fixture field makes this fail.
+        self.assertEqual(restored.rate_limit_scope, fixture["rate_limit_scope"])
+        self.assertEqual(restored.rate_limit_calls, fixture["rate_limit_calls"])
+        self.assertEqual(restored.rate_limit_period_seconds, fixture["rate_limit_period_seconds"])
+
+    def test_the_1105_patch_is_registered_in_patches_txt(self):
+        """A patch module that is not listed never runs, so the fixture/patch pair is
+        only complete once patches.txt names it."""
+        listed = (
+            Path(frappe.get_app_path("verenigingen")).parent / "verenigingen" / "patches.txt"
+        ).read_text()
+        self.assertIn(
+            "verenigingen.patches.v2_2.add_refresh_payment_status_critical_operation_rule",
+            listed,
+        )
+
     def test_does_not_overwrite_a_customised_rule(self):
         """The module's entire reason to exist: an operator's tuned rate limit
         must survive re-running the install/patch entry point."""
