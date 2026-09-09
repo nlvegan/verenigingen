@@ -27,6 +27,27 @@ PONTO_RETURN_TOKEN_PURPOSE = "ponto_payment_link_return"
 # not double as an existence oracle for every listed doctype (#1055).
 _GENERIC_PAYMENT_ACCESS_DENIED = _("Invalid payment reference or document not found")
 
+# Fields a payment gateway reference can be stored under, in the order the
+# previous getattr() chain checked them. Not every ALLOWED_PAYMENT_DOCTYPES
+# member has either (Sales Invoice has neither), so they are filtered through
+# the doctype's own meta before being named in a query.
+_PAYMENT_REFERENCE_FIELDS = ("payment_id", "mollie_payment_id")
+
+
+def _payment_reference_fields(doctype):
+    """Fields on `doctype` that can carry a gateway payment reference.
+
+    Resolved from metadata rather than assumed: Sales Invoice carries
+    neither, so naming them in a query would raise on an unknown column.
+    Fails closed to "no field can prove ownership" for a doctype that is
+    listed in ALLOWED_PAYMENT_DOCTYPES but not installed.
+    """
+    try:
+        meta = frappe.get_meta(doctype)
+    except Exception:
+        return []
+    return [field for field in _PAYMENT_REFERENCE_FIELDS if meta.has_field(field)]
+
 
 def validate_payment_document_access(doctype, docname, payment_id, token=None):
     """
@@ -34,12 +55,13 @@ def validate_payment_document_access(doctype, docname, payment_id, token=None):
 
     Security checks:
     1. Doctype must be in the allowed whitelist
-    2. Document must exist
-    3. Ownership must be proven, either by a payment_id matching the
+    2. Ownership must be proven, either by a payment_id matching the
        document's on-file payment reference, or by a return token minted at
        the one URL-construction point we control (MollieSettings.get_redirect_url) --
        payment_id alone cannot always serve this role, since it does not
        exist yet at the point some flows build their redirect URL.
+    3. The document must exist -- which is established by (2) rather than
+       ahead of it, deliberately; see below.
 
     A missing/wrong payment_id AND a missing/wrong token both refuse with
     the exact same message as an unknown doctype or docname (#1055) --
@@ -47,39 +69,69 @@ def validate_payment_document_access(doctype, docname, payment_id, token=None):
     is exactly what MollieSettings.get_redirect_url() and
     mollie_checkout.js's own return-URL construction did by default.
 
+    Ownership is checked BEFORE the document is read, so that a refusal
+    costs the same whether or not the docname exists (#1105). The previous
+    order -- exists(), then frappe.get_doc(), then the ownership check --
+    made an existing docname cost a measured 10.4x (Donation) to 28.4x
+    (Sales Invoice) the wall-clock of a missing one, because only an
+    existing docname reached the full document load, its child tables and
+    the mismatch Error Log write. That defeated the uniform refusal message
+    above by latency alone, over doctypes whose autoname is a sequential
+    naming_series (#1018). The same ordering is what ponto_pay.py already
+    does.
+
     Returns:
         tuple: (is_valid, doc_or_error_message)
     """
-    # Check doctype is allowed
+    # Check doctype is allowed -- no database access
     if doctype not in ALLOWED_PAYMENT_DOCTYPES:
         frappe.log_error(
-            f"Attempted access to disallowed doctype for payment status: {doctype}", "Payment Status Security"
+            title="Payment Status Security",
+            message=f"Attempted access to disallowed doctype for payment status: {doctype}",
         )
         return False, _GENERIC_PAYMENT_ACCESS_DENIED
 
-    # Check document exists (without loading sensitive data)
-    if not frappe.db.exists(doctype, docname):
-        return False, _GENERIC_PAYMENT_ACCESS_DENIED
+    # The return token is an HMAC over doctype:docname, so it can be proven
+    # or refused without reading anything.
+    token_matches = verify_guest_return_token("payment_success", f"{doctype}:{docname}", token)
 
-    # Load document with minimal fields for validation
     try:
-        doc = frappe.get_doc(doctype, docname)
+        if not token_matches:
+            # Nothing that could prove ownership was supplied, so refuse
+            # without touching the database at all. This is the path a
+            # docname-guessing caller takes.
+            if not payment_id:
+                return False, _GENERIC_PAYMENT_ACCESS_DENIED
 
-        doc_payment_id = getattr(doc, "payment_id", None) or getattr(doc, "mollie_payment_id", None)
-        payment_id_matches = bool(payment_id) and bool(doc_payment_id) and doc_payment_id == payment_id
-        token_matches = verify_guest_return_token("payment_success", f"{doctype}:{docname}", token)
+            # A payment_id can only be checked against the document's own
+            # stored reference. One indexed single-row lookup -- the same
+            # query whether the row exists or not -- replaces exists() plus
+            # frappe.get_doc(), and no Error Log row is written on a path a
+            # guest can trigger at will.
+            reference_fields = _payment_reference_fields(doctype)
+            if not reference_fields:
+                return False, _GENERIC_PAYMENT_ACCESS_DENIED
 
-        if not payment_id_matches and not token_matches:
-            frappe.log_error(
-                f"Payment reference/token mismatch for {doctype}/{docname}",
-                "Payment Status Security",
+            stored = frappe.db.get_value(doctype, docname, reference_fields, as_dict=True)
+            # First populated field wins, exactly as the previous
+            # `payment_id or mollie_payment_id` chain did -- matching EITHER
+            # field would be a wider check than this function used to apply.
+            stored_reference = next(
+                (stored[field] for field in reference_fields if stored and stored.get(field)), None
             )
-            return False, _GENERIC_PAYMENT_ACCESS_DENIED
+            if stored_reference != payment_id:
+                return False, _GENERIC_PAYMENT_ACCESS_DENIED
 
-        return True, doc
+        # Ownership is proven; the document itself can now be loaded. A
+        # docname that does not exist raises here and is refused with the
+        # same generic message, which only a valid token can reach.
+        return True, frappe.get_doc(doctype, docname)
 
     except Exception as e:
-        frappe.log_error(f"Error validating payment document: {str(e)}", "Payment Status Validation")
+        frappe.log_error(
+            title="Payment Status Validation",
+            message=f"Error validating payment document: {str(e)}",
+        )
         return False, _GENERIC_PAYMENT_ACCESS_DENIED
 
 

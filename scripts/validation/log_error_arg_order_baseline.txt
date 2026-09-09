@@ -360,7 +360,6 @@ verenigingen/templates/pages/mollie_bulk_payment_creation.py::create_bulk_paymen
 verenigingen/templates/pages/payment_success.py::check_payment_status::1
 verenigingen/templates/pages/payment_success.py::get_context::1
 verenigingen/templates/pages/payment_success.py::refresh_payment_status::1
-verenigingen/templates/pages/payment_success.py::validate_payment_document_access::3
 verenigingen/templates/pages/ponto_pay.py::get_context::1
 verenigingen/templates/pages/volunteer/dashboard.py::get_context::6
 verenigingen/templates/pages/volunteer/expenses.py::get_expense_details::1

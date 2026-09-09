@@ -341,3 +341,167 @@ class TestPagePaymentSuccess(EnhancedTestCase):
         token = generate_guest_return_token("payment_success", f"Donation:{donation.name}")
         result = payment_success.refresh_payment_status("Donation", donation.name, "", token)
         self.assertTrue(result["success"])
+
+    # ------------------------------------------------------------------
+    # Existence-timing oracle (#1105)
+    #
+    # validate_payment_document_access refuses with a deliberately uniform
+    # message (#1055), but used to check existence FIRST and only prove
+    # ownership after a full frappe.get_doc(). So the *cost* of a refusal
+    # revealed what the *message* was written to hide, over doctypes whose
+    # autoname is a sequential naming_series (#1018). Measured before the
+    # fix: 10.4x median wall-clock for Donation, 28.4x for Sales Invoice.
+    #
+    # These assert the invariant by the queries a refusal issues rather than
+    # by wall-clock, because a latency assertion is inherently flaky while
+    # "what did this path read" is exact. Query capture uses the same seam
+    # frappe's own assertQueryCount uses.
+    #
+    # Equal query COUNTS are deliberately not the whole assertion. An
+    # accidental tie is easy: mutating the fixed code to load the document
+    # before refusing gives SELECT+INSERT(Error Log) for a missing docname
+    # against SELECT+child-SELECT for an existing one -- 2 == 2, and an
+    # INSERT costs far more than a SELECT. So each test pins the exact
+    # number of queries the invariant permits, and rejects any write on a
+    # path a guest can trigger at will.
+    # ------------------------------------------------------------------
+
+    def _count_queries(self, fn):
+        """Return the SQL issued by fn(), via frappe's own instrumentation seam."""
+        queries = []
+        orig_sql = frappe.db.__class__.sql
+
+        def _counting_sql(*args, **kwargs):
+            result = orig_sql(*args, **kwargs)
+            queries.append(str(args[0].last_query))
+            return result
+
+        try:
+            frappe.db.__class__.sql = _counting_sql
+            fn()
+        finally:
+            frappe.db.__class__.sql = orig_sql
+        return queries
+
+    def _assert_refusal_reads_the_same_either_way(self, label, call_existing, call_missing, permitted):
+        """A refusal must issue exactly `permitted` queries, all reads, whether
+        or not the docname exists.
+
+        Warms caches first: frappe resolves doctype meta and table columns
+        lazily through Redis, so a cold cache inside the measured block
+        counts as a difference that has nothing to do with the code under
+        test.
+        """
+        for _ in range(3):
+            call_existing()
+            call_missing()
+
+        for which, queries in (
+            ("existing docname", self._count_queries(call_existing)),
+            ("nonexistent docname", self._count_queries(call_missing)),
+        ):
+            self.assertEqual(
+                len(queries),
+                permitted,
+                f"{label}: refusing a {which} issued {len(queries)} queries, "
+                f"not the {permitted} the invariant permits. A refusal whose cost "
+                f"depends on the document is an existence oracle behind a uniform "
+                f"error message (#1105).\n  " + "\n  ".join(queries),
+            )
+            writes = [q for q in queries if not q.lstrip().upper().startswith("SELECT")]
+            self.assertEqual(
+                writes,
+                [],
+                f"{label}: refusing a {which} performed a WRITE. A guest can trigger "
+                f"this path at will, so it must not grow tabError Log (MyISAM, "
+                f"non-transactional) nor cost an INSERT (#1105).\n  " + "\n  ".join(writes),
+            )
+
+    def test_validate_refusal_without_credentials_reads_nothing(self):
+        """No payment_id and a wrong token must refuse without reading the document.
+
+        Nothing supplied could prove ownership, so no read is needed to decide --
+        and a refusal that reads nothing cannot cost more for a docname that
+        happens to exist. This is the shape #1105 measured at 10.4x/28.4x.
+        """
+        donation = self._make_donation()
+        bad_token = "0" * 64
+        missing = "Assoc-Dnt-2026-99999-nonexistent"
+
+        # Control: both calls must actually refuse, and refuse identically.
+        # Otherwise this compares a success path against a failure path.
+        ok_existing, msg_existing = payment_success.validate_payment_document_access(
+            "Donation", donation.name, None, bad_token
+        )
+        ok_missing, msg_missing = payment_success.validate_payment_document_access(
+            "Donation", missing, None, bad_token
+        )
+        self.assertFalse(ok_existing)
+        self.assertFalse(ok_missing)
+        self.assertEqual(msg_existing, msg_missing)
+
+        self._assert_refusal_reads_the_same_either_way(
+            "validate_payment_document_access (no credentials)",
+            lambda: payment_success.validate_payment_document_access(
+                "Donation", donation.name, None, bad_token
+            ),
+            lambda: payment_success.validate_payment_document_access("Donation", missing, None, bad_token),
+            permitted=0,
+        )
+
+    def test_validate_refusal_with_wrong_payment_id_reads_one_row(self):
+        """A garbage payment_id forces the one branch that must read, and it must
+        read exactly one row -- the same query whether or not that row exists.
+
+        Supplying a garbage payment_id is how a caller reaches the reading
+        branch at all, so the invariant has to hold here too, not just on the
+        no-credentials path above.
+        """
+        donation = self._make_donation(payment_id="tr_real")
+        bad_token = "0" * 64
+        missing = "Assoc-Dnt-2026-99999-nonexistent"
+
+        ok_existing, _msg = payment_success.validate_payment_document_access(
+            "Donation", donation.name, "tr_garbage", bad_token
+        )
+        self.assertFalse(ok_existing)
+
+        self._assert_refusal_reads_the_same_either_way(
+            "validate_payment_document_access (wrong payment_id)",
+            lambda: payment_success.validate_payment_document_access(
+                "Donation", donation.name, "tr_garbage", bad_token
+            ),
+            lambda: payment_success.validate_payment_document_access(
+                "Donation", missing, "tr_garbage", bad_token
+            ),
+            permitted=1,
+        )
+
+    def test_ponto_return_refusal_cost_does_not_reveal_existence(self):
+        """A wrong token must refuse at the same read cost whether or not the
+        payment link exists.
+
+        This one is a regression guard, not a fix: measured on the unmodified
+        code, handle_ponto_payment_link_return is already symmetric at the
+        database level (one exists() either way), and the extra work an
+        existing link costs is a single HMAC -- ~0.003ms against a ~0.35ms
+        query, under 1%. It is kept so a future reordering that moves a read
+        ahead of the token check cannot land unnoticed (#1105).
+        """
+        link = self._make_ponto_link()
+        bad_token = "0" * 64
+        missing = "PONTO-LINK-9999-nonexistent"
+
+        def call(name):
+            context = frappe._dict()
+            payment_success.handle_ponto_payment_link_return(context, name, bad_token)
+            # Control: both must refuse and disclose nothing.
+            self.assertEqual(context.payment_status, "error")
+            self.assertEqual(context.document_info, {})
+
+        self._assert_refusal_reads_the_same_either_way(
+            "handle_ponto_payment_link_return",
+            lambda: call(link.name),
+            lambda: call(missing),
+            permitted=1,
+        )
