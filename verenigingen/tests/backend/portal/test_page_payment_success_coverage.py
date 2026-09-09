@@ -122,10 +122,53 @@ class TestPagePaymentSuccessCoverage(EnhancedTestCase):
         self.assertFalse(is_valid)
         self.assertIsInstance(result, str)
 
+    def _assert_error_log_written(self, title_substring):
+        """Assert a matching Error Log row is written inside the block.
+
+        error_log_guard.py has no positive assertion helper -- only
+        assertNoErrorLog -- which is why declaring expectErrorLog(...) has been
+        mistaken for verifying a write (#1112). tabError Log is MyISAM and so
+        non-transactional, so rows from earlier tests survive any rollback:
+        this scopes to rows that did not exist before the block, rather than
+        counting matches table-wide, or an earlier test's row is a false pass.
+        """
+        import contextlib
+
+        @contextlib.contextmanager
+        def _guard():
+            before = {
+                row.name
+                for row in frappe.get_all(
+                    "Error Log", filters={"method": ("like", f"%{title_substring}%")}, fields=["name"]
+                )
+            }
+            self.expectErrorLog(title_substring)
+            yield
+            after = frappe.get_all(
+                "Error Log", filters={"method": ("like", f"%{title_substring}%")}, fields=["name"]
+            )
+            self.assertTrue(
+                [row for row in after if row.name not in before],
+                f"expected an Error Log whose method contains {title_substring!r} to be written "
+                f"inside this block, and none was. Declaring expectErrorLog() alone does not "
+                f"assert this -- it only mutes the harness's automatic check (#1112).",
+            )
+
+        return _guard()
+
     def test_validate_disallowed_doctype_logs_security_event(self):
-        """A disallowed doctype is rejected AND writes a security Error Log."""
-        self.expectErrorLog("Payment Status Security")
-        is_valid, result = payment_success.validate_payment_document_access("ToDo", "anything", "tr_x")
+        """A disallowed doctype is rejected AND writes a security Error Log.
+
+        The write is asserted, not merely declared: this test previously only
+        called expectErrorLog("Payment Status Security"), which mutes the
+        harness's automatic check and asserts nothing, so it would have passed
+        just as well with the log_error deleted -- exactly the defect its
+        sibling test three methods below was renamed for (#1112). Found by an
+        independent review of that rename, which noted the fix's own docstring
+        was a search query nobody had run against this file.
+        """
+        with self._assert_error_log_written("Payment Status Security"):
+            is_valid, result = payment_success.validate_payment_document_access("ToDo", "anything", "tr_x")
         self.assertFalse(is_valid)
         self.assertIsInstance(result, str)
 
@@ -450,7 +493,11 @@ class TestPagePaymentSuccessCoverage(EnhancedTestCase):
         self.assertEqual(result["is_paid"], 1)
 
     def test_refresh_status_disallowed_doctype_logs_and_fails(self):
-        """A disallowed doctype is rejected by the API wrapper (and logs)."""
-        self.expectErrorLog("Payment Status")
-        result = payment_success.refresh_payment_status("ToDo", "anything", "tr_x")
+        """A disallowed doctype is rejected by the API wrapper AND logs (#1112).
+
+        Same correction as test_validate_disallowed_doctype_logs_security_event:
+        the "(and logs)" half of this test's own name was never asserted.
+        """
+        with self._assert_error_log_written("Payment Status"):
+            result = payment_success.refresh_payment_status("ToDo", "anything", "tr_x")
         self.assertFalse(result["success"])

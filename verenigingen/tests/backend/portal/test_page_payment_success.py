@@ -374,18 +374,24 @@ class TestPagePaymentSuccess(EnhancedTestCase):
     # about the others, so:
     #
     #   1. SQL capture (_count_queries)     -- exact, but SQL only.
-    #   2. Cache-call capture (_count_cache_calls) -- closes the channel that
-    #      review actually defeated this file with.
-    #   3. Coarse timing parity (_assert_refusal_latency_parity) -- channel
+    #   2. Cache-call capture (_count_cache_calls) -- closes the channel the
+    #      first review actually defeated this file with.
+    #   3. Enqueue capture (_count_enqueues) -- closes the channel the SECOND
+    #      review defeated layers 1-2 with. frappe.enqueue uses the
+    #      `redis_queue` connection, not frappe.cache(), and resolves its
+    #      target only when a worker pops the job, so it is invisible to both.
+    #   4. Coarse timing parity (_assert_refusal_latency_parity) -- channel
     #      agnostic, since it measures the observable itself, but only
     #      sensitive at the magnitude of the original defect (10.4x-28.4x).
     #
-    # Layer 3's threshold is deliberately loose and CANNOT distinguish the
-    # ~1.2x residual this fix accepts from a ~1.5x re-added side effect. That
-    # is a real gap: a future side channel through a fourth mechanism, at
-    # small magnitude, would pass all three. Do not read a green run here as
-    # proof of constant-time behaviour -- it is proof of no SQL divergence, no
-    # cache divergence, and no order-of-magnitude latency divergence.
+    # The timing layer's threshold is deliberately loose and CANNOT distinguish
+    # the ~1.2x residual this fix accepts from a ~1.5x re-added side effect.
+    # That gap is real and has now been demonstrated twice, each time through a
+    # channel nobody had thought to enumerate -- so assume a fifth exists (a
+    # file write, an outbound request, a log handler) rather than reading a
+    # green run here as proof of constant-time behaviour. It proves no SQL
+    # divergence, no cache divergence, no queued work, and no
+    # order-of-magnitude latency divergence. Nothing more.
     # ------------------------------------------------------------------
 
     def _count_queries(self, fn):
@@ -435,6 +441,39 @@ class TestPagePaymentSuccess(EnhancedTestCase):
             fn()
         finally:
             frappe.cache = real_cache
+        return calls
+
+    def _count_enqueues(self, fn):
+        """Return the names of every background job fn() tries to queue.
+
+        frappe.enqueue resolves its own Redis connection through
+        get_redis_conn() (the `redis_queue` config), never through
+        frappe.cache() (`redis_cache`), so the cache proxy above cannot see it
+        -- and because the target method string is not resolved until a worker
+        pops the job, enqueueing a nonexistent method raises nothing either.
+        A review defeated the first three layers through exactly this channel.
+
+        Recorded WITHOUT calling through, deliberately: a refusal must queue
+        nothing at all, so the passing case suppresses no real work, and the
+        failing case does not leave stray jobs on the test site.
+        """
+        calls = []
+        real_enqueue = frappe.enqueue
+        real_enqueue_doc = getattr(frappe, "enqueue_doc", None)
+
+        def _recording(method=None, *args, **kwargs):
+            calls.append(getattr(method, "__name__", str(method)))
+            return None
+
+        try:
+            frappe.enqueue = _recording
+            if real_enqueue_doc is not None:
+                frappe.enqueue_doc = _recording
+            fn()
+        finally:
+            frappe.enqueue = real_enqueue
+            if real_enqueue_doc is not None:
+                frappe.enqueue_doc = real_enqueue_doc
         return calls
 
     def _assert_refusal_latency_parity(self, label, call_existing, call_missing, max_ratio=3.0):
@@ -513,7 +552,19 @@ class TestPagePaymentSuccess(EnhancedTestCase):
             f"how a review defeated an earlier version of these tests (#1105).",
         )
 
-        # Layer 3: the observable itself, for any channel neither above covers.
+        # Layer 4: background jobs, which layers 1 and 2 both miss because
+        # frappe.enqueue uses the `redis_queue` connection rather than
+        # frappe.cache(). A refusal must queue nothing at all, either way.
+        for which, call in (("existing docname", call_existing), ("nonexistent docname", call_missing)):
+            self.assertEqual(
+                self._count_enqueues(call),
+                [],
+                f"{label}: refusing a {which} queued a background job. A guest can trigger "
+                f"this path at will, and work done off the request is invisible to both the "
+                f"SQL and the cache comparison above (#1105).",
+            )
+
+        # Layer 3: the observable itself, for any channel none of the above covers.
         self._assert_refusal_latency_parity(label, call_existing, call_missing)
 
     def test_validate_refusal_without_credentials_reads_nothing(self):
