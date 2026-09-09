@@ -441,13 +441,50 @@ class TestBankTransactionCreatorAlreadyProcessed(_BankTxnFixtureMixin, EnhancedT
         self.assertEqual(result["payment_entry"], pe_name)
         self.assertEqual(result["document_type"], "Payment Entry")
 
+    def test_internal_transfer_fixture_uses_two_distinct_accounts(self):
+        """_make_internal_transfer_pe must never resolve paid_from to paid_to.
+
+        Its `or self.gl_account` fallback produced exactly the collapse it was
+        meant to guard against: _ensure_gl_account creates self.gl_account AS a
+        non-group Bank account for COMPANY, so the paid_from lookup
+        ({company, account_type: Bank, is_group: 0}) can return that very
+        account -- and frappe.db.get_value returns the NEWEST match, which is
+        normally the one setUp just created.
+
+        Asserted as the fixture's own invariant rather than by relying on
+        ERPNext to reject the document, because whether it does is a moving
+        target. ERPNext added validate_internal_transfer_accounts in
+        6ec30350d2 ("reject same-account internal transfers", 2026-09-08), so
+        the same fixture silently built an invalid Payment Entry on every
+        earlier version -- including the v16.30.0 checked out in this bench --
+        and is refused on every later one. CI installs the `version-16` branch
+        rather than a pinned SHA, which is why this reddened there on
+        2026-09-09 with no corresponding change in this repo (#1111).
+        """
+        pe = frappe.get_doc("Payment Entry", self._make_internal_transfer_pe(self._ref("distinct")))
+        self.assertNotEqual(
+            pe.paid_from,
+            pe.paid_to,
+            "the Internal Transfer fixture built both legs on the same account, which is not "
+            "a valid Payment Entry and is refused by any ERPNext carrying "
+            "validate_internal_transfer_accounts",
+        )
+
     def _make_internal_transfer_pe(self, reference_no):
         """A minimal submitted Payment Entry carrying reference_no, used only to
         exercise check_already_processed's Payment Entry branch."""
-        paid_from = frappe.get_value(
-            "Account", {"company": COMPANY, "account_type": "Bank", "is_group": 0}, "name"
-        ) or self.gl_account
         paid_to = self.gl_account
+        # Exclude paid_to from the lookup, and fall back to a dedicated second
+        # account rather than to paid_to itself. self.gl_account IS a non-group
+        # Bank account for COMPANY, so the unfiltered lookup could return it --
+        # and `or self.gl_account` then produced the very collapse the fallback
+        # existed to prevent. ERPNext refuses a same-account Internal Transfer
+        # as of 6ec30350d2 (#1111).
+        paid_from = frappe.get_value(
+            "Account",
+            {"company": COMPANY, "account_type": "Bank", "is_group": 0, "name": ("!=", paid_to)},
+            "name",
+        ) or self._ensure_gl_account(name_suffix=" Counterpart")
         pe = frappe.new_doc("Payment Entry")
         pe.payment_type = "Internal Transfer"
         pe.company = COMPANY
