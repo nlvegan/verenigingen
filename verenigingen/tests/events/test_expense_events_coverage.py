@@ -340,12 +340,14 @@ class TestExpenseEventsCoverage(EnhancedTestCase):
     def test_approved_background_missing_claim_logs_and_returns_error(self):
         """Missing expense claim -> get_doc raises -> wrapper logs + returns error."""
         self.expectErrorLog("Expense Approval Background Job Error")
-        result = ee.emit_expense_claim_approved_background("EC-missing-approve-xyz")
+        with self.assertErrorLog("Expense Approval Background Job Error"):
+            result = ee.emit_expense_claim_approved_background("EC-missing-approve-xyz")
         self.assertEqual(result["status"], "error")
 
     def test_cancelled_background_missing_claim_logs_and_returns_error(self):
         self.expectErrorLog("Expense Cancellation Background Job Error")
-        result = ee.emit_expense_claim_cancelled_background("EC-missing-cancel-xyz")
+        with self.assertErrorLog("Expense Cancellation Background Job Error"):
+            result = ee.emit_expense_claim_cancelled_background("EC-missing-cancel-xyz")
         self.assertEqual(result["status"], "error")
 
     def test_approved_background_real_claim_completes(self):

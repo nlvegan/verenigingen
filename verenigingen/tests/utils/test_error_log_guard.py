@@ -58,6 +58,49 @@ class TestErrorLogGuard(VereningingenTestCase):
         with self.assertNoErrorLog():
             pass  # logs the test set the ignore for in setUp; nothing new here
 
+    # --- assertErrorLog -----------------------------------------------------
+
+    def test_assertErrorLog_passes_when_matching_log_written(self):
+        with self.assertErrorLog(PROBE_TITLE):
+            self._log_probe("this is the log assertErrorLog must see")
+
+    def test_assertErrorLog_fails_when_nothing_logged(self):
+        with self.assertRaises(AssertionError) as ctx:
+            with self.assertErrorLog(PROBE_TITLE):
+                pass  # exercises nothing that logs
+        self.assertIn(PROBE_TITLE, str(ctx.exception))
+
+    def test_assertErrorLog_fails_when_pattern_does_not_match(self):
+        # A log IS written inside the block, but it does not match the pattern the
+        # test asked for -- assertErrorLog must still fail, not treat "some log, any
+        # log" as satisfying a specific pattern.
+        with self.assertRaises(AssertionError):
+            with self.assertErrorLog("SomePatternThatWillNeverMatch"):
+                self._log_probe("unrelated log body")
+
+    def test_assertErrorLog_ignores_logs_written_before_the_block(self):
+        # tabError Log is MyISAM/non-transactional, so a row written earlier in this
+        # test (or an earlier test) survives any rollback. assertErrorLog must scope
+        # to rows created INSIDE its own block, not fall back to a bare table count
+        # or "any matching row that exists at all" -- otherwise a log from a
+        # completely different call would produce a false pass.
+        self._log_probe("written before the guarded block even starts")
+        with self.assertRaises(AssertionError):
+            with self.assertErrorLog(PROBE_TITLE):
+                pass  # nothing logged INSIDE this block
+
+    def test_assertErrorLog_custom_message(self):
+        with self.assertRaises(AssertionError) as ctx:
+            with self.assertErrorLog(PROBE_TITLE, msg="custom failure text"):
+                pass
+        self.assertIn("custom failure text", str(ctx.exception))
+
+    def test_assertErrorLog_no_pattern_accepts_any_log(self):
+        # With no patterns given, any Error Log row written inside the block
+        # satisfies the assertion (mirrors assertNoErrorLog's "any row fails it").
+        with self.assertErrorLog():
+            self._log_probe("no specific pattern requested")
+
     # --- finalize (env-flag) decision ------------------------------------
 
     def test_finalize_warns_by_default(self):

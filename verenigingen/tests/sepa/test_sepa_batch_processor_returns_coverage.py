@@ -152,8 +152,9 @@ class TestProcessBatchReturns(_ReturnsBase):
     def test_process_returns_logs_and_raises_on_bad_batch(self):
         # An unknown batch name makes frappe.get_doc raise; the except logs and re-raises.
         self.expectErrorLog("SEPA Return Processing Error")
-        with self.assertRaises(Exception):
-            self.processor.process_batch_returns("DD-BATCH-DOES-NOT-EXIST", "/ignored.xml")
+        with self.assertErrorLog("SEPA Return Processing Error"):
+            with self.assertRaises(Exception):
+                self.processor.process_batch_returns("DD-BATCH-DOES-NOT-EXIST", "/ignored.xml")
 
 
 class TestAddProcessedInvoiceToBatch(_ReturnsBase):

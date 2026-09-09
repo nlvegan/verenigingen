@@ -248,9 +248,10 @@ class TestExpenseHandlersCoverage(EnhancedTestCase):
         member, volunteer, emp, company = self._make_volunteer_member_employee()
         ec = self._make_expense_claim(emp, company)
         self.expectErrorLog("Expense History Queue Error")
-        with patch(ENQUEUE, side_effect=RuntimeError("boom")):
-            # Must NOT raise — the expense-claim submission must not fail.
-            self.assertIsNone(eh.update_member_expense_history(ec))
+        with self.assertErrorLog("Expense History Queue Error"):
+            with patch(ENQUEUE, side_effect=RuntimeError("boom")):
+                # Must NOT raise — the expense-claim submission must not fail.
+                self.assertIsNone(eh.update_member_expense_history(ec))
 
     # ==================================================================
     # on_expense_claim_cancel
@@ -290,8 +291,9 @@ class TestExpenseHandlersCoverage(EnhancedTestCase):
         member, volunteer, emp, company = self._make_volunteer_member_employee()
         ec = self._make_expense_claim(emp, company)
         self.expectErrorLog("Expense History Removal Error")
-        with patch(ENQUEUE, side_effect=RuntimeError("boom")):
-            self.assertIsNone(eh.on_expense_claim_cancel(ec))
+        with self.assertErrorLog("Expense History Removal Error"):
+            with patch(ENQUEUE, side_effect=RuntimeError("boom")):
+                self.assertIsNone(eh.on_expense_claim_cancel(ec))
 
     # ==================================================================
     # notify_expense_approvers
@@ -431,8 +433,9 @@ class TestExpenseHandlersCoverage(EnhancedTestCase):
         self.expectErrorLog("Expense Approval Notification Error")
         svc = MagicMock(name="EmailService")
         svc.send_simple_email.side_effect = RuntimeError("smtp down")
-        with patch(EMAIL_FACTORY, return_value=svc):
-            self.assertIsNone(eh.notify_expense_approvers(ec))
+        with self.assertErrorLog("Expense Approval Notification Error"):
+            with patch(EMAIL_FACTORY, return_value=svc):
+                self.assertIsNone(eh.notify_expense_approvers(ec))
 
     def test_notify_context_includes_company_currency_and_member(self):
         """The email context carries the resolved member, volunteer and the

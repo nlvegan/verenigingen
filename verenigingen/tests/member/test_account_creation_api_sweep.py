@@ -218,7 +218,8 @@ class TestAccountCreationApiSweep(VereningingenTestCase):
         self.expectErrorLog(
             "Account Creation Request Processing Error", "User Creation Failed"
         )
-        result = api.process_account_creation_request(request.name)
+        with self.assertErrorLog("Account Creation Request Processing Error"):
+            result = api.process_account_creation_request(request.name)
         self.assertTrue(self._fail_errors(result))
         # Generic message, not the benign "no longer exists" one.
         self.assertNotIn("no longer exists", self._fail_msg(result))
@@ -461,12 +462,13 @@ class TestAccountCreationApiSweep(VereningingenTestCase):
         self.expectErrorLog(
             "Bulk Account Creation Batch Errors", "User Creation Failed"
         )
-        result = api.process_bulk_account_creation_batch(
-            request_names=[request.name],
-            batch_id="sweep_fail",
-            batch_number=1,
-            tracker_name=tracker.name,
-        )
+        with self.assertErrorLog("Bulk Account Creation Batch Errors"):
+            result = api.process_bulk_account_creation_batch(
+                request_names=[request.name],
+                batch_id="sweep_fail",
+                batch_number=1,
+                tracker_name=tracker.name,
+            )
         frappe.db.commit()
         data = self._ok(result)
         self.assertEqual(data["completed"], 0)

@@ -123,21 +123,29 @@ class TestMollieSyncServiceIntegration(EnhancedTestCase):
         self.assertEqual(member.customer, existing_customer)
         self.assertEqual(member.mollie_customer_id, "cst_reuse00001x")
 
-    def test_sync_invalid_id_format_raises_and_logs(self):
-        """An invalid Mollie ID format makes the validator throw, which propagates."""
+    def test_sync_invalid_id_format_raises_without_writing_an_error_log(self):
+        """An invalid Mollie ID format makes the validator throw, which propagates.
+
+        MISNAMED before this fix (was ``..._raises_and_logs``, #1112): the except
+        branch in ``sync_mollie_data`` only calls ``self.logger.error(...)``, which
+        resolves to ``frappe.logger()`` -- a plain rotating-file logger, NOT
+        ``frappe.log_error()``. No Error Log row is ever written on this path.
+        Verified empirically: wrapping the call in ``assertErrorLog(...)`` fails
+        with "none was" written.
+        """
         member = self.create_test_member(
             first_name="Bad", last_name="Format", email="bad.format@example.com"
         )
-        self.expectErrorLog("Failed to update Customer with Mollie data", "Invalid Mollie data")
-        with self.assertRaises(frappe.ValidationError):
-            self.service.sync_mollie_data(
-                member,
-                {
-                    # Wrong prefix -> validator marks invalid -> frappe.throw
-                    "custom_mollie_customer_id": "WRONG_prefix",
-                    "custom_mollie_subscription_id": "sub_ok1",
-                },
-            )
+        with self.assertNoErrorLog():
+            with self.assertRaises(frappe.ValidationError):
+                self.service.sync_mollie_data(
+                    member,
+                    {
+                        # Wrong prefix -> validator marks invalid -> frappe.throw
+                        "custom_mollie_customer_id": "WRONG_prefix",
+                        "custom_mollie_subscription_id": "sub_ok1",
+                    },
+                )
 
     # ------------------------------------------------------------------
     # _update_customer_mollie_fields — real DB write

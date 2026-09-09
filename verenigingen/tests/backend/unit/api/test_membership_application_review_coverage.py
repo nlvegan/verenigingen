@@ -428,10 +428,12 @@ class TestUpdatePaymentHistoryForInvoice(EnhancedTestCase):
         self.expectErrorLog("Payment History Update Error")
         # frappe.get_doc on the missing invoice raises inside the try block; the
         # function logs and returns without propagating.
-        self.assertIsNone(update_payment_history_for_invoice(member.name, "NONEXISTENT-SINV-COV-12345"))
+        with self.assertErrorLog("Payment History Update Error"):
+            self.assertIsNone(update_payment_history_for_invoice(member.name, "NONEXISTENT-SINV-COV-12345"))
 
     def test_nonexistent_member_is_logged_and_swallowed(self):
         self.expectErrorLog("Payment History Update Error")
-        self.assertIsNone(
-            update_payment_history_for_invoice("NONEXISTENT-MEMBER-COV-12345", "NONEXISTENT-SINV-COV-12345")
-        )
+        with self.assertErrorLog("Payment History Update Error"):
+            self.assertIsNone(
+                update_payment_history_for_invoice("NONEXISTENT-MEMBER-COV-12345", "NONEXISTENT-SINV-COV-12345")
+            )
