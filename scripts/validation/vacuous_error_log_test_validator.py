@@ -145,83 +145,99 @@ class Finding(NamedTuple):
     lineno: int
 
 
-def _called_names(fn: ast.AST):
-    """Every called name inside `fn`, as written (``self.foo`` -> ``foo``)."""
+def _calls(fn: ast.AST):
+    """Yield ``(name, node)`` for every call in `fn` -- ``self.foo`` -> ``foo``.
+
+    ONE source of truth for "what is being called here". There used to be two:
+    this generator, and an inline copy inside the soundness check. They drifted
+    -- the loop here skipped the ``expectErrorLog`` call, the copy did not --
+    and since ``_ASSERTING_CALL`` matches "expectErrorLog" itself, the mute
+    call's own pattern argument satisfied the soundness check:
+    ``expectErrorLog("Error Log")`` silenced the gate with no extra code at all.
+    Found by the third review.
+
+    The duplication is why it recurred, so the duplication is gone rather than
+    patched.
+    """
     for node in ast.walk(fn):
         if not isinstance(node, ast.Call):
             continue
         f = node.func
         if isinstance(f, ast.Attribute):
-            yield f.attr
+            yield f.attr, node
         elif isinstance(f, ast.Name):
-            yield f.id
+            yield f.id, node
+
+
+def _carries_doctype_literal(node: ast.Call) -> bool:
+    """Is the Error Log doctype or its table named in this call's arguments?"""
+    for operand in list(node.args) + [kw.value for kw in node.keywords]:
+        for sub in ast.walk(operand):
+            if isinstance(sub, ast.Constant) and isinstance(sub.value, str):
+                if sub.value.strip() == "Error Log" or "tabError Log" in sub.value:
+                    return True
+    return False
 
 
 # Callables that actually READ the Error Log. The soundness signal is the
-# literal sitting in one of THESE calls' arguments -- not merely inside some
-# call's arguments, which is a different and much weaker claim (see below).
+# doctype literal sitting in one of THESE calls' arguments -- not merely inside
+# some call's arguments, which is a different and much weaker claim.
 _QUERY_CALL = re.compile(
     r"^(?:sql|sql_list|count|exists|get_all|get_list|get_value|get_values"
     r"|get_doc|get_last_doc|get_single_value)$"
 )
 
 
-def _queries_error_log(fn: ast.AST) -> bool:
-    """Does `fn` actually QUERY the Error Log doctype or its table?
-
-    The literal must be an argument of a call that READS something --
-    ``frappe.db.count("Error Log", ...)``, ``frappe.get_all("Error Log", ...)``,
-    ``frappe.db.sql("... `tabError Log` ...")``. Both halves matter, and this
-    function has now been wrong about the second half twice:
-
-    1. First version: any string constant anywhere in the body. Defeated by the
-       canonical vacuous test's own DOCSTRING ("writes a security Error Log").
-    2. Second version: any string constant in any CALL's arguments. Defeated by
-       an assertion MESSAGE -- ``self.fail("no tabError Log row")``, a
-       ``print()``, a ``logging.debug(f"...")``, a ``@unittest.skip("...")``
-       decorator argument. Found by review with six working probes. That shape
-       is not exotic here: "`tabError Log` is MyISAM (non-transactional)" is a
-       recurring remark across 15+ test files, so the prose an author would
-       naturally write is exactly the prose that punched through the gate.
-
-    Both times the error was the same one: narrowing the SHAPE the prose can
-    hide in, instead of requiring the signal to mean what it claims. Position
-    is not semantics. A string is evidence that a test checks the Error Log
-    only when something is being asked of the Error Log.
-
-    KNOWN LIMIT, stated because this file states its limits: the doctype has to
-    be a literal AT the query. A test that hoists it (``DOCTYPE = "Error Log"``
-    then ``frappe.db.count(DOCTYPE, ...)``) is a false positive and needs a
-    pragma. Measured on `fa440fcd6`: no test in the tree does that, so the cost
-    today is zero; `test_known_limit_doctype_hoisted_to_a_name` pins it, so a
-    future fix flips a test deliberately rather than by accident.
-    """
-    for node in ast.walk(fn):
-        if not isinstance(node, ast.Call):
-            continue
-        f = node.func
-        name = f.attr if isinstance(f, ast.Attribute) else (f.id if isinstance(f, ast.Name) else "")
-        if not (_QUERY_CALL.match(name) or _ASSERTING_CALL.search(name)):
-            continue
-        operands = list(node.args) + [kw.value for kw in node.keywords]
-        for operand in operands:
-            for sub in ast.walk(operand):
-                if isinstance(sub, ast.Constant) and isinstance(sub.value, str):
-                    if sub.value.strip() == "Error Log" or "tabError Log" in sub.value:
-                        return True
-    return False
-
-
 def _is_vacuous(fn: ast.AST) -> bool:
-    names = list(_called_names(fn))
-    if _EXPECT not in names:
+    """Does `fn` mute the harness check and then assert nothing about the log?
+
+    One walk, one rule, deliberately: the ``expectErrorLog`` call is excluded
+    ONCE, here, so no sibling loop can forget to. Evidence that the test really
+    checks the Error Log is any OTHER call that either
+
+    * names an assertion/capture helper (``_ASSERTING_CALL``), or
+    * is a read (``_QUERY_CALL``) carrying the doctype literal.
+
+    The three ways this has been wrong, every one found by review and every one
+    the same mistake -- accepting a signal that does not mean what it claims:
+
+    1. any string constant anywhere -> the test's own DOCSTRING exempted it
+       ("writes a security Error Log").
+    2. any string in any call's arguments -> an assertion MESSAGE did, and so
+       did ``print(...)``, ``logging.debug(f"...")`` and a ``@unittest.skip``
+       argument. The prose is not exotic: the "``tabError Log`` is MyISAM
+       (non-transactional)" remark recurs across 13 test files.
+    3. the mute call itself counted as evidence -> ``expectErrorLog("Error
+       Log")``, because ``_ASSERTING_CALL`` matches "expectErrorLog" and only
+       the other loop skipped it.
+
+    KNOWN LIMITS, stated because this file states its limits:
+
+    * A read whose RESULT IS DISCARDED still counts -- ``frappe.get_all("Error
+      Log", ...)`` on a line by itself makes a vacuous test look sound. Closing
+      that needs dataflow ("was this value asserted on"), not AST position.
+      Measured on ``fa440fcd6``: no test does it, so the live cost is zero, and
+      ``test_known_limit_query_result_is_discarded`` pins it.
+    * ``_ASSERTING_CALL`` is deliberately generous (any name containing
+      "error_log"), so a harmless ``clear_error_log_cache()`` would exempt too.
+      Same measurement, same zero population. Narrowing it would flag the real
+      local helpers (``assert_error_log``, ``_capture_error_logs``), which take
+      no doctype literal at all.
+    * The doctype must be a literal AT the query; hoisting it to a name is a
+      FALSE POSITIVE needing a pragma. Pinned by
+      ``test_known_limit_doctype_hoisted_to_a_name``.
+    """
+    calls = list(_calls(fn))
+    if not any(name == _EXPECT for name, _ in calls):
         return False
-    for name in names:
+    for name, node in calls:
         if name == _EXPECT:
             continue
         if _ASSERTING_CALL.search(name):
             return False
-    return not _queries_error_log(fn)
+        if _QUERY_CALL.match(name) and _carries_doctype_literal(node):
+            return False
+    return True
 
 
 def _test_methods(tree: ast.AST):

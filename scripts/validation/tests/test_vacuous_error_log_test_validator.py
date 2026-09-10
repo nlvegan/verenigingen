@@ -346,6 +346,54 @@ class TestVacuousErrorLogTestValidator(unittest.TestCase):
             with self.subTest(line=line):
                 self.assertEqual(self._vacuous_with(line), [], f"{line!r} is a real query")
 
+    def test_the_mute_calls_own_pattern_does_not_exempt(self):
+        """`expectErrorLog("Error Log")` must not count as asserting anything.
+
+        The third review's finding, and the worst of the three: it needed NO
+        extra code from the author, just a choice of wording in the mute call.
+        `_ASSERTING_CALL` matches "expectErrorLog" itself, and the soundness
+        check had its own inline copy of the call-name walk that -- unlike its
+        sibling -- did not skip that call. Both loops are now one.
+        """
+        for pattern in ('"Error Log"', '"something in tabError Log maybe"'):
+            with self.subTest(pattern=pattern):
+                self.assertEqual(
+                    self._names(
+                        f"""
+                        class T(EnhancedTestCase):
+                            def test_rejection_logs_the_event(self):
+                                \"\"\"A rejection writes a security Error Log.\"\"\"
+                                self.expectErrorLog({pattern})
+                                do_it()
+                        """
+                    ),
+                    ["test_rejection_logs_the_event"],
+                    "the mute call cannot be its own evidence",
+                )
+
+    def test_known_limit_query_result_is_discarded(self):
+        """A read whose result is thrown away still counts as sound. Pinned.
+
+        Closing this needs dataflow -- "was this value asserted on" -- not AST
+        position, which is why it is documented rather than fixed. Measured on
+        `fa440fcd6`: no test in the tree does it, so the live cost is zero. The
+        realistic way it would arrive is someone (or an LLM) "fixing" a flagged
+        test by bolting on a no-op query, so it is worth a reader knowing.
+        """
+        self.assertEqual(
+            self._vacuous_with('frappe.get_all("Error Log", filters={"x": 1})'),
+            [],
+        )
+
+    def test_known_limit_a_harmless_error_log_named_call_exempts(self):
+        """`_ASSERTING_CALL` is any name containing "error_log". Pinned.
+
+        Narrowing it would flag the real local helpers (`assert_error_log`,
+        `_capture_error_logs`), which carry no doctype literal at all -- so the
+        generosity is deliberate, and its live population is zero.
+        """
+        self.assertEqual(self._vacuous_with("self._clear_error_log_cache()"), [])
+
     def test_known_limit_doctype_hoisted_to_a_name(self):
         """A hoisted doctype constant is a FALSE POSITIVE. Pinned deliberately.
 
