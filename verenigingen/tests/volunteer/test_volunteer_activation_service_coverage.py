@@ -332,7 +332,8 @@ class TestVolunteerActivationServiceCoverage(EnhancedTestCase):
         self.expectErrorLog("Volunteer activation error")
 
         # Must NOT raise regardless of the internal mandatory-field failure.
-        activate_volunteer_record(member)
+        with self.assertErrorLog("Volunteer activation error"):
+            activate_volunteer_record(member)
 
         # The volunteer was NOT activated (the relink save failed before the
         # status flip), proving the failure path really fired.

@@ -315,6 +315,7 @@ class TestVolunteerStatisticsCoverage(EnhancedTestCase):
         with recent_count=0."""
         self.expectErrorLog("Volunteer Expense Statistics Error")
         self.expectErrorLog("Recent Expense Count Error")
-        summary = get_volunteer_expense_summary("NONEXISTENT-VOL-SUMMARY-999")
+        with self.assertErrorLog("Volunteer Expense Statistics Error", "Recent Expense Count Error"):
+            summary = get_volunteer_expense_summary("NONEXISTENT-VOL-SUMMARY-999")
         self.assertEqual(summary["recent_count"], 0)
         self.assertEqual(summary["total_count"], 0)

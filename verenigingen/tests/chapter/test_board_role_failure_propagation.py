@@ -99,8 +99,9 @@ class TestBoardRoleFailurePropagation(VereningingenTestCase):
         self.expectErrorLog("Failed to assign board member role")
         chapter, volunteer = self._seat_board_member("Ordinary")
 
-        with patch(ASSIGN_ROLE, side_effect=frappe.ValidationError("no user account")):
-            chapter.save()
+        with self.assertErrorLog("Failed to assign board member role"):
+            with patch(ASSIGN_ROLE, side_effect=frappe.ValidationError("no user account")):
+                chapter.save()
 
         reloaded = frappe.get_doc("Chapter", self.chapter.name)
         seated = [b for b in reloaded.board_members if b.volunteer == volunteer.name and b.is_active]

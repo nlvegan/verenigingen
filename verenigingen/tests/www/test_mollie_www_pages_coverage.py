@@ -114,7 +114,8 @@ class TestMollieWwwPagesCoverage(VereningingenTestCase):
         """Without a live Mollie key the audit fails gracefully and logs once."""
         with self.set_user(self.admin_email):
             self.expectErrorLog("Subscription Audit Error")
-            result = msa.run_audit()
+            with self.assertErrorLog("Subscription Audit Error"):
+                result = msa.run_audit()
         self.assertIsInstance(result, dict)
         self.assertFalse(result.get("success"))
 
