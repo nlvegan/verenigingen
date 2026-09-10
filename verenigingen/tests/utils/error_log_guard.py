@@ -139,6 +139,24 @@ class ErrorLogGuardMixin:
             with self.assertNoErrorLog():
                 result = some_module.do_the_thing(member)
             self.assertEqual(result.status, "ok")
+
+        MUST be the OUTERMOST context manager around any ``assertRaises`` that
+        catches the block's exception. Both guards are plain ``@contextmanager``
+        generators with no ``try`` around their ``yield``, so an exception that
+        propagates through one skips everything after the ``yield`` -- the check
+        never runs, and nothing says so. Measured: ::
+
+            with self.assertRaises(ValueError):     # WRONG -- guard is inert
+                with self.assertNoErrorLog():
+                    frappe.log_error(title="x", message="y")
+                    raise ValueError("boom")
+
+        passes, despite a row having been written. Put the guard outside::
+
+            with self.assertNoErrorLog():           # RIGHT
+                with self.assertRaises(ValueError):
+                    ...
+
         """
         marker = frappe.utils.now_datetime()
         before = {
@@ -148,6 +166,70 @@ class ErrorLogGuardMixin:
         new = self._error_logs_since(marker, ignore=ignore, before_names=before, use_expected=False)
         if new:
             self.fail(format_error_log_failure(new, prefix=msg))
+
+    @contextmanager
+    def assertErrorLog(self, *patterns, msg=None):
+        """Fail unless the wrapped block writes a matching Error Log row.
+
+        The positive counterpart to ``assertNoErrorLog()`` -- use it when a test's
+        whole point is that a code path DOES log an error (a security rejection, a
+        swallowed-exception fallback, etc.)::
+
+            with self.assertErrorLog("Payment Status Security"):
+                self.page.validate_and_return(...)
+
+        ``patterns`` are substrings matched the same way ``assertNoErrorLog(ignore=)``
+        matches them (any pattern present in the row's title or body counts). With no
+        patterns given, any Error Log row written inside the block satisfies it.
+
+        Scoped to rows created INSIDE this block, by name -- not a bare table count or
+        "does a matching row exist anywhere". ``tabError Log`` is MyISAM
+        (non-transactional), so rows from earlier in this test, or from an earlier
+        test entirely, survive any rollback; scoping by name (like
+        ``assertNoErrorLog``) is what keeps those from producing a false pass here.
+
+        This does NOT suppress the automatic tearDown check -- the row it expects is
+        still "unexpected" to that check unless the test also calls
+        ``self.expectErrorLog(...)`` for the same pattern.
+
+        MUST be the OUTERMOST context manager around any ``assertRaises`` that
+        catches the block's exception. Both guards are plain ``@contextmanager``
+        generators with no ``try`` around their ``yield``, so an exception that
+        propagates through one skips everything after the ``yield`` -- the check
+        never runs, and nothing says so. Measured: ::
+
+            with self.assertRaises(ValueError):     # WRONG -- guard is inert
+                with self.assertNoErrorLog():
+                    frappe.log_error(title="x", message="y")
+                    raise ValueError("boom")
+
+        passes, despite a row having been written. Put the guard outside::
+
+            with self.assertNoErrorLog():           # RIGHT
+                with self.assertRaises(ValueError):
+                    ...
+
+        """
+        marker = frappe.utils.now_datetime()
+        before = {
+            r.name for r in frappe.get_all("Error Log", filters={"creation": [">=", marker]}, fields=["name"])
+        }
+        yield
+        rows = frappe.get_all(
+            "Error Log",
+            filters={"creation": [">=", marker]},
+            fields=["name", "method", "error", "creation"],
+            order_by="creation desc",
+        )
+        rows = [r for r in rows if r.name not in before]
+        matching = [r for r in rows if _row_matches(r, patterns)] if patterns else rows
+        if not matching:
+            if msg:
+                self.fail(msg)
+            elif patterns:
+                self.fail(f"Expected an Error Log matching {patterns!r} to be written, but none was")
+            else:
+                self.fail("Expected an Error Log to be written inside this block, but none was")
 
     @contextmanager
     def production_validation(self):

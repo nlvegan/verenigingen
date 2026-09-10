@@ -294,7 +294,8 @@ class TestUserRoleProfileCalculatorSweep(VereningingenTestCase):
         frappe.db.set_value("Chapter Board Member", bm, "parent", "Ghost Chapter ZZZ")
 
         self.expectErrorLog("Role Profile: Missing Chapter")
-        profiles = get_board_member_profiles(user, member)
+        with self.assertErrorLog("Role Profile: Missing Chapter"):
+            profiles = get_board_member_profiles(user, member)
         # The orphaned position is skipped → no board entry produced.
         self.assertEqual(profiles, [])
 
@@ -359,7 +360,8 @@ class TestUserRoleProfileCalculatorSweep(VereningingenTestCase):
         frappe.db.set_value("Team Member", tm, "parent", "Ghost Team ZZZ")
 
         self.expectErrorLog("Role Profile: Missing Team")
-        profiles = get_team_profiles(user, member)
+        with self.assertErrorLog("Role Profile: Missing Team"):
+            profiles = get_team_profiles(user, member)
         self.assertEqual(profiles, [])
 
     # =================================================================

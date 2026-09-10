@@ -545,7 +545,8 @@ class TestSEPABatchProcessorAddHelpers(_BatchPipelineBase):
         # The missing-mandate guard logs via frappe.log_error before returning;
         # register that expected log so the tearDown error-log guard ignores it.
         self.expectErrorLog("SEPA Batch - Missing Mandate")
-        self.processor.add_existing_invoice_to_batch(batch, invoice_data)
+        with self.assertErrorLog("SEPA Batch - Missing Mandate"):
+            self.processor.add_existing_invoice_to_batch(batch, invoice_data)
         self.assertEqual(len(batch.invoices), 0)
 
     def test_add_invoice_to_batch_with_sequence_appends_row(self):
