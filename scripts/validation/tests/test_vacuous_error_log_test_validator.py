@@ -19,7 +19,9 @@ so the validator is pinned against a defect that really existed rather than
 only against one invented here.
 """
 
+import contextlib
 import importlib.util
+import io
 import sys
 import tempfile
 import textwrap
@@ -186,6 +188,68 @@ class TestVacuousErrorLogTestValidator(unittest.TestCase):
         )
 
     # ------------------------------------------------------------------
+    # the soundness signal must be a QUERY, not prose
+    # ------------------------------------------------------------------
+
+    def test_prose_mentioning_taberror_log_does_not_exempt(self):
+        """A docstring is not an assertion.
+
+        Found by review with a working probe. The first version of
+        `_queries_error_log` matched "Error Log" as a bare substring and the
+        canonical vacuous test's own docstring exempted it; the fix hardened
+        that branch and left `"tabError Log" in ...` beside it unchanged, so
+        the identical bypass survived in the sibling branch. Both are pinned
+        here now -- this test and the next.
+        """
+        self.assertEqual(
+            self._names(
+                """
+                class T(EnhancedTestCase):
+                    def test_something_else_logs_a_thing(self):
+                        \"\"\"This writes to tabError Log when it fails.\"\"\"
+                        self.expectErrorLog("Some Title")
+                        do_something()
+                """
+            ),
+            ["test_something_else_logs_a_thing"],
+        )
+
+    def test_prose_mentioning_error_log_does_not_exempt(self):
+        """Regression pin for the FIRST fix, not evidence for the second.
+
+        Unlike the two tests either side of it, this one was already green
+        against the pre-fix code -- the exact-match branch had been hardened
+        earlier. It is here so that branch cannot quietly loosen again.
+        """
+        self.assertEqual(
+            self._names(
+                """
+                class T(EnhancedTestCase):
+                    def test_rejection_logs_the_event(self):
+                        \"\"\"A rejection writes a security Error Log.\"\"\"
+                        self.expectErrorLog("Some Title")
+                        do_something()
+                """
+            ),
+            ["test_rejection_logs_the_event"],
+        )
+
+    def test_dead_string_assignment_does_not_exempt(self):
+        """`x = "Error Log"` is not a query -- also found by review."""
+        self.assertEqual(
+            self._names(
+                """
+                class T(EnhancedTestCase):
+                    def test_rejection_logs_the_event(self):
+                        doctype = "Error Log"
+                        self.expectErrorLog("Some Title")
+                        do_something()
+                """
+            ),
+            ["test_rejection_logs_the_event"],
+        )
+
+    # ------------------------------------------------------------------
     # escape hatch
     # ------------------------------------------------------------------
 
@@ -215,6 +279,51 @@ class TestVacuousErrorLogTestValidator(unittest.TestCase):
         )
         self.assertEqual(len(bad), 1)
         self.assertIn("because", bad[0][1])
+
+    # ------------------------------------------------------------------
+    # CLI modes
+    # ------------------------------------------------------------------
+
+    def test_stats_mode_reports_without_failing(self):
+        path = self._write(
+            """
+            class T(EnhancedTestCase):
+                def test_rejection_logs_the_event(self):
+                    self.expectErrorLog("Sec")
+                    do_it()
+            """
+        )
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = v.main(["prog", "--stats", str(path)])
+        self.assertEqual(rc, 0, "--stats must never gate")
+        self.assertIn("test_rejection_logs_the_event", buf.getvalue())
+
+    def test_audit_mode_uses_the_wide_pattern_and_does_not_latch_it(self):
+        """--audit widens the pattern for ITS OWN run only.
+
+        The pattern is threaded through as an argument; an earlier version
+        assigned the module global, so one --audit run silently widened every
+        later scan in the same process. The second half of this test is what
+        pins that.
+        """
+        path = self._write(
+            """
+            class T(EnhancedTestCase):
+                def test_failure_reports_partial_write(self):
+                    self.expectErrorLog("Sec")
+                    do_it()
+            """
+        )
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = v.main(["prog", "--audit", str(path)])
+        self.assertEqual(rc, 0, "--audit is a review aid, never a gate")
+        self.assertIn("test_failure_reports_partial_write", buf.getvalue())
+
+        # ...and the gate's own pattern is unchanged afterwards: a "reports"
+        # name is not a log claim.
+        self.assertEqual(self._names(open(path, encoding="utf-8").read()), [])
 
     # ------------------------------------------------------------------
     # the tree itself

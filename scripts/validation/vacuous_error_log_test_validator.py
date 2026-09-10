@@ -89,7 +89,9 @@ SCAN_ROOTS = ("verenigingen", "scripts")
 # Whole `_`-delimited name segments that claim a log write. A SUBSTRING match
 # instead of segments is what made an earlier attempt match
 # `test_replay_attack_prevention` on "pre-vent-ion".
-NAME_CLAIMS_LOG = re.compile(r"(?:^|_)(?:log|logs|logged|logging|error_log|audit_log)(?:_|$)")
+# `error_log`/`audit_log` are NOT listed: as whole segments they always contain
+# the `log` segment already matched here (`..._error_log_...` holds `_log_`).
+NAME_CLAIMS_LOG = re.compile(r"(?:^|_)(?:log|logs|logged|logging)(?:_|$)")
 
 # The wider pattern #1116 used to CLASSIFY, kept for `--audit` only. It adds
 # record/report/audit/security_event segments, answering #1112's worry that a
@@ -124,6 +126,15 @@ _EXPECT = "expectErrorLog"
 # as call-name substrings (case-folded) so a local helper like
 # `_assert_error_log_written` counts -- #1103 shipped exactly that shape while
 # the shared helper was still in flight on another branch.
+# KNOWN LIMIT, stated rather than silent: this matches ANY called name
+# containing "errorlog"/"error_log", not only assertion helpers. A test calling
+# an unrelated `clear_error_log_cache()` would be treated as sound. It is
+# deliberately generous because this repo has several local spellings
+# (`assert_error_log`, `_capture_error_logs`) and a narrow list would flag
+# sound tests, each then needing a permanent pragma. Swept on `fa440fcd6`:
+# every test relying on this signal today uses a real assertion helper or a
+# real query, so the gap has ZERO live population -- it is a structural risk,
+# not a present hole. Narrow it if that ever stops being true.
 _ASSERTING_CALL = re.compile(r"error_?log", re.IGNORECASE)
 _DOCTYPE_REFS = ("Error Log", "tabError Log")
 
@@ -146,22 +157,42 @@ def _called_names(fn: ast.AST):
             yield f.id
 
 
-def _mentions_error_log_doctype(fn: ast.AST) -> bool:
-    """A string literal USING the doctype or its table, anywhere in `fn`.
+def _queries_error_log(fn: ast.AST) -> bool:
+    """Does `fn` actually QUERY the Error Log doctype or its table?
 
-    Matched as the exact doctype name (the shape of a real query --
-    ``frappe.db.count("Error Log", ...)``) or as the table name inside raw
-    SQL. Deliberately NOT a substring match on prose: the docstring of the
-    canonical vacuous test reads *"writes a security Error Log"*, and a
-    substring rule would have let every test that DESCRIBES the claim it
-    fails to check exempt itself. That is not hypothetical -- it is what this
-    function did in its first version, and the historical-shape control below
-    is what caught it.
+    The signal has to be a string in CALL-ARGUMENT position -- inside
+    ``frappe.db.count("Error Log", ...)``, ``frappe.get_all("Error Log", ...)``
+    or a raw ``frappe.db.sql("... `tabError Log` ...")``. Position is the whole
+    point, because the alternative (any string literal anywhere in the
+    function) is defeated by the test's own PROSE:
+
+        def test_something_logs_a_thing(self):
+            '''This writes to tabError Log when it fails.'''   # <- exempts itself
+            self.expectErrorLog("Some Title")
+            do_something()
+
+    A docstring is not a call argument, so it cannot exempt anything here. Nor
+    can a dead ``x = "Error Log"`` assignment.
+
+    This function has now been wrong in this exact way TWICE. The first version
+    matched ``"Error Log"`` as a bare substring, and the canonical vacuous
+    test's docstring (*"writes a security Error Log"*) exempted it -- caught by
+    the historical-shape control in the test file. The fix hardened that branch
+    to a whole-string match and left ``"tabError Log" in node.value`` beside it
+    UNCHANGED, so the identical bypass survived in the sibling branch and was
+    found by review, with a working probe. The lesson is this repo's own: a
+    finding is a class, not an instance -- when you harden one branch, harden
+    the one next to it. Both controls are pinned in the test file.
     """
     for node in ast.walk(fn):
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            if node.value.strip() == "Error Log" or "tabError Log" in node.value:
-                return True
+        if not isinstance(node, ast.Call):
+            continue
+        operands = list(node.args) + [kw.value for kw in node.keywords]
+        for operand in operands:
+            for sub in ast.walk(operand):
+                if isinstance(sub, ast.Constant) and isinstance(sub.value, str):
+                    if sub.value.strip() == "Error Log" or "tabError Log" in sub.value:
+                        return True
     return False
 
 
@@ -174,7 +205,7 @@ def _is_vacuous(fn: ast.AST) -> bool:
             continue
         if _ASSERTING_CALL.search(name):
             return False
-    return not _mentions_error_log_doctype(fn)
+    return not _queries_error_log(fn)
 
 
 def _test_methods(tree: ast.AST):
@@ -209,8 +240,14 @@ def _rel(path: Path) -> str:
         return str(path)
 
 
-def scan_file(path: Path) -> tuple[list[Finding], list[tuple[int, str]]]:
-    """Return (findings, bad_pragmas) for one test file."""
+def scan_file(path: Path, name_pattern=None) -> tuple[list[Finding], list[tuple[int, str]]]:
+    """Return (findings, bad_pragmas) for one test file.
+
+    `name_pattern` defaults to the GATE's pattern. It is threaded through as an
+    argument rather than read from a module global so `--audit` cannot leave the
+    wider pattern latched on for everything after it.
+    """
+    name_pattern = name_pattern or NAME_CLAIMS_LOG
     try:
         source = path.read_text(encoding="utf-8")
         tree = ast.parse(source, filename=str(path))
@@ -222,7 +259,7 @@ def scan_file(path: Path) -> tuple[list[Finding], list[tuple[int, str]]]:
     bad_pragmas: list[tuple[int, str]] = []
 
     for fn in _test_methods(tree):
-        if not NAME_CLAIMS_LOG.search(fn.name):
+        if not name_pattern.search(fn.name):
             continue
         if not _is_vacuous(fn):
             continue
@@ -274,10 +311,10 @@ def default_paths() -> list[str]:
     return [str(REPO_ROOT / root) for root in SCAN_ROOTS]
 
 
-def scan(paths) -> list[Finding]:
+def scan(paths, name_pattern=None) -> list[Finding]:
     findings: list[Finding] = []
     for path in _iter_test_files(paths):
-        found, _bad = scan_file(path)
+        found, _bad = scan_file(path, name_pattern)
         findings.extend(found)
     return findings
 
@@ -294,9 +331,7 @@ def main(argv: list[str]) -> int:
     )
     args = ap.parse_args(argv[1:])
 
-    if args.audit:
-        global NAME_CLAIMS_LOG
-        NAME_CLAIMS_LOG = AUDIT_NAME_PATTERN
+    pattern = AUDIT_NAME_PATTERN if args.audit else NAME_CLAIMS_LOG
 
     paths = args.paths or default_paths()
     # pre-commit passes the changed files and invokes the hook in BATCHES, so a
@@ -307,7 +342,7 @@ def main(argv: list[str]) -> int:
     findings: list[Finding] = []
     problems: list[str] = []
     for path in _iter_test_files(paths):
-        found, bad = scan_file(path)
+        found, bad = scan_file(path, pattern)
         findings.extend(found)
         problems.extend(f"{_rel(path)}:{ln}: {msg}" for ln, msg in bad)
 
