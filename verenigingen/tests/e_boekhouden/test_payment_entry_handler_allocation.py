@@ -394,6 +394,8 @@ class TestHandlerSupportPaths(EnhancedTestCase):
     # ---- log_bank_transaction_summary ----
 
     def test_log_bank_transaction_summary_formats_counts(self):
+        # vacuous-log-test-ok: false-positive -- log_bank_transaction_summary() is the
+        # method under test and the assertions are on the summary string it returns.
         h = self._handler()
         h._bank_tx_stats.update(
             {

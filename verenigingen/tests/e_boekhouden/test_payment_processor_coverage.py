@@ -107,6 +107,8 @@ class TestPaymentProcessorDecisions(EnhancedTestCase):
         self.assertTrue(self._processor().can_process(mutation))
 
     def test_can_process_type4_negative_row_amount_logs_warning(self):
+        # vacuous-log-test-ok: false-positive -- the warning this asserts is the debug
+        # trail (get_debug_info()); the Error Log row is an incidental side effect.
         """A negative row amount violates the unsigned assumption and is logged.
 
         The mutation is still claimed (Type 4 accepts everything); the branch we

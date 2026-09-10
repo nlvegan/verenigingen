@@ -446,6 +446,38 @@ jobs:
           --check-shrink "$RUNNER_TEMP/base_swallow_baseline.txt" \
           --base-tree "$RUNNER_TEMP/base_tree"
 
+  # expectErrorLog() only mutes the harness's automatic tearDown check; it asserts
+  # nothing (#1112). A test named "..._logs_..." that declared it and nothing else
+  # passed whether or not the log was written -- found after #1105 deleted a
+  # security-relevant frappe.log_error and its test stayed green, 33/33. Unlike the
+  # ratchets above this one is BASELINE-FREE: the population is 0, so it gates at 0.
+  vacuous-log-test-ratchet:
+    name: 🔇 Vacuous Log-Claiming Test Guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    # Stdlib-only (ast, argparse, pathlib) by design: no bench, no site, no install.
+    - name: Unit-test the validator itself
+      run: |
+        python -m unittest discover -s scripts/validation/tests \
+          -p 'test_vacuous_error_log_test_validator.py' -v
+
+    # Zero-tolerance and BASELINE-FREE: every known instance is fixed (#1116 for
+    # 18, #1103 for 2, this PR for 3 more), so the tree-wide count must stay 0.
+    # A baseline here would be pure ratchet debt (#985) and would inherit the
+    # shrink-gate defect in #1110. See the validator's docstring.
+    - name: Vacuous log-claiming test check (whole tree)
+      run: python scripts/validation/vacuous_error_log_test_validator.py
+
   # frappe.log_error is (title, message) -- frappe/utils/error.py:44. This app calls
   # it the other way round positionally at roughly 1100 sites (#602): the swapped
   # "title" (the real, dynamic message) gets truncated to 140 chars, and the real

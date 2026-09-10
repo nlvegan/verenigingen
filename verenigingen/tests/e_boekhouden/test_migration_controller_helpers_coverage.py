@@ -80,6 +80,8 @@ class TestMigrationControllerHelpers(EnhancedTestCase):
     # log_error
     # ------------------------------------------------------------------
     def test_log_error_populates_error_details(self):
+        # vacuous-log-test-ok: false-positive -- "log_error" names the migration doc's
+        # OWN method under test, not a claim that a tabError Log row is written.
         self.expectErrorLog("first failure", "second failure")
         doc = self._make_migration()
         doc.log_error("first failure")
@@ -90,6 +92,8 @@ class TestMigrationControllerHelpers(EnhancedTestCase):
         self.assertIn("second failure", doc.error_details)
 
     def test_log_error_with_record_data_populates_failed_record_details(self):
+        # vacuous-log-test-ok: false-positive -- as above, "log_error" is the method
+        # under test; the assertions are on error_details/failed_record_details.
         """With record_type + record_data, the underlying logger tracks a failed
         record, and the doc syncs failed_record_details once the attribute exists.
 
@@ -126,6 +130,8 @@ class TestMigrationControllerHelpers(EnhancedTestCase):
     # save_failed_records_log
     # ------------------------------------------------------------------
     def test_save_failed_records_log_appends_to_migration_summary(self):
+        # vacuous-log-test-ok: false-positive -- the "log" in the name is the failed
+        # records JSON file written by save_failed_records_log(), not an Error Log row.
         self.expectErrorLog("E-Boekhouden account Error")
         doc = self._make_migration()
         doc.failed_record_details = []

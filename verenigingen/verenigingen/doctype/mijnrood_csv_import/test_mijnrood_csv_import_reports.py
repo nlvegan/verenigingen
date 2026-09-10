@@ -193,5 +193,6 @@ class TestMijnroodUpdateTrackingAfterRetryFailure(_BaseMijnroodPipelineTest):
         ~1928-1933)."""
         bogus = f"NONEXISTENT-IMPORT-{random.randint(1000000, 9999999)}"
         self.expectErrorLog(f"CSV Import Tracking Update After Retry Error: {bogus}")
-        # Must not raise.
-        update_import_tracking_after_retry(bogus)
+        # Must not raise -- and must log, which is the half the name claims.
+        with self.assertErrorLog(f"CSV Import Tracking Update After Retry Error: {bogus}"):
+            update_import_tracking_after_retry(bogus)

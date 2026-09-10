@@ -87,6 +87,8 @@ class TestSEPAMandateAuditHooks(EnhancedTestCase):
         self.assertEqual(details["new_status"], "Cancelled")
 
     def test_audit_logged_for_non_privileged_creator(self):
+        # vacuous-log-test-ok: false-positive -- the audit asserted here is a SEPA Audit
+        # Log row; the expectErrorLog() covers an UNRELATED swallowed permission error.
         """The compliance trail must capture mandate creation even when the acting
         user has no 'SEPA Audit Log:create' grant (e.g. a member creating a mandate
         via self-service). Regression guard for the system-level audit write."""
