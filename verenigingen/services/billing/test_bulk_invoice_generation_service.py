@@ -886,7 +886,8 @@ class TestBulkInvoiceGenerationServiceGaps(EnhancedTestCase):
         frappe.local.blocked_members = {
             "Suspended": [{"member": f"M-{i}", "member_name": f"Name {i}"} for i in range(12)]
         }
-        self.svc._log_blocked_members_summary()
+        with self.assertErrorLog("Daily Blocked Members Summary"):
+            self.svc._log_blocked_members_summary()
         # Cleared after logging.
         self.assertEqual(frappe.local.blocked_members, {})
 

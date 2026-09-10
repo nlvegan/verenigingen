@@ -528,6 +528,28 @@ repos:
         stages: [pre-commit]
         exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/validation/archived/|verenigingen/tests/)'
 
+      - id: vacuous-error-log-test-validator
+        name: 🔇 Tests That Claim An Error Log Write But Assert Nothing
+        description: >-
+          expectErrorLog() only MUTES the harness's automatic tearDown check --
+          it records patterns and asserts nothing. A test named "..._logs_..."
+          that declares it and nothing else passes whether or not the log is
+          written: #1112 found this after #1105 DELETED a security-relevant
+          frappe.log_error and the test named for it stayed green, 33/33. #1116
+          converted 17 such tests and renamed an 18th. This gate keeps that
+          class closed. Zero-tolerance and BASELINE-FREE by design -- the
+          population is 0, so a baseline would be pure ratchet debt (#985) and
+          would inherit #1110's shrink-gate defect. Fix by asserting the write
+          with `with self.assertErrorLog("Title"):`, or assert its absence with
+          assertNoErrorLog() and rename. Mark a classified exception
+          `# vacuous-log-test-ok: false-positive` with a reason.
+        entry: python scripts/validation/vacuous_error_log_test_validator.py
+        language: system
+        pass_filenames: true
+        files: '^(verenigingen|scripts)/.*/test_[^/]*\.py$|^(verenigingen|scripts)/test_[^/]*\.py$'
+        stages: [pre-commit]
+        exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/validation/archived/)'
+
       - id: db-clock-date-window-validator
         name: 🕒 SQL Date Window Built From The Database Clock (ratchet)
         description: >-

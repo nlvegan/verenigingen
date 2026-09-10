@@ -313,7 +313,8 @@ class TestDeriveCoverageFromInvoiceData(EnhancedTestCase):
     def test_unknown_named_frequency_logs_and_falls_back(self):
         # billing_frequency provided but not in valid list -> set to None -> monthly fallback
         self.expectErrorLog("Unknown billing frequency")
-        start, end = derive_coverage_from_invoice_data("2025-03-01", billing_frequency="Fortnightly")
+        with self.assertErrorLog("Unknown billing frequency"):
+            start, end = derive_coverage_from_invoice_data("2025-03-01", billing_frequency="Fortnightly")
         self.assertEqual(start, getdate("2025-03-01"))
         self.assertEqual(end, getdate("2025-03-31"))
 
