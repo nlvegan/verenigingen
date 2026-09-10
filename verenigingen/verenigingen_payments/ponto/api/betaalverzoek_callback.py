@@ -21,9 +21,23 @@ import frappe
 from frappe import _
 from frappe.utils import get_url
 
+from verenigingen.templates.pages.payment_success import PONTO_RETURN_TOKEN_PURPOSE
 from verenigingen.utils.security.api_security_framework import public_api
+from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
 from verenigingen.utils.security.types import OperationType
 from verenigingen.utils.service_user import get_service_user
+
+
+def _payment_success_redirect(payment_link_name):
+    """Build the /payment-success redirect URL for a Ponto Payment Link return.
+
+    Embeds an HMAC proof (#1055 finding 1) since Ponto Payment Link.autoname
+    is a small sequential PONTO-LINK-{####} counter and payment_success.py's
+    Ponto branch has no session to check ownership against -- this is the
+    one place we construct that URL, so it's the one place that can mint it.
+    """
+    token = generate_guest_return_token(PONTO_RETURN_TOKEN_PURPOSE, payment_link_name)
+    return get_url(f"/payment-success?payment_link={payment_link_name}&token={token}")
 
 
 @frappe.whitelist(allow_guest=True, methods=["GET"])
@@ -85,9 +99,7 @@ def payment_link_callback():
                 # Webhook user has write permission on Ponto Payment Link (added 2026-01-10)
                 doc.save()
                 frappe.local.response["type"] = "redirect"
-                frappe.local.response["location"] = get_url(
-                    f"/payment-success?payment_link={payment_link_name}"
-                )
+                frappe.local.response["location"] = _payment_success_redirect(payment_link_name)
                 return
             else:
                 # Other errors - mark as rejected
@@ -99,9 +111,7 @@ def payment_link_callback():
                     message=f"Error: {error}\nDescription: {error_description}",
                 )
                 frappe.local.response["type"] = "redirect"
-                frappe.local.response["location"] = get_url(
-                    f"/payment-success?payment_link={payment_link_name}"
-                )
+                frappe.local.response["location"] = _payment_success_redirect(payment_link_name)
                 return
 
         # No error - refresh status from Ponto API
@@ -118,7 +128,7 @@ def payment_link_callback():
 
         # Redirect to customer-friendly payment status page
         frappe.local.response["type"] = "redirect"
-        frappe.local.response["location"] = get_url(f"/payment-success?payment_link={payment_link_name}")
+        frappe.local.response["location"] = _payment_success_redirect(payment_link_name)
 
     except Exception as e:
         frappe.logger().error(f"Payment link callback error: {e}")

@@ -31,10 +31,19 @@ class TestPaymentSuccessPlanPayment(VereningingenTestCase):
 
     def test_get_context_renders_for_plan_payment(self):
         from verenigingen.templates.pages import payment_success
+        from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
 
         intent = self._create_test_payment_plan_payment()
 
-        frappe.form_dict = frappe._dict({"doctype": "Payment Plan Payment", "docname": intent.name})
+        # #1055 now requires a proof of ownership (payment_id match or return
+        # token) before disclosing anything -- a bare doctype/docname pair is
+        # refused. The token is what MollieSettings.get_redirect_url() embeds
+        # for this real, live flow (PaymentHook.initiate_payment for Payment
+        # Plan Payment installments).
+        token = generate_guest_return_token("payment_success", f"Payment Plan Payment:{intent.name}")
+        frappe.form_dict = frappe._dict(
+            {"doctype": "Payment Plan Payment", "docname": intent.name, "token": token}
+        )
         context = frappe._dict()
         payment_success.get_context(context)
         # get_context never sets context.error; the disallowed-doctype rejection

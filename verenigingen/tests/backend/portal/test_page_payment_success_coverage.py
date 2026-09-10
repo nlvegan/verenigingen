@@ -33,7 +33,9 @@ from unittest.mock import patch
 import frappe
 
 from verenigingen.templates.pages import payment_success
+from verenigingen.templates.pages.payment_success import PONTO_RETURN_TOKEN_PURPOSE
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
 
 
 class TestPagePaymentSuccessCoverage(EnhancedTestCase):
@@ -81,6 +83,10 @@ class TestPagePaymentSuccessCoverage(EnhancedTestCase):
         self.track_doc("Ponto Payment Link", link.name)
         return link
 
+    def _ponto_token(self, link_name):
+        """The HMAC proof betaalverzoek_callback.py would embed for this link (#1055)."""
+        return generate_guest_return_token(PONTO_RETURN_TOKEN_PURPOSE, link_name)
+
     def _make_ing_transaction(self, transaction_id, **kwargs):
         """Create a real ING Checkout Transaction row keyed by transaction_id."""
         data = {
@@ -117,19 +123,44 @@ class TestPagePaymentSuccessCoverage(EnhancedTestCase):
         self.assertIsInstance(result, str)
 
     def test_validate_disallowed_doctype_logs_security_event(self):
-        """A disallowed doctype is rejected AND writes a security Error Log."""
+        """A disallowed doctype is rejected AND writes a security Error Log.
+
+        The write is asserted, not merely declared: this test previously only
+        called expectErrorLog("Payment Status Security"), which mutes the
+        harness's automatic check and asserts nothing, so it would have passed
+        just as well with the log_error deleted -- exactly the defect its
+        sibling test three methods below was renamed for (#1112). Found by an
+        independent review of that rename, which noted the fix's own docstring
+        was a search query nobody had run against this file.
+        """
         self.expectErrorLog("Payment Status Security")
-        is_valid, result = payment_success.validate_payment_document_access("ToDo", "anything", "tr_x")
+        with self.assertErrorLog("Payment Status Security"):
+            is_valid, result = payment_success.validate_payment_document_access("ToDo", "anything", "tr_x")
         self.assertFalse(is_valid)
         self.assertIsInstance(result, str)
 
-    def test_validate_payment_id_mismatch_logs_security_event(self):
-        """A forged payment_id is rejected AND writes a security Error Log."""
+    def test_validate_payment_id_mismatch_writes_no_error_log(self):
+        """A forged payment_id is rejected and writes NO Error Log (#1105).
+
+        This test used to be named ..._logs_security_event and declared
+        `expectErrorLog("Payment Status Security")`. That call only SUPPRESSES
+        the harness's automatic "errors were logged" check -- it asserts
+        nothing -- so the test kept passing when #1105 deleted the very
+        log_error it was named after, and its docstring silently became false.
+        Rewritten to assert the behaviour that actually holds now, using the
+        assertNoErrorLog() this file already uses elsewhere, so it fails if
+        the write comes back.
+
+        The write is deliberately gone: an unauthenticated caller can trigger
+        this path at will, so it must not append to tabError Log (MyISAM, and
+        so non-transactional), and the INSERT was the largest single component
+        of the existence-timing oracle #1105 fixed.
+        """
         donation = self._make_donation(payment_id="tr_real_id")
-        self.expectErrorLog("Payment Status Security")
-        is_valid, result = payment_success.validate_payment_document_access(
-            "Donation", donation.name, "tr_forged_id"
-        )
+        with self.assertNoErrorLog():
+            is_valid, result = payment_success.validate_payment_document_access(
+                "Donation", donation.name, "tr_forged_id"
+            )
         self.assertFalse(is_valid)
         self.assertIsInstance(result, str)
 
@@ -151,7 +182,7 @@ class TestPagePaymentSuccessCoverage(EnhancedTestCase):
         link = self._make_ponto_link(status="Executed")
         context = frappe._dict()
         with self.assertNoErrorLog():
-            payment_success.handle_ponto_payment_link_return(context, link.name)
+            payment_success.handle_ponto_payment_link_return(context, link.name, self._ponto_token(link.name))
         self.assertEqual(context.payment_status, "completed")
         self.assertTrue(context.document_info["paid"])
         self.assertEqual(context.document_info["docname"], link.name)
@@ -160,7 +191,7 @@ class TestPagePaymentSuccessCoverage(EnhancedTestCase):
         link = self._make_ponto_link(status="Pending Authorization")
         context = frappe._dict()
         with self.assertNoErrorLog():
-            payment_success.handle_ponto_payment_link_return(context, link.name)
+            payment_success.handle_ponto_payment_link_return(context, link.name, self._ponto_token(link.name))
         self.assertEqual(context.payment_status, "pending")
         self.assertFalse(context.document_info["paid"])
 
@@ -168,35 +199,35 @@ class TestPagePaymentSuccessCoverage(EnhancedTestCase):
         link = self._make_ponto_link(status="Authorized")
         context = frappe._dict()
         with self.assertNoErrorLog():
-            payment_success.handle_ponto_payment_link_return(context, link.name)
+            payment_success.handle_ponto_payment_link_return(context, link.name, self._ponto_token(link.name))
         self.assertEqual(context.payment_status, "pending")
 
     def test_ponto_cancelled_is_cancelled(self):
         link = self._make_ponto_link(status="Cancelled")
         context = frappe._dict()
         with self.assertNoErrorLog():
-            payment_success.handle_ponto_payment_link_return(context, link.name)
+            payment_success.handle_ponto_payment_link_return(context, link.name, self._ponto_token(link.name))
         self.assertEqual(context.payment_status, "cancelled")
 
     def test_ponto_rejected_is_failed(self):
         link = self._make_ponto_link(status="Rejected")
         context = frappe._dict()
         with self.assertNoErrorLog():
-            payment_success.handle_ponto_payment_link_return(context, link.name)
+            payment_success.handle_ponto_payment_link_return(context, link.name, self._ponto_token(link.name))
         self.assertEqual(context.payment_status, "failed")
 
     def test_ponto_expired_is_expired(self):
         link = self._make_ponto_link(status="Expired")
         context = frappe._dict()
         with self.assertNoErrorLog():
-            payment_success.handle_ponto_payment_link_return(context, link.name)
+            payment_success.handle_ponto_payment_link_return(context, link.name, self._ponto_token(link.name))
         self.assertEqual(context.payment_status, "expired")
 
     def test_ponto_failed_is_failed(self):
         link = self._make_ponto_link(status="Failed")
         context = frappe._dict()
         with self.assertNoErrorLog():
-            payment_success.handle_ponto_payment_link_return(context, link.name)
+            payment_success.handle_ponto_payment_link_return(context, link.name, self._ponto_token(link.name))
         self.assertEqual(context.payment_status, "failed")
 
     def test_ponto_draft_fallback_is_pending(self):
@@ -204,14 +235,14 @@ class TestPagePaymentSuccessCoverage(EnhancedTestCase):
         link = self._make_ponto_link(status="Draft")
         context = frappe._dict()
         with self.assertNoErrorLog():
-            payment_success.handle_ponto_payment_link_return(context, link.name)
+            payment_success.handle_ponto_payment_link_return(context, link.name, self._ponto_token(link.name))
         self.assertEqual(context.payment_status, "pending")
 
     def test_ponto_uses_description_as_title(self):
         link = self._make_ponto_link(status="Pending Authorization", description="Membership dues 2026")
         context = frappe._dict()
         with self.assertNoErrorLog():
-            payment_success.handle_ponto_payment_link_return(context, link.name)
+            payment_success.handle_ponto_payment_link_return(context, link.name, self._ponto_token(link.name))
         self.assertEqual(context.document_info["title"], "Membership dues 2026")
 
     def test_ponto_linked_sales_invoice_overrides_document_info(self):
@@ -222,7 +253,7 @@ class TestPagePaymentSuccessCoverage(EnhancedTestCase):
         link = self._make_ponto_link(status="Executed", sales_invoice=invoice.name)
         context = frappe._dict()
         with self.assertNoErrorLog():
-            payment_success.handle_ponto_payment_link_return(context, link.name)
+            payment_success.handle_ponto_payment_link_return(context, link.name, self._ponto_token(link.name))
         self.assertEqual(context.document_info["doctype"], "Sales Invoice")
         self.assertEqual(context.document_info["docname"], invoice.name)
         # next_steps were computed for the linked reference, not an empty doc.
@@ -343,9 +374,11 @@ class TestPagePaymentSuccessCoverage(EnhancedTestCase):
         self.assertEqual(context.payment_status, "completed")
 
     def test_get_context_routes_to_ponto_branch(self):
-        """A ?payment_link param routes get_context into the Ponto handler."""
+        """A ?payment_link param + valid token routes get_context into the Ponto handler."""
         link = self._make_ponto_link(status="Executed")
-        frappe.local.form_dict = frappe._dict({"payment_link": link.name})
+        frappe.local.form_dict = frappe._dict(
+            {"payment_link": link.name, "token": self._ponto_token(link.name)}
+        )
         context = frappe._dict()
         with self.assertNoErrorLog():
             payment_success.get_context(context)
@@ -353,9 +386,12 @@ class TestPagePaymentSuccessCoverage(EnhancedTestCase):
         self.assertEqual(context.document_info["docname"], link.name)
 
     def test_get_context_pending_unpaid_document(self):
-        """An unpaid document with no payment_id reports 'pending' with next steps."""
+        """An unpaid document with a valid return token (no payment_id) reports 'pending'."""
         donation = self._make_donation(paid=0)
-        frappe.local.form_dict = frappe._dict({"doctype": "Donation", "docname": donation.name})
+        token = generate_guest_return_token("payment_success", f"Donation:{donation.name}")
+        frappe.local.form_dict = frappe._dict(
+            {"doctype": "Donation", "docname": donation.name, "token": token}
+        )
         context = frappe._dict()
         with self.assertNoErrorLog():
             payment_success.get_context(context)
@@ -414,15 +450,22 @@ class TestPagePaymentSuccessCoverage(EnhancedTestCase):
     # ==================================================================
 
     def test_refresh_status_no_payment_id_succeeds(self):
-        """No payment_id required -> the endpoint succeeds and reports paid flag."""
+        """No payment_id, but a valid return token, -> the endpoint succeeds (#1055:
+        payment_id alone is no longer sufficient to skip the ownership check)."""
         donation = self._make_donation(paid=1)
+        token = generate_guest_return_token("payment_success", f"Donation:{donation.name}")
         with self.assertNoErrorLog():
-            result = payment_success.refresh_payment_status("Donation", donation.name, None)
+            result = payment_success.refresh_payment_status("Donation", donation.name, None, token)
         self.assertTrue(result["success"])
         self.assertEqual(result["is_paid"], 1)
 
     def test_refresh_status_disallowed_doctype_logs_and_fails(self):
-        """A disallowed doctype is rejected by the API wrapper (and logs)."""
+        """A disallowed doctype is rejected by the API wrapper AND logs (#1112).
+
+        Same correction as test_validate_disallowed_doctype_logs_security_event:
+        the "(and logs)" half of this test's own name was never asserted.
+        """
         self.expectErrorLog("Payment Status")
-        result = payment_success.refresh_payment_status("ToDo", "anything", "tr_x")
+        with self.assertErrorLog("Payment Status"):
+            result = payment_success.refresh_payment_status("ToDo", "anything", "tr_x")
         self.assertFalse(result["success"])

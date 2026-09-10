@@ -158,6 +158,75 @@ class TestCriticalOperationRuleFixtureData(FrappeTestCase):
         self.assertGreater(fallback.rate_limit_period_seconds, 0)
         self.assertEqual(fallback.rate_limit_scope, "per_user")
 
+    # Guest-reachable endpoints that resolve a caller-supplied document id
+    # whose autoname is a sequential naming_series (#1018), i.e. each one is a
+    # docname-enumeration surface. Each needs a rule of its own so its limit is
+    # a deliberate choice rather than _generic_api_fallback's per_user scope --
+    # which, for an unauthenticated caller, collapses to a single bucket keyed
+    # on the literal "Guest" that every anonymous visitor shares (#1028/#1033).
+    # That shared bucket is a denial-of-service vector: one abuser exhausts the
+    # budget for every other visitor. retry_payment got such a rule from #1028;
+    # refresh_payment_status is the sibling found in #1105.
+    #
+    # Minimum call rate each endpoint's own client legitimately needs, so a
+    # limit can never be tightened to a value that silently breaks the page:
+    # payment_success.html polls refresh_payment_status every 10s for 5 minutes
+    # while a payment is pending (6 calls/minute), and per_ip scope means
+    # several visitors behind one NAT share that budget.
+    GUEST_ENUMERATION_ENDPOINTS = {
+        "retry_payment": 0,
+        "refresh_payment_status": 6 / 60.0,
+    }
+
+    def test_guest_enumeration_endpoints_have_a_dedicated_per_ip_rule(self):
+        """Each guest-reachable enumeration endpoint must have its own rule, scoped
+        per_ip rather than per_user, and permissive enough for its own client (#1105).
+
+        Deliberately NOT asserted: that the limit is tighter than the fallback.
+        A polling endpoint legitimately needs a HIGHER rate than the fallback's
+        100/hour -- the point of a dedicated rule here is that the limit is
+        chosen and the scope distinguishes anonymous callers, not that it is
+        smaller.
+        """
+        by_operation = {rule.get("operation_name"): rule for _fname, rule in self.rules}
+
+        missing, wrong_scope, unbounded, too_tight = [], [], [], []
+        for operation, required_rate in self.GUEST_ENUMERATION_ENDPOINTS.items():
+            rule = by_operation.get(operation)
+            if rule is None:
+                missing.append(operation)
+                continue
+            if rule.get("rate_limit_scope") != "per_ip":
+                wrong_scope.append((operation, rule.get("rate_limit_scope")))
+            calls = rule.get("rate_limit_calls") or 0
+            period = rule.get("rate_limit_period_seconds") or 0
+            if calls <= 0 or period <= 0:
+                unbounded.append((operation, calls, period))
+                continue
+            if calls / period < required_rate:
+                too_tight.append((operation, f"{calls}/{period}s", f"needs >= {required_rate:.3f}/s"))
+
+        self.assertEqual(
+            missing,
+            [],
+            f"Guest enumeration endpoints with no Critical Operation Rule of their own: "
+            f"{missing}. They fall to _generic_api_fallback, whose per_user scope is one "
+            f"bucket shared by every anonymous visitor (#1105).",
+        )
+        self.assertEqual(
+            wrong_scope,
+            [],
+            f"Guest enumeration endpoints whose rule is not per_ip: {wrong_scope}. "
+            f"per_user cannot distinguish anonymous callers, so one abuser locks out all.",
+        )
+        self.assertEqual(unbounded, [], f"Rules with a non-positive limit bound nothing: {unbounded}")
+        self.assertEqual(
+            too_tight,
+            [],
+            f"Rules too tight for their own client's polling rate, which would break the "
+            f"page rather than protect it: {too_tight}",
+        )
+
     def test_no_duplicate_rule_names_across_fixture_files(self):
         """Two fixture files defining the same rule means whichever is processed
         first wins and the other definition is silently skipped forever."""
@@ -283,6 +352,55 @@ class TestSetupCriticalOperationRules(FrappeTestCase):
         )
         self.assertEqual(restored.rate_limit_scope, fixture["rate_limit_scope"])
         self.assertEqual(restored.audit_level, fixture["audit_level"])
+
+    def test_a_fixture_rule_added_by_1105_reaches_an_EXISTING_site(self):
+        """setup_critical_operation_rules runs in after_install ONLY (hooks/lifecycle.py:17),
+        never in after_migrate, so adding a rule to the fixture installs it on a fresh
+        site and on no other. Reaching an existing site takes a patch -- which is why
+        patches.txt already carries add_retry_payment_critical_operation_rule for #1028's
+        rule. #1105's rule needs the same, or its rate limit is inert everywhere the app
+        is already installed.
+        """
+        rule_name = "refresh_payment_status"
+        fixture = self._fixture_for(rule_name)
+        self.assertEqual(fixture["rate_limit_scope"], "per_ip")
+
+        # Restore on the way out even if this test fails: the delete below is
+        # committed by the patch's own commit, so a failure between the delete
+        # and the re-create would strand the rule missing for every sibling
+        # test in this class.
+        self.addCleanup(cor_setup.setup_critical_operation_rules)
+
+        frappe.delete_doc("Critical Operation Rule", rule_name, force=1)
+        self.assertFalse(frappe.db.exists("Critical Operation Rule", rule_name))
+
+        from verenigingen.patches.v2_2.add_refresh_payment_status_critical_operation_rule import (
+            execute,
+        )
+
+        execute()
+
+        self.assertTrue(
+            frappe.db.exists("Critical Operation Rule", rule_name),
+            "the patch did not install the rule, so an existing site never gets it",
+        )
+        restored = frappe.get_doc("Critical Operation Rule", rule_name)
+        # Assert against the fixture, not a re-read of the doc, so a dropped or
+        # renamed fixture field makes this fail.
+        self.assertEqual(restored.rate_limit_scope, fixture["rate_limit_scope"])
+        self.assertEqual(restored.rate_limit_calls, fixture["rate_limit_calls"])
+        self.assertEqual(restored.rate_limit_period_seconds, fixture["rate_limit_period_seconds"])
+
+    def test_the_1105_patch_is_registered_in_patches_txt(self):
+        """A patch module that is not listed never runs, so the fixture/patch pair is
+        only complete once patches.txt names it."""
+        listed = (
+            Path(frappe.get_app_path("verenigingen")).parent / "verenigingen" / "patches.txt"
+        ).read_text()
+        self.assertIn(
+            "verenigingen.patches.v2_2.add_refresh_payment_status_critical_operation_rule",
+            listed,
+        )
 
     def test_does_not_overwrite_a_customised_rule(self):
         """The module's entire reason to exist: an operator's tuned rate limit

@@ -5,6 +5,8 @@ Context for payment retry page
 import frappe
 from frappe import _
 
+from verenigingen.utils.member_utils import get_current_user_member_name
+
 
 def get_context(context):
     """Get context for payment retry page"""
@@ -17,7 +19,16 @@ def get_context(context):
     member_id = frappe.form_dict.get("member")
     invoice_id = frappe.form_dict.get("invoice")
 
-    if member_id and invoice_id:
+    # Member.autoname and Sales Invoice's naming_series are both sequential
+    # and guessable, and "the invoice belongs to this member" only checks
+    # that the two *supplied* parameters are mutually consistent -- it is
+    # not an ownership check against the requesting session (#1052). Require
+    # the caller's own logged-in member to match before disclosing anything;
+    # a Guest (no session to check) or a mismatched id is refused exactly
+    # like an unknown id.
+    own_member_id = get_current_user_member_name() if frappe.session.user != "Guest" else None
+
+    if member_id and invoice_id and member_id == own_member_id:
         try:
             member = frappe.get_doc("Member", member_id)
             invoice = frappe.get_doc("Sales Invoice", invoice_id)

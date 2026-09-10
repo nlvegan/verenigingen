@@ -253,6 +253,41 @@ class TestPontoPaymentLinkCallback(FrappeTestCase):
                 cb.payment_link_callback()
                 self.assertIn("payment-success", frappe.local.response["location"])
 
+    def test_redirect_carries_a_token_payment_success_accepts(self):
+        """The token minted here (#1055 finding 1) is exactly the one
+        payment_success.py's Ponto branch requires -- an end-to-end proof
+        this isn't two independently-defined token schemes that happen to
+        both exist."""
+        from urllib.parse import parse_qs, urlparse
+
+        import frappe as _frappe
+
+        from verenigingen.templates.pages import payment_success
+        from verenigingen.verenigingen_payments.ponto.api import betaalverzoek_callback as cb
+
+        doc = self._make_payment_link()
+        with patch(
+            "verenigingen.verenigingen_payments.doctype.ponto_payment_link."
+            "ponto_payment_link.PontoPaymentLink.refresh_status",
+            return_value={"status": "Executed"},
+        ):
+            with fake_request(payment_link=doc.name):
+                cb.payment_link_callback()
+                location = frappe.local.response["location"]
+
+        query = parse_qs(urlparse(location).query)
+        token = query["token"][0]
+
+        # refresh_status() is mocked above, so it never writes "Executed" back
+        # to the DB -- the doc is still "Pending Authorization" (its created
+        # default). What matters here is only that the minted token is
+        # ACCEPTED (real status disclosed, not the refusal shape).
+        context = _frappe._dict()
+        payment_success.handle_ponto_payment_link_return(context, doc.name, token)
+        self.assertNotEqual(context.payment_status, "error")
+        self.assertEqual(context.document_info["docname"], doc.name)
+        self.assertEqual(context.document_info["amount"], doc.amount)
+
     def test_success_refresh_failure_still_redirects(self):
         from verenigingen.verenigingen_payments.ponto.api import betaalverzoek_callback as cb
 

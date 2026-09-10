@@ -11,6 +11,13 @@ This page displays payment details and redirects users to their bank for authori
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.guest_return_tokens import verify_guest_return_token
+
+# Namespaces the HMAC return token minted for this page (see
+# guest_return_tokens.py) so it can never be replayed against a different
+# check that happens to share the same Ponto Payment Link name.
+PONTO_PAY_TOKEN_PURPOSE = "ponto_pay"
+
 
 def get_context(context):
     """Get context for Ponto payment page."""
@@ -18,9 +25,21 @@ def get_context(context):
 
     # Get payment link ID from URL
     payment_link_id = frappe.form_dict.get("id")
+    token = frappe.form_dict.get("token")
 
     if not payment_link_id:
         context.error = _("No payment link specified")
+        context.payment_link = None
+        return context
+
+    # Ponto Payment Link.autoname is a small sequential PONTO-LINK-{####}
+    # counter, so the id alone is directly enumerable, and this page has no
+    # session to check ownership against (the payer is not necessarily a
+    # logged-in member). Require the HMAC proof minted when the link was
+    # created (#1053) -- a missing/wrong token is refused exactly like an
+    # unknown id, never a distinct error.
+    if not verify_guest_return_token(PONTO_PAY_TOKEN_PURPOSE, payment_link_id, token):
+        context.error = _("Payment link not found")
         context.payment_link = None
         return context
 
