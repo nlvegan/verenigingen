@@ -157,35 +157,51 @@ def _called_names(fn: ast.AST):
             yield f.id
 
 
+# Callables that actually READ the Error Log. The soundness signal is the
+# literal sitting in one of THESE calls' arguments -- not merely inside some
+# call's arguments, which is a different and much weaker claim (see below).
+_QUERY_CALL = re.compile(
+    r"^(?:sql|sql_list|count|exists|get_all|get_list|get_value|get_values"
+    r"|get_doc|get_last_doc|get_single_value)$"
+)
+
+
 def _queries_error_log(fn: ast.AST) -> bool:
     """Does `fn` actually QUERY the Error Log doctype or its table?
 
-    The signal has to be a string in CALL-ARGUMENT position -- inside
-    ``frappe.db.count("Error Log", ...)``, ``frappe.get_all("Error Log", ...)``
-    or a raw ``frappe.db.sql("... `tabError Log` ...")``. Position is the whole
-    point, because the alternative (any string literal anywhere in the
-    function) is defeated by the test's own PROSE:
+    The literal must be an argument of a call that READS something --
+    ``frappe.db.count("Error Log", ...)``, ``frappe.get_all("Error Log", ...)``,
+    ``frappe.db.sql("... `tabError Log` ...")``. Both halves matter, and this
+    function has now been wrong about the second half twice:
 
-        def test_something_logs_a_thing(self):
-            '''This writes to tabError Log when it fails.'''   # <- exempts itself
-            self.expectErrorLog("Some Title")
-            do_something()
+    1. First version: any string constant anywhere in the body. Defeated by the
+       canonical vacuous test's own DOCSTRING ("writes a security Error Log").
+    2. Second version: any string constant in any CALL's arguments. Defeated by
+       an assertion MESSAGE -- ``self.fail("no tabError Log row")``, a
+       ``print()``, a ``logging.debug(f"...")``, a ``@unittest.skip("...")``
+       decorator argument. Found by review with six working probes. That shape
+       is not exotic here: "`tabError Log` is MyISAM (non-transactional)" is a
+       recurring remark across 15+ test files, so the prose an author would
+       naturally write is exactly the prose that punched through the gate.
 
-    A docstring is not a call argument, so it cannot exempt anything here. Nor
-    can a dead ``x = "Error Log"`` assignment.
+    Both times the error was the same one: narrowing the SHAPE the prose can
+    hide in, instead of requiring the signal to mean what it claims. Position
+    is not semantics. A string is evidence that a test checks the Error Log
+    only when something is being asked of the Error Log.
 
-    This function has now been wrong in this exact way TWICE. The first version
-    matched ``"Error Log"`` as a bare substring, and the canonical vacuous
-    test's docstring (*"writes a security Error Log"*) exempted it -- caught by
-    the historical-shape control in the test file. The fix hardened that branch
-    to a whole-string match and left ``"tabError Log" in node.value`` beside it
-    UNCHANGED, so the identical bypass survived in the sibling branch and was
-    found by review, with a working probe. The lesson is this repo's own: a
-    finding is a class, not an instance -- when you harden one branch, harden
-    the one next to it. Both controls are pinned in the test file.
+    KNOWN LIMIT, stated because this file states its limits: the doctype has to
+    be a literal AT the query. A test that hoists it (``DOCTYPE = "Error Log"``
+    then ``frappe.db.count(DOCTYPE, ...)``) is a false positive and needs a
+    pragma. Measured on `fa440fcd6`: no test in the tree does that, so the cost
+    today is zero; `test_known_limit_doctype_hoisted_to_a_name` pins it, so a
+    future fix flips a test deliberately rather than by accident.
     """
     for node in ast.walk(fn):
         if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        name = f.attr if isinstance(f, ast.Attribute) else (f.id if isinstance(f, ast.Name) else "")
+        if not (_QUERY_CALL.match(name) or _ASSERTING_CALL.search(name)):
             continue
         operands = list(node.args) + [kw.value for kw in node.keywords]
         for operand in operands:

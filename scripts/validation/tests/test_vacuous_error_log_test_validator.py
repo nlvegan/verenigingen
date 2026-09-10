@@ -281,6 +281,102 @@ class TestVacuousErrorLogTestValidator(unittest.TestCase):
         self.assertIn("because", bad[0][1])
 
     # ------------------------------------------------------------------
+    # prose inside a CALL is still prose -- review's six probes
+    # ------------------------------------------------------------------
+
+    def _vacuous_with(self, line: str) -> list:
+        """A vacuous test whose only Error Log mention is `line`."""
+        return self._names(
+            f"""
+            class T(EnhancedTestCase):
+                def test_rejection_logs_the_event(self):
+                    self.expectErrorLog("Some Title")
+                    result = do_it()
+                    {line}
+            """
+        )
+
+    def test_literal_in_an_assertion_message_does_not_exempt(self):
+        """The second bypass review found: position is not semantics.
+
+        Requiring the literal to sit in CALL-ARGUMENT position stopped
+        docstrings but accepted any call at all -- so an assertion message, a
+        print(), a logging call or a decorator argument exempted a vacuous
+        test just as well as a real query. "`tabError Log` is MyISAM
+        (non-transactional)" is a recurring remark across 15+ test files here,
+        so this was the prose an author was most likely to write.
+        """
+        for line in (
+            'self.assertTrue(result, "expected write to tabError Log table")',
+            'self.fail("no tabError Log row found")',
+            'print("about to check tabError Log")',
+            'logging.debug(f"tabError Log check for {result}")',
+            'self.assertTrue(all(x for x in ["tabError Log", "y"]))',
+        ):
+            with self.subTest(line=line):
+                self.assertEqual(
+                    self._vacuous_with(line),
+                    ["test_rejection_logs_the_event"],
+                    f"prose in {line!r} must not count as asserting anything",
+                )
+
+    def test_literal_in_a_decorator_argument_does_not_exempt(self):
+        self.assertEqual(
+            self._names(
+                """
+                class T(EnhancedTestCase):
+                    @unittest.skip("tabError Log check pending")
+                    def test_rejection_logs_the_event(self):
+                        self.expectErrorLog("Some Title")
+                        do_it()
+                """
+            ),
+            ["test_rejection_logs_the_event"],
+        )
+
+    def test_a_real_query_still_counts_as_sound(self):
+        """The other direction: the tightening must not break real queries."""
+        for line in (
+            'self.assertTrue(frappe.db.exists("Error Log", {"error": ["like", "%x%"]}))',
+            'self.assertTrue(frappe.get_all("Error Log", filters={"error": ["like", "%x%"]}))',
+            'self.assertTrue(frappe.db.sql("SELECT name FROM `tabError Log`"))',
+            'self.assertTrue(frappe.db.get_value("Error Log", {"error": "x"}, "name"))',
+            'self.assertTrue(frappe.get_all(doctype="Error Log"))',
+        ):
+            with self.subTest(line=line):
+                self.assertEqual(self._vacuous_with(line), [], f"{line!r} is a real query")
+
+    def test_known_limit_doctype_hoisted_to_a_name(self):
+        """A hoisted doctype constant is a FALSE POSITIVE. Pinned deliberately.
+
+        `_queries_error_log` only sees literals at the query, so
+
+            DOCTYPE = "Error Log"
+            frappe.db.count(DOCTYPE, ...)
+
+        is flagged even though the test genuinely queries the log. Measured on
+        `fa440fcd6`: no test in the tree does this, so the live cost is zero
+        and the remedy is a pragma. This test exists so that if anyone teaches
+        the validator to resolve simple name bindings, they flip an assertion
+        on purpose instead of discovering the change by accident.
+        """
+        self.assertEqual(
+            self._names(
+                """
+                DOCTYPE = "Error Log"
+
+                class T(EnhancedTestCase):
+                    def test_rejection_logs_the_event(self):
+                        self.expectErrorLog("Some Title")
+                        before = frappe.db.count(DOCTYPE, {})
+                        do_it()
+                        self.assertGreater(frappe.db.count(DOCTYPE, {}), before)
+                """
+            ),
+            ["test_rejection_logs_the_event"],
+        )
+
+    # ------------------------------------------------------------------
     # CLI modes
     # ------------------------------------------------------------------
 
@@ -323,7 +419,7 @@ class TestVacuousErrorLogTestValidator(unittest.TestCase):
 
         # ...and the gate's own pattern is unchanged afterwards: a "reports"
         # name is not a log claim.
-        self.assertEqual(self._names(open(path, encoding="utf-8").read()), [])
+        self.assertEqual(self._names(path.read_text(encoding="utf-8")), [])
 
     # ------------------------------------------------------------------
     # the tree itself
