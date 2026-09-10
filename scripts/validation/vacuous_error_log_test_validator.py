@@ -145,28 +145,49 @@ class Finding(NamedTuple):
     lineno: int
 
 
-def _calls(fn: ast.AST):
-    """Yield ``(name, node)`` for every call in `fn` -- ``self.foo`` -> ``foo``.
+def _call_name(node: ast.Call) -> str:
+    """The called name as written -- ``self.foo(...)`` -> ``foo``.
 
-    ONE source of truth for "what is being called here". There used to be two:
-    this generator, and an inline copy inside the soundness check. They drifted
-    -- the loop here skipped the ``expectErrorLog`` call, the copy did not --
-    and since ``_ASSERTING_CALL`` matches "expectErrorLog" itself, the mute
-    call's own pattern argument satisfied the soundness check:
-    ``expectErrorLog("Error Log")`` silenced the gate with no extra code at all.
-    Found by the third review.
-
-    The duplication is why it recurred, so the duplication is gone rather than
-    patched.
+    ONE source of truth. There were two once; they drifted, and the mute call's
+    own argument became evidence that the test checked the log.
     """
-    for node in ast.walk(fn):
-        if not isinstance(node, ast.Call):
+    f = node.func
+    if isinstance(f, ast.Attribute):
+        return f.attr
+    if isinstance(f, ast.Name):
+        return f.id
+    return ""
+
+
+def _own_calls(fn: ast.AST):
+    """Yield ``(name, node)`` for calls textually inside `fn`, EXCLUDING the
+    bodies of nested functions and lambdas.
+
+    A call that is only ever *defined* is not evidence that anything was
+    checked. ``ast.walk`` descends into nested bodies, so this passed::
+
+        def test_rejection_logs_the_event(self):
+            self.expectErrorLog("Some Title")
+            def _unused_checker():
+                self.assertErrorLog("Some Title")   # never called
+            do_it()
+
+    Found by the fourth review, and it is the likeliest way a "fix" to a
+    flagged test goes wrong: bolt on a checker, forget to call it. Same
+    traversal, and the same reason for it, as
+    ``log_error_arg_order_validator._own_calls``.
+
+    Decorators are not in ``fn.body``, so a decorator argument is out of scope
+    here by construction rather than by a special case.
+    """
+    stack = list(getattr(fn, "body", []))
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
             continue
-        f = node.func
-        if isinstance(f, ast.Attribute):
-            yield f.attr, node
-        elif isinstance(f, ast.Name):
-            yield f.id, node
+        if isinstance(node, ast.Call):
+            yield _call_name(node), node
+        stack.extend(ast.iter_child_nodes(node))
 
 
 def _carries_doctype_literal(node: ast.Call) -> bool:
@@ -187,48 +208,75 @@ _QUERY_CALL = re.compile(
     r"|get_doc|get_last_doc|get_single_value)$"
 )
 
+_SETUP_METHODS = {"setUp", "setUpClass", "asyncSetUp"}
 
-def _is_vacuous(fn: ast.AST) -> bool:
+
+def _class_mutes(cls: ast.ClassDef) -> bool:
+    """Does this class's own setUp/setUpClass call ``expectErrorLog``?
+
+    THE PREMISE THIS EXISTS FOR WAS WRONG. This gate only flags tests that mute
+    the harness, on the stated grounds that an unmuted test cannot silently pass
+    -- the automatic tearDown check fails it. That is true only when the mute is
+    where the checker looks. Calling ``self.expectErrorLog(...)`` from ``setUp``
+    mutes every test in the class just as effectively, and 20 test files in this
+    repo already do it. A textbook-vacuous test in such a class scored ZERO
+    findings until this function existed. Found by the fourth review; live
+    exploited population at the time was 0, by luck rather than design.
+    """
+    for node in cls.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in _SETUP_METHODS:
+            if any(name == _EXPECT for name, _ in _own_calls(node)):
+                return True
+    return False
+
+
+def _is_vacuous(fn: ast.AST, muted_by_class: bool = False) -> bool:
     """Does `fn` mute the harness check and then assert nothing about the log?
 
-    One walk, one rule, deliberately: the ``expectErrorLog`` call is excluded
-    ONCE, here, so no sibling loop can forget to. Evidence that the test really
-    checks the Error Log is any OTHER call that either
+    One walk, one rule: the ``expectErrorLog`` call is excluded ONCE, here, so
+    no sibling loop can forget to. Evidence that the test really checks the
+    Error Log is any OTHER call that either
 
     * names an assertion/capture helper (``_ASSERTING_CALL``), or
     * is a read (``_QUERY_CALL``) carrying the doctype literal.
 
-    The three ways this has been wrong, every one found by review and every one
-    the same mistake -- accepting a signal that does not mean what it claims:
+    Four rounds of review, every finding the same mistake -- accepting a signal
+    that does not mean what it claims:
 
-    1. any string constant anywhere -> the test's own DOCSTRING exempted it
-       ("writes a security Error Log").
+    1. any string constant anywhere -> the test's own DOCSTRING exempted it.
     2. any string in any call's arguments -> an assertion MESSAGE did, and so
-       did ``print(...)``, ``logging.debug(f"...")`` and a ``@unittest.skip``
-       argument. The prose is not exotic: the "``tabError Log`` is MyISAM
-       (non-transactional)" remark recurs across 13 test files.
+       did ``print(...)`` and a ``@unittest.skip`` argument. The prose is not
+       exotic: the "``tabError Log`` is MyISAM" remark recurs in 13 test files.
     3. the mute call itself counted as evidence -> ``expectErrorLog("Error
        Log")``, because ``_ASSERTING_CALL`` matches "expectErrorLog" and only
-       the other loop skipped it.
+       one of the two duplicated walks skipped it.
+    4. the mute had to be in the test BODY, and a call that was merely defined
+       counted as evidence -> a class muting in ``setUp`` was invisible
+       (``_class_mutes``), and a never-invoked nested checker scored as sound
+       (``_own_calls``).
 
     KNOWN LIMITS, stated because this file states its limits:
 
     * A read whose RESULT IS DISCARDED still counts -- ``frappe.get_all("Error
       Log", ...)`` on a line by itself makes a vacuous test look sound. Closing
-      that needs dataflow ("was this value asserted on"), not AST position.
-      Measured on ``fa440fcd6``: no test does it, so the live cost is zero, and
-      ``test_known_limit_query_result_is_discarded`` pins it.
+      it needs dataflow, not AST position. Pinned.
     * ``_ASSERTING_CALL`` is deliberately generous (any name containing
-      "error_log"), so a harmless ``clear_error_log_cache()`` would exempt too.
-      Same measurement, same zero population. Narrowing it would flag the real
-      local helpers (``assert_error_log``, ``_capture_error_logs``), which take
-      no doctype literal at all.
+      "error_log"), so a harmless ``clear_error_log_cache()`` exempts too.
+      Narrowing it would flag the real local helpers (``assert_error_log``,
+      ``_capture_error_logs``), which carry no doctype literal. Pinned.
     * The doctype must be a literal AT the query; hoisting it to a name is a
-      FALSE POSITIVE needing a pragma. Pinned by
-      ``test_known_limit_doctype_hoisted_to_a_name``.
+      FALSE POSITIVE needing a pragma. Pinned.
+    * The mute must be a call spelled ``expectErrorLog``. Aliasing it
+      (``mute = self.expectErrorLog``) or reaching it through ``getattr``
+      hides it, as does inheriting a muting ``setUp`` from a base class in
+      ANOTHER file -- cross-file resolution is out of scope for an AST gate.
+      Pinned.
+
+    Every one of these fails in a stated direction with a measured live
+    population of zero. That is the most this gate claims.
     """
-    calls = list(_calls(fn))
-    if not any(name == _EXPECT for name, _ in calls):
+    calls = list(_own_calls(fn))
+    if not (muted_by_class or any(name == _EXPECT for name, _ in calls)):
         return False
     for name, node in calls:
         if name == _EXPECT:
@@ -241,10 +289,25 @@ def _is_vacuous(fn: ast.AST) -> bool:
 
 
 def _test_methods(tree: ast.AST):
-    """Yield every ``def test_*`` in the module, at class or module level."""
+    """Yield ``(fn, muted_by_class)`` for every runnable ``test_*``.
+
+    Only methods sitting DIRECTLY in a class body, and module-level functions
+    (``pytest.ini`` sets ``python_functions = test_*``). A ``def test_...``
+    nested inside another function is not collectable by unittest or pytest and
+    is no longer reported -- it used to be, via ``ast.walk``.
+    """
     for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_"):
-            yield node
+        if isinstance(node, ast.ClassDef):
+            muted = _class_mutes(node)
+            for child in node.body:
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if child.name.startswith("test_"):
+                        yield child, muted
+        elif isinstance(node, ast.Module):
+            for child in node.body:
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if child.name.startswith("test_"):
+                        yield child, False
 
 
 def _suppressed(fn: ast.AST, lines: list[str]) -> tuple[bool, str | None]:
@@ -290,10 +353,10 @@ def scan_file(path: Path, name_pattern=None) -> tuple[list[Finding], list[tuple[
     findings: list[Finding] = []
     bad_pragmas: list[tuple[int, str]] = []
 
-    for fn in _test_methods(tree):
+    for fn, muted_by_class in _test_methods(tree):
         if not name_pattern.search(fn.name):
             continue
-        if not _is_vacuous(fn):
+        if not _is_vacuous(fn, muted_by_class):
             continue
         ok, bad_reason = _suppressed(fn, lines)
         if ok:

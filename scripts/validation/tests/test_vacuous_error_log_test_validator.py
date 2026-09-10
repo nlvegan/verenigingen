@@ -19,6 +19,7 @@ so the validator is pinned against a defect that really existed rather than
 only against one invented here.
 """
 
+import ast
 import contextlib
 import importlib.util
 import io
@@ -47,7 +48,20 @@ class TestVacuousErrorLogTestValidator(unittest.TestCase):
         return path
 
     def _names(self, source: str):
-        findings, _bad = v.scan_file(self._write(source))
+        """Findings for a snippet -- and the snippet MUST parse.
+
+        `scan_file` swallows SyntaxError and returns no findings, so a snippet
+        with broken indentation silently yields [] and an assertion expecting
+        [] passes for entirely the wrong reason. That is not hypothetical: it
+        happened while writing the nested-def case below, where an interpolated
+        multi-line body defeated textwrap.dedent. Parse first, loudly.
+        """
+        path = self._write(source)
+        try:
+            ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError as exc:
+            self.fail(f"test snippet does not parse, so it proves nothing: {exc}")
+        findings, _bad = v.scan_file(path)
         return [f.test for f in findings]
 
     # ------------------------------------------------------------------
@@ -346,6 +360,121 @@ class TestVacuousErrorLogTestValidator(unittest.TestCase):
             with self.subTest(line=line):
                 self.assertEqual(self._vacuous_with(line), [], f"{line!r} is a real query")
 
+    def test_a_mute_in_setup_puts_the_whole_class_in_scope(self):
+        """The premise "no expectErrorLog means the check is live" was FALSE.
+
+        Muting from setUp() suppresses the harness check for every test in the
+        class just as effectively as muting in the body, and 20 test files here
+        already do it -- so a textbook-vacuous test in such a class scored zero
+        findings. Found by the fourth review.
+        """
+        self.assertEqual(
+            self._names(
+                """
+                class T(EnhancedTestCase):
+                    def setUp(self):
+                        super().setUp()
+                        self.expectErrorLog("Some Title")
+
+                    def test_rejection_logs_the_event(self):
+                        \"\"\"A rejection writes a security Error Log.\"\"\"
+                        do_it()
+                        self.assertFalse(is_valid)
+                """
+            ),
+            ["test_rejection_logs_the_event"],
+        )
+
+    def test_a_setup_muted_class_that_asserts_is_still_sound(self):
+        """The other direction: widening scope must not flag sound tests.
+
+        All 8 tests this widening newly brought into scope on `fa440fcd6` are
+        of this shape, which is why the tree stayed at 0.
+        """
+        self.assertEqual(
+            self._names(
+                """
+                class T(EnhancedTestCase):
+                    def setUp(self):
+                        super().setUp()
+                        self.expectErrorLog("Some Title")
+
+                    def test_rejection_logs_the_event(self):
+                        with self.assertErrorLog("Some Title"):
+                            do_it()
+                """
+            ),
+            [],
+        )
+
+    def test_a_call_that_is_only_defined_is_not_evidence(self):
+        """A never-invoked checker used to score as sound.
+
+        The likeliest way a "fix" to a flagged test goes wrong: bolt on a
+        checker, forget to call it. Both the nested-def and lambda spellings.
+        """
+        nested_def = """
+            class T(EnhancedTestCase):
+                def test_rejection_logs_the_event(self):
+                    self.expectErrorLog("Sec")
+
+                    def _unused_checker():
+                        self.assertErrorLog("Sec")
+
+                    do_it()
+            """
+        a_lambda = """
+            class T(EnhancedTestCase):
+                def test_rejection_logs_the_event(self):
+                    self.expectErrorLog("Sec")
+                    checker = lambda: self.assertErrorLog("Sec")
+                    do_it()
+            """
+        for label, source in (("nested def", nested_def), ("lambda", a_lambda)):
+            with self.subTest(shape=label):
+                self.assertEqual(self._names(source), ["test_rejection_logs_the_event"])
+
+    def test_a_test_nested_inside_a_test_is_not_collected(self):
+        """unittest and pytest cannot run it, so it is not a finding."""
+        self.assertEqual(
+            self._names(
+                """
+                class T(EnhancedTestCase):
+                    def test_outer(self):
+                        def test_inner_logs_a_thing():
+                            self.expectErrorLog("Sec")
+                        test_inner_logs_a_thing()
+                """
+            ),
+            [],
+        )
+
+    def test_known_limit_the_mute_must_be_spelled_out(self):
+        """Aliasing or getattr-ing the mute call hides it. Pinned.
+
+        `mute = self.expectErrorLog` and `getattr(self, "expectErrorLog")`
+        both mute at runtime but produce no call named expectErrorLog, so the
+        test reads as never-muted and falls out of scope. Nobody does this by
+        accident; closing it would need name-binding resolution. Zero live
+        population on `fa440fcd6`.
+        """
+        aliased = """
+            class T(EnhancedTestCase):
+                def test_rejection_logs_the_event(self):
+                    mute = self.expectErrorLog
+                    mute("Sec")
+                    do_it()
+            """
+        via_getattr = """
+            class T(EnhancedTestCase):
+                def test_rejection_logs_the_event(self):
+                    getattr(self, "expectErrorLog")("Sec")
+                    do_it()
+            """
+        for label, source in (("alias", aliased), ("getattr", via_getattr)):
+            with self.subTest(shape=label):
+                self.assertEqual(self._names(source), [])
+
     def test_the_mute_calls_own_pattern_does_not_exempt(self):
         """`expectErrorLog("Error Log")` must not count as asserting anything.
 
@@ -397,7 +526,7 @@ class TestVacuousErrorLogTestValidator(unittest.TestCase):
     def test_known_limit_doctype_hoisted_to_a_name(self):
         """A hoisted doctype constant is a FALSE POSITIVE. Pinned deliberately.
 
-        `_queries_error_log` only sees literals at the query, so
+        `_carries_doctype_literal` only sees literals at the query, so
 
             DOCTYPE = "Error Log"
             frappe.db.count(DOCTYPE, ...)
