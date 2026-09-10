@@ -139,6 +139,24 @@ class ErrorLogGuardMixin:
             with self.assertNoErrorLog():
                 result = some_module.do_the_thing(member)
             self.assertEqual(result.status, "ok")
+
+        MUST be the OUTERMOST context manager around any ``assertRaises`` that
+        catches the block's exception. Both guards are plain ``@contextmanager``
+        generators with no ``try`` around their ``yield``, so an exception that
+        propagates through one skips everything after the ``yield`` -- the check
+        never runs, and nothing says so. Measured: ::
+
+            with self.assertRaises(ValueError):     # WRONG -- guard is inert
+                with self.assertNoErrorLog():
+                    frappe.log_error(title="x", message="y")
+                    raise ValueError("boom")
+
+        passes, despite a row having been written. Put the guard outside::
+
+            with self.assertNoErrorLog():           # RIGHT
+                with self.assertRaises(ValueError):
+                    ...
+
         """
         marker = frappe.utils.now_datetime()
         before = {
@@ -173,6 +191,24 @@ class ErrorLogGuardMixin:
         This does NOT suppress the automatic tearDown check -- the row it expects is
         still "unexpected" to that check unless the test also calls
         ``self.expectErrorLog(...)`` for the same pattern.
+
+        MUST be the OUTERMOST context manager around any ``assertRaises`` that
+        catches the block's exception. Both guards are plain ``@contextmanager``
+        generators with no ``try`` around their ``yield``, so an exception that
+        propagates through one skips everything after the ``yield`` -- the check
+        never runs, and nothing says so. Measured: ::
+
+            with self.assertRaises(ValueError):     # WRONG -- guard is inert
+                with self.assertNoErrorLog():
+                    frappe.log_error(title="x", message="y")
+                    raise ValueError("boom")
+
+        passes, despite a row having been written. Put the guard outside::
+
+            with self.assertNoErrorLog():           # RIGHT
+                with self.assertRaises(ValueError):
+                    ...
+
         """
         marker = frappe.utils.now_datetime()
         before = {
