@@ -68,7 +68,10 @@ class TestSafeLogErrorNoneTitleRegression(EnhancedTestCase):
                 # truthy message, for every clone, before the fix below.
                 helper(message)
 
-                frappe.db.commit()
+                # tabError Log is MyISAM (non-transactional): frappe.log_error()
+                # does a plain insert() in the current transaction, and a
+                # same-connection query sees it immediately (read-your-own-
+                # writes) -- no commit needed to read it back here.
                 rows = frappe.get_all(
                     "Error Log",
                     filters={"error": ["like", f"%{marker}%"]},
@@ -80,4 +83,3 @@ class TestSafeLogErrorNoneTitleRegression(EnhancedTestCase):
                 self.assertTrue(rows[0].method, f"{name}: title/method must not be empty/None")
                 self.assertIn(marker, rows[0].error or "", f"{name}: full message must be recorded")
                 frappe.delete_doc("Error Log", rows[0].name, force=True, ignore_permissions=True)
-        frappe.db.commit()
