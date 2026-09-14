@@ -264,29 +264,29 @@ class TestMollieFinancialSafeguards(MollieTestCase):
         """Test temporal validation of payments"""
         # Test future-dated payments
         gateway = self._create_mock_mollie_gateway(50.00)
-        
+
         # Mock payment with future timestamp
         future_payment = MagicMock()
         future_payment.is_paid.return_value = True
         future_payment.amount = {"value": "50.00", "currency": "EUR"}
         future_payment.status = "paid"
         future_payment.created_at = (datetime.now() + timedelta(days=1)).isoformat()
-        
+
         gateway.client.payments.get.return_value = future_payment
-        
+
         try:
             result = _process_subscription_payment(
                 gateway, self.member.name, self.customer.name,
                 "tr_future_test", "sub_test_future"
             )
-            
+
             # Future payments might be accepted depending on implementation
             # The key is that they should be logged and audited
             print(f"Future payment result: {result}")
-            
+
         except Exception as e:
             print(f"Future payment handling: {e}")
-            
+
     def test_race_condition_protection(self):
         """Test protection against race conditions in concurrent payment processing"""
         payment_id = "tr_race_test_001"

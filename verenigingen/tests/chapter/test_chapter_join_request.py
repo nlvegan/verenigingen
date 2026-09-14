@@ -314,7 +314,17 @@ class TestChapterJoinRequestComprehensive(EnhancedTestCase):
         self.assertTrue(any(m.member == self.active_member.name for m in test_chapter.members))
 
     def test_notification_integration(self):
-        """Test that notification system integration works"""
+        """notify_chapter_board/notify_member_approved/notify_member_rejected
+        (chapter_join_request.py) each wrap their own body in a
+        try/except Exception that calls frappe.log_error and does NOT
+        re-raise -- so none of them can propagate an exception to the
+        caller, by construction. That is the real, testable claim: calling
+        all three must never raise, regardless of whether the underlying
+        email send succeeds in this environment. Any log entries they write
+        on a failed send are an expected side effect, not evidence of
+        anything -- there's nothing to positively assert there since the
+        methods deliberately swallow that detail from the caller.
+        """
         request = frappe.get_doc(
             {
                 "doctype": "Chapter Join Request",
@@ -325,15 +335,17 @@ class TestChapterJoinRequestComprehensive(EnhancedTestCase):
         )
         request.insert()
 
-        # Test that notification methods exist and can be called
-        try:
-            # These should not fail even if email sending fails
-            request.notify_chapter_board()
-            request.notify_member_approved()
-            request.notify_member_rejected()
-        except Exception as e:
-            # Log the error but don't fail the test for notification issues
-            print(f"Notification test warning: {e}")
+        self.expectErrorLog(
+            "Failed to send chapter board notification",
+            "Failed to send member approval notification",
+            "Failed to send member rejection notification",
+        )
+
+        # No try/except: any exception here is exactly the regression this
+        # test exists to catch.
+        request.notify_chapter_board()
+        request.notify_member_approved()
+        request.notify_member_rejected()
 
     def test_data_integrity(self):
         """Test data integrity and relationships"""

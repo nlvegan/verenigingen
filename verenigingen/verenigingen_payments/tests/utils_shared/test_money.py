@@ -41,7 +41,7 @@ class TestSafeDecimal(unittest.TestCase):
     # --- str: currency symbols / separators stripped ---
 
     def test_str_euro_symbol_stripped(self):
-        """'€ 1.234,56' — regex [^\d.-] strips '€ ' and ',' leaving '1.234.56'… verify exact original behavior."""
+        r"""'€ 1.234,56' — regex [^\d.-] strips '€ ' and ',' leaving '1.234.56'… verify exact original behavior."""
         # The original regex r"[^\d\.-]" keeps digits, '.', and '-'.
         # '€ 1.234,56' → '1.23456' after stripping '€', ' ', and ','
         result = safe_decimal("€1.234,56")

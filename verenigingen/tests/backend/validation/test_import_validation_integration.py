@@ -113,25 +113,39 @@ def test_function():
                     print(f"ℹ️  {import_statement} - import resolved but got: {str(e)}")
 
     def test_no_secure_context_manager_imports(self):
-        """Test that no code is trying to import from the non-existent secure_context_manager"""
-        # This is a regression test for the specific issue we fixed
+        """Test that no PRODUCTION code imports from the non-existent
+        secure_context_manager module.
+
+        This app's own test suite deliberately mentions the literal string
+        "from verenigingen.utils.secure_context_manager" twice -- once as a
+        fixture written to a tempfile in test_import_validator_detects_bad_imports
+        above, and once as this grep's own pattern argument three lines below.
+        The original test grepped the whole `verenigingen/` tree including
+        `tests/`, so it would have matched itself; that self-match is almost
+        certainly why it degraded to a print instead of an assertion. Exclude
+        `tests/` so the check is only about production code, which is what
+        the regression is actually about.
+        """
         import subprocess
 
-        try:
-            result = subprocess.run([
-                "grep", "-r", "from verenigingen.utils.secure_context_manager",
-                str(APP_ROOT / "verenigingen")
-            ], capture_output=True, text=True)
+        result = subprocess.run(
+            [
+                "grep",
+                "-r",
+                "--exclude-dir=tests",
+                "from verenigingen.utils.secure_context_manager",
+                str(APP_ROOT / "verenigingen"),
+            ],
+            capture_output=True,
+            text=True,
+        )
 
-            # Should find no matches (exit code 1 means no matches found)
-            if result.returncode == 1:
-                print("✅ No bad secure_context_manager imports found")
-            else:
-                # If matches found, show them but don't fail the test (might be in comments or docs)
-                print(f"⚠️  Found secure_context_manager references:\n{result.stdout}")
-
-        except Exception as e:
-            print(f"ℹ️  Could not run grep check: {str(e)}")
+        # Exit code 1 means grep found no matches.
+        self.assertEqual(
+            result.returncode,
+            1,
+            f"Found bad secure_context_manager imports in production code:\n{result.stdout}",
+        )
 
     def test_pre_commit_hooks_include_import_validation(self):
         """Test that pre-commit hooks include our import validation"""

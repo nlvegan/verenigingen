@@ -569,14 +569,21 @@ class TestExpenseHistoryBatchProcessor(EnhancedTestCase):
         self.assertEqual(errors, 0)
 
     def test_process_pending_no_claims(self):
-        """process_pending_expense_updates handles no pending claims gracefully."""
+        """process_pending_expense_updates handles no pending claims gracefully.
+
+        The whole method body is wrapped in a bare `except Exception: log and
+        return` (no re-raise) -- confirmed by reading it -- so "this call
+        does not raise" is trivially, unconditionally true regardless of
+        whether anything inside is broken; a bare call here could never
+        redden under mutation. assertNoErrorLog() is the part that can
+        actually fail: with zero pending claims, the early-return branch
+        must be taken cleanly, writing no Error Log row. A break that makes
+        the early-return path itself error is caught by the log, even though
+        the exception it raises never reaches this test.
+        """
         proc = self._get_processor()
-        # Should not raise even if there are no pending claims
-        try:
+        with self.assertNoErrorLog():
             proc.process_pending_expense_updates()
-        except Exception:
-            # Expense Claim table might have data that causes issues, that's fine
-            pass
 
     # -- scheduled-job membership-criterion consistency (aligned to live on_submit path) --
     # The live path tracks SUBMITTED claims (docstatus 1) regardless of approval;

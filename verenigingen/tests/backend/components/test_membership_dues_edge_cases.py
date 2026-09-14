@@ -256,39 +256,56 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
     # Data Integrity Edge Cases
 
     def test_orphaned_dues_schedule_handling(self):
-        """Test handling of dues schedules with deleted members"""
+        """A force-deleted Member does NOT leave its Dues Schedule dangling.
+
+        Measured, not assumed: force-deleting the Member cascades and
+        removes the dependent Membership Dues Schedule row too (Frappe's
+        delete machinery walks and deletes documents linked to the one being
+        force-deleted), so dues_schedule.reload() raises
+        frappe.DoesNotExistError rather than the graceful-degradation the
+        original try/except hoped for. That is a materially different, and
+        materially better, outcome than an orphaned schedule left pointing
+        at a nonexistent member -- and it is what this test now pins.
+        """
         membership_type = self.create_edge_case_membership_type()
         dues_schedule = self.create_test_dues_schedule(membership_type)
+        schedule_name = dues_schedule.name
 
         # Store member name before deletion
         member_name = self.test_member.name
 
         # Delete member (simulating data corruption)
         frappe.delete_doc("Member", member_name, force=True)
+        self.assertFalse(frappe.db.exists("Member", member_name))
 
-        # Dues schedule should handle missing member gracefully
-        try:
+        # The dependent schedule is cascade-deleted along with the member,
+        # not left behind as a dangling reference.
+        self.assertFalse(frappe.db.exists("Membership Dues Schedule", schedule_name))
+        with self.assertRaises(frappe.DoesNotExistError):
             dues_schedule.reload()
-            # Should either fail gracefully or show appropriate status
-        except frappe.DoesNotExistError:
-            # Expected behavior - dues schedule becomes invalid
-            pass
 
     def test_membership_type_deletion_impact(self):
-        """Test impact of deleting membership type on active dues schedules"""
+        """Membership.membership_type is a Link to Membership Type, and an
+        ACTIVE (submitted) Membership references this one, so Frappe's own
+        generic link-existence check (frappe.model.delete_doc) must refuse
+        deletion with frappe.LinkExistsError -- UNLESS the caller passes
+        force=True, which explicitly bypasses that exact check
+        (frappe/model/delete_doc.py's own docstring: "bypasses link
+        existence checks"). The original test passed force=True and then
+        waited to observe LinkExistsError, which force=True makes
+        impossible; that was the bug, not the missing assertion alone.
+        """
         membership_type = self.create_edge_case_membership_type()
-        dues_schedule = self.create_test_dues_schedule(membership_type)
-
-        # Store membership type name
+        self.create_test_dues_schedule(membership_type)
         type_name = membership_type.name
 
-        # Attempt to delete membership type with active dues schedules
-        try:
-            frappe.delete_doc("Membership Type", type_name, force=True)
-            # Should either be prevented or handled gracefully
-        except frappe.LinkExistsError:
-            # Expected - should prevent deletion if dues schedules exist
-            pass
+        with self.assertRaises(frappe.LinkExistsError):
+            frappe.delete_doc("Membership Type", type_name)
+
+        self.assertTrue(
+            frappe.db.exists("Membership Type", type_name),
+            "Membership Type must survive a deletion attempt blocked by LinkExistsError",
+        )
 
     # Performance Edge Cases
 
