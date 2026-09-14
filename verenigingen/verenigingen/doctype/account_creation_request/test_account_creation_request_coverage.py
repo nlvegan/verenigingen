@@ -240,22 +240,40 @@ class TestAccountCreationRequestCoverage(EnhancedTestCase):
 
     # ----------------------------------------------- safe_log_error helper
     def test_safe_log_error_truncates(self):
+        """frappe.log_error is (title, message): title -> Error Log.method,
+        message -> Error Log.error. This helper's own signature is
+        ``safe_log_error(message, title=None)`` -- the 500-char message is
+        the MESSAGE, truncated to 100 chars + "..." (103), and the literal
+        "ACR Safe Log Test Cov" is the TITLE.
+
+        This test previously asserted the opposite: a prior version of this
+        comment read "A 500-char message is truncated ... and passed as the
+        log title (Error Log.method)" and filtered on
+        ``{"method": ["like", "yyyyy%"]}`` -- i.e. it asserted the truncated
+        message landed in the TITLE slot. That was #1121's bug (the helper
+        called ``frappe.log_error(safe_message, title)`` positionally,
+        swapped), not a spec: once #1121 fixed the call to keyword arguments,
+        the message correctly moved to Error Log.error and this test's own
+        filter started matching nothing (CI shard 2/12, PR #1128).
+        """
         from verenigingen.verenigingen.doctype.account_creation_request.account_creation_request import (
             safe_log_error,
         )
 
-        self.expectErrorLog("")  # this helper writes an Error Log on purpose
-        # A 500-char message is truncated to 100 chars + "..." (103) and passed as
-        # the log title (Error Log.method). Read the row back and assert the
-        # truncation actually happened — the whole point of the helper.
+        self.expectErrorLog("ACR Safe Log Test Cov")  # this helper writes an Error Log on purpose
         safe_log_error("y" * 500, "ACR Safe Log Test Cov")
         row = frappe.get_all(
             "Error Log",
-            filters={"method": ["like", "yyyyy%"]},
-            fields=["method"],
+            filters={"method": "ACR Safe Log Test Cov"},
+            fields=["method", "error"],
             order_by="creation desc",
             limit=1,
         )
         self.assertTrue(row, "safe_log_error did not write an Error Log")
-        self.assertLessEqual(len(row[0].method), 103)
-        self.assertTrue(row[0].method.endswith("..."))
+        # Control: title in the title slot (unchanged, not truncated) AND the
+        # truncated message in the message slot -- pins BOTH sides of the
+        # ordering the fix establishes, so a re-swap fails this test again
+        # instead of just failing to find a row.
+        self.assertEqual(row[0].method, "ACR Safe Log Test Cov")
+        self.assertLessEqual(len(row[0].error), 103)
+        self.assertTrue(row[0].error.endswith("..."))

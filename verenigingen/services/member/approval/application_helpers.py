@@ -18,7 +18,13 @@ def safe_log_error(message, title=None):
     """Helper to log errors with length protection"""
     # Truncate message to prevent log title validation errors
     safe_message = message[:100] + "..." if len(message) > 100 else message
-    frappe.log_error(title=title, message=safe_message)
+    # frappe.log_error(title=None, message=<truthy>) raises TypeError inside
+    # frappe's own swap-detection heuristic (`"\n" in title`) -- title must
+    # never be None/empty here (#1121 follow-up). Fall back to the message's
+    # own first line so the fallback itself can never look like a multi-line
+    # traceback and re-trigger that same heuristic.
+    safe_title = title or safe_message.split("\n")[0][:140]
+    frappe.log_error(title=safe_title, message=safe_message)
 
 
 # Import moved inside function to avoid circular imports
