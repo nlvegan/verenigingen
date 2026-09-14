@@ -56,13 +56,24 @@ literally ``frappe.log_error(...)`` or a bare ``log_error(...)`` name; see
 keeps the broader by-name match, unchanged.
 
 A bare variable in the first position (``log_error(some_var, "Title")``) is
-DELIBERATELY not flagged: unlike an f-string or a ``str()`` call, a name gives
-no static evidence of which parameter the author meant it for, and this
-repo's own code has legitimate ``log_error(title_var, message_var)`` calls
-where flagging by shape alone would be pure guesswork. #602's directory sweep
-handled the ones it could find manually; the validator's job is only to stop
-new EASILY-CONFIRMED swaps from arriving in the code that has not been swept
-yet.
+DELIBERATELY not flagged by shape alone: unlike an f-string or a ``str()``
+call, a name gives no static evidence of which parameter the author meant it
+for, and this repo's own code has legitimate ``log_error(title_var,
+message_var)`` calls where flagging by shape alone would be pure guesswork.
+#602's directory sweep handled the ones it could find manually; the
+validator's job is only to stop new EASILY-CONFIRMED swaps from arriving in
+the code that has not been swept yet.
+
+The ONE exception (#1121): when BOTH positional arguments are bare Names, the
+identifiers themselves can still be unambiguous evidence, via
+``_is_bare_name_pair_swap``. A shared-helper pattern repeated six times in
+this tree -- ``def safe_log_error(title, message): ... frappe.log_error(
+safe_message, title)`` -- swaps two locals whose OWN names say which is which:
+the second argument's identifier contains ``title`` and the first does not.
+That is flagged. The symmetric, correct order (a title-named identifier
+already first) is not, and neither is a pair where NEITHER name says
+``title`` -- this repo's other, legitimate ``log_error(message, record_type,
+record_data)`` convention produces exactly that shape and must stay quiet.
 
 Two arguments that are BOTH dynamic (``log_error(f"...", get_message())``) are
 not flagged either: there is no literal-title shape here to say which one the
@@ -141,6 +152,38 @@ def _is_title_shaped(node: ast.AST) -> bool:
     return isinstance(node, ast.Constant) and isinstance(node.value, str)
 
 
+def _is_title_named(node: ast.AST) -> bool:
+    """True for a bare Name whose identifier itself says 'title' (#1121).
+
+    Case-insensitive substring match: ``title``, ``safe_title``, ``log_title``,
+    ``summary_title``, ``detailed_title`` all match; ``record_type``,
+    ``LOG_CATEGORY_SECURITY`` do not.
+    """
+    return isinstance(node, ast.Name) and "title" in node.id.lower()
+
+
+def _is_bare_name_pair_swap(node_a: ast.AST, node_b: ast.AST) -> bool:
+    """#1121: BOTH positional args are bare Names, so neither is message-shaped
+    or a literal -- the two static shape checks above give no evidence either
+    way. But a shared-helper pattern repeated across this tree
+    (``safe_log_error(title, message)`` internally calling
+    ``frappe.log_error(safe_message, title)``, and similar) makes the swap
+    unambiguous by variable NAME alone: exactly one of the two identifiers
+    contains ``title``, and it sits in the second (message) position.
+
+    Deliberately narrow and symmetric with the existing checks: if the SAME
+    condition held with the arguments the other way round (title-named
+    variable already first), that is the CORRECT order and must not be
+    flagged. If neither name says 'title' -- this repo's other, legitimate
+    ``log_error(message, record_type, record_data)`` convention included --
+    nothing here says which is which, so it is left alone, same as any other
+    genuinely ambiguous bare-Name call.
+    """
+    if not (isinstance(node_a, ast.Name) and isinstance(node_b, ast.Name)):
+        return False
+    return _is_title_named(node_b) and not _is_title_named(node_a)
+
+
 def _is_log_error_call(node: ast.AST) -> bool:
     if not isinstance(node, ast.Call):
         return False
@@ -184,7 +227,9 @@ def _is_unambiguously_frappes(node: ast.Call) -> bool:
 def _is_swapped(node: ast.Call) -> bool:
     if node.keywords or len(node.args) < 2:
         return False
-    if not (_is_message_shaped(node.args[0]) and _is_title_shaped(node.args[1])):
+    shape_evidence = _is_message_shaped(node.args[0]) and _is_title_shaped(node.args[1])
+    name_evidence = _is_bare_name_pair_swap(node.args[0], node.args[1])
+    if not (shape_evidence or name_evidence):
         return False
     if len(node.args) == 2:
         return True

@@ -17,7 +17,7 @@ from verenigingen.utils.security.api_security_framework import critical_api, sta
 def _safe_log_error(message, title=None):
     """Helper to log errors with length protection"""
     safe_message = message[:100] + "..." if len(message) > 100 else message
-    frappe.log_error(safe_message, title)
+    frappe.log_error(title=title, message=safe_message)
 
 
 @frappe.whitelist()

@@ -87,7 +87,7 @@ class MigrationErrorLogger:
 
         # Log to Frappe Error Log
         try:
-            frappe.log_error(enhanced_message, title)
+            frappe.log_error(title=title, message=enhanced_message)
         except Exception:
             try:
                 frappe.log_error(title="E-Boekhouden Migration Error", message=enhanced_message)

@@ -34,7 +34,7 @@ def safe_log_error(message, title=None):
     """Helper to log errors with length protection"""
     # Truncate message to prevent log title validation errors
     safe_message = message[:100] + "..." if len(message) > 100 else message
-    frappe.log_error(safe_message, title)
+    frappe.log_error(title=title, message=safe_message)
 
 
 class AccountCreationRequest(Document):
