@@ -3098,7 +3098,7 @@ def start_full_rest_import(migration_name, mutation_types=None):
                         summary_content += f"• Failed: {batch_result['failed']}\n"
                         summary_content += f"• Skipped: {batch_result['skipped']}\n"
                         summary_content += f"• Total Errors: {len(batch_result['errors'])}\n"
-                        frappe.log_error(summary_content, summary_title)
+                        frappe.log_error(title=summary_title, message=summary_content)
 
                         # Log detailed error information for opening balances when there are failures
                         if batch_result["errors"]:
@@ -3107,7 +3107,7 @@ def start_full_rest_import(migration_name, mutation_types=None):
                                 detailed_error_content += f"{i}. {error}\n\n"
 
                             detailed_title = "eBoekhouden REST Import - Opening Balances - Detailed Errors"
-                            frappe.log_error(detailed_error_content, detailed_title)
+                            frappe.log_error(title=detailed_title, message=detailed_error_content)
                     else:
                         # Process other mutations using the batch import with enhanced error handling
                         batch_result = _import_rest_mutations_batch_enhanced(
@@ -3398,7 +3398,7 @@ def _log_batch_summary(
             if len(category_errors) > 5:
                 summary_content += f"  ... and {len(category_errors) - 5} more\n"
 
-    frappe.log_error(summary_content, summary_title)
+    frappe.log_error(title=summary_title, message=summary_content)
 
     if errors:
         detailed_content = f"DETAILED ERROR REPORT for {type_name}:\n\n"

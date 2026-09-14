@@ -1694,7 +1694,7 @@ def _persist_validation_failure(doc, error_log: str, message: str, log_title: st
     doc.error_log = error_log
     doc.save()
     if log_title:
-        frappe.log_error(error_log, log_title)
+        frappe.log_error(title=log_title, message=error_log)
     return {"status": "error", "message": message}
 
 

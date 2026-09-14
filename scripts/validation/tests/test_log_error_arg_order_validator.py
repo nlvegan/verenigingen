@@ -89,6 +89,21 @@ class PlantedViolationTest(unittest.TestCase):
         )
         self.assertEqual(len(findings), 1)
 
+    def test_bare_name_pair_with_title_named_second_arg_is_flagged(self):
+        """#1121: the shared-helper gap. BOTH positional args are bare Names, so
+        neither side is message-shaped or a literal -- but the variable NAMES
+        make the swap unambiguous: the second identifier unmistakably says
+        'title' (`title`, `safe_title`, `log_title`, `summary_title`, ...) and
+        the first does not. This is the real `safe_log_error(title, message)`
+        shape repeated across 6 near-identical helpers, which internally call
+        `frappe.log_error(safe_message, title)` -- the two locals swapped."""
+        findings = _flagged(
+            "def safe_log_error(title, message):\n"
+            "    safe_message = message[:100] if len(message) > 100 else message\n"
+            "    frappe.log_error(safe_message, title)\n"
+        )
+        self.assertEqual(len(findings), 1)
+
 
 class AcceptsCorrectCallTest(unittest.TestCase):
     """The validator must NOT flag calls already in the right order."""
@@ -163,6 +178,29 @@ class AcceptsCorrectCallTest(unittest.TestCase):
         findings = _flagged(
             "def f(e):\n"
             "    frappe.log_error(f'context {e}', get_title())\n"
+        )
+        self.assertEqual(findings, [])
+
+    def test_bare_name_pair_neither_side_named_title_is_not_flagged(self):
+        """Genuinely ambiguous, and a REAL site in this repo: the other local
+        `log_error(message, record_type, record_data)` convention
+        (`RelationMigrationService._log_error`, `EBoekhoudenMigration.log_error`)
+        happens to produce a bare-Name/bare-Name 2-arg call too, but neither
+        name says 'title' -- must stay quiet, or this would misfire on a
+        completely different, legitimate signature."""
+        findings = _flagged(
+            "class Svc:\n"
+            "    def _log_error(self, message, record_type=None):\n"
+            "        frappe.log_error(message, record_type)\n"
+        )
+        self.assertEqual(findings, [])
+
+    def test_bare_name_pair_title_named_first_is_not_flagged(self):
+        """The correct order -- a title-named identifier already in the FIRST
+        position -- must not be flagged just because both args are bare Names."""
+        findings = _flagged(
+            "def f(title, message):\n"
+            "    frappe.log_error(title, message)\n"
         )
         self.assertEqual(findings, [])
 

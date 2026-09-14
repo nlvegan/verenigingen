@@ -40,7 +40,7 @@ def safe_log_error(title, message, max_title_length=100):
         if len(message) > max_message_length:
             safe_message += f"\n\n[MESSAGE TRUNCATED - Original length: {len(message)} characters]"
 
-        return frappe.log_error(safe_message, safe_title)
+        return frappe.log_error(title=safe_title, message=safe_message)
 
     except Exception as e:
         # Last resort: log a minimal error message
@@ -49,7 +49,7 @@ def safe_log_error(title, message, max_title_length=100):
             minimal_message = (
                 f"Original error logging failed: {str(e)[:200]}\n\nOriginal message preview: {message[:500]}"
             )
-            return frappe.log_error(minimal_message, minimal_title)
+            return frappe.log_error(title=minimal_title, message=minimal_message)
         except Exception:
             # If even minimal logging fails, just continue - don't crash the application
             frappe.logger().error(f"Complete error logging failure for: {title[:100]}")

@@ -81,7 +81,9 @@ def safe_log_error(message: str, title: Optional[str] = None) -> None:
     """Helper to log errors with length protection"""
     # Truncate message to prevent log title validation errors
     safe_message = message[:100] + "..." if len(message) > 100 else message
-    frappe.log_error(safe_message, title)
+    # title must never be None -- see #1121 / employee_user_link.py for why
+    safe_title = title or safe_message.split("\n")[0][:140]
+    frappe.log_error(title=safe_title, message=safe_message)
 
 
 class Volunteer(Document):
