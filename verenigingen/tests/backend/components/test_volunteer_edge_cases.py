@@ -716,10 +716,21 @@ class TestVolunteerEdgeCases(EnhancedTestCase):
                 print(f"⚠️ {script_name} characters caused issues: {str(e)}")
 
     def test_security_edge_cases(self):
-        """Test volunteer security-related edge cases"""
-        print("\n🧪 Testing security edge cases...")
-
-        # Test HTML/script injection prevention
+        """Volunteer.note is a Text Editor field, so Frappe's own
+        Document._sanitize_content() (frappe/model/base_document.py) runs
+        nh3-based HTML sanitization on it before save -- this is a REAL
+        production control, not merely "escaped on display" as the original
+        comment here assumed. Confirmed empirically (frappe.utils.html_utils.
+        sanitize_html, linkify=True -- what _sanitize_content passes for a
+        Text Editor field): a bare <script>/<iframe> tag is stripped to an
+        empty string, and a stray event-handler attribute like onerror= is
+        dropped while the surrounding tag survives. Content with no HTML
+        tags at all (a plain SQL-injection-shaped string, a javascript: URI
+        with no wrapping tag) is left untouched -- sanitize_html's own
+        "no tags found" short-circuit -- so Frappe's ORM parameterization is
+        what protects the SQL string, not HTML sanitization; that case is
+        asserted as stored verbatim instead.
+        """
         dangerous_inputs = [
             "<script>alert('xss')</script>",
             "javascript:alert('xss')",
@@ -729,18 +740,34 @@ class TestVolunteerEdgeCases(EnhancedTestCase):
         ]
 
         for idx, dangerous_input in enumerate(dangerous_inputs):
-            try:
-                volunteer = self.create_test_volunteer(
-                    volunteer_name=f"Security Test {self.test_run_id} {idx}",
-                    note=dangerous_input,
+            volunteer = self.create_test_volunteer(
+                volunteer_name=f"Security Test {self.test_run_id} {idx}",
+                note=dangerous_input,
+            )
+            volunteer.reload()
+            stored = (volunteer.note or "").lower()
+
+            if "<" in dangerous_input and ">" in dangerous_input:
+                # HTML-tag-shaped input: the dangerous tag/attribute must be
+                # stripped by Frappe's Text Editor sanitization.
+                self.assertNotIn(
+                    "<script", stored, f"<script> tag must be stripped from note: {dangerous_input!r}"
                 )
-
-                # Verify dangerous content is stored as-is (Frappe handles escaping on display)
-                volunteer.reload()
-                print(f"✅ Dangerous input stored (will be escaped on display): {dangerous_input[:50]}...")
-
-            except Exception as e:
-                print(f"✅ Dangerous input rejected: {str(e)}")
+                self.assertNotIn(
+                    "<iframe", stored, f"<iframe> tag must be stripped from note: {dangerous_input!r}"
+                )
+                self.assertNotIn(
+                    "onerror", stored, f"event-handler attribute must be stripped: {dangerous_input!r}"
+                )
+            else:
+                # No HTML tags for sanitize_html to act on -- Frappe's
+                # short-circuit leaves it untouched, and SQL safety here
+                # comes from parameterized queries, not text mangling.
+                self.assertEqual(
+                    volunteer.note,
+                    dangerous_input,
+                    f"non-HTML content must be stored verbatim: {dangerous_input!r}",
+                )
 
 
 def run_volunteer_edge_case_tests():

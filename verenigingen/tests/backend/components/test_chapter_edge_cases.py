@@ -503,10 +503,36 @@ class TestChapterEdgeCases(EnhancedTestCase):
                 print(f"⚠️ {script_name} characters caused issues: {str(e)[:100]}...")
 
     def test_chapter_security_edge_cases(self):
-        """Test chapter security-related edge cases"""
-        print("\n🧪 Testing security edge cases...")
+        """Two independent, real controls guard these two fields -- verified
+        empirically, not assumed:
 
-        # Test HTML/script injection prevention
+        1. Chapter.meetup_embed_html is fieldtype "Code", which Frappe's core
+           Document._sanitize_content() explicitly EXEMPTS from HTML
+           sanitization (frappe/model/base_document.py: fieldtype in
+           (..., "Code") -> skip). In its place, this app's own
+           ChapterInfoValidator._validate_html_content()
+           (verenigingen/verenigingen/doctype/chapter/validators/
+           chapter_info_validator.py) hard-rejects any value containing the
+           substring "<script" (case-insensitive) with a ValidationError --
+           confirmed by actually running create_test_chapter with the
+           <script> payload and observing "Script tags are not allowed in
+           HTML content for security reasons". It only WARNS (does not
+           block) on onerror/onclick/onload/onmouseover, so those still save
+           verbatim into the Code field.
+        2. Chapter.introduction is a Text Editor field, so the same core
+           _sanitize_content() that guards Volunteer.note applies: an
+           nh3-based strip of disallowed tags (see
+           test_volunteer_edge_cases.test_security_edge_cases for the
+           direct sanitize_html probe).
+
+        The iframe payload below embeds a literal "<script>" inside its
+        data: URI, so it trips control #1 exactly like the bare <script>
+        payload -- both are expected to be REJECTED, not silently stored.
+        """
+        # The rejection path below logs an Error Log entry as a side effect of
+        # frappe.throw(); that is expected here, not a swallowed failure.
+        self.expectErrorLog("Script tags are not allowed in HTML content")
+
         dangerous_inputs = [
             "<script>alert('xss')</script>",
             "javascript:alert('xss')",
@@ -516,20 +542,48 @@ class TestChapterEdgeCases(EnhancedTestCase):
         ]
 
         for dangerous_input in dangerous_inputs:
-            try:
-                chapter = self.create_test_chapter(
-                    introduction=dangerous_input,
-                    meetup_embed_html=dangerous_input,
+            blocked_by_script_guard = "<script" in dangerous_input.lower()
+
+            if blocked_by_script_guard:
+                with self.assertRaises(Exception) as ctx:
+                    self.create_test_chapter(
+                        introduction=dangerous_input,
+                        meetup_embed_html=dangerous_input,
+                    )
+                self.assertIn(
+                    "script",
+                    str(ctx.exception).lower(),
+                    f"rejection message should name the script-tag guard: {dangerous_input!r}",
                 )
+                continue
 
-                # Verify dangerous content is stored as-is (Frappe handles escaping on display)
-                # This is actually correct behavior - the ORM should store the data
-                # and the frontend should escape it when rendering
-                chapter.reload()
-                print(f"✅ Dangerous input stored (will be escaped on display): {dangerous_input[:50]}...")
+            chapter = self.create_test_chapter(
+                introduction=dangerous_input,
+                meetup_embed_html=dangerous_input,
+            )
+            chapter.reload()
 
-            except Exception as e:
-                print(f"✅ Dangerous input rejected: {str(e)[:100]}...")
+            # meetup_embed_html (Code field) is exempt from HTML sanitization
+            # by design -- always stored verbatim when it clears the guard above.
+            self.assertEqual(
+                chapter.meetup_embed_html,
+                dangerous_input,
+                f"Code field meetup_embed_html must be stored verbatim: {dangerous_input!r}",
+            )
+
+            introduction = (chapter.introduction or "").lower()
+            if "<" in dangerous_input and ">" in dangerous_input:
+                self.assertNotIn(
+                    "onerror",
+                    introduction,
+                    f"event-handler attribute must be stripped from introduction: {dangerous_input!r}",
+                )
+            else:
+                self.assertEqual(
+                    chapter.introduction,
+                    dangerous_input,
+                    f"non-HTML content must be stored verbatim in introduction: {dangerous_input!r}",
+                )
 
 
 def run_chapter_edge_case_tests():

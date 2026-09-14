@@ -651,24 +651,24 @@ class TestTeamRoleEdgeCases(EnhancedTestCase):
             })
         team_doc.save()
         
-        # Modify role to be unique - should trigger validation for existing assignments
+        # Team Role.validate_unique_role() (team_role.py) hard-blocks exactly
+        # this transition: an EXISTING role (not new) flipped to is_unique=1
+        # while a `tabTeam Member` query finds more than one is_active=1 row
+        # sharing it within one Active team. Three active assignments were
+        # just created in one Active team above, so this is deterministic,
+        # not a "might go either way" outcome.
         custom_role.is_unique = 1
-        
-        try:
+
+        with self.assertRaises(frappe.ValidationError):
             custom_role.save()
-            # If save succeeds, check that only one assignment remains active
-            team_doc.reload()
-            active_count = sum(1 for m in team_doc.team_members 
-                             if m.team_role == custom_role.name and m.is_active)
-            
-            if active_count > 1:
-                print("⚠️  System allows multiple assignments of newly unique role")
-            else:
-                print("✅ System handled unique role modification correctly")
-                
-        except frappe.ValidationError:
-            print("✅ System prevents making role unique when multiple assignments exist")
-        
+
+        custom_role.reload()
+        self.assertEqual(
+            custom_role.is_unique,
+            0,
+            "a rejected save must not leave is_unique flipped in the DB",
+        )
+
         # Cleanup. Delete the team (removes its Team Member rows) so the role's
         # validate_deletion_allowed() no longer sees active assignments.
         frappe.delete_doc("Team", team.name, force=True)

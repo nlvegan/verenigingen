@@ -278,8 +278,12 @@ class TestVolunteerAPI(VereningingenTestCase):
             self.assertIn("source_name", assignment)
 
     def test_api_permissions(self):
-        """Test API permission checks"""
-        # Create unauthorized user
+        """A user with no role granting create/write on Volunteer Activity
+        must be refused by add_activity — and no activity is left behind.
+        """
+        # Create unauthorized user (deliberately left profileless/roleless,
+        # unlike self.test_user which is granted "Verenigingen Administrator"
+        # plus its role profile in setUp).
         unauthorized_user = self.factory.create_test_user(
             email="unauthorized@example.com", first_name="Unauthorized", last_name="User"
         )
@@ -288,13 +292,17 @@ class TestVolunteerAPI(VereningingenTestCase):
         frappe.set_user(unauthorized_user.name)
         volunteer = frappe.get_doc("Volunteer", self.test_volunteer.name)
 
-        # Test that permissions are properly enforced
-        # Note: Exact permission behavior depends on role configuration
-        try:
+        with self.assertRaises(frappe.PermissionError):
             volunteer.add_activity(activity_type="Project", role="Coordinator")
-        except frappe.PermissionError:
-            # This is expected if permissions are properly configured
-            pass
+
+        # frappe.db.count is a direct query -- no permission filtering -- so it
+        # confirms the denial actually blocked the insert rather than merely
+        # raising after the row was written.
+        self.assertEqual(
+            frappe.db.count("Volunteer Activity", {"volunteer": self.test_volunteer.name}),
+            0,
+            "Volunteer Activity must not be created for an unauthorized user",
+        )
 
     def test_api_error_handling(self):
         """Test API error handling and response formats"""

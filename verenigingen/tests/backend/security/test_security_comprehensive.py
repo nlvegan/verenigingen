@@ -458,22 +458,21 @@ class TestSecurityComprehensive(VereningingenTestCase):
 
         frappe.set_user("Administrator")
 
-    def test_log_injection_prevention(self):
-        """Test log injection prevention"""
-        # Attempt to inject malicious content into logs
-        malicious_content = "\\n[ERROR] Fake error message\\n[INFO] Admin password: secret"
-
-        try:
-            frappe.get_doc(
-                {
-                    "doctype": "Member",
-                    "first_name": malicious_content,
-                    "last_name": "Test",
-                    "email": "logtest@test.com"}
-            ).insert()
-        except Exception:
-            # Any exception is acceptable - the important thing is no log injection
-            pass
+    # test_log_injection_prevention was deleted here (#1124): its premise does
+    # not hold. It named a "log injection" control that does not exist
+    # anywhere in verenigingen -- grepped repo-wide for "sanitize"/"injection"
+    # outside tests/ and for any doc_event on Member that logs a field value;
+    # zero hits. Nor could its own payload have exercised one: the literal
+    # string `"\\n[ERROR] ... \\n[INFO] ..."` contains a backslash and the
+    # letter n, not a real newline, so it cannot forge fake log lines even in
+    # principle. It also could not have reached Frappe's general
+    # Document._sanitize_content() (frappe/model/base_document.py), which
+    # only acts on values containing a literal "<" or ">" -- this payload has
+    # neither, so first_name would have been stored completely verbatim
+    # regardless of what any assertion said. The mechanically similar and
+    # already-correct test_xss_prevention above uses first_name payloads that
+    # DO contain angle brackets and already asserts on the real sanitization
+    # this file's author was reaching for.
 
 
 def run_security_tests():

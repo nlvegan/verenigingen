@@ -226,30 +226,42 @@ class TestTerminationRequestWorkflow(TestTerminationSystem):
             self.assertIsNotNone(termination.secondary_approver)
 
     def test_disciplinary_termination_validation(self):
-        """Test validation rules for disciplinary terminations"""
-        # test_member is created in setUp - no check needed
-        # Only test if validation exists
-        try:
-            termination = frappe.get_doc(
+        """Membership Termination Request.validate_termination_request()
+        (membership_termination_request.py) explicitly checks: when
+        termination_type is one of Policy Violation/Disciplinary
+        Action/Expulsion, disciplinary_documentation must be set, else
+        `frappe.throw(_("Documentation is required for disciplinary
+        terminations"))`. Confirmed by running this exact insert() and
+        reading the traceback -- it raises from validate_termination_request,
+        not from the field's declarative mandatory_depends_on (both exist,
+        but the app-level check fires first). An Expulsion request with the
+        field left blank must be rejected, and no request document left
+        behind.
+        """
+        with self.assertRaisesRegex(
+            frappe.ValidationError, "Documentation is required for disciplinary terminations"
+        ):
+            frappe.get_doc(
                 {
                     "doctype": "Membership Termination Request",
                     "member": self.test_member.name,
                     "termination_type": "Expulsion",
                     "termination_reason": "Test expulsion",
-                    # Missing disciplinary_documentation
+                    # Missing disciplinary_documentation -- deliberately, this
+                    # is the case under test.
                     "requested_by": frappe.session.user,
-                    "request_date": today()}
-            )
-            termination.insert()
+                    "request_date": today(),
+                }
+            ).insert()
 
-            # If it doesn't fail, that's also OK - validation might not be implemented yet
-
-        except frappe.ValidationError:
-            # Expected - validation is working
-            pass
-        except Exception:
-            # Other errors are OK too - just testing that the system doesn't crash
-            pass
+        self.assertEqual(
+            frappe.db.count(
+                "Membership Termination Request",
+                {"member": self.test_member.name, "termination_type": "Expulsion"},
+            ),
+            0,
+            "no Expulsion request should be persisted without its mandatory documentation",
+        )
 
     def test_workflow_state_transitions(self):
         """Test that workflow state transitions work correctly"""
