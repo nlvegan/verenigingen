@@ -21,10 +21,56 @@ This mixin closes that gap two ways:
 1. An automatic, opt-in-to-fail check wired into both base test classes' tearDown.
    By default it only WARNS (preserving historical behaviour). Set the environment
    variable ``VERENIGINGEN_FAIL_ON_ERROR_LOG=1`` to make any Error Log written during
-   a test fail that test. This lets the rollout be controlled (CI job, local run).
+   a test fail that test.
+
+   THE FLAG IS AN AUDIT TOOL, NOT A CI GATE -- AND THAT IS A DECISION, NOT AN OVERSIGHT
+   ....................................................................................
+   It is set NOWHERE in ``.github/`` or ``scripts/``, deliberately. The whole suite was
+   run under it on 2026-06-20 (sharded 6 ways, see
+   ``docs/plans/2026-06-20-error-log-guard-and-fail-mode-audit-handoff.md``): roughly
+   **1,066 of ~11,000 tests flipped, ~9.5%**, and the overwhelming majority were test
+   artifacts rather than product bugs, in four recurring shapes:
+
+     1. async work outliving rolled-back data (a test enqueues a job, tearDown rolls
+        back, the job then logs "X not found" -- impossible in production);
+     2. no background worker in tests ("Too many queued background jobs");
+     3. missing external config (Mollie / SMTP / HTTP / rate-limit);
+     4. dual fiscal-year env state ("Fiscal Year Auto-Creation Error", 398x).
+
+   Turning it on in CI would therefore require ~1k ``expectErrorLog`` annotations
+   documenting noise, which buys nothing and adds a mute to every one of those tests.
+   That audit did find seven real product bugs, which is what the flag is *for*: run it
+   over a module or a sweep's new tests, triage, then turn it back off.
+
+   Spot-checked 2026-09-14 on ``aac02e8a1``, because that ~9.5% is three months old and
+   a stale figure is a bad basis for a live decision. The failures are CONCENTRATED, not
+   uniform:
+
+     * a whole-suite run under the flag, STOPPED partway, got through **1,136 tests
+       across 81 modules (38 of them SEPA) with ZERO flipped**. Frappe runs modules in
+       roughly alphabetical order, so it had reached ``verenigingen.tests.*`` and
+       ``verenigingen.tests.sepa.*`` and had NOT yet reached ``tests.payment``,
+       ``tests.financial`` or ``tests.www`` -- i.e. it never touched the gateway- and
+       enqueue-heavy modules where the artifacts live. That is a partial run and a
+       hand-picked-by-accident sample, not a clean negative; the module list is in the
+       #1118 thread so the figure is reproducible.
+     * ``verenigingen.tests.payment.test_mollie_reconciliation_engine`` alone flipped
+       **9 of 39 (23%)**, and ``tests.www.test_mollie_www_pages_coverage`` **2 of 15**.
+
+   So do not infer "the artifacts are gone" from a green run over modules that never
+   touch a gateway or an enqueue -- and equally, do not infer the 9.5% applies evenly.
+   The shape the 2026-06-20 audit described is intact.
+
+   So do NOT read a green CI run as evidence that a test declared its Error Log writes,
+   and do not "fix" the flag's absence from CI. For a specific block that must log
+   nothing, use ``assertNoErrorLog()`` (below), which fails regardless of the flag.
 
 2. An explicit ``assertNoErrorLog()`` context manager that fails REGARDLESS of the
-   env flag, so a sweep / new test can assert a specific block logs nothing.
+   env flag, so a sweep / new test can assert a specific block logs nothing, and its
+   positive counterpart ``assertErrorLog()`` for a block that MUST log. Those two are
+   the real assertions in this module. ``expectErrorLog()`` is NOT one -- it only mutes
+   the automatic check, and since that check merely warns by default, a test that calls
+   it and nothing else asserts nothing at all (#1112).
 
 CAVEAT
 ------
