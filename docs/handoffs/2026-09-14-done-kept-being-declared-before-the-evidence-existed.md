@@ -163,6 +163,22 @@ fixes, not 12.
 5. **I carried "at least 35 unguarded classes" into a shipped docstring without deriving it.**
    It is attributed as a floor with its provenance and the unreconciled 123, and I said so —
    but I did not reconcile it either, and nobody has.
+6. **My push-only-gate simulation was itself broken, twice, and its first verdict was
+   meaningless.** Writing the instrument is not the same as validating it:
+   * I captured `rc=$?` **after piping the gate's output to `tail`**, so every `exit=` my
+     harness printed was `tail`'s status, not the gate's. All eight read `exit=0` while one
+     was actually failing. This exact trap is already in `CLAUDE.md`.
+   * When I re-ran that one properly it exited **1** — and I nearly reported develop as
+     broken. The control saved it: the identical failure reproduces on **pre-merge**
+     `aac02e8a1`, so it was not mine. Then CI on that same SHA said `success`, which meant my
+     command still did not match CI's: I had omitted **`--require-marker "# clone family"`**,
+     which deliberately ignores unmarked name collisions. With CI's real flags the gate is
+     **exit 0, "matches the tree"**.
+
+   Net: all 8 gates pass on `757ea66f9`. But the first run said 8/8 pass for the wrong
+   reason, the second said "develop is red" wrongly, and only the third was right. **A gate
+   simulation must be copied from the workflow verbatim — flags included — and its exit code
+   must not travel through a pipe.**
 
 ---
 
@@ -192,6 +208,9 @@ fixes, not 12.
 
 ## Traps worth knowing
 
+- **Copy a CI command verbatim when simulating it.** `duplicate_helper`'s gate carries
+  `--require-marker "# clone family"`; without it the gate reports failures CI deliberately
+  ignores. And never read an exit code through a pipe — `cmd | tail` gives you `tail`'s status.
 - **`gh pr checks` is the only acceptance criterion.** Not a local `pre-commit` run, not an
   agent's report, not a reviewer's glance at a run that had not settled. Three of this
   session's rounds died here.
