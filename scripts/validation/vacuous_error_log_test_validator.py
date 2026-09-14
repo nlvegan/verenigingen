@@ -39,19 +39,43 @@ A ``def test_*`` method is reported when ALL of these hold:
    -- which is how the ~45 already-sound candidates in #1116's classification
    do their asserting.
 
-WHY CONDITION 2 IS PART OF THE RULE, NOT AN OVERSIGHT
-------------------------------------------------------
-Without ``expectErrorLog``, the harness's AUTOMATIC tearDown check is live:
-a test that writes a row and does not declare it FAILS. So the vacuous shape
-cannot hide there -- the declaration is precisely what buys the silence.
+WHY CONDITION 2 IS PART OF THE RULE -- AND WHAT IT DOES *NOT* BUY
+-----------------------------------------------------------------
+Condition 2 scopes this gate to tests that call ``expectErrorLog``. That is a
+TRACTABILITY boundary, not a safety argument.
 
-The complement (a name claiming a log, no ``expectErrorLog``, no assertion)
-is a real but DIFFERENT class: those tests are not silently passing while a
-row is written; they are at most MISNAMED, like the one #1116 renamed. That
-population is large (measured 220 on ``fa440fcd6``, under a narrow name
-pattern, and heavily contaminated by tests about domain audit-log doctypes
-rather than ``tabError Log``). It has never been classified and is
-deliberately out of scope here rather than silently included.
+An earlier version of this docstring justified it by claiming the harness's
+automatic tearDown check is live for the complement -- that a test which writes
+an undeclared row FAILS, so the vacuous shape could not hide there. **Both
+halves of that were false, and they are retracted (#1125).**
+
+  * The automatic check only FAILS when ``VERENIGINGEN_FAIL_ON_ERROR_LOG`` is
+    truthy; otherwise it ``print``s a warning and the test PASSES. That flag is
+    set nowhere in ``.github/`` or ``scripts/`` and is deliberately an audit
+    tool rather than a CI gate (#1118; see ``error_log_guard.py``'s module
+    docstring for the measurement behind that decision). So in the
+    configuration CI actually runs, NO test fails for an undeclared write.
+  * The check only exists at all for classes inheriting ``ErrorLogGuardMixin``
+    via ``VereningingenTestCase`` / ``EnhancedTestCase``. Classes extending
+    ``FrappeTestCase`` / ``TestCase`` directly get nothing -- not even the
+    warning. At least 35 of the complement sit in such classes (verified by
+    resolving inheritance chains; a crude direct-base-name count says 123 and
+    over-counts, because a class extending a local base that itself extends
+    ``VereningingenTestCase`` reads as unguarded to it).
+
+So the complement (a name claiming a log, no ``expectErrorLog``, no assertion)
+is NOT merely "at most MISNAMED". A vacuous log-claiming test that simply omits
+``expectErrorLog``, in a class that never inherits the mixin, is exactly the
+#1112 defect and this gate cannot see it -- it keys on a mute such a test never
+needed. That is a real blind spot, tracked as #1125.
+
+What is NOT established is how many of that complement are actually vacuous:
+ZERO have been classified, and it is entirely possible none are. The population
+is large (measured 220 on ``fa440fcd6`` under a narrow name pattern, heavily
+contaminated by tests about domain audit-log doctypes rather than ``tabError
+Log``). Widening this gate to cover it needs a measured false-positive rate
+first, which is why the boundary stays here for now -- out of scope explicitly,
+not because the complement is safe.
 
 NO BASELINE, DELIBERATELY
 -------------------------
