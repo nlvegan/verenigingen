@@ -44,11 +44,22 @@ This mixin closes that gap two ways:
 
    Spot-checked 2026-09-14 on ``aac02e8a1``, because that ~9.5% is three months old and
    a stale figure is a bad basis for a live decision. The failures are CONCENTRATED, not
-   uniform: 697 tests across the harness, ratchet and 13 SEPA modules flipped **zero**,
-   while ``verenigingen.tests.payment.test_mollie_reconciliation_engine`` alone flipped
-   **9 of 39 (23%)**. So do not infer "the artifacts are gone" from a green run over a
-   module that never touches a gateway or an enqueue -- and equally, do not infer the
-   9.5% applies evenly. The shape the 2026-06-20 audit described is intact.
+   uniform:
+
+     * a whole-suite run under the flag, STOPPED partway, got through **1,136 tests
+       across 81 modules (38 of them SEPA) with ZERO flipped**. Frappe runs modules in
+       roughly alphabetical order, so it had reached ``verenigingen.tests.*`` and
+       ``verenigingen.tests.sepa.*`` and had NOT yet reached ``tests.payment``,
+       ``tests.financial`` or ``tests.www`` -- i.e. it never touched the gateway- and
+       enqueue-heavy modules where the artifacts live. That is a partial run and a
+       hand-picked-by-accident sample, not a clean negative; the module list is in the
+       #1118 thread so the figure is reproducible.
+     * ``verenigingen.tests.payment.test_mollie_reconciliation_engine`` alone flipped
+       **9 of 39 (23%)**, and ``tests.www.test_mollie_www_pages_coverage`` **2 of 15**.
+
+   So do not infer "the artifacts are gone" from a green run over modules that never
+   touch a gateway or an enqueue -- and equally, do not infer the 9.5% applies evenly.
+   The shape the 2026-06-20 audit described is intact.
 
    So do NOT read a green CI run as evidence that a test declared its Error Log writes,
    and do not "fix" the flag's absence from CI. For a specific block that must log
