@@ -349,7 +349,7 @@ COMMIT_EXEMPT tests/e_boekhouden/test_migration_controller_guards_coverage.py::1
 COMMIT_EXEMPT tests/e_boekhouden/test_migration_controller_sweep.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/e_boekhouden/test_migration_transaction.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/e_boekhouden/test_migration_transaction_savepoints.py::1  # order-dep-exempt
-COMMIT_EXEMPT tests/e_boekhouden/test_rest_migration_payments.py::2  # order-dep-exempt
+COMMIT_EXEMPT tests/e_boekhouden/test_rest_migration_payments.py::5  # order-dep-exempt
 COMMIT_EXEMPT tests/e_boekhouden/test_rest_orchestration_batch.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/e_boekhouden/test_rest_orchestration_start.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/e_boekhouden/test_settings.py::2  # order-dep-exempt

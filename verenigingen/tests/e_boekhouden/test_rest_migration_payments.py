@@ -562,6 +562,59 @@ def _like_escape(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+def _abbr_like_pattern(abbr: str) -> str:
+    """The LIKE pattern `_probe_residue` matches Account names with.
+
+    Extracted so a test can pin the pattern against MariaDB's own LIKE rather
+    than against whatever rows this site happens to hold: on a bench with no
+    `- XTC` account, an unescaped pattern and an escaped one return identical
+    rows, so a row-based control cannot tell them apart.
+    """
+    return f"%- {_like_escape(abbr)}"
+
+
+# Rows carrying `company` that a Company delete leaves behind. Nothing cleans
+# these: erpnext's `Company.on_trash` never mentions Expense Claim, and hrms's
+# `handle_linked_docs` deletes only the nine doctypes listed in its
+# `company_data_to_be_ignored` hook, which does not include this one. Meanwhile
+# hrms's `Company.on_update` (`set_expense_claim_type_accounts`, version-16)
+# writes one such row onto EVERY Expense Claim Type. That asymmetry is #1150.
+_ORPHANED_BY_COMPANY_DELETE = ("Expense Claim Account",)
+
+# Rows that `Company.on_trash` DOES sweep. Finding one of these is a different
+# failure -- an on_trash interrupted part-way -- with the same dangling-link
+# consequence, so the detector reports them too. They are NOT the expected
+# residue, which is what the first list is for.
+_SWEPT_BY_COMPANY_ON_TRASH = ("Cost Center", "Warehouse", "Mode of Payment Account")
+
+# A residue line is a diagnostic, not a dump: pointing the detector at a
+# long-lived company yields hundreds of cost centers, and burying the shard log
+# is the opposite of what #1150 needs.
+_RESIDUE_SAMPLE = 5
+
+
+def _delete_company_orphans(company_name: str) -> dict:
+    """Delete the rows a Company delete strands, and return what was deleted.
+
+    This is the #1150 fix rather than a diagnostic: the probe's Company insert
+    causes these rows, so the probe's teardown owns removing them. Left behind,
+    they carry a dangling `company` AND `default_account`, and the next Company
+    insert in the same shard dies in `_validate_links` while saving the Expense
+    Claim Type -- erroring `setUpClass` for four classes that never touched this
+    module.
+
+    Deleting child rows directly is the same move hrms's own
+    `delete_docs_with_company_field` makes for the doctypes it does cover.
+    """
+    deleted = {}
+    for doctype in _ORPHANED_BY_COMPANY_DELETE:
+        rows = frappe.get_all(doctype, filters={"company": company_name}, pluck="name")
+        if rows:
+            frappe.db.delete(doctype, {"name": ("in", rows)})
+            deleted[doctype] = rows
+    return deleted
+
+
 def _report_teardown_exception(company_name: str) -> None:
     """Log the FULL traceback for a teardown that raised.
 
@@ -594,17 +647,21 @@ def _probe_residue(company_name: str, abbr: str) -> dict:
         # LIKE wildcards, so the abbr is escaped -- ERPNext's own `_Test Company`
         # has abbr `_TC`, and unescaped that pattern also matches `Debtors - XTC`.
         "Account": frappe.get_all(
-            "Account", filters={"name": ("like", f"%- {_like_escape(abbr)}")}, pluck="name"
+            "Account", filters={"name": ("like", _abbr_like_pattern(abbr))}, pluck="name"
         ),
     }
-    # `Company.on_trash` removes these in the same sweep, scoped by `company`, and
-    # Account happens to go FIRST -- so an on_trash interrupted anywhere later
-    # strands one of these instead, with the same dangling-link consequence.
-    for doctype in ("Cost Center", "Warehouse", "Mode of Payment Account"):
+    for doctype in _ORPHANED_BY_COMPANY_DELETE + _SWEPT_BY_COMPANY_ON_TRASH:
         residue[doctype] = frappe.get_all(
             doctype, filters={"company": company_name}, pluck="name"
         )
     return residue
+
+
+def _sample(rows: list) -> str:
+    """Render at most `_RESIDUE_SAMPLE` names, but always the true total."""
+    if len(rows) <= _RESIDUE_SAMPLE:
+        return str(rows)
+    return f"{len(rows)} rows, first {_RESIDUE_SAMPLE}: {rows[:_RESIDUE_SAMPLE]}"
 
 
 def _report_probe_residue(company_name: str, abbr: str, when: str) -> dict:
@@ -617,7 +674,7 @@ def _report_probe_residue(company_name: str, abbr: str, when: str) -> dict:
     """
     residue = {dt: rows for dt, rows in _probe_residue(company_name, abbr).items() if rows}
     if residue:
-        detail = "; ".join(f"{dt}={rows}" for dt, rows in residue.items())
+        detail = "; ".join(f"{dt}={_sample(rows)}" for dt, rows in residue.items())
         get_harness_logger("test_rest_migration_payments").error(
             f"PROBE-RESIDUE ({when}) {company_name} abbr={abbr}: {detail}"
         )
@@ -671,6 +728,16 @@ class TestEbPaymentCompanySurvivesCapture(unittest.TestCase):
                 frappe.db.commit()
         except Exception:
             _report_teardown_exception(self.temp_company_name)
+        # The #1150 fix. Runs whether or not the delete above raised, because a
+        # part-completed delete strands exactly the same rows as a "successful"
+        # one -- `force=True` skips link validation either way.
+        try:
+            _delete_company_orphans(self.temp_company_name)
+            frappe.db.commit()
+        except Exception:
+            get_harness_logger("test_rest_migration_payments").error(
+                f"PROBE-ORPHAN-SWEEP-FAILED {self.temp_company_name}\n{frappe.get_traceback()}"
+            )
         # Guarded in its own right: this runs OUTSIDE the try above, and a
         # diagnostic must never convert a previously-silent teardown into a new
         # test ERROR. It is read-only, but "unlikely to raise" is not "cannot".
@@ -716,6 +783,85 @@ class TestEbPaymentCompanySurvivesCapture(unittest.TestCase):
         )
 
 
+class TestProbeTeardownCleansItsCompanyOrphans(unittest.TestCase):
+    """#1150 root cause: deleting the probe Company does NOT remove every row
+    that carries it.
+
+    `Company.on_trash` (erpnext) plus `handle_linked_docs` (hrms) between them
+    clean Accounts, Cost Centers, Warehouses, Modes of Payment and the nine
+    doctypes in hrms's `company_data_to_be_ignored` hook. `Expense Claim Account`
+    is in NEITHER list -- and hrms's `Company.on_update` writes one such child row
+    onto EVERY `Expense Claim Type` (`set_expense_claim_type_accounts`, CI's
+    hrms `version-16`). So the probe's Company delete leaves rows whose `company`
+    and `default_account` links are both dangling, and the next Company insert in
+    the shard dies validating them:
+
+        LinkValidationError: Could not find Row #29: Company:
+        TEST-EB-Payment-Shared-Probe-08e737, Row #29: Default Account:
+        Expense Claims - TPP08e73
+
+    That is the shard-12 failure of #1150, taken from the CI log of this branch.
+    The local bench's hrms is older and does not write those rows, so this seeds
+    one in the shape hrms produces and pins that the teardown clears it.
+    """
+
+    ORPHAN_PARENT_DOCTYPE = "Expense Claim Type"
+    ORPHAN_PARENT = "Calls"
+
+    def _create_stranded_row(self, company_name, abbr):
+        """Write the child row hrms would have written, with dangling links.
+
+        `ignore_links` is what makes this reproduce the real stranded state: the
+        row survives with a `company` that no longer exists, which is precisely
+        what `force=True` on the Company delete leaves behind.
+        """
+        # Named, not "whatever get_all returns first": an arbitrary pick would be
+        # order-dependent, and `Calls` is the standard hrms Expense Claim Type the
+        # #1150 traceback itself names.
+        if not frappe.db.exists(self.ORPHAN_PARENT_DOCTYPE, self.ORPHAN_PARENT):
+            self.skipTest(f"no Expense Claim Type {self.ORPHAN_PARENT!r} on this site")
+        doc = frappe.get_doc(self.ORPHAN_PARENT_DOCTYPE, self.ORPHAN_PARENT)
+        doc.append("accounts", {"company": company_name, "default_account": f"Expense Claims - {abbr}"})
+        # `ignore_links` alone is not enough: Expense Claim Type's own validate()
+        # cross-checks that default_account belongs to the company. Both are
+        # dangling by construction here -- that IS the stranded state -- so the
+        # controller's check has to be skipped to reproduce it.
+        doc.flags.ignore_links = True
+        doc.flags.ignore_validate = True
+        doc.flags.ignore_mandatory = True
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        self.addCleanup(self._cleanup_stranded_rows, company_name)
+
+    def _cleanup_stranded_rows(self, company_name):
+        frappe.db.delete("Expense Claim Account", {"company": company_name})
+        frappe.db.commit()
+
+    def _rows_for(self, company_name):
+        return frappe.get_all("Expense Claim Account", filters={"company": company_name}, pluck="name")
+
+    def test_teardown_deletes_the_expense_claim_account_rows_it_stranded(self):
+        probe = TestEbPaymentCompanySurvivesCapture("test_ensure_payment_company_survives_capture")
+        probe.setUp()
+        self._create_stranded_row(probe.temp_company_name, probe.temp_company_abbr)
+
+        self.assertTrue(
+            self._rows_for(probe.temp_company_name),
+            "sanity check: the seed must actually have stranded a row, or this "
+            "test cannot distinguish a working cleanup from a no-op",
+        )
+
+        probe.tearDown()
+
+        self.assertEqual(
+            self._rows_for(probe.temp_company_name),
+            [],
+            "the probe teardown must delete the Expense Claim Account rows its "
+            "Company insert caused -- nothing else does, and leaving them errors "
+            "the next Company insert in the shard (#1150)",
+        )
+
+
 class TestProbeResidueDetector(unittest.TestCase):
     """#1150: the probe teardown force-deletes its Company, and ``force=True``
     skips link validation -- so the delete can report success while stranding an
@@ -728,10 +874,19 @@ class TestProbeResidueDetector(unittest.TestCase):
     cannot themselves leak what they exist to detect.
     """
 
+    # Named, not "whatever get_all returns first". An arbitrary pick is
+    # order-dependent by construction -- which row it lands on depends on what
+    # else the shard created -- and the order-dependence ratchet flags it as
+    # REUSE. `_Test Company` is erpnext's own test fixture and is present in CI.
+    CONTROL_COMPANY = "_Test Company"
+
+    def _control_company(self):
+        if not frappe.db.exists("Company", self.CONTROL_COMPANY):
+            self.skipTest(f"no {self.CONTROL_COMPANY!r} on this site to probe against")
+        return self.CONTROL_COMPANY
+
     def test_reports_a_company_that_still_exists(self):
-        existing = frappe.get_all("Company", pluck="name", limit=1)
-        if not existing:
-            self.skipTest("no Company on this site to probe against")
+        existing = [self._control_company()]
         residue = _probe_residue(existing[0], "NOSUCHABBRZZZ")
         self.assertEqual(residue["Company"], [existing[0]])
         # control: a bogus abbr must find nothing, or the Account filter is
@@ -759,9 +914,7 @@ class TestProbeResidueDetector(unittest.TestCase):
         means something if this path is known to fire when there IS residue --
         otherwise silence is equally consistent with a broken detector, which is
         how #1150 went unrecorded in the first place."""
-        existing = frappe.get_all("Company", pluck="name", limit=1)
-        if not existing:
-            self.skipTest("no Company on this site to probe against")
+        existing = [self._control_company()]
         residue = _report_probe_residue(existing[0], "NOSUCHABBRZZZ", "control")
         self.assertEqual(residue.get("Company"), [existing[0]])
         # control: the bogus abbr must yield no Account key at all -- the reporter
@@ -783,9 +936,7 @@ class TestProbeResidueDetector(unittest.TestCase):
         so they pinned a contract disconnected from the purpose. This pins the
         emission itself.
         """
-        existing = frappe.get_all("Company", pluck="name", limit=1)
-        if not existing:
-            self.skipTest("no Company on this site to probe against")
+        existing = [self._control_company()]
         with self.assertLogs(LOGGER_NAME, level="ERROR") as captured:
             _report_probe_residue(existing[0], "NOSUCHABBRZZZ", "control")
         joined = "\n".join(captured.output)
@@ -817,6 +968,61 @@ class TestProbeResidueDetector(unittest.TestCase):
         self.assertEqual(_like_escape("_TC"), "\\_TC")
         self.assertEqual(_like_escape("50%"), "50\\%")
         self.assertEqual(_like_escape("a\\b"), "a\\\\b")
+
+    def test_the_abbr_pattern_neutralises_wildcards_IN_MARIADB(self):
+        """Ask the database, not the string.
+
+        The previous control asserted that every matched Account really ends in
+        the abbr -- which passes identically with the escaping removed, because
+        no bench here holds an account ending `- XTC` for `%- _TC` to over-match.
+        A control that cannot fail is not a control, so this puts the pattern in
+        front of MariaDB's own LIKE with both cases spelled out.
+        """
+        pattern = _abbr_like_pattern("_TC")
+        over_match = frappe.db.sql("select %s like %s", ("Debtors - XTC", pattern))[0][0]
+        literal = frappe.db.sql("select %s like %s", ("Debtors - _TC", pattern))[0][0]
+        self.assertEqual(
+            over_match, 0, f"`_` is a LIKE wildcard: {pattern!r} must not match 'Debtors - XTC'"
+        )
+        self.assertEqual(
+            literal, 1, f"escaping must not break the legitimate match: {pattern!r} vs 'Debtors - _TC'"
+        )
+
+    def test_the_residue_line_is_capped_but_reports_the_true_total(self):
+        """A diagnostic that buries the shard log defeats its own purpose: the
+        detector is pointed at real companies, and a long-lived one owns hundreds
+        of cost centers."""
+        short = ["a", "b"]
+        self.assertEqual(_sample(short), str(short))
+        long = [f"n{i}" for i in range(_RESIDUE_SAMPLE + 3)]
+        rendered = _sample(long)
+        self.assertIn(f"{len(long)} rows", rendered)
+        self.assertIn("n0", rendered)
+        self.assertNotIn(long[-1], rendered)
+
+    def test_tearDown_actually_CALLS_the_residue_reporter(self):
+        """The wiring, not just the helper.
+
+        Measured on the previous round: the reporter call could be deleted from
+        tearDown and every test in this class still passed, because they all call
+        the helper directly. That is the same disconnected-contract defect this
+        round was opened to fix, one layer out.
+        """
+        probe = TestEbPaymentCompanySurvivesCapture("test_ensure_payment_company_survives_capture")
+        probe.setUp()
+        with mock.patch(f"{__name__}._report_probe_residue") as reporter:
+            probe.tearDown()
+        reporter.assert_called_once_with(
+            probe.temp_company_name, probe.temp_company_abbr, "after tearDown"
+        )
+
+    def test_tearDown_actually_CALLS_the_orphan_sweep(self):
+        """Same wiring question for the #1150 fix itself."""
+        probe = TestEbPaymentCompanySurvivesCapture("test_ensure_payment_company_survives_capture")
+        probe.setUp()
+        with mock.patch(f"{__name__}._delete_company_orphans") as sweep:
+            probe.tearDown()
+        sweep.assert_called_once_with(probe.temp_company_name)
 
     def test_escaped_abbr_still_matches_its_own_accounts(self):
         """Control for the escaping: neutralising the wildcard must not break the
