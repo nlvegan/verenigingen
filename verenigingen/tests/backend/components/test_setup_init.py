@@ -296,6 +296,45 @@ class TestSetupEmailTemplates(FrappeTestCase):
         self.assertIsInstance(count, int)
         self.assertTrue(frappe.db.exists("Email Template", "membership_application_confirmation"))
 
+    def test_membership_welcome_template_shows_chapter(self):
+        """Regression test for #1133.
+
+        The "membership_welcome" template used to read ``member.primary_chapter``,
+        a field that does not exist anywhere on the Member DocType (a silent
+        no-op read), so the "Chapter" table row was always blank. It must read
+        ``member.current_chapter``, the real Link field that IS kept in sync
+        (see member_chapter_display_service.py).
+        """
+        # create_application_email_templates() is create-only (it never updates
+        # an existing row), so force a fresh insert here -- otherwise this test
+        # would silently exercise whatever stale content an earlier setup run
+        # already seeded on this site instead of the current template source.
+        frappe.delete_doc("Email Template", "membership_welcome", force=True, ignore_permissions=True)
+        setup_mod.create_application_email_templates()
+        template = frappe.get_doc("Email Template", "membership_welcome")
+
+        member = frappe._dict(
+            first_name="Testy",
+            name="TEST-MEMBER-001",
+            current_chapter="Amsterdam Test Chapter",
+            interested_in_volunteering=0,
+        )
+        context = {
+            "member": member,
+            "membership_type": frappe._dict(membership_type_name="Lid"),
+            "membership": frappe._dict(start_date="2024-01-01", renewal_date="2025-01-01"),
+            "company": "Test Association",
+            "member_portal_url": "https://example.invalid/portal",
+            "login_url": "https://example.invalid/login",
+        }
+        rendered = frappe.render_template(template.response, context)
+
+        self.assertIn(
+            "Amsterdam Test Chapter",
+            rendered,
+            "welcome email must show the member's chapter, not silently drop it",
+        )
+
     def test_verify_email_templates_structure(self):
         # ensure at least the basic templates exist first
         setup_mod.create_application_email_templates()
