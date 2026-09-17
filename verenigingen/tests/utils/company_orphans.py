@@ -34,6 +34,23 @@ force-delete of a chart-bearing Company --
 queries per company to rediscover that. The drift risk is real, so the scan lives
 in the TEST (`test_no_doctype_retains_rows_for_a_drained_company`), where it runs
 once instead of once per teardown and fails loudly if a release adds another.
+
+**That measurement holds only for a company with NO GL Entry, and the difference
+is large.** erpnext gates its whole Account / Cost Center / Budget / Party Account
+cleanup on `rec = SELECT name FROM tabGL Entry WHERE company = %s; if not rec:`
+(`erpnext/setup/doctype/company/company.py:763`). Measured: the same probe company
+with one `tabGL Entry` row present survives its own delete carrying
+`{'Cost Center': 2, 'GL Entry': 1}`; without the row, `{}`. On a chart-bearing
+company that branch also strands its ~97 Accounts.
+
+Those are deliberately OUT of scope here, and the reason is not squeamishness: a
+stranded Account or Cost Center is a standalone document that nothing re-saves, so
+it does not reproduce the failure this sweep exists to prevent. `Expense Claim
+Account` is different precisely because its rows live inside `Expense Claim Type`
+-- a SHARED parent that hrms re-saves on the next Company insert, which is what
+turns a dangling link into a `LinkValidationError` in someone else's setUpClass.
+Sweeping accounting rows out from under a company that still has ledger entries
+would also be a much larger and riskier behaviour change than this fix.
 """
 
 import frappe
@@ -54,9 +71,15 @@ def company_orphans(company_name):
 def purge_company_orphans(company_name):
     """Remove the rows a Company delete left behind.
 
-    Call ONLY once that company's own row is gone -- same contract as
+    Normally called once that company's own row is gone -- same contract as
     `purge_ledger_rows`, and for the same reason: there is no live parent left for
     these to belong to.
+
+    The e_boekhouden probe teardown deliberately breaks that rule, calling this
+    whether or not its delete raised, because a part-completed delete strands the
+    same rows as a successful one. That is safe for the narrow reason that these
+    rows are re-created by hrms on the company's next `on_update`: sweeping them
+    from a company that survives costs a default, not data.
 
     Deleting child rows directly is what hrms's own `delete_docs_with_company_field`
     does for the doctypes it covers; this is the same move for the one it missed.

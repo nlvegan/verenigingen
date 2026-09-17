@@ -2164,6 +2164,14 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         move the leak ratchet by an amount nobody has measured (#482 discussion).
         """
         if not frappe.db.exists(doctype, name):
+            # The row being gone does NOT mean its orphans are: a Company deleted by
+            # somebody else's cleanup strands exactly the same rows, and this drain is
+            # now the primary defence against them. Cheap -- one query, and only for
+            # Company. (A delete that RAISES below still skips the sweep; that path
+            # propagates so the caller can record a leak, and re-ordering it is a
+            # behaviour change to the leak ratchet that needs its own measurement.)
+            if doctype == "Company":
+                purge_company_orphans(name)
             return
 
         # `is_submittable`, NOT `docstatus == 1` alone. The framework gate is
@@ -2236,6 +2244,12 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         #
         # `Company` is deliberately NOT in DRAIN_EXEMPT_DOCTYPES (see the comment
         # there), so this is the single choke point both drains reach.
+        # WARNING, like the ledger sweep above, which means the `>= ERROR` stderr
+        # mirror drops it and CI never sees it (see the census constants). Accepted
+        # because the sweep's blast radius is bounded BY CONSTRUCTION -- it filters on
+        # a Company docname that was unique and has just been deleted -- not because a
+        # success needs no record. If that filter ever widened, this line would be the
+        # only evidence of over-reach and CI would not have it.
         if doctype == "Company":
             swept = purge_company_orphans(name)
             if swept:

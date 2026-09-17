@@ -27,6 +27,7 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
 from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.tests.setup import ensure_root_territory
+from verenigingen.tests.utils.company_orphans import purge_company_orphans
 
 
 class _DrainProbe(EnhancedTestCase):
@@ -3662,10 +3663,6 @@ class BuilderRegistersTheDoctypeItActuallyInsertedTest(
         self.assertIn("Expense Claim", str(ctx.exception))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class DrainSweepsCompanyOrphansTest(unittest.TestCase):
     """#1154: force-deleting a Company strands rows that nothing else removes.
 
@@ -3705,7 +3702,30 @@ class DrainSweepsCompanyOrphansTest(unittest.TestCase):
             frappe.delete_doc("Company", self.company, force=True, ignore_permissions=True)
         frappe.db.commit()
 
-    def _create_company_without_a_chart(self):
+    def _create_company(self, with_a_chart=False):
+        """Build the probe company.
+
+        `with_a_chart=False` is the cheap default: the sweep keys on `company`, so
+        the chart is irrelevant to whether a seeded row is removed.
+
+        `with_a_chart=True` matters for the DRIFT guard and nothing else. Every
+        hrms `Company` hook -- `set_expense_claim_type_accounts` included, which is
+        the one that writes the rows this whole issue is about -- returns on its
+        first line when `ignore_chart_of_accounts` is set. A chart-less probe
+        therefore triggers no hrms hook at all, so a guard built on it could never
+        see a NEW hrms hook appear, which is the only thing it exists to catch.
+        """
+        if with_a_chart:
+            frappe.get_doc(
+                {
+                    "doctype": "Company",
+                    "company_name": self.company,
+                    "abbr": self.abbr,
+                    "default_currency": "EUR",
+                    "country": "Netherlands",
+                }
+            ).insert()
+            return
         frappe.local.flags.ignore_chart_of_accounts = True
         try:
             frappe.get_doc(
@@ -3745,21 +3765,27 @@ class DrainSweepsCompanyOrphansTest(unittest.TestCase):
             "Expense Claim Account", filters={"company": self.company}, pluck="name"
         )
 
-    def _doctypes_with_a_company_link(self):
-        """(doctype, fieldname) for every Link-to-Company field in the install."""
-        pairs = set()
-        for source, dt_field in (("DocField", "parent"), ("Custom Field", "dt")):
+    @staticmethod
+    def _company_link_pairs(source, dt_field):
+        return {
+            (row.dt, row.fieldname)
             for row in frappe.get_all(
                 source,
                 filters={"fieldtype": "Link", "options": "Company"},
                 fields=[f"{dt_field} as dt", "fieldname"],
-            ):
-                if row.dt and row.fieldname:
-                    pairs.add((row.dt, row.fieldname))
-        return sorted(pairs)
+            )
+            if row.dt and row.fieldname
+        }
+
+    def _doctypes_with_a_company_link(self):
+        """(doctype, fieldname) for every Link-to-Company field in the install."""
+        return sorted(
+            self._company_link_pairs("DocField", "parent")
+            | self._company_link_pairs("Custom Field", "dt")
+        )
 
     def test_the_drain_sweeps_the_rows_its_own_delete_strands(self):
-        self._create_company_without_a_chart()
+        self._create_company()
         self._strand_the_row_hrms_would_have_written()
         self.assertTrue(
             self._orphans(),
@@ -3781,6 +3807,45 @@ class DrainSweepsCompanyOrphansTest(unittest.TestCase):
             "insert in the shard (#1154)",
         )
 
+    def test_Company_is_NOT_drain_exempt(self):
+        """The one line that silently disables everything above.
+
+        Both drains consult `DRAIN_EXEMPT_DOCTYPES` before calling
+        `_remove_drained_record`, and the new tests call that method directly --
+        so adding "Company" to the frozenset turns the sweep off entirely and
+        leaves 66/66 green (measured). `enhanced_test_factory.py` already records
+        that Company WAS exempted once and that it was wrong; this makes undoing
+        that decision fail loudly. Sibling of `test_ledger_derivatives_are_NOT_exempt`.
+        """
+        self.assertNotIn(
+            "Company",
+            EnhancedTestCase.DRAIN_EXEMPT_DOCTYPES,
+            "exempting Company stops both drains ever reaching the orphan sweep, so "
+            "every drained company strands its Expense Claim Account rows again (#1154)",
+        )
+
+    def test_the_sweep_reports_how_many_rows_it_removed(self):
+        """The return value gates the log line, and nothing else pins it.
+
+        Measured: `purge_company_orphans` could `return 0` while still deleting the
+        rows, and both modules stayed green -- so `removed`, and the `if swept:`
+        branch in `_remove_drained_record` that consumes it, were entirely
+        unexercised. The count is the only record the drain leaves of a sweep
+        having happened at all.
+        """
+        self._create_company()
+        self.assertEqual(
+            purge_company_orphans(self.company), 0, "nothing stranded yet, so nothing to sweep"
+        )
+
+        self._strand_the_row_hrms_would_have_written()
+        self.assertEqual(
+            purge_company_orphans(self.company),
+            1,
+            "the sweep must report the number of rows it actually removed",
+        )
+        self.assertEqual(self._orphans(), [], "and it must actually have removed them")
+
     def test_no_doctype_retains_rows_for_a_drained_company(self):
         """Drift guard for `COMPANY_ORPHAN_DOCTYPES`.
 
@@ -3794,7 +3859,8 @@ class DrainSweepsCompanyOrphansTest(unittest.TestCase):
         expensive per teardown (190 queries per drained Company). It costs nothing
         run once, here.
         """
-        self._create_company_without_a_chart()
+        # Chart-bearing on purpose -- see `_create_company`.
+        self._create_company(with_a_chart=True)
         self._strand_the_row_hrms_would_have_written()
 
         _probe()._remove_drained_record("Company", self.company)
@@ -3815,13 +3881,30 @@ class DrainSweepsCompanyOrphansTest(unittest.TestCase):
             f"only {len(pairs)} company-linked fields found; the scan is not reaching "
             "the install's real doctype set",
         )
+        # Per SOURCE, not just in total: with only the aggregate control, dropping
+        # the `Custom Field` half of the scan leaves every assertion above
+        # satisfied (219 DocField pairs still pass both), so a customisation-only
+        # company link would go unwatched.
+        for source_name, source_pairs in (
+            ("DocField", self._company_link_pairs("DocField", "parent")),
+            ("Custom Field", self._company_link_pairs("Custom Field", "dt")),
+        ):
+            self.assertTrue(
+                source_pairs, f"the drift scan found no company links via {source_name}"
+            )
+            # Against the AGGREGATE, not just the helper: asserting the helper
+            # returns rows leaves `_doctypes_with_a_company_link` free to drop the
+            # source entirely and still pass (measured -- it did).
+            self.assertTrue(
+                source_pairs <= set(pairs),
+                f"{source_name} contributes company links the scan does not include",
+            )
 
         survivors, unqueryable = {}, {}
         for doctype, fieldname in pairs:
-            meta = frappe.get_meta(doctype)
-            if meta.issingle or not frappe.db.table_exists(doctype):
-                continue
             try:
+                if frappe.get_meta(doctype).issingle or not frappe.db.table_exists(doctype):
+                    continue
                 rows = frappe.get_all(doctype, filters={fieldname: self.company}, pluck="name")
             except Exception as e:  # noqa: BLE001 - reported below, never swallowed
                 unqueryable[doctype] = str(e)
@@ -3838,3 +3921,7 @@ class DrainSweepsCompanyOrphansTest(unittest.TestCase):
             "a doctype other than Expense Claim Account now survives a Company "
             "force-delete; add it to COMPANY_ORPHAN_DOCTYPES (#1154)",
         )
+
+
+if __name__ == "__main__":
+    unittest.main()

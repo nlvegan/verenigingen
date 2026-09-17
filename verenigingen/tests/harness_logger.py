@@ -197,8 +197,8 @@ class _StderrHandler(logging.StreamHandler):
     "exactly one ERROR". Both alias-form loggers (``logger = get_harness_logger(...)``, as
     ``enhanced_test_factory`` and ``tests/setup`` cache them) and inline
     ``get_harness_logger(...).level(...)`` calls were matched; a scan for only one shape
-    misses the other entirely, and route 3 is 14 alias-form calls to 1 inline -- an
-    alias-blind scan reports it as a single call and the sixteen WARNINGs become one.
+    misses the other entirely, and route 3 is 15 alias-form calls to 1 inline -- an
+    alias-blind scan reports it as a single call and the seventeen WARNINGs become one.
 
     So ``emit`` mirrors onto ``sys.__stderr__``, which the runner never swaps, for
     records at ERROR and above. Measured through the real ``TestResult`` with
@@ -214,11 +214,11 @@ class _StderrHandler(logging.StreamHandler):
     duplicates every in-test record and gives back the attribution the lazy read was
     for. ERROR is where the gate sits because that is the level of the three
     class-teardown records that must not be lost, above. It does NOT cover the other
-    seventeen -- see the residual limit.
+    eighteen -- see the residual limit.
 
     **The residual limit:** anything below ERROR from class teardown is still lost -- a
-    ``.warning()``, ``.info()`` or ``.debug()``. Measured, that is seventeen of the
-    twenty: sixteen WARNING and one DEBUG. No INFO site is class-teardown-reachable
+    ``.warning()``, ``.info()`` or ``.debug()``. Measured, that is eighteen of the
+    twenty-one: seventeen WARNING and one DEBUG. No INFO site is class-teardown-reachable
     today, so the gate's INFO behaviour is untested by that census rather than confirmed
     by it. Fixing the loss properly means draining the buffer in ``stopTestRun``, which is
     ``frappe/``'s to do, not this app's.

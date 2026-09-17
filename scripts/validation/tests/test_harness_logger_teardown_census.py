@@ -10,7 +10,7 @@ WHY THIS EXISTS, and why it is not merely a number-matching ratchet:
 ``sys.__stderr__`` only at ``>= ERROR``. That threshold is not arbitrary -- the
 docstring justifies it by saying ERROR is the level of the class-teardown
 records that must not be lost (three, as of #815), and explicitly accepts that
-the other seventeen (16 WARNING + 1 DEBUG) ARE lost.
+the other eighteen (17 WARNING + 1 DEBUG) ARE lost.
 
 That justification holds only while the census does. Add a class-teardown route
 that logs at WARNING something which must not be lost, and the gate silently
@@ -142,14 +142,14 @@ class TestHarnessLoggerTeardownCensus(unittest.TestCase):
         )
 
     def test_the_residual_limit_is_still_the_documented_size(self):
-        """17 of 20 records are below ERROR and are LOST. The docstring says so."""
+        """18 of 21 records are below ERROR and are LOST. The docstring says so."""
         _routes, sites, _fns = v.census("mro")
         below = [s for s in sites if s[2] not in ("error", "critical", "exception")]
         self.assertEqual(
             len(below),
             RESIDUAL_BELOW_ERROR,
-            "harness_logger.py's 'residual limit' paragraph says seventeen of the "
-            f"twenty class-teardown records are below ERROR and lost. Now {len(below)}. "
+            "harness_logger.py's 'residual limit' paragraph says eighteen of the "
+            f"twenty-one class-teardown records are below ERROR and lost. Now {len(below)}. "
             "Update the paragraph, not just the baseline.",
         )
 

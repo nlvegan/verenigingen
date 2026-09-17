@@ -36,6 +36,7 @@ from verenigingen.tests.support.sepa_test_company import (
     get_eur_bank_account,
     get_eur_test_company,
 )
+from verenigingen.tests.utils.company_orphans import purge_company_orphans
 
 # Mirrors test_e_boekhouden_migration.setUpClass -- a EUR company with an EMPTY
 # Chart of Accounts. Named distinctly so this module never races the real thing.
@@ -154,15 +155,66 @@ class TestEurTestCompanyResolver(FrappeTestCase):
         )
 
     def _delete_company(self, name):
-        """Remove the company the guard test built.
+        """Remove the company the guard test built, AND what deleting it strands.
 
         ``_create_eur_test_company`` commits, so this cannot be left to the test
         framework's rollback.
+
+        The sweep is not defensive padding. `_build_and_verify` inserts this company
+        WITHOUT `ignore_chart_of_accounts`, so in CI hrms's
+        `set_expense_claim_type_accounts` writes an `Expense Claim Account` row onto
+        every `Expense Claim Type` for it -- and a `force=True` delete leaves them
+        dangling, erroring the next Company insert in the shard (#1150 / #1154).
+        This company is built inside `_suspend_insert_capture()`, so the drain never
+        sees it and the sweep at `_remove_drained_record` cannot reach it: this is
+        the one force-delete in the app that has to do its own.
         """
         if not frappe.db.exists("Company", name):
             return
         frappe.delete_doc("Company", name, force=True, ignore_permissions=True)
+        purge_company_orphans(name)
         frappe.db.commit()
+
+    def _strand_an_orphan_row(self, company_name):
+        """Write the child row hrms writes, with links that will dangle."""
+        types = sorted(frappe.get_all("Expense Claim Type", pluck="name"))
+        self.assertTrue(types, "no Expense Claim Type on this site to strand a row on")
+        doc = frappe.get_doc("Expense Claim Type", types[0])
+        doc.append("accounts", {"company": company_name, "default_account": "Expense Claims - ZZZ"})
+        doc.flags.ignore_links = True
+        doc.flags.ignore_validate = True
+        doc.save()
+
+    def test_deleting_the_guard_company_sweeps_the_rows_it_strands(self):
+        """#1154: this force-delete is outside the drain, so it owns its own sweep.
+
+        `_build_and_verify` builds chart-bearing, which is exactly the condition
+        under which hrms writes the rows -- so in CI this teardown really does
+        strand them, and no other layer will clean up after it.
+        """
+        company = "TEST-SEPA-Orphan-Sweep-Co"
+        self.addCleanup(frappe.db.commit)
+        self.addCleanup(
+            lambda: frappe.db.delete("Expense Claim Account", {"company": company})
+        )
+        self.addCleanup(self._delete_company, company)
+
+        with self.patch_preferred_company(company, "TSOSC"):
+            get_eur_test_company()
+        self._strand_an_orphan_row(company)
+        self.assertTrue(
+            frappe.get_all("Expense Claim Account", filters={"company": company}, pluck="name"),
+            "sanity check: the seed must actually have stranded a row",
+        )
+
+        self._delete_company(company)
+
+        self.assertEqual(
+            frappe.get_all("Expense Claim Account", filters={"company": company}, pluck="name"),
+            [],
+            "this teardown force-deletes a chart-bearing company outside the drain, so "
+            "it must sweep the Expense Claim Account rows it strands (#1154)",
+        )
 
 
 class TestOwnedGlBankAccount(FrappeTestCase):
