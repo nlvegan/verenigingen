@@ -64,8 +64,22 @@ MRO_CALLS, MRO_ERRORS, MRO_TEARDOWNS = 20, 3, 11
 # not incremented -- census("name") returns 37 sites / 9 error, census("mro")
 # is unchanged at 20 / 3 / 11 (this route has no MRO-reachable counterpart),
 # so RESIDUAL_BELOW_ERROR (20-3) stays 17.
-NAME_CALLS, NAME_ERRORS = 37, 9
-RESIDUAL_BELOW_ERROR = 17  # unchanged: MRO mode (20/3/11) is untouched by this route
+# 37, 9 -> 40, 12 (#1150): the probe teardown in
+# test_rest_migration_payments.py goes from ONE harness-logger site (the #392
+# one above, which `PROBE-TEARDOWN-RAISED` replaces) to four, so the delta is
+# +3, not +4. The four are --
+# `PROBE-TEARDOWN-RAISED` (the delete raised), `PROBE-RESIDUE` (rows survived
+# the delete), `PROBE-ORPHAN-SWEEP-FAILED` (the #1150 cleanup itself failed) and
+# `PROBE-RESIDUE-CHECK-FAILED` (the detector raised). All four are `.error()`,
+# deliberately: every one of them reports a teardown that did not do its job,
+# which is precisely the class the `>= ERROR` mirror exists to carry to stderr.
+# None is below ERROR, so the gate's rationale is unchanged rather than merely
+# still-true-by-luck. Re-measured, not incremented: census("name") returns
+# 40 sites / 12 error, census("mro") is unchanged at 20 / 3 / 11 (these routes
+# are plain module-level functions and a plain unittest.TestCase tearDown, with
+# no MRO-reachable counterpart), so RESIDUAL_BELOW_ERROR (20-3) stays 17.
+NAME_CALLS, NAME_ERRORS = 40, 12
+RESIDUAL_BELOW_ERROR = 17  # unchanged: MRO mode (20/3/11) is untouched by these routes
 
 
 class TestHarnessLoggerTeardownCensus(unittest.TestCase):
