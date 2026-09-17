@@ -353,6 +353,7 @@ COMMIT_EXEMPT tests/e_boekhouden/test_rest_migration_payments.py::7  # order-dep
 COMMIT_EXEMPT tests/e_boekhouden/test_rest_orchestration_batch.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/e_boekhouden/test_rest_orchestration_start.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/e_boekhouden/test_settings.py::2  # order-dep-exempt
+COMMIT_EXEMPT tests/financial/test_mollie_financial_safeguards.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/fixtures/test_membership_type_amount_sync.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/integration/services/test_coverage_calculator_module.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/integration/services/test_cutoff_date_calculations.py::1  # order-dep-exempt

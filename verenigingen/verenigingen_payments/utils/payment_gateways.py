@@ -2248,6 +2248,22 @@ def _process_subscription_payment(gateway, member_name, member_customer, payment
         # comment warned nothing enforces). Deleted; the FOR UPDATE lock is taken
         # in the ambient request transaction, same as every other caller before
         # this line, and released by the existing commit()/rollback() below.
+        #
+        # The "clean caller" invariant itself is NOT gone, and still matters --
+        # only WHERE it bites changed. Caller chain re-verified 2026-07-26:
+        # mollie_subscription_webhook -> _authenticate_and_parse_subscription_
+        # payload (logger only) -> _find_member_for_subscription (writes an
+        # Error Log only on branches that abort) -> PaymentGatewayFactory.
+        # get_gateway (reads). This is a whole-chain invariant nothing
+        # enforces: one frappe.log_error() added to the webhook's happy path
+        # arms it. Before this fix, an upstream write made every single call
+        # fail loudly with ImplicitCommitError -- impossible to miss. Now it
+        # does not fail at all in the common case; it only matters on the
+        # race-losing branch below (see the frappe.db.rollback() in the
+        # UniqueValidationError recovery), where it silently discards
+        # whatever that upstream write was. The failure mode got quieter, not
+        # safer -- see that comment for what actually breaks and why nothing
+        # here would catch a future regression of this invariant.
         try:
             # IDEMPOTENCY / RACE PROTECTION: concurrent webhooks for the same Mollie
             # payment must not create duplicate Payment Entries. Serialise on the
@@ -2403,6 +2419,17 @@ def _process_subscription_payment(gateway, member_name, member_customer, payment
                 # frappe/database/database.py), so the read below sees the
                 # winner's already-committed row instead of the stale snapshot
                 # that let this insert reach the constraint in the first place.
+                #
+                # This rollback() undoes the WHOLE transaction, not just this
+                # function's own work -- including any write a caller made
+                # before invoking this function at all (see the "clean
+                # caller" note above the try: block). That is silent and
+                # currently harmless only because nothing upstream writes
+                # today; if that ever changes, this branch -- reached only
+                # when two callers race for the same payment -- would discard
+                # the caller's earlier write without telling anyone, and
+                # still report an ordinary "duplicate" success. Nothing here
+                # tests for that regression; it is documented, not guarded.
                 frappe.db.rollback()
                 return {
                     "status": "duplicate",
