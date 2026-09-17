@@ -26,7 +26,7 @@ status / linkage) so a regression in the wiring fails the test.
 
 Run with::
 
-    cd /home/frappeuser/frappe-bench && bench --site veg11.veganisme.org \\
+    cd /home/frappeuser/frappe-bench && bench --site test_site_1 \\
         run-tests --app verenigingen \\
         --module verenigingen.tests.e_boekhouden.test_payment_processor_sweep
 """
