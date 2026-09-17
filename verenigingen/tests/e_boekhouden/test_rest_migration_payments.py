@@ -579,12 +579,19 @@ def _abbr_like_pattern(abbr: str) -> str:
 # `company_data_to_be_ignored` hook, which does not include this one. Meanwhile
 # hrms's `Company.on_update` (`set_expense_claim_type_accounts`, version-16)
 # writes one such row onto EVERY Expense Claim Type. That asymmetry is #1150.
+# Measured, not enumerated by reading: all 190 doctypes carrying a `company`
+# Link field were counted across a real force-delete of a CoA-bearing Company
+# (97 Accounts, 2 Cost Centers, 13 Departments, 5 Expense Claim Accounts, 2 Item
+# Tax Templates, 1 Mode of Payment Account, 2 Purchase and 2 Sales Taxes and
+# Charges Templates, 5 Warehouses). Exactly one survived: Expense Claim Account.
 _ORPHANED_BY_COMPANY_DELETE = ("Expense Claim Account",)
 
-# Rows that `Company.on_trash` DOES sweep. Finding one of these is a different
-# failure -- an on_trash interrupted part-way -- with the same dangling-link
-# consequence, so the detector reports them too. They are NOT the expected
-# residue, which is what the first list is for.
+# A SAMPLE of the rows `Company.on_trash` DOES sweep -- not the whole set; the
+# same scan shows Account, Department, Item Tax Template and the Purchase/Sales
+# Taxes and Charges Templates are swept too and are not listed here. Finding one
+# of these is a different failure -- an on_trash interrupted part-way -- with the
+# same dangling-link consequence, so the detector reports them. They are NOT the
+# expected residue, which is what the first list is for.
 _SWEPT_BY_COMPANY_ON_TRASH = ("Cost Center", "Warehouse", "Mode of Payment Account")
 
 # A residue line is a diagnostic, not a dump: pointing the detector at a
@@ -593,8 +600,8 @@ _SWEPT_BY_COMPANY_ON_TRASH = ("Cost Center", "Warehouse", "Mode of Payment Accou
 _RESIDUE_SAMPLE = 5
 
 
-def _delete_company_orphans(company_name: str) -> dict:
-    """Delete the rows a Company delete strands, and return what was deleted.
+def _delete_company_orphans(company_name: str) -> None:
+    """Delete the rows a Company delete strands.
 
     This is the #1150 fix rather than a diagnostic: the probe's Company insert
     causes these rows, so the probe's teardown owns removing them. Left behind,
@@ -606,13 +613,13 @@ def _delete_company_orphans(company_name: str) -> dict:
     Deleting child rows directly is the same move hrms's own
     `delete_docs_with_company_field` makes for the doctypes it does cover.
     """
-    deleted = {}
+    # Returns nothing on purpose: a return value no caller consumes is what the
+    # first round of this PR shipped, and every assertion against it proved
+    # nothing. The observable effect is the deleted rows; assert on those.
     for doctype in _ORPHANED_BY_COMPANY_DELETE:
         rows = frappe.get_all(doctype, filters={"company": company_name}, pluck="name")
         if rows:
             frappe.db.delete(doctype, {"name": ("in", rows)})
-            deleted[doctype] = rows
-    return deleted
 
 
 def _report_teardown_exception(company_name: str) -> None:
@@ -657,6 +664,19 @@ def _probe_residue(company_name: str, abbr: str) -> dict:
     return residue
 
 
+def _residue_tag(when: str) -> str:
+    """Self-test lines get a DIFFERENT tag, not a suffixed one.
+
+    The whole point of #1150's diagnostic is `grep PROBE-RESIDUE <shard log>`.
+    The controls in this file always have residue (they are pointed at a real,
+    long-lived company), so on the previous round every `PROBE-` line in the CI
+    shard log came from them and none from the real teardown. A tag that merely
+    extends the real one -- `PROBE-RESIDUE-CONTROL` -- would still match that
+    grep, so the two are deliberately non-prefixing.
+    """
+    return "PROBE-SELFTEST" if when == "control" else "PROBE-RESIDUE"
+
+
 def _sample(rows: list) -> str:
     """Render at most `_RESIDUE_SAMPLE` names, but always the true total."""
     if len(rows) <= _RESIDUE_SAMPLE:
@@ -676,7 +696,7 @@ def _report_probe_residue(company_name: str, abbr: str, when: str) -> dict:
     if residue:
         detail = "; ".join(f"{dt}={_sample(rows)}" for dt, rows in residue.items())
         get_harness_logger("test_rest_migration_payments").error(
-            f"PROBE-RESIDUE ({when}) {company_name} abbr={abbr}: {detail}"
+            f"{_residue_tag(when)} ({when}) {company_name} abbr={abbr}: {detail}"
         )
     return residue
 
@@ -815,12 +835,26 @@ class TestProbeTeardownCleansItsCompanyOrphans(unittest.TestCase):
         row survives with a `company` that no longer exists, which is precisely
         what `force=True` on the Company delete leaves behind.
         """
-        # Named, not "whatever get_all returns first": an arbitrary pick would be
-        # order-dependent, and `Calls` is the standard hrms Expense Claim Type the
-        # #1150 traceback itself names.
-        if not frappe.db.exists(self.ORPHAN_PARENT_DOCTYPE, self.ORPHAN_PARENT):
-            self.skipTest(f"no Expense Claim Type {self.ORPHAN_PARENT!r} on this site")
-        doc = frappe.get_doc(self.ORPHAN_PARENT_DOCTYPE, self.ORPHAN_PARENT)
+        # `Calls` is the standard hrms Expense Claim Type the #1150 traceback
+        # itself names -- but hrms creates it as `_("Calls")`, so on a non-English
+        # site the name differs. Falling back to the alphabetically first type
+        # keeps this working there; WHICH type is immaterial, because the sweep
+        # filters on `company`, never on the parent. Absence of every type is a
+        # FAILURE, not a skip: this is the only test that proves the #1150 fix,
+        # and a silent skip would take it out of the run with no signal.
+        types = sorted(frappe.get_all(self.ORPHAN_PARENT_DOCTYPE, pluck="name"))
+        self.assertTrue(
+            types,
+            "no Expense Claim Type exists on this site, so the #1150 fix cannot "
+            "be exercised at all -- failing loudly rather than skipping",
+        )
+        parent = self.ORPHAN_PARENT if self.ORPHAN_PARENT in types else types[0]
+        # Registered BEFORE the write: if save() raises after update_children has
+        # already written the row, an addCleanup registered afterwards never runs
+        # and the next frappe.db.commit() in the process makes the row permanent
+        # -- which is #1150 itself, manufactured by the test that proves the fix.
+        self.addCleanup(self._cleanup_stranded_rows, company_name)
+        doc = frappe.get_doc(self.ORPHAN_PARENT_DOCTYPE, parent)
         doc.append("accounts", {"company": company_name, "default_account": f"Expense Claims - {abbr}"})
         # `ignore_links` alone is not enough: Expense Claim Type's own validate()
         # cross-checks that default_account belongs to the company. Both are
@@ -831,7 +865,6 @@ class TestProbeTeardownCleansItsCompanyOrphans(unittest.TestCase):
         doc.flags.ignore_mandatory = True
         doc.save(ignore_permissions=True)
         frappe.db.commit()
-        self.addCleanup(self._cleanup_stranded_rows, company_name)
 
     def _cleanup_stranded_rows(self, company_name):
         frappe.db.delete("Expense Claim Account", {"company": company_name})
@@ -839,6 +872,71 @@ class TestProbeTeardownCleansItsCompanyOrphans(unittest.TestCase):
 
     def _rows_for(self, company_name):
         return frappe.get_all("Expense Claim Account", filters={"company": company_name}, pluck="name")
+
+    def test_the_sweep_runs_even_when_the_company_delete_RAISES(self):
+        """The property the fix is built on, which nothing pinned.
+
+        Measured: inserting `return` into tearDown's `except` branch -- killing
+        exactly this -- left all 25 tests green. A part-completed delete strands
+        the same rows as a "successful" one, so the sweep must not be downstream
+        of the delete succeeding.
+
+        `frappe.delete_doc` is patched to RAISE, which is exception injection at
+        one call site, not a database stand-in: the stranded row, the sweep, and
+        the assertion are all real rows in the real database.
+        """
+        probe = TestEbPaymentCompanySurvivesCapture("test_ensure_payment_company_survives_capture")
+        probe.setUp()
+        self._create_stranded_row(probe.temp_company_name, probe.temp_company_abbr)
+        # The delete is guarded by `frappe.db.exists`, so without a Company row it
+        # never runs and the raise could not happen. Built under
+        # `ignore_chart_of_accounts` so this costs one row rather than ~100, and
+        # so hrms's own `set_expense_claim_type_accounts` returns on its first
+        # line -- this test must not become a second producer of the leak it
+        # exists to prove fixed.
+        self._create_bare_company(probe.temp_company_name, probe.temp_company_abbr)
+
+        with mock.patch.object(
+            frappe, "delete_doc", side_effect=RuntimeError("probe delete failed")
+        ):
+            probe.tearDown()
+
+        self.assertEqual(
+            self._rows_for(probe.temp_company_name),
+            [],
+            "the orphan sweep must run even when the Company delete raised -- a "
+            "part-completed delete strands exactly the same rows (#1150)",
+        )
+
+    def _create_bare_company(self, company_name, abbr):
+        """A Company row with no chart of accounts, committed so tearDown sees it."""
+        self.addCleanup(self._cleanup_company, company_name)
+        frappe.local.flags.ignore_chart_of_accounts = True
+        try:
+            frappe.get_doc(
+                {
+                    "doctype": "Company",
+                    "company_name": company_name,
+                    "abbr": abbr,
+                    "default_currency": "EUR",
+                    "country": "Netherlands",
+                }
+            ).insert()
+        finally:
+            frappe.local.flags.ignore_chart_of_accounts = False
+        frappe.db.commit()
+
+    def _cleanup_company(self, company_name):
+        """Delete the company AND what its deletion strands.
+
+        Sweeping here is not belt-and-braces: a force-delete leaves exactly the
+        rows this suite exists to catch, so a cleanup that skipped the sweep
+        would make this test a producer of #1150 -- the defect it proves fixed.
+        """
+        if frappe.db.exists("Company", company_name):
+            frappe.delete_doc("Company", company_name, force=True)
+        _delete_company_orphans(company_name)
+        frappe.db.commit()
 
     def test_teardown_deletes_the_expense_claim_account_rows_it_stranded(self):
         probe = TestEbPaymentCompanySurvivesCapture("test_ensure_payment_company_survives_capture")
@@ -900,14 +998,22 @@ class TestProbeResidueDetector(unittest.TestCase):
 
     def test_finds_accounts_by_the_company_abbr_suffix(self):
         """The stranded row in #1150 was `Expense Claims - TPPf171c` -- an Account
-        carrying the probe's abbr. Pin that the suffix filter actually matches
-        that shape, against a real account name from this site."""
-        named = [n for n in frappe.get_all("Account", pluck="name", limit=50) if "- " in n]
-        if not named:
-            self.skipTest("no abbr-suffixed Account on this site to probe against")
-        abbr = named[0].rsplit("- ", 1)[-1]
-        residue = _probe_residue("TEST-EB-Probe-Does-Not-Exist-zzzzzz", abbr)
-        self.assertIn(named[0], residue["Account"])
+        carrying the probe's abbr. Pin that the suffix filter matches that shape
+        against real rows.
+
+        Keyed on the named control company's own abbr rather than on whatever
+        `get_all(limit=50)[0]` happens to return: the arbitrary pick is the same
+        order-dependence this round removed from three sibling tests, and the
+        ratchet misses it only because its REUSE rule fires on `limit=1`.
+        """
+        company = self._control_company()
+        abbr = frappe.db.get_value("Company", company, "abbr")
+        rows = _probe_residue("TEST-EB-Probe-Does-Not-Exist-zzzzzz", abbr)["Account"]
+        self.assertTrue(rows, f"{company} must own at least one `- {abbr}` account")
+        for name in rows:
+            self.assertTrue(
+                name.endswith(f"- {abbr}"), f"{name} matched but does not end in '- {abbr}'"
+            )
 
     def test_reporter_returns_residue_when_rows_survive(self):
         """Control for the tearDown wiring. A clean CI run logging nothing only
@@ -940,7 +1046,7 @@ class TestProbeResidueDetector(unittest.TestCase):
         with self.assertLogs(LOGGER_NAME, level="ERROR") as captured:
             _report_probe_residue(existing[0], "NOSUCHABBRZZZ", "control")
         joined = "\n".join(captured.output)
-        self.assertIn("PROBE-RESIDUE", joined)
+        self.assertIn(_residue_tag("control"), joined)
         self.assertIn(existing[0], joined)
 
     def test_teardown_exception_reporter_EMITS_a_full_traceback(self):
@@ -968,6 +1074,20 @@ class TestProbeResidueDetector(unittest.TestCase):
         self.assertEqual(_like_escape("_TC"), "\\_TC")
         self.assertEqual(_like_escape("50%"), "50\\%")
         self.assertEqual(_like_escape("a\\b"), "a\\\\b")
+
+    def test_the_selftest_tag_cannot_be_grepped_as_a_real_residue(self):
+        """`grep PROBE-RESIDUE` on a shard log must return real leaks only.
+
+        The controls in this file always have residue, so they emit on every CI
+        run. On the previous round every `PROBE-` line in the shard log came from
+        them -- which is how a real leak went unnoticed while the instrument
+        looked like it was working. A suffixed tag would still match the grep, so
+        assert the two tags do not prefix each other in either direction.
+        """
+        real, selftest = _residue_tag("after tearDown"), _residue_tag("control")
+        self.assertNotEqual(real, selftest)
+        self.assertFalse(selftest.startswith(real), f"{selftest!r} still matches a grep for {real!r}")
+        self.assertFalse(real.startswith(selftest))
 
     def test_the_abbr_pattern_neutralises_wildcards_IN_MARIADB(self):
         """Ask the database, not the string.
@@ -1024,11 +1144,3 @@ class TestProbeResidueDetector(unittest.TestCase):
             probe.tearDown()
         sweep.assert_called_once_with(probe.temp_company_name)
 
-    def test_escaped_abbr_still_matches_its_own_accounts(self):
-        """Control for the escaping: neutralising the wildcard must not break the
-        legitimate literal match."""
-        rows = _probe_residue("TEST-EB-Probe-Does-Not-Exist-zzzzzz", "_TC")["Account"]
-        if not rows:
-            self.skipTest("no `- _TC` account on this site")
-        for name in rows:
-            self.assertTrue(name.endswith("- _TC"), f"{name} matched but does not end in '- _TC'")

@@ -65,8 +65,9 @@ MRO_CALLS, MRO_ERRORS, MRO_TEARDOWNS = 20, 3, 11
 # is unchanged at 20 / 3 / 11 (this route has no MRO-reachable counterpart),
 # so RESIDUAL_BELOW_ERROR (20-3) stays 17.
 # 37, 9 -> 40, 12 (#1150): the probe teardown in
-# test_rest_migration_payments.py gains three routes. It previously had ONE
-# harness-logger site (the #392 one above); it now has four --
+# test_rest_migration_payments.py goes from ONE harness-logger site (the #392
+# one above, which `PROBE-TEARDOWN-RAISED` replaces) to four, so the delta is
+# +3, not +4. The four are --
 # `PROBE-TEARDOWN-RAISED` (the delete raised), `PROBE-RESIDUE` (rows survived
 # the delete), `PROBE-ORPHAN-SWEEP-FAILED` (the #1150 cleanup itself failed) and
 # `PROBE-RESIDUE-CHECK-FAILED` (the detector raised). All four are `.error()`,
