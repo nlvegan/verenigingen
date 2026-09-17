@@ -551,6 +551,43 @@ def _create_probe_company(module_name, temp_name, temp_abbr):
     frappe.db.commit()
 
 
+def _probe_residue(company_name: str, abbr: str) -> dict:
+    """Rows that must NOT survive this probe's tearDown, keyed by doctype.
+
+    #1150: the teardown deletes the probe Company with ``force=True``, which
+    SKIPS link validation. So the delete can report success and still strand an
+    Account that another Company's default-account row points at -- and the next
+    ``Company`` insert in the same shard then dies with
+    ``LinkValidationError: Could not find Row #N: ... Default Account:
+    Expense Claims - <abbr>``, erroring four ``setUpClass`` calls that never
+    touched this module. Checking the Company row alone would not see that, so
+    this also looks for Accounts carrying the probe's abbr.
+    """
+    return {
+        "Company": [company_name] if frappe.db.exists("Company", company_name) else [],
+        "Account": frappe.get_all(
+            "Account", filters={"name": ("like", f"%- {abbr}")}, pluck="name"
+        ),
+    }
+
+
+def _report_probe_residue(company_name: str, abbr: str, when: str) -> dict:
+    """Log any surviving probe rows LOUDLY, and return them.
+
+    Loud means the harness logger (stderr, reaches the CI job log) rather than
+    ``frappe.logger()``, which writes to a file CI never uploads -- see
+    CLAUDE.md's "known traps". The tag is greppable on purpose: a shard log is
+    1.4MB and this needs to be findable without reading it.
+    """
+    residue = {dt: rows for dt, rows in _probe_residue(company_name, abbr).items() if rows}
+    if residue:
+        detail = "; ".join(f"{dt}={rows}" for dt, rows in residue.items())
+        get_harness_logger("test_rest_migration_payments").error(
+            f"PROBE-RESIDUE ({when}) {company_name} abbr={abbr}: {detail}"
+        )
+    return residue
+
+
 class TestEbPaymentCompanySurvivesCapture(unittest.TestCase):
     """#392: ``_ensure_payment_company`` is protected from the captured-insert
     drain only by accident -- it happens to be called from
@@ -583,16 +620,24 @@ class TestEbPaymentCompanySurvivesCapture(unittest.TestCase):
         # A failed delete must be visible, not swallowed: frappe.logger() writes
         # to a file CI never surfaces (see CLAUDE.md's "known traps"), so use the
         # harness logger, which reaches stderr and the CI job log.
+        #
+        # #1150: `str(e)` alone cannot answer the question this failure poses --
+        # whether the delete RAISES or silently half-succeeds -- so log the full
+        # traceback, and then check for residue REGARDLESS of whether we raised.
+        # A `force=True` delete that reports success while stranding an Account
+        # is precisely the case the old `except` could not see, because it never
+        # ran on the success path at all.
         try:
             if frappe.db.exists("Company", self.temp_company_name):
                 frappe.delete_doc(
                     "Company", self.temp_company_name, force=True, ignore_permissions=True
                 )
                 frappe.db.commit()
-        except Exception as e:
+        except Exception:
             get_harness_logger("test_rest_migration_payments").error(
-                f"tearDown could not delete probe company {self.temp_company_name}: {e}"
+                f"PROBE-TEARDOWN-RAISED {self.temp_company_name}\n{frappe.get_traceback()}"
             )
+        _report_probe_residue(self.temp_company_name, self.temp_company_abbr, "after tearDown")
 
     def test_ensure_payment_company_survives_capture(self):
         module_name = "verenigingen.tests.e_boekhouden.test_rest_migration_payments"
@@ -625,3 +670,59 @@ class TestEbPaymentCompanySurvivesCapture(unittest.TestCase):
             "company the moment this helper is ever called from outside "
             "setUpClass (#392)",
         )
+
+
+class TestProbeResidueDetector(unittest.TestCase):
+    """#1150: the probe teardown force-deletes its Company, and ``force=True``
+    skips link validation -- so the delete can report success while stranding an
+    Account that another Company's default-account row still points at. That is
+    what erroring four ``setUpClass`` calls on shard 12 looks like from the
+    outside, and the swallowed ``except`` meant nothing recorded it.
+
+    These pin the detector that makes the residue visible. They query REAL rows
+    (no database mocks -- this is a Tier 2 path) and never create any, so they
+    cannot themselves leak what they exist to detect.
+    """
+
+    def test_reports_a_company_that_still_exists(self):
+        existing = frappe.get_all("Company", pluck="name", limit=1)
+        if not existing:
+            self.skipTest("no Company on this site to probe against")
+        residue = _probe_residue(existing[0], "NOSUCHABBRZZZ")
+        self.assertEqual(residue["Company"], [existing[0]])
+        # control: a bogus abbr must find nothing, or the Account filter is
+        # matching everything and the positive case below proves nothing.
+        self.assertEqual(residue["Account"], [])
+
+    def test_is_silent_for_a_company_that_is_really_gone(self):
+        residue = _probe_residue("TEST-EB-Probe-Does-Not-Exist-zzzzzz", "NOSUCHABBRZZZ")
+        self.assertEqual(residue["Company"], [])
+        self.assertEqual(residue["Account"], [])
+
+    def test_finds_accounts_by_the_company_abbr_suffix(self):
+        """The stranded row in #1150 was `Expense Claims - TPPf171c` -- an Account
+        carrying the probe's abbr. Pin that the suffix filter actually matches
+        that shape, against a real account name from this site."""
+        named = [n for n in frappe.get_all("Account", pluck="name", limit=50) if "- " in n]
+        if not named:
+            self.skipTest("no abbr-suffixed Account on this site to probe against")
+        abbr = named[0].rsplit("- ", 1)[-1]
+        residue = _probe_residue("TEST-EB-Probe-Does-Not-Exist-zzzzzz", abbr)
+        self.assertIn(named[0], residue["Account"])
+
+    def test_reporter_returns_residue_when_rows_survive(self):
+        """Control for the tearDown wiring. A clean CI run logging nothing only
+        means something if this path is known to fire when there IS residue --
+        otherwise silence is equally consistent with a broken detector, which is
+        how #1150 went unrecorded in the first place."""
+        existing = frappe.get_all("Company", pluck="name", limit=1)
+        if not existing:
+            self.skipTest("no Company on this site to probe against")
+        residue = _report_probe_residue(existing[0], "NOSUCHABBRZZZ", "control")
+        self.assertEqual(residue, {"Company": [existing[0]]})
+
+    def test_reporter_is_empty_when_nothing_survives(self):
+        residue = _report_probe_residue(
+            "TEST-EB-Probe-Does-Not-Exist-zzzzzz", "NOSUCHABBRZZZ", "control"
+        )
+        self.assertEqual(residue, {})
