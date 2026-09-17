@@ -372,7 +372,6 @@ verenigingen/utils/address_matching/dutch_address_normalizer.py::AddressFingerpr
 verenigingen/utils/address_matching/dutch_address_normalizer.py::AddressFingerprintCollisionHandler.resolve_collision::1
 verenigingen/utils/address_matching/optimized_matcher.py::OptimizedAddressMatcher._track_performance::1
 verenigingen/utils/admin_utilities/mandate_sync_utility.py::MandateSyncUtility._process_member::1
-verenigingen/utils/admin_utilities/subscription_audit.py::SubscriptionAudit._fetch_all_mollie_subscriptions::1
 verenigingen/utils/alert_manager.py::check_critical_errors::1
 verenigingen/utils/alert_manager.py::get_alert_statistics::1
 verenigingen/utils/alert_manager.py::run_daily_checks::1
@@ -751,6 +750,3 @@ verenigingen/www/dues_coverage_manager.py::get_coverage_data::1
 verenigingen/www/e_boekhouden_dashboard.py::get_live_dashboard_data::1
 verenigingen/www/mollie_member_reconciliation.py::get_member_reconciliation_data::1
 verenigingen/www/mollie_member_reconciliation.py::update_member_mollie_fields::1
-verenigingen/www/mollie_subscription_audit.py::bulk_update_subscription_webhooks::1
-verenigingen/www/mollie_subscription_audit.py::get_active_subscriptions_with_webhooks::1
-verenigingen/www/mollie_subscription_audit.py::run_audit::1

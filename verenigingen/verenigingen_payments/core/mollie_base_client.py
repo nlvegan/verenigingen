@@ -91,6 +91,7 @@ class MollieBaseClient:
         enable_cache: bool = True,
         cache_max_size: int = 100,
         cache_default_ttl: int = 300,
+        suppress_api_error_log: bool = False,
     ):
         """
         Initialize Mollie base client
@@ -104,6 +105,12 @@ class MollieBaseClient:
             enable_cache: Enable response caching (default: True)
             cache_max_size: Maximum number of cached responses (default: 100)
             cache_default_ttl: Default cache TTL in seconds (default: 300 = 5 minutes)
+            suppress_api_error_log: If True, request failures are still raised (and still
+                                        recorded to the audit trail) but skip this client's
+                                        own Error Log write (#1130). Set this when the caller
+                                        already owns a single, higher-context Error Log row
+                                        for the whole operation -- otherwise every failure is
+                                        logged twice: once here, once by the caller.
         """
         # Get settings (singleton)
         self.mollie_settings = frappe.get_single("Mollie Settings")
@@ -113,6 +120,7 @@ class MollieBaseClient:
         self.use_backend_api = use_backend_api
         self.strict_financial_validation = strict_financial_validation
         self.enable_cache = enable_cache
+        self.suppress_api_error_log = suppress_api_error_log
 
         # Get API key from settings if not provided.
         # Track whether the in-test bypass actually fired. Subclasses (e.g.
@@ -572,6 +580,7 @@ class MollieBaseClient:
             error=error,
             context=context,
             audit_trail=self.audit_trail,
+            log_to_error_log_override=(False if self.suppress_api_error_log else None),
         )
 
     def _handle_general_error(self, error: Exception, method: str, endpoint: str):
@@ -589,6 +598,7 @@ class MollieBaseClient:
             context=context,
             severity_override="critical",
             audit_trail=self.audit_trail,
+            log_to_error_log_override=(False if self.suppress_api_error_log else None),
         )
 
     def _log_api_call(self, method: str, endpoint: str, status_code: int):

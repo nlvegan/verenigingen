@@ -119,6 +119,40 @@ class TestMollieWwwPagesCoverage(VereningingenTestCase):
         self.assertIsInstance(result, dict)
         self.assertFalse(result.get("success"))
 
+    def test_audit_run_audit_writes_exactly_one_error_log_row(self):
+        """#1130: one failed Mollie call must not fan out into several Error Log rows.
+
+        Before the fix, the single 400 from GET /v2/subscriptions produced FOUR
+        rows: http_client's "HTTP Request Failed", error_handler's "Mollie
+        api_connection: HTTPError", subscription_audit.py's argument-swapped
+        "Subscription Audit", and this endpoint's own "Subscription Audit Error".
+        Only the last of those should remain -- it is this endpoint's canonical
+        failure log, asserted separately above.
+        """
+        with self.set_user(self.admin_email):
+            self.expectErrorLog("Subscription Audit Error")
+            marker = frappe.utils.now_datetime()
+            before = {
+                r.name
+                for r in frappe.get_all("Error Log", filters={"creation": [">=", marker]}, fields=["name"])
+            }
+            result = msa.run_audit()
+            rows = frappe.get_all(
+                "Error Log",
+                filters={"creation": [">=", marker]},
+                fields=["name", "method"],
+                order_by="creation asc",
+            )
+            rows = [r for r in rows if r.name not in before]
+
+        self.assertFalse(result.get("success"))
+        titles = [r.method for r in rows]
+        self.assertEqual(
+            titles,
+            ["Subscription Audit Error"],
+            f"expected exactly one Error Log row for a failed audit, got: {titles}",
+        )
+
     def test_audit_get_default_webhook_url_admin_path(self):
         """Admin passes the gate; result is a success OR a clean handled failure."""
         with self.set_user(self.admin_email):

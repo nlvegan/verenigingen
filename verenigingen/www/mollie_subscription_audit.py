@@ -89,9 +89,14 @@ def run_audit() -> OperationResult[Dict[str, Any]]:
         return OperationResult.ok(result, message=_("Subscription audit completed successfully"))
 
     except Exception as e:
+        # This is the one Error Log row for a run_audit() failure (#1130): the
+        # inner Mollie-API layers no longer log their own duplicate rows, so
+        # this outer, endpoint-level catch is what records it -- and it also
+        # catches non-Mollie failures (e.g. a bug in report generation) that
+        # never reach those layers at all.
         frappe.log_error(
-            f"Subscription audit failed: {str(e)}\n{traceback.format_exc()}",
-            "Subscription Audit Error",
+            title="Subscription Audit Error",
+            message=f"Subscription audit failed: {str(e)}\n{traceback.format_exc()}",
         )
         return OperationResult.fail(
             _("Unable to complete subscription audit. Please contact support."),
@@ -166,8 +171,8 @@ def get_active_subscriptions_with_webhooks() -> OperationResult[Dict[str, Any]]:
 
     except Exception as e:
         frappe.log_error(
-            f"Failed to fetch subscriptions: {str(e)}\n{traceback.format_exc()}",
-            "Webhook Fetch Error",
+            title="Webhook Fetch Error",
+            message=f"Failed to fetch subscriptions: {str(e)}\n{traceback.format_exc()}",
         )
         return OperationResult.fail(
             _("Failed to fetch active subscriptions"),
@@ -233,8 +238,8 @@ def bulk_update_subscription_webhooks(
 
     except Exception as e:
         frappe.log_error(
-            f"Failed to update webhooks: {str(e)}\n{traceback.format_exc()}",
-            "Webhook Update Error",
+            title="Webhook Update Error",
+            message=f"Failed to update webhooks: {str(e)}\n{traceback.format_exc()}",
         )
         return OperationResult.fail(
             _("Failed to update subscription webhooks"),
