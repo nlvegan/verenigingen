@@ -3664,3 +3664,177 @@ class BuilderRegistersTheDoctypeItActuallyInsertedTest(
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DrainSweepsCompanyOrphansTest(unittest.TestCase):
+    """#1154: force-deleting a Company strands rows that nothing else removes.
+
+    hrms `version-16`'s `Company.on_update` (`set_expense_claim_type_accounts`)
+    writes an `Expense Claim Account` child row -- carrying `company` and
+    `default_account` -- onto EVERY `Expense Claim Type`. Neither erpnext's
+    `Company.on_trash` nor hrms's `handle_linked_docs` (whose
+    `company_data_to_be_ignored` hook lists nine doctypes) removes it. So the
+    drain's own `force=True` delete leaves both links dangling, and the NEXT
+    Company insert in the shard dies in `_validate_links` while hrms saves the
+    Expense Claim Type:
+
+        LinkValidationError: Could not find Row #29: Company: <dead company>,
+                             Row #29: Default Account: Expense Claims - <abbr>
+
+    #1150 was one instance, fixed in its own teardown. This is the same defect at
+    the choke point: BOTH drains (`_drain_captured_inserts` and
+    `_drain_tracked_documents`) delete through `_remove_drained_record`, and
+    `Company` is deliberately NOT in `DRAIN_EXEMPT_DOCTYPES`.
+
+    The company here is built WITHOUT a chart of accounts and the stranded row is
+    written by hand. Deliberate: creating the row is hrms's business and does not
+    happen on this bench at all (the local hrms predates the function), while what
+    this tests is the DELETION half -- identical either way, because the sweep
+    keys on `company`.
+    """
+
+    def setUp(self):
+        self.suffix = frappe.generate_hash(length=6)
+        self.company = f"ZZ-Drain-Orphan-Co-{self.suffix}"
+        self.abbr = f"ZDO{self.suffix[:3]}"
+        self.addCleanup(self._cleanup_probe_rows)
+
+    def _cleanup_probe_rows(self):
+        frappe.db.delete("Expense Claim Account", {"company": self.company})
+        if frappe.db.exists("Company", self.company):
+            frappe.delete_doc("Company", self.company, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _create_company_without_a_chart(self):
+        frappe.local.flags.ignore_chart_of_accounts = True
+        try:
+            frappe.get_doc(
+                {
+                    "doctype": "Company",
+                    "company_name": self.company,
+                    "abbr": self.abbr,
+                    "default_currency": "EUR",
+                    "country": "Netherlands",
+                }
+            ).insert()
+        finally:
+            frappe.local.flags.ignore_chart_of_accounts = False
+
+    def _strand_the_row_hrms_would_have_written(self):
+        types = sorted(frappe.get_all("Expense Claim Type", pluck="name"))
+        self.assertTrue(
+            types,
+            "no Expense Claim Type on this site, so the #1154 defect cannot be "
+            "reproduced at all -- failing loudly rather than skipping",
+        )
+        doc = frappe.get_doc("Expense Claim Type", types[0])
+        doc.append(
+            "accounts",
+            {"company": self.company, "default_account": f"Expense Claims - {self.abbr}"},
+        )
+        # Both links dangle once the Company goes, and Expense Claim Type's own
+        # validate() cross-checks them -- so reproducing the stranded state means
+        # bypassing it.
+        doc.flags.ignore_links = True
+        doc.flags.ignore_validate = True
+        doc.flags.ignore_mandatory = True
+        doc.save()
+
+    def _orphans(self):
+        return frappe.get_all(
+            "Expense Claim Account", filters={"company": self.company}, pluck="name"
+        )
+
+    def _doctypes_with_a_company_link(self):
+        """(doctype, fieldname) for every Link-to-Company field in the install."""
+        pairs = set()
+        for source, dt_field in (("DocField", "parent"), ("Custom Field", "dt")):
+            for row in frappe.get_all(
+                source,
+                filters={"fieldtype": "Link", "options": "Company"},
+                fields=[f"{dt_field} as dt", "fieldname"],
+            ):
+                if row.dt and row.fieldname:
+                    pairs.add((row.dt, row.fieldname))
+        return sorted(pairs)
+
+    def test_the_drain_sweeps_the_rows_its_own_delete_strands(self):
+        self._create_company_without_a_chart()
+        self._strand_the_row_hrms_would_have_written()
+        self.assertTrue(
+            self._orphans(),
+            "sanity check: the seed must actually have stranded a row, or this test "
+            "cannot tell a working sweep from a no-op",
+        )
+
+        _probe()._remove_drained_record("Company", self.company)
+
+        self.assertFalse(
+            frappe.db.exists("Company", self.company),
+            "sanity check: the drain must delete the company",
+        )
+        self.assertEqual(
+            self._orphans(),
+            [],
+            "the drain must remove the Expense Claim Account rows its force-delete "
+            "strands -- nothing else does, and leaving them errors the next Company "
+            "insert in the shard (#1154)",
+        )
+
+    def test_no_doctype_retains_rows_for_a_drained_company(self):
+        """Drift guard for `COMPANY_ORPHAN_DOCTYPES`.
+
+        The production sweep names ONE doctype because exactly one was measured to
+        survive a force-delete. That measurement can go stale in a way nothing else
+        would notice: erpnext or hrms can hook another doctype to `Company.on_update`
+        at any release, and the symptom would again be four `setUpClass` errors in an
+        unrelated shard rather than anything pointing here.
+
+        Scanning every company-linked doctype is the honest check and far too
+        expensive per teardown (190 queries per drained Company). It costs nothing
+        run once, here.
+        """
+        self._create_company_without_a_chart()
+        self._strand_the_row_hrms_would_have_written()
+
+        _probe()._remove_drained_record("Company", self.company)
+
+        pairs = self._doctypes_with_a_company_link()
+
+        # Control: without this the test passes vacuously. An empty or broken scan
+        # yields `survivors == {}` -- indistinguishable from "nothing drifted".
+        self.assertIn(
+            "Expense Claim Account",
+            {dt for dt, _ in pairs},
+            "the drift scan does not cover the one doctype already known to survive, "
+            "so its empty result would mean nothing",
+        )
+        self.assertGreater(
+            len(pairs),
+            50,
+            f"only {len(pairs)} company-linked fields found; the scan is not reaching "
+            "the install's real doctype set",
+        )
+
+        survivors, unqueryable = {}, {}
+        for doctype, fieldname in pairs:
+            meta = frappe.get_meta(doctype)
+            if meta.issingle or not frappe.db.table_exists(doctype):
+                continue
+            try:
+                rows = frappe.get_all(doctype, filters={fieldname: self.company}, pluck="name")
+            except Exception as e:  # noqa: BLE001 - reported below, never swallowed
+                unqueryable[doctype] = str(e)
+                continue
+            if rows:
+                survivors[doctype] = rows
+
+        # Reported rather than ignored: a doctype this scan cannot read is a hole in
+        # the guard, and silently skipping it would let the drift through unseen.
+        self.assertEqual(unqueryable, {}, "the drift guard could not query these doctypes")
+        self.assertEqual(
+            survivors,
+            {},
+            "a doctype other than Expense Claim Account now survives a Company "
+            "force-delete; add it to COMPANY_ORPHAN_DOCTYPES (#1154)",
+        )

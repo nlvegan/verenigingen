@@ -43,6 +43,7 @@ from verenigingen.tests.fixtures.enhanced_test_factory import (
     suspend_insert_capture,
 )
 from verenigingen.tests.harness_logger import LOGGER_NAME, get_harness_logger
+from verenigingen.tests.utils.company_orphans import purge_company_orphans
 
 COMPANY_NAME = "TEST-EB-Payment-Company"
 COMPANY_ABBR = "TEBPC"
@@ -600,28 +601,6 @@ _SWEPT_BY_COMPANY_ON_TRASH = ("Cost Center", "Warehouse", "Mode of Payment Accou
 _RESIDUE_SAMPLE = 5
 
 
-def _delete_company_orphans(company_name: str) -> None:
-    """Delete the rows a Company delete strands.
-
-    This is the #1150 fix rather than a diagnostic: the probe's Company insert
-    causes these rows, so the probe's teardown owns removing them. Left behind,
-    they carry a dangling `company` AND `default_account`, and the next Company
-    insert in the same shard dies in `_validate_links` while saving the Expense
-    Claim Type -- erroring `setUpClass` for four classes that never touched this
-    module.
-
-    Deleting child rows directly is the same move hrms's own
-    `delete_docs_with_company_field` makes for the doctypes it does cover.
-    """
-    # Returns nothing on purpose: a return value no caller consumes is what the
-    # first round of this PR shipped, and every assertion against it proved
-    # nothing. The observable effect is the deleted rows; assert on those.
-    for doctype in _ORPHANED_BY_COMPANY_DELETE:
-        rows = frappe.get_all(doctype, filters={"company": company_name}, pluck="name")
-        if rows:
-            frappe.db.delete(doctype, {"name": ("in", rows)})
-
-
 def _report_teardown_exception(company_name: str, when: str = "after tearDown") -> None:
     """Log the FULL traceback for a teardown that raised.
 
@@ -756,7 +735,7 @@ class TestEbPaymentCompanySurvivesCapture(unittest.TestCase):
         # part-completed delete strands exactly the same rows as a "successful"
         # one -- `force=True` skips link validation either way.
         try:
-            _delete_company_orphans(self.temp_company_name)
+            purge_company_orphans(self.temp_company_name)
             frappe.db.commit()
         except Exception:
             get_harness_logger("test_rest_migration_payments").error(
@@ -950,7 +929,7 @@ class TestProbeTeardownCleansItsCompanyOrphans(unittest.TestCase):
         """
         if frappe.db.exists("Company", company_name):
             frappe.delete_doc("Company", company_name, force=True)
-        _delete_company_orphans(company_name)
+        purge_company_orphans(company_name)
         frappe.db.commit()
 
     def test_teardown_deletes_the_expense_claim_account_rows_it_stranded(self):
@@ -1158,7 +1137,7 @@ class TestProbeResidueDetector(unittest.TestCase):
         """Same wiring question for the #1150 fix itself."""
         probe = TestEbPaymentCompanySurvivesCapture("test_ensure_payment_company_survives_capture")
         probe.setUp()
-        with mock.patch(f"{__name__}._delete_company_orphans") as sweep:
+        with mock.patch(f"{__name__}.purge_company_orphans") as sweep:
             probe.tearDown()
         sweep.assert_called_once_with(probe.temp_company_name)
 

@@ -195,6 +195,7 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import getdate
 
 from verenigingen.tests.harness_logger import get_harness_logger
+from verenigingen.tests.utils.company_orphans import purge_company_orphans
 from verenigingen.tests.utils.error_log_guard import ErrorLogGuardMixin
 from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 from verenigingen.utils.timestamp_normalization import strip_whole_second_suffix
@@ -2223,6 +2224,24 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                     "drain swept %d ledger row(s) stranded by deleting %s %s",
                     swept,
                     doctype,
+                    name,
+                )
+
+        # Same shape, same contract, different survivors: a force-deleted Company
+        # strands `Expense Claim Account` rows that neither erpnext's `Company.on_trash`
+        # nor hrms's `handle_linked_docs` removes, and the NEXT Company insert in the
+        # shard then dies validating them (#1150 / #1154). Gated on the doctype for the
+        # same reason the ledger sweep is gated on `is_submittable` -- an ordinary
+        # drained row must not pay a query for a question that cannot apply to it.
+        #
+        # `Company` is deliberately NOT in DRAIN_EXEMPT_DOCTYPES (see the comment
+        # there), so this is the single choke point both drains reach.
+        if doctype == "Company":
+            swept = purge_company_orphans(name)
+            if swept:
+                logger.warning(
+                    "drain swept %d orphan row(s) stranded by deleting Company %s",
+                    swept,
                     name,
                 )
 

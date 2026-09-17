@@ -47,7 +47,21 @@ BASELINE = Path(__file__).resolve().parents[1] / "harness_logger_teardown_baseli
 # exists to keep honest. Changing one of these is a deliberate act: read the
 # `>= ERROR` gate rationale before touching it, because the gate loses
 # everything below ERROR that class teardown emits.
-MRO_CALLS, MRO_ERRORS, MRO_TEARDOWNS = 20, 3, 11
+# 20 -> 21 (#1154): `_remove_drained_record` gained a second sweep -- the Company
+# orphan sweep, sibling of the ledger one immediately above it -- and reports what
+# it removed through the same module `logger` (which IS get_harness_logger, line
+# 207 of enhanced_test_factory.py). It logs at WARNING, exactly like the ledger
+# sweep it mirrors, so RESIDUAL_BELOW_ERROR moves 17 -> 18: this record IS dropped
+# by the `>= ERROR` stderr mirror and will NOT appear in a CI job log.
+#
+# That is accepted deliberately, which is the judgement this file asks for. The
+# line reports a SUCCESSFUL sweep -- the fix doing its job -- not a failure. Its
+# absence costs no diagnosis: the condition it would have reported on is loud and
+# unmissable when it goes wrong (a LinkValidationError erroring setUpClass in an
+# unrelated shard, which is #1150). Anyone who wants the CI-wide VOLUME of
+# sweeping -- still an open question on #1154 -- has to read it locally or move it
+# to ERROR on purpose; it is not available from a shard log today.
+MRO_CALLS, MRO_ERRORS, MRO_TEARDOWNS = 21, 3, 11
 # 35, 7 -> 36, 8 (#392): this branch replaced a silent `except Exception: pass`
 # in test_rest_migration_payments.py's tearDown with a get_harness_logger
 # `.error()` call, so name-mode gains one site and it is an ERROR one. The
@@ -78,8 +92,10 @@ MRO_CALLS, MRO_ERRORS, MRO_TEARDOWNS = 20, 3, 11
 # 40 sites / 12 error, census("mro") is unchanged at 20 / 3 / 11 (these routes
 # are plain module-level functions and a plain unittest.TestCase tearDown, with
 # no MRO-reachable counterpart), so RESIDUAL_BELOW_ERROR (20-3) stays 17.
-NAME_CALLS, NAME_ERRORS = 40, 12
-RESIDUAL_BELOW_ERROR = 17  # unchanged: MRO mode (20/3/11) is untouched by these routes
+# 40, 12 -> 41, 12 (#1154): the same single route as the MRO note above. It enters
+# at WARNING, so NAME_ERRORS does NOT move -- only the call count.
+NAME_CALLS, NAME_ERRORS = 41, 12
+RESIDUAL_BELOW_ERROR = 18  # 17 -> 18: the #1154 sweep's WARNING is dropped by the mirror, knowingly
 
 
 class TestHarnessLoggerTeardownCensus(unittest.TestCase):
