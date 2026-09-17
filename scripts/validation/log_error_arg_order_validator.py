@@ -155,11 +155,37 @@ def _is_title_shaped(node: ast.AST) -> bool:
 def _is_title_named(node: ast.AST) -> bool:
     """True for a bare Name whose identifier itself says 'title' (#1121).
 
-    Case-insensitive substring match: ``title``, ``safe_title``, ``log_title``,
-    ``summary_title``, ``detailed_title`` all match; ``record_type``,
-    ``LOG_CATEGORY_SECURITY`` do not.
+    Case-insensitive match on the identifier's TRAILING underscore segment:
+    ``title``, ``safe_title``, ``log_title``, ``summary_title``,
+    ``detailed_title`` all match; ``record_type``, ``LOG_CATEGORY_SECURITY``
+    do not.
+
+    #1131: this was a substring match anywhere in the identifier, which flagged
+    ``frappe.log_error(header, entity_title_report)`` -- a CORRECTLY ordered
+    call -- because the message-side name happens to carry 'title' in the
+    middle. Asking an author to pragma a line that was never wrong is how a
+    validator loses credibility, so the over-inclusive direction is the one
+    worth closing first.
+
+    The trailing segment is what discriminates: every identifier this is meant
+    to catch carries 'title' as its head noun, in final position. The tradeoff
+    is deliberate and it is a NARROWING -- ``title_str`` / ``title_text``,
+    the plural ``titles``, and any identifier that does not separate its
+    segments with an underscore (``msgTitle``) now read as untitled, so
+    #1131's under-inclusive half stays open. None of those four shapes has a
+    live instance (see the census below); the last is additionally unlikely
+    here, since this codebase is snake_case throughout. Measured on
+    this tree before choosing: of the 3 remaining bare-Name/bare-Name
+    ``log_error`` pairs (all the legitimate ``(message, record_type)``
+    convention), ZERO carry 'title', 'subject', 'header', 'label', 'caption',
+    'heading', 'name' or 'summary' in either slot -- so neither this narrowing
+    nor a widening to a longer word list changes a single finding today.
+    Widening on a word list would add arbitrariness with no measured return;
+    revisit only when a live instance appears.
     """
-    return isinstance(node, ast.Name) and "title" in node.id.lower()
+    if not isinstance(node, ast.Name):
+        return False
+    return node.id.lower().rsplit("_", 1)[-1] == "title"
 
 
 def _is_bare_name_pair_swap(node_a: ast.AST, node_b: ast.AST) -> bool:
