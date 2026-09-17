@@ -622,7 +622,7 @@ def _delete_company_orphans(company_name: str) -> None:
             frappe.db.delete(doctype, {"name": ("in", rows)})
 
 
-def _report_teardown_exception(company_name: str) -> None:
+def _report_teardown_exception(company_name: str, when: str = "after tearDown") -> None:
     """Log the FULL traceback for a teardown that raised.
 
     Extracted so it can be pinned by a test without mocking the database or
@@ -631,7 +631,7 @@ def _report_teardown_exception(company_name: str) -> None:
     failed, which is the question #1150 poses.
     """
     get_harness_logger("test_rest_migration_payments").error(
-        f"PROBE-TEARDOWN-RAISED {company_name}\n{frappe.get_traceback()}"
+        f"{_probe_tag('TEARDOWN-RAISED', when)} {company_name}\n{frappe.get_traceback()}"
     )
 
 
@@ -664,17 +664,21 @@ def _probe_residue(company_name: str, abbr: str) -> dict:
     return residue
 
 
-def _residue_tag(when: str) -> str:
+def _probe_tag(kind: str, when: str) -> str:
     """Self-test lines get a DIFFERENT tag, not a suffixed one.
 
     The whole point of #1150's diagnostic is `grep PROBE-RESIDUE <shard log>`.
-    The controls in this file always have residue (they are pointed at a real,
-    long-lived company), so on the previous round every `PROBE-` line in the CI
-    shard log came from them and none from the real teardown. A tag that merely
-    extends the real one -- `PROBE-RESIDUE-CONTROL` -- would still match that
-    grep, so the two are deliberately non-prefixing.
+    This file's own tests exercise both reporters on purpose, so without this
+    they publish the real alarm on every CI run -- which is exactly how the
+    previous round's shard log came to hold four `PROBE-` lines, all of them
+    self-tests, while the real leak went unreported. A tag that merely EXTENDS
+    the real one (`PROBE-RESIDUE-CONTROL`) still matches that grep, so the two
+    namespaces are deliberately non-prefixing in both directions.
+
+    Confirmed against the CI log of 4b8ede7d3: three `PROBE-RESIDUE (after
+    tearDown)` lines, all from this file's own delete-raises test.
     """
-    return "PROBE-SELFTEST" if when == "control" else "PROBE-RESIDUE"
+    return f"PROBE-SELFTEST-{kind}" if when == "control" else f"PROBE-{kind}"
 
 
 def _sample(rows: list) -> str:
@@ -696,7 +700,7 @@ def _report_probe_residue(company_name: str, abbr: str, when: str) -> dict:
     if residue:
         detail = "; ".join(f"{dt}={_sample(rows)}" for dt, rows in residue.items())
         get_harness_logger("test_rest_migration_payments").error(
-            f"{_residue_tag(when)} ({when}) {company_name} abbr={abbr}: {detail}"
+            f"{_probe_tag('RESIDUE', when)} ({when}) {company_name} abbr={abbr}: {detail}"
         )
     return residue
 
@@ -896,10 +900,21 @@ class TestProbeTeardownCleansItsCompanyOrphans(unittest.TestCase):
         # exists to prove fixed.
         self._create_bare_company(probe.temp_company_name, probe.temp_company_abbr)
 
+        # Both reporters are silenced for the duration: this test drives the REAL
+        # tearDown, so without this it publishes `PROBE-RESIDUE` and
+        # `PROBE-TEARDOWN-RAISED` into every CI shard log -- the self-test-owns-
+        # the-alarm defect this round fixed for the controls, reintroduced one
+        # test over. Their own behaviour is pinned by the emission tests, and
+        # that they are REACHED from tearDown by the two wiring tests; what this
+        # test owns is the sweep, and it asserts on rows, not on logging.
         with mock.patch.object(
             frappe, "delete_doc", side_effect=RuntimeError("probe delete failed")
+        ), mock.patch(f"{__name__}._report_teardown_exception") as raised, mock.patch(
+            f"{__name__}._report_probe_residue"
         ):
             probe.tearDown()
+
+        raised.assert_called_once_with(probe.temp_company_name)
 
         self.assertEqual(
             self._rows_for(probe.temp_company_name),
@@ -1046,7 +1061,7 @@ class TestProbeResidueDetector(unittest.TestCase):
         with self.assertLogs(LOGGER_NAME, level="ERROR") as captured:
             _report_probe_residue(existing[0], "NOSUCHABBRZZZ", "control")
         joined = "\n".join(captured.output)
-        self.assertIn(_residue_tag("control"), joined)
+        self.assertIn(_probe_tag("RESIDUE", "control"), joined)
         self.assertIn(existing[0], joined)
 
     def test_teardown_exception_reporter_EMITS_a_full_traceback(self):
@@ -1058,9 +1073,9 @@ class TestProbeResidueDetector(unittest.TestCase):
             try:
                 raise RuntimeError("probe delete failed")
             except RuntimeError:
-                _report_teardown_exception("TEST-EB-Probe-Does-Not-Exist-zzzzzz")
+                _report_teardown_exception("TEST-EB-Probe-Does-Not-Exist-zzzzzz", "control")
         joined = "\n".join(captured.output)
-        self.assertIn("PROBE-TEARDOWN-RAISED", joined)
+        self.assertIn(_probe_tag("TEARDOWN-RAISED", "control"), joined)
         # the point of the change: a TRACEBACK, not `str(e)`. Both the exception
         # type and the raising frame must be present, or we are back to a bare
         # message that cannot say where the delete failed.
@@ -1084,10 +1099,13 @@ class TestProbeResidueDetector(unittest.TestCase):
         looked like it was working. A suffixed tag would still match the grep, so
         assert the two tags do not prefix each other in either direction.
         """
-        real, selftest = _residue_tag("after tearDown"), _residue_tag("control")
-        self.assertNotEqual(real, selftest)
-        self.assertFalse(selftest.startswith(real), f"{selftest!r} still matches a grep for {real!r}")
-        self.assertFalse(real.startswith(selftest))
+        for kind in ("RESIDUE", "TEARDOWN-RAISED"):
+            real, selftest = _probe_tag(kind, "after tearDown"), _probe_tag(kind, "control")
+            self.assertNotEqual(real, selftest)
+            self.assertFalse(
+                selftest.startswith(real), f"{selftest!r} still matches a grep for {real!r}"
+            )
+            self.assertFalse(real.startswith(selftest))
 
     def test_the_abbr_pattern_neutralises_wildcards_IN_MARIADB(self):
         """Ask the database, not the string.
