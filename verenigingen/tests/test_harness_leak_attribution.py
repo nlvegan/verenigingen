@@ -27,6 +27,7 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
 from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.tests.setup import ensure_root_territory
+from verenigingen.tests.utils.company_orphans import purge_company_orphans
 
 
 class _DrainProbe(EnhancedTestCase):
@@ -3660,6 +3661,266 @@ class BuilderRegistersTheDoctypeItActuallyInsertedTest(
         with self.assertRaises(NotImplementedError) as ctx:
             TestDataBuilder().with_expense(10, "anything")
         self.assertIn("Expense Claim", str(ctx.exception))
+
+
+class DrainSweepsCompanyOrphansTest(unittest.TestCase):
+    """#1154: force-deleting a Company strands rows that nothing else removes.
+
+    hrms `version-16`'s `Company.on_update` (`set_expense_claim_type_accounts`)
+    writes an `Expense Claim Account` child row -- carrying `company` and
+    `default_account` -- onto EVERY `Expense Claim Type`. Neither erpnext's
+    `Company.on_trash` nor hrms's `handle_linked_docs` (whose
+    `company_data_to_be_ignored` hook lists nine doctypes) removes it. So the
+    drain's own `force=True` delete leaves both links dangling, and the NEXT
+    Company insert in the shard dies in `_validate_links` while hrms saves the
+    Expense Claim Type:
+
+        LinkValidationError: Could not find Row #29: Company: <dead company>,
+                             Row #29: Default Account: Expense Claims - <abbr>
+
+    #1150 was one instance, fixed in its own teardown. This is the same defect at
+    the choke point: BOTH drains (`_drain_captured_inserts` and
+    `_drain_tracked_documents`) delete through `_remove_drained_record`, and
+    `Company` is deliberately NOT in `DRAIN_EXEMPT_DOCTYPES`.
+
+    The company here is built WITHOUT a chart of accounts and the stranded row is
+    written by hand. Deliberate: creating the row is hrms's business and does not
+    happen on this bench at all (the local hrms predates the function), while what
+    this tests is the DELETION half -- identical either way, because the sweep
+    keys on `company`.
+    """
+
+    def setUp(self):
+        self.suffix = frappe.generate_hash(length=6)
+        self.company = f"ZZ-Drain-Orphan-Co-{self.suffix}"
+        self.abbr = f"ZDO{self.suffix[:3]}"
+        self.addCleanup(self._cleanup_probe_rows)
+
+    def _cleanup_probe_rows(self):
+        frappe.db.delete("Expense Claim Account", {"company": self.company})
+        if frappe.db.exists("Company", self.company):
+            frappe.delete_doc("Company", self.company, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _create_company(self, with_a_chart=False):
+        """Build the probe company.
+
+        `with_a_chart=False` is the cheap default: the sweep keys on `company`, so
+        the chart is irrelevant to whether a seeded row is removed.
+
+        `with_a_chart=True` matters for the DRIFT guard and nothing else. Every
+        hrms `Company` hook -- `set_expense_claim_type_accounts` included, which is
+        the one that writes the rows this whole issue is about -- returns on its
+        first line when `ignore_chart_of_accounts` is set. A chart-less probe
+        therefore triggers no hrms hook at all, so a guard built on it could never
+        see a NEW hrms hook appear, which is the only thing it exists to catch.
+        """
+        if with_a_chart:
+            frappe.get_doc(
+                {
+                    "doctype": "Company",
+                    "company_name": self.company,
+                    "abbr": self.abbr,
+                    "default_currency": "EUR",
+                    "country": "Netherlands",
+                }
+            ).insert()
+            return
+        frappe.local.flags.ignore_chart_of_accounts = True
+        try:
+            frappe.get_doc(
+                {
+                    "doctype": "Company",
+                    "company_name": self.company,
+                    "abbr": self.abbr,
+                    "default_currency": "EUR",
+                    "country": "Netherlands",
+                }
+            ).insert()
+        finally:
+            frappe.local.flags.ignore_chart_of_accounts = False
+
+    def _strand_the_row_hrms_would_have_written(self):
+        types = sorted(frappe.get_all("Expense Claim Type", pluck="name"))
+        self.assertTrue(
+            types,
+            "no Expense Claim Type on this site, so the #1154 defect cannot be "
+            "reproduced at all -- failing loudly rather than skipping",
+        )
+        doc = frappe.get_doc("Expense Claim Type", types[0])
+        doc.append(
+            "accounts",
+            {"company": self.company, "default_account": f"Expense Claims - {self.abbr}"},
+        )
+        # Both links dangle once the Company goes, and Expense Claim Type's own
+        # validate() cross-checks them -- so reproducing the stranded state means
+        # bypassing it.
+        doc.flags.ignore_links = True
+        doc.flags.ignore_validate = True
+        doc.flags.ignore_mandatory = True
+        doc.save()
+
+    def _orphans(self):
+        return frappe.get_all(
+            "Expense Claim Account", filters={"company": self.company}, pluck="name"
+        )
+
+    @staticmethod
+    def _company_link_pairs(source, dt_field):
+        return {
+            (row.dt, row.fieldname)
+            for row in frappe.get_all(
+                source,
+                filters={"fieldtype": "Link", "options": "Company"},
+                fields=[f"{dt_field} as dt", "fieldname"],
+            )
+            if row.dt and row.fieldname
+        }
+
+    def _doctypes_with_a_company_link(self):
+        """(doctype, fieldname) for every Link-to-Company field in the install."""
+        return sorted(
+            self._company_link_pairs("DocField", "parent")
+            | self._company_link_pairs("Custom Field", "dt")
+        )
+
+    def test_the_drain_sweeps_the_rows_its_own_delete_strands(self):
+        self._create_company()
+        self._strand_the_row_hrms_would_have_written()
+        self.assertTrue(
+            self._orphans(),
+            "sanity check: the seed must actually have stranded a row, or this test "
+            "cannot tell a working sweep from a no-op",
+        )
+
+        _probe()._remove_drained_record("Company", self.company)
+
+        self.assertFalse(
+            frappe.db.exists("Company", self.company),
+            "sanity check: the drain must delete the company",
+        )
+        self.assertEqual(
+            self._orphans(),
+            [],
+            "the drain must remove the Expense Claim Account rows its force-delete "
+            "strands -- nothing else does, and leaving them errors the next Company "
+            "insert in the shard (#1154)",
+        )
+
+    def test_Company_is_NOT_drain_exempt(self):
+        """The one line that silently disables everything above.
+
+        Both drains consult `DRAIN_EXEMPT_DOCTYPES` before calling
+        `_remove_drained_record`, and the new tests call that method directly --
+        so adding "Company" to the frozenset turns the sweep off entirely and
+        leaves 66/66 green (measured). `enhanced_test_factory.py` already records
+        that Company WAS exempted once and that it was wrong; this makes undoing
+        that decision fail loudly. Sibling of `test_ledger_derivatives_are_NOT_exempt`.
+        """
+        self.assertNotIn(
+            "Company",
+            EnhancedTestCase.DRAIN_EXEMPT_DOCTYPES,
+            "exempting Company stops both drains ever reaching the orphan sweep, so "
+            "every drained company strands its Expense Claim Account rows again (#1154)",
+        )
+
+    def test_the_sweep_reports_how_many_rows_it_removed(self):
+        """The return value gates the log line, and nothing else pins it.
+
+        Measured: `purge_company_orphans` could `return 0` while still deleting the
+        rows, and both modules stayed green -- so `removed`, and the `if swept:`
+        branch in `_remove_drained_record` that consumes it, were entirely
+        unexercised. The count is the only record the drain leaves of a sweep
+        having happened at all.
+        """
+        self._create_company()
+        self.assertEqual(
+            purge_company_orphans(self.company), 0, "nothing stranded yet, so nothing to sweep"
+        )
+
+        self._strand_the_row_hrms_would_have_written()
+        self.assertEqual(
+            purge_company_orphans(self.company),
+            1,
+            "the sweep must report the number of rows it actually removed",
+        )
+        self.assertEqual(self._orphans(), [], "and it must actually have removed them")
+
+    def test_no_doctype_retains_rows_for_a_drained_company(self):
+        """Drift guard for `COMPANY_ORPHAN_DOCTYPES`.
+
+        The production sweep names ONE doctype because exactly one was measured to
+        survive a force-delete. That measurement can go stale in a way nothing else
+        would notice: erpnext or hrms can hook another doctype to `Company.on_update`
+        at any release, and the symptom would again be four `setUpClass` errors in an
+        unrelated shard rather than anything pointing here.
+
+        Scanning every company-linked doctype is the honest check and far too
+        expensive per teardown (190 queries per drained Company). It costs nothing
+        run once, here.
+        """
+        # Chart-bearing on purpose -- see `_create_company`.
+        self._create_company(with_a_chart=True)
+        self._strand_the_row_hrms_would_have_written()
+
+        _probe()._remove_drained_record("Company", self.company)
+
+        pairs = self._doctypes_with_a_company_link()
+
+        # Control: without this the test passes vacuously. An empty or broken scan
+        # yields `survivors == {}` -- indistinguishable from "nothing drifted".
+        self.assertIn(
+            "Expense Claim Account",
+            {dt for dt, _ in pairs},
+            "the drift scan does not cover the one doctype already known to survive, "
+            "so its empty result would mean nothing",
+        )
+        self.assertGreater(
+            len(pairs),
+            50,
+            f"only {len(pairs)} company-linked fields found; the scan is not reaching "
+            "the install's real doctype set",
+        )
+        # Per SOURCE, not just in total: with only the aggregate control, dropping
+        # the `Custom Field` half of the scan leaves every assertion above
+        # satisfied (219 DocField pairs still pass both), so a customisation-only
+        # company link would go unwatched.
+        for source_name, source_pairs in (
+            ("DocField", self._company_link_pairs("DocField", "parent")),
+            ("Custom Field", self._company_link_pairs("Custom Field", "dt")),
+        ):
+            self.assertTrue(
+                source_pairs, f"the drift scan found no company links via {source_name}"
+            )
+            # Against the AGGREGATE, not just the helper: asserting the helper
+            # returns rows leaves `_doctypes_with_a_company_link` free to drop the
+            # source entirely and still pass (measured -- it did).
+            self.assertTrue(
+                source_pairs <= set(pairs),
+                f"{source_name} contributes company links the scan does not include",
+            )
+
+        survivors, unqueryable = {}, {}
+        for doctype, fieldname in pairs:
+            try:
+                if frappe.get_meta(doctype).issingle or not frappe.db.table_exists(doctype):
+                    continue
+                rows = frappe.get_all(doctype, filters={fieldname: self.company}, pluck="name")
+            except Exception as e:  # noqa: BLE001 - reported below, never swallowed
+                unqueryable[doctype] = str(e)
+                continue
+            if rows:
+                survivors[doctype] = rows
+
+        # Reported rather than ignored: a doctype this scan cannot read is a hole in
+        # the guard, and silently skipping it would let the drift through unseen.
+        self.assertEqual(unqueryable, {}, "the drift guard could not query these doctypes")
+        self.assertEqual(
+            survivors,
+            {},
+            "a doctype other than Expense Claim Account now survives a Company "
+            "force-delete; add it to COMPANY_ORPHAN_DOCTYPES (#1154)",
+        )
 
 
 if __name__ == "__main__":

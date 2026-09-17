@@ -43,6 +43,10 @@ from verenigingen.tests.fixtures.enhanced_test_factory import (
     suspend_insert_capture,
 )
 from verenigingen.tests.harness_logger import LOGGER_NAME, get_harness_logger
+from verenigingen.tests.utils.company_orphans import (
+    COMPANY_ORPHAN_DOCTYPES,
+    purge_company_orphans,
+)
 
 COMPANY_NAME = "TEST-EB-Payment-Company"
 COMPANY_ABBR = "TEBPC"
@@ -579,12 +583,12 @@ def _abbr_like_pattern(abbr: str) -> str:
 # `company_data_to_be_ignored` hook, which does not include this one. Meanwhile
 # hrms's `Company.on_update` (`set_expense_claim_type_accounts`, version-16)
 # writes one such row onto EVERY Expense Claim Type. That asymmetry is #1150.
-# Measured, not enumerated by reading: all 190 doctypes carrying a `company`
-# Link field were counted across a real force-delete of a CoA-bearing Company
-# (97 Accounts, 2 Cost Centers, 13 Departments, 5 Expense Claim Accounts, 2 Item
-# Tax Templates, 1 Mode of Payment Account, 2 Purchase and 2 Sales Taxes and
-# Charges Templates, 5 Warehouses). Exactly one survived: Expense Claim Account.
-_ORPHANED_BY_COMPANY_DELETE = ("Expense Claim Account",)
+# Aliased, not restated: the measurement and the tuple live in
+# `tests/utils/company_orphans.py`, which is also what the drain sweeps with. A
+# second copy here would let the detector and the sweep drift apart silently --
+# nothing gates a duplicated constant (the clone-family validator is
+# function-shaped).
+_ORPHANED_BY_COMPANY_DELETE = COMPANY_ORPHAN_DOCTYPES
 
 # A SAMPLE of the rows `Company.on_trash` DOES sweep -- not the whole set; the
 # same scan shows Account, Department, Item Tax Template and the Purchase/Sales
@@ -598,28 +602,6 @@ _SWEPT_BY_COMPANY_ON_TRASH = ("Cost Center", "Warehouse", "Mode of Payment Accou
 # long-lived company yields hundreds of cost centers, and burying the shard log
 # is the opposite of what #1150 needs.
 _RESIDUE_SAMPLE = 5
-
-
-def _delete_company_orphans(company_name: str) -> None:
-    """Delete the rows a Company delete strands.
-
-    This is the #1150 fix rather than a diagnostic: the probe's Company insert
-    causes these rows, so the probe's teardown owns removing them. Left behind,
-    they carry a dangling `company` AND `default_account`, and the next Company
-    insert in the same shard dies in `_validate_links` while saving the Expense
-    Claim Type -- erroring `setUpClass` for four classes that never touched this
-    module.
-
-    Deleting child rows directly is the same move hrms's own
-    `delete_docs_with_company_field` makes for the doctypes it does cover.
-    """
-    # Returns nothing on purpose: a return value no caller consumes is what the
-    # first round of this PR shipped, and every assertion against it proved
-    # nothing. The observable effect is the deleted rows; assert on those.
-    for doctype in _ORPHANED_BY_COMPANY_DELETE:
-        rows = frappe.get_all(doctype, filters={"company": company_name}, pluck="name")
-        if rows:
-            frappe.db.delete(doctype, {"name": ("in", rows)})
 
 
 def _report_teardown_exception(company_name: str, when: str = "after tearDown") -> None:
@@ -756,7 +738,7 @@ class TestEbPaymentCompanySurvivesCapture(unittest.TestCase):
         # part-completed delete strands exactly the same rows as a "successful"
         # one -- `force=True` skips link validation either way.
         try:
-            _delete_company_orphans(self.temp_company_name)
+            purge_company_orphans(self.temp_company_name)
             frappe.db.commit()
         except Exception:
             get_harness_logger("test_rest_migration_payments").error(
@@ -950,7 +932,7 @@ class TestProbeTeardownCleansItsCompanyOrphans(unittest.TestCase):
         """
         if frappe.db.exists("Company", company_name):
             frappe.delete_doc("Company", company_name, force=True)
-        _delete_company_orphans(company_name)
+        purge_company_orphans(company_name)
         frappe.db.commit()
 
     def test_teardown_deletes_the_expense_claim_account_rows_it_stranded(self):
@@ -1158,7 +1140,7 @@ class TestProbeResidueDetector(unittest.TestCase):
         """Same wiring question for the #1150 fix itself."""
         probe = TestEbPaymentCompanySurvivesCapture("test_ensure_payment_company_survives_capture")
         probe.setUp()
-        with mock.patch(f"{__name__}._delete_company_orphans") as sweep:
+        with mock.patch(f"{__name__}.purge_company_orphans") as sweep:
             probe.tearDown()
         sweep.assert_called_once_with(probe.temp_company_name)
 

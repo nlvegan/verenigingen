@@ -405,7 +405,7 @@ COMMIT_EXEMPT tests/services/test_customer_handling_service_integration.py::1  #
 COMMIT_EXEMPT tests/services/test_field_sync_integration.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/services/test_member_lookup_service.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/support/test_sepa_test_company.py::1  # order-dep-exempt
-COMMIT_EXEMPT tests/test_harness_leak_attribution.py::15  # order-dep-exempt
+COMMIT_EXEMPT tests/test_harness_leak_attribution.py::16  # order-dep-exempt
 COMMIT_EXEMPT tests/test_public_document_creator_setup.py::1  # order-dep-exempt
 COMMIT_EXEMPT verenigingen/doctype/api_audit_log/test_api_audit_log.py::1  # order-dep-exempt
 COMMIT_EXEMPT verenigingen/doctype/contribution_amendment_request/test_contribution_amendment_request_coverage.py::1  # order-dep-exempt
