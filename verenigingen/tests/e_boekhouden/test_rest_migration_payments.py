@@ -42,7 +42,7 @@ from verenigingen.tests.fixtures.enhanced_test_factory import (
     shared_fixture,
     suspend_insert_capture,
 )
-from verenigingen.tests.harness_logger import get_harness_logger
+from verenigingen.tests.harness_logger import LOGGER_NAME, get_harness_logger
 
 COMPANY_NAME = "TEST-EB-Payment-Company"
 COMPANY_ABBR = "TEBPC"
@@ -551,6 +551,30 @@ def _create_probe_company(module_name, temp_name, temp_abbr):
     frappe.db.commit()
 
 
+def _like_escape(value: str) -> str:
+    """Escape LIKE wildcards so an abbr containing `_` or `%` cannot over-match.
+
+    This repo has already shipped one unescaped-LIKE defect (a Mollie payment id
+    containing `%`). Today's only caller passes a hex-derived abbr that cannot
+    contain either character, but the helper takes `abbr` as a free parameter and
+    must not depend on its caller staying that way.
+    """
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _report_teardown_exception(company_name: str) -> None:
+    """Log the FULL traceback for a teardown that raised.
+
+    Extracted so it can be pinned by a test without mocking the database or
+    `frappe.delete_doc` -- this is a Tier 2 path where database mocks are a hard
+    gate. `str(e)` was what this replaced, and it cannot say WHERE the delete
+    failed, which is the question #1150 poses.
+    """
+    get_harness_logger("test_rest_migration_payments").error(
+        f"PROBE-TEARDOWN-RAISED {company_name}\n{frappe.get_traceback()}"
+    )
+
+
 def _probe_residue(company_name: str, abbr: str) -> dict:
     """Rows that must NOT survive this probe's tearDown, keyed by doctype.
 
@@ -563,12 +587,24 @@ def _probe_residue(company_name: str, abbr: str) -> dict:
     touched this module. Checking the Company row alone would not see that, so
     this also looks for Accounts carrying the probe's abbr.
     """
-    return {
+    residue = {
         "Company": [company_name] if frappe.db.exists("Company", company_name) else [],
+        # Account is matched by NAME because its rows are named `<Name> - <ABBR>`
+        # and the stranded row in #1150 was identified that way. `_` and `%` are
+        # LIKE wildcards, so the abbr is escaped -- ERPNext's own `_Test Company`
+        # has abbr `_TC`, and unescaped that pattern also matches `Debtors - XTC`.
         "Account": frappe.get_all(
-            "Account", filters={"name": ("like", f"%- {abbr}")}, pluck="name"
+            "Account", filters={"name": ("like", f"%- {_like_escape(abbr)}")}, pluck="name"
         ),
     }
+    # `Company.on_trash` removes these in the same sweep, scoped by `company`, and
+    # Account happens to go FIRST -- so an on_trash interrupted anywhere later
+    # strands one of these instead, with the same dangling-link consequence.
+    for doctype in ("Cost Center", "Warehouse", "Mode of Payment Account"):
+        residue[doctype] = frappe.get_all(
+            doctype, filters={"company": company_name}, pluck="name"
+        )
+    return residue
 
 
 def _report_probe_residue(company_name: str, abbr: str, when: str) -> dict:
@@ -634,10 +670,18 @@ class TestEbPaymentCompanySurvivesCapture(unittest.TestCase):
                 )
                 frappe.db.commit()
         except Exception:
-            get_harness_logger("test_rest_migration_payments").error(
-                f"PROBE-TEARDOWN-RAISED {self.temp_company_name}\n{frappe.get_traceback()}"
+            _report_teardown_exception(self.temp_company_name)
+        # Guarded in its own right: this runs OUTSIDE the try above, and a
+        # diagnostic must never convert a previously-silent teardown into a new
+        # test ERROR. It is read-only, but "unlikely to raise" is not "cannot".
+        try:
+            _report_probe_residue(
+                self.temp_company_name, self.temp_company_abbr, "after tearDown"
             )
-        _report_probe_residue(self.temp_company_name, self.temp_company_abbr, "after tearDown")
+        except Exception:
+            get_harness_logger("test_rest_migration_payments").error(
+                f"PROBE-RESIDUE-CHECK-FAILED {self.temp_company_name}\n{frappe.get_traceback()}"
+            )
 
     def test_ensure_payment_company_survives_capture(self):
         module_name = "verenigingen.tests.e_boekhouden.test_rest_migration_payments"
@@ -719,10 +763,66 @@ class TestProbeResidueDetector(unittest.TestCase):
         if not existing:
             self.skipTest("no Company on this site to probe against")
         residue = _report_probe_residue(existing[0], "NOSUCHABBRZZZ", "control")
-        self.assertEqual(residue, {"Company": [existing[0]]})
+        self.assertEqual(residue.get("Company"), [existing[0]])
+        # control: the bogus abbr must yield no Account key at all -- the reporter
+        # drops empty doctypes, so its presence would mean the abbr filter is
+        # matching rows it should not, and the positive cases prove nothing.
+        self.assertNotIn("Account", residue)
 
     def test_reporter_is_empty_when_nothing_survives(self):
         residue = _report_probe_residue(
             "TEST-EB-Probe-Does-Not-Exist-zzzzzz", "NOSUCHABBRZZZ", "control"
         )
         self.assertEqual(residue, {})
+
+    def test_reporter_actually_EMITS_the_residue_line(self):
+        """The one thing this whole diagnostic exists to do.
+
+        The return-value assertions above all still passed when the logging call
+        was deleted outright -- nothing in production consumes that return value,
+        so they pinned a contract disconnected from the purpose. This pins the
+        emission itself.
+        """
+        existing = frappe.get_all("Company", pluck="name", limit=1)
+        if not existing:
+            self.skipTest("no Company on this site to probe against")
+        with self.assertLogs(LOGGER_NAME, level="ERROR") as captured:
+            _report_probe_residue(existing[0], "NOSUCHABBRZZZ", "control")
+        joined = "\n".join(captured.output)
+        self.assertIn("PROBE-RESIDUE", joined)
+        self.assertIn(existing[0], joined)
+
+    def test_teardown_exception_reporter_EMITS_a_full_traceback(self):
+        """`PROBE-TEARDOWN-RAISED` is the branch that fires when the interesting
+        failure happens, so it must not be the untested one. Raised for real
+        rather than mocked -- database mocks are a hard gate on this Tier 2 path.
+        """
+        with self.assertLogs(LOGGER_NAME, level="ERROR") as captured:
+            try:
+                raise RuntimeError("probe delete failed")
+            except RuntimeError:
+                _report_teardown_exception("TEST-EB-Probe-Does-Not-Exist-zzzzzz")
+        joined = "\n".join(captured.output)
+        self.assertIn("PROBE-TEARDOWN-RAISED", joined)
+        # the point of the change: a TRACEBACK, not `str(e)`. Both the exception
+        # type and the raising frame must be present, or we are back to a bare
+        # message that cannot say where the delete failed.
+        self.assertIn("RuntimeError", joined)
+        self.assertIn("probe delete failed", joined)
+        self.assertIn("test_rest_migration_payments.py", joined)
+
+    def test_like_escape_neutralises_wildcards(self):
+        """`_` and `%` are LIKE wildcards. ERPNext's own `_Test Company` has abbr
+        `_TC`, and unescaped `%- _TC` also matches `Debtors - XTC`."""
+        self.assertEqual(_like_escape("_TC"), "\\_TC")
+        self.assertEqual(_like_escape("50%"), "50\\%")
+        self.assertEqual(_like_escape("a\\b"), "a\\\\b")
+
+    def test_escaped_abbr_still_matches_its_own_accounts(self):
+        """Control for the escaping: neutralising the wildcard must not break the
+        legitimate literal match."""
+        rows = _probe_residue("TEST-EB-Probe-Does-Not-Exist-zzzzzz", "_TC")["Account"]
+        if not rows:
+            self.skipTest("no `- _TC` account on this site")
+        for name in rows:
+            self.assertTrue(name.endswith("- _TC"), f"{name} matched but does not end in '- _TC'")
