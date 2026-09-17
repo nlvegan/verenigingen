@@ -169,8 +169,12 @@ def _is_title_named(node: ast.AST) -> bool:
 
     The trailing segment is what discriminates: every identifier this is meant
     to catch carries 'title' as its head noun, in final position. The tradeoff
-    is deliberate and it is a NARROWING -- ``title_str`` / ``title_text`` now
-    read as untitled, so #1131's under-inclusive half stays open. Measured on
+    is deliberate and it is a NARROWING -- ``title_str`` / ``title_text``,
+    the plural ``titles``, and any identifier that does not separate its
+    segments with an underscore (``msgTitle``) now read as untitled, so
+    #1131's under-inclusive half stays open. None of those four shapes has a
+    live instance (see the census below); the last is additionally unlikely
+    here, since this codebase is snake_case throughout. Measured on
     this tree before choosing: of the 3 remaining bare-Name/bare-Name
     ``log_error`` pairs (all the legitimate ``(message, record_type)``
     convention), ZERO carry 'title', 'subject', 'header', 'label', 'caption',
