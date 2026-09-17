@@ -204,6 +204,35 @@ class AcceptsCorrectCallTest(unittest.TestCase):
         )
         self.assertEqual(findings, [])
 
+    def test_bare_name_pair_message_var_merely_containing_title_is_not_flagged(self):
+        """#1131, the OVER-inclusive direction: `frappe.log_error(header,
+        entity_title_report)` is CORRECTLY ordered -- the title-shaped argument
+        is already second only because the *message* identifier happens to
+        contain the substring 'title' somewhere in the middle. Flagging it asks
+        an author to pragma a line that was never wrong, which is how a
+        validator loses credibility.
+
+        'title' is recognised as the identifier's trailing underscore segment
+        (`title`, `safe_title`, `log_title`, `summary_title`), not as a
+        substring anywhere in it."""
+        findings = _flagged(
+            "def f(header, entity_title_report):\n"
+            "    frappe.log_error(header, entity_title_report)\n"
+        )
+        self.assertEqual(findings, [])
+
+    def test_documented_title_named_identifiers_are_still_flagged(self):
+        """Control for the narrowing above: every identifier `_is_title_named`'s
+        docstring promises to match must STILL be matched, or the #1131 fix has
+        silently closed the #1121 gap it must keep open."""
+        for ident in ("title", "safe_title", "log_title", "summary_title", "detailed_title"):
+            with self.subTest(ident=ident):
+                findings = _flagged(
+                    f"def f(msg, {ident}):\n"
+                    f"    frappe.log_error(msg, {ident})\n"
+                )
+                self.assertEqual(len(findings), 1, f"{ident} must still be flagged as a swap")
+
     def test_unrelated_dotted_call_named_log_error_is_matched_by_name(self):
         """Matched by NAME only (documented limit): a non-frappe receiver with the
         same method name and the swapped 2-arg shape is STILL flagged -- this is
