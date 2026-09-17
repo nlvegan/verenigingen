@@ -523,6 +523,35 @@ class TestMollieFinancialSafeguards(MollieTestCase):
             self.assertLessEqual(max_processing_time, 3000,  # 3 second maximum
                                "Maximum processing time should be under 3 seconds")
                                
+    def test_process_subscription_payment_succeeds_without_prior_commit(self):
+        """#1134: `_process_subscription_payment`'s `frappe.db.begin()` around the
+        invoice FOR UPDATE lock raises ImplicitCommitError against ANY connection
+        that already has pending writes -- exactly the state every test in this
+        class is in right after setUp (Member/Customer/Invoice are inserted but
+        not committed). This is not a test-harness quirk: the function's own
+        comment names a single stray `frappe.log_error()` upstream as enough to
+        arm the same failure in production. Call it here with setUp's writes
+        still pending -- no manual `frappe.db.commit()` workaround -- and require
+        it to actually process the payment, not merely avoid raising.
+        """
+        gateway = self._create_mock_mollie_gateway(50.00)
+
+        result = _process_subscription_payment(
+            gateway,
+            self.member.name,
+            self.customer.name,
+            "tr_no_prior_commit_test_001",
+            "sub_test_no_prior_commit",
+        )
+
+        self.assertEqual(result["status"], "success")
+        payment_entries = frappe.get_all(
+            "Payment Entry",
+            filters={"reference_no": "tr_no_prior_commit_test_001"},
+            fields=["name"],
+        )
+        self.assertEqual(len(payment_entries), 1)
+
     def test_audit_trail_completeness(self):
         """Test that financial operations create complete audit trails"""
         payment_id = "tr_audit_test_001"

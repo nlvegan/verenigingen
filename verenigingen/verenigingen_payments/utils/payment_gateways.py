@@ -2224,22 +2224,30 @@ def _process_subscription_payment(gateway, member_name, member_customer, payment
         # row below, before anything is allocated.
         overpaid_by = payment_amount - invoice_amount if payment_amount - invoice_amount > 0.01 else 0
 
-        # TRANSACTION SAFETY: Wrap payment processing in database transaction.
-        # This uses the begin()+FOR UPDATE+commit pattern documented in CLAUDE.md
-        # (Pattern 5: FOR UPDATE Locks) — the explicit commit on the duplicate
-        # early-return is what releases the row lock, so this must NOT be converted
-        # to a savepoint (a savepoint release does not free row locks). The sole
-        # caller (mollie_subscription_webhook) performs only reads before this
-        # point (authenticate/parse, find member, load gateway), and this function
-        # only reads (fetch invoice, validate amount) before begin(), so begin()
-        # does not implicitly commit any prior uncommitted write work.
-        # Caller chain re-verified 2026-07-26: mollie_subscription_webhook ->
-        # _authenticate_and_parse_subscription_payload (logger only) ->
-        # _find_member_for_subscription (writes an Error Log only on branches
-        # that abort) -> PaymentGatewayFactory.get_gateway (reads). This is a
-        # whole-chain invariant nothing enforces: one frappe.log_error() added
-        # to the webhook's happy path arms this call.
-        frappe.db.begin()  # db-begin-ok: verified-clean-caller
+        # TRANSACTION SAFETY (#1134): this brackets a SELECT ... FOR UPDATE, and
+        # the explicit commit() on the duplicate early-return below is what
+        # releases that row lock -- so this must NOT be converted to a savepoint.
+        # Releasing a savepoint does not free InnoDB row locks (only a real
+        # COMMIT/ROLLBACK of the whole transaction does), so a savepoint here
+        # would hold the lock until the ambient request ends instead of releasing
+        # it at the early return, reintroducing the race this exists to prevent.
+        #
+        # There used to be a `frappe.db.begin()` immediately above this comment,
+        # justified as safe because every caller in the chain only reads before
+        # reaching here. That justification does not actually buy anything:
+        # `begin()` issues `START TRANSACTION`, which Frappe raises
+        # ImplicitCommitError for whenever ANY write is pending on the connection
+        # (transaction_writes > 0) -- and when nothing is pending, it is a no-op
+        # (there is nothing for the implicit commit to lose). So it was either
+        # inert or actively broken, never protective. Confirmed broken: it raised
+        # ImplicitCommitError deterministically from
+        # test_mollie_financial_safeguards.py, whose setUp() writes a Member/
+        # Customer/Invoice that are still uncommitted when a test method calls
+        # this function -- the same shape production hits the moment anything
+        # upstream performs a single write (the whole-chain invariant the old
+        # comment warned nothing enforces). Deleted; the FOR UPDATE lock is taken
+        # in the ambient request transaction, same as every other caller before
+        # this line, and released by the existing commit()/rollback() below.
         try:
             # IDEMPOTENCY / RACE PROTECTION: concurrent webhooks for the same Mollie
             # payment must not create duplicate Payment Entries. Serialise on the
@@ -2261,6 +2269,22 @@ def _process_subscription_payment(gateway, member_name, member_customer, payment
             if locked:
                 invoice_amount = float(locked[0]["outstanding_amount"])
                 overpaid_by = payment_amount - invoice_amount if payment_amount - invoice_amount > 0.01 else 0
+
+            # This is a plain (non-locking) read, so under MySQL's REPEATABLE READ
+            # isolation it can answer from the snapshot taken at this
+            # transaction's FIRST read (the unlocked candidate-invoice query
+            # above), not from what is committed NOW -- two callers that both
+            # queued behind the invoice FOR UPDATE and both took their snapshot
+            # before either one committed can BOTH see "no existing payment"
+            # once unblocked. That is a real, confirmed gap (see the recovery
+            # below), but it is deliberately NOT closed by making this read
+            # locking too: `reference_no` has no index on Payment Entry, so a
+            # `FOR UPDATE` here would next-key-lock the whole table on every
+            # subscription payment, on a doctype shared with every other
+            # payment path in the app -- trading a narrow race for guaranteed
+            # lock contention. This stays a cheap fast-path pre-check; the
+            # actual, indexed safety net is `custom_mollie_idempotency_key`
+            # (see the recovery around insert() below).
             existing_payment = frappe.db.exists(
                 "Payment Entry", {"reference_no": payment_id, "docstatus": ["!=", 2]}
             )
@@ -2356,7 +2380,38 @@ def _process_subscription_payment(gateway, member_name, member_customer, payment
                 payment_entry.paid_from = invoice_receivable_account
 
             # Submit the payment entry
-            payment_entry.insert()
+            try:
+                payment_entry.insert()
+            except frappe.UniqueValidationError as unique_error:
+                # #1134: the pre-check above can miss a genuine duplicate under
+                # concurrent processing (see its comment) -- this is where that
+                # gap is actually closed. `custom_mollie_idempotency_key` is a
+                # real, indexed UNIQUE constraint derived from
+                # (payment_type, reference_no, party)
+                # (mollie_idempotency_key.py), so it always serialises two
+                # concurrent inserts for the same payment correctly regardless
+                # of snapshot timing -- confirmed empirically: without this,
+                # test_race_condition_protection's three concurrent workers
+                # produced 2 raw IntegrityErrors instead of 2 clean "duplicate"
+                # results. Only handle THIS constraint; any other uniqueness
+                # violation on a freshly-built Payment Entry is a different bug
+                # and must not be swallowed as "duplicate payment".
+                if "custom_mollie_idempotency_key" not in str(unique_error):
+                    raise
+                # rollback() also resets this transaction's read view (it is
+                # COMMIT/ROLLBACK followed by a fresh START TRANSACTION -- see
+                # frappe/database/database.py), so the read below sees the
+                # winner's already-committed row instead of the stale snapshot
+                # that let this insert reach the constraint in the first place.
+                frappe.db.rollback()
+                return {
+                    "status": "duplicate",
+                    "payment_entry": frappe.db.exists(
+                        "Payment Entry", {"reference_no": payment_id, "docstatus": ["!=", 2]}
+                    ),
+                    "payment_id": payment_id,
+                    "reason": "Payment already processed for this Mollie payment ID",
+                }
             payment_entry.submit()
 
             frappe.logger().info(
