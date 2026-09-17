@@ -16,7 +16,7 @@ OUT OF SCOPE (API-REQUIRED, enforcer bans mocking the HTTP/Frappe boundary):
   the same code path quick_create_mapping_from_logs and the auto-link helper exercise.
 
 Run with:
-    bench --site veg11.veganisme.org run-tests --app verenigingen \
+    bench --site test_site_1 run-tests --app verenigingen \
         --module verenigingen.tests.e_boekhouden.test_ledger_mapping_coverage
 """
 

@@ -28,7 +28,7 @@ OUT OF SCOPE (documented, not tested here):
 
 Run with::
 
-    bench --site veg11.veganisme.org run-tests --app verenigingen \\
+    bench --site test_site_1 run-tests --app verenigingen \\
         --module verenigingen.tests.e_boekhouden.test_payment_processor_coverage
 """
 

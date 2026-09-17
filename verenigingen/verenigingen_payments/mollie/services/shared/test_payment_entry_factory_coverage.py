@@ -23,7 +23,7 @@ A "Mollie" Mode of Payment and a "Mollie" named bank Account are seeded so the
 real create path resolves end to end (neither is an app fixture).
 
 Run:
-    bench --site veg11.veganisme.org run-tests --app verenigingen --module \\
+    bench --site test_site_1 run-tests --app verenigingen --module \\
       verenigingen.verenigingen_payments.mollie.services.shared.test_payment_entry_factory_coverage
 """
 

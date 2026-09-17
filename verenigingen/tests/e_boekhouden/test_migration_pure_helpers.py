@@ -5,7 +5,7 @@ These test the refactored helper functions that have no (or minimal) external de
 All functions under test are pure: they take input, return output, and only use frappe.utils.flt.
 
 Run with:
-    bench --site veg11.veganisme.org run-tests --app verenigingen \
+    bench --site test_site_1 run-tests --app verenigingen \
         --module verenigingen.tests.e_boekhouden.test_migration_pure_helpers
 """
 

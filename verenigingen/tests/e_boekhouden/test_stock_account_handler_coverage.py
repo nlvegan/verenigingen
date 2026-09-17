@@ -25,7 +25,7 @@ Testable surface (REAL DB, no eBoekhouden HTTP):
 OUT OF SCOPE (API-REQUIRED): the two whitelisted endpoints (live eBoekhouden token).
 
 Run with:
-    bench --site veg11.veganisme.org run-tests --app verenigingen \
+    bench --site test_site_1 run-tests --app verenigingen \
         --module verenigingen.tests.e_boekhouden.test_stock_account_handler_coverage
 """
 

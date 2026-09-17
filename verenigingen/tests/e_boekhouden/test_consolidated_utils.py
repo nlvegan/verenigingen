@@ -12,7 +12,7 @@ Also tests:
 - ensure_account_type_is_correct: Account type validation with auto_fix safety
 
 Run with:
-    bench --site veg11.veganisme.org run-tests --app verenigingen \
+    bench --site test_site_1 run-tests --app verenigingen \
         --module verenigingen.tests.e_boekhouden.test_consolidated_utils
 """
 

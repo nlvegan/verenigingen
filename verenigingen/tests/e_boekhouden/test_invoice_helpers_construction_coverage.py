@@ -15,7 +15,7 @@ Each test asserts REAL constructed fields (account, qty, rate, currency, party,
 tax_amount) so a logic regression makes it fail.
 
 Run:
-    cd /home/frappeuser/frappe-bench && bench --site veg11.veganisme.org run-tests \
+    cd /home/frappeuser/frappe-bench && bench --site test_site_1 run-tests \
         --app verenigingen \
         --module verenigingen.tests.e_boekhouden.test_invoice_helpers_construction_coverage
 """

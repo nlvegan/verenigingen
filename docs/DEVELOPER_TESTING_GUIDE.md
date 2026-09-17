@@ -170,25 +170,30 @@ mandate = self.create_sepa_mandate(
 
 **Tests must be run via Frappe's test runner, not direct Python execution.**
 
+**Never run these against `veg11.veganisme.org`.** It carries a copy of production
+data and is served straight out of the git working tree, so the suite would trash
+data worth keeping. Use one of the disposable sites, `test_site_1` .. `test_site_13`
+(`test_site_1` is the bench default and used below).
+
 ```bash
 cd ~/frappe-bench
 
 # Run all tests for the app
-bench --site veg11.veganisme.org run-tests --app verenigingen
+bench --site test_site_1 run-tests --app verenigingen
 
 # Run a specific domain directory
-bench --site veg11.veganisme.org run-tests \
+bench --site test_site_1 run-tests \
   --module verenigingen.tests.member
 
 # Run a specific test file
-bench --site veg11.veganisme.org run-tests \
+bench --site test_site_1 run-tests \
   --module verenigingen.tests.payment.test_mollie_payment
 
 # Run tests for a DocType
-bench --site veg11.veganisme.org run-tests --doctype "Member"
+bench --site test_site_1 run-tests --doctype "Member"
 
 # Run parallel tests for faster execution
-bench --site veg11.veganisme.org run-parallel-tests --app verenigingen
+bench --site test_site_1 run-parallel-tests --app verenigingen
 ```
 
 ### Custom Test Runners
@@ -332,7 +337,7 @@ warning (historical behaviour). Run the suite with the env flag to make any logg
 error **fail** the test:
 
 ```bash
-VERENIGINGEN_FAIL_ON_ERROR_LOG=1 bench --site veg11.veganisme.org run-tests --app verenigingen --module <module>
+VERENIGINGEN_FAIL_ON_ERROR_LOG=1 bench --site test_site_1 run-tests --app verenigingen --module <module>
 ```
 
 If a test *intentionally* exercises an error-logging path, declare it so the auto-check

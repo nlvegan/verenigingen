@@ -24,7 +24,7 @@ across re-runs) rather than the transient "updated" diff. Each organize test
 first resets the leaves back under the roots so the move-branches always execute.
 
 Run with:
-    bench --site veg11.veganisme.org run-tests --app verenigingen \
+    bench --site test_site_1 run-tests --app verenigingen \
         --module verenigingen.tests.e_boekhouden.test_account_organization_service_sweep
 """
 

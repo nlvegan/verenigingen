@@ -29,7 +29,7 @@ non-resumable-error propagation, which this file's versions never did -- they on
 asserted "does not raise", which a `pass` body also satisfies.
 
 Run with:
-    bench --site veg11.veganisme.org run-tests --app verenigingen \
+    bench --site test_site_1 run-tests --app verenigingen \
         --module verenigingen.tests.e_boekhouden.test_rest_full_migration_helpers_coverage
 """
 

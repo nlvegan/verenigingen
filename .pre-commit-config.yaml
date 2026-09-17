@@ -245,6 +245,16 @@ repos:
         stages: [pre-commit]
         exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/testing/|scripts/debug/|scripts/validation/archived/)'
 
+      - id: veg11-destructive-command-validator
+        name: 🚧 veg11 Destructive-Command Guard (#1127)
+        description: Blocks a doc/README/test comment pairing `veg11.veganisme.org` (the production-data-copy site) with run-tests, run-parallel-tests, run-ui-tests, or reinstall
+        entry: python scripts/validation/veg11_destructive_command_validator.py
+        language: system
+        pass_filenames: true
+        files: '\.(md|py|sh)$'
+        stages: [pre-commit]
+        exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/validation/archived/|docs/plans/|docs/superpowers/plans/|docs/eboekhouden/consolidation-plan\.md)'
+
       - id: error-swallow-validator
         name: 🕳️  Swallowed-Exception Guard (ratchet)
         description: >-

@@ -11,7 +11,7 @@ role names — the canonical roles all carry a "Verenigingen " prefix:
   position — an over-grant).
 
 Run with:
-    bench --site veg11.veganisme.org run-tests --app verenigingen \
+    bench --site test_site_1 run-tests --app verenigingen \
         --module verenigingen.tests.security.test_role_name_fixes
 """
 

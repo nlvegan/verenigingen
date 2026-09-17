@@ -29,7 +29,7 @@ Design notes (why these tests look the way they do):
   data.
 
 Run with:
-    bench --site veg11.veganisme.org run-tests --app verenigingen \
+    bench --site test_site_1 run-tests --app verenigingen \
         --module verenigingen.tests.financial.test_nuke_financial_data_safeguards
 """
 

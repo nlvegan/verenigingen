@@ -5,7 +5,7 @@ Tests the mapping of eBoekhouden mutation types (numeric and text) to ERPNext do
 processor routing logic, and payment reference type determination.
 
 Run with:
-    bench --site veg11.veganisme.org run-tests --app verenigingen \
+    bench --site test_site_1 run-tests --app verenigingen \
         --module verenigingen.tests.e_boekhouden.test_transaction_type_classification
 """
 

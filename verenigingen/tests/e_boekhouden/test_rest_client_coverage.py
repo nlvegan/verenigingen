@@ -18,7 +18,7 @@ OUT OF SCOPE: count_all_mutations (whitelisted wrapper that instantiates a live
 client) and get_mutation_detail's error-log path (thin transport wrapper).
 
 Run with:
-    bench --site veg11.veganisme.org run-tests --app verenigingen \
+    bench --site test_site_1 run-tests --app verenigingen \
         --module verenigingen.tests.e_boekhouden.test_rest_client_coverage
 """
 

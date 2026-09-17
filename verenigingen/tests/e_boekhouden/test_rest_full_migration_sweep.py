@@ -24,7 +24,7 @@ This file targets the residual, deterministic, DB-testable logic:
     field that does not exist) so it stays visible until fixed.
 
 Run with:
-    bench --site veg11.veganisme.org run-tests --app verenigingen \
+    bench --site test_site_1 run-tests --app verenigingen \
         --module verenigingen.tests.e_boekhouden.test_rest_full_migration_sweep
 """
 

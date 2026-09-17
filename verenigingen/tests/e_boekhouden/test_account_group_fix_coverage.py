@@ -26,7 +26,7 @@ delegation target is identical to the (read-only) wrappers and is covered by the
 account_organization_service's own tests.
 
 Run with:
-    bench --site veg11.veganisme.org run-tests --app verenigingen \
+    bench --site test_site_1 run-tests --app verenigingen \
         --module verenigingen.tests.e_boekhouden.test_account_group_fix_coverage
 """
 

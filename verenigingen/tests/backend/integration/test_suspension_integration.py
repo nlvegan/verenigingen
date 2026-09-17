@@ -281,6 +281,6 @@ class TestSuspensionIntegration(EnhancedTestCase):
 
 
 if __name__ == "__main__":
-    # bench --site veg11.veganisme.org run-tests --app verenigingen \
+    # bench --site test_site_1 run-tests --app verenigingen \
     #   --module verenigingen.tests.backend.integration.test_suspension_integration
     unittest.main()

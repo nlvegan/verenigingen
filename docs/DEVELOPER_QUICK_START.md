@@ -460,17 +460,21 @@ pre-commit run comprehensive-validation --all-files
 
 ## Testing
 
+**Never run these against `veg11.veganisme.org`** — it carries a copy of production
+data and is served straight out of the git working tree. Use a disposable site
+instead: `test_site_1` .. `test_site_13` (`test_site_1` is the bench default).
+
 ```bash
 # Run all tests for the app
 cd ~/frappe-bench
-bench --site veg11.veganisme.org run-tests --app verenigingen
+bench --site test_site_1 run-tests --app verenigingen
 
 # Run tests for a specific module
-bench --site veg11.veganisme.org run-tests \
+bench --site test_site_1 run-tests \
   --module verenigingen.tests.member.test_member_lifecycle
 
 # Run tests for a specific doctype
-bench --site veg11.veganisme.org run-tests --doctype "Member"
+bench --site test_site_1 run-tests --doctype "Member"
 ```
 
 See `docs/DEVELOPER_TESTING_GUIDE.md` for full testing documentation including directory structure, base classes, and factory methods.

@@ -23,7 +23,7 @@ These are real integration tests: allocation methods run against a real
 algorithm actually produces (no mocking of business logic).
 
 Run with:
-    bench --site veg11.veganisme.org run-tests --app verenigingen \\
+    bench --site test_site_1 run-tests --app verenigingen \\
         --module verenigingen.tests.e_boekhouden.test_payment_entry_handler_allocation
 """
 

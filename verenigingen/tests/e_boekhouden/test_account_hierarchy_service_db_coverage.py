@@ -19,7 +19,7 @@ whitelisted orchestrators are exercised with ``dry_run=True`` so they never hit
 their internal ``frappe.db.commit()`` (which would leak past rollback).
 
 Run with:
-    bench --site veg11.veganisme.org run-tests --app verenigingen \
+    bench --site test_site_1 run-tests --app verenigingen \
         --module verenigingen.tests.e_boekhouden.test_account_hierarchy_service_db_coverage
 """
 

@@ -17,7 +17,7 @@ E-Boekhouden Settings Single (saved/restored), with real Company + Cost Center
 master data. No live eBoekhouden HTTP.
 
 Run with:
-    bench --site veg11.veganisme.org run-tests --app verenigingen \
+    bench --site test_site_1 run-tests --app verenigingen \
         --module verenigingen.tests.e_boekhouden.test_enhanced_migration_coverage
 """
 
