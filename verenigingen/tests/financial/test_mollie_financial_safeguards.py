@@ -20,6 +20,7 @@ Test Categories:
 Author: Test Engineering Team
 """
 
+import threading
 import time
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock
@@ -28,6 +29,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import frappe
 from frappe.utils import today
 
+from verenigingen.tests.payment.test_history_manager_row_lock import (
+    row_is_locked_from_another_connection,
+)
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.verenigingen_payments.mollie.tests.fixtures.factory import MollieTestCase
 from verenigingen.verenigingen_payments.utils.payment_gateways import (
@@ -523,6 +527,159 @@ class TestMollieFinancialSafeguards(MollieTestCase):
             self.assertLessEqual(max_processing_time, 3000,  # 3 second maximum
                                "Maximum processing time should be under 3 seconds")
                                
+    def test_process_subscription_payment_succeeds_without_prior_commit(self):
+        """#1134: `_process_subscription_payment`'s `frappe.db.begin()` around the
+        invoice FOR UPDATE lock raises ImplicitCommitError against ANY connection
+        that already has pending writes -- exactly the state every test in this
+        class is in right after setUp (Member/Customer/Invoice are inserted but
+        not committed). This is not a test-harness quirk: the function's own
+        comment names a single stray `frappe.log_error()` upstream as enough to
+        arm the same failure in production. Call it here with setUp's writes
+        still pending -- no manual `frappe.db.commit()` workaround -- and require
+        it to actually process the payment, not merely avoid raising.
+        """
+        gateway = self._create_mock_mollie_gateway(50.00)
+
+        result = _process_subscription_payment(
+            gateway,
+            self.member.name,
+            self.customer.name,
+            "tr_no_prior_commit_test_001",
+            "sub_test_no_prior_commit",
+        )
+
+        self.assertEqual(result["status"], "success")
+        payment_entries = frappe.get_all(
+            "Payment Entry",
+            filters={"reference_no": "tr_no_prior_commit_test_001"},
+            fields=["name"],
+        )
+        self.assertEqual(len(payment_entries), 1)
+
+    def _create_second_connection_lock_probe(self):
+        """Commit this test's fixtures (Member/Customer/Invoice from setUp) so
+        a genuinely separate DB connection can see -- and try to lock -- the
+        same invoice row below.
+
+        Named `_create_*` per scan_order_dependence.py's COMMIT_EXEMPT
+        convention (#820/#827: "a commit that must stay was moved into a real
+        `_create_*`/`_cleanup_*` fixture builder"): this commit is load-bearing
+        for a real lock-probe requirement, not a workaround for #1134's
+        original bug. Without it, the probe below would be vacuous -- an
+        uncommitted row already holds an implicit exclusive lock of its own
+        (see row_is_locked_from_another_connection's own docstring), so every
+        probe would report `True` whether or not the function under test ever
+        took a lock.
+        """
+        frappe.db.commit()
+
+    def test_invoice_row_lock_is_held_across_the_critical_section(self):
+        """#1134 review: pin the INVOICE `FOR UPDATE` specifically, distinct
+        from the `custom_mollie_idempotency_key` uniqueness constraint that
+        `test_race_condition_protection` (and the recovery added for #1134)
+        actually exercises. An independent review mutated the invoice lock
+        away entirely, keeping the `UniqueValidationError` recovery intact,
+        and `test_race_condition_protection` stayed green 3/3 -- the
+        constraint alone fully covers "don't create a duplicate Payment Entry
+        for the same Mollie payment_id". It does NOT cover what the invoice
+        lock is actually for: serialising the `outstanding_amount`/
+        `overpaid_by` re-read against a concurrent settlement of the SAME
+        invoice by a DIFFERENT payment (payment_gateways.py's own comment --
+        a stale bound makes ERPNext throw from
+        validate_allocated_amount_with_latest_data). Nothing in this suite
+        would notice that lock disappearing.
+
+        A `FOR UPDATE` that matches zero rows is not an error, so reading the
+        query is not proof it is held. This calls the REAL function on a
+        REAL second connection (a worker thread with its own
+        frappe.connect()), pauses it mid-critical-section -- after the
+        invoice lock, before the commit -- via the same `Document.db_insert`
+        interception point EnhancedTestCase's own capture hook already uses,
+        and probes the invoice row from a genuinely separate THIRD
+        connection while the worker is paused.
+        """
+        self._create_second_connection_lock_probe()
+
+        self.assertFalse(
+            row_is_locked_from_another_connection("Sales Invoice", self.test_invoice),
+            "control: nothing has locked this row yet, so the probe must "
+            "report False here or it cannot be trusted below",
+        )
+
+        payment_id = "tr_lock_pin_test_001"
+        site = frappe.local.site
+        member_name = self.member.name
+        customer_name = self.customer.name
+        gateway = self._create_mock_mollie_gateway(50.00)
+
+        reached_insert = threading.Event()
+        resume_insert = threading.Event()
+
+        import frappe.model.document as _docmod
+
+        original_db_insert = _docmod.Document.db_insert
+
+        def paused_db_insert(doc, *args, **kwargs):
+            if doc.doctype == "Payment Entry" and getattr(doc, "reference_no", None) == payment_id:
+                reached_insert.set()
+                # Timeout, not an unbounded wait: a bug that never signals
+                # resume_insert must not hang the suite -- it should surface
+                # as this thread never completing, below.
+                resume_insert.wait(timeout=10)
+            return original_db_insert(doc, *args, **kwargs)
+
+        result_holder = {}
+
+        def worker():
+            frappe.init(site=site)
+            frappe.connect()
+            try:
+                result_holder["result"] = _process_subscription_payment(
+                    gateway, member_name, customer_name, payment_id, "sub_lock_pin_test"
+                )
+            except Exception as e:  # noqa: BLE001 -- surfaced via result_holder, asserted below
+                result_holder["error"] = e
+            finally:
+                frappe.destroy()
+
+        _docmod.Document.db_insert = paused_db_insert
+        thread = threading.Thread(target=worker)
+        try:
+            thread.start()
+            self.assertTrue(
+                reached_insert.wait(timeout=10),
+                "worker thread never reached the Payment Entry insert -- this "
+                "test's own setup is broken, not the lock under test",
+            )
+
+            self.assertTrue(
+                row_is_locked_from_another_connection("Sales Invoice", self.test_invoice),
+                f"Sales Invoice {self.test_invoice} is NOT locked from a third "
+                "connection while _process_subscription_payment is paused "
+                "between its invoice FOR UPDATE and its commit -- the "
+                "serialisation this function's outstanding_amount/overpaid_by "
+                "re-read depends on is not actually held",
+            )
+        finally:
+            resume_insert.set()
+            thread.join(timeout=10)
+            _docmod.Document.db_insert = original_db_insert
+
+        self.assertFalse(thread.is_alive(), "worker thread did not finish")
+        self.assertNotIn("error", result_holder, f"worker raised: {result_holder.get('error')}")
+        self.assertEqual(result_holder.get("result", {}).get("status"), "success")
+
+        self.assertFalse(
+            row_is_locked_from_another_connection("Sales Invoice", self.test_invoice),
+            "the invoice lock is still held after the worker finished -- it "
+            "was never released",
+        )
+
+        payment_entries = frappe.get_all(
+            "Payment Entry", filters={"reference_no": payment_id}, fields=["name"]
+        )
+        self.assertEqual(len(payment_entries), 1)
+
     def test_audit_trail_completeness(self):
         """Test that financial operations create complete audit trails"""
         payment_id = "tr_audit_test_001"
