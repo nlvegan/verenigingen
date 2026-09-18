@@ -61,7 +61,17 @@ BASELINE = Path(__file__).resolve().parents[1] / "harness_logger_teardown_baseli
 # unrelated shard, which is #1150). Anyone who wants the CI-wide VOLUME of
 # sweeping -- still an open question on #1154 -- has to read it locally or move it
 # to ERROR on purpose; it is not available from a shard log today.
-MRO_CALLS, MRO_ERRORS, MRO_TEARDOWNS = 21, 3, 11
+# 21 -> 22 (#1154, second round): the same sweep's ERROR path. `_remove_drained_record`
+# now sweeps when `frappe.delete_doc` RAISES as well as when it returns -- frappe removes
+# the row in `delete_from_table` and then keeps going, so a raise from anything after it
+# leaves the row gone and the orphans stranded. If that error-path sweep itself fails, the
+# orphans are CERTAIN to strand and the next Company insert in the shard dies validating
+# them. That is logged at ERROR, not WARNING, precisely so the `>= ERROR` mirror carries it
+# to stderr: a WARNING there would be dropped and the only record of a guaranteed-poisoned
+# shard would never reach a CI log. So MRO_ERRORS moves 3 -> 4 WITH the call count, and
+# RESIDUAL_BELOW_ERROR (22-4) stays 18 -- the gate's rationale is unchanged rather than
+# merely still-true-by-luck.
+MRO_CALLS, MRO_ERRORS, MRO_TEARDOWNS = 22, 4, 11
 # 35, 7 -> 36, 8 (#392): this branch replaced a silent `except Exception: pass`
 # in test_rest_migration_payments.py's tearDown with a get_harness_logger
 # `.error()` call, so name-mode gains one site and it is an ERROR one. The
@@ -94,8 +104,12 @@ MRO_CALLS, MRO_ERRORS, MRO_TEARDOWNS = 21, 3, 11
 # no MRO-reachable counterpart), so RESIDUAL_BELOW_ERROR (20-3) stays 17.
 # 40, 12 -> 41, 12 (#1154): the same single route as the MRO note above. It enters
 # at WARNING, so NAME_ERRORS does NOT move -- only the call count.
-NAME_CALLS, NAME_ERRORS = 41, 12
-RESIDUAL_BELOW_ERROR = 18  # 17 -> 18: the #1154 sweep's WARNING is dropped by the mirror, knowingly
+# 41, 12 -> 42, 13 (#1154, second round): the same single route as the MRO note above.
+# It enters AT ERROR, so NAME_ERRORS moves too, not just the call count.
+NAME_CALLS, NAME_ERRORS = 42, 13
+RESIDUAL_BELOW_ERROR = 18  # 17 -> 18 (#1154's WARNING success-path sweep, dropped by the
+# mirror knowingly); UNCHANGED at 18 when its ERROR failure-path sibling landed, because
+# that one entered at ERROR and moved MRO_ERRORS with it.
 
 
 class TestHarnessLoggerTeardownCensus(unittest.TestCase):
@@ -137,19 +151,19 @@ class TestHarnessLoggerTeardownCensus(unittest.TestCase):
         self.assertEqual(
             len(errors),
             MRO_ERRORS,
-            "harness_logger.py says exactly three class-teardown records are at ERROR, "
+            "harness_logger.py says exactly four class-teardown records are at ERROR, "
             f"and that this is why the mirror gate sits there. Now: {sorted(errors)}",
         )
 
     def test_the_residual_limit_is_still_the_documented_size(self):
-        """18 of 21 records are below ERROR and are LOST. The docstring says so."""
+        """18 of 22 records are below ERROR and are LOST. The docstring says so."""
         _routes, sites, _fns = v.census("mro")
         below = [s for s in sites if s[2] not in ("error", "critical", "exception")]
         self.assertEqual(
             len(below),
             RESIDUAL_BELOW_ERROR,
             "harness_logger.py's 'residual limit' paragraph says eighteen of the "
-            f"twenty-one class-teardown records are below ERROR and lost. Now {len(below)}. "
+            f"twenty-two class-teardown records are below ERROR and lost. Now {len(below)}. "
             "Update the paragraph, not just the baseline.",
         )
 

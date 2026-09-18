@@ -164,8 +164,8 @@ class _StderrHandler(logging.StreamHandler):
     ``cls._test_instance.tearDown()`` (``test_chapter_permission_service_integration.py:182``),
     the only place in the repo where a class teardown invokes a per-test ``tearDown`` on a
     stashed instance -- which binds to ``EnhancedTestCase.tearDown`` and so drags the whole
-    drain onto a class-teardown path. Between them they reach TWENTY logging calls at
-    three levels, of which THREE are at ERROR: ``_restore_singleton``'s "Failed to restore
+    drain onto a class-teardown path. Between them they reach TWENTY-TWO logging calls at
+    three levels, of which FOUR are at ERROR: ``_restore_singleton``'s "Failed to restore
     %s: %s" (``singleton_backup.py:292``), ``ErrorLogGuardMixin._capture_test_error_logs``'
     "Error Log guard capture failed" (``error_log_guard.py:194``) -- both tracked precisely
     because a failure that said so nowhere is #433 -- and
@@ -173,14 +173,23 @@ class _StderrHandler(logging.StreamHandler):
     reset failed" (``enhanced_test_factory.py:2736``), promoted from WARNING to ERROR by
     #815 for the same reason: it is reachable from ``EnhancedTestCase.tearDown()``, which
     this same route drags onto a class-teardown path, so a WARNING there would have been
-    silently lost.
+    silently lost. The fourth is ``_remove_drained_record``'s "orphan sweep after a failed
+    Company delete ... itself failed" (#1154): reaching it means the Company row is gone
+    AND its orphan sweep did not run, so the next Company insert in the shard dies
+    validating rows nothing will now remove -- the same "a failure that said so nowhere"
+    argument as the first two.
+
+    (The first two figures in this paragraph read TWENTY and THREE until 2026-09-18, after
+    #1154's first sweep had already moved the census to 21/3. Nothing asserts the PROSE --
+    the census pins the constants and cites this paragraph only in its failure message --
+    so this sentence rotted exactly the way the one about name-mode below says it did.)
 
     Edges were resolved by callee name, EXCEPT that an attribute call's receiver was
     resolved to its class and bound through the MRO. That exception is not cosmetic:
     ``tearDown`` has ~500 defs in this repo (``cleanup`` 7, ``restore`` 4 -- exact
     counts are printed by ``--report``, so this sentence cannot silently rot), so resolving
     ``cls._test_instance.tearDown()`` by name alone links to every one of them, so the
-    name-mode walk returns substantially more calls, at more ERRORs, than the 20 at 3 that
+    name-mode walk returns substantially more calls, at more ERRORs, than the 22 at 4 that
     MRO resolution finds. The exact pair is deliberately NOT repeated here: it is pinned as
     ``NAME_CALLS, NAME_ERRORS`` in ``scripts/validation/tests/test_harness_logger_teardown_census.py``,
     which re-measures it and fails when it drifts. This sentence used to carry the numbers and
@@ -218,7 +227,7 @@ class _StderrHandler(logging.StreamHandler):
 
     **The residual limit:** anything below ERROR from class teardown is still lost -- a
     ``.warning()``, ``.info()`` or ``.debug()``. Measured, that is eighteen of the
-    twenty-one: seventeen WARNING and one DEBUG. No INFO site is class-teardown-reachable
+    twenty-two: seventeen WARNING and one DEBUG. No INFO site is class-teardown-reachable
     today, so the gate's INFO behaviour is untested by that census rather than confirmed
     by it. Fixing the loss properly means draining the buffer in ``stopTestRun``, which is
     ``frappe/``'s to do, not this app's.

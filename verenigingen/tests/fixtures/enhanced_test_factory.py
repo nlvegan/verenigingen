@@ -2248,7 +2248,16 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                     # the only thing that makes a leak triageable. Letting a failure of
                     # the cleanup replace it is the same mistake as the vanished
                     # savepoint one layer up, and just as untriageable (#328).
-                    logger.warning(
+                    #
+                    # ERROR, not WARNING, and not for symmetry with the success path
+                    # below. Reaching here means the Company row is already gone AND
+                    # the sweep did not run, so the orphans are certainly stranded and
+                    # the next Company insert in the shard will die validating them --
+                    # in a class that never touched this module. That is the precise
+                    # condition the `>= ERROR` stderr mirror exists to carry out of a
+                    # teardown, and a WARNING here would be dropped and never reach a
+                    # CI log (see harness_logger.py's residual limit).
+                    logger.error(
                         "orphan sweep after a failed Company delete (%s) itself failed: %s",
                         name,
                         sweep_error,
