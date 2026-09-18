@@ -141,6 +141,7 @@ class MollieErrorHandler:
         context: Optional[Dict[str, Any]] = None,
         severity_override: Optional[str] = None,
         audit_trail: Optional[Any] = None,
+        log_to_error_log_override: Optional[bool] = None,
     ) -> None:
         """
         Handle an error with standardized logging and notification
@@ -158,6 +159,11 @@ class MollieErrorHandler:
                     e.g., {"settlement_id": "stl_123", "operation": "reconcile"}
             severity_override: Override default severity ("warning", "error", "critical")
             audit_trail: Optional AuditTrail instance for compliance logging
+            log_to_error_log_override: When not None, overrides the error type's
+                    ``log_to_error_log`` template flag (#1130). Use this when the
+                    caller already owns a single, higher-context Error Log row for
+                    this operation (e.g. an endpoint-level catch-all) and would
+                    otherwise get a second, duplicate row here for the same failure.
 
         Raises:
             The original exception after logging (preserves stack trace)
@@ -197,8 +203,11 @@ class MollieErrorHandler:
         # Determine severity
         severity = severity_override or template["severity"]
 
-        # Log to Frappe error log if configured
-        if template["log_to_error_log"]:
+        # Log to Frappe error log if configured (a caller may override this, #1130)
+        should_log_to_error_log = (
+            template["log_to_error_log"] if log_to_error_log_override is None else log_to_error_log_override
+        )
+        if should_log_to_error_log:
             frappe.log_error(
                 title=f"Mollie {error_type}: {type(error).__name__}",
                 message=f"{internal_message}\n\nContext: {context}\n\n{frappe.get_traceback()}",

@@ -304,8 +304,13 @@ class ResilientHTTPClient:
             details=error_details,
         )
 
-        # Log to Frappe error log
-        frappe.log_error(message=f"HTTP Client Error: {error_details}", title="HTTP Request Failed")
+        # No Error Log write here (#1130): this client's only caller is
+        # MollieBaseClient, which always routes the re-raised exception (below)
+        # into MollieErrorHandler.handle_error() -- that is the canonical Error
+        # Log entry for a Mollie API failure, with richer context (test_mode,
+        # a message template, and frappe.get_traceback()). Logging here too
+        # produced two rows -- generic "HTTP Request Failed" plus the
+        # Mollie-specific one -- for every single gateway failure.
 
     def _log_request_success(self, method: str, url: str, status_code: int, latency: float):
         """Log successful request"""

@@ -25,7 +25,11 @@ class SubscriptionAudit:
     """
 
     def __init__(self):
-        self.client = MollieBaseClient(use_backend_api=False)
+        # suppress_api_error_log=True (#1130): _fetch_all_mollie_subscriptions()
+        # and the www run_audit() endpoint that calls it already own the single
+        # Error Log row for a failed audit; without this the client's own
+        # "Mollie api_connection: ..." row duplicated it for every failure.
+        self.client = MollieBaseClient(use_backend_api=False, suppress_api_error_log=True)
         self.issues = {
             # Mollie-side issues (subscriptions in Mollie we need to address)
             "subscription_no_member_match": [],  # Subscription exists but no Member with that subscription_id
@@ -82,7 +86,15 @@ class SubscriptionAudit:
             return all_subscriptions
 
         except Exception as e:
-            frappe.log_error(f"Failed to fetch Mollie subscriptions: {str(e)}", "Subscription Audit")
+            # No Error Log write here (#1130): self.client is constructed with
+            # suppress_api_error_log=True (see __init__), so this frappe.throw()
+            # is the only propagation step -- the one Error Log row for a failed
+            # audit is written by run_audit()'s outer except block, with the full
+            # traceback. Logging a second time here only duplicated the row, and
+            # (being a positional call with no newline in the first argument) was
+            # never even rescued by frappe.log_error's title/message swap check --
+            # it recorded the truncated message as the title and the literal
+            # string "Subscription Audit" as the body.
             frappe.throw(_("Failed to fetch subscriptions from Mollie: {0}").format(str(e)))
 
     def _cross_reference_with_members(self, mollie_subscriptions: List[Dict[str, Any]]):
