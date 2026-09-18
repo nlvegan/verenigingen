@@ -47,6 +47,7 @@ from verenigingen.tests.utils.company_orphans import (
     COMPANY_ORPHAN_DOCTYPES,
     purge_company_orphans,
 )
+from verenigingen.utils.sql_like import escape_sql_like_wildcards
 
 COMPANY_NAME = "TEST-EB-Payment-Company"
 COMPANY_ABBR = "TEBPC"
@@ -562,8 +563,12 @@ def _like_escape(value: str) -> str:
     containing `%`). Today's only caller passes a hex-derived abbr that cannot
     contain either character, but the helper takes `abbr` as a free parameter and
     must not depend on its caller staying that way.
+
+    Delegates to the shared `escape_sql_like_wildcards` (#1153) rather than
+    keeping its own copy of the escape order -- this was the fourth of four
+    copies that had drifted apart before that fix.
     """
-    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return escape_sql_like_wildcards(value)
 
 
 def _abbr_like_pattern(abbr: str) -> str:

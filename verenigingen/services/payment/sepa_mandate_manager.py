@@ -50,6 +50,7 @@ from verenigingen.services.payment.validation_service import ValidationResult, g
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+from verenigingen.utils.sql_like import escape_sql_like_wildcards
 
 
 @dataclass
@@ -443,8 +444,9 @@ class SEPAMandateManager(StatelessService):
                 member_id = member.replace("Assoc-Member-", "").replace("-", "")
 
         # Sanitize member_id to prevent SQL injection in LIKE clause
-        # Replace SQL wildcards that could be used maliciously
-        member_id_safe = str(member_id).replace("%", "\\%").replace("_", "\\_").replace("\\", "\\\\")
+        # Replace SQL wildcards that could be used maliciously. See
+        # escape_sql_like_wildcards()'s docstring for why the order matters (#1153).
+        member_id_safe = escape_sql_like_wildcards(member_id)
 
         # Format date as YYYYMMDD, on the SITE clock: the day named inside `mandate_id`
         # should be the day the row's own `creation` and `sign_date` name, and those are
