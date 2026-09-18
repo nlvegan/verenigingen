@@ -349,6 +349,27 @@ class TestSEPAMandateManager(EnhancedTestCase):
         self.assertEqual(ref1[:-3], ref2[:-3])  # Same except last 3 digits
         self.assertEqual(int(ref2[-3:]), int(ref1[-3:]) + 1)
 
+    def test_generate_mandate_reference_increments_sequence_with_percent_wildcard_in_member_id(self):
+        """Regression for #1153: a `member_id` containing a LIKE wildcard (`%`)
+        must still get sequence 0001 then 0002, not 0001 twice.
+
+        `generate_mandate_reference` escapes `member_id` before using it in a
+        LIKE lookup that allocates the next sequence number. If the escape is
+        built in the wrong order (`%`/`_` before `\\`), the resulting pattern
+        matches nothing -- including the mandate this test creates -- so the
+        second call sees zero existing mandates and allocates 0001 again
+        instead of 0002.
+        """
+        member_id = "001%002"
+
+        ref1 = self.manager.generate_mandate_reference(self.test_member.name, member_id=member_id)
+        self._create_test_mandate(self.test_member.name, self.valid_iban, mandate_id=ref1)
+
+        ref2 = self.manager.generate_mandate_reference(self.test_member.name, member_id=member_id)
+
+        self.assertNotEqual(ref1, ref2, f"both references were {ref1!r}: sequence allocation did not see ref1")
+        self.assertEqual(int(ref2[-3:]), int(ref1[-3:]) + 1)
+
     def test_generate_mandate_reference_without_member_id(self):
         """Test reference generation when member_id is not provided"""
         # Should auto-retrieve or generate from member name

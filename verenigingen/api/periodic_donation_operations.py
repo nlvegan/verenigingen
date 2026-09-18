@@ -22,6 +22,7 @@ from verenigingen.utils.security.api_security_framework import (
     high_security_api,
     standard_api,
 )
+from verenigingen.utils.sql_like import escape_sql_like_wildcards
 
 # Periodic Donation Agreement.payment_method is a Select with exactly these
 # three options (periodic_donation_agreement.json). Callers -- notably the
@@ -453,7 +454,7 @@ def _attach_generated_pdf(agreement_name: str, file_stem: str, html: str) -> str
     # hash before the extension when a same-named file already exists on disk, so
     # match by stem prefix -- with LIKE metacharacters escaped -- scoped to this
     # agreement via attached_to_name, and excluding the file we just saved.
-    like_stem = file_stem.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    like_stem = escape_sql_like_wildcards(file_stem)
     stale = frappe.get_all(
         "File",
         filters={

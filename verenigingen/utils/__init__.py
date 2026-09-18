@@ -11,6 +11,7 @@ from verenigingen.utils.security.api_security_framework import (  # noqa: F401
     development_only_api,
     high_security_api,
 )
+from verenigingen.utils.sql_like import escape_sql_like_wildcards  # noqa: F401
 
 utils_dir = str(Path(__file__).parent)
 if utils_dir not in sys.path:

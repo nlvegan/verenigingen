@@ -24,6 +24,8 @@ from typing import Optional, Tuple
 import frappe
 from frappe.utils import flt
 
+from verenigingen.utils.sql_like import escape_sql_like_wildcards
+
 #: (doctype, field carrying the reversal key)
 _REVERSAL_ARTEFACTS = (
     ("Journal Entry", "cheque_no"),
@@ -63,7 +65,7 @@ def total_reversed(payment_id: str) -> float:
     if not payment_id:
         return 0.0
 
-    escaped = payment_id.replace("\\", "\\\\").replace("_", "\\_").replace("%", "\\%")
+    escaped = escape_sql_like_wildcards(payment_id)
     prefix = f"{escaped}\\_%"
 
     total = 0.0
