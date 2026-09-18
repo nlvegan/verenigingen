@@ -84,3 +84,31 @@ class TestEscapeSqlLikeWildcards(EnhancedTestCase):
 
         self.assertFalse(_like_matches(literal, broken_pattern))
         self.assertFalse(_like_matches(overmatch, broken_pattern))
+
+    def test_None_raises_instead_of_silently_becoming_the_string_None(self):
+        """Consolidating three call sites must not soften the strictest one.
+
+        Before #1153 these were three inline `.replace()` chains, and they did
+        NOT agree on coercion: `sepa_mandate_manager.py` wrote `str(member_id)`
+        deliberately (a `member_id` can arrive as an int), while
+        `periodic_donation_operations.py` called `.replace()` straight on
+        `file_stem` -- so a `None` there raised `AttributeError` at once.
+
+        An unconditional `str()` in the shared helper would turn that loud
+        failure into a silent one: `None` becomes the literal `"None"`, the
+        caller builds `LIKE 'None%'`, and the query returns nothing at all
+        while looking like it worked. Unreachable today (`file_stem` is always
+        an f-string), but this is a new shared contract with four callers and
+        more to come, and a helper that answers a programming error with an
+        empty result set is a footgun.
+
+        So: `None` raises, ints still coerce.
+        """
+        with self.assertRaises(TypeError):
+            escape_sql_like_wildcards(None)
+
+        self.assertEqual(
+            escape_sql_like_wildcards(123),
+            "123",
+            "int coercion is load-bearing for sepa_mandate_manager's member_id",
+        )

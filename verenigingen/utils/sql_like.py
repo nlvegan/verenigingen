@@ -23,7 +23,7 @@ again:
 """
 
 
-def escape_sql_like_wildcards(value: str) -> str:
+def escape_sql_like_wildcards(value) -> str:
     """Escape ``%``, ``_`` and ``\\`` so ``value`` is safe as a LIKE literal.
 
     Order matters: the backslash MUST be escaped first, or the backslashes
@@ -33,5 +33,22 @@ def escape_sql_like_wildcards(value: str) -> str:
 
     The caller is still responsible for the surrounding LIKE syntax, e.g.
     ``frappe.db.sql("... WHERE col LIKE %s", (f"{escaped}%",))``.
+
+    ``None`` raises rather than coercing. The three call sites this replaced did
+    not agree on coercion -- ``sepa_mandate_manager`` wrote ``str(member_id)``
+    deliberately, because a ``member_id`` can arrive as an int, while
+    ``periodic_donation_operations`` called ``.replace()`` straight on its
+    ``file_stem`` and so raised ``AttributeError`` on ``None`` at once.
+    Coercing unconditionally would keep the looser behaviour and silently lose
+    the stricter one: ``None`` would become the literal ``"None"``, the caller
+    would build ``LIKE 'None%'``, and the query would return nothing while
+    looking like it worked. A shared helper that answers a programming error
+    with an empty result set is a footgun, so ints still coerce and ``None``
+    does not.
     """
+    if value is None:
+        raise TypeError(
+            "escape_sql_like_wildcards() received None. A LIKE pattern built from "
+            "None would silently match nothing; pass a real value."
+        )
     return str(value).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
