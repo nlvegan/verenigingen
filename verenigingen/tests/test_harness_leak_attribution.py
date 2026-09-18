@@ -19,6 +19,7 @@ import os
 import pathlib
 import types
 import unittest
+from unittest import mock
 
 import frappe
 from frappe.utils import now
@@ -3920,6 +3921,95 @@ class DrainSweepsCompanyOrphansTest(unittest.TestCase):
             {},
             "a doctype other than Expense Claim Account now survives a Company "
             "force-delete; add it to COMPANY_ORPHAN_DOCTYPES (#1154)",
+        )
+
+    def test_the_sweep_runs_even_when_the_delete_raises_after_removing_the_row(self):
+        """The sweep sat on the success path only, so it failed OPEN (#1154).
+
+        `_remove_drained_record` swept after `frappe.delete_doc` RETURNED. But
+        frappe removes the row in `delete_from_table` and then keeps going --
+        `after_delete`, `remove_all` (attachments), `delete_dynamic_links` (which
+        runs SYNCHRONOUSLY under test, `now=frappe.in_test`), `add_to_deleted_
+        document`'s `db_insert`, `notify_update`/`insert_feed`. Any of those
+        raising leaves the Company row gone and the orphans stranded, and both
+        drains then catch the exception and record an ordinary leak -- naming a
+        Company row that no longer exists, while the rows that actually survived
+        go unnamed and poison the next Company insert in the shard.
+
+        That is the exact failure mode the e_boekhouden probe teardown already
+        works around by sweeping "whether or not its delete raised". The choke
+        point did not.
+
+        `add_to_deleted_document` is patched rather than invented: it is a real
+        step of frappe's own `delete_doc`, it runs after the row is gone, and the
+        assertion below that the Company is already deleted is the control that
+        proves this test is about that path and not some earlier one.
+        """
+        self._create_company()
+        self._strand_the_row_hrms_would_have_written()
+        self.assertTrue(
+            self._orphans(),
+            "sanity check: the seed must actually have stranded a row",
+        )
+
+        with mock.patch(
+            "frappe.model.delete_doc.add_to_deleted_document",
+            side_effect=RuntimeError("post-removal step failed"),
+        ):
+            with self.assertRaises(RuntimeError):
+                _probe()._remove_drained_record("Company", self.company)
+
+        self.assertFalse(
+            frappe.db.exists("Company", self.company),
+            "control: the raise has to land AFTER the row was removed, or this "
+            "test is exercising a different path and proves nothing",
+        )
+        self.assertEqual(
+            self._orphans(),
+            [],
+            "a delete that raises after removing the row strands exactly what a "
+            "successful one does, so the sweep must still run (#1154)",
+        )
+
+    def test_a_delete_that_raises_BEFORE_removing_the_row_sweeps_nothing(self):
+        """The `db.exists` guard on that error path, pinned.
+
+        Sweeping is only correct once the parent is gone -- the same contract as
+        `purge_ledger_rows`. A delete that fails BEFORE `delete_from_table`
+        (the row lock timing out, `check_permission_and_not_submitted`, an
+        `on_trash` hook raising) leaves a LIVE Company, and its `Expense Claim
+        Account` rows are then ordinary rows with a valid parent, not orphans.
+
+        Without this, dropping the guard is invisible: every other test here
+        deletes the row successfully, so an unconditional sweep stays green
+        across the whole module (measured -- it does).
+
+        `update_naming_series` is the real step immediately before
+        `delete_from_table`, so patching it lands the raise on the near side of
+        the row removal; the control below asserts exactly that.
+        """
+        self._create_company()
+        self._strand_the_row_hrms_would_have_written()
+        seeded = self._orphans()
+        self.assertTrue(seeded, "sanity check: the seed must actually have stranded a row")
+
+        with mock.patch(
+            "frappe.model.delete_doc.update_naming_series",
+            side_effect=RuntimeError("pre-removal step failed"),
+        ):
+            with self.assertRaises(RuntimeError):
+                _probe()._remove_drained_record("Company", self.company)
+
+        self.assertTrue(
+            frappe.db.exists("Company", self.company),
+            "control: the raise has to land BEFORE the row was removed, or this "
+            "test is exercising the orphan path instead of the guard",
+        )
+        self.assertEqual(
+            self._orphans(),
+            seeded,
+            "the company is still alive, so its rows are not orphans and the "
+            "sweep must leave them alone (#1154)",
         )
 
 
