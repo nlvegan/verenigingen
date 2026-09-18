@@ -25,7 +25,7 @@ and is the DEPRECATED path the module itself warns against using):
 - _create_dynamic_item actual Item insert, _create_fallback_item, _get_fallback_item.
 
 Run with:
-    bench --site veg11.veganisme.org run-tests --app verenigingen \
+    bench --site test_site_1 run-tests --app verenigingen \
         --module verenigingen.tests.e_boekhouden.test_tegenrekening_mapper_coverage
 """
 

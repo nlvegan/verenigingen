@@ -7,7 +7,7 @@ literal-replacement in permissions.py is a provably behaviour-neutral
 substitution.
 
 Run with:
-    bench --site veg11.veganisme.org run-tests --app verenigingen \
+    bench --site test_site_1 run-tests --app verenigingen \
         --module verenigingen.tests.backend.test_role_constants
 """
 

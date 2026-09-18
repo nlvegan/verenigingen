@@ -75,11 +75,13 @@ cron = {
 
 ## Testing New Hooks
 
-After adding hooks, run the hooks test suite:
+After adding hooks, run the hooks test suite. Use a disposable test site --
+`test_site_1` .. `test_site_13` -- never `veg11.veganisme.org`, which carries a
+copy of production data and is served straight out of the git working tree:
 
 ```bash
 cd ~/frappe-bench
-bench --site veg11.veganisme.org run-tests \
+bench --site test_site_1 run-tests \
     --app verenigingen \
     --module verenigingen.tests.test_hooks_modules
 ```

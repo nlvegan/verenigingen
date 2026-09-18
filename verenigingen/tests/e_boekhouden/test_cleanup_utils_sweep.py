@@ -29,7 +29,7 @@ Every assertion checks a real DB side effect (our seeded rows deleted, control r
 preserved) that would fail on a regression of the cleanup logic.
 
 Run with:
-    bench --site veg11.veganisme.org run-tests --app verenigingen \
+    bench --site test_site_1 run-tests --app verenigingen \
         --module verenigingen.tests.e_boekhouden.test_cleanup_utils_sweep
 """
 

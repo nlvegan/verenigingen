@@ -29,7 +29,7 @@ the canned mutation. Everything else — accounts, ledger mappings, JE/PE
 creation, submission — is real.
 
 Run with:
-    bench --site veg11.veganisme.org run-tests --app verenigingen \\
+    bench --site test_site_1 run-tests --app verenigingen \\
         --module verenigingen.tests.e_boekhouden.test_rest_full_migration_dispatch_coverage
 """
 

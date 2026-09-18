@@ -15,7 +15,7 @@ Every test asserts a concrete side effect (a persisted Bank Account, a returned
 count, a specific error string), not merely "does not raise".
 
 Run with:
-    bench --site veg11.veganisme.org run-tests --app verenigingen \
+    bench --site test_site_1 run-tests --app verenigingen \
         --module verenigingen.tests.e_boekhouden.test_coa_import_sweep
 """
 

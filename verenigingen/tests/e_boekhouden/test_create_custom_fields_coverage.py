@@ -22,7 +22,7 @@ clean), and do NOT create fields on doctypes that lack them. tearDown additional
 re-asserts no stray E-Boekhouden Custom Field appeared on an unexpected doctype.
 
 Run with:
-    bench --site veg11.veganisme.org run-tests --app verenigingen \
+    bench --site test_site_1 run-tests --app verenigingen \
         --module verenigingen.tests.e_boekhouden.test_create_custom_fields_coverage
 """
 

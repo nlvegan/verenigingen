@@ -10,7 +10,7 @@ Exercises payment-account mapping resolution against real
     * setup_default_payment_mappings - whitelisted setup entrypoint
 
 All real DB, no live eBoekhouden HTTP. Run with:
-    bench --site veg11.veganisme.org run-tests --app verenigingen \
+    bench --site test_site_1 run-tests --app verenigingen \
         --module verenigingen.tests.e_boekhouden.test_payment_mapping_coverage
 """
 

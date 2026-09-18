@@ -31,7 +31,7 @@ class TestExceptOrderValidator(unittest.TestCase):
     """Pins behavior of scripts/validation/except_order_validator.py.
 
     Lives in ``verenigingen/tests/`` (not ``scripts/validation/tests/``)
-    so ``bench --site veg11.veganisme.org run-tests --app verenigingen``
+    so ``bench --site test_site_1 run-tests --app verenigingen``
     + pytest discovery (testpaths = verenigingen/tests) pick it up
     automatically.
     """

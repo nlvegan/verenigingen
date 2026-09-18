@@ -143,7 +143,7 @@ Tests: `vereinigingen_payments/mollie/tests/`
 Each DocType directory contains its own `test_<doctype_name>.py` file following Frappe conventions. These tests run with:
 
 ```bash
-bench --site veg11.veganisme.org run-tests --app verenigingen --doctype "DocType Name"
+bench --site test_site_1 run-tests --app verenigingen --doctype "DocType Name"
 ```
 
 ### e-Boekhouden Tests (`tests/e_boekhouden/`)
@@ -167,15 +167,19 @@ The pre-commit hook `test-quality-enforcer` blocks mock abuse and enforces real 
 
 ## Running Tests
 
+**Never against `veg11.veganisme.org`** -- it carries a copy of production data and
+is served straight out of the git working tree. Use a disposable site instead:
+`test_site_1` .. `test_site_13` (`test_site_1` is the bench default).
+
 ```bash
 # All tests
-bench --site veg11.veganisme.org run-tests --app verenigingen
+bench --site test_site_1 run-tests --app verenigingen
 
 # Specific DocType
-bench --site veg11.veganisme.org run-tests --app verenigingen --doctype "Member"
+bench --site test_site_1 run-tests --app verenigingen --doctype "Member"
 
 # Parallel
-bench --site veg11.veganisme.org run-parallel-tests --app verenigingen
+bench --site test_site_1 run-parallel-tests --app verenigingen
 
 # Cypress
 ./run_controller_tests.sh --all --headless

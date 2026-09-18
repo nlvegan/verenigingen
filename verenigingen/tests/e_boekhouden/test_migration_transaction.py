@@ -9,7 +9,7 @@ Tests the transaction management features:
 - Savepoint handling for rollback capability
 
 Run with:
-    bench --site veg11.veganisme.org run-tests --app verenigingen \
+    bench --site test_site_1 run-tests --app verenigingen \
         --module verenigingen.tests.e_boekhouden.test_migration_transaction
 """
 

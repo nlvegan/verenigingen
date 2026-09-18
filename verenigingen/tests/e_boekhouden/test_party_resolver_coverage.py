@@ -15,7 +15,7 @@ OUT OF SCOPE (live eBoekhouden HTTP seam; enforcer bans mocking it):
     which does a live ``requests.get`` to the eBoekhouden REST API).
 
 Run with:
-    cd /home/frappeuser/frappe-bench && bench --site veg11.veganisme.org \
+    cd /home/frappeuser/frappe-bench && bench --site test_site_1 \
         run-tests --app verenigingen \
         --module verenigingen.tests.e_boekhouden.test_party_resolver_coverage
 """

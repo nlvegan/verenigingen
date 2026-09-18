@@ -31,7 +31,7 @@ and restored; the encrypted __Auth secret is never touched, so a configured
 site's real credential survives).
 
 Run with:
-    cd /home/frappeuser/frappe-bench && bench --site veg11.veganisme.org \
+    cd /home/frappeuser/frappe-bench && bench --site test_site_1 \
         run-tests --app verenigingen \
         --module verenigingen.tests.e_boekhouden.test_migration_controller_sweep
 """

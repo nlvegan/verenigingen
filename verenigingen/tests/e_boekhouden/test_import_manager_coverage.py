@@ -15,7 +15,7 @@ unit suite. What we CAN test for real:
       mutation-detail dict.
 
 Run with:
-    bench --site veg11.veganisme.org run-tests --app verenigingen \
+    bench --site test_site_1 run-tests --app verenigingen \
         --module verenigingen.tests.e_boekhouden.test_import_manager_coverage
 """
 

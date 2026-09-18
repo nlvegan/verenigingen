@@ -5,7 +5,7 @@ Tests controller logic (validate, status transitions, parsing methods)
 using real database operations. External API calls are mocked.
 
 Run with:
-    bench --site veg11.veganisme.org run-tests --app verenigingen \
+    bench --site test_site_1 run-tests --app verenigingen \
         --module verenigingen.tests.e_boekhouden.test_eboekhouden_doctype_coverage
 """
 

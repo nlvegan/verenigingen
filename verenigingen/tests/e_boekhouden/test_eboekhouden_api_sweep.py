@@ -14,7 +14,7 @@ test, ``_paginated_fetch`` is captured. The logic being asserted always runs for
 real. The fixtures ``_FakeSettings`` / ``_make_api`` mirror the sibling test file.
 
 Run with:
-    cd /home/frappeuser/frappe-bench && bench --site veg11.veganisme.org run-tests \\
+    cd /home/frappeuser/frappe-bench && bench --site test_site_1 run-tests \\
         --app verenigingen \\
         --module verenigingen.tests.e_boekhouden.test_eboekhouden_api_sweep
 """
