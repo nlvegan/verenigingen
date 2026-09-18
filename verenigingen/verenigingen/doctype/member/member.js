@@ -2452,10 +2452,10 @@ function show_approval_dialog(frm) {
 				fields: dialogFields,
 				primary_action_label: __('Approve'),
 				primary_action(values) {
-					// Update chapter if changed
-					if (values.assign_chapter && values.assign_chapter !== frm.doc.primary_chapter) {
-						frappe.model.set_value(frm.doctype, frm.docname, 'primary_chapter', values.assign_chapter);
-					}
+					// Chapter assignment is handled server-side by the `chapter` arg
+					// below (approve_membership_application -> chapter assignment
+					// service). Member has no "primary_chapter" field (#1133), so a
+					// prior client-side set_value here was a dead, unpersisted no-op.
 
 					// Call comprehensive approval method
 					frappe.call({

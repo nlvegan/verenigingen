@@ -1018,10 +1018,10 @@ def create_application_email_templates():
                         <td><strong>Valid Until:</strong></td>
                         <td>{{ frappe.utils.format_date(membership.renewal_date) }}</td>
                     </tr>
-                    {% if member.primary_chapter %}
+                    {% if member.current_chapter %}
                     <tr>
                         <td><strong>Chapter:</strong></td>
-                        <td>{{ member.primary_chapter }}</td>
+                        <td>{{ member.current_chapter }}</td>
                     </tr>
                     {% endif %}
                 </table>

@@ -206,7 +206,6 @@ class TestChapter(EnhancedTestCase):
                     "email": f"member{i}{unique_id}@example.com",
                     "contact_number": f"+3161234567{i}",
                     "payment_method": "Bank Transfer",
-                    "primary_chapter": chapter.name,
                 }
             )
             member.insert()  # EnhancedTestCase handles permissions
@@ -726,7 +725,9 @@ class TestChapter(EnhancedTestCase):
         )
         chapter.insert()  # EnhancedTestCase handles permissions
 
-        # Create member linked to chapter
+        # Create member linked to chapter via the real membership mechanism.
+        # Member has no "primary_chapter" field (#1133) -- linkage lives in
+        # Chapter's own "members" child table (Chapter Member doctype).
         linked_member = frappe.get_doc(
             {
                 "doctype": "Member",
@@ -735,10 +736,28 @@ class TestChapter(EnhancedTestCase):
                 "email": f"linked{unique_id}@example.com",
                 "contact_number": "+31612345679",
                 "payment_method": "Bank Transfer",
-                "primary_chapter": chapter.name,
             }
         )
         linked_member.insert()  # EnhancedTestCase handles permissions
+        chapter.append(
+            "members",
+            {
+                "member": linked_member.name,
+                "member_name": linked_member.full_name,
+                "enabled": 1,
+                "chapter_join_date": today(),
+            },
+        )
+        chapter.save()  # EnhancedTestCase handles permissions
+
+        # The member really is linked -- #1133 found that the old
+        # "primary_chapter" field assignment never created any real link, so
+        # this test's premise ("chapter with a linked member") was false.
+        self.assertEqual(
+            frappe.db.count("Chapter Member", {"parent": chapter.name, "member": linked_member.name}),
+            1,
+            "member should be linked to chapter via the Chapter Member child table",
+        )
 
         # Try to delete chapter with linked member
         try:
@@ -749,9 +768,10 @@ class TestChapter(EnhancedTestCase):
             # If deletion fails due to constraints, that's expected
             print(f"Chapter deletion properly prevented: {str(e)}")
 
-        # Clean up member first, then chapter
-        linked_member.primary_chapter = None
-        linked_member.save()  # EnhancedTestCase handles permissions
+        # Clean up member from chapter roster first, then chapter
+        chapter.reload()
+        chapter.members = []
+        chapter.save()  # EnhancedTestCase handles permissions
         frappe.delete_doc("Member", linked_member.name, force=True)
 
         # Now chapter should be deletable

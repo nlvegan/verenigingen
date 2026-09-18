@@ -113,7 +113,9 @@ def get_data(filters):
     for row in data:
         # Get member chapters
         member_chapters = get_member_chapters(row.name)
-        row["chapter"] = member_chapters[0] if member_chapters else "Unassigned"
+        # Key must match the "Chapter" column's fieldname (see get_columns())
+        # or Frappe renders the column blank for every row (#1133).
+        row["primary_chapter"] = member_chapters[0] if member_chapters else "Unassigned"
 
         # Apply chapter filter if specified
         if filters and filters.get("chapter"):
