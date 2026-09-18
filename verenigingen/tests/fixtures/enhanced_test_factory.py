@@ -2214,7 +2214,46 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                     pass
                 raise
 
-        frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+        try:
+            frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+        except Exception:
+            # Fail CLOSED. frappe removes the row in `delete_from_table` and then keeps
+            # going: `after_delete`, attachment removal, `delete_dynamic_links` (which
+            # runs SYNCHRONOUSLY under test -- `now=frappe.in_test`),
+            # `add_to_deleted_document`'s `db_insert`, `notify_update`/`insert_feed`.
+            # A raise from any of those leaves the Company row gone and its orphans
+            # stranded, and the callers above then catch it and record an ordinary
+            # leak -- naming a Company row that no longer exists, while the rows that
+            # actually survived go unnamed and error the next Company insert in the
+            # shard. The e_boekhouden probe teardown already sweeps "whether or not
+            # its delete raised" for exactly this reason; this is that rule at the
+            # choke point (#1154).
+            #
+            # Gated on the row being GONE: a delete that failed before removing it
+            # leaves orphans with a live parent, which are not orphans.
+            #
+            # Deliberately silent, unlike the success path below. That log line exists
+            # so a WIDENING of the sweep's filter leaves evidence -- and both paths
+            # call the same function with the same filter, so the success path (which
+            # fires orders of magnitude more often) already carries that evidence. What
+            # this path needs recording is the FAILURE, and the callers above already
+            # do that: they re-raise into `_record_leak`, which stores the original
+            # exception.
+            if doctype == "Company":
+                try:
+                    if not frappe.db.exists(doctype, name):
+                        purge_company_orphans(name)
+                except Exception as sweep_error:  # noqa: BLE001 - logged, never masks the original
+                    # `_record_leak` stores the ORIGINAL exception, and that string is
+                    # the only thing that makes a leak triageable. Letting a failure of
+                    # the cleanup replace it is the same mistake as the vanished
+                    # savepoint one layer up, and just as untriageable (#328).
+                    logger.warning(
+                        "orphan sweep after a failed Company delete (%s) itself failed: %s",
+                        name,
+                        sweep_error,
+                    )
+            raise
 
         # Only after the parent's row is gone -- that is `purge_ledger_rows`' contract,
         # and it is what makes deleting real GL rows safe: there is no live voucher left
