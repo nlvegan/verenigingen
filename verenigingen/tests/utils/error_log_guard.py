@@ -186,32 +186,47 @@ class ErrorLogGuardMixin:
                 result = some_module.do_the_thing(member)
             self.assertEqual(result.status, "ok")
 
-        MUST be the OUTERMOST context manager around any ``assertRaises`` that
-        catches the block's exception. Both guards are plain ``@contextmanager``
-        generators with no ``try`` around their ``yield``, so an exception that
-        propagates through one skips everything after the ``yield`` -- the check
-        never runs, and nothing says so. Measured: ::
+        Prefer putting this OUTERMOST around any ``assertRaises`` that catches the
+        block's exception -- e.g. ``with self.assertNoErrorLog(): with
+        self.assertRaises(ValueError): ...`` -- so a mismatch between "raised" and
+        "logged" is diagnosed at the layer that actually saw both. The check now
+        runs regardless of nesting (see below), but the outermost order still gives
+        the clearer failure when the block does something other than exactly what
+        was expected.
 
-            with self.assertRaises(ValueError):     # WRONG -- guard is inert
+        Runs its check even when the wrapped block raises -- via ``try/finally``,
+        not a bare ``yield`` -- so nesting this INSIDE an ``assertRaises`` no longer
+        makes it inert::
+
+            with self.assertRaises(ValueError):
                 with self.assertNoErrorLog():
                     frappe.log_error(title="x", message="y")
                     raise ValueError("boom")
 
-        passes, despite a row having been written. Put the guard outside::
-
-            with self.assertNoErrorLog():           # RIGHT
-                with self.assertRaises(ValueError):
-                    ...
-
+        now FAILS (an ``AssertionError`` reporting the unexpected row, chained via
+        ``__cause__`` to the original ``ValueError`` so both are visible in the
+        traceback) instead of silently passing. When the block raises and nothing
+        was logged, that original exception still propagates unmasked -- the guard
+        only ever substitutes its own failure for the body's when it actually found
+        a violation.
         """
         marker = frappe.utils.now_datetime()
         before = {
             r.name for r in frappe.get_all("Error Log", filters={"creation": [">=", marker]}, fields=["name"])
         }
-        yield
-        new = self._error_logs_since(marker, ignore=ignore, before_names=before, use_expected=False)
-        if new:
-            self.fail(format_error_log_failure(new, prefix=msg))
+        body_exc = None
+        try:
+            yield
+        except BaseException as exc:
+            body_exc = exc
+            raise
+        finally:
+            new = self._error_logs_since(marker, ignore=ignore, before_names=before, use_expected=False)
+            if new:
+                failure = self.failureException(format_error_log_failure(new, prefix=msg))
+                if body_exc is not None:
+                    raise failure from body_exc
+                raise failure
 
     @contextmanager
     def assertErrorLog(self, *patterns, msg=None):
@@ -238,44 +253,56 @@ class ErrorLogGuardMixin:
         still "unexpected" to that check unless the test also calls
         ``self.expectErrorLog(...)`` for the same pattern.
 
-        MUST be the OUTERMOST context manager around any ``assertRaises`` that
-        catches the block's exception. Both guards are plain ``@contextmanager``
-        generators with no ``try`` around their ``yield``, so an exception that
-        propagates through one skips everything after the ``yield`` -- the check
-        never runs, and nothing says so. Measured: ::
+        Prefer putting this OUTERMOST around any ``assertRaises`` that catches the
+        block's exception, for the same reason as ``assertNoErrorLog()`` -- but the
+        check below now runs regardless of nesting.
 
-            with self.assertRaises(ValueError):     # WRONG -- guard is inert
-                with self.assertNoErrorLog():
-                    frappe.log_error(title="x", message="y")
-                    raise ValueError("boom")
+        Runs its check even when the wrapped block raises -- via ``try/finally``,
+        not a bare ``yield`` -- so nesting this INSIDE an ``assertRaises`` no longer
+        makes it inert::
 
-        passes, despite a row having been written. Put the guard outside::
+            with self.assertRaises(ValueError):
+                with self.assertErrorLog("Some Pattern"):
+                    raise ValueError("boom -- and nothing was logged")
 
-            with self.assertNoErrorLog():           # RIGHT
-                with self.assertRaises(ValueError):
-                    ...
-
+        now FAILS (an ``AssertionError`` naming the missing pattern, chained via
+        ``__cause__`` to the original ``ValueError``) instead of silently passing.
+        When the block raises AND a matching row WAS written, the assertion is
+        already satisfied and the original exception propagates unmasked.
         """
         marker = frappe.utils.now_datetime()
         before = {
             r.name for r in frappe.get_all("Error Log", filters={"creation": [">=", marker]}, fields=["name"])
         }
-        yield
-        rows = frappe.get_all(
-            "Error Log",
-            filters={"creation": [">=", marker]},
-            fields=["name", "method", "error", "creation"],
-            order_by="creation desc",
-        )
-        rows = [r for r in rows if r.name not in before]
-        matching = [r for r in rows if _row_matches(r, patterns)] if patterns else rows
-        if not matching:
-            if msg:
-                self.fail(msg)
-            elif patterns:
-                self.fail(f"Expected an Error Log matching {patterns!r} to be written, but none was")
-            else:
-                self.fail("Expected an Error Log to be written inside this block, but none was")
+        body_exc = None
+        try:
+            yield
+        except BaseException as exc:
+            body_exc = exc
+            raise
+        finally:
+            rows = frappe.get_all(
+                "Error Log",
+                filters={"creation": [">=", marker]},
+                fields=["name", "method", "error", "creation"],
+                order_by="creation desc",
+            )
+            rows = [r for r in rows if r.name not in before]
+            matching = [r for r in rows if _row_matches(r, patterns)] if patterns else rows
+            if not matching:
+                if msg:
+                    failure = self.failureException(msg)
+                elif patterns:
+                    failure = self.failureException(
+                        f"Expected an Error Log matching {patterns!r} to be written, but none was"
+                    )
+                else:
+                    failure = self.failureException(
+                        "Expected an Error Log to be written inside this block, but none was"
+                    )
+                if body_exc is not None:
+                    raise failure from body_exc
+                raise failure
 
     @contextmanager
     def production_validation(self):

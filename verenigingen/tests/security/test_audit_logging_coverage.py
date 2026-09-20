@@ -563,8 +563,8 @@ class TestAuditLogDecorator(VereningingenTestCase):
         def boom():
             raise ValueError("nope")
 
-        with self.assertRaises(ValueError):
-            with self.assertNoErrorLog():
+        with self.assertNoErrorLog():
+            with self.assertRaises(ValueError):
                 boom()
 
         row = frappe.get_all(
