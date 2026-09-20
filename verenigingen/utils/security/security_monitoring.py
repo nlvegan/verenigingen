@@ -88,6 +88,16 @@ class SecurityMetrics:
 class SecurityMonitor:
     """Real-time security monitoring system"""
 
+    # `active_threats` only ever shrinks via a manual `resolve_incident()` or the
+    # LOW-severity auto-resolve job -- nothing expires a MEDIUM/HIGH/CRITICAL
+    # incident on its own, so a long-lived worker's security score would decay
+    # monotonically and never recover (#962). Instead of mutating `active_threats`
+    # in place on a timer, incidents older than this window simply stop counting
+    # as "active" for the score and the dashboard, read at call time -- the
+    # incident itself is left alone, so `resolve_incident()` and `self.incidents`
+    # (the full history) are unaffected.
+    ACTIVE_INCIDENT_WINDOW_HOURS = 24
+
     def __init__(self):
         self.audit_logger = get_audit_logger()
         self.security_framework = get_security_framework()
@@ -477,6 +487,22 @@ class SecurityMonitor:
 
         self.metrics_history.append(metrics)
 
+    def _current_active_threats(self) -> Dict[str, SecurityIncident]:
+        """`active_threats` filtered to the recency window (see #962).
+
+        Nothing auto-expires a MEDIUM/HIGH/CRITICAL incident, so without this
+        filter every incident ever created would count against the score and the
+        dashboard for the entire lifetime of the worker process. Callers that
+        need the raw, unresolved set (e.g. `resolve_incident`) should keep using
+        `self.active_threats` directly.
+        """
+        cutoff = get_datetime() - timedelta(hours=self.ACTIVE_INCIDENT_WINDOW_HOURS)
+        return {
+            incident_id: incident
+            for incident_id, incident in self.active_threats.items()
+            if incident.timestamp >= cutoff
+        }
+
     def _calculate_security_score(
         self, auth_failures: int, rate_violations: int, csrf_failures: int, validation_errors: int
     ) -> float:
@@ -489,11 +515,10 @@ class SecurityMonitor:
         base_score -= min(csrf_failures * 3, 25)  # Max 25 points for CSRF failures
         base_score -= min(validation_errors * 0.5, 10)  # Max 10 points for validation errors
 
-        # Factor in active incidents
-        active_critical = len(
-            [i for i in self.active_threats.values() if i.threat_level == ThreatLevel.CRITICAL]
-        )
-        active_high = len([i for i in self.active_threats.values() if i.threat_level == ThreatLevel.HIGH])
+        # Factor in active incidents within the recency window (#962)
+        active_threats = self._current_active_threats()
+        active_critical = len([i for i in active_threats.values() if i.threat_level == ThreatLevel.CRITICAL])
+        active_high = len([i for i in active_threats.values() if i.threat_level == ThreatLevel.HIGH])
 
         base_score -= active_critical * 15  # 15 points per critical incident
         base_score -= active_high * 10  # 10 points per high incident
@@ -734,20 +759,22 @@ class SecurityMonitor:
     def get_security_dashboard(self) -> Dict[str, Any]:
         """Get current security dashboard data"""
         current_metrics = self.metrics_history[-1] if self.metrics_history else None
+        # Windowed view (#962) -- see `_current_active_threats`. Consumers of this
+        # dashboard include automated alerting (sepa_alerting_system.py), which
+        # would otherwise keep re-alerting on the same stale incident forever.
+        active_threats = self._current_active_threats()
 
         return {
             "current_metrics": asdict(current_metrics) if current_metrics else None,
-            "active_incidents": [asdict(incident) for incident in self.active_threats.values()],
+            "active_incidents": [asdict(incident) for incident in active_threats.values()],
             "recent_incidents": [asdict(incident) for incident in self.incidents[-10:]],  # Last 10 incidents
             "threat_summary": {
                 "critical": len(
-                    [i for i in self.active_threats.values() if i.threat_level == ThreatLevel.CRITICAL]
+                    [i for i in active_threats.values() if i.threat_level == ThreatLevel.CRITICAL]
                 ),
-                "high": len([i for i in self.active_threats.values() if i.threat_level == ThreatLevel.HIGH]),
-                "medium": len(
-                    [i for i in self.active_threats.values() if i.threat_level == ThreatLevel.MEDIUM]
-                ),
-                "low": len([i for i in self.active_threats.values() if i.threat_level == ThreatLevel.LOW]),
+                "high": len([i for i in active_threats.values() if i.threat_level == ThreatLevel.HIGH]),
+                "medium": len([i for i in active_threats.values() if i.threat_level == ThreatLevel.MEDIUM]),
+                "low": len([i for i in active_threats.values() if i.threat_level == ThreatLevel.LOW]),
             },
             "metrics_trend": [asdict(m) for m in list(self.metrics_history)[-20:]],  # Last 20 snapshots
         }

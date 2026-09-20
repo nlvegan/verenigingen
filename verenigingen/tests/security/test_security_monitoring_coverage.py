@@ -19,7 +19,10 @@ Threat-detection tests build a FRESH ``SecurityMonitor()`` rather than the share
 singleton so the sliding-window / incident state is deterministic.
 """
 
+from datetime import timedelta
+
 import frappe
+from frappe.utils import get_datetime
 
 from verenigingen.tests.security.security_monitor_test_helpers import (
     RecordingAuditLogger,
@@ -309,6 +312,35 @@ class TestSecurityScoreAndMetrics(VereningingenTestCase):
         with_incident = self.monitor._calculate_security_score(0, 0, 0, 0)
         self.assertEqual(baseline - with_incident, 15.0)
 
+    def test_aged_critical_incident_no_longer_deducts_from_score(self):
+        """A CRITICAL incident older than the active-incident window stops
+        deducting from the score (#962) -- nothing else ever expires a
+        MEDIUM/HIGH/CRITICAL incident, so a long-lived monitor's score would
+        otherwise decay monotonically and never recover.
+
+        The RECENT incident below is the control: without it, a monitor that
+        simply ignored every incident (a bug of its own) would also make this
+        test pass.
+        """
+        self.monitor._create_incident(ThreatLevel.CRITICAL, "old", "d", "ip", "u", "e", {})
+        aged_incident = next(iter(self.monitor.active_threats.values()))
+        window_hours = self.monitor.ACTIVE_INCIDENT_WINDOW_HOURS
+
+        # Control: while still fresh, it deducts the full 15 points.
+        fresh_score = self.monitor._calculate_security_score(0, 0, 0, 0)
+        self.assertEqual(100.0 - fresh_score, 15.0)
+
+        # Age it just past the window.
+        aged_incident.timestamp = get_datetime() - timedelta(hours=window_hours, minutes=1)
+        aged_score = self.monitor._calculate_security_score(0, 0, 0, 0)
+        self.assertEqual(aged_score, 100.0)
+
+        # A second, RECENT CRITICAL incident must still deduct normally --
+        # proves the fix filters by age, not by ignoring incidents altogether.
+        self.monitor._create_incident(ThreatLevel.CRITICAL, "recent", "d", "ip", "u", "e", {})
+        recent_score = self.monitor._calculate_security_score(0, 0, 0, 0)
+        self.assertEqual(100.0 - recent_score, 15.0)
+
     def test_metrics_snapshot_records_active_users_and_p95(self):
         """A snapshot computes the average/p95 response time and active-user count."""
         for i in range(10):
@@ -348,6 +380,29 @@ class TestSecurityDashboard(VereningingenTestCase):
         dash = self.monitor.get_security_dashboard()
         self.assertIsNone(dash["current_metrics"])
         self.assertEqual(dash["recent_incidents"], [])
+
+    def test_dashboard_excludes_aged_incident_but_keeps_recent_one(self):
+        """An aged-out incident drops from ``active_incidents``/``threat_summary``
+        (#962), which is what stops automated alerting from re-firing on the same
+        stale incident forever -- but stays in ``recent_incidents`` (the history)
+        and is still resolvable via ``self.active_threats`` directly.
+        """
+        self.monitor._create_incident(ThreatLevel.HIGH, "old", "d", "ip", "u", "e", {})
+        aged_incident = next(iter(self.monitor.active_threats.values()))
+        aged_incident.timestamp = get_datetime() - timedelta(
+            hours=self.monitor.ACTIVE_INCIDENT_WINDOW_HOURS, minutes=1
+        )
+        # Control: a RECENT incident of the same level is still reported active.
+        self.monitor._create_incident(ThreatLevel.HIGH, "recent", "d", "ip", "u", "e", {})
+
+        dash = self.monitor.get_security_dashboard()
+
+        self.assertEqual(dash["threat_summary"]["high"], 1)
+        self.assertEqual(len(dash["active_incidents"]), 1)
+        self.assertEqual(dash["active_incidents"][0]["incident_type"], "recent")
+        # History and manual resolvability are unaffected.
+        self.assertEqual(len(dash["recent_incidents"]), 2)
+        self.assertIn(aged_incident.incident_id, self.monitor.active_threats)
 
 
 class TestBusinessRuleMonitoring(VereningingenTestCase):
