@@ -348,12 +348,40 @@ class Pain002IngestionService(StatelessService):
             )
 
         try:
-            # #1143: a `frappe.db.begin()` used to sit here. It raised
-            # ImplicitCommitError against any connection with pending writes,
-            # the moment anything upstream in the same request wrote a row.
-            # The FOR UPDATE lock below and the existing commit()/rollback()
-            # calls are unaffected -- they bracket this transaction whether or
-            # not begin() is called; deleting it only removes the crash risk.
+            # #1143 / #1171 review: a `frappe.db.begin()` used to sit here. It
+            # raised ImplicitCommitError against any connection with pending
+            # writes, the moment anything upstream wrote a row -- so it was
+            # deleted. Deleting it does NOT scope the commit()/rollback()
+            # calls below to "this function's own writes" -- corrected after
+            # review: they act on the WHOLE ambient connection, same as any
+            # bare frappe.db.commit()/rollback(). This CANNOT be fixed with
+            # `frappe.db.savepoint()` (unlike the no-lock sites in this same
+            # sweep): a savepoint rollback does not release InnoDB row locks
+            # (#1134), so it cannot substitute for the real COMMIT/ROLLBACK
+            # this function needs to release the SEPA Batch Upload Log lock.
+            #
+            # This IS reachable with ambient pending writes today -- verified
+            # empirically, not assumed: `update_batch_status` is called from
+            # `run_ingestion_job()` -> `run_pain002_ingestion()`, wired into
+            # `hooks/scheduler.py` as an Hourly job. Frappe's own
+            # `ScheduledJobType.execute()` (frappe/core/doctype/
+            # scheduled_job_type/scheduled_job_type.py:143) calls
+            # `log_status("Start")` BEFORE invoking this job, and when
+            # `create_log` is enabled that inserts a "Scheduled Job Log" row
+            # WITHOUT committing it first. Queried test_site_1 directly:
+            # `run_pain002_ingestion`'s Scheduled Job Type record has
+            # `create_log = 1`, so this ambient pending insert is real on
+            # every hourly run, not hypothetical.
+            #
+            # ACCEPTED, not fixed, because the blast radius is narrow: on the
+            # success/not-found paths, the ambient "Scheduled Job Log" insert
+            # just gets committed slightly earlier than it would have anyway
+            # (it belongs to the SAME job run and was always going to be
+            # committed when the job finishes) -- harmless. Only the rare
+            # SQL-failure rollback path below would discard it, silently
+            # losing that run's "Start" diagnostic log entry; it does not
+            # touch SEPA Batch Upload Log data for any file other than the one
+            # this call is processing. See #1143 / #1176 for detail.
             try:
                 # Lock the row for update to ensure atomicity
                 locked_rows = frappe.db.sql(

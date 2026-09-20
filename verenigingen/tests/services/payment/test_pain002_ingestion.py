@@ -404,6 +404,60 @@ class TestPain002IngestionService(FrappeTestCase):
         self.assertEqual(log_entry.batch_status, "Acknowledged")
         self.assertEqual(log_entry.bank_status, "Accepted")
 
+    def test_update_batch_status_commits_unrelated_pending_write_too_accepted_not_fixed(self):
+        """#1171 review: this method holds a SEPA Batch Upload Log FOR UPDATE
+        lock, so unlike the no-lock sites in the same sweep
+        (invoice_management.py, membership_dues_schedule_hooks.py) it CANNOT
+        be fixed with `frappe.db.savepoint()` -- a savepoint rollback does not
+        release InnoDB row locks (#1134), so it is not a substitute for the
+        real COMMIT this method needs to release the lock. Its commit()
+        therefore necessarily also commits whatever ELSE was pending on the
+        ambient connection -- confirmed as a REAL, reachable path: this
+        method is wired into hooks/scheduler.py as an Hourly job, and
+        Frappe's own ScheduledJobType.execute() inserts an uncommitted
+        "Scheduled Job Log" row before calling it whenever `create_log` is
+        set (verified on test_site_1: it is, for this job).
+
+        This is ACCEPTED, not fixed (see the long comment at the begin()
+        deletion site). This test characterizes the accepted behaviour on an
+        UNRELATED row -- one this call's FOR UPDATE never locks and never
+        reads -- so a future change that silently alters this (e.g. someone
+        "fixing" it with a savepoint, which would then also stop releasing
+        the SEPA Batch Upload Log lock) is caught instead of passing quietly.
+        """
+        batch_name, log_name = self._create_test_batch_and_log("BATCH-AMBIENT-TARGET-001")
+
+        # An UNRELATED row (different file_name) this call's FOR UPDATE never
+        # locks and never reads. _create_test_batch_and_log() commits both
+        # rows durably above; only the next write is "ambient".
+        other_batch_name, other_log_name = self._create_test_batch_and_log("BATCH-AMBIENT-OTHER-001")
+        frappe.db.set_value(
+            "SEPA Batch Upload Log", other_log_name, "bank_status", "PROBE_AMBIENT_MARK", update_modified=False
+        )
+        # Deliberately NOT committed.
+
+        data = {
+            "original_message_id": "BATCH-AMBIENT-TARGET-001",
+            "group_status": "ACCP",
+            "batch_status": "Acknowledged",
+            "bank_status": "Accepted",
+            "file_path": "/test/path.xml",
+        }
+        result = self.service.update_batch_status(data)
+        self.assertTrue(result.success, f"Update failed: {result.error_message}")
+
+        # Currently ACCEPTED behaviour: this method's own commit() also
+        # commits the ambient pending write on the OTHER row -- a subsequent
+        # rollback cannot undo it. If this assertion ever reddens because the
+        # value reads back as something else, the ambient-connection leak
+        # this method's comment documents has changed -- re-verify the
+        # caller graph and this comment before updating the test.
+        frappe.db.rollback()
+        self.assertEqual(
+            frappe.db.get_value("SEPA Batch Upload Log", other_log_name, "bank_status"),
+            "PROBE_AMBIENT_MARK",
+        )
+
     def test_update_batch_status_no_matching_log(self):
         """Test that update_batch_status handles missing log entry"""
         data = {

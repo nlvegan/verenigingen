@@ -229,26 +229,35 @@ def run_bulk_sync_with_transaction(batch_size=100):
     Returns:
         dict: Summary of the update operation
     """
+    # #1143 / #1171 review: a frappe.db.begin() used to sit here. It raised
+    # ImplicitCommitError against any connection with pending writes, so it
+    # was deleted -- but deleting it alone was WRONG: the bare commit()/
+    # rollback() below act on the WHOLE ambient connection, not just this
+    # function's own writes. Pre-#1143, begin()'s crash meant those calls were
+    # UNREACHABLE against a caller with pending writes; post-#1143-alone they
+    # became reachable and would silently commit (or discard) someone else's
+    # unrelated, unvalidated work. There is no row lock here, so a SAVEPOINT
+    # is the correct tool: it scopes commit/rollback to this function's own
+    # writes only, leaving any ambient pending work exactly as the caller
+    # left it either way.
+    savepoint_name = "run_bulk_sync_with_transaction_" + frappe.generate_hash(length=10)
+    frappe.db.savepoint(savepoint_name)
     try:
-        # #1143: a frappe.db.begin() used to sit here. It raised
-        # ImplicitCommitError against any connection with pending writes --
-        # exactly the state a "manual trigger" (per this function's own
-        # docstring) mid-request is in the moment anything upstream wrote so
-        # much as one row. There is no row lock here to preserve (unlike the
-        # FOR UPDATE sites in this same sweep), so it is deleted outright; the
-        # commit()/rollback() below still bracket this function's own writes
-        # in the ambient request transaction.
         # Run the sync
         result = check_and_update_all_members_current_schedule(batch_size)
 
-        # Commit if successful
-        frappe.db.commit()
+        # Release (not commit): never force an early commit of the ambient
+        # transaction -- whatever the caller already had pending stays
+        # pending, exactly as it would if this function had never run.
+        frappe.db.release_savepoint(savepoint_name)
 
         frappe.logger().info(f"Bulk sync completed successfully: {result}")
         return result
 
     except Exception as e:
-        # Rollback on error
-        frappe.db.rollback()
+        # Roll back to the savepoint (not the whole connection) on error --
+        # see the savepoint-creation comment above for why a bare
+        # frappe.db.rollback() here would be wrong.
+        frappe.db.rollback(save_point=savepoint_name)
         frappe.log_error(f"Bulk sync failed: {str(e)}", "Dues Schedule Bulk Sync Error")
         raise

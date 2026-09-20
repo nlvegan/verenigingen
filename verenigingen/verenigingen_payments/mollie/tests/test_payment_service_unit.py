@@ -244,3 +244,48 @@ class TestCreateOrGetMollieCustomer(EnhancedTestCase):
 
         self.assertEqual(result["status"], "existing")
         self.assertEqual(result["customer_id"], "cst_existing_001")
+
+    def test_commits_unrelated_pending_write_too_accepted_not_fixed(self):
+        """#1171 review: this method holds a Donor FOR UPDATE lock, so unlike
+        the no-lock sites in the same sweep (invoice_management.py,
+        membership_dues_schedule_hooks.py) it CANNOT be fixed with
+        `frappe.db.savepoint()` -- a savepoint rollback does not release
+        InnoDB row locks (#1134), so it is not a substitute for the real
+        COMMIT this method needs to release the Donor lock. Its commit()
+        therefore necessarily also commits whatever ELSE was pending on the
+        ambient connection.
+
+        This is ACCEPTED, not fixed (see the long comment at the begin()
+        deletion site for the verified-empty-caller-graph reasoning). This
+        test characterizes the accepted behaviour so a future change that
+        silently alters it -- e.g. someone "fixing" it with a savepoint,
+        which would then also stop releasing the Donor lock -- is caught
+        instead of passing quietly.
+        """
+        donor = self.create_test_donor()
+        frappe.db.commit()  # donor itself is durable; only the next write is "ambient"
+
+        other_member = self.create_test_member()
+        frappe.db.set_value(
+            "Member", other_member.name, "middle_name", "PROBE_AMBIENT_MARK", update_modified=False
+        )
+        # Deliberately NOT committed -- unrelated pending work this method
+        # never reads or writes.
+
+        donation = SimpleNamespace(donor=donor.name)
+        svc = self._service_with_fake_gateway(created_customer_id="cst_ambient_001")
+
+        result = svc._create_or_get_mollie_customer(donation, {})
+        self.assertEqual(result["status"], "created")
+
+        # Currently ACCEPTED behaviour: this method's own commit() also
+        # commits the ambient pending write -- a subsequent rollback cannot
+        # undo it. If this assertion ever reddens because the value reads
+        # back as None, the ambient-connection leak this method's comment
+        # documents has changed -- re-verify the caller graph and this
+        # comment before updating the test.
+        frappe.db.rollback()
+        self.assertEqual(
+            frappe.db.get_value("Member", other_member.name, "middle_name"),
+            "PROBE_AMBIENT_MARK",
+        )

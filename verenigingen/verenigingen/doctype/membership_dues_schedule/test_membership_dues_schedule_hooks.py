@@ -189,3 +189,39 @@ class TestMembershipDuesScheduleHooks(EnhancedTestCase):
         self.assertGreaterEqual(result["members_checked"], 1)
         self.assertIsInstance(result["errors"], list)
         self.assertEqual(frappe.db.get_value("Member", member.name, "current_dues_schedule"), schedule.name)
+
+    def test_bulk_sync_with_transaction_does_not_leak_unrelated_pending_write(self):
+        """#1171 review: deleting `begin()` alone made this wrapper's bare
+        commit()/rollback() reachable, and those act on the WHOLE ambient
+        connection -- not just this function's own writes. The test above
+        stages a pending write to the function's OWN target row and checks
+        THAT write's fate; this one stages a write to something the function
+        NEVER TOUCHES (an unrelated Member's middle_name) and checks ITS fate.
+
+        The wrapper now uses a savepoint (see membership_dues_schedule_hooks.py),
+        so release()/rollback(save_point=...) must never durably commit or
+        discard anything outside that savepoint. Proof without a second DB
+        connection: a rollback() issued AFTER the call can only discard
+        genuinely PENDING work -- if the wrapper had leaked and durably
+        committed our probe, this subsequent rollback could no longer undo it.
+        """
+        member, schedule = self._make_member_with_schedule(last="BulkAmbient")
+        frappe.db.set_value("Member", member.name, "current_dues_schedule", None)
+
+        other_member, _ = self._make_member_with_schedule(last="BulkAmbientOther")
+        frappe.db.commit()  # other_member itself is durable; only the next write is "ambient"
+
+        frappe.db.set_value(
+            "Member", other_member.name, "middle_name", "PROBE_AMBIENT_MARK", update_modified=False
+        )
+        # Deliberately NOT committed -- unrelated pending work the wrapper
+        # never reads or writes.
+
+        result = run_bulk_sync_with_transaction(batch_size=100)
+        self.assertGreaterEqual(result["members_checked"], 1)
+
+        frappe.db.rollback()
+        self.assertIsNone(
+            frappe.db.get_value("Member", other_member.name, "middle_name"),
+            "run_bulk_sync_with_transaction committed an UNRELATED pending write",
+        )

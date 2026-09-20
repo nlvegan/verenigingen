@@ -400,6 +400,42 @@ class TestInvoiceManagement(EnhancedTestCase):
         self.assertIsNotNone(my_item, "our orphan schedule should be processed")
         self.assertEqual(my_item["action"], "deleted")
 
+    def test_cleanup_membership_data_does_not_leak_unrelated_pending_write(self):
+        """#1171 review: deleting `begin()` alone made this endpoint's bare
+        commit()/rollback() reachable, and those act on the WHOLE ambient
+        connection -- not just this function's own deletes. Every other test
+        in this class stages a pending write to the function's OWN target row
+        and checks THAT write's fate; this one stages a write to something
+        this function NEVER TOUCHES (an unrelated Member's middle_name) and
+        checks ITS fate instead.
+
+        The endpoint now wraps its own work in a savepoint (see
+        invoice_management.py), so its own release()/rollback(save_point=...)
+        must never durably commit or discard anything outside that savepoint.
+        Proof without a second DB connection: a rollback() issued AFTER the
+        call can only discard genuinely PENDING work -- if the endpoint had
+        leaked and durably committed our probe, this subsequent rollback
+        could no longer undo it.
+        """
+        self._make_orphaned_schedule()  # commits internally; establishes a clean baseline
+        other_member = self._make_member()
+        frappe.db.commit()  # other_member itself is durable; only the next write is "ambient"
+
+        frappe.db.set_value(
+            "Member", other_member.name, "middle_name", "PROBE_AMBIENT_MARK", update_modified=False
+        )
+        # Deliberately NOT committed -- unrelated pending work the endpoint
+        # never reads or writes.
+
+        result = im.cleanup_orphaned_membership_data(dry_run=False)
+        self.assertTrue(result["success"], result)
+
+        frappe.db.rollback()
+        self.assertIsNone(
+            frappe.db.get_value("Member", other_member.name, "middle_name"),
+            "cleanup_orphaned_membership_data committed an UNRELATED pending write",
+        )
+
     def test_cleanup_membership_data_fixture_survives_a_full_sweep_cap(self):
         """Regression for #398: find_orphaned_schedules() had no ORDER BY, so a
         LIMIT-capped sweep's result depended on the query plan rather than on

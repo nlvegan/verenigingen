@@ -806,14 +806,25 @@ def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20) -> OperationR
     ):
         frappe.throw(_("Insufficient permissions for membership data cleanup"))
 
+    savepoint_name = None
     try:
-        # #1143: a `frappe.db.begin()` (guarded by `if not dry_run:`) used to
-        # sit here. It raised ImplicitCommitError against any connection with
-        # pending writes -- this is a whitelisted admin endpoint, so any prior
-        # write earlier in the same request (a session touch, an audit log
-        # entry) would trip it. There is no row lock here to preserve, so it
-        # is deleted outright; the commit()/rollback() below still bracket
-        # this function's own deletes in the ambient request transaction.
+        # #1143 / #1171 review: a `frappe.db.begin()` (guarded by `if not
+        # dry_run:`) used to sit here. It raised ImplicitCommitError against
+        # any connection with pending writes, so it was deleted -- but
+        # deleting it alone was WRONG: this endpoint's bare commit()/
+        # rollback() below act on the WHOLE ambient connection, not just this
+        # function's own deletes. Pre-#1143, begin()'s crash meant those
+        # commit()/rollback() calls were UNREACHABLE whenever a caller had
+        # pending writes; post-#1143-alone they became reachable and would
+        # silently commit (or discard) someone else's unrelated, unvalidated
+        # work. There is no row lock here, so unlike sites 1/2 in this same
+        # sweep, a SAVEPOINT is the correct tool: it scopes commit/rollback to
+        # this function's own writes only, leaving any ambient pending work
+        # exactly as the caller left it either way.
+        if not dry_run:
+            savepoint_name = "cleanup_orphaned_membership_data_" + frappe.generate_hash(length=10)
+            frappe.db.savepoint(savepoint_name)
+
         results = {
             "success": True,
             "dry_run": dry_run,
@@ -1011,21 +1022,22 @@ def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20) -> OperationR
 
         # Transaction management - commit or rollback based on success
         if not dry_run:
-            total_cleaned = (
-                results["orphaned_schedules"]["cleaned"]
-                + results["invalid_memberships"]["cleaned"]
-                + results["orphaned_amendments"]["cleaned"]
-            )
-            if total_cleaned > 0 and len(results["errors"]) == 0:
-                # Only commit if we cleaned something AND had no errors
-                frappe.db.commit()
-            elif len(results["errors"]) > 0:
-                # Rollback if there were any errors to maintain consistency
-                frappe.db.rollback()
+            if len(results["errors"]) > 0:
+                # Roll back to the savepoint if there were any errors, to
+                # maintain consistency for THIS function's own deletes --
+                # save_point=... scopes the rollback so any ambient pending
+                # write the caller already had is left untouched.
+                frappe.db.rollback(save_point=savepoint_name)
                 results[
                     "message"
                 ] = f"Cleanup rolled back due to {len(results['errors'])} errors. No changes were made."
                 results["success"] = False
+            else:
+                # Release (not commit): this function never forces an early
+                # commit of the ambient transaction -- whatever the caller
+                # (request, job, or test) already had pending stays pending,
+                # exactly as it would if this function had never run.
+                frappe.db.release_savepoint(savepoint_name)
 
         # Generate summary message
         total_found = (
@@ -1055,9 +1067,11 @@ def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20) -> OperationR
         return OperationResult.ok(results, message=results["message"])
 
     except Exception as e:
-        # Rollback transaction on any unexpected error
-        if not dry_run:
-            frappe.db.rollback()
+        # Roll back to the savepoint (not the whole connection) on any
+        # unexpected error -- see the savepoint-creation comment above for why
+        # a bare frappe.db.rollback() here would be wrong.
+        if not dry_run and savepoint_name:
+            frappe.db.rollback(save_point=savepoint_name)
 
         frappe.log_error(
             f"Enhanced membership data cleanup failed: {str(e)}\n{traceback.format_exc()}",
