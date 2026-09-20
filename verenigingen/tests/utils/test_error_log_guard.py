@@ -239,6 +239,14 @@ _ALLOWED_FILENAME = "test_error_log_guard.py"
 
 
 def _is_guard_call(expr):
+    # LIMITATION (raised in #1180 review, recorded rather than fixed): this only
+    # matches a direct `self.assertNoErrorLog(...)` / `self.assertRaises(...)`
+    # call shape. An alias -- `guard = self.assertNoErrorLog; with guard(): ...`
+    # or `raises = self.assertRaises` -- makes `expr.func` an `ast.Name` instead
+    # of an `ast.Attribute` and evades both this check and the assertRaises
+    # check below. Zero occurrences repo-wide as of #1180; if that changes,
+    # extend this to resolve simple same-function local aliases before
+    # widening further.
     if isinstance(expr, ast.Call) and isinstance(expr.func, ast.Attribute):
         if expr.func.attr in _GUARD_METHOD_NAMES:
             return expr.func.attr

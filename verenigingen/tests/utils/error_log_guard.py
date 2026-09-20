@@ -209,6 +209,12 @@ class ErrorLogGuardMixin:
         was logged, that original exception still propagates unmasked -- the guard
         only ever substitutes its own failure for the body's when it actually found
         a violation.
+
+        This applies to ``self.skipTest(...)`` too: a violation found while the
+        block is skipping turns the skip into a FAILURE (the ``AssertionError``
+        replaces the ``SkipTest``, chained the same way) rather than silently
+        letting the test skip past a real Error Log write. A clean skip (nothing
+        logged) still skips normally.
         """
         marker = frappe.utils.now_datetime()
         before = {
@@ -269,6 +275,12 @@ class ErrorLogGuardMixin:
         ``__cause__`` to the original ``ValueError``) instead of silently passing.
         When the block raises AND a matching row WAS written, the assertion is
         already satisfied and the original exception propagates unmasked.
+
+        This applies to ``self.skipTest(...)`` too: skipping without having
+        written a matching row turns the skip into a FAILURE (the
+        ``AssertionError`` replaces the ``SkipTest``, chained the same way)
+        instead of silently skipping past an assertion that was never satisfied.
+        A skip AFTER a matching row was written still skips normally.
         """
         marker = frappe.utils.now_datetime()
         before = {
