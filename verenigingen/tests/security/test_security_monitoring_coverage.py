@@ -23,6 +23,7 @@ from datetime import timedelta
 
 import frappe
 from frappe.utils import get_datetime
+from freezegun import freeze_time
 
 from verenigingen.tests.security.security_monitor_test_helpers import (
     RecordingAuditLogger,
@@ -340,6 +341,32 @@ class TestSecurityScoreAndMetrics(VereningingenTestCase):
         self.monitor._create_incident(ThreatLevel.CRITICAL, "recent", "d", "ip", "u", "e", {})
         recent_score = self.monitor._calculate_security_score(0, 0, 0, 0)
         self.assertEqual(100.0 - recent_score, 15.0)
+
+    def test_window_boundary_is_inclusive(self):
+        """`_current_active_threats` uses `timestamp >= cutoff`: an incident
+        exactly at the cutoff still counts as active; one microsecond older
+        does not. Documents the boundary rather than leaving it unspecified.
+
+        Time is frozen so "now" is read exactly once (via the same
+        ``get_datetime()`` the production code uses) and held fixed for both
+        assertions -- without freezing, real wall-clock time elapses between
+        setting the incident's age and the method's own internal "now", and
+        the naive-vs-site-timezone conversion `now_datetime()` performs makes
+        computing an equivalent instant from a plain string a trap of its own
+        (see CLAUDE.md's UTC-vs-Kolkata note).
+        """
+        self.monitor._create_incident(ThreatLevel.CRITICAL, "boundary", "d", "ip", "u", "e", {})
+        incident = next(iter(self.monitor.active_threats.values()))
+        window = timedelta(hours=self.monitor.ACTIVE_INCIDENT_WINDOW_HOURS)
+
+        with freeze_time():
+            now = get_datetime()
+
+            incident.timestamp = now - window
+            self.assertIn(incident.incident_id, self.monitor._current_active_threats())
+
+            incident.timestamp = now - window - timedelta(microseconds=1)
+            self.assertNotIn(incident.incident_id, self.monitor._current_active_threats())
 
     def test_metrics_snapshot_records_active_users_and_p95(self):
         """A snapshot computes the average/p95 response time and active-user count."""

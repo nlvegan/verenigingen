@@ -759,9 +759,13 @@ class SecurityMonitor:
     def get_security_dashboard(self) -> Dict[str, Any]:
         """Get current security dashboard data"""
         current_metrics = self.metrics_history[-1] if self.metrics_history else None
-        # Windowed view (#962) -- see `_current_active_threats`. Consumers of this
-        # dashboard include automated alerting (sepa_alerting_system.py), which
-        # would otherwise keep re-alerting on the same stale incident forever.
+        # Windowed view (#962) -- see `_current_active_threats`. This dashboard is
+        # rendered by a real System Manager / Verenigingen Administrator page
+        # (www/monitoring_dashboard.py) on every view, and its data is also
+        # exposed via sepa_zabbix_enhanced.py's guest-whitelisted endpoints,
+        # which an external Zabbix server may poll (the interval is Zabbix-side
+        # config, not visible in this repo). Either way, a stale incident should
+        # not sit "active" forever.
         active_threats = self._current_active_threats()
 
         return {
