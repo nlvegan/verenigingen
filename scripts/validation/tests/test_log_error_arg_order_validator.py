@@ -20,20 +20,28 @@ sys.modules[_spec.name] = lev
 _spec.loader.exec_module(lev)
 
 
-def _scan(src: str):
-    """Return (findings, bad_pragmas) for a snippet.
+def _assert_parses(src: str) -> None:
+    """Raise loudly if `src` is not valid Python.
 
-    Asserts the snippet parses first. `scan_file` deliberately swallows
-    SyntaxError and returns ([], []) for a repo file that does not parse --
-    correct for a tree scan, but it means a snippet with a typo here would
-    satisfy any `assertEqual(findings, [])` for entirely the wrong reason
-    (silently "found nothing" instead of "correctly found nothing"). See
-    #1140.
+    Every scanning entry point in this module (`scan_file`, and
+    `explain_shrink` via its own file walk) deliberately swallows
+    SyntaxError and reports "nothing found" for a repo file that does not
+    parse -- correct for a tree scan, but it means a snippet with a typo fed
+    to ANY of them here would satisfy a negative assertion
+    (`assertEqual(x, [])`) for entirely the wrong reason (silently "found
+    nothing" instead of "correctly found nothing"). Every helper in this
+    suite that writes a snippet to disk before handing it to one of those
+    entry points must call this first. See #1140.
     """
     try:
         ast.parse(src)
     except SyntaxError as exc:
         raise AssertionError(f"test snippet does not parse, so it proves nothing: {exc}") from exc
+
+
+def _scan(src: str):
+    """Return (findings, bad_pragmas) for a snippet."""
+    _assert_parses(src)
     with tempfile.TemporaryDirectory() as d:
         p = Path(d) / "snippet.py"
         p.write_text(src)
@@ -372,6 +380,7 @@ class ShrinkExplainerTest(unittest.TestCase):
         self.probe_dir.rmdir()
 
     def _write(self, source: str):
+        _assert_parses(source)
         self.probe_file.write_text(source)
 
     def test_pragma_added_on_baselined_site_is_reported_as_suppressed(self):
@@ -392,6 +401,16 @@ class ShrinkExplainerTest(unittest.TestCase):
         # File never written this test -- simulates deletion.
         unexplained = lev.explain_shrink(baseline, [str(lev.REPO_ROOT / "scripts")])
         self.assertEqual(unexplained, [])
+
+    def test_write_of_unparseable_source_raises_instead_of_silently_passing(self):
+        """`explain_shrink` has its own SyntaxError swallow
+        (log_error_arg_order_validator.py's file walk), independent of
+        `scan_file`'s -- `_write` must not let it through unchecked, or
+        `test_genuine_fix_is_not_reported` above would pass on a merely
+        broken probe file instead of a genuinely fixed one."""
+        with self.assertRaises(AssertionError) as cm:
+            self._write("def f(e):\n    x = 1\n        frappe.log_error(title='Title', message=f'boom {e}')\n")
+        self.assertIn("does not parse", str(cm.exception))
 
 
 class ScanFileAllTest(unittest.TestCase):
@@ -434,8 +453,12 @@ class ScanHelperRejectsUnparseableSnippetsTest(unittest.TestCase):
         self.assertEqual(len(_flagged(self._CORRECTLY_SPELLED)), 1)
 
     def test_broken_indentation_snippet_raises_instead_of_silently_passing(self):
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(AssertionError) as cm:
             _flagged(self._BROKEN_INDENTATION)
+        # Pin the message: `_scan` can raise AssertionError for other reasons
+        # in the future, and an unrelated one would satisfy a bare
+        # assertRaises(AssertionError) without ever exercising this guard.
+        self.assertIn("does not parse", str(cm.exception))
 
 
 if __name__ == "__main__":
