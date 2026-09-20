@@ -309,7 +309,7 @@ COMMIT_EXEMPT services/billing/test_dues_schedule_permission_service.py::1  # or
 COMMIT_EXEMPT services/billing/test_dues_schedule_validation_service.py::1  # order-dep-exempt
 COMMIT_EXEMPT services/billing/test_eligibility_checker.py::2  # order-dep-exempt
 COMMIT_EXEMPT services/billing/test_fee_change_tracking_service.py::1  # order-dep-exempt
-COMMIT_EXEMPT services/billing/test_invoice_management.py::1  # order-dep-exempt
+COMMIT_EXEMPT services/billing/test_invoice_management.py::2  # order-dep-exempt
 COMMIT_EXEMPT services/billing/test_sales_invoice_account_handler.py::1  # order-dep-exempt
 COMMIT_EXEMPT services/billing/test_sales_invoice_hooks.py::1  # order-dep-exempt
 COMMIT_EXEMPT services/billing/test_template_services.py::1  # order-dep-exempt
@@ -413,10 +413,12 @@ COMMIT_EXEMPT verenigingen/doctype/contribution_amendment_request/test_contribut
 COMMIT_EXEMPT verenigingen/doctype/critical_operation_rule/test_critical_operation_rule.py::1  # order-dep-exempt
 COMMIT_EXEMPT verenigingen/doctype/critical_operation_rule/test_critical_operation_rule_extra.py::6  # order-dep-exempt
 COMMIT_EXEMPT verenigingen/doctype/member/mixins/test_payment_mixin.py::2  # order-dep-exempt
+COMMIT_EXEMPT verenigingen/doctype/membership_dues_schedule/test_membership_dues_schedule_hooks.py::1  # order-dep-exempt
 COMMIT_EXEMPT verenigingen/doctype/mt940_import/test_mt940_import.py::2  # order-dep-exempt
 COMMIT_EXEMPT verenigingen/doctype/vip_import/test_vip_import.py::6  # order-dep-exempt
 COMMIT_EXEMPT verenigingen_payments/mollie/tests/test_customer_creation_concurrency.py::2  # order-dep-exempt
 COMMIT_EXEMPT verenigingen_payments/mollie/tests/test_dues_payment_processor_coverage_sweep.py::1  # order-dep-exempt
+COMMIT_EXEMPT verenigingen_payments/mollie/tests/test_payment_service_unit.py::1  # order-dep-exempt
 COMMIT_EXEMPT verenigingen_payments/tests/utils_shared/test_db_helpers.py::1  # order-dep-exempt
 REUSE mijnrood_sync/doctype/mijnrood_sync_settings/test_mijnrood_sync_settings.py::1  # order-dependence
 REUSE mijnrood_sync/doctype/mijnrood_sync_settings/test_mijnrood_sync_settings_remote.py::1  # order-dependence

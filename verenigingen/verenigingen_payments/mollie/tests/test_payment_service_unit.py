@@ -196,6 +196,16 @@ class TestCreateOrGetMollieCustomer(EnhancedTestCase):
     create-or-reuse of a Donor's Mollie customer id (verenigingen_payments/
     mollie/services/payment_service.py:339)."""
 
+    def _create_committed_donor(self):
+        """Create a Donor and commit it immediately, so the caller's next
+        write is the only thing left pending. `_create_*` naming keeps this
+        commit recognised as a legitimate fixture-helper commit by
+        scan_order_dependence.py's `_in_helper()` check (#820/#827), rather
+        than a bare-commit finding in a test body."""
+        donor = self.create_test_donor()
+        frappe.db.commit()
+        return donor
+
     def _service_with_fake_gateway(self, *, created_customer_id="cst_fake_001"):
         """PaymentService without __init__; self.gateway.client.customers.create
         is a fake that returns a SimpleNamespace customer with the given id.
@@ -262,8 +272,7 @@ class TestCreateOrGetMollieCustomer(EnhancedTestCase):
         which would then also stop releasing the Donor lock -- is caught
         instead of passing quietly.
         """
-        donor = self.create_test_donor()
-        frappe.db.commit()  # donor itself is durable; only the next write is "ambient"
+        donor = self._create_committed_donor()  # durable; only the next write is "ambient"
 
         other_member = self.create_test_member()
         frappe.db.set_value(

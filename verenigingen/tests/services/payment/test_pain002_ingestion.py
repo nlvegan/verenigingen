@@ -412,18 +412,29 @@ class TestPain002IngestionService(FrappeTestCase):
         release InnoDB row locks (#1134), so it is not a substitute for the
         real COMMIT this method needs to release the lock. Its commit()
         therefore necessarily also commits whatever ELSE was pending on the
-        ambient connection -- confirmed as a REAL, reachable path: this
-        method is wired into hooks/scheduler.py as an Hourly job, and
-        Frappe's own ScheduledJobType.execute() inserts an uncommitted
-        "Scheduled Job Log" row before calling it whenever `create_log` is
-        set (verified on test_site_1: it is, for this job).
+        ambient connection.
 
-        This is ACCEPTED, not fixed (see the long comment at the begin()
-        deletion site). This test characterizes the accepted behaviour on an
-        UNRELATED row -- one this call's FOR UPDATE never locks and never
-        reads -- so a future change that silently alters this (e.g. someone
-        "fixing" it with a savepoint, which would then also stop releasing
-        the SEPA Batch Upload Log lock) is caught instead of passing quietly.
+        CORRECTED (#1176 review): this docstring previously claimed the
+        method's real caller (the hourly `run_pain002_ingestion` scheduled
+        job) leaves an ambient "Scheduled Job Log" row pending when this
+        method is entered. That was FALSE -- `update_scheduler_log()`
+        (frappe/core/doctype/scheduled_job_type/scheduled_job_type.py) ends
+        with an unconditional `frappe.db.commit()` on every branch; verified
+        directly on test_site_1 (called `update_scheduler_log("Start")`,
+        rolled back, the row survived -- already durably committed). So this
+        method IS reachable via a live caller (unlike site 1 in this same
+        sweep, which is dead code), but NO genuine ambient pending write has
+        been established at that call site -- "not established", not a
+        confirmed risk.
+
+        This is ACCEPTED, not fixed, on the row-lock argument ALONE (see the
+        long comment at the begin() deletion site). This test characterizes
+        the accepted behaviour with a SYNTHETIC probe on an UNRELATED row --
+        one this call's FOR UPDATE never locks and never reads -- so a future
+        change that silently alters this (e.g. someone "fixing" it with a
+        savepoint, which would then also stop releasing the SEPA Batch
+        Upload Log lock) is caught instead of passing quietly. It does not
+        claim this scenario occurs via the real scheduler caller.
         """
         batch_name, log_name = self._create_test_batch_and_log("BATCH-AMBIENT-TARGET-001")
 

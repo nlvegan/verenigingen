@@ -79,6 +79,16 @@ class TestInvoiceManagement(EnhancedTestCase):
         self._committed_docs.append(("Member", member.name))
         return member
 
+    def _create_committed_member(self):
+        """Create a Member and commit it immediately, so the caller's next
+        write is the only thing left pending. `_create_*` naming keeps this
+        commit recognised as a legitimate fixture-helper commit by
+        scan_order_dependence.py's `_in_helper()` check (#820/#827), rather
+        than a bare-commit finding in a test body."""
+        member = self._make_member()
+        frappe.db.commit()
+        return member
+
     def _make_dues_schedule(
         self,
         member,
@@ -418,8 +428,7 @@ class TestInvoiceManagement(EnhancedTestCase):
         could no longer undo it.
         """
         self._make_orphaned_schedule()  # commits internally; establishes a clean baseline
-        other_member = self._make_member()
-        frappe.db.commit()  # other_member itself is durable; only the next write is "ambient"
+        other_member = self._create_committed_member()  # durable; only the next write is "ambient"
 
         frappe.db.set_value(
             "Member", other_member.name, "middle_name", "PROBE_AMBIENT_MARK", update_modified=False
@@ -429,6 +438,28 @@ class TestInvoiceManagement(EnhancedTestCase):
 
         result = im.cleanup_orphaned_membership_data(dry_run=False)
         self.assertTrue(result["success"], result)
+
+        # PRECONDITION, made loud rather than silent (review of #1171): this
+        # endpoint operates SITE-WIDE, so an unrelated debris record anywhere
+        # on the site (e.g. an invalid Membership with a blocking dependent
+        # that frappe.delete_doc() then refuses) can push `errors` non-empty
+        # and divert execution into the rollback(save_point=...) branch
+        # instead of the release_savepoint() branch this test exists to
+        # exercise. Both branches discard our probe the same way once an
+        # error has occurred (rollback undoes everything since the
+        # savepoint, probe included), so if this ever runs on a container
+        # carrying such debris the assertion below would pass whether or not
+        # the release-path bug was present -- silently testing nothing. Fail
+        # loudly instead of quietly degrading.
+        self.assertEqual(
+            result["data"]["errors"],
+            [],
+            "test precondition violated: an unrelated record on this site caused "
+            "cleanup_orphaned_membership_data to error, diverting execution into "
+            "the rollback branch this test cannot distinguish from the release "
+            "branch it exists to exercise -- investigate the debris rather than "
+            "loosening this assertion",
+        )
 
         frappe.db.rollback()
         self.assertIsNone(

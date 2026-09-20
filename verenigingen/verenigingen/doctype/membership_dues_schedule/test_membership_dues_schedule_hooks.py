@@ -55,6 +55,16 @@ class TestMembershipDuesScheduleHooks(EnhancedTestCase):
             member.reload()
         return member, schedule
 
+    def _create_committed_member_with_schedule(self, last="Sync"):
+        """Same as `_make_member_with_schedule`, but commits immediately so
+        the caller's next write is the only thing left pending. `_create_*`
+        naming keeps this commit recognised as a legitimate fixture-helper
+        commit by scan_order_dependence.py's `_in_helper()` check
+        (#820/#827), rather than a bare-commit finding in a test body."""
+        member, schedule = self._make_member_with_schedule(last=last)
+        frappe.db.commit()
+        return member, schedule
+
     # ------------------------------------------------------------------
     # Early returns
     # ------------------------------------------------------------------
@@ -208,8 +218,7 @@ class TestMembershipDuesScheduleHooks(EnhancedTestCase):
         member, schedule = self._make_member_with_schedule(last="BulkAmbient")
         frappe.db.set_value("Member", member.name, "current_dues_schedule", None)
 
-        other_member, _ = self._make_member_with_schedule(last="BulkAmbientOther")
-        frappe.db.commit()  # other_member itself is durable; only the next write is "ambient"
+        other_member, _ = self._create_committed_member_with_schedule(last="BulkAmbientOther")
 
         frappe.db.set_value(
             "Member", other_member.name, "middle_name", "PROBE_AMBIENT_MARK", update_modified=False
