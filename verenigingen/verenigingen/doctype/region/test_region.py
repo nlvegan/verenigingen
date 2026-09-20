@@ -210,6 +210,17 @@ class TestRegion(EnhancedTestCase):
         region = self._make_region()
         self.assertEqual(region.parse_postal_code_patterns(), [])
 
+    def test_parse_postal_code_patterns_does_not_split_on_newlines(self):
+        """Region's own parser splits ONLY on ",", unlike
+        optimized_chapter_lookup.py's parser which also treats a newline as
+        a separator. An embedded newline must stay inside one pattern (and
+        so fail to match anything sane) rather than being split into two.
+        This is a concrete, direct assertion (not a cross-path comparison)
+        so it still catches a parser swap even if both matching paths are
+        refactored to share one buggy implementation -- see #940."""
+        region = self._make_region(postal_code_patterns="1000-1999\n2500")
+        self.assertEqual(region.parse_postal_code_patterns(), ["1000-1999\n2500"])
+
     # ------------------------------------------------------------------
     # matches_postal_code / _postal_code_matches_pattern
     # ------------------------------------------------------------------
@@ -355,6 +366,94 @@ class TestRegion(EnhancedTestCase):
         )
 
         self.assertIsNone(find_region_by_postal_code(""))
+
+    # ------------------------------------------------------------------
+    # #940: find_region_by_postal_code() N+1 -- region_postal_code_matches()
+    # must return exactly what a fully-loaded Region's matches_postal_code()
+    # returns, for the same awkward pattern strings, and the whitelisted
+    # lookup must not scale its query count with the number of regions.
+    # ------------------------------------------------------------------
+    def test_region_postal_code_matches_equivalent_to_doc_matches_postal_code(self):
+        """Characterisation test: region_postal_code_matches(patterns_string, code)
+        (called directly off the bulk frappe.get_all() row, no Document load)
+        must agree with frappe.get_doc(...).matches_postal_code(code) (the old,
+        N+1 access path) for every pattern shape Region supports, including the
+        awkward ones -- multiple separators, embedded newlines, whitespace,
+        empty segments, wildcards, ranges and malformed ranges.
+        """
+        from verenigingen.verenigingen.doctype.region.region import (
+            region_postal_code_matches,
+        )
+
+        cases = [
+            # (postal_code_patterns, [postal codes to probe])
+            ("1000-1999", ["1000", "1500", "1999", "0999", "2000"]),
+            ("3*", ["3000", "3999", "4000"]),
+            ("2500", ["2500", "25001", "2600"]),
+            ("1000-1999, 2500, 3*", ["1500", "2500", "3123", "9999"]),
+            # multiple separators + embedded whitespace between patterns
+            ("1000-1999,  2500 , , 3*", ["1500", "2500", "3050", "9999"]),
+            # embedded newline: parse_postal_code_patterns only splits on ",",
+            # so a newline stays INSIDE a pattern and must fail the same way
+            # (degrade to no match) on both paths, never raise.
+            ("1000-1999\n2500", ["1500", "2500"]),
+            # leading/trailing whitespace and blank string
+            ("   ", ["1000"]),
+            ("", ["1000"]),
+            # malformed range must degrade to False on both paths, not raise
+            ("AB-CD", ["1000"]),
+            # postal code itself needs normalising (embedded space)
+            ("1000-1999", ["1000 AB"]),
+        ]
+
+        for patterns, codes in cases:
+            region = self._make_region(postal_code_patterns=patterns)
+            region_doc = frappe.get_doc("Region", region.name)
+            for code in codes:
+                with self.subTest(patterns=patterns, code=code):
+                    old_path = region_doc.matches_postal_code(code)
+                    new_path = region_postal_code_matches(region.postal_code_patterns, code)
+                    self.assertEqual(
+                        old_path,
+                        new_path,
+                        f"mismatch for patterns={patterns!r} code={code!r}: "
+                        f"doc.matches_postal_code()={old_path} vs "
+                        f"region_postal_code_matches()={new_path}",
+                    )
+
+    def test_find_region_by_postal_code_query_count_does_not_scale_with_regions(self):
+        """#940: find_region_by_postal_code used to frappe.get_doc() every
+        active region just to call matches_postal_code(), after already
+        fetching postal_code_patterns via frappe.get_all(). The fix reads
+        the pattern string off the bulk-fetched row, so the query count must
+        stay flat as the number of active regions grows.
+        """
+        from verenigingen.verenigingen.doctype.region.region import (
+            find_region_by_postal_code,
+        )
+
+        # Warm meta / table-column caches first: a cold `table_columns::tabRegion`
+        # cache issues an information_schema query the first time the table is
+        # touched, which would otherwise be mistaken for part of the N+1.
+        frappe.get_meta("Region")
+        frappe.db.get_table_columns("Region")
+
+        for i in range(8):
+            self._make_region(
+                is_active=1,
+                postal_code_patterns="8000-8999" if i % 2 == 0 else "9000-9099",
+            )
+
+        business_fn = find_region_by_postal_code
+        while hasattr(business_fn, "__wrapped__"):
+            business_fn = business_fn.__wrapped__
+
+        # 1 query for the bulk Region fetch -- must NOT scale with the number
+        # of active regions.
+        with self.assertQueryCount(1):
+            result = business_fn("8500")
+
+        self.assertIsNotNone(result)
 
     # ------------------------------------------------------------------
     # Whitelisted utility: get_regional_coordinator

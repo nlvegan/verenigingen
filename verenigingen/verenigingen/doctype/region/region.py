@@ -182,52 +182,78 @@ class Region(WebsiteGenerator):
 
     def parse_postal_code_patterns(self):
         """Parse postal code patterns into list"""
-        if not self.postal_code_patterns:
-            return []
-
-        patterns = [p.strip() for p in self.postal_code_patterns.split(",")]
-        return [p for p in patterns if p]  # Remove empty patterns
+        return _parse_postal_code_patterns(self.postal_code_patterns)
 
     def matches_postal_code(self, postal_code):
         """Check if postal code matches this region's patterns"""
-        if not self.postal_code_patterns or not postal_code:
-            return False
-
-        patterns = self.parse_postal_code_patterns()
-        postal_code = postal_code.strip().replace(" ", "")  # Normalize
-
-        for pattern in patterns:
-            pattern = pattern.strip().replace(" ", "")
-
-            if self._postal_code_matches_pattern(postal_code, pattern):
-                return True
-
-        return False
-
-    def _postal_code_matches_pattern(self, postal_code, pattern):
-        """Check if postal code matches a specific pattern"""
-        try:
-            # Handle wildcard patterns (e.g., "3*" matches 3000-3999)
-            if "*" in pattern:
-                prefix = pattern.replace("*", "")
-                return postal_code.startswith(prefix)
-
-            # Handle range patterns (e.g., "1000-1999")
-            if "-" in pattern:
-                start, end = pattern.split("-", 1)
-                start_num = int(start)
-                end_num = int(end)
-                postal_num = int(postal_code[: len(start)])
-                return start_num <= postal_num <= end_num
-
-            # Handle exact match
-            return postal_code.startswith(pattern)
-
-        except (ValueError, IndexError):
-            return False
+        return region_postal_code_matches(self.postal_code_patterns, postal_code)
 
 
 # Utility functions
+
+
+def _parse_postal_code_patterns(postal_code_patterns):
+    """Parse a comma-separated postal code pattern string into a list.
+
+    Mirrors ``Region.parse_postal_code_patterns()`` exactly (same helper,
+    just callable without a loaded Document).
+    """
+    if not postal_code_patterns:
+        return []
+
+    patterns = [p.strip() for p in postal_code_patterns.split(",")]
+    return [p for p in patterns if p]  # Remove empty patterns
+
+
+def _postal_code_pattern_matches(postal_code, pattern):
+    """Check if a normalised postal code matches a single pattern."""
+    try:
+        # Handle wildcard patterns (e.g., "3*" matches 3000-3999)
+        if "*" in pattern:
+            prefix = pattern.replace("*", "")
+            return postal_code.startswith(prefix)
+
+        # Handle range patterns (e.g., "1000-1999")
+        if "-" in pattern:
+            start, end = pattern.split("-", 1)
+            start_num = int(start)
+            end_num = int(end)
+            postal_num = int(postal_code[: len(start)])
+            return start_num <= postal_num <= end_num
+
+        # Handle exact match
+        return postal_code.startswith(pattern)
+
+    except (ValueError, IndexError):
+        return False
+
+
+def region_postal_code_matches(postal_code_patterns, postal_code):
+    """Test a postal code against a region's raw ``postal_code_patterns`` text.
+
+    Mirrors ``Region.matches_postal_code()`` (which delegates to this same
+    function), but works directly off the ``postal_code_patterns`` string --
+    no Region Document needs to be loaded to answer the question.
+
+    ``find_region_by_postal_code()`` previously called
+    ``frappe.get_doc("Region", ...)`` per row purely to reach this check,
+    after already fetching ``postal_code_patterns`` in bulk via
+    ``frappe.get_all`` -- the same N+1 shape #923 fixed for the chapter
+    equivalents (#845, #846). See #940.
+    """
+    if not postal_code_patterns or not postal_code:
+        return False
+
+    patterns = _parse_postal_code_patterns(postal_code_patterns)
+    postal_code = postal_code.strip().replace(" ", "")  # Normalize
+
+    for pattern in patterns:
+        pattern = pattern.strip().replace(" ", "")
+
+        if _postal_code_pattern_matches(postal_code, pattern):
+            return True
+
+    return False
 
 
 @frappe.whitelist()
@@ -252,10 +278,8 @@ def find_region_by_postal_code(postal_code):
     regions = frappe.get_all("Region", filters={"is_active": 1}, fields=["name", "postal_code_patterns"])
 
     for region in regions:
-        if region.postal_code_patterns:
-            region_doc = frappe.get_doc("Region", region.name)
-            if region_doc.matches_postal_code(postal_code):
-                return region.name
+        if region_postal_code_matches(region.postal_code_patterns, postal_code):
+            return region.name
 
     return None
 
