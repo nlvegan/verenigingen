@@ -184,6 +184,77 @@ class TestPageDonate(EnhancedTestCase):
         self.assertEqual(ctx.payment_status, "error")
         self.assertNotIn("donation_result", ctx)
 
+    # ----- non-ASCII token (#1108) --------------------------------------
+    #
+    # hmac.compare_digest raises TypeError on a non-ASCII str, and this
+    # helper's own "fails closed" docstring only covered the missing/empty
+    # case. donate.py's try/except around frappe.get_doc catches only
+    # frappe.DoesNotExistError, so the TypeError escaped get_context as an
+    # unhandled 500 instead of the ordinary refusal. Same defect #1103's
+    # 4339c1b13 fixed in the sibling guest_return_tokens helper.
+
+    def test_context_with_non_ascii_token_discloses_nothing_not_raises(self):
+        """A non-ASCII token must be REFUSED, exactly like any other bad token --
+        not raise a TypeError out of get_context."""
+        from verenigingen.templates.pages.donate import get_context
+
+        donation = self._make_donation(paid=1, mode="Bank Transfer", amount=987.65)
+        frappe.form_dict = frappe._dict({"donation_id": donation.name, "token": "héllo"})
+        with self.as_user("Guest"):
+            ctx = frappe._dict()
+            get_context(ctx)
+
+        # Same refusal shape as the wrong-but-ASCII-token control above: same
+        # payment_status, no donation_result key at all.
+        self.assertEqual(ctx.payment_status, "error")
+        self.assertNotIn("donation_result", ctx)
+
+    def test_verify_donation_return_token_refuses_non_ascii_at_the_helper(self):
+        """The helper itself fails closed, so every caller is covered by
+        construction, not just the one wrapped in a try/except."""
+        from verenigingen.services.donation.public_donation_service import (
+            verify_donation_return_token,
+        )
+
+        donation = self._make_donation(paid=1, mode="Bank Transfer")
+        self.assertFalse(verify_donation_return_token(donation.name, "héllo"))
+
+    def test_verify_donation_return_token_refuses_empty_token(self):
+        from verenigingen.services.donation.public_donation_service import (
+            verify_donation_return_token,
+        )
+
+        donation = self._make_donation(paid=1, mode="Bank Transfer")
+        self.assertFalse(verify_donation_return_token(donation.name, ""))
+
+    def test_verify_donation_return_token_refuses_none_token(self):
+        from verenigingen.services.donation.public_donation_service import (
+            verify_donation_return_token,
+        )
+
+        donation = self._make_donation(paid=1, mode="Bank Transfer")
+        self.assertFalse(verify_donation_return_token(donation.name, None))
+
+    def test_verify_donation_return_token_refuses_wrong_ascii_token(self):
+        """Control: an ordinary wrong-but-ASCII token is refused, not an error."""
+        from verenigingen.services.donation.public_donation_service import (
+            verify_donation_return_token,
+        )
+
+        donation = self._make_donation(paid=1, mode="Bank Transfer")
+        self.assertFalse(verify_donation_return_token(donation.name, "0" * 64))
+
+    def test_verify_donation_return_token_accepts_correct_token(self):
+        """Control: the happy path -- a correctly generated token -- still works."""
+        from verenigingen.services.donation.public_donation_service import (
+            generate_donation_return_token,
+            verify_donation_return_token,
+        )
+
+        donation = self._make_donation(paid=1, mode="Bank Transfer")
+        token = generate_donation_return_token(donation.name)
+        self.assertTrue(verify_donation_return_token(donation.name, token))
+
     # ----- get_donation_status -----------------------------------------
 
     def test_get_donation_status_paid(self):
