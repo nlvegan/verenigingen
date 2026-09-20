@@ -47,12 +47,21 @@ def generate_donation_return_token(donation_name: str) -> str:
 def verify_donation_return_token(donation_name: str, token: str) -> bool:
     """Constant-time check of a token produced by generate_donation_return_token.
 
-    Fails closed: a missing/empty token is rejected before any comparison.
+    Fails closed: a missing/empty token is rejected before any comparison,
+    and a non-ASCII token -- which hmac.compare_digest itself rejects with a
+    TypeError -- is refused rather than allowed to raise (#1108, same shape
+    as guest_return_tokens.verify_guest_return_token, #1103/4339c1b13).
+    donate.py's own try/except around this call only catches
+    frappe.DoesNotExistError, so an unhandled TypeError here escaped
+    get_context as a 500 instead of the ordinary refusal.
     """
     if not token:
         return False
     expected = generate_donation_return_token(donation_name)
-    return hmac.compare_digest(expected, token)
+    try:
+        return hmac.compare_digest(expected, token)
+    except TypeError:
+        return False
 
 
 class PublicDonationService(StatelessService):
