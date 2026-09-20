@@ -5,6 +5,7 @@ Pure-Python (no bench/site needed): each case is a source snippet written to a t
 file and run through scan_file(). Run with:  python -m pytest this_file.py
 or plain:  python scripts/validation/tests/test_log_error_arg_order_validator.py
 """
+import ast
 import importlib.util
 import sys
 import tempfile
@@ -20,7 +21,19 @@ _spec.loader.exec_module(lev)
 
 
 def _scan(src: str):
-    """Return (findings, bad_pragmas) for a snippet."""
+    """Return (findings, bad_pragmas) for a snippet.
+
+    Asserts the snippet parses first. `scan_file` deliberately swallows
+    SyntaxError and returns ([], []) for a repo file that does not parse --
+    correct for a tree scan, but it means a snippet with a typo here would
+    satisfy any `assertEqual(findings, [])` for entirely the wrong reason
+    (silently "found nothing" instead of "correctly found nothing"). See
+    #1140.
+    """
+    try:
+        ast.parse(src)
+    except SyntaxError as exc:
+        raise AssertionError(f"test snippet does not parse, so it proves nothing: {exc}") from exc
     with tempfile.TemporaryDirectory() as d:
         p = Path(d) / "snippet.py"
         p.write_text(src)
@@ -394,6 +407,35 @@ class ScanFileAllTest(unittest.TestCase):
             )
             self.assertEqual(lev.scan_file(p)[0], [])  # ordinary scan: suppressed, invisible
             self.assertEqual(lev.scan_file_all(p), [("f", 2)])  # scan_file_all: still sees it
+
+
+class ScanHelperRejectsUnparseableSnippetsTest(unittest.TestCase):
+    """#1140: `_scan`/`_flagged` must fail loudly on a snippet that does not
+    parse, instead of silently returning ([], []) via `scan_file`'s
+    (deliberate, tree-scan-only) SyntaxError swallow.
+
+    The control is what makes this discriminating: the SAME violation,
+    correctly spelled, must still be flagged. Without it, an empty result is
+    equally consistent with "the validator correctly found nothing" as with
+    "the snippet never parsed"."""
+
+    _CORRECTLY_SPELLED = (
+        "def f(msg, title):\n"
+        "    x = 1\n"
+        "    frappe.log_error(msg, title)\n"
+    )
+    _BROKEN_INDENTATION = (
+        "def f(msg, title):\n"
+        "    x = 1\n"
+        "        frappe.log_error(msg, title)\n"  # extra-indented second line
+    )
+
+    def test_control_correctly_spelled_snippet_is_flagged(self):
+        self.assertEqual(len(_flagged(self._CORRECTLY_SPELLED)), 1)
+
+    def test_broken_indentation_snippet_raises_instead_of_silently_passing(self):
+        with self.assertRaises(AssertionError):
+            _flagged(self._BROKEN_INDENTATION)
 
 
 if __name__ == "__main__":
