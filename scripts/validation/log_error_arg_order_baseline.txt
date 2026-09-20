@@ -607,8 +607,6 @@ verenigingen/verenigingen_payments/clients/bulk_transaction_importer.py::BulkTra
 verenigingen/verenigingen_payments/clients/bulk_transaction_importer.py::run_bulk_import::1
 verenigingen/verenigingen_payments/core/compliance/audit_trail.py::ImmutableAuditTrail._flush_buffer::1
 verenigingen/verenigingen_payments/core/compliance/regulatory_reporter.py::RegulatoryReporter._store_report::1
-verenigingen/verenigingen_payments/core/mollie_base_client.py::MollieBaseClient._get_api_key_from_settings::1
-verenigingen/verenigingen_payments/core/mollie_base_client.py::MollieBaseClient._get_backend_api_key::1
 verenigingen/verenigingen_payments/core/mollie_base_client.py::MollieBaseClient._handle_parsing_error::1
 verenigingen/verenigingen_payments/core/mollie_base_client.py::MollieBaseClient._request_paginated::1
 verenigingen/verenigingen_payments/core/mollie_base_client.py::MollieBaseClient._validate_response_structure::1

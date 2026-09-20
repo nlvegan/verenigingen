@@ -188,6 +188,81 @@ class TestMollieWwwPagesCoverage(VereningingenTestCase):
         self.assertIsInstance(result, dict)
         self.assertFalse(result.get("success"))
 
+    def test_recon_data_key_lookup_failure_writes_exactly_one_error_log_row(self):
+        """#1162: one failed API-key lookup must not fan out into two Error Log rows.
+
+        MollieReconciliationService.__init__ builds a
+        ``MollieBaseClient(use_backend_api=False)`` to talk to Mollie. Before the fix,
+        that call did not pass ``suppress_api_error_log=True``, so when the Live
+        Secret Key is unconfigured, ``MollieBaseClient._get_api_key_from_settings()``
+        BOTH logged its own "Failed to get Mollie API key" row (argument-swapped --
+        because the message has no newline it is not rescued by frappe's swap
+        heuristic, so the row recorded no traceback at all) AND re-raised, which this
+        page's own outer ``except`` then logged a SECOND time as "Member
+        Reconciliation Error". One failure, two rows -- the same amplification shape
+        #1145 fixed for the neighbouring subscription-audit page (#1130).
+
+        ``frappe.flags.in_test`` is flipped off for the duration of the call:
+        ``MollieBaseClient`` substitutes a dummy key whenever ``in_test`` is set (so
+        ~87 other tests don't need real Mollie credentials), which bypasses the real
+        key-lookup branch entirely -- the same reason this bug could only be found by
+        a bench console invocation, never by ``bench run-tests`` (see #1162).
+
+        The Live Secret Key is explicitly cleared (not just assumed absent) so this
+        test is deterministic regardless of what a sibling test in the same shard
+        left behind in ``Mollie Settings``.
+        """
+        from frappe.utils.password import (
+            get_decrypted_password,
+            remove_encrypted_password,
+            set_encrypted_password,
+        )
+
+        DT = "Mollie Settings"
+
+        def _set_live_key(value):
+            if value:
+                set_encrypted_password(DT, DT, value, "live_secret_key")
+            else:
+                remove_encrypted_password(DT, DT, "live_secret_key")
+            # Blank the column too, so get_password() falls through to __Auth.
+            frappe.db.set_single_value(DT, "live_secret_key", "", update_modified=False)
+            frappe.clear_document_cache(DT, DT)
+
+        orig_live_key = get_decrypted_password(DT, DT, "live_secret_key", raise_exception=False)
+        orig_in_test = frappe.flags.in_test
+        _set_live_key(None)
+        frappe.flags.in_test = False
+        try:
+            with self.set_user(self.admin_email):
+                self.expectErrorLog("Member Reconciliation Error")
+                marker = frappe.utils.now_datetime()
+                before = {
+                    r.name
+                    for r in frappe.get_all(
+                        "Error Log", filters={"creation": [">=", marker]}, fields=["name"]
+                    )
+                }
+                result = mmr.get_member_reconciliation_data()
+                rows = frappe.get_all(
+                    "Error Log",
+                    filters={"creation": [">=", marker]},
+                    fields=["name", "method"],
+                    order_by="creation asc",
+                )
+                rows = [r for r in rows if r.name not in before]
+        finally:
+            frappe.flags.in_test = orig_in_test
+            _set_live_key(orig_live_key)
+
+        self.assertFalse(result.get("success"))
+        titles = [r.method for r in rows]
+        self.assertEqual(
+            titles,
+            ["Member Reconciliation Error"],
+            f"expected exactly one Error Log row for a failed key lookup, got: {titles}",
+        )
+
     # ===== update_member_mollie_fields (real Member, no Mollie needed) =====
 
     def _make_member(self):

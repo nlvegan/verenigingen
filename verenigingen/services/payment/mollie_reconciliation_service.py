@@ -28,7 +28,11 @@ class MollieReconciliationService:
     """
 
     def __init__(self):
-        self.client = MollieBaseClient(use_backend_api=False)
+        # This service's caller (the member-reconciliation www page) already owns a
+        # single outer Error Log row for the whole operation; suppress the client's
+        # own key-lookup / request-failure logging so a failure isn't logged twice
+        # (#1130 / #1162).
+        self.client = MollieBaseClient(use_backend_api=False, suppress_api_error_log=True)
         self._dues_keywords: Optional[List[str]] = None
 
     @property
