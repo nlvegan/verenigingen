@@ -230,9 +230,14 @@ def run_bulk_sync_with_transaction(batch_size=100):
         dict: Summary of the update operation
     """
     try:
-        # Start a new transaction
-        frappe.db.begin()
-
+        # #1143: a frappe.db.begin() used to sit here. It raised
+        # ImplicitCommitError against any connection with pending writes --
+        # exactly the state a "manual trigger" (per this function's own
+        # docstring) mid-request is in the moment anything upstream wrote so
+        # much as one row. There is no row lock here to preserve (unlike the
+        # FOR UPDATE sites in this same sweep), so it is deleted outright; the
+        # commit()/rollback() below still bracket this function's own writes
+        # in the ambient request transaction.
         # Run the sync
         result = check_and_update_all_members_current_schedule(batch_size)
 

@@ -372,6 +372,38 @@ class TestPain002IngestionService(FrappeTestCase):
         self.assertEqual(log_entry.bank_status, "Accepted")
         self.assertIsNotNone(log_entry.bank_acknowledgement_time)
 
+    def test_update_batch_status_succeeds_without_prior_commit(self):
+        """#1143: update_batch_status's `frappe.db.begin()` (around the SEPA
+        Batch Upload Log FOR UPDATE lock) raises ImplicitCommitError against
+        ANY connection with pending writes. _create_test_batch_and_log() masks
+        this because it ends with its own frappe.db.commit(); reproduce the
+        real caller shape with a write still pending -- no manual
+        frappe.db.commit() workaround -- and require the update to actually
+        apply, not merely avoid raising.
+        """
+        batch_name, log_name = self._create_test_batch_and_log("BATCH-PENDING-WRITE-001")
+
+        # A write still pending on the connection when update_batch_status is
+        # called -- the same shape any caller with prior request writes is in.
+        frappe.db.set_value(
+            "SEPA Batch Upload Log", log_name, "bank_status", "Pending", update_modified=False
+        )
+
+        data = {
+            "original_message_id": "BATCH-PENDING-WRITE-001",
+            "group_status": "ACCP",
+            "batch_status": "Acknowledged",
+            "bank_status": "Accepted",
+            "file_path": "/test/path.xml",
+        }
+
+        result = self.service.update_batch_status(data)
+
+        self.assertTrue(result.success, f"Update failed: {result.error_message}")
+        log_entry = frappe.get_doc("SEPA Batch Upload Log", log_name)
+        self.assertEqual(log_entry.batch_status, "Acknowledged")
+        self.assertEqual(log_entry.bank_status, "Accepted")
+
     def test_update_batch_status_no_matching_log(self):
         """Test that update_batch_status handles missing log entry"""
         data = {

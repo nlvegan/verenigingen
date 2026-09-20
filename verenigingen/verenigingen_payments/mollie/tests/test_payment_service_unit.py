@@ -189,3 +189,58 @@ class TestWebhookUrl(EnhancedTestCase):
             url,
         )
         self.assertTrue(url.startswith("http"))
+
+
+class TestCreateOrGetMollieCustomer(EnhancedTestCase):
+    """PaymentService._create_or_get_mollie_customer -- row-locked
+    create-or-reuse of a Donor's Mollie customer id (verenigingen_payments/
+    mollie/services/payment_service.py:339)."""
+
+    def _service_with_fake_gateway(self, *, created_customer_id="cst_fake_001"):
+        """PaymentService without __init__; self.gateway.client.customers.create
+        is a fake that returns a SimpleNamespace customer with the given id.
+        No mocking of the logic under test; only the Mollie SDK boundary at
+        gateway.client.customers.create is stubbed."""
+        svc = object.__new__(PaymentService)
+
+        def create(customer_data):
+            return SimpleNamespace(id=created_customer_id)
+
+        svc.gateway = SimpleNamespace(client=SimpleNamespace(customers=SimpleNamespace(create=create)))
+        return svc
+
+    def test_creates_customer_without_prior_commit(self):
+        """#1143: _create_or_get_mollie_customer's `frappe.db.begin()` (around
+        the Donor FOR UPDATE lock) raises ImplicitCommitError against ANY
+        connection with pending writes. Build the donor WITHOUT committing --
+        the write is still pending when the method is called -- and require it
+        to actually create and persist the customer id, not merely avoid
+        raising.
+        """
+        donor = self.create_test_donor()  # inserted, NOT committed
+        self.assertTrue(frappe.db.exists("Donor", donor.name), "fixture must be a real pending write")
+        donation = SimpleNamespace(donor=donor.name)
+        svc = self._service_with_fake_gateway(created_customer_id="cst_new_001")
+
+        result = svc._create_or_get_mollie_customer(donation, {})
+
+        self.assertEqual(result["status"], "created")
+        self.assertEqual(result["customer_id"], "cst_new_001")
+        self.assertEqual(frappe.db.get_value("Donor", donor.name, "mollie_customer_id"), "cst_new_001")
+
+    def test_reuses_existing_customer_without_prior_commit(self):
+        """Same pending-write shape, but the Donor already has a
+        mollie_customer_id -- exercises the "existing" early-return branch,
+        which reads its value from the locked row itself (no secondary
+        stale-snapshot read, unlike #1134's original bug)."""
+        donor = self.create_test_donor()
+        frappe.db.set_value(
+            "Donor", donor.name, "mollie_customer_id", "cst_existing_001", update_modified=False
+        )
+        donation = SimpleNamespace(donor=donor.name)
+        svc = self._service_with_fake_gateway()
+
+        result = svc._create_or_get_mollie_customer(donation, {})
+
+        self.assertEqual(result["status"], "existing")
+        self.assertEqual(result["customer_id"], "cst_existing_001")

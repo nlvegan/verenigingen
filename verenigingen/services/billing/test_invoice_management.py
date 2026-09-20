@@ -367,6 +367,39 @@ class TestInvoiceManagement(EnhancedTestCase):
             # Clean run committed -> orphan really deleted.
             self.assertFalse(frappe.db.exists("Membership Dues Schedule", sched_name))
 
+    def test_cleanup_membership_data_real_run_succeeds_without_prior_commit(self):
+        """#1143: cleanup_orphaned_membership_data's `frappe.db.begin()` (guarded
+        by `if not dry_run:`) raises ImplicitCommitError against ANY connection
+        with pending writes. _make_orphaned_schedule() masks this because it
+        ends with its own frappe.db.commit(); reproduce the real caller shape by
+        building the same orphan WITHOUT that commit -- the write is still
+        pending when the endpoint is called -- and require it to actually clean
+        up, not merely avoid raising.
+        """
+        mt = self._make_membership_type()
+        member = self._make_member()
+        ds = self._make_dues_schedule(member, mt, auto_generate=1, next_invoice_date=today())
+        bogus_member = "NONEXISTENT-MEMBER-" + frappe.generate_hash(length=12)
+        frappe.db.set_value(
+            "Membership Dues Schedule", ds.name, "member", bogus_member, update_modified=False
+        )
+        # No commit here -- this write is still pending when we call the endpoint.
+
+        result = im.cleanup_orphaned_membership_data(dry_run=False)
+        self.assertTrue(result["success"], result)
+        data = result["data"]
+
+        my_item = next(
+            (
+                it
+                for it in data["processed_items"]
+                if it.get("type") == "orphaned_schedule" and it.get("name") == ds.name
+            ),
+            None,
+        )
+        self.assertIsNotNone(my_item, "our orphan schedule should be processed")
+        self.assertEqual(my_item["action"], "deleted")
+
     def test_cleanup_membership_data_fixture_survives_a_full_sweep_cap(self):
         """Regression for #398: find_orphaned_schedules() had no ORDER BY, so a
         LIMIT-capped sweep's result depended on the query plan rather than on

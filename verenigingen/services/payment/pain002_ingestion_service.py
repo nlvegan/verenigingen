@@ -348,8 +348,12 @@ class Pain002IngestionService(StatelessService):
             )
 
         try:
-            # Use explicit transaction with FOR UPDATE lock to prevent TOCTOU race
-            frappe.db.begin()
+            # #1143: a `frappe.db.begin()` used to sit here. It raised
+            # ImplicitCommitError against any connection with pending writes,
+            # the moment anything upstream in the same request wrote a row.
+            # The FOR UPDATE lock below and the existing commit()/rollback()
+            # calls are unaffected -- they bracket this transaction whether or
+            # not begin() is called; deleting it only removes the crash risk.
             try:
                 # Lock the row for update to ensure atomicity
                 locked_rows = frappe.db.sql(

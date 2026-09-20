@@ -807,10 +807,13 @@ def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20) -> OperationR
         frappe.throw(_("Insufficient permissions for membership data cleanup"))
 
     try:
-        # Start transaction for non-dry-run operations
-        if not dry_run:
-            frappe.db.begin()
-
+        # #1143: a `frappe.db.begin()` (guarded by `if not dry_run:`) used to
+        # sit here. It raised ImplicitCommitError against any connection with
+        # pending writes -- this is a whitelisted admin endpoint, so any prior
+        # write earlier in the same request (a session touch, an audit log
+        # entry) would trip it. There is no row lock here to preserve, so it
+        # is deleted outright; the commit()/rollback() below still bracket
+        # this function's own deletes in the ambient request transaction.
         results = {
             "success": True,
             "dry_run": dry_run,

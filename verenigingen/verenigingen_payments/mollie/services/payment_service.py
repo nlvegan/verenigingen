@@ -345,8 +345,15 @@ class PaymentService:
         """
         donor_name = donation_doc.donor
 
-        # Use row lock to prevent race condition
-        frappe.db.begin()
+        # #1143: a `frappe.db.begin()` used to sit here, immediately before the
+        # Donor FOR UPDATE lock below. It raised ImplicitCommitError against any
+        # connection with pending writes -- the same latent defect as #1134's
+        # payment_gateways.py finding, but WITHOUT #1134's secondary
+        # stale-snapshot bug: the existing-customer check below reads
+        # `existing_customer_id` from `donor_data`, which comes from the locked
+        # row itself, not from a later plain (non-locking) read. Deleted; the
+        # FOR UPDATE lock is taken in the ambient request transaction, and
+        # released by the existing commit()/rollback() calls below.
         try:
             # Acquire row lock - other requests will wait here
             locked_row = frappe.db.sql(

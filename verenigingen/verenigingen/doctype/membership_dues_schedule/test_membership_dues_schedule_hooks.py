@@ -20,6 +20,7 @@ from frappe.utils import today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule_hooks import (
     check_and_update_all_members_current_schedule,
+    run_bulk_sync_with_transaction,
     update_member_current_dues_schedule,
 )
 
@@ -170,10 +171,21 @@ class TestMembershipDuesScheduleHooks(EnhancedTestCase):
 
         self.assertFalse(frappe.db.get_value("Member", member.name, "current_dues_schedule"))
 
-    # NOTE: run_bulk_sync_with_transaction() is intentionally NOT covered here.
-    # Its first statement is frappe.db.begin() (START TRANSACTION), which trips
-    # Frappe's ImplicitCommitError when called inside the test's own open
-    # transaction. The function is a thin begin/commit/rollback wrapper around
-    # check_and_update_all_members_current_schedule(), whose behaviour IS covered
-    # above; testing the explicit-commit wrapper would require a real request
-    # transaction boundary that the test harness does not provide.
+    def test_bulk_sync_with_transaction_succeeds_without_prior_commit(self):
+        """#1143: run_bulk_sync_with_transaction()'s frappe.db.begin() raises
+        ImplicitCommitError against ANY connection with pending writes -- exactly
+        the state _make_member_with_schedule() leaves this test in (its Member/
+        Membership/Dues Schedule are inserted but not committed). This used to be
+        untestable for exactly that reason (see prior NOTE, removed once fixed);
+        call it here with those writes still pending -- no manual
+        frappe.db.commit() workaround -- and require it to actually do the sync,
+        not merely avoid raising.
+        """
+        member, schedule = self._make_member_with_schedule(last="BulkTxn")
+        frappe.db.set_value("Member", member.name, "current_dues_schedule", None)
+
+        result = run_bulk_sync_with_transaction(batch_size=100)
+
+        self.assertGreaterEqual(result["members_checked"], 1)
+        self.assertIsInstance(result["errors"], list)
+        self.assertEqual(frappe.db.get_value("Member", member.name, "current_dues_schedule"), schedule.name)
