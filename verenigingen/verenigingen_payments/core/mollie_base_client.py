@@ -105,12 +105,14 @@ class MollieBaseClient:
             enable_cache: Enable response caching (default: True)
             cache_max_size: Maximum number of cached responses (default: 100)
             cache_default_ttl: Default cache TTL in seconds (default: 300 = 5 minutes)
-            suppress_api_error_log: If True, request failures are still raised (and still
-                                        recorded to the audit trail) but skip this client's
-                                        own Error Log write (#1130). Set this when the caller
-                                        already owns a single, higher-context Error Log row
-                                        for the whole operation -- otherwise every failure is
-                                        logged twice: once here, once by the caller.
+            suppress_api_error_log: If True, request failures AND a failed API-key
+                                        lookup during construction are still raised (and
+                                        request failures are still recorded to the audit
+                                        trail) but skip this client's own Error Log write
+                                        (#1130 / #1162). Set this when the caller already
+                                        owns a single, higher-context Error Log row for the
+                                        whole operation -- otherwise every failure is logged
+                                        twice: once here, once by the caller.
         """
         # Get settings (singleton)
         self.mollie_settings = frappe.get_single("Mollie Settings")
@@ -225,7 +227,11 @@ class MollieBaseClient:
             return api_key
 
         except Exception as e:
-            frappe.log_error(f"Failed to get Mollie API key: {str(e)}", "Mollie API")
+            # A caller that already owns a single, higher-context Error Log row for
+            # the whole operation can suppress this one (#1130 / #1162) -- otherwise
+            # a missing key is logged here AND again by the caller's own catch.
+            if not self.suppress_api_error_log:
+                frappe.log_error(title="Mollie API", message=f"Failed to get Mollie API key: {str(e)}")
             raise
 
     def _get_backend_api_key(self) -> str:
@@ -273,7 +279,12 @@ class MollieBaseClient:
             return api_key
 
         except Exception as e:
-            frappe.log_error(f"Failed to get Mollie Backend API key: {str(e)}", "Mollie Backend API")
+            # See the matching comment in _get_api_key_from_settings above (#1130 / #1162).
+            if not self.suppress_api_error_log:
+                frappe.log_error(
+                    title="Mollie Backend API",
+                    message=f"Failed to get Mollie Backend API key: {str(e)}",
+                )
             raise
 
     def request(
