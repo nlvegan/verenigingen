@@ -90,7 +90,7 @@ class TestLoadUnpaidInvoicesSecure(SecureBase):
         self.assertEqual(match["mandate_reference"], data["mandate"].mandate_id)
         self.assertTrue(match["iban"])
 
-    def test_loaded_invoice_row_satisfies_membership_mandatory_field(self):
+    def test_loaded_invoice_row_has_nonblank_membership_key(self):
         """#1227: `direct_debit_batch.js:505-538`'s `load_unpaid_invoices` dialog
         feeds each server row straight into `frm.add_child('invoices', inv)` with
         no re-derivation, and `Direct Debit Batch Invoice.membership` is a
