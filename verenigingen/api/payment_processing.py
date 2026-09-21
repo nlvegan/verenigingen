@@ -847,32 +847,86 @@ def process_application_refund(member_name, reason):
             frappe.logger().warning(f"No application invoice found for member {member_name}")
             return {"success": False, "message": "No application invoice found"}
 
+        return _create_and_submit_application_refund(member, invoice_name, reason)
+
+    except Exception as e:
+        frappe.logger().error(f"Failed to process refund for {member_name}: {str(e)}")
+        return {"success": False, "message": f"Refund processing failed: {str(e)}"}
+
+
+def _create_and_submit_application_refund(member, invoice_name, reason):
+    """Build, insert, and submit the refund Payment Entry for `invoice_name`.
+
+    Split out from `process_application_refund` so the logic #906 is actually about
+    (the guard checks and the Payment Entry construction) can be exercised directly in
+    tests without needing `Member.application_invoice` to resolve - see #661, which
+    found that attribute is a plain Python attribute never persisted to any DocType,
+    so `process_application_refund`'s own `getattr` above it is always `None` for a
+    freshly loaded Member and this function is unreachable from its real caller today.
+    """
+    member_name = member.name
+    try:
         # Check if invoice exists and is paid
         invoice = frappe.get_doc("Sales Invoice", invoice_name)
+
+        # A CANCELLED invoice carries outstanding_amount == 0, exactly like a fully
+        # paid one, so without this explicit docstatus check it slips past the
+        # "not fully paid" guard below and reaches Payment Entry creation against a
+        # document that no longer represents a real receivable. This is the inverse
+        # of the #856/#209 draft case (a draft's outstanding_amount is its full
+        # grand_total, so it is already refused by the check below) - #906, found by
+        # the #856 sweep (PR #907).
+        if invoice.docstatus != 1:
+            frappe.logger().warning(
+                f"Invoice {invoice_name} is not submitted (docstatus {invoice.docstatus}), no refund possible"
+            )
+            return {"success": False, "message": "Invoice is not submitted"}
+
         if invoice.outstanding_amount > 0:
             frappe.logger().warning(f"Invoice {invoice_name} is not fully paid, no refund needed")
             return {"success": False, "message": "Invoice is not fully paid"}
 
-        # Create refund payment entry
+        # Resolve the accounts a "Pay" refund needs. Without paid_from/paid_to/company,
+        # insert() fails deterministically with "Source Exchange Rate is mandatory"
+        # (ERPNext derives the source currency from paid_from) - #906. paid_from is the
+        # bank/cash account the refund is paid OUT of; paid_to is the SAME receivable
+        # account the invoice was raised against (invoice.debit_to), so the reversal
+        # lands on the exact account it is reversing.
+        from erpnext.accounts.doctype.journal_entry.journal_entry import get_default_bank_cash_account
+
+        company = invoice.company
+        bank_account = get_default_bank_cash_account(company, "Bank") or get_default_bank_cash_account(
+            company, "Cash"
+        )
+        if not bank_account:
+            frappe.logger().error(f"No default bank/cash account configured for company {company}")
+            return {"success": False, "message": "No default bank or cash account configured for refunds"}
+
+        # Create refund payment entry. Deliberately UNALLOCATED - no "references" row
+        # against the (fully paid, outstanding_amount == 0) invoice. ERPNext's own
+        # validate_allocated_amount_with_latest_data only accepts a reference row when
+        # the voucher still carries outstanding (positive-unpaid or negative-overpaid);
+        # a fully paid invoice has neither, so a reference row here always throws ("...
+        # has already been fully paid" / "Allocated Amount cannot be greater than
+        # outstanding amount") regardless of paid_from/company. This mirrors the
+        # existing Mollie/Ponto refund pattern (unified_payment_entry_creator.py),
+        # which also records a "Pay" refund with no reference row, relying on
+        # reference_no for traceability back to the source document instead.
         refund_entry = frappe.get_doc(
             {
                 "doctype": "Payment Entry",
                 "payment_type": "Pay",
+                "company": company,
                 "party_type": "Customer",
                 "party": member.customer,
+                "paid_from": bank_account["account"],
+                "paid_to": invoice.debit_to,
                 "paid_amount": invoice.grand_total,
                 "received_amount": invoice.grand_total,
                 "reference_no": f"REFUND-{invoice.name}",
                 "reference_date": today(),
                 "mode_of_payment": "Bank Transfer",  # Default refund method
                 "remarks": f"Refund for application rejection: {reason}",
-                "references": [
-                    {
-                        "reference_doctype": "Sales Invoice",
-                        "reference_name": invoice.name,
-                        "allocated_amount": -invoice.grand_total,  # Negative for refund
-                    }
-                ],
             }
         )
 
