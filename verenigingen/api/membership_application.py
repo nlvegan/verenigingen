@@ -11,6 +11,7 @@ from frappe import _
 from frappe.utils import cint
 
 from verenigingen.api.membership_application_review import send_rejection_notification
+from verenigingen.templates.pages.application_status import APPLICATION_STATUS_TOKEN_PURPOSE
 from verenigingen.utils.application_helpers import (
     check_application_status as check_application_status_util,
     create_address_from_application,
@@ -46,6 +47,7 @@ from verenigingen.utils.security.api_security_framework import (
     public_api,
     standard_api,
 )
+from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.utils.validation.api_validators import (
     APIValidator,
@@ -564,11 +566,21 @@ def submit_application(**kwargs) -> OperationResult[Dict[str, Any]]:
         # - "New Membership Application Submitted" notifies administrators
         # - "Member Application Approved/Rejected" notifies applicant on status change
 
+        # Proves to application_status.py's get_context that THIS browser is
+        # the one that just submitted this application (#1051) -- without
+        # it, the "Check Application Status" link's member_record id is a
+        # sequential, enumerable Member docname that would disclose the
+        # member's email, application status and admin review notes to
+        # anyone who guesses it. Same shape as donate.py (#1018) and
+        # payment_success.py/ponto_pay.py (#1053/#1055).
+        status_token = generate_guest_return_token(APPLICATION_STATUS_TOKEN_PURPOSE, member.name)
+
         return OperationResult.ok(
             {
                 "application_id": application_id,
                 "applicant_id": getattr(member, "application_id", None),
                 "member_record": member.name,
+                "status_token": status_token,
                 "status": "pending_review",
             },
             message=_(
