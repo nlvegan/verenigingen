@@ -186,4 +186,16 @@ implementing, and both were right to.
 
 ---
 
-*Counts verified at write time: `gh pr list --state merged --search "merged:2026-09-21"` → 6 from this session (#1197, #1198, #1202, #1216, #1226, #1228); the other 9 merged today belong to the previous session. `gh issue list --search "created:2026-09-21"` → 31 at or above #1195. Every issue number cited above was checked to exist and to be open.*
+*Counts verified at write time and **re-verified before this commit**: `gh pr list --state merged
+--search "merged:2026-09-21"` → 6 from this session (#1197, #1198, #1202, #1216, #1226, #1228),
+each confirmed `MERGED` with a timestamp; the other 9 merged today belong to the previous
+session. `gh issue list --state all --limit 500 --search "created:2026-09-21"` → **37 total, 31
+of them at or above #1195** (the 6 below it are the previous session's).*
+
+*One claim in the first draft of this footer was itself over-broad and is corrected here: it
+said "every issue number cited above was checked to exist and to be open." Every cited number
+exists, but four are **closed** — #1212 and #1217 by the PRs this document describes (#1216,
+#1228), and #1221 and #1224 by #1226 and #1231. The open/closed split was not re-checked at
+write time; it has been now. Which is the document's own thesis arriving one level up: the
+check that was run ("does it exist") was reported as the check that was claimed ("exists and is
+open"), and the two are not the same check.*
