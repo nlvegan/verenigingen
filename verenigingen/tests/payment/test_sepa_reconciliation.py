@@ -176,14 +176,20 @@ class ReconBase(EnhancedTestCase):
         provisioning those org-wide settings, we mark the batch as submitted
         directly in the DB (docstatus=1 + the requested status).
 
-        ``sepa_file_generated`` defaults to True because a batch that has
-        reached a real post-Draft status (Submitted/Processed/Failed/...) has,
-        in every live code path, already had its SEPA file generated -- see
-        ``DirectDebitBatch.on_submit`` / ``process_batch``. Pass
-        ``sepa_file_generated=False`` to build the #1232 edge case: a batch
-        that is ``docstatus=1`` but whose file generation was deferred (e.g.
-        a Staff submitter without CRITICAL rights, per #1231), which stays at
-        ``status="Draft"`` and can never have reached a real bank.
+        ``sepa_file_generated`` defaults to True: it models the ordinary
+        submit-then-generate sequence (``DirectDebitBatch.on_submit`` /
+        ``process_batch``), which is the common case and the one every
+        pre-#1232 test in this file already assumed. It is NOT guaranteed by
+        a post-Draft status alone -- ``mark_batch_invoices_as_paid()`` (the
+        live path that writes Processed/Failed) checks only ``docstatus``,
+        not this field or ``status`` (#1242), so a real batch can reach a
+        terminal status while ``sepa_file_generated`` stays 0. That is
+        exactly why the production filter checks this field directly instead
+        of inferring it from ``status``. Pass ``sepa_file_generated=False``
+        to build that case: a batch that is ``docstatus=1`` but whose file
+        generation was deferred (e.g. a Staff submitter without CRITICAL
+        rights, per #1231, or the #1242 gap) and so cannot have reached a
+        real bank regardless of what ``status`` says.
         """
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = batch_date or today()
@@ -1537,6 +1543,28 @@ class TestCorrelateReturns(ReconBase):
         control_match = recon.find_original_sepa_batch_for_return(bt_failed)
         self.assertIsNotNone(control_match, "a generated-then-Failed batch must still correlate")
         self.assertEqual(control_match["batch_name"], failed_batch.name)
+
+    def test_find_original_batch_excludes_terminal_status_with_no_generated_file(self):
+        """#1242: mark_batch_invoices_as_paid() checks only docstatus, not
+        status or sepa_file_generated, so a batch can reach "Processed" (or
+        "Failed") while sepa_file_generated stays 0 -- status alone cannot be
+        trusted to imply a file was ever generated. This filter must still
+        exclude such a batch, because it checks sepa_file_generated directly
+        rather than inferring it from a terminal-looking status.
+        """
+        it = self._make_member_with_invoice(first_name="RetProcessedNoFile", grand_total=67.0)
+        self._make_batch(
+            [it], batch_date=add_days(today(), -3),
+            status="Processed", sepa_file_generated=False,
+        )
+        bt = self._make_bank_transaction(
+            withdrawal=flt(it["invoice"].grand_total), date=today(),
+            description="SEPA DD return reject",
+        )
+        self.assertIsNone(
+            recon.find_original_sepa_batch_for_return(bt),
+            "status=Processed with no generated file must not correlate (#1242)",
+        )
 
     def test_correlate_picks_up_matching_return(self):
         it = self._make_member_with_invoice(first_name="CorrHit", grand_total=44.0)

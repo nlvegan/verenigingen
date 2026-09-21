@@ -1209,19 +1209,30 @@ def find_original_sepa_batch_for_return(return_transaction):
             "docstatus": 1,
             # #1232: a submitted batch whose SEPA file generation was
             # deferred (Staff-submit path, see PR #1231) stays at
-            # sepa_file_generated=0/status="Draft" and was never sent to a
-            # bank, so it cannot be the origin of a real return. Filtering on
-            # this Check field -- not a status allowlist -- is deliberate:
-            # the sibling find_matching_sepa_batches() filters
+            # sepa_file_generated=0/status="Draft" and cannot have been
+            # taken to a bank, so it must not be offered as a return's
+            # origin. Filtering on this Check field -- not a status
+            # allowlist -- is deliberate: the sibling
+            # find_matching_sepa_batches() filters
             # status in ("Submitted", "Processed") for FORWARD matching
             # (which batch produced a successful deposit), but a return
             # correlates most plausibly to a batch that WAS sent and then
             # came back "Failed"/"Partially Failed" -- copying that allowlist
             # here would exclude exactly the batches a return is most likely
-            # to name. sepa_file_generated=1 is set exactly once, the moment
-            # the file is generated (sepa_xml_generation_service.py), and is
-            # never reset -- it captures "was ever sent" regardless of which
-            # post-generation status the batch has since moved to.
+            # to name.
+            #
+            # sepa_file_generated is a proxy, not proof of transmission: this
+            # app has no bank-submission API and no "sent" field at all --
+            # "Submit to Bank" calls an unwhitelisted method and silently
+            # no-ops (#1207) -- so nothing here can confirm a file actually
+            # reached a bank, only that one was produced for a human to act
+            # on. It is also not reliably implied by a post-Draft status:
+            # mark_invoices_as_paid() (the live path that writes
+            # Processed/Failed) checks only docstatus, not this field, so a
+            # batch can reach a terminal status while sepa_file_generated
+            # stays 0 (see #1242). This filter still excludes that batch
+            # correctly, because it checks the field directly rather than
+            # inferring it from status.
             "sepa_file_generated": 1,
         },
         fields=["name", "batch_date", "total_amount", "entry_count"],
