@@ -38,7 +38,6 @@ class TestStaffSubmitNotBlockedByCriticalGate(EnhancedTestCase):
     def setUp(self):
         super().setUp()
         self._sepa = SEPATestDataFactory(seed=122411, use_faker=True)
-        self._committed = []
         # Submitting dated invoices triggers eBoekhouden's benign FY auto-create log
         # on the shared test DB (same known test-artifact suppressed in
         # test_batch_processing_service_happy_path.py).
@@ -47,24 +46,24 @@ class TestStaffSubmitNotBlockedByCriticalGate(EnhancedTestCase):
         # (see direct_debit_batch.py on_submit) whenever generation is skipped.
         self.expectErrorLog("Direct Debit Batch SEPA Generation Deferred")
 
-    def tearDown(self):
-        # Submitted batches / their invoices can commit past the FrappeTestCase
-        # rollback (see test_batch_processing_service_happy_path.py); force-delete
-        # anything this test actually committed.
-        for doctype, name in reversed(self._committed):
-            try:
-                frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
-            except Exception:
-                pass
-        frappe.db.commit()
-        super().tearDown()
-
     def _make_draft_batch(self):
-        batch = self._sepa.create_test_direct_debit_batch(batch_date=add_days(today(), 5), invoice_count=1)
-        # Submitted batches can commit past the FrappeTestCase rollback (see
-        # test_batch_processing_service_happy_path.py); track for force-delete.
-        self._committed.append(("Direct Debit Batch", batch.name))
-        return batch
+        # No explicit tearDown/commit/force-delete here (measured, #1224 review):
+        # none of this module's tests reach a real accounting-commit boundary --
+        # the Staff case is denied before generate_sepa_xml_for_batch ever runs,
+        # the mocked case raises before it does any real work, and the control
+        # never submits at all. So EnhancedTestCase's own captured-insert drain,
+        # cleaned up by the standard FrappeTestCase rollback, already removes
+        # everything created here. Measured directly: 0 leaked Member rows across
+        # two clean runs of this module with no explicit commit, versus 2 leaked
+        # rows (plus the drain's own lock-contention warning) when a
+        # frappe.db.commit() was added to tearDown -- the commit converted rows
+        # that would otherwise be rolled back into permanently committed orphans
+        # whenever the drain's own delete happened to lose a row lock race. Adding
+        # a commit here would be the same defect as #825/#933: this module's
+        # scenario is not `test_batch_processing_service_happy_path.py`'s (real
+        # Payment Entries / GL postings), so its "commit past the rollback"
+        # justification does not transfer.
+        return self._sepa.create_test_direct_debit_batch(batch_date=add_days(today(), 5), invoice_count=1)
 
     def test_staff_submit_succeeds_and_defers_sepa_generation(self):
         """The core defect: a Staff-only user's ordinary Submit action must not
