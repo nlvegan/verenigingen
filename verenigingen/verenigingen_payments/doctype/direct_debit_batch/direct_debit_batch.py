@@ -410,9 +410,71 @@ class DirectDebitBatch(Document):
             )
 
     def on_submit(self):
-        """Generate SEPA file on submit if not already generated"""
-        if not self.sepa_file_generated:
+        """Generate SEPA file on submit if not already generated.
+
+        generate_sepa_xml() carries @critical_api(OperationType.FINANCIAL) --
+        CRITICAL access is granted only through a Treasurer/National-Board/Admin
+        Role Profile (ROLE_PROFILE_SECURITY_MAPPING in authorization_policy.py),
+        never through the "Verenigingen Staff" profile, and the live approval
+        workflow (dd_batch_workflow_controller.trigger_sepa_generation) keeps
+        real generation restricted to Financial Manager/System Manager even for
+        an Approved batch. The DocType nonetheless grants Staff `submit: 1` --
+        because decorators in this app run on internal calls too, calling
+        generate_sepa_xml() unconditionally here made an ordinary Staff Submit
+        abort with PermissionError (#1224), so the DocType permission was
+        unusable.
+        Lifting the CRITICAL check for this call would be a real privilege
+        expansion (any Staff submit would silently perform the gated financial
+        operation), which the rest of this codebase deliberately avoids
+        (#1221/#1226 narrowed a button's visibility rather than loosen this
+        same gate). So submission itself must not depend on generation
+        succeeding: a Staff submit still completes, generation is deferred, and
+        the existing "Generate SEPA File" button (docstatus==1 and not
+        sepa_file_generated) is the already-built path for a privileged user to
+        finish the job.
+
+        Deliberately does NOT wrap generate_sepa_xml() in a broad
+        `except frappe.PermissionError`. api_security_framework's wrapper raises
+        that same exception from FOUR independent checks
+        (validate_authentication, validate_ip_restrictions,
+        validate_rate_limits, validate_request_method) -- a rate-limit hiccup
+        or IP-allowlist miss for an actually-authorised Treasurer would be
+        indistinguishable from a genuine role denial, and get recorded as the
+        false claim "{user} does not have permission" with no Error Log trail.
+        Checking authorisation directly (the same mechanism
+        can_load_unpaid_invoices() below uses) answers exactly the one
+        question this method needs -- would the CRITICAL role/profile check
+        deny this user -- without invoking generate_sepa_xml() at all, so any
+        OTHER failure (rate limiting, IP restriction, a real bug) still
+        propagates and aborts the submit instead of being silently swallowed.
+        """
+        if self.sepa_file_generated:
+            return
+
+        if _can_clear_security_level(DirectDebitBatch.generate_sepa_xml):
             self.generate_sepa_xml()
+            return
+
+        message = _(
+            "SEPA file was not generated automatically: {0} does not have "
+            "permission for this financial operation (CRITICAL). A Treasurer or "
+            "System Manager must generate it (Actions > Generate SEPA File)."
+        ).format(frappe.session.user)
+        self.add_to_batch_log(message)
+        # add_to_batch_log() only mutates batch_log in memory; on_submit runs
+        # AFTER _save()'s db_update(), so without this the note is lost the
+        # instant the submit transaction is left to the caller's commit.
+        self.db_set("batch_log", self.batch_log, update_modified=False)
+        # A financial operation was deliberately skipped for this submitter --
+        # keep an Error Log trail of it, not just the user-facing batch note.
+        frappe.log_error(
+            title="Direct Debit Batch SEPA Generation Deferred",
+            message=(
+                f"Batch {self.name} submitted by {frappe.session.user}, who cannot "
+                "clear the CRITICAL security level generate_sepa_xml() requires. "
+                "SEPA file generation deferred; see batch_log."
+            ),
+        )
 
     def on_cancel(self):
         """Handle batch cancellation"""
@@ -627,6 +689,38 @@ def get_dues_collection_preview(collection_date=None, days_ahead=30):
         return {"success": False, "error": str(e)}
 
 
+def _can_clear_security_level(fn) -> bool:
+    """Report whether the CURRENT session user would clear the security level
+    ``fn``'s own ``@critical_api``/``@high_security_api``/etc. decorator enforces.
+
+    Reads the required level directly off ``fn`` (the ``_security_level``
+    attribute the decorator stamps on it) rather than restating the level as a
+    second literal at each call site, so a caller can never state a different
+    level than the endpoint actually enforces if its decorator ever changes.
+    Delegates the decision itself to the same AuthorizationEngine the security
+    framework uses.
+
+    Deliberately answers ONLY the role/profile authorisation question --
+    it does not check IP restrictions, rate limits, or HTTP method, and it
+    never calls ``fn``. Those are dispatch-time/request-shape concerns that
+    only apply to an actual invocation, and conflating them here would let an
+    unrelated failure (e.g. a rate-limit hiccup) masquerade as "no
+    permission" for a caller who actually has it.
+
+    Fails closed (returns False without even checking the caller's roles) if
+    ``fn`` carries no ``_security_level`` -- e.g. because its decorator was
+    removed -- rather than falling back to a default level, which could
+    silently be more permissive than intended.
+    """
+    from verenigingen.utils.security.authorization_engine import AuthorizationEngine
+
+    required_level = getattr(fn, "_security_level", None)
+    if required_level is None:
+        return False
+
+    return AuthorizationEngine().authorize(frappe.session.user, required_level).granted
+
+
 @frappe.whitelist()
 @utility_api(operation_type=OperationType.UTILITY)
 def can_load_unpaid_invoices() -> bool:
@@ -641,24 +735,7 @@ def can_load_unpaid_invoices() -> bool:
     Member, Verenigingen Admin, or Verenigingen System Administrator, never via
     a bare role (#1221). That let a Staff user see and click a button that
     always ends in "Access denied".
-
-    Reads the required security level directly off ``load_unpaid_invoices``
-    itself (the ``_security_level`` attribute its ``@critical_api`` decorator
-    stamps on it) rather than restating the level as a second literal here, so
-    this check cannot state a different level than the endpoint actually
-    enforces if that endpoint's decorator ever changes. Delegates the decision
-    itself to the same AuthorizationEngine the security framework uses.
-
-    Fails closed (returns False without even checking the caller's roles) if
-    that attribute is ever missing -- e.g. because the endpoint's decorator
-    was removed -- rather than falling back to a default security level, which
-    could silently be more permissive than intended.
     """
-    from verenigingen.utils.security.authorization_engine import AuthorizationEngine
     from verenigingen.verenigingen_payments.api.sepa_batch_ui import load_unpaid_invoices
 
-    required_level = getattr(load_unpaid_invoices, "_security_level", None)
-    if required_level is None:
-        return False
-
-    return AuthorizationEngine().authorize(frappe.session.user, required_level).granted
+    return _can_clear_security_level(load_unpaid_invoices)
