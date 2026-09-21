@@ -522,14 +522,37 @@ function load_unpaid_invoices(frm) {
 							frm.set_value('currency', 'EUR');
 						}
 
-						// Add invoices to batch
-						data.forEach((inv) => {
+						// Add invoices to batch.
+						//
+						// A row the server could not resolve a Membership for carries
+						// `unbatchable_reason` (#1239). It is NOT added: `membership` is a
+						// reqd Link on the child row, so adding it would make the whole
+						// batch unsaveable -- the exact failure this fix removes. It is
+						// not silently dropped either; the reasons are reported below, so
+						// staff see which invoices were held back and why.
+						const unbatchable = data.filter((inv) => inv.unbatchable_reason);
+						const batchable = data.filter((inv) => !inv.unbatchable_reason);
+
+						batchable.forEach((inv) => {
 							const exists = frm.doc.invoices.find((i) => i.invoice === inv.invoice);
 							if (!exists) {
 								frm.add_child('invoices', inv);
 							}
 						});
 						frm.refresh_field('invoices');
+
+						if (unbatchable.length) {
+							frappe.msgprint({
+								title: __('{0} invoices could not be batched', [unbatchable.length]),
+								indicator: 'orange',
+								message: `${__('These invoices were left out because no membership could be resolved for them:')}<ul>${unbatchable
+									.map(
+										(inv) =>
+											`<li>${frappe.utils.escape_html(inv.invoice)} &mdash; ${frappe.utils.escape_html(inv.unbatchable_reason)}</li>`
+									)
+									.join('')}</ul>`
+							});
+						}
 
 						// Update totals after adding invoices
 						const total_amount = frm.doc.invoices.reduce((sum, invoice) => sum + (invoice.amount || 0), 0);
