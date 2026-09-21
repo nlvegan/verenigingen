@@ -1071,21 +1071,27 @@ def reactivate_user_account_safe(member_name, reason):
         # deactivate_user_account_safe), so re-enabling the account alone would
         # restore nothing -- User.populate_role_profile_roles() only re-derives
         # `roles` when role_profiles is non-empty, and it is now empty. Restore
-        # the profile the member is CURRENTLY entitled to, rather than the one
-        # they held before termination: calculate_user_role_profile() reads live
-        # organizational state (membership, active volunteer status, board
-        # seats), so if e.g. the volunteer record was also terminated in the
-        # meantime, this correctly does not hand the volunteer profile back.
+        # the profile the member is CURRENTLY entitled to -- deliberately, NOT
+        # the one they held before termination -- because calculate_user_role_profile()
+        # reads live organizational state (membership, active volunteer status,
+        # board seats), so if e.g. the volunteer record was also terminated in
+        # the meantime, this correctly does not hand the volunteer profile back.
+        #
+        # sync_user_role_profile() REPLACES role_profiles wholesale, same as every
+        # other call site: a role granted directly to this account while it was
+        # disabled (e.g. an admin hand-appending "Support Team") does not survive
+        # this call -- populate_role_profile_roles() drops anything outside the
+        # recalculated profile on the same save. Low severity and consistent with
+        # the rest of the codebase, but worth knowing before touching this again.
         from verenigingen.services.member.account.user_role_profile_calculator import (
             sync_user_role_profile,
         )
 
-        sync_result = sync_user_role_profile(user_email)
-        if not sync_result.get("success"):
-            frappe.logger().error(
-                f"Reactivated {user_email} but failed to restore their role profile: "
-                f"{sync_result.get('error')}"
-            )
+        # No local failure handling here: sync_user_role_profile() already
+        # records its own failure via frappe.log_error(title="Role Profile Sync
+        # Failed", ...) internally, so logging it again here would only create a
+        # second Error Log entry for the same event.
+        sync_user_role_profile(user_email)
 
         frappe.logger().info(f"Reactivated user account {user_email}")
         return True
