@@ -18,6 +18,7 @@ PRODUCT BUGS exposed (xfailed):
 """
 
 import unittest
+from unittest.mock import patch
 
 import frappe
 from frappe.utils import add_days, getdate, today
@@ -67,6 +68,48 @@ class SecureBase(EnhancedTestCase):
             "invoice": invoice,
         }
 
+    @staticmethod
+    def _membership_type(chain):
+        """The (unique-per-chain) membership type, to isolate a test from unpaid
+        invoices left behind by other tests on a shared site."""
+        return frappe.db.get_value("Membership Dues Schedule", chain["schedule"].name, "membership_type")
+
+    def _put_invoice_in_batch(self, chain, status="Draft", force_docstatus=None):
+        """See test_sepa_batch_ui.py's identical helper for the full rationale:
+        inserted as a valid Draft batch first, then `status`/`docstatus` moved
+        directly in the DB rather than through `submit()`."""
+        batch = frappe.new_doc("Direct Debit Batch")
+        batch.batch_date = today()
+        batch.batch_description = f"loader-exclusion-secure {frappe.generate_hash(length=6)}"
+        batch.batch_type = "CORE"
+        batch.sequence_type = "RCUR"
+        batch.currency = "EUR"
+        batch.status = "Draft"
+        row = batch.append("invoices", {})
+        row.invoice = chain["invoice"].name
+        row.amount = float(chain["invoice"].outstanding_amount)
+        row.currency = "EUR"
+        row.member = chain["member"].name
+        row.membership = chain["membership"].name
+        row.member_name = chain["member"].full_name
+        row.iban = chain["mandate"].iban
+        row.mandate_reference = chain["mandate"].mandate_id
+        row.status = "Pending"
+        batch.insert()
+        self._track_test_document("Direct Debit Batch", batch.name)
+
+        if status != "Draft":
+            frappe.db.set_value("Direct Debit Batch", batch.name, "status", status, update_modified=False)
+        if force_docstatus is not None:
+            frappe.db.set_value(
+                "Direct Debit Batch", batch.name, "docstatus", force_docstatus, update_modified=False
+            )
+            frappe.db.sql(
+                "UPDATE `tabDirect Debit Batch Invoice` SET docstatus=%s WHERE parent=%s",
+                (force_docstatus, batch.name),
+            )
+        return batch
+
 
 class TestLoadUnpaidInvoicesSecure(SecureBase):
     def test_returns_list_for_valid_range(self):
@@ -103,6 +146,57 @@ class TestLoadUnpaidInvoicesSecure(SecureBase):
             self.skipTest("no Membership Type on site")
         result = s.load_unpaid_invoices_secure(date_range="all", membership_type=mt, limit=10)
         self.assertIsInstance(result, list)
+
+
+class TestLoadUnpaidInvoicesSecureExcludesAlreadyBatched(SecureBase):
+    """#1217: `load_unpaid_invoices_secure` shares the non-secure loader's query
+    shape and the same omission (confirmed in the issue, not independently
+    re-measured there) -- same rule, same fix, own tests.
+
+    Unlike the non-secure loader, this endpoint is NOT `@handle_api_error`-wrapped,
+    so an unexpected exception here propagates directly to the caller rather than
+    becoming an OperationResult dict.
+    """
+
+    def test_invoice_in_submitted_batch_is_excluded(self):
+        chain = self._build_member_with_invoice(first_name="SecSubExcl")
+        self._put_invoice_in_batch(chain, status="Submitted", force_docstatus=1)
+
+        result = s.load_unpaid_invoices_secure(
+            date_range="all", membership_type=self._membership_type(chain), limit=500
+        )
+        names = {r.get("invoice") for r in result}
+        self.assertNotIn(
+            chain["invoice"].name,
+            names,
+            "invoice already in a submitted, open batch must not be offered again",
+        )
+
+    def test_invoice_in_cancelled_batch_is_available_again(self):
+        chain = self._build_member_with_invoice(first_name="SecCancelAvail")
+        self._put_invoice_in_batch(chain, status="Cancelled", force_docstatus=2)
+
+        result = s.load_unpaid_invoices_secure(
+            date_range="all", membership_type=self._membership_type(chain), limit=500
+        )
+        names = {r.get("invoice") for r in result}
+        self.assertIn(
+            chain["invoice"].name, names, "a cancelled batch must not permanently block re-collection"
+        )
+
+    def test_exclusion_lookup_failure_fails_closed(self):
+        """Not `@handle_api_error`-wrapped: an unexpected exception must propagate
+        (never be swallowed into an unfiltered invoice list)."""
+        chain = self._build_member_with_invoice(first_name="SecFailClosed")
+        self._put_invoice_in_batch(chain, status="Submitted", force_docstatus=1)
+
+        with patch.object(
+            s, "get_open_batch_invoice_names", side_effect=RuntimeError("simulated lookup failure")
+        ):
+            with self.assertRaises(RuntimeError):
+                s.load_unpaid_invoices_secure(
+                    date_range="all", membership_type=self._membership_type(chain), limit=500
+                )
 
 
 class TestGetInvoiceMandateInfoSecure(SecureBase):
