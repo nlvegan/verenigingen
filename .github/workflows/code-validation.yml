@@ -478,6 +478,41 @@ jobs:
     - name: Vacuous log-claiming test check (whole tree)
       run: python scripts/validation/vacuous_error_log_test_validator.py
 
+  # error_log_guard.py's module docstring records a decision: VERENIGINGEN_FAIL_ON_
+  # ERROR_LOG is deliberately unset anywhere in .github/ or scripts/, so a green CI
+  # run is NOT evidence a test declared its Error Log writes (#1118). #1123, #1125
+  # and vacuous_error_log_test_validator.py's own docstring all now cite that fact
+  # as load-bearing. Nothing pinned it (#1132) -- this job does. It does NOT forbid
+  # wiring the flag in (a nightly audit job is a legitimate, revisable choice); it
+  # fails with a message naming the four documents to update in the same commit.
+  # Also wired at pre-commit (not just here) per #1189's lesson: a gate visible only
+  # inside a full test sweep is invisible to pre-commit/pre-push.
+  error-log-flag-ci-setter-ratchet:
+    name: 🚩 VERENIGINGEN_FAIL_ON_ERROR_LOG CI-Setter Guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    # Stdlib-only (ast, argparse, pathlib) by design: no bench, no site, no install.
+    - name: Unit-test the validator itself
+      run: |
+        python -m unittest discover -s scripts/validation/tests \
+          -p 'test_error_log_flag_ci_setter_validator.py' -v
+
+    # Zero-tolerance and BASELINE-FREE: the population is 0 today (verified by this
+    # same command), so a baseline would be pure ratchet debt (#985). See the
+    # validator's docstring for what counts as a "setting" versus a mention.
+    - name: VERENIGINGEN_FAIL_ON_ERROR_LOG setter check (whole tree)
+      run: python scripts/validation/error_log_flag_ci_setter_validator.py
+
   # frappe.log_error is (title, message) -- frappe/utils/error.py:44. This app calls
   # it the other way round positionally at roughly 1100 sites (#602): the swapped
   # "title" (the real, dynamic message) gets truncated to 140 chars, and the real

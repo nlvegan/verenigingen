@@ -560,6 +560,30 @@ repos:
         stages: [pre-commit]
         exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/validation/archived/)'
 
+      - id: error-log-flag-ci-setter-validator
+        name: 🚩 VERENIGINGEN_FAIL_ON_ERROR_LOG Set In CI/Tooling Guard
+        description: >-
+          `error_log_guard.py`'s module docstring records a decision:
+          VERENIGINGEN_FAIL_ON_ERROR_LOG is deliberately unset anywhere in
+          .github/ or scripts/, so a green CI run is NOT evidence a test
+          declared its Error Log writes (#1118). #1123, #1125 and
+          vacuous_error_log_test_validator.py's own docstring all now cite
+          that fact. Nothing pinned it (#1132) -- if it is ever wired into a
+          workflow (e.g. a reasonable nightly audit job), all four go silently
+          false. This gate does NOT forbid that change -- the decision is
+          revisable -- it fails with a message naming the four documents to
+          update in the same commit. Detects a real YAML env-block key or
+          shell assignment (line-anchored, comments stripped) and an AST-level
+          os.environ mutation in Python; a docstring/comment/plain string
+          naming the variable is not a match by construction. Mark a false
+          positive `# error-log-flag-setter-ok: <reason>`.
+        entry: python scripts/validation/error_log_flag_ci_setter_validator.py
+        language: system
+        pass_filenames: true
+        files: '^(\.github/|scripts/)'
+        stages: [pre-commit]
+        exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/validation/archived/)'
+
       - id: db-clock-date-window-validator
         name: 🕒 SQL Date Window Built From The Database Clock (ratchet)
         description: >-
