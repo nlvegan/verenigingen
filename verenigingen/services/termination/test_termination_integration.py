@@ -471,6 +471,79 @@ class TestTerminationIntegration(EnhancedTestCase):
         self.assertTrue(ti.reactivate_user_account_safe(member.name, "appeal"))
 
     # ==================================================================
+    # #925 follow-up (skeptical review of PR #1197): deactivate_user_account_safe
+    # now clears role_profiles, which means reactivate_user_account_safe -- the
+    # dedicated appeal-reversal path -- must RE-DERIVE the correct profile from
+    # the member's current state, or a reversed disciplinary termination leaves
+    # the volunteer with no roles at all (not even base member access), forever,
+    # with nothing flagging the gap.
+    #
+    # Reads roles post-commit from the raw `Has Role` table with a cleared
+    # cache, not just frappe.get_roles(), mirroring the reviewer's own method --
+    # frappe.get_roles() alone can be satisfied by the automatic All/Guest roles
+    # even when zero profile-derived roles survived.
+    # ==================================================================
+    def _has_role_rows(self, user_email):
+        frappe.clear_cache(user=user_email)
+        return set(
+            frappe.get_all("Has Role", filters={"parent": user_email, "parenttype": "User"}, pluck="role")
+        )
+
+    def test_reactivate_after_disciplinary_termination_restores_base_member_access(self):
+        """Reactivating after a disciplinary termination must hand back at least
+        the member's current entitlement (Verenigingen Member) -- not leave the
+        account holding no profile-derived role at all."""
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            sync_user_role_profile,
+        )
+
+        member = self._make_member()
+        self._make_volunteer(member)
+        user = self._make_user(member, enabled=1)
+        self.assertEqual(sync_user_role_profile(user.name).get("new_profile"), "Verenigingen Volunteer")
+
+        self.assertTrue(ti.deactivate_user_account_safe(member.name, "Disciplinary Action", "policy breach"))
+        self.assertEqual(self._has_role_rows(user.name), set())
+
+        result = ti.reactivate_user_account_safe(member.name, "appeal upheld")
+        self.assertTrue(result)
+        self.assertEqual(frappe.db.get_value("User", user.name, "enabled"), 1)
+
+        # An unrelated later save must not undo the restoration (the profile is
+        # now the durable source, not a one-off in-memory patch).
+        frappe.get_doc("User", user.name).save()
+
+        restored = self._has_role_rows(user.name)
+        self.assertIn("Verenigingen Member", restored)
+
+    def test_reactivate_does_not_restore_a_role_for_a_since_terminated_volunteer_record(self):
+        """Reverse direction: if the volunteer record itself was ALSO terminated
+        (Inactive) before the appeal, reactivation must not hand back the
+        volunteer-profile roles -- only what the member is currently entitled to."""
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            sync_user_role_profile,
+        )
+
+        member = self._make_member()
+        volunteer = self._make_volunteer(member)
+        user = self._make_user(member, enabled=1)
+        self.assertEqual(sync_user_role_profile(user.name).get("new_profile"), "Verenigingen Volunteer")
+
+        self.assertTrue(ti.deactivate_user_account_safe(member.name, "Disciplinary Action", "policy breach"))
+        ti.terminate_volunteer_records_safe(member.name, "Disciplinary Action", today(), "policy breach")
+        self.assertEqual(frappe.db.get_value("Volunteer", volunteer.name, "status"), "Inactive")
+
+        result = ti.reactivate_user_account_safe(member.name, "appeal upheld")
+        self.assertTrue(result)
+
+        restored = self._has_role_rows(user.name)
+        self.assertIn("Verenigingen Member", restored)
+        self.assertNotIn("Verenigingen Volunteer", restored)
+        self.assertNotIn("Employee", restored)
+        self.assertNotIn("Employee Self Service", restored)
+        self.assertNotIn("Projects User", restored)
+
+    # ==================================================================
     # suspend_member_safe / unsuspend_member_safe
     # ==================================================================
     def test_suspend_member_safe_changes_status(self):
@@ -717,6 +790,40 @@ class TestTerminationIntegration(EnhancedTestCase):
         self.assertTrue(result)
         user_doc.reload()
         self.assertIn("Verenigingen Member", {r.role for r in user_doc.roles})
+
+    def test_deactivate_user_account_safe_disciplinary_strips_role_profile_derived_roles(self):
+        """#925: deactivate_user_account_safe strips `roles` in memory only, and
+        never touches `role_profiles`. User.validate() -> populate_role_profile_roles()
+        unconditionally re-derives `roles` from `role_profiles` on every save (as
+        long as role_profiles is non-empty), which silently undoes the in-memory
+        strip on the very save meant to apply it whenever the user carries a role
+        profile -- which every volunteer does.
+
+        This asserts the actual granted roles via frappe.get_roles() (the outcome),
+        not the calculated field or the in-memory doc (a proxy) -- see #947."""
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            sync_user_role_profile,
+        )
+
+        member = self._make_member()
+        self._make_volunteer(member)
+        user = self._make_user(member, enabled=1)
+        # Grant a real role profile (not a direct role) so populate_role_profile_roles()
+        # has something to re-derive from.
+        profile_result = sync_user_role_profile(user.name)
+        self.assertEqual(profile_result.get("new_profile"), "Verenigingen Volunteer")
+
+        result = ti.deactivate_user_account_safe(
+            member.name, "Disciplinary Action", "policy breach", suspend_only=False
+        )
+        self.assertTrue(result)
+        self.assertEqual(frappe.db.get_value("User", user.name, "enabled"), 0)
+
+        granted_roles = frappe.get_roles(user.name)
+        self.assertNotIn("Verenigingen Volunteer", granted_roles)
+        self.assertNotIn("Employee", granted_roles)
+        self.assertNotIn("Employee Self Service", granted_roles)
+        self.assertNotIn("Projects User", granted_roles)
 
     # ==================================================================
     # unsuspend_member_safe — restore non-Active pre-suspension status
