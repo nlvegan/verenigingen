@@ -47,6 +47,12 @@ Investigated + verified zero live callers, then deleted. Full detail in
   typing has 2 LIVE impls kept: `AccountClassificationService` (creation) + `account_mapping/api.py::
   suggest_account_type` (UI mapping-review page). The 2 deleted dupes mapped 13xx→Receivable/44xx→Payable
   directly — the party-link behavior the canonical service was rewritten to avoid.
+  **Correction (2026-09-21, #1212):** the "UI mapping-review page" claim for `suggest_account_type`
+  was itself wrong — its only caller, `eboekhouden_migration_config.js`, called the wrong module path
+  since inception (#772) and was deleted, never repointed, by PR #806. `account_mapping/api.py` had
+  zero production callers and was deleted whole; `AccountClassificationService` was independently
+  confirmed to be the sole live implementation (richer besides: category+group+keyword+RGS-code-range
+  strategies with confidence levels vs. the deleted file's category+first-digit heuristic).
 - **STILL OPEN (Foppe "not sure", left in place):** `e_boekhouden/utils/bank_transaction_summary.py`
   (168 LOC) — has a `@frappe.whitelist()` endpoint `get_bank_transaction_summary_api` with ZERO in-app
   callers but externally reachable by API URL. Decide delete-vs-keep.
