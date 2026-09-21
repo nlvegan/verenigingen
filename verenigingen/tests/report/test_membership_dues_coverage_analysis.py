@@ -22,6 +22,7 @@ import datetime
 import frappe
 from frappe.utils import add_days, getdate, today
 
+from verenigingen.services.billing.billing_period_calculator import calculate_coverage_end
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.verenigingen.report.membership_dues_coverage_analysis import (
     membership_dues_coverage_analysis as report,
@@ -382,6 +383,58 @@ class TestMembershipDuesCoverageAnalysisReport(VereningingenTestCase):
         )
         # Q1 + Q2 within the calendar book year.
         self.assertEqual(len(periods), 2)
+
+    def test_calculate_billing_periods_monthly_off_boundary_anchor_stays_on_own_cycle(self):
+        # #884: this association bills on RUNNING periods anchored to the member's
+        # own cycle, not the calendar month. A member whose cycle runs 15th -> 14th
+        # must get catch-up periods on THAT grid, not snapped to `.replace(day=1)`.
+        # Derive the expected boundaries from calculate_coverage_end() - the same
+        # running-period function the dues schedule itself uses - rather than
+        # hardcoding dates that happen to match.
+        gap_start = getdate("2025-01-15")
+        first_end = calculate_coverage_end("Monthly", gap_start)
+        second_start = add_days(first_end, 1)
+        second_end = calculate_coverage_end("Monthly", second_start)
+        gap_end = second_end  # exactly two full running periods, no partial tail
+
+        periods = report.calculate_billing_periods_for_gap(gap_start, gap_end, "Monthly", 15.0)
+
+        self.assertEqual(len(periods), 2, periods)
+        self.assertEqual(periods[0]["start"], gap_start, "first period must start at the member's anchor")
+        self.assertEqual(periods[0]["end"], first_end)
+        self.assertEqual(
+            periods[1]["start"],
+            add_days(periods[0]["end"], 1),
+            "second period must start the day after the first ended (chained, not calendar-snapped)",
+        )
+        self.assertEqual(periods[1]["end"], second_end)
+        for p in periods:
+            self.assertEqual(p["amount"], 15.0)
+            self.assertEqual(p["billing_frequency"], "Monthly")
+
+    def test_calculate_billing_periods_quarterly_off_boundary_anchor_stays_on_own_cycle(self):
+        # Same invariant as the Monthly test above, for Quarterly: a cycle anchored
+        # off a quarter boundary (1 Jan/Apr/Jul/Oct) must not be re-anchored to Q1-Q4.
+        gap_start = getdate("2025-02-01")
+        first_end = calculate_coverage_end("Quarterly", gap_start)
+        second_start = add_days(first_end, 1)
+        second_end = calculate_coverage_end("Quarterly", second_start)
+        gap_end = second_end
+
+        periods = report.calculate_billing_periods_for_gap(gap_start, gap_end, "Quarterly", 45.0)
+
+        self.assertEqual(len(periods), 2, periods)
+        self.assertEqual(periods[0]["start"], gap_start, "first period must start at the member's anchor")
+        self.assertEqual(periods[0]["end"], first_end)
+        self.assertEqual(
+            periods[1]["start"],
+            add_days(periods[0]["end"], 1),
+            "second period must start the day after the first ended (chained, not calendar-snapped)",
+        )
+        self.assertEqual(periods[1]["end"], second_end)
+        for p in periods:
+            self.assertEqual(p["amount"], 45.0)
+            self.assertEqual(p["billing_frequency"], "Quarterly")
 
     # ----------------------------------------------------------- calculate_coverage_timeline
 

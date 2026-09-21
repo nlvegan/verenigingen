@@ -1032,20 +1032,27 @@ def calculate_billing_periods_for_gap(gap_start, gap_end, billing_frequency, due
     instead produces exactly one period per actually-missed year, whether or not it
     happens to cross 1 January.
 
-    Monthly/Quarterly/Custom/Daily are unchanged: they still split by book year first
-    (see ``split_gap_by_book_year``) and chunk within each segment. Monthly/Quarterly
-    already land on calendar-month/quarter boundaries that coincide with a calendar
-    (Jan-Dec) book year, so book-year splitting is a no-op for them under the default
-    configuration. Custom/Daily have no natural period length available here (the
-    caller does not pass custom_frequency_number/unit), so - as before #207 - a gap is
-    chunked one lump per book year as an anti-runaway-invoice-size heuristic; that
-    approximation is unchanged and out of scope for this issue.
+    Monthly and Quarterly are rolled forward from gap_start the same way, via
+    calculate_coverage_end() (#884): this association bills on RUNNING periods
+    anchored to the member's own cycle (see CLAUDE.md's "running periods" section),
+    not calendar months/quarters, so `.replace(day=1)` / Q1-Q4 re-anchoring produced
+    the same double-charge shape #207 fixed for Annual whenever a member's cycle
+    did not start on the 1st of a month/quarter.
+
+    Custom/Daily still split by book year first (see ``split_gap_by_book_year``) and
+    chunk within each segment: they have no natural period length available here
+    (the caller does not pass custom_frequency_number/unit), so - as before #207 - a
+    gap is chunked one lump per book year as an anti-runaway-invoice-size heuristic;
+    that approximation is unchanged and out of scope for this issue.
     """
     gap_start = getdate(gap_start)
     gap_end = getdate(gap_end)
 
     if billing_frequency == "Annual":
         return _calculate_annual_periods(gap_start, gap_end, dues_rate)
+
+    if billing_frequency in ("Monthly", "Quarterly"):
+        return _calculate_running_periods(gap_start, gap_end, billing_frequency, dues_rate)
 
     periods = []
     book_year_segments = split_gap_by_book_year(gap_start, gap_end)
@@ -1092,6 +1099,50 @@ def _calculate_annual_periods(gap_start, gap_end, dues_rate):
     return periods
 
 
+def _calculate_running_periods(gap_start, gap_end, billing_frequency, dues_rate):
+    """Roll full Monthly/Quarterly periods forward from gap_start until gap_end is covered.
+
+    Mirrors _calculate_annual_periods (#207) for Monthly/Quarterly (#884): each period
+    runs a full billing_frequency period forward from where the previous one ended,
+    via calculate_coverage_end() - the same running-period calculation the dues
+    schedule itself uses (billing_period_calculator.py) - instead of snapping to a
+    calendar month/quarter boundary. By construction, period N's start is always
+    period N-1's end + 1 (or gap_start for the first period), so a period can never
+    land on a span other than one full billing_frequency period; that chaining IS
+    the "period start" invariant this issue's suggested generation-time check
+    describes, made true by how the loop is built rather than asserted separately.
+
+    The last period is clipped to gap_end if it would otherwise run past it. Each
+    period is labelled with the book year its OWN start date falls in, purely for the
+    informational ``book_year`` display key (not used to compute period boundaries),
+    matching _calculate_annual_periods.
+    """
+    from verenigingen.services.billing.billing_period_calculator import calculate_coverage_end
+
+    start_month, start_day, _end_month, _end_day = get_book_year_boundaries()
+
+    periods = []
+    current_start = gap_start
+
+    while current_start <= gap_end:
+        natural_end = calculate_coverage_end(billing_frequency, current_start)
+        period_end = min(natural_end, gap_end)
+
+        periods.append(
+            {
+                "start": current_start,
+                "end": period_end,
+                "amount": dues_rate,
+                "billing_frequency": billing_frequency,
+                "book_year": get_book_year_for_date(current_start, start_month, start_day),
+            }
+        )
+
+        current_start = add_days(period_end, 1)
+
+    return periods
+
+
 def _calculate_periods_within_segment(segment_start, segment_end, billing_frequency, dues_rate, book_year):
     """Calculate billing periods within a single book year segment"""
 
@@ -1100,7 +1151,13 @@ def _calculate_periods_within_segment(segment_start, segment_end, billing_freque
 
     while current_date <= segment_end:
         if billing_frequency == "Monthly":
-            # Monthly billing - bill by calendar month
+            # DEAD as of #884: calculate_billing_periods_for_gap() now intercepts
+            # billing_frequency == "Monthly" before ever reaching here and routes to
+            # _calculate_running_periods() instead, which rolls a period forward from
+            # the member's own cycle rather than snapping to the calendar month (the
+            # same double-charge shape #207 fixed for Annual). Kept only in case some
+            # future caller reaches this helper directly with "Monthly" - if you're
+            # adding one, use _calculate_running_periods() instead of this branch.
             period_start = current_date.replace(day=1)
             if period_start.month == 12:
                 period_end = period_start.replace(year=period_start.year + 1, month=1, day=1) - timedelta(
@@ -1126,7 +1183,13 @@ def _calculate_periods_within_segment(segment_start, segment_end, billing_freque
             current_date = period_end + timedelta(days=1)
 
         elif billing_frequency == "Quarterly":
-            # Quarterly billing - Q1, Q2, Q3, Q4
+            # DEAD as of #884: calculate_billing_periods_for_gap() now intercepts
+            # billing_frequency == "Quarterly" before ever reaching here and routes to
+            # _calculate_running_periods() instead, which rolls a period forward from
+            # the member's own cycle rather than snapping to Q1-Q4 (the same
+            # double-charge shape #207 fixed for Annual). Kept only in case some
+            # future caller reaches this helper directly with "Quarterly" - if you're
+            # adding one, use _calculate_running_periods() instead of this branch.
             quarter = ((current_date.month - 1) // 3) + 1
             quarter_start_month = (quarter - 1) * 3 + 1
 
