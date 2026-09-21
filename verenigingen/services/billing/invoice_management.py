@@ -28,6 +28,11 @@ from verenigingen.utils.security.api_security_framework import (
     development_only_api,
     high_security_api,
 )
+from verenigingen.utils.transaction_errors import (
+    NON_RESUMABLE_DB_ERRORS,
+    release_savepoint_if_present,
+    rollback_to_savepoint,
+)
 from verenigingen.utils.validation_utilities import DateRangeValidator
 
 
@@ -1026,8 +1031,13 @@ def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20) -> OperationR
                 # Roll back to the savepoint if there were any errors, to
                 # maintain consistency for THIS function's own deletes --
                 # save_point=... scopes the rollback so any ambient pending
-                # write the caller already had is left untouched.
-                frappe.db.rollback(save_point=savepoint_name)
+                # write the caller already had is left untouched. Via the
+                # canonical helper (#561): a hand-written
+                # frappe.db.rollback(save_point=...) here can raise 1305 if a
+                # 1213 deadlock or a nested commit already destroyed the
+                # savepoint, which is not an error case this branch is
+                # equipped to report.
+                rollback_to_savepoint(savepoint_name)
                 results[
                     "message"
                 ] = f"Cleanup rolled back due to {len(results['errors'])} errors. No changes were made."
@@ -1037,7 +1047,7 @@ def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20) -> OperationR
                 # commit of the ambient transaction -- whatever the caller
                 # (request, job, or test) already had pending stays pending,
                 # exactly as it would if this function had never run.
-                frappe.db.release_savepoint(savepoint_name)
+                release_savepoint_if_present(savepoint_name)
 
         # Generate summary message
         total_found = (
@@ -1066,12 +1076,24 @@ def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20) -> OperationR
 
         return OperationResult.ok(results, message=results["message"])
 
+    except NON_RESUMABLE_DB_ERRORS:
+        # #561: a 1213 deadlock or a 1205 lock-wait timeout leaves the
+        # transaction (and every savepoint in it) in a state this handler is
+        # not equipped to clean up after -- rolling back to `savepoint_name`
+        # below would itself raise 1305 and REPLACE this exception, which is
+        # exactly the defect this guard exists to prevent. Propagate
+        # unconditionally; the caller owns the transaction boundary.
+        raise
+
     except Exception as e:
         # Roll back to the savepoint (not the whole connection) on any
         # unexpected error -- see the savepoint-creation comment above for why
-        # a bare frappe.db.rollback() here would be wrong.
+        # a bare frappe.db.rollback() here would be wrong. Via the canonical
+        # helper (#561): it tolerates the one diagnosed cause (the savepoint
+        # already gone) and re-raises anything else, rather than letting a
+        # 1305 replace whatever `e` actually was.
         if not dry_run and savepoint_name:
-            frappe.db.rollback(save_point=savepoint_name)
+            rollback_to_savepoint(savepoint_name)
 
         frappe.log_error(
             f"Enhanced membership data cleanup failed: {str(e)}\n{traceback.format_exc()}",

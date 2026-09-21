@@ -5,6 +5,8 @@ Hooks for Membership Dues Schedule to keep Member.current_dues_schedule synchron
 import frappe
 from frappe.utils import getdate, today
 
+from verenigingen.utils.transaction_errors import release_savepoint_if_present, rollback_to_savepoint
+
 
 def update_member_current_dues_schedule(doc, method=None):
     """
@@ -249,7 +251,7 @@ def run_bulk_sync_with_transaction(batch_size=100):
         # Release (not commit): never force an early commit of the ambient
         # transaction -- whatever the caller already had pending stays
         # pending, exactly as it would if this function had never run.
-        frappe.db.release_savepoint(savepoint_name)
+        release_savepoint_if_present(savepoint_name)
 
         frappe.logger().info(f"Bulk sync completed successfully: {result}")
         return result
@@ -257,7 +259,14 @@ def run_bulk_sync_with_transaction(batch_size=100):
     except Exception as e:
         # Roll back to the savepoint (not the whole connection) on error --
         # see the savepoint-creation comment above for why a bare
-        # frappe.db.rollback() here would be wrong.
-        frappe.db.rollback(save_point=savepoint_name)
+        # frappe.db.rollback() here would be wrong. Via the canonical helper
+        # (#561): a hand-written frappe.db.rollback(save_point=...) can itself
+        # raise 1305 if a 1213 deadlock or a nested commit already destroyed
+        # the savepoint, which would replace `e` before the bare `raise`
+        # below ever runs. This handler does not need a separate
+        # `except NON_RESUMABLE_DB_ERRORS: raise` above it -- it already
+        # re-raises unconditionally regardless of exception type, so no type
+        # test is needed to decide whether to propagate.
+        rollback_to_savepoint(savepoint_name)
         frappe.log_error(f"Bulk sync failed: {str(e)}", "Dues Schedule Bulk Sync Error")
         raise
