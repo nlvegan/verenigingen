@@ -4,7 +4,9 @@
 
 """Tests for the Error Log guard (verenigingen.tests.utils.error_log_guard)."""
 
+import ast
 import os
+import unittest
 from unittest.mock import patch
 
 import frappe
@@ -101,6 +103,55 @@ class TestErrorLogGuard(VereningingenTestCase):
         with self.assertErrorLog():
             self._log_probe("no specific pattern requested")
 
+    # --- inertness (#1117): the check must still run when the body raises --
+
+    def test_assertNoErrorLog_still_fires_when_body_raises(self):
+        # WRONG nesting (guard innermost) -- this used to be silently inert: the
+        # ValueError propagated straight through the bare `yield` and the check
+        # after it never ran, so this whole test passed despite a row having been
+        # written (#1117). It must now surface the violation instead.
+        with self.assertRaises(AssertionError) as ctx:
+            with self.assertNoErrorLog():
+                self._log_probe("this SHOULD trip assertNoErrorLog")
+                raise ValueError("boom")
+        self.assertIn("Error Log", str(ctx.exception))
+        # The body's exception must not be silently discarded -- it is chained as
+        # the cause, so a human (or a `__cause__` check like this one) can still
+        # see what actually happened inside the block.
+        self.assertIsInstance(ctx.exception.__cause__, ValueError)
+        self.assertEqual(str(ctx.exception.__cause__), "boom")
+
+    def test_assertNoErrorLog_lets_a_clean_exception_propagate_unmasked(self):
+        # Same WRONG nesting, but nothing was logged -- the guard has nothing to
+        # complain about, so the body's own exception must propagate exactly as
+        # it would with no guard at all (no masking, no chaining, no swallowing).
+        with self.assertRaises(ValueError) as ctx:
+            with self.assertNoErrorLog():
+                raise ValueError("boom -- nothing was logged")
+        self.assertEqual(str(ctx.exception), "boom -- nothing was logged")
+        self.assertIsNone(ctx.exception.__cause__)
+
+    def test_assertErrorLog_still_fires_when_body_raises_and_nothing_logged(self):
+        # WRONG nesting again: the pattern is never logged AND the body raises.
+        # Previously this passed silently (#1117) because the bare `yield` let the
+        # ValueError skip the "was anything logged" check entirely.
+        with self.assertRaises(AssertionError) as ctx:
+            with self.assertErrorLog("A Pattern That Is Never Logged"):
+                raise ValueError("boom -- and nothing was logged")
+        self.assertIn("A Pattern That Is Never Logged", str(ctx.exception))
+        self.assertIsInstance(ctx.exception.__cause__, ValueError)
+
+    def test_assertErrorLog_lets_body_exception_propagate_when_satisfied(self):
+        # WRONG nesting, but the block DID log a matching row before raising --
+        # the assertion's condition is met, so the body's exception must still
+        # propagate unmasked (assertErrorLog is not itself an assertRaises).
+        with self.assertRaises(ValueError) as ctx:
+            with self.assertErrorLog(PROBE_TITLE):
+                self._log_probe("logged, then raised")
+                raise ValueError("boom -- but it did log")
+        self.assertEqual(str(ctx.exception), "boom -- but it did log")
+        self.assertIsNone(ctx.exception.__cause__)
+
     # --- finalize (env-flag) decision ------------------------------------
 
     def test_finalize_warns_by_default(self):
@@ -165,3 +216,109 @@ class TestProductionValidation(VereningingenTestCase):
             with self.production_validation():
                 raise ValueError("boom")
         self.assertTrue(frappe.flags.in_import)
+
+
+# --- #1117 regression gate: a guard nested inside assertRaises -------------
+#
+# The fix above (try/finally instead of a bare yield) makes assertNoErrorLog()/
+# assertErrorLog() run their check regardless of nesting, so this shape can no
+# longer produce a silent false pass. This AST sweep is a SEPARATE, narrower
+# safety net for the style question the guards' own docstrings still recommend
+# (put the guard OUTERMOST, so a mismatch between "raised" and "logged" is
+# diagnosed at the layer that saw both): it fails the build the moment a new
+# call site nests one of these guards inside `assertRaises`, rather than
+# waiting for someone to notice the docstring was ignored. Deliberately scoped
+# to this exact pair of names, not every context manager that could swallow --
+# broadening it is a separate, larger effort (see the class-sweep note in the
+# module docstring above and PR #1117's description for what else was found).
+_GUARD_METHOD_NAMES = {"assertNoErrorLog", "assertErrorLog"}
+# This file's own tests deliberately nest the guard inside
+# `assertRaises(AssertionError)` to assert that the GUARD's own failure fires
+# -- the exception being caught there is the guard's, not the wrapped code's.
+_ALLOWED_FILENAME = "test_error_log_guard.py"
+
+
+def _is_guard_call(expr):
+    # LIMITATION (raised in #1180 review, recorded rather than fixed): this only
+    # matches a direct `self.assertNoErrorLog(...)` / `self.assertRaises(...)`
+    # call shape. An alias -- `guard = self.assertNoErrorLog; with guard(): ...`
+    # or `raises = self.assertRaises` -- makes `expr.func` an `ast.Name` instead
+    # of an `ast.Attribute` and evades both this check and the assertRaises
+    # check below. Zero occurrences repo-wide as of #1180; if that changes,
+    # extend this to resolve simple same-function local aliases before
+    # widening further.
+    if isinstance(expr, ast.Call) and isinstance(expr.func, ast.Attribute):
+        if expr.func.attr in _GUARD_METHOD_NAMES:
+            return expr.func.attr
+    return None
+
+
+def _is_assert_raises_call(expr):
+    return (
+        isinstance(expr, ast.Call)
+        and isinstance(expr.func, ast.Attribute)
+        and expr.func.attr == "assertRaises"
+    )
+
+
+def _find_inert_guard_nestings(root_dir):
+    """Return (path, lineno, guard_name) for every guard call whose `with` sits
+    lexically inside an enclosing `with self.assertRaises(...):`, anywhere under
+    ``root_dir`` -- ``scripts/`` included, since it is live code too (#1117)."""
+    hits = []
+    skip_dirs = {".git", "node_modules", ".scratch", "__pycache__"}
+    for dirpath, dirnames, filenames in os.walk(root_dir):
+        dirnames[:] = [d for d in dirnames if d not in skip_dirs]
+        for filename in filenames:
+            if not filename.endswith(".py") or filename == _ALLOWED_FILENAME:
+                continue
+            path = os.path.join(dirpath, filename)
+            try:
+                tree = ast.parse(open(path, encoding="utf-8").read(), filename=path)
+            except (SyntaxError, UnicodeDecodeError):
+                continue
+
+            assert_raises_depth = []
+
+            class _Visitor(ast.NodeVisitor):
+                def visit_With(self, node):  # noqa: N802 - ast visitor naming
+                    guard_hits = [
+                        (name, item.context_expr.lineno)
+                        for item in node.items
+                        if (name := _is_guard_call(item.context_expr))
+                    ]
+                    if guard_hits and assert_raises_depth:
+                        for name, lineno in guard_hits:
+                            hits.append((path, lineno, name))
+                    pushed = sum(
+                        1 for item in node.items if _is_assert_raises_call(item.context_expr)
+                    )
+                    assert_raises_depth.extend([True] * pushed)
+                    self.generic_visit(node)
+                    del assert_raises_depth[len(assert_raises_depth) - pushed :]
+
+            _Visitor().visit(tree)
+    return hits
+
+
+class TestNoInertGuardNesting(unittest.TestCase):
+    """#1117: guard against a NEW call site reintroducing the inert-nesting shape.
+
+    The runtime fix means this nesting is no longer silently inert, but it is
+    still a worse diagnostic (the guard's failure masks which exception was
+    "the real one") than putting the guard outermost, per both guards'
+    docstrings. Catch it mechanically instead of relying on review.
+    """
+
+    def test_no_guard_is_nested_inside_assertRaises_outside_this_file(self):
+        app_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+        hits = _find_inert_guard_nestings(app_root)
+        self.assertEqual(
+            hits,
+            [],
+            f"Found {len(hits)} call site(s) nesting assertNoErrorLog()/assertErrorLog() "
+            "inside assertRaises(...) outside test_error_log_guard.py. Put the guard "
+            "OUTERMOST instead (see either guard's docstring): "
+            "with self.assertNoErrorLog():\\n    with self.assertRaises(...):\\n        ...\n"
+            f"Sites: {hits}",
+        )
