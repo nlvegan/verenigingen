@@ -265,8 +265,24 @@ class TestMollieFinancialSafeguards(MollieTestCase):
                     print(f"Invalid currency correctly rejected: {e}")
                     
     def test_temporal_validation(self):
-        """Test temporal validation of payments"""
-        # Test future-dated payments
+        """_process_subscription_payment (payment_gateways.py) never reads
+        `payment.created_at` at all -- there is no temporal check in
+        production to name here, confirmed by reading the function body top
+        to bottom. What IS real and testable: a future-dated payment is not
+        special-cased or rejected -- it reconciles exactly like an
+        ordinary on-time one against the matching 50.00 invoice created in
+        setUp, and creates exactly one Payment Entry. That is the actual
+        behaviour this test now pins, rather than the "might be accepted"
+        the original left unresolved.
+
+        #1134 removed the `frappe.db.begin()` that used to make this call
+        raise ImplicitCommitError against setUp's uncommitted Member/
+        Customer/Invoice writes, so no `frappe.db.commit()` workaround is
+        needed here (see test_process_subscription_payment_succeeds_without_
+        prior_commit above) -- and none is added, so the automatic per-test
+        rollback cleans up the Payment Entry created below like any other
+        test in this class.
+        """
         gateway = self._create_mock_mollie_gateway(50.00)
 
         # Mock payment with future timestamp
@@ -278,18 +294,20 @@ class TestMollieFinancialSafeguards(MollieTestCase):
 
         gateway.client.payments.get.return_value = future_payment
 
-        try:
-            result = _process_subscription_payment(
-                gateway, self.member.name, self.customer.name,
-                "tr_future_test", "sub_test_future"
-            )
+        result = _process_subscription_payment(
+            gateway, self.member.name, self.customer.name,
+            "tr_future_test", "sub_test_future"
+        )
 
-            # Future payments might be accepted depending on implementation
-            # The key is that they should be logged and audited
-            print(f"Future payment result: {result}")
-
-        except Exception as e:
-            print(f"Future payment handling: {e}")
+        self.assertEqual(
+            result.get("status"),
+            "success",
+            f"a future-dated but otherwise valid payment should reconcile normally, got: {result}",
+        )
+        payment_entries = frappe.get_all(
+            "Payment Entry", filters={"reference_no": "tr_future_test"}, fields=["name"]
+        )
+        self.assertEqual(len(payment_entries), 1)
 
     def test_race_condition_protection(self):
         """Test protection against race conditions in concurrent payment processing"""
