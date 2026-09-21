@@ -513,6 +513,42 @@ jobs:
     - name: VERENIGINGEN_FAIL_ON_ERROR_LOG setter check (whole tree)
       run: python scripts/validation/error_log_flag_ci_setter_validator.py
 
+  # A 1213 deadlock (and any nested commit) destroys the savepoint stack, so a
+  # hand-written savepoint rollback inside an `except` raises 1305 from inside the
+  # handler and REPLACES the error being cleaned up after (#561) -- defeating every
+  # guard keyed on the original exception's type, #481's included. The AST ratchet for
+  # this (verenigingen/tests/unit/test_savepoint_rollback_cannot_mask_the_error.py)
+  # existed ONLY inside the full bench Tests job until #1189: no pre-commit hook, no
+  # pre-push hook, no named CI job, so it tripped PR #1171 TWICE with every local hook
+  # green, surfacing only once a sharded Tests job finished. This job runs the SAME
+  # scan (scripts/validation/savepoint_rollback_validator.py, imported by that bench
+  # test rather than reimplemented) standalone and stdlib-only, so a violation reddens
+  # within minutes instead of after the full suite.
+  savepoint-rollback-ratchet:
+    name: 💾 Savepoint Rollback Masking Guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    # Stdlib-only (ast, importlib, pathlib) by design: no bench, no site, no install.
+    - name: Unit-test the validator itself
+      run: |
+        python -m unittest discover -s scripts/validation/tests \
+          -p 'test_savepoint_rollback_validator.py' -v
+
+    # No baseline: 15 handlers were already fixed for #561, so the tree-wide count
+    # must stay 0 -- the same reasoning as the vacuous-log-test-ratchet above.
+    - name: Savepoint rollback check (whole tree)
+      run: python scripts/validation/savepoint_rollback_validator.py
+
   # frappe.log_error is (title, message) -- frappe/utils/error.py:44. This app calls
   # it the other way round positionally at roughly 1100 sites (#602): the swapped
   # "title" (the real, dynamic message) gets truncated to 140 chars, and the real
