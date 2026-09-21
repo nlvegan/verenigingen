@@ -1204,7 +1204,26 @@ def find_original_sepa_batch_for_return(return_transaction):
 
     potential_batches = frappe.get_all(
         "Direct Debit Batch",
-        filters={"batch_date": ["between", [search_start, search_end]], "docstatus": 1},
+        filters={
+            "batch_date": ["between", [search_start, search_end]],
+            "docstatus": 1,
+            # #1232: a submitted batch whose SEPA file generation was
+            # deferred (Staff-submit path, see PR #1231) stays at
+            # sepa_file_generated=0/status="Draft" and was never sent to a
+            # bank, so it cannot be the origin of a real return. Filtering on
+            # this Check field -- not a status allowlist -- is deliberate:
+            # the sibling find_matching_sepa_batches() filters
+            # status in ("Submitted", "Processed") for FORWARD matching
+            # (which batch produced a successful deposit), but a return
+            # correlates most plausibly to a batch that WAS sent and then
+            # came back "Failed"/"Partially Failed" -- copying that allowlist
+            # here would exclude exactly the batches a return is most likely
+            # to name. sepa_file_generated=1 is set exactly once, the moment
+            # the file is generated (sepa_xml_generation_service.py), and is
+            # never reset -- it captures "was ever sent" regardless of which
+            # post-generation status the batch has since moved to.
+            "sepa_file_generated": 1,
+        },
         fields=["name", "batch_date", "total_amount", "entry_count"],
     )
 

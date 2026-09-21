@@ -163,7 +163,9 @@ class ReconBase(EnhancedTestCase):
             "invoice": invoice,
         }
 
-    def _make_batch(self, items, batch_date=None, status="Submitted", submit=True):
+    def _make_batch(
+        self, items, batch_date=None, status="Submitted", submit=True, sepa_file_generated=True
+    ):
         """Build a Direct Debit Batch from already-built member/invoice dicts.
 
         The reconciliation module only queries batches by ``docstatus`` and
@@ -173,6 +175,15 @@ class ReconBase(EnhancedTestCase):
         settings that fresh test sites lack. To exercise reconciliation without
         provisioning those org-wide settings, we mark the batch as submitted
         directly in the DB (docstatus=1 + the requested status).
+
+        ``sepa_file_generated`` defaults to True because a batch that has
+        reached a real post-Draft status (Submitted/Processed/Failed/...) has,
+        in every live code path, already had its SEPA file generated -- see
+        ``DirectDebitBatch.on_submit`` / ``process_batch``. Pass
+        ``sepa_file_generated=False`` to build the #1232 edge case: a batch
+        that is ``docstatus=1`` but whose file generation was deferred (e.g.
+        a Staff submitter without CRITICAL rights, per #1231), which stays at
+        ``status="Draft"`` and can never have reached a real bank.
         """
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = batch_date or today()
@@ -206,7 +217,11 @@ class ReconBase(EnhancedTestCase):
             # Simulate submission without the on_submit SEPA-XML side effect.
             frappe.db.set_value(
                 "Direct Debit Batch", batch.name,
-                {"docstatus": 1, "status": status or "Submitted"},
+                {
+                    "docstatus": 1,
+                    "status": status or "Submitted",
+                    "sepa_file_generated": 1 if sepa_file_generated else 0,
+                },
                 update_modified=False,
             )
             batch.reload()
@@ -1482,6 +1497,46 @@ class TestCorrelateReturns(ReconBase):
             withdrawal=99999.0, date=today(), description="SEPA return",
         )
         self.assertIsNone(recon.find_original_sepa_batch_for_return(bt))
+
+    def test_find_original_batch_excludes_never_generated_batch(self):
+        """#1232: a batch that is docstatus=1 but whose SEPA file generation was
+        deferred (stays status="Draft", sepa_file_generated=0 -- the #1231
+        Staff-submit path) was never sent to a bank and cannot be the origin
+        of a real return, so it must NOT be offered as a correlation.
+
+        A sibling batch that *was* generated and subsequently came back
+        "Failed" -- exactly the status a real return-producing batch is most
+        likely to carry -- must still be found. This is the control: naively
+        copying find_matching_sepa_batches' ["Submitted", "Processed"]
+        allowlist would incorrectly exclude it too.
+        """
+        never_generated = self._make_member_with_invoice(first_name="RetNeverGen", grand_total=61.0)
+        self._make_batch(
+            [never_generated], batch_date=add_days(today(), -3),
+            status="Draft", sepa_file_generated=False,
+        )
+        bt_never_generated = self._make_bank_transaction(
+            withdrawal=flt(never_generated["invoice"].grand_total), date=today(),
+            description="SEPA DD return reject",
+        )
+
+        failed_after_generation = self._make_member_with_invoice(first_name="RetFailedGen", grand_total=73.0)
+        failed_batch = self._make_batch(
+            [failed_after_generation], batch_date=add_days(today(), -3),
+            status="Failed", sepa_file_generated=True,
+        )
+        bt_failed = self._make_bank_transaction(
+            withdrawal=flt(failed_after_generation["invoice"].grand_total), date=today(),
+            description="SEPA DD return reject",
+        )
+
+        self.assertIsNone(
+            recon.find_original_sepa_batch_for_return(bt_never_generated),
+            "a batch whose SEPA file was never generated cannot have produced a bank return",
+        )
+        control_match = recon.find_original_sepa_batch_for_return(bt_failed)
+        self.assertIsNotNone(control_match, "a generated-then-Failed batch must still correlate")
+        self.assertEqual(control_match["batch_name"], failed_batch.name)
 
     def test_correlate_picks_up_matching_return(self):
         it = self._make_member_with_invoice(first_name="CorrHit", grand_total=44.0)
