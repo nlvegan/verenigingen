@@ -57,7 +57,12 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import getdate, today
 
-from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    utility_api,
+)
 from verenigingen.verenigingen_payments.services.batch_processing_service import batch_processing_service
 from verenigingen.verenigingen_payments.services.sepa_xml_generation_service import sepa_xml_service
 from verenigingen.verenigingen_payments.utils.financial_error_handler import handle_data_integrity_error
@@ -620,3 +625,40 @@ def get_dues_collection_preview(collection_date=None, days_ahead=30):
     except Exception as e:
         frappe.log_error(f"Error getting dues collection preview: {str(e)}", "Dues Collection Preview Error")
         return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+@utility_api(operation_type=OperationType.UTILITY)
+def can_load_unpaid_invoices() -> bool:
+    """
+    Report whether the current user would actually be allowed to call
+    ``load_unpaid_invoices``.
+
+    The "Load Unpaid Invoices" button is shown on any Draft batch the user can
+    open, but the DocType's "Verenigingen Staff" role (create/write/submit) is
+    a lower bar than that endpoint's own CRITICAL gate -- CRITICAL is only
+    reachable via an assigned Role Profile of Treasurer, National Board
+    Member, Verenigingen Admin, or Verenigingen System Administrator, never via
+    a bare role (#1221). That let a Staff user see and click a button that
+    always ends in "Access denied".
+
+    Reads the required security level directly off ``load_unpaid_invoices``
+    itself (the ``_security_level`` attribute its ``@critical_api`` decorator
+    stamps on it) rather than restating the level as a second literal here, so
+    this check cannot state a different level than the endpoint actually
+    enforces if that endpoint's decorator ever changes. Delegates the decision
+    itself to the same AuthorizationEngine the security framework uses.
+
+    Fails closed (returns False without even checking the caller's roles) if
+    that attribute is ever missing -- e.g. because the endpoint's decorator
+    was removed -- rather than falling back to a default security level, which
+    could silently be more permissive than intended.
+    """
+    from verenigingen.utils.security.authorization_engine import AuthorizationEngine
+    from verenigingen.verenigingen_payments.api.sepa_batch_ui import load_unpaid_invoices
+
+    required_level = getattr(load_unpaid_invoices, "_security_level", None)
+    if required_level is None:
+        return False
+
+    return AuthorizationEngine().authorize(frappe.session.user, required_level).granted
