@@ -43,6 +43,7 @@ from frappe.utils import add_days, getdate, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
+from verenigingen.tests.payment.sepa_batch_loader_test_helpers import put_invoice_in_batch
 from verenigingen.verenigingen_payments.api import sepa_batch_ui as ui
 
 
@@ -103,54 +104,6 @@ class SepaBatchUITestBase(EnhancedTestCase):
         left behind by other tests on a shared site.
         """
         return frappe.db.get_value("Membership Dues Schedule", chain["schedule"].name, "membership_type")
-
-    def _put_invoice_in_batch(self, chain, status="Draft", force_docstatus=None):
-        """Insert chain['invoice'] as a child row of a real Direct Debit Batch.
-
-        Inserted at docstatus=0/status="Draft" first (the shape
-        `create_sepa_batch_validated` itself produces, so this is known to
-        insert cleanly), then `status` and `docstatus` are moved directly in the
-        DB rather than through `submit()` -- `DirectDebitBatch.on_submit()` calls
-        `generate_sepa_xml()`, which this test has no reason to exercise, and the
-        controller's own `before_submit` docstring says exactly this bypass is a
-        real, deliberate path ("historical batches recorded for reconciliation
-        set docstatus directly in the DB and never call submit()").
-
-        Child rows do not inherit a parent's docstatus from `frappe.db.set_value`
-        the way a real `submit()` would cascade it, so both are set explicitly --
-        this is the trap #1217's exclusion query depends on getting right.
-        """
-        batch = frappe.new_doc("Direct Debit Batch")
-        batch.batch_date = today()
-        batch.batch_description = f"loader-exclusion {frappe.generate_hash(length=6)}"
-        batch.batch_type = "CORE"
-        batch.sequence_type = "RCUR"
-        batch.currency = "EUR"
-        batch.status = "Draft"
-        row = batch.append("invoices", {})
-        row.invoice = chain["invoice"].name
-        row.amount = float(chain["invoice"].outstanding_amount)
-        row.currency = "EUR"
-        row.member = chain["member"].name
-        row.membership = chain["membership"].name
-        row.member_name = chain["member"].full_name
-        row.iban = chain["mandate"].iban
-        row.mandate_reference = chain["mandate"].mandate_id
-        row.status = "Pending"
-        batch.insert()
-        self._track_test_document("Direct Debit Batch", batch.name)
-
-        if status != "Draft":
-            frappe.db.set_value("Direct Debit Batch", batch.name, "status", status, update_modified=False)
-        if force_docstatus is not None:
-            frappe.db.set_value(
-                "Direct Debit Batch", batch.name, "docstatus", force_docstatus, update_modified=False
-            )
-            frappe.db.sql(
-                "UPDATE `tabDirect Debit Batch Invoice` SET docstatus=%s WHERE parent=%s",
-                (force_docstatus, batch.name),
-            )
-        return batch
 
 
 class TestLoadUnpaidInvoices(SepaBatchUITestBase):
@@ -296,7 +249,7 @@ class TestLoadUnpaidInvoicesExcludesAlreadyBatched(SepaBatchUITestBase):
         """A Draft (docstatus=0) batch has not been ruled out yet -- do not
         silently re-offer its invoice for a second, independent batch."""
         chain = self._build_member_with_invoice(first_name="DraftExcl")
-        self._put_invoice_in_batch(chain, status="Draft")
+        put_invoice_in_batch(self, chain, status="Draft")
 
         result = ui.load_unpaid_invoices(
             date_range="all", membership_type=self._membership_type(chain), limit=500
@@ -309,7 +262,7 @@ class TestLoadUnpaidInvoicesExcludesAlreadyBatched(SepaBatchUITestBase):
         """The exact scenario measured in #1217: a submitted (docstatus=1), open
         batch must not let the loader offer the invoice a second time."""
         chain = self._build_member_with_invoice(first_name="SubExcl")
-        self._put_invoice_in_batch(chain, status="Submitted", force_docstatus=1)
+        put_invoice_in_batch(self, chain, status="Submitted", force_docstatus=1)
 
         result = ui.load_unpaid_invoices(
             date_range="all", membership_type=self._membership_type(chain), limit=500
@@ -326,7 +279,7 @@ class TestLoadUnpaidInvoicesExcludesAlreadyBatched(SepaBatchUITestBase):
         """A Cancelled batch (docstatus=2) collected nothing -- its invoice must
         remain collectable, not be locked out forever."""
         chain = self._build_member_with_invoice(first_name="CancelAvail")
-        self._put_invoice_in_batch(chain, status="Cancelled", force_docstatus=2)
+        put_invoice_in_batch(self, chain, status="Cancelled", force_docstatus=2)
 
         result = ui.load_unpaid_invoices(
             date_range="all", membership_type=self._membership_type(chain), limit=500
@@ -340,7 +293,7 @@ class TestLoadUnpaidInvoicesExcludesAlreadyBatched(SepaBatchUITestBase):
         """A submitted batch whose collection later Failed collected nothing
         either -- same availability rule as Cancelled."""
         chain = self._build_member_with_invoice(first_name="FailedAvail")
-        self._put_invoice_in_batch(chain, status="Failed", force_docstatus=1)
+        put_invoice_in_batch(self, chain, status="Failed", force_docstatus=1)
 
         result = ui.load_unpaid_invoices(
             date_range="all", membership_type=self._membership_type(chain), limit=500
@@ -362,7 +315,7 @@ class TestLoadUnpaidInvoicesExcludesAlreadyBatched(SepaBatchUITestBase):
         the already-batched invoice silently let back in.
         """
         chain = self._build_member_with_invoice(first_name="FailClosed")
-        self._put_invoice_in_batch(chain, status="Submitted", force_docstatus=1)
+        put_invoice_in_batch(self, chain, status="Submitted", force_docstatus=1)
 
         with patch.object(
             ui, "get_open_batch_invoice_names", side_effect=RuntimeError("simulated lookup failure")
