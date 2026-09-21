@@ -486,6 +486,14 @@ class DirectDebitBatch(Document):
         Without the explicit db_set() calls, both changes were previously a
         completely silent no-op: no exception, but "Cancelled" and the batch
         log note never reached the DB (#1230).
+
+        `update_modified=False` on both calls: `modified`/`modified_by` are
+        meant to reflect the document's own substantive edits, and on_cancel()
+        runs as a direct consequence of Frappe's own cancel action (already
+        recorded via `docstatus`/the standard cancel audit trail), not an
+        independent edit to bump the timestamp for -- consistent with
+        on_submit()'s deferral note above, which suppresses it for the same
+        reason.
         """
         self.status = "Cancelled"
         self.db_set("status", self.status, update_modified=False)
@@ -514,9 +522,18 @@ class DirectDebitBatch(Document):
         hits Frappe's update_after_submit check and raises "Not allowed to
         change Batch Log after submission" -- batch_log carries no
         allow_on_submit in direct_debit_batch.json. Persist status/batch_log
-        directly via db_set(), the same pattern on_submit() and
-        sepa_xml_generation_service.py already use for post-submit writes on
-        this doctype, instead of save() (#1230).
+        directly via db_set() instead of save() (#1230). sepa_xml_generation_service.py
+        is precedent for db_set() over save() as the general shape for
+        post-submit writes on this doctype, not for `update_modified=False`
+        specifically: its own db_set() calls (sepa_message_id/sepa_file/status
+        etc.) use the default update_modified=True. `update_modified=False`
+        here instead matches this doctype's own existing convention for THIS
+        field -- on_submit()'s deferral note above and
+        batch_processing_service.mark_batch_invoices_as_paid() both already
+        persist batch_log the same way, treating the running log as an
+        append-only audit trail rather than the kind of edit `modified` is
+        meant to reflect (no single db_set() line is "the" edit; the log
+        accumulates across the document's whole post-submit lifecycle).
         """
         # This would typically involve sending the SEPA file to the bank
         try:
@@ -536,8 +553,20 @@ class DirectDebitBatch(Document):
             return True
         except Exception as e:
             error_msg = _("Error processing batch: {0}").format(str(e))
+            # No db_set() here (unlike the try branch above): db_set() defaults to
+            # commit=False, and both real callers of process_batch() roll back
+            # unconditionally on the frappe.throw() two lines below -- the HTTP
+            # request handler (frappe/app.py) and the background-job runner
+            # (frappe/utils/background_jobs.py) both call frappe.db.rollback() on
+            # any unhandled exception, with nothing in between to commit this
+            # write. Verified empirically on test_site_2: the in-memory mutation
+            # is readable in the same uncommitted transaction but reads back None
+            # after frappe.db.rollback() and from a fresh connection. A db_set()
+            # here would be a diagnostic nobody can ever read, not an equivalent
+            # fix to the try branch's -- frappe.log_error() below is the durable
+            # trail for this path (Error Log is MyISAM/non-transactional, so it
+            # survives the same rollback that discards this branch's other writes).
             self.add_to_batch_log(error_msg)
-            self.db_set("batch_log", self.batch_log, update_modified=False)
             frappe.log_error(f"Error processing batch {self.name}: {str(e)}", "SEPA Direct Debit Batch Error")
             frappe.throw(error_msg)
 
