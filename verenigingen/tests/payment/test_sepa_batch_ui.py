@@ -30,13 +30,20 @@ Fixed during this sweep:
       (batch_name/execution_date/invoice_ids) never match the function's params, and
       ValidationSchema.validate only checks fields present in the payload, so it enforced
       nothing. Removed; real validation is SEPAInputValidator.validate_batch_creation_params.
+    * (#1217) load_unpaid_invoices never excluded an invoice already sitting in an open
+      (non-cancelled, non-failed) Direct Debit Batch -- double-collection risk. Fixed by
+      get_open_batch_invoice_names(), shared with load_unpaid_invoices_secure; see
+      TestLoadUnpaidInvoicesExcludesAlreadyBatched.
 """
+
+from unittest.mock import patch
 
 import frappe
 from frappe.utils import add_days, getdate, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
+from verenigingen.tests.payment.sepa_batch_loader_test_helpers import put_invoice_in_batch
 from verenigingen.verenigingen_payments.api import sepa_batch_ui as ui
 
 
@@ -224,6 +231,166 @@ class TestLoadUnpaidInvoices(SepaBatchUITestBase):
         """
         result = ui.load_unpaid_invoices(limit=0)
         self.assertTrue(self._is_error_result(result))
+
+
+class TestLoadUnpaidInvoicesExcludesAlreadyBatched(SepaBatchUITestBase):
+    """#1217: an invoice already sitting in an open Direct Debit Batch must not
+    be offered again -- double-collection risk.
+
+    Rule (mirrors `create_sepa_batch_validated`'s existing, already-correct
+    check a few hundred lines below in this same module): an invoice is
+    "already spoken for" while its `Direct Debit Batch Invoice` row is not
+    itself cancelled (docstatus != 2) AND the parent batch's status is not
+    Cancelled or Failed -- a Cancelled or Failed batch collected nothing, so
+    its invoice is fair game again.
+
+    Also excludes a batch that is "stranded" -- Draft, no SEPA file generated,
+    dated before today -- via `sepa_constants.stranded_batch_exclusion()`:
+    review of the first version of this fix found it would otherwise
+    PERMANENTLY hide an invoice the moment its batch's collection date passed,
+    with no realistic operator recovery (see
+    test_invoice_in_stranded_draft_batch_is_available_again).
+    """
+
+    def test_invoice_in_draft_batch_is_excluded(self):
+        """A Draft (docstatus=0) batch has not been ruled out yet -- do not
+        silently re-offer its invoice for a second, independent batch."""
+        chain = self._build_member_with_invoice(first_name="DraftExcl")
+        put_invoice_in_batch(self, chain, status="Draft")
+
+        result = ui.load_unpaid_invoices(
+            date_range="all", membership_type=self._membership_type(chain), limit=500
+        )
+        self.assertIsInstance(result, list)
+        names = {r.get("invoice") for r in result}
+        self.assertNotIn(chain["invoice"].name, names)
+
+    def test_invoice_in_stranded_draft_batch_is_available_again(self):
+        """A Draft batch that can never be submitted -- no SEPA file generated,
+        dated before today, so `DirectDebitBatch.before_submit` would refuse it
+        forever -- must not permanently strand its invoice.
+
+        Recovery for an ordinary stuck Draft is not realistic: removing the
+        child row and saving fails with ValidationError "No invoices added to
+        batch" when it is the batch's only row (the realistic single-stranded-
+        invoice case), and Direct Debit Batch's `delete` permission is
+        System-Manager-only, so an ordinary staff user's only route would be
+        submit -> cancel -- which triggers real SEPA XML generation just to
+        un-strand one invoice. Measured live on veg11 (read-only): 6 of the 13
+        invoices the first version of this exclusion caught were exactly this
+        trap.
+        """
+        chain = self._build_member_with_invoice(first_name="StrandedAvail")
+        put_invoice_in_batch(
+            self,
+            chain,
+            status="Draft",
+            batch_date=add_days(today(), -3),
+            sepa_file_generated=False,
+        )
+
+        result = ui.load_unpaid_invoices(
+            date_range="all", membership_type=self._membership_type(chain), limit=500
+        )
+        names = {r.get("invoice") for r in result}
+        self.assertIn(
+            chain["invoice"].name,
+            names,
+            "a stranded (past-dated, no SEPA file) Draft batch must not permanently block re-collection",
+        )
+
+    def test_invoice_in_past_dated_draft_with_sepa_file_is_still_excluded(self):
+        """Control for the stranded-batch carve-out above: a past-dated Draft
+        that already generated a SEPA file is NOT stranded (someone may have
+        taken that file to the bank by hand) and must still exclude its
+        invoice -- otherwise this fix would have widened from "correctly
+        narrowed" to "stopped excluding Drafts at all"."""
+        chain = self._build_member_with_invoice(first_name="PastFileExcl")
+        put_invoice_in_batch(
+            self,
+            chain,
+            status="Draft",
+            batch_date=add_days(today(), -3),
+            sepa_file_generated=True,
+        )
+
+        result = ui.load_unpaid_invoices(
+            date_range="all", membership_type=self._membership_type(chain), limit=500
+        )
+        names = {r.get("invoice") for r in result}
+        self.assertNotIn(
+            chain["invoice"].name,
+            names,
+            "a past-dated Draft batch that already generated a SEPA file is not stranded",
+        )
+
+    def test_invoice_in_submitted_batch_is_excluded(self):
+        """The exact scenario measured in #1217: a submitted (docstatus=1), open
+        batch must not let the loader offer the invoice a second time."""
+        chain = self._build_member_with_invoice(first_name="SubExcl")
+        put_invoice_in_batch(self, chain, status="Submitted", force_docstatus=1)
+
+        result = ui.load_unpaid_invoices(
+            date_range="all", membership_type=self._membership_type(chain), limit=500
+        )
+        self.assertIsInstance(result, list)
+        names = {r.get("invoice") for r in result}
+        self.assertNotIn(
+            chain["invoice"].name,
+            names,
+            "invoice already in a submitted, open batch must not be offered again",
+        )
+
+    def test_invoice_in_cancelled_batch_is_available_again(self):
+        """A Cancelled batch (docstatus=2) collected nothing -- its invoice must
+        remain collectable, not be locked out forever."""
+        chain = self._build_member_with_invoice(first_name="CancelAvail")
+        put_invoice_in_batch(self, chain, status="Cancelled", force_docstatus=2)
+
+        result = ui.load_unpaid_invoices(
+            date_range="all", membership_type=self._membership_type(chain), limit=500
+        )
+        names = {r.get("invoice") for r in result}
+        self.assertIn(
+            chain["invoice"].name, names, "a cancelled batch must not permanently block re-collection"
+        )
+
+    def test_invoice_in_failed_batch_is_available_again(self):
+        """A submitted batch whose collection later Failed collected nothing
+        either -- same availability rule as Cancelled."""
+        chain = self._build_member_with_invoice(first_name="FailedAvail")
+        put_invoice_in_batch(self, chain, status="Failed", force_docstatus=1)
+
+        result = ui.load_unpaid_invoices(
+            date_range="all", membership_type=self._membership_type(chain), limit=500
+        )
+        names = {r.get("invoice") for r in result}
+        self.assertIn(
+            chain["invoice"].name, names, "a failed batch must not permanently block re-collection"
+        )
+
+    def test_exclusion_lookup_failure_fails_closed(self):
+        """If the already-batched lookup itself errors, the loader must not fall
+        through to offering the invoice unfiltered.
+
+        `load_unpaid_invoices` is `@handle_api_error`-wrapped, so an unexpected
+        exception here does not propagate to the caller as-is -- it is turned
+        into a failure OperationResult (see the module docstring's return-shape
+        notes). "Fails closed" for this endpoint therefore means: an error
+        result, containing no invoices at all -- never the unfiltered list with
+        the already-batched invoice silently let back in.
+        """
+        chain = self._build_member_with_invoice(first_name="FailClosed")
+        put_invoice_in_batch(self, chain, status="Submitted", force_docstatus=1)
+
+        with patch.object(
+            ui, "get_open_batch_invoice_names", side_effect=RuntimeError("simulated lookup failure")
+        ):
+            result = ui.load_unpaid_invoices(
+                date_range="all", membership_type=self._membership_type(chain), limit=500
+            )
+
+        self.assertTrue(self._is_error_result(result), result)
 
 
 class TestGetInvoiceMandateInfo(SepaBatchUITestBase):

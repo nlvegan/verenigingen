@@ -18,12 +18,14 @@ PRODUCT BUGS exposed (xfailed):
 """
 
 import unittest
+from unittest.mock import patch
 
 import frappe
 from frappe.utils import add_days, getdate, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
+from verenigingen.tests.payment.sepa_batch_loader_test_helpers import put_invoice_in_batch
 from verenigingen.utils.error_handling import SEPAError
 from verenigingen.verenigingen_payments.api import sepa_batch_ui_secure as s
 
@@ -67,6 +69,12 @@ class SecureBase(EnhancedTestCase):
             "invoice": invoice,
         }
 
+    @staticmethod
+    def _dues_schedule_membership_type(chain):
+        """The (unique-per-chain) membership type, to isolate a test from unpaid
+        invoices left behind by other tests on a shared site."""
+        return frappe.db.get_value("Membership Dues Schedule", chain["schedule"].name, "membership_type")
+
 
 class TestLoadUnpaidInvoicesSecure(SecureBase):
     def test_returns_list_for_valid_range(self):
@@ -103,6 +111,57 @@ class TestLoadUnpaidInvoicesSecure(SecureBase):
             self.skipTest("no Membership Type on site")
         result = s.load_unpaid_invoices_secure(date_range="all", membership_type=mt, limit=10)
         self.assertIsInstance(result, list)
+
+
+class TestLoadUnpaidInvoicesSecureExcludesAlreadyBatched(SecureBase):
+    """#1217: `load_unpaid_invoices_secure` shares the non-secure loader's query
+    shape and the same omission (confirmed in the issue, not independently
+    re-measured there) -- same rule, same fix, own tests.
+
+    Unlike the non-secure loader, this endpoint is NOT `@handle_api_error`-wrapped,
+    so an unexpected exception here propagates directly to the caller rather than
+    becoming an OperationResult dict.
+    """
+
+    def test_invoice_in_submitted_batch_is_excluded(self):
+        chain = self._build_member_with_invoice(first_name="SecSubExcl")
+        put_invoice_in_batch(self, chain, status="Submitted", force_docstatus=1)
+
+        result = s.load_unpaid_invoices_secure(
+            date_range="all", membership_type=self._dues_schedule_membership_type(chain), limit=500
+        )
+        names = {r.get("invoice") for r in result}
+        self.assertNotIn(
+            chain["invoice"].name,
+            names,
+            "invoice already in a submitted, open batch must not be offered again",
+        )
+
+    def test_invoice_in_cancelled_batch_is_available_again(self):
+        chain = self._build_member_with_invoice(first_name="SecCancelAvail")
+        put_invoice_in_batch(self, chain, status="Cancelled", force_docstatus=2)
+
+        result = s.load_unpaid_invoices_secure(
+            date_range="all", membership_type=self._dues_schedule_membership_type(chain), limit=500
+        )
+        names = {r.get("invoice") for r in result}
+        self.assertIn(
+            chain["invoice"].name, names, "a cancelled batch must not permanently block re-collection"
+        )
+
+    def test_exclusion_lookup_failure_fails_closed(self):
+        """Not `@handle_api_error`-wrapped: an unexpected exception must propagate
+        (never be swallowed into an unfiltered invoice list)."""
+        chain = self._build_member_with_invoice(first_name="SecFailClosed")
+        put_invoice_in_batch(self, chain, status="Submitted", force_docstatus=1)
+
+        with patch.object(
+            s, "get_open_batch_invoice_names", side_effect=RuntimeError("simulated lookup failure")
+        ):
+            with self.assertRaises(RuntimeError):
+                s.load_unpaid_invoices_secure(
+                    date_range="all", membership_type=self._dues_schedule_membership_type(chain), limit=500
+                )
 
 
 class TestGetInvoiceMandateInfoSecure(SecureBase):

@@ -36,6 +36,7 @@ from verenigingen.utils.security.authorization import (
 
 # Security imports
 from verenigingen.utils.security.csrf_protection import require_csrf_token
+from verenigingen.verenigingen_payments.api.sepa_batch_ui import get_open_batch_invoice_names
 from verenigingen.verenigingen_payments.utils.mandate_candidates import (
     log_ambiguous_mandate_refusal,
     unambiguous_active_mandate,
@@ -108,6 +109,14 @@ def load_unpaid_invoices_secure(date_range="overdue", membership_type: str | Non
         if not schedules:
             return []
         filters["membership_dues_schedule_display"] = ["in", schedules]
+
+    # Exclude invoices already spoken for by an open Direct Debit Batch (#1217).
+    # Not `@handle_api_error`-wrapped: an exception here propagates straight to
+    # the caller, which is the desired fail-closed behaviour -- never fall back
+    # to "exclude nothing" and silently re-offer an already-batched invoice.
+    already_batched = get_open_batch_invoice_names()
+    if already_batched:
+        filters["name"] = ["not in", list(already_batched)]
 
     # Get invoices with optimized query
     invoices = frappe.get_all(
