@@ -584,6 +584,36 @@ repos:
         stages: [pre-commit]
         exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/validation/archived/)'
 
+      - id: savepoint-rollback-validator
+        name: 💾 Savepoint Rollback Cannot Mask The Error (ratchet)
+        description: >-
+          A 1213 deadlock (and any nested commit) destroys the ENTIRE savepoint stack, so
+          a hand-written `frappe.db.rollback(save_point=...)` -- or the raw-SQL spelling,
+          `frappe.db.sql("ROLLBACK TO SAVEPOINT ...")` -- inside an `except` raises 1305
+          from inside the handler and REPLACES the error being cleaned up after (#561).
+          Every guard keyed on the original exception's type, including #481's
+          `except NON_RESUMABLE_DB_ERRORS: raise`, then evaluates False. Blocks a broad
+          handler that rolls back a savepoint without that guard above it, or that writes
+          the rollback by hand instead of calling `rollback_to_savepoint()`
+          (utils.transaction_errors). Until #1189 this check existed ONLY inside the full
+          bench test suite (verenigingen/tests/unit/
+          test_savepoint_rollback_cannot_mask_the_error.py) -- no pre-commit hook, no
+          pre-push hook, no named CI job -- so it tripped PR #1171 TWICE with pre-commit
+          and pre-push both green each time, only surfacing once a specific sharded CI job
+          finished, sometimes over an hour later. This hook and
+          scripts/validation/savepoint_rollback_validator.py are the fast, stdlib-only
+          extraction of that SAME scan (imported by the bench test, not reimplemented) so
+          it speaks at the author's keyboard instead. No baseline: the population this
+          gate tolerates is zero (15 handlers were already fixed for #561; this stops the
+          sixteenth). Mark a handler that legitimately runs after the failure
+          `# non-resumable-ok: <reason>`.
+        entry: python scripts/validation/savepoint_rollback_validator.py
+        language: system
+        pass_filenames: true
+        files: '^verenigingen/.*\.py$'
+        stages: [pre-commit]
+        exclude: '^(archived_unused/|archived_deleted/|archived_removal/|verenigingen/tests/)'
+
       - id: db-clock-date-window-validator
         name: 🕒 SQL Date Window Built From The Database Clock (ratchet)
         description: >-

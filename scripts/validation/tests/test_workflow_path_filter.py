@@ -58,10 +58,20 @@ _TESTS_DIR = wpf.REPO_ROOT / "verenigingen" / "tests"
 # look at *why* (a new import needing a filter entry, or a scan bug), rather
 # than the coverage tests silently starting to check a different set with no
 # visible diff.
+#
+# #1189 added the last two entries: this guard caught them for real, a few
+# hours after #1184 merged -- PR #1189 added
+# `verenigingen/tests/unit/test_savepoint_rollback_cannot_mask_the_error.py`
+# imports of two new scripts/validation/ modules, and this test's dynamic
+# scan found them where the workflow's paths filter did not cover them yet.
+# That is the exact mechanism this guard exists for: a hardcoded list would
+# have stayed green and let the gap through.
 _KNOWN_SCRIPTS_FILES_IMPORTED_UNDER_TESTS = {
     "scripts/migration/member_import_cleanup.py",
     "scripts/migration/create_period_closing_vouchers.py",
     "scripts/migration/migrate_fee_overrides_to_dues_schedules.py",
+    "scripts/validation/non_resumable_ast.py",
+    "scripts/validation/savepoint_rollback_validator.py",
 }
 
 
