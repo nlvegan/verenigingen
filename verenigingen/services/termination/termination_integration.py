@@ -1009,6 +1009,16 @@ def deactivate_user_account_safe(member_name, termination_type, reason, suspend_
             essential_roles = ["Guest"]
             user_doc.roles = [role for role in user_doc.roles if role.role in essential_roles]
 
+            # #925: the strip above is not enough. User.validate() unconditionally
+            # calls populate_role_profile_roles(), which re-derives `roles` from
+            # `role_profiles` whenever role_profiles is non-empty -- silently
+            # undoing the strip on this very save. Clear the profile too, so the
+            # re-derivation has nothing left to restore from (mirrors PR #924's
+            # fix shape for the adjacent path: correct the derivation's source,
+            # not just its output).
+            user_doc.role_profiles = []
+            user_doc.role_profile_name = None
+
         # Save user changes
         # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
         user_result = secure_document_operation(

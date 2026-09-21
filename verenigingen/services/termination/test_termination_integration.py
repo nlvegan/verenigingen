@@ -718,6 +718,40 @@ class TestTerminationIntegration(EnhancedTestCase):
         user_doc.reload()
         self.assertIn("Verenigingen Member", {r.role for r in user_doc.roles})
 
+    def test_deactivate_user_account_safe_disciplinary_strips_role_profile_derived_roles(self):
+        """#925: deactivate_user_account_safe strips `roles` in memory only, and
+        never touches `role_profiles`. User.validate() -> populate_role_profile_roles()
+        unconditionally re-derives `roles` from `role_profiles` on every save (as
+        long as role_profiles is non-empty), which silently undoes the in-memory
+        strip on the very save meant to apply it whenever the user carries a role
+        profile -- which every volunteer does.
+
+        This asserts the actual granted roles via frappe.get_roles() (the outcome),
+        not the calculated field or the in-memory doc (a proxy) -- see #947."""
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            sync_user_role_profile,
+        )
+
+        member = self._make_member()
+        self._make_volunteer(member)
+        user = self._make_user(member, enabled=1)
+        # Grant a real role profile (not a direct role) so populate_role_profile_roles()
+        # has something to re-derive from.
+        profile_result = sync_user_role_profile(user.name)
+        self.assertEqual(profile_result.get("new_profile"), "Verenigingen Volunteer")
+
+        result = ti.deactivate_user_account_safe(
+            member.name, "Disciplinary Action", "policy breach", suspend_only=False
+        )
+        self.assertTrue(result)
+        self.assertEqual(frappe.db.get_value("User", user.name, "enabled"), 0)
+
+        granted_roles = frappe.get_roles(user.name)
+        self.assertNotIn("Verenigingen Volunteer", granted_roles)
+        self.assertNotIn("Employee", granted_roles)
+        self.assertNotIn("Employee Self Service", granted_roles)
+        self.assertNotIn("Projects User", granted_roles)
+
     # ==================================================================
     # unsuspend_member_safe — restore non-Active pre-suspension status
     # ==================================================================
