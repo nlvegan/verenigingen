@@ -12,9 +12,14 @@ Staff role profile itself (Staff's own mapping tops out at HIGH). So a Staff
 user of either shape sees the button and is refused every time.
 
 ``can_load_unpaid_invoices`` exists so the client can hide the button for
-users who could never use it. These tests exercise the REAL authorization
-boundary: real User records, real Role/Role Profile assignments, real session
-switching -- no mocking of the function under test or of frappe.get_roles.
+users who could never use it. It reads the required level directly off
+``load_unpaid_invoices`` itself rather than restating CRITICAL as a second
+literal, so it cannot silently diverge from whatever level that endpoint's
+own decorator actually enforces.
+
+These tests exercise the REAL authorization boundary: real User records,
+real Role/Role Profile assignments, real session switching -- no mocking of
+the function under test or of frappe.get_roles.
 
 Run:
   bench --site test_site_4 run-tests --app verenigingen \
@@ -25,6 +30,7 @@ import frappe
 
 from verenigingen.tests.security.test_authorization_coverage import AuthorizationTestBase
 from verenigingen.utils.security.authorization_engine import get_authorization_engine
+from verenigingen.verenigingen_payments.api.sepa_batch_ui import load_unpaid_invoices
 from verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch import (
     can_load_unpaid_invoices,
 )
@@ -66,3 +72,24 @@ class TestCanLoadUnpaidInvoices(AuthorizationTestBase):
         user = self._make_user_with_role_profile("Verenigingen Treasurer", prefix="ddbtreasurer")
         with self.as_user(user.name):
             self.assertTrue(can_load_unpaid_invoices())
+
+    def test_fails_closed_when_endpoint_security_level_is_unreadable(self):
+        """If `load_unpaid_invoices` ever lost its `_security_level` attribute
+        (e.g. its @critical_api decorator were removed or changed shape), the
+        check must return False outright -- never fall back to a default
+        security level, which could be more permissive than intended and
+        silently reopen #1221 for a lower-privileged user.
+
+        Uses a Treasurer -- who genuinely passes CRITICAL today -- so a False
+        here can only come from the fail-closed guard itself, not from this
+        user being denied on the merits.
+        """
+        user = self._make_user_with_role_profile("Verenigingen Treasurer", prefix="ddbnolevel")
+
+        original_level = load_unpaid_invoices._security_level
+        del load_unpaid_invoices._security_level
+        try:
+            with self.as_user(user.name):
+                self.assertFalse(can_load_unpaid_invoices())
+        finally:
+            load_unpaid_invoices._security_level = original_level

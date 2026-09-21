@@ -632,21 +632,33 @@ def get_dues_collection_preview(collection_date=None, days_ahead=30):
 def can_load_unpaid_invoices() -> bool:
     """
     Report whether the current user would actually be allowed to call
-    ``load_unpaid_invoices`` (CRITICAL security level).
+    ``load_unpaid_invoices``.
 
     The "Load Unpaid Invoices" button is shown on any Draft batch the user can
     open, but the DocType's "Verenigingen Staff" role (create/write/submit) is
-    a lower bar than the CRITICAL gate on that specific endpoint -- CRITICAL is
-    only reachable via an assigned Role Profile of Treasurer, National Board
+    a lower bar than that endpoint's own CRITICAL gate -- CRITICAL is only
+    reachable via an assigned Role Profile of Treasurer, National Board
     Member, Verenigingen Admin, or Verenigingen System Administrator, never via
     a bare role (#1221). That let a Staff user see and click a button that
     always ends in "Access denied".
 
-    Delegates to the same AuthorizationEngine the security framework itself
-    uses, so this check can never drift from the real gate the button's own
-    server call enforces.
+    Reads the required security level directly off ``load_unpaid_invoices``
+    itself (the ``_security_level`` attribute its ``@critical_api`` decorator
+    stamps on it) rather than restating the level as a second literal here, so
+    this check cannot state a different level than the endpoint actually
+    enforces if that endpoint's decorator ever changes. Delegates the decision
+    itself to the same AuthorizationEngine the security framework uses.
+
+    Fails closed (returns False without even checking the caller's roles) if
+    that attribute is ever missing -- e.g. because the endpoint's decorator
+    was removed -- rather than falling back to a default security level, which
+    could silently be more permissive than intended.
     """
     from verenigingen.utils.security.authorization_engine import AuthorizationEngine
-    from verenigingen.utils.security.types import SecurityLevel
+    from verenigingen.verenigingen_payments.api.sepa_batch_ui import load_unpaid_invoices
 
-    return AuthorizationEngine().authorize(frappe.session.user, SecurityLevel.CRITICAL).granted
+    required_level = getattr(load_unpaid_invoices, "_security_level", None)
+    if required_level is None:
+        return False
+
+    return AuthorizationEngine().authorize(frappe.session.user, required_level).granted
