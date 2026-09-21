@@ -90,6 +90,44 @@ class TestLoadUnpaidInvoicesSecure(SecureBase):
         self.assertEqual(match["mandate_reference"], data["mandate"].mandate_id)
         self.assertTrue(match["iban"])
 
+    def test_loaded_invoice_row_satisfies_membership_mandatory_field(self):
+        """#1227: `direct_debit_batch.js:505-538`'s `load_unpaid_invoices` dialog
+        feeds each server row straight into `frm.add_child('invoices', inv)` with
+        no re-derivation, and `Direct Debit Batch Invoice.membership` is a
+        required Link. The non-secure twin (`sepa_batch_ui.py`) selects
+        `membership_dues_schedule_display as membership`; this endpoint selected
+        the unaliased column, so its rows had no `membership` key at all and
+        would leave that required field blank.
+
+        This asserts the row actually clears Frappe's own mandatory-field check
+        (`_get_missing_mandatory_fields`), not merely that a dict key exists --
+        i.e. that the row is usable by its real consumer. It does NOT assert the
+        *value* resolves to an existing Membership record: both this endpoint and
+        its non-secure twin put a Membership Dues Schedule name there, which is a
+        separate, wider defect (LinkValidationError on save) tracked in #1239,
+        not fixed here.
+        """
+        data = self._build_member_with_invoice(first_name="SecMandField")
+        # Scoped to this chain's own (unique) membership type -- like the
+        # exclusion tests above -- so the match is not lost among unpaid
+        # invoices already on a shared test site (see #1223, a pre-existing
+        # flake from `limit=500` alone on a busy site).
+        result = s.load_unpaid_invoices_secure(
+            date_range="all", membership_type=self._dues_schedule_membership_type(data), limit=500
+        )
+        match = next((r for r in result if r.get("invoice") == data["invoice"].name), None)
+        self.assertIsNotNone(match, "fresh unpaid invoice should be loaded")
+
+        batch = frappe.new_doc("Direct Debit Batch")
+        batch.append("invoices", dict(match))
+        child = batch.invoices[0]
+        missing_fields = [fieldname for fieldname, _msg in child._get_missing_mandatory_fields()]
+        self.assertNotIn(
+            "membership",
+            missing_fields,
+            f"membership left blank on the row consumed by direct_debit_batch.js: {match}",
+        )
+
     def test_invalid_date_range_raises(self):
         with self.assertRaises(SEPAError):
             s.load_unpaid_invoices_secure(date_range="bogus")
