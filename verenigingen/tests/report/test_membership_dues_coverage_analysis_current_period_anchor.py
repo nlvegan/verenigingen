@@ -17,17 +17,21 @@ Quarterly: 1 Jan/Apr/Jul/Oct) by using day=17. A boundary-anchored fixture
 or the fixed running-period call is used, and proves nothing -- see the
 investigation posted on #890.
 
-Scope note on Monthly/Quarterly: ``_calculate_periods_within_segment`` (the
-gap-splitting helper feeding this call site, #884, out of scope here)
-unconditionally re-anchors Monthly/Quarterly period starts to the calendar
-grid (``current_date.replace(day=1)`` / quarter start) *before* the
-``is_current_period`` branch ever runs, so an off-boundary member anchor
-cannot reach this call site through the full report pipeline for those two
-frequencies -- only Annual's period roll-forward preserves the anchor
-end-to-end. The Monthly/Quarterly tests below therefore stub the upstream
-period list (``calculate_coverage_timeline``) with an explicit off-boundary
-``period_start``, which isolates the branch actually under fix here without
-asserting anything about #884's separate bug.
+Scope note on Monthly/Quarterly, historical: until #884 was fixed,
+``_calculate_periods_within_segment`` (the gap-splitting helper feeding this
+call site) unconditionally re-anchored Monthly/Quarterly period starts to the
+calendar grid (``current_date.replace(day=1)`` / quarter start) *before* the
+``is_current_period`` branch ever ran, so an off-boundary member anchor could
+not reach this call site through the full report pipeline for those two
+frequencies -- only Annual's period roll-forward preserved the anchor
+end-to-end. #884 fixed that (Monthly/Quarterly now route through
+``_calculate_running_periods``, mirroring Annual's ``_calculate_annual_periods``),
+so an off-boundary anchor can reach this branch for real now too. The
+Monthly/Quarterly tests below still stub the upstream period list
+(``calculate_coverage_timeline``) rather than relying on that, because doing
+so isolates the ``is_current_period`` branch under test here from the
+upstream gap-generation logic (#884, #882) instead of coupling this test to
+both.
 """
 
 from unittest.mock import patch
