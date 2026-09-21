@@ -410,9 +410,45 @@ class DirectDebitBatch(Document):
             )
 
     def on_submit(self):
-        """Generate SEPA file on submit if not already generated"""
-        if not self.sepa_file_generated:
+        """Generate SEPA file on submit if not already generated.
+
+        generate_sepa_xml() carries @critical_api(OperationType.FINANCIAL) --
+        CRITICAL access is granted only through a Treasurer/National-Board/Admin
+        Role Profile (ROLE_PROFILE_SECURITY_MAPPING in authorization_policy.py),
+        never through the "Verenigingen Staff" profile, and the live approval
+        workflow (dd_batch_workflow_controller.trigger_sepa_generation) keeps
+        real generation restricted to Financial Manager/System Manager even for
+        an Approved batch. The DocType nonetheless grants Staff `submit: 1` --
+        because decorators in this app run on internal calls too, calling
+        generate_sepa_xml() unconditionally here made an ordinary Staff Submit
+        abort with PermissionError (#1224), so the DocType permission was
+        unusable.
+        Lifting the CRITICAL check for this call would be a real privilege
+        expansion (any Staff submit would silently perform the gated financial
+        operation), which the rest of this codebase deliberately avoids
+        (#1221/#1226 narrowed a button's visibility rather than loosen this
+        same gate). So submission itself must not depend on generation
+        succeeding: a Staff submit still completes, generation is deferred, and
+        the existing "Generate SEPA File" button (docstatus==1 and not
+        sepa_file_generated) is the already-built path for a privileged user to
+        finish the job.
+        """
+        if self.sepa_file_generated:
+            return
+        try:
             self.generate_sepa_xml()
+        except frappe.PermissionError:
+            self.add_to_batch_log(
+                _(
+                    "SEPA file was not generated automatically: {0} does not have "
+                    "permission for this financial operation. A Treasurer or System "
+                    "Manager must generate it (Actions > Generate SEPA File)."
+                ).format(frappe.session.user)
+            )
+            # add_to_batch_log() only mutates batch_log in memory; on_submit runs
+            # AFTER _save()'s db_update(), so without this the note is lost the
+            # instant the submit transaction is left to the caller's commit.
+            self.db_set("batch_log", self.batch_log, update_modified=False)
 
     def on_cancel(self):
         """Handle batch cancellation"""
