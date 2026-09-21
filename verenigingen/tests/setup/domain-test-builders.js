@@ -246,13 +246,25 @@ class AssociationControllerTestBuilder {
 	createGeographicalTests() {
 		return {
 			'should handle chapter assignment': () => {
+				// Member has no "primary_chapter" field (#1133) -- the real
+				// field member.js's refresh handler reads is
+				// "current_chapter_display" (add_consolidated_view_buttons ->
+				// "Chapter" view button).
 				const chapters = ['Amsterdam', 'Rotterdam', 'Utrecht', 'Den Haag'];
 
 				chapters.forEach((chapter) => {
-					this.controllerTest.mockForm.doc.primary_chapter = chapter;
+					this.controllerTest.mockForm.doc.current_chapter_display = chapter;
+					this.controllerTest.mockForm.add_custom_button.mockClear();
+
 					expect(() => {
 						this.controllerTest.testEvent('refresh');
 					}).not.toThrow();
+
+					expect(this.controllerTest.mockForm.add_custom_button).toHaveBeenCalledWith(
+						'Chapter',
+						expect.any(Function),
+						'View'
+					);
 				});
 			},
 

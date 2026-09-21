@@ -524,11 +524,16 @@ describe('Real Member Controller', () => {
 		});
 
 		it('should handle chapter membership', () => {
-			frm.doc.primary_chapter = 'Amsterdam';
+			// Member has no "primary_chapter" field (#1133) -- the real field
+			// member.js's refresh handler reads is "current_chapter_display"
+			// (add_consolidated_view_buttons -> "Chapter" view button).
+			frm.doc.current_chapter_display = 'Amsterdam';
 
 			expect(() => {
 				testFormEvent('Member', 'refresh', frm, { Member: memberHandlers });
 			}).not.toThrow();
+
+			expect(frm.add_custom_button).toHaveBeenCalledWith('Chapter', expect.any(Function), 'View');
 		});
 	});
 

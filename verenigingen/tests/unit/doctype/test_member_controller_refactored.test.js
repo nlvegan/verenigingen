@@ -90,7 +90,10 @@ const memberConfig = {
 			dues_rate: { df: { fieldtype: 'Currency' } },
 
 			// Chapter and volunteer integration
-			primary_chapter: { df: { fieldtype: 'Link' } },
+			// Member has no "primary_chapter" field (#1133) -- the real
+			// field is "current_chapter" (member.json), displayed via
+			// "current_chapter_display".
+			current_chapter_display: { df: { fieldtype: 'Link' } },
 			is_volunteer: { df: { fieldtype: 'Check' } },
 			volunteer_record: { df: { fieldtype: 'Link' } }
 		};

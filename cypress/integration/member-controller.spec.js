@@ -340,9 +340,13 @@ describe('Member JavaScript Controller Tests', () => {
 			cy.fill_frappe_field('first_name', 'Chapter');
 			cy.fill_frappe_field('last_name', 'Member');
 			cy.fill_frappe_field('email', 'chapter.member@example.com');
-			cy.fill_frappe_field('primary_chapter', 'Amsterdam', {
-				fieldtype: 'Link'
-			});
+
+			// Member has no "primary_chapter" field (#1133), and its real
+			// analogues -- "current_chapter" / "current_chapter_display" --
+			// are both read_only:1, auto-populated from Chapter Membership
+			// History (member.json). Chapter assignment is done through the
+			// "Assign Chapter" button/dialog, checked for below, not by
+			// filling a form field directly.
 
 			// Test chapter integration
 			cy.execute_business_workflow(
