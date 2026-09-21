@@ -4262,7 +4262,7 @@ class _UIManager {
 		} else {
 			successHTML += 'You will receive an email with next steps.</p>';
 			successHTML += '<div class="mt-4">';
-			successHTML += `<a href="/application-status?id=${result.application_id}" class="btn btn-primary">`;
+			successHTML += `<a href="/application-status?id=${result.member_record}&token=${result.status_token}" class="btn btn-primary">`;
 			successHTML += 'Check Application Status';
 			successHTML += '</a>';
 			successHTML += '</div>';

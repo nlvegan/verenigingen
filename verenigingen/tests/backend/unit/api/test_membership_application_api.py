@@ -74,6 +74,30 @@ class TestMembershipApplicationAPI(VereningingenUnitTestCase):
         self.assertEqual(member.status, "Pending")
         self.assertEqual(member.application_status, "Pending")
 
+    def test_submit_application_returns_a_status_token_that_authorizes_the_status_page(self):
+        """#1051: the "Check Application Status" link needs a return token wired
+        through the submit path, or application_status.py's get_context has no
+        way to prove the browser reading it is the one that just applied --
+        member_record alone is a sequential, enumerable Member docname.
+        """
+        from verenigingen.templates.pages.application_status import (
+            APPLICATION_STATUS_TOKEN_PURPOSE,
+        )
+        from verenigingen.utils.security.guest_return_tokens import verify_guest_return_token
+
+        result = membership_application.submit_application(**self._valid_application_data())
+
+        self.assertTrue(result["success"], msg=result.get("error"))
+        data = result["data"]
+        self.track_doc("Member", data["member_record"])
+
+        self.assertIn("status_token", data)
+        self.assertTrue(
+            verify_guest_return_token(
+                APPLICATION_STATUS_TOKEN_PURPOSE, data["member_record"], data["status_token"]
+            )
+        )
+
     def test_submit_application_duplicate_email(self):
         """Test submitting application with duplicate email returns a failure result"""
         email = _unique("existing") + "@example.com"
