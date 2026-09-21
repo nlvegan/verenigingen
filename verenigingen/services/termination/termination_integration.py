@@ -1067,6 +1067,26 @@ def reactivate_user_account_safe(member_name, reason):
             frappe.logger().error(f"Permission denied for user reactivation {user_email}: {str(pe)}")
             return False
 
+        # #925 follow-up: a disciplinary deactivation clears role_profiles (see
+        # deactivate_user_account_safe), so re-enabling the account alone would
+        # restore nothing -- User.populate_role_profile_roles() only re-derives
+        # `roles` when role_profiles is non-empty, and it is now empty. Restore
+        # the profile the member is CURRENTLY entitled to, rather than the one
+        # they held before termination: calculate_user_role_profile() reads live
+        # organizational state (membership, active volunteer status, board
+        # seats), so if e.g. the volunteer record was also terminated in the
+        # meantime, this correctly does not hand the volunteer profile back.
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            sync_user_role_profile,
+        )
+
+        sync_result = sync_user_role_profile(user_email)
+        if not sync_result.get("success"):
+            frappe.logger().error(
+                f"Reactivated {user_email} but failed to restore their role profile: "
+                f"{sync_result.get('error')}"
+            )
+
         frappe.logger().info(f"Reactivated user account {user_email}")
         return True
 

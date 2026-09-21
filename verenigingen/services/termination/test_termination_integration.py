@@ -471,6 +471,79 @@ class TestTerminationIntegration(EnhancedTestCase):
         self.assertTrue(ti.reactivate_user_account_safe(member.name, "appeal"))
 
     # ==================================================================
+    # #925 follow-up (skeptical review of PR #1197): deactivate_user_account_safe
+    # now clears role_profiles, which means reactivate_user_account_safe -- the
+    # dedicated appeal-reversal path -- must RE-DERIVE the correct profile from
+    # the member's current state, or a reversed disciplinary termination leaves
+    # the volunteer with no roles at all (not even base member access), forever,
+    # with nothing flagging the gap.
+    #
+    # Reads roles post-commit from the raw `Has Role` table with a cleared
+    # cache, not just frappe.get_roles(), mirroring the reviewer's own method --
+    # frappe.get_roles() alone can be satisfied by the automatic All/Guest roles
+    # even when zero profile-derived roles survived.
+    # ==================================================================
+    def _has_role_rows(self, user_email):
+        frappe.clear_cache(user=user_email)
+        return set(
+            frappe.get_all("Has Role", filters={"parent": user_email, "parenttype": "User"}, pluck="role")
+        )
+
+    def test_reactivate_after_disciplinary_termination_restores_base_member_access(self):
+        """Reactivating after a disciplinary termination must hand back at least
+        the member's current entitlement (Verenigingen Member) -- not leave the
+        account holding no profile-derived role at all."""
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            sync_user_role_profile,
+        )
+
+        member = self._make_member()
+        self._make_volunteer(member)
+        user = self._make_user(member, enabled=1)
+        self.assertEqual(sync_user_role_profile(user.name).get("new_profile"), "Verenigingen Volunteer")
+
+        self.assertTrue(ti.deactivate_user_account_safe(member.name, "Disciplinary Action", "policy breach"))
+        self.assertEqual(self._has_role_rows(user.name), set())
+
+        result = ti.reactivate_user_account_safe(member.name, "appeal upheld")
+        self.assertTrue(result)
+        self.assertEqual(frappe.db.get_value("User", user.name, "enabled"), 1)
+
+        # An unrelated later save must not undo the restoration (the profile is
+        # now the durable source, not a one-off in-memory patch).
+        frappe.get_doc("User", user.name).save()
+
+        restored = self._has_role_rows(user.name)
+        self.assertIn("Verenigingen Member", restored)
+
+    def test_reactivate_does_not_restore_a_role_for_a_since_terminated_volunteer_record(self):
+        """Reverse direction: if the volunteer record itself was ALSO terminated
+        (Inactive) before the appeal, reactivation must not hand back the
+        volunteer-profile roles -- only what the member is currently entitled to."""
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            sync_user_role_profile,
+        )
+
+        member = self._make_member()
+        volunteer = self._make_volunteer(member)
+        user = self._make_user(member, enabled=1)
+        self.assertEqual(sync_user_role_profile(user.name).get("new_profile"), "Verenigingen Volunteer")
+
+        self.assertTrue(ti.deactivate_user_account_safe(member.name, "Disciplinary Action", "policy breach"))
+        ti.terminate_volunteer_records_safe(member.name, "Disciplinary Action", today(), "policy breach")
+        self.assertEqual(frappe.db.get_value("Volunteer", volunteer.name, "status"), "Inactive")
+
+        result = ti.reactivate_user_account_safe(member.name, "appeal upheld")
+        self.assertTrue(result)
+
+        restored = self._has_role_rows(user.name)
+        self.assertIn("Verenigingen Member", restored)
+        self.assertNotIn("Verenigingen Volunteer", restored)
+        self.assertNotIn("Employee", restored)
+        self.assertNotIn("Employee Self Service", restored)
+        self.assertNotIn("Projects User", restored)
+
+    # ==================================================================
     # suspend_member_safe / unsuspend_member_safe
     # ==================================================================
     def test_suspend_member_safe_changes_status(self):
