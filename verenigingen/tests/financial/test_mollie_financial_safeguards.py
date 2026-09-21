@@ -264,9 +264,36 @@ class TestMollieFinancialSafeguards(MollieTestCase):
                 else:
                     print(f"Invalid currency correctly rejected: {e}")
                     
-    def test_temporal_validation(self):
-        """Test temporal validation of payments"""
-        # Test future-dated payments
+    def test_future_dated_payment_reconciles_normally(self):
+        """Renamed from `test_temporal_validation` (2026-09-21 review): mutating
+        `payment.created_at` three ways (future, past, removed entirely) produces
+        an identical green with identical assertions every time, because
+        `_process_subscription_payment` (payment_gateways.py) never reads
+        `payment.created_at` at all -- there is no temporal check in production
+        to name here, confirmed by reading the function body top to bottom. The
+        old name claimed a "temporal validation" this test cannot detect; this
+        name states the actual, narrower, real behaviour it pins: a future-dated
+        payment is not special-cased or rejected -- it reconciles exactly like
+        an ordinary on-time one against the matching 50.00 invoice created in
+        setUp, and creates exactly one Payment Entry.
+
+        #1134 removed the `frappe.db.begin()` that used to make this call
+        raise ImplicitCommitError against setUp's uncommitted Member/
+        Customer/Invoice writes, so no `frappe.db.commit()` workaround is
+        needed here (see test_process_subscription_payment_succeeds_without_
+        prior_commit above) -- and none is added, so the automatic per-test
+        rollback cleans up the Payment Entry created below like any other
+        test in this class.
+
+        NOTE for a future dedup pass: this test and
+        test_process_subscription_payment_succeeds_without_prior_commit above
+        are now near-duplicates in assertion shape (both call
+        _process_subscription_payment once and assert status == "success" plus
+        exactly one Payment Entry). Left as two tests rather than merged here,
+        since they document two distinct facts (no temporal check exists; no
+        commit is needed) that happen to be checked the same way -- but worth
+        revisiting.
+        """
         gateway = self._create_mock_mollie_gateway(50.00)
 
         # Mock payment with future timestamp
@@ -278,18 +305,20 @@ class TestMollieFinancialSafeguards(MollieTestCase):
 
         gateway.client.payments.get.return_value = future_payment
 
-        try:
-            result = _process_subscription_payment(
-                gateway, self.member.name, self.customer.name,
-                "tr_future_test", "sub_test_future"
-            )
+        result = _process_subscription_payment(
+            gateway, self.member.name, self.customer.name,
+            "tr_future_test", "sub_test_future"
+        )
 
-            # Future payments might be accepted depending on implementation
-            # The key is that they should be logged and audited
-            print(f"Future payment result: {result}")
-
-        except Exception as e:
-            print(f"Future payment handling: {e}")
+        self.assertEqual(
+            result.get("status"),
+            "success",
+            f"a future-dated but otherwise valid payment should reconcile normally, got: {result}",
+        )
+        payment_entries = frappe.get_all(
+            "Payment Entry", filters={"reference_no": "tr_future_test"}, fields=["name"]
+        )
+        self.assertEqual(len(payment_entries), 1)
 
     def test_race_condition_protection(self):
         """Test protection against race conditions in concurrent payment processing"""
