@@ -14,6 +14,17 @@ on:
     paths:
       - 'verenigingen/**/*.py'
       - 'verenigingen/**/*.js'
+      # #1113: scripts/ is a separate package, excluded above, but these three
+      # files ARE imported by verenigingen/tests/ (member_import_cleanup by
+      # test_member_import_cleanup_engine.py, create_period_closing_vouchers
+      # by test_create_period_closing_vouchers_pl_scan.py,
+      # migrate_fee_overrides_to_dues_schedules.py by
+      # test_fee_override_migration.py) -- so a change to one of them can
+      # silently break a test this suite runs. Not `scripts/**`: the rest of
+      # scripts/ (~320 files) is not imported by anything under
+      # verenigingen/, so widening further would only add load to an
+      # already runner-starved queue (#935) without covering anything more.
+      - 'scripts/migration/**/*.py'
       - 'pyproject.toml'
       - '.github/workflows/server-tests.yml'
       - '.github/workflows/_base-server-tests.yml'
@@ -28,6 +39,8 @@ on:
     paths:
       - 'verenigingen/**/*.py'
       - 'verenigingen/**/*.js'
+      # See the matching push.paths comment above -- same rationale, #1113.
+      - 'scripts/migration/**/*.py'
       - 'pyproject.toml'
       - '.github/workflows/server-tests.yml'
       - '.github/workflows/_base-server-tests.yml'
