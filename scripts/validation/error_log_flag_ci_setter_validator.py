@@ -59,7 +59,15 @@ NOT DETECTED, stated rather than silently missed:
   text INSIDE a non-comment string (e.g. a YAML ``description:`` field quoting
   an example) -- the ``#``-strip only removes what a real ``#`` comment would.
   Use the pragma below if this ever produces a false positive; weakening the
-  pattern to avoid it would reopen the gap this gate exists to close.
+  pattern to avoid it would reopen the gap this gate exists to close;
+* ``env=dict(VERENIGINGEN_FAIL_ON_ERROR_LOG="1")`` -- ``_dict_has_target_key``
+  only inspects an ``ast.Dict`` literal (``{...}``), not a call to the
+  ``dict(...)`` builtin with the key as a keyword argument;
+* the Python AST detection assumes ``Subscript.slice`` is the index
+  expression directly (``_str_const_from_subscript``), which is true from
+  Python 3.9 onward but not on 3.8 and earlier (where it is wrapped in
+  ``ast.Index``). This repo targets 3.12, so it is a stated assumption, not a
+  live gap.
 
 Comments are excluded for non-Python files by stripping everything from the
 first unescaped ``#`` on each physical line before matching -- so a comment
@@ -77,12 +85,38 @@ is live code (121 whitelisted endpoints, every ratchet in this suite), and a
 validator that only looks at ``.github/`` would miss a wrapper script under
 ``scripts/`` that sets the flag before invoking a test run.
 
+**Left deliberately unmonitored:** the flag is READ in
+``verenigingen/tests/utils/error_log_guard.py`` and consulted from
+``verenigingen/tests/utils/base.py`` (:282, :2327). A setter added inside the
+test harness itself -- as opposed to CI/tooling wiring it in from outside --
+would falsify the pinned claim just as thoroughly, and this gate does not
+watch that root. Today's population there is 0 (every hit is a read, a
+comment, or a test-scoped ``patch.dict(os.environ, ...)`` exercising the
+guard's own behaviour, not a persistent setting), and #1132 scoped its
+suggested direction to ``.github/`` and ``scripts/`` specifically, which this
+gate follows. Narrowing to those two roots was a choice, not an oversight;
+tracked as **#1192** rather than silently expanding this gate's scope
+mid-review.
+
 SUPPRESSING A FALSE POSITIVE
 -----------------------------
 Mark the line ``# error-log-flag-setter-ok: <reason>`` (any text as the
 reason). There is no fixed vocabulary, unlike the sibling gates -- the only
 legitimate use is "this is prose describing the flag, not setting it", which a
 free-text reason can say as well as an enum.
+
+A rule with no baseline can only die through its escape hatch, so a suppressed
+line must never be invisible. Every sibling gate in this directory
+(``error_swallow_validator.py``, ``vacuous_error_log_test_validator.py``, ...)
+tracks a suppression count or list; this one does too: ``scan()`` returns
+suppressed genuine-setting lines separately from findings, ``--stats`` prints
+both counts, and a whole-tree (or batch) run prints any suppressed line even
+at exit 0 -- so a future ``# error-log-flag-setter-ok:`` is discoverable by
+inspection, not only by grepping the diff that added it. Unlike the siblings
+this gate does NOT restrict the reason to a fixed vocabulary or offer a
+``*_STRICT=1`` promote-to-failure switch -- the free-text choice above is
+still the right one (there is exactly one legitimate reason to suppress here,
+so an enum buys nothing), and discoverability, not vocabulary, was the gap.
 
 WHY A DOCUMENTATION-UPDATE MESSAGE, NOT A BLOCK
 ------------------------------------------------
@@ -138,6 +172,24 @@ class Finding(NamedTuple):
     snippet: str
 
 
+class Suppressed(NamedTuple):
+    """A line that WOULD have been a Finding but carried the pragma.
+
+    Tracked separately, never silently dropped -- see SUPPRESSING A FALSE
+    POSITIVE in the module docstring for why an untracked escape hatch on a
+    zero-population gate is exactly the shape to avoid.
+    """
+
+    file: str
+    lineno: int
+    reason: str
+
+
+class ScanResult(NamedTuple):
+    findings: list[Finding]
+    suppressed: list[Suppressed]
+
+
 def _rel(path: Path) -> str:
     try:
         return str(path.resolve().relative_to(REPO_ROOT))
@@ -180,20 +232,35 @@ def _line_is_setting(code_part: str) -> bool:
     return bool(rest) and rest[0] in ":="
 
 
-def _scan_text_file(path: Path) -> list[Finding]:
+def _extract_reason(line: str) -> str:
+    """Text after the pragma marker, or "" if the marker is absent/empty."""
+    idx = line.find(_PRAGMA)
+    return line[idx + len(_PRAGMA) :].strip() if idx != -1 else ""
+
+
+def _scan_text_file(path: Path) -> tuple[list[Finding], list[Suppressed]]:
     try:
         lines = path.read_text(encoding="utf-8", errors="strict").splitlines()
     except (OSError, UnicodeDecodeError):
-        return []
+        return [], []
 
-    findings = []
+    findings: list[Finding] = []
+    suppressed: list[Suppressed] = []
     for i, raw in enumerate(lines, start=1):
-        if _PRAGMA in raw:
-            continue
+        # The pragma normally sits in a trailing `#` comment, which
+        # `_strip_comment` already removes -- so whether a line IS a setting
+        # is evaluated independently of whether it also carries the pragma.
+        # Deciding is_setting BEFORE branching on the pragma is what lets a
+        # genuinely suppressed setting be counted rather than silently
+        # skipped outright.
         code_part = _strip_comment(raw)
-        if _line_is_setting(code_part):
+        if not _line_is_setting(code_part):
+            continue
+        if _PRAGMA in raw:
+            suppressed.append(Suppressed(_rel(path), i, _extract_reason(raw)))
+        else:
             findings.append(Finding(_rel(path), i, raw.strip()[:160]))
-    return findings
+    return findings, suppressed
 
 
 # ---------------------------------------------------------------------------
@@ -277,28 +344,31 @@ def _call_sets_target(call: ast.Call) -> bool:
     return False
 
 
-def _scan_python_file(path: Path) -> list[Finding]:
+def _scan_python_file(path: Path) -> tuple[list[Finding], list[Suppressed]]:
     try:
         source = path.read_text(encoding="utf-8")
         tree = ast.parse(source, filename=str(path))
     except (OSError, SyntaxError, UnicodeDecodeError):
-        return []
+        return [], []
 
     lines = source.splitlines()
-    findings = []
+    findings: list[Finding] = []
+    suppressed: list[Suppressed] = []
     for node in ast.walk(tree):
         hit = False
         if isinstance(node, ast.Assign) and _assign_targets_environ(node):
             hit = True
         elif isinstance(node, ast.Call) and _call_sets_target(node):
             hit = True
-        if hit:
-            lineno = getattr(node, "lineno", 0)
-            if 1 <= lineno <= len(lines) and _PRAGMA in lines[lineno - 1]:
-                continue
-            snippet = lines[lineno - 1].strip()[:160] if 1 <= lineno <= len(lines) else ""
-            findings.append(Finding(_rel(path), lineno, snippet))
-    return findings
+        if not hit:
+            continue
+        lineno = getattr(node, "lineno", 0)
+        line_text = lines[lineno - 1] if 1 <= lineno <= len(lines) else ""
+        if _PRAGMA in line_text:
+            suppressed.append(Suppressed(_rel(path), lineno, _extract_reason(line_text)))
+            continue
+        findings.append(Finding(_rel(path), lineno, line_text.strip()[:160]))
+    return findings, suppressed
 
 
 def _iter_files(paths: list[str]):
@@ -312,17 +382,22 @@ def _iter_files(paths: list[str]):
             yield p
 
 
-def scan(paths: list[str]) -> list[Finding]:
+def scan(paths: list[str]) -> ScanResult:
     findings: list[Finding] = []
+    suppressed: list[Suppressed] = []
     for path in _iter_files(paths):
         resolved = path.resolve()
         if resolved == _SELF_PATH:
             continue
         if resolved.suffix == ".py":
-            findings.extend(_scan_python_file(path))
+            f, s = _scan_python_file(path)
         elif resolved.suffix in _TEXT_EXTENSIONS or resolved.name.endswith(".disabled"):
-            findings.extend(_scan_text_file(path))
-    return findings
+            f, s = _scan_text_file(path)
+        else:
+            continue
+        findings.extend(f)
+        suppressed.extend(s)
+    return ScanResult(findings, suppressed)
 
 
 def default_paths() -> list[str]:
@@ -341,13 +416,33 @@ def main(argv: list[str]) -> int:
     # spelled out) can honestly claim "clean everywhere" -- same reasoning as
     # vacuous_error_log_test_validator's `whole_tree` flag.
     whole_tree = paths == default_paths()
-    findings = scan(paths)
+    result = scan(paths)
+    findings = result.findings
+    suppressed = result.suppressed
 
     if args.stats:
         print(f"real settings of {TARGET_VAR}: {len(findings)}")
         for f in findings:
             print(f"  {f.file}:{f.lineno}  {f.snippet}")
+        print(f"suppressed via `# {_PRAGMA}` pragma: {len(suppressed)}")
+        for s in suppressed:
+            print(f"  {s.file}:{s.lineno}  reason: {s.reason or '<missing>'}")
         return 0
+
+    def _print_suppressed_block():
+        # Printed on EVERY run that has any suppression, success or failure,
+        # so a `# error-log-flag-setter-ok:` line is discoverable by reading
+        # normal output -- never only by grepping the diff that added it or
+        # by passing --stats. See SUPPRESSING A FALSE POSITIVE in the module
+        # docstring.
+        if not suppressed:
+            return
+        print(
+            f"\nℹ️  {len(suppressed)} setting(s) of {TARGET_VAR} suppressed via "
+            f"`# {_PRAGMA}`:"
+        )
+        for s in suppressed:
+            print(f"  {s.file}:{s.lineno}  reason: {s.reason or '<missing>'}")
 
     if findings:
         print(
@@ -369,10 +464,13 @@ def main(argv: list[str]) -> int:
             "\n  If this is a false positive (prose that spells out the assignment\n"
             f"  syntax without setting it), mark the line `# {_PRAGMA} <reason>`."
         )
+        _print_suppressed_block()
         return 1
 
+    _print_suppressed_block()
+
     if whole_tree:
-        print(f"✅ {TARGET_VAR} is not set anywhere in .github/ or scripts/.")
+        print(f"✅ {TARGET_VAR} is not set anywhere in .github/ or scripts/ that isn't pragma-suppressed.")
     return 0
 
 

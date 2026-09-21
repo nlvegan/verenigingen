@@ -15,7 +15,9 @@ without them, this suite could not tell "detects settings" from "detects the
 substring", which is precisely the failure mode #1132 was filed to prevent.
 """
 
+import contextlib
 import importlib.util
+import io
 import sys
 import tempfile
 import textwrap
@@ -40,7 +42,10 @@ class TestErrorLogFlagCiSetterValidator(unittest.TestCase):
         return path
 
     def _findings(self, path: Path):
-        return v.scan([str(path)])
+        return v.scan([str(path)]).findings
+
+    def _suppressed(self, path: Path):
+        return v.scan([str(path)]).suppressed
 
     # -- real settings: YAML -------------------------------------------------
 
@@ -203,9 +208,14 @@ class TestErrorLogFlagCiSetterValidator(unittest.TestCase):
         )
         self.assertEqual(self._findings(path), [])
 
-    # -- pragma suppression ----------------------------------------------------
+    # -- pragma suppression: MUST be counted, never silently dropped -----------
+    #
+    # A rule with no baseline can only die through its escape hatch. Every test
+    # in this block asserts BOTH halves: the line is no longer a finding, AND
+    # it shows up in `suppressed` -- an untracked pragma on a zero-population
+    # gate is indistinguishable from a hole with no record it was ever opened.
 
-    def test_pragma_suppresses_a_real_setting(self):
+    def test_pragma_suppresses_a_real_setting_and_is_counted(self):
         path = self._write(
             "wrapper.sh",
             """\
@@ -213,8 +223,11 @@ class TestErrorLogFlagCiSetterValidator(unittest.TestCase):
             """,
         )
         self.assertEqual(self._findings(path), [])
+        suppressed = self._suppressed(path)
+        self.assertEqual(len(suppressed), 1)
+        self.assertEqual(suppressed[0].reason, "runbook example")
 
-    def test_python_pragma_suppresses_a_real_setting(self):
+    def test_python_pragma_suppresses_a_real_setting_and_is_counted(self):
         path = self._write(
             "setter.py",
             """\
@@ -224,6 +237,66 @@ class TestErrorLogFlagCiSetterValidator(unittest.TestCase):
             """,
         )
         self.assertEqual(self._findings(path), [])
+        suppressed = self._suppressed(path)
+        self.assertEqual(len(suppressed), 1)
+        self.assertEqual(suppressed[0].reason, "test fixture")
+
+    def test_arbitrary_non_descriptive_reason_is_still_counted(self):
+        """There is no restricted vocabulary here (unlike the sibling gates) --
+        the reason string is free text. That must not mean an unhelpful reason
+        makes the suppression itself invisible: it is still tracked, with
+        whatever text the author wrote, verbatim.
+        """
+        path = self._write(
+            "wrapper.sh",
+            """\
+            VERENIGINGEN_FAIL_ON_ERROR_LOG=1  # error-log-flag-setter-ok: anything at all, no review needed
+            """,
+        )
+        self.assertEqual(self._findings(path), [])
+        suppressed = self._suppressed(path)
+        self.assertEqual(len(suppressed), 1)
+        self.assertEqual(suppressed[0].reason, "anything at all, no review needed")
+
+    def test_suppressed_setting_is_discoverable_via_stats_output(self):
+        """--stats is one of the two places a suppression must surface (the
+        other is the plain whole-tree/batch run, covered below). Exercises the
+        real CLI entry point, not just scan(), so a future refactor of main()
+        cannot silently stop printing this.
+        """
+        path = self._write(
+            "wrapper.sh",
+            """\
+            VERENIGINGEN_FAIL_ON_ERROR_LOG=1  # error-log-flag-setter-ok: anything at all, no review needed
+            """,
+        )
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = v.main(["prog", str(path), "--stats"])
+        self.assertEqual(rc, 0)
+        output = buf.getvalue()
+        self.assertIn("suppressed via", output)
+        self.assertIn("anything at all, no review needed", output)
+
+    def test_suppressed_setting_is_discoverable_on_a_clean_exit_zero_run(self):
+        """The stronger claim: even WITHOUT --stats, and even though the run
+        exits 0 (no findings), the suppression is printed -- so it is visible
+        by ordinary inspection of pre-commit/CI output, not only by someone
+        remembering to pass --stats.
+        """
+        path = self._write(
+            "wrapper.sh",
+            """\
+            VERENIGINGEN_FAIL_ON_ERROR_LOG=1  # error-log-flag-setter-ok: anything at all, no review needed
+            """,
+        )
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = v.main(["prog", str(path)])
+        self.assertEqual(rc, 0)
+        output = buf.getvalue()
+        self.assertIn("suppressed", output)
+        self.assertIn("anything at all, no review needed", output)
 
     # -- non-Python, non-text extensions are skipped ---------------------------
 
@@ -241,7 +314,9 @@ class TestErrorLogFlagCiSetterValidator(unittest.TestCase):
         independently, clean by construction (see the two control tests
         above) -- this pins the explicit exclusion regardless.
         """
-        self.assertEqual(v.scan([str(v._SELF_PATH)]), [])
+        result = v.scan([str(v._SELF_PATH)])
+        self.assertEqual(result.findings, [])
+        self.assertEqual(result.suppressed, [])
 
 
 if __name__ == "__main__":
