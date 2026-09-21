@@ -477,9 +477,20 @@ class DirectDebitBatch(Document):
         )
 
     def on_cancel(self):
-        """Handle batch cancellation"""
+        """Handle batch cancellation.
+
+        on_cancel() runs AFTER _cancel()'s db_update() (see on_submit()'s own
+        comment above for the same ordering), so the in-memory `status` /
+        `batch_log` mutations below are never persisted by anything else --
+        there is no second save() here to trigger it, unlike process_batch().
+        Without the explicit db_set() calls, both changes were previously a
+        completely silent no-op: no exception, but "Cancelled" and the batch
+        log note never reached the DB (#1230).
+        """
         self.status = "Cancelled"
+        self.db_set("status", self.status, update_modified=False)
         self.add_to_batch_log(_("Batch cancelled"))
+        self.db_set("batch_log", self.batch_log, update_modified=False)
 
     @frappe.whitelist()
     @critical_api(operation_type=OperationType.FINANCIAL)
@@ -496,7 +507,17 @@ class DirectDebitBatch(Document):
         BatchLoggingUtilities.add_to_document_batch_log(self, message)
 
     def process_batch(self):
-        """Process the batch - to be implemented based on bank requirements"""
+        """Process the batch - to be implemented based on bank requirements.
+
+        Only ever called (via the module-level process_batch() API below) on
+        an already-submitted (docstatus=1) batch, so a plain self.save() here
+        hits Frappe's update_after_submit check and raises "Not allowed to
+        change Batch Log after submission" -- batch_log carries no
+        allow_on_submit in direct_debit_batch.json. Persist status/batch_log
+        directly via db_set(), the same pattern on_submit() and
+        sepa_xml_generation_service.py already use for post-submit writes on
+        this doctype, instead of save() (#1230).
+        """
         # This would typically involve sending the SEPA file to the bank
         try:
             if not self.sepa_file_generated:
@@ -504,8 +525,9 @@ class DirectDebitBatch(Document):
 
             # Set status to submitted
             self.status = "Submitted"
+            self.db_set("status", self.status, update_modified=False)
             self.add_to_batch_log(_("Batch submitted for processing"))
-            self.save()
+            self.db_set("batch_log", self.batch_log, update_modified=False)
 
             # Here you would add code to communicate with your bank's API
             # For now, this is a placeholder
@@ -515,6 +537,7 @@ class DirectDebitBatch(Document):
         except Exception as e:
             error_msg = _("Error processing batch: {0}").format(str(e))
             self.add_to_batch_log(error_msg)
+            self.db_set("batch_log", self.batch_log, update_modified=False)
             frappe.log_error(f"Error processing batch {self.name}: {str(e)}", "SEPA Direct Debit Batch Error")
             frappe.throw(error_msg)
 
