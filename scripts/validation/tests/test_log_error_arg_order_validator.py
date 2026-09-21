@@ -5,6 +5,7 @@ Pure-Python (no bench/site needed): each case is a source snippet written to a t
 file and run through scan_file(). Run with:  python -m pytest this_file.py
 or plain:  python scripts/validation/tests/test_log_error_arg_order_validator.py
 """
+import ast
 import importlib.util
 import sys
 import tempfile
@@ -19,8 +20,28 @@ sys.modules[_spec.name] = lev
 _spec.loader.exec_module(lev)
 
 
+def _assert_parses(src: str) -> None:
+    """Raise loudly if `src` is not valid Python.
+
+    Every scanning entry point in this module (`scan_file`, and
+    `explain_shrink` via its own file walk) deliberately swallows
+    SyntaxError and reports "nothing found" for a repo file that does not
+    parse -- correct for a tree scan, but it means a snippet with a typo fed
+    to ANY of them here would satisfy a negative assertion
+    (`assertEqual(x, [])`) for entirely the wrong reason (silently "found
+    nothing" instead of "correctly found nothing"). Every helper in this
+    suite that writes a snippet to disk before handing it to one of those
+    entry points must call this first. See #1140.
+    """
+    try:
+        ast.parse(src)
+    except SyntaxError as exc:
+        raise AssertionError(f"test snippet does not parse, so it proves nothing: {exc}") from exc
+
+
 def _scan(src: str):
     """Return (findings, bad_pragmas) for a snippet."""
+    _assert_parses(src)
     with tempfile.TemporaryDirectory() as d:
         p = Path(d) / "snippet.py"
         p.write_text(src)
@@ -359,6 +380,7 @@ class ShrinkExplainerTest(unittest.TestCase):
         self.probe_dir.rmdir()
 
     def _write(self, source: str):
+        _assert_parses(source)
         self.probe_file.write_text(source)
 
     def test_pragma_added_on_baselined_site_is_reported_as_suppressed(self):
@@ -380,6 +402,16 @@ class ShrinkExplainerTest(unittest.TestCase):
         unexplained = lev.explain_shrink(baseline, [str(lev.REPO_ROOT / "scripts")])
         self.assertEqual(unexplained, [])
 
+    def test_write_of_unparseable_source_raises_instead_of_silently_passing(self):
+        """`explain_shrink` has its own SyntaxError swallow
+        (log_error_arg_order_validator.py's file walk), independent of
+        `scan_file`'s -- `_write` must not let it through unchecked, or
+        `test_genuine_fix_is_not_reported` above would pass on a merely
+        broken probe file instead of a genuinely fixed one."""
+        with self.assertRaises(AssertionError) as cm:
+            self._write("def f(e):\n    x = 1\n        frappe.log_error(title='Title', message=f'boom {e}')\n")
+        self.assertIn("does not parse", str(cm.exception))
+
 
 class ScanFileAllTest(unittest.TestCase):
     """scan_file_all sees a suppressed site that scan_file excludes -- the whole
@@ -394,6 +426,39 @@ class ScanFileAllTest(unittest.TestCase):
             )
             self.assertEqual(lev.scan_file(p)[0], [])  # ordinary scan: suppressed, invisible
             self.assertEqual(lev.scan_file_all(p), [("f", 2)])  # scan_file_all: still sees it
+
+
+class ScanHelperRejectsUnparseableSnippetsTest(unittest.TestCase):
+    """#1140: `_scan`/`_flagged` must fail loudly on a snippet that does not
+    parse, instead of silently returning ([], []) via `scan_file`'s
+    (deliberate, tree-scan-only) SyntaxError swallow.
+
+    The control is what makes this discriminating: the SAME violation,
+    correctly spelled, must still be flagged. Without it, an empty result is
+    equally consistent with "the validator correctly found nothing" as with
+    "the snippet never parsed"."""
+
+    _CORRECTLY_SPELLED = (
+        "def f(msg, title):\n"
+        "    x = 1\n"
+        "    frappe.log_error(msg, title)\n"
+    )
+    _BROKEN_INDENTATION = (
+        "def f(msg, title):\n"
+        "    x = 1\n"
+        "        frappe.log_error(msg, title)\n"  # extra-indented second line
+    )
+
+    def test_control_correctly_spelled_snippet_is_flagged(self):
+        self.assertEqual(len(_flagged(self._CORRECTLY_SPELLED)), 1)
+
+    def test_broken_indentation_snippet_raises_instead_of_silently_passing(self):
+        with self.assertRaises(AssertionError) as cm:
+            _flagged(self._BROKEN_INDENTATION)
+        # Pin the message: `_scan` can raise AssertionError for other reasons
+        # in the future, and an unrelated one would satisfy a bare
+        # assertRaises(AssertionError) without ever exercising this guard.
+        self.assertIn("does not parse", str(cm.exception))
 
 
 if __name__ == "__main__":
