@@ -13,6 +13,20 @@ from verenigingen.utils.security.guest_return_tokens import verify_guest_return_
 # "Check Application Status" link (#1051). Distinct from every other page's
 # purpose string so a token minted here cannot be replayed against a
 # different guest-return check that happens to share the same identifier.
+#
+# Per-page weighing (guest_return_tokens.py's docstring asks for this before
+# adding a caller, same as ponto_pay.py's own note): this page's payload is
+# the heaviest of the shared helper's callers by field count -- the
+# applicant's real email, an admin-authored `review_notes` rejection reason,
+# and (via `reviewed_by`) a staff member's real full_name. No-expiry is still
+# accepted here, same reasoning as every other caller, plus two things that
+# are specific to this one: the token is minted once and rendered directly
+# into the submitter's own response (never emailed, templated, or round-
+# tripped through a third-party gateway redirect the way Mollie/Ponto's are),
+# and the HMAC message is scoped to `purpose:identifier`, so it cannot be
+# replayed against a different check even without a TTL. #1205 tracks adding
+# an opt-in TTL to the shared helper; this page is its best-motivated
+# candidate once that capability exists, but is not blocked on it.
 APPLICATION_STATUS_TOKEN_PURPOSE = "application_status"
 
 

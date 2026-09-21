@@ -167,6 +167,41 @@ class TestPageApplicationStatus(EnhancedTestCase):
         self.assertEqual(ctx.member.email, member.email)
         self.assertEqual(ctx.member.review_notes, member.review_notes)
 
+    def test_logged_in_own_member_can_read_via_own_id_param_with_no_token(self):
+        """CONTROL: the session-ownership branch (payment_retry.py #1052
+        shape) this fix adds alongside the token check. A member logged in
+        as themself, requesting THEIR OWN docname via `?id=`, with NO token,
+        must still succeed -- e.g. a member who bookmarked their own status
+        link. Without this test, disabling `session_proves_ownership` alone
+        (leaving only the token check) is invisible to the suite: every
+        other test either supplies a token or takes the no-`id` `elif`
+        fallback, so that mutation still passes 7/7 (found by review of
+        d8c507987)."""
+        email = f"appstatus-selfid-{frappe.generate_hash(length=8)}@example.com"
+        member = self._make_applicant_member(email=email)
+
+        if not frappe.db.exists("User", email):
+            frappe.get_doc(
+                {
+                    "doctype": "User",
+                    "email": email,
+                    "first_name": "AppStatus",
+                    "last_name": "SelfId",
+                    "send_welcome_email": 0,
+                    "roles": [{"role": "Verenigingen Member"}],
+                }
+            ).insert()
+
+        with self.as_user(email):
+            frappe.local.form_dict = frappe._dict({"id": member.name})
+            ctx = frappe._dict()
+            get_context(ctx)
+
+        self.assertIsNotNone(ctx.member)
+        self.assertEqual(ctx.member.name, member.name)
+        self.assertEqual(ctx.member.email, member.email)
+        self.assertEqual(ctx.member.review_notes, member.review_notes)
+
     def test_logged_in_own_session_without_id_param_is_unaffected(self):
         """CONTROL / regression: the pre-existing "no id, but logged in"
         fallback via get_current_user_member_name() must keep working -- it
