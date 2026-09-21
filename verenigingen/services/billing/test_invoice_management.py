@@ -79,6 +79,16 @@ class TestInvoiceManagement(EnhancedTestCase):
         self._committed_docs.append(("Member", member.name))
         return member
 
+    def _create_committed_member(self):
+        """Create a Member and commit it immediately, so the caller's next
+        write is the only thing left pending. `_create_*` naming keeps this
+        commit recognised as a legitimate fixture-helper commit by
+        scan_order_dependence.py's `_in_helper()` check (#820/#827), rather
+        than a bare-commit finding in a test body."""
+        member = self._make_member()
+        frappe.db.commit()
+        return member
+
     def _make_dues_schedule(
         self,
         member,
@@ -366,6 +376,96 @@ class TestInvoiceManagement(EnhancedTestCase):
         if not data["errors"]:
             # Clean run committed -> orphan really deleted.
             self.assertFalse(frappe.db.exists("Membership Dues Schedule", sched_name))
+
+    def test_cleanup_membership_data_real_run_succeeds_without_prior_commit(self):
+        """#1143: cleanup_orphaned_membership_data's `frappe.db.begin()` (guarded
+        by `if not dry_run:`) raises ImplicitCommitError against ANY connection
+        with pending writes. _make_orphaned_schedule() masks this because it
+        ends with its own frappe.db.commit(); reproduce the real caller shape by
+        building the same orphan WITHOUT that commit -- the write is still
+        pending when the endpoint is called -- and require it to actually clean
+        up, not merely avoid raising.
+        """
+        mt = self._make_membership_type()
+        member = self._make_member()
+        ds = self._make_dues_schedule(member, mt, auto_generate=1, next_invoice_date=today())
+        bogus_member = "NONEXISTENT-MEMBER-" + frappe.generate_hash(length=12)
+        frappe.db.set_value(
+            "Membership Dues Schedule", ds.name, "member", bogus_member, update_modified=False
+        )
+        # No commit here -- this write is still pending when we call the endpoint.
+
+        result = im.cleanup_orphaned_membership_data(dry_run=False)
+        self.assertTrue(result["success"], result)
+        data = result["data"]
+
+        my_item = next(
+            (
+                it
+                for it in data["processed_items"]
+                if it.get("type") == "orphaned_schedule" and it.get("name") == ds.name
+            ),
+            None,
+        )
+        self.assertIsNotNone(my_item, "our orphan schedule should be processed")
+        self.assertEqual(my_item["action"], "deleted")
+
+    def test_cleanup_membership_data_does_not_leak_unrelated_pending_write(self):
+        """#1171 review: deleting `begin()` alone made this endpoint's bare
+        commit()/rollback() reachable, and those act on the WHOLE ambient
+        connection -- not just this function's own deletes. Every other test
+        in this class stages a pending write to the function's OWN target row
+        and checks THAT write's fate; this one stages a write to something
+        this function NEVER TOUCHES (an unrelated Member's middle_name) and
+        checks ITS fate instead.
+
+        The endpoint now wraps its own work in a savepoint (see
+        invoice_management.py), so its own release()/rollback(save_point=...)
+        must never durably commit or discard anything outside that savepoint.
+        Proof without a second DB connection: a rollback() issued AFTER the
+        call can only discard genuinely PENDING work -- if the endpoint had
+        leaked and durably committed our probe, this subsequent rollback
+        could no longer undo it.
+        """
+        self._make_orphaned_schedule()  # commits internally; establishes a clean baseline
+        other_member = self._create_committed_member()  # durable; only the next write is "ambient"
+
+        frappe.db.set_value(
+            "Member", other_member.name, "middle_name", "PROBE_AMBIENT_MARK", update_modified=False
+        )
+        # Deliberately NOT committed -- unrelated pending work the endpoint
+        # never reads or writes.
+
+        result = im.cleanup_orphaned_membership_data(dry_run=False)
+        self.assertTrue(result["success"], result)
+
+        # PRECONDITION, made loud rather than silent (review of #1171): this
+        # endpoint operates SITE-WIDE, so an unrelated debris record anywhere
+        # on the site (e.g. an invalid Membership with a blocking dependent
+        # that frappe.delete_doc() then refuses) can push `errors` non-empty
+        # and divert execution into the rollback(save_point=...) branch
+        # instead of the release_savepoint() branch this test exists to
+        # exercise. Both branches discard our probe the same way once an
+        # error has occurred (rollback undoes everything since the
+        # savepoint, probe included), so if this ever runs on a container
+        # carrying such debris the assertion below would pass whether or not
+        # the release-path bug was present -- silently testing nothing. Fail
+        # loudly instead of quietly degrading.
+        self.assertEqual(
+            result["data"]["errors"],
+            [],
+            "test precondition violated: an unrelated record on this site caused "
+            "cleanup_orphaned_membership_data to error, diverting execution into "
+            "the rollback branch this test cannot distinguish from the release "
+            "branch it exists to exercise -- investigate the debris rather than "
+            "loosening this assertion",
+        )
+
+        frappe.db.rollback()
+        self.assertIsNone(
+            frappe.db.get_value("Member", other_member.name, "middle_name"),
+            "cleanup_orphaned_membership_data committed an UNRELATED pending write",
+        )
 
     def test_cleanup_membership_data_fixture_survives_a_full_sweep_cap(self):
         """Regression for #398: find_orphaned_schedules() had no ORDER BY, so a

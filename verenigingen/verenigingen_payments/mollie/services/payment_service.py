@@ -345,8 +345,48 @@ class PaymentService:
         """
         donor_name = donation_doc.donor
 
-        # Use row lock to prevent race condition
-        frappe.db.begin()
+        # #1143 / #1171 review: a `frappe.db.begin()` used to sit here,
+        # immediately before the Donor FOR UPDATE lock below. It raised
+        # ImplicitCommitError against any connection with pending writes --
+        # the same latent defect as #1134's payment_gateways.py finding, but
+        # WITHOUT #1134's secondary stale-snapshot bug: the existing-customer
+        # check below reads `existing_customer_id` from `donor_data`, which
+        # comes from the locked row itself, not from a later plain
+        # (non-locking) read. Deleted.
+        #
+        # IMPORTANT, corrected after review: the commit()/rollback() calls
+        # below do NOT scope to "this function's own writes" -- they act on
+        # the WHOLE ambient connection, exactly like every other bare
+        # frappe.db.commit()/rollback() call. Unlike the no-lock sites in this
+        # same sweep (invoice_management.py, membership_dues_schedule_hooks.py),
+        # this CANNOT be fixed with `frappe.db.savepoint()`: a savepoint
+        # rollback does not release InnoDB row locks (#1134), so it is not a
+        # substitute for the real COMMIT/ROLLBACK this function needs to
+        # release the Donor lock. Whatever else was pending on the connection
+        # when this function is entered gets committed (on success/no-op) or
+        # discarded (on the rare SQL-failure rollback below) TOGETHER with
+        # this function's own work.
+        #
+        # This is ACCEPTED, not fixed, based on a verified-empty caller graph
+        # (2026-09-21): `create_recurring_first_payment` (this method's only
+        # caller) has exactly one textual call site in the whole tree --
+        # `mollie/tests/mollie_integration_check.py:76` -- and that call is
+        # unreachable: the script instantiates `MolliePaymentService`
+        # (`utils/payment_services/mollie_payment_service.py`), which wraps
+        # `CompletePaymentService`, NOT this `PaymentService` class, and has no
+        # `_build_payment_metadata`/`create_recurring_first_payment` methods at
+        # all. Confirmed empirically by invoking
+        # `run_mollie_integration_test()` directly on test_site_1: it raises
+        # `AttributeError: 'MolliePaymentService' object has no attribute
+        # '_build_payment_metadata'` several lines before ever reaching
+        # `create_recurring_first_payment`. The only LIVE instantiation of the
+        # real `PaymentService` is `mollie/api/sync.py`, which only ever calls
+        # `get_payment_status`/`process_payment_completion` -- neither reaches
+        # this method. So today, nothing can trigger the ambient-connection
+        # bleed described above. This is NOT a stable guarantee: if this class
+        # is ever wired to a live caller (or `mollie_integration_check.py` is
+        # fixed to use the right class), this exact concern must be re-audited
+        # first. See #1143 / #1175 for the caller-graph finding.
         try:
             # Acquire row lock - other requests will wait here
             locked_row = frappe.db.sql(

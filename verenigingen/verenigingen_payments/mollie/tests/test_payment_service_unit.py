@@ -189,3 +189,112 @@ class TestWebhookUrl(EnhancedTestCase):
             url,
         )
         self.assertTrue(url.startswith("http"))
+
+
+class TestCreateOrGetMollieCustomer(EnhancedTestCase):
+    """PaymentService._create_or_get_mollie_customer -- row-locked
+    create-or-reuse of a Donor's Mollie customer id (verenigingen_payments/
+    mollie/services/payment_service.py:339)."""
+
+    def _create_committed_donor(self):
+        """Create a Donor and commit it immediately, so the caller's next
+        write is the only thing left pending. `_create_*` naming keeps this
+        commit recognised as a legitimate fixture-helper commit by
+        scan_order_dependence.py's `_in_helper()` check (#820/#827), rather
+        than a bare-commit finding in a test body."""
+        donor = self.create_test_donor()
+        frappe.db.commit()
+        return donor
+
+    def _service_with_fake_gateway(self, *, created_customer_id="cst_fake_001"):
+        """PaymentService without __init__; self.gateway.client.customers.create
+        is a fake that returns a SimpleNamespace customer with the given id.
+        No mocking of the logic under test; only the Mollie SDK boundary at
+        gateway.client.customers.create is stubbed."""
+        svc = object.__new__(PaymentService)
+
+        def create(customer_data):
+            return SimpleNamespace(id=created_customer_id)
+
+        svc.gateway = SimpleNamespace(client=SimpleNamespace(customers=SimpleNamespace(create=create)))
+        return svc
+
+    def test_creates_customer_without_prior_commit(self):
+        """#1143: _create_or_get_mollie_customer's `frappe.db.begin()` (around
+        the Donor FOR UPDATE lock) raises ImplicitCommitError against ANY
+        connection with pending writes. Build the donor WITHOUT committing --
+        the write is still pending when the method is called -- and require it
+        to actually create and persist the customer id, not merely avoid
+        raising.
+        """
+        donor = self.create_test_donor()  # inserted, NOT committed
+        self.assertTrue(frappe.db.exists("Donor", donor.name), "fixture must be a real pending write")
+        donation = SimpleNamespace(donor=donor.name)
+        svc = self._service_with_fake_gateway(created_customer_id="cst_new_001")
+
+        result = svc._create_or_get_mollie_customer(donation, {})
+
+        self.assertEqual(result["status"], "created")
+        self.assertEqual(result["customer_id"], "cst_new_001")
+        self.assertEqual(frappe.db.get_value("Donor", donor.name, "mollie_customer_id"), "cst_new_001")
+
+    def test_reuses_existing_customer_without_prior_commit(self):
+        """Same pending-write shape, but the Donor already has a
+        mollie_customer_id -- exercises the "existing" early-return branch,
+        which reads its value from the locked row itself (no secondary
+        stale-snapshot read, unlike #1134's original bug)."""
+        donor = self.create_test_donor()
+        frappe.db.set_value(
+            "Donor", donor.name, "mollie_customer_id", "cst_existing_001", update_modified=False
+        )
+        donation = SimpleNamespace(donor=donor.name)
+        svc = self._service_with_fake_gateway()
+
+        result = svc._create_or_get_mollie_customer(donation, {})
+
+        self.assertEqual(result["status"], "existing")
+        self.assertEqual(result["customer_id"], "cst_existing_001")
+
+    def test_commits_unrelated_pending_write_too_accepted_not_fixed(self):
+        """#1171 review: this method holds a Donor FOR UPDATE lock, so unlike
+        the no-lock sites in the same sweep (invoice_management.py,
+        membership_dues_schedule_hooks.py) it CANNOT be fixed with
+        `frappe.db.savepoint()` -- a savepoint rollback does not release
+        InnoDB row locks (#1134), so it is not a substitute for the real
+        COMMIT this method needs to release the Donor lock. Its commit()
+        therefore necessarily also commits whatever ELSE was pending on the
+        ambient connection.
+
+        This is ACCEPTED, not fixed (see the long comment at the begin()
+        deletion site for the verified-empty-caller-graph reasoning). This
+        test characterizes the accepted behaviour so a future change that
+        silently alters it -- e.g. someone "fixing" it with a savepoint,
+        which would then also stop releasing the Donor lock -- is caught
+        instead of passing quietly.
+        """
+        donor = self._create_committed_donor()  # durable; only the next write is "ambient"
+
+        other_member = self.create_test_member()
+        frappe.db.set_value(
+            "Member", other_member.name, "middle_name", "PROBE_AMBIENT_MARK", update_modified=False
+        )
+        # Deliberately NOT committed -- unrelated pending work this method
+        # never reads or writes.
+
+        donation = SimpleNamespace(donor=donor.name)
+        svc = self._service_with_fake_gateway(created_customer_id="cst_ambient_001")
+
+        result = svc._create_or_get_mollie_customer(donation, {})
+        self.assertEqual(result["status"], "created")
+
+        # Currently ACCEPTED behaviour: this method's own commit() also
+        # commits the ambient pending write -- a subsequent rollback cannot
+        # undo it. If this assertion ever reddens because the value reads
+        # back as None, the ambient-connection leak this method's comment
+        # documents has changed -- re-verify the caller graph and this
+        # comment before updating the test.
+        frappe.db.rollback()
+        self.assertEqual(
+            frappe.db.get_value("Member", other_member.name, "middle_name"),
+            "PROBE_AMBIENT_MARK",
+        )

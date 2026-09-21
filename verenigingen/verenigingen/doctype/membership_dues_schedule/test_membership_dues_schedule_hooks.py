@@ -20,6 +20,7 @@ from frappe.utils import today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule_hooks import (
     check_and_update_all_members_current_schedule,
+    run_bulk_sync_with_transaction,
     update_member_current_dues_schedule,
 )
 
@@ -52,6 +53,16 @@ class TestMembershipDuesScheduleHooks(EnhancedTestCase):
         if member.status != "Active":
             frappe.db.set_value("Member", member.name, "status", "Active")
             member.reload()
+        return member, schedule
+
+    def _create_committed_member_with_schedule(self, last="Sync"):
+        """Same as `_make_member_with_schedule`, but commits immediately so
+        the caller's next write is the only thing left pending. `_create_*`
+        naming keeps this commit recognised as a legitimate fixture-helper
+        commit by scan_order_dependence.py's `_in_helper()` check
+        (#820/#827), rather than a bare-commit finding in a test body."""
+        member, schedule = self._make_member_with_schedule(last=last)
+        frappe.db.commit()
         return member, schedule
 
     # ------------------------------------------------------------------
@@ -170,10 +181,56 @@ class TestMembershipDuesScheduleHooks(EnhancedTestCase):
 
         self.assertFalse(frappe.db.get_value("Member", member.name, "current_dues_schedule"))
 
-    # NOTE: run_bulk_sync_with_transaction() is intentionally NOT covered here.
-    # Its first statement is frappe.db.begin() (START TRANSACTION), which trips
-    # Frappe's ImplicitCommitError when called inside the test's own open
-    # transaction. The function is a thin begin/commit/rollback wrapper around
-    # check_and_update_all_members_current_schedule(), whose behaviour IS covered
-    # above; testing the explicit-commit wrapper would require a real request
-    # transaction boundary that the test harness does not provide.
+    def test_bulk_sync_with_transaction_succeeds_without_prior_commit(self):
+        """#1143: run_bulk_sync_with_transaction()'s frappe.db.begin() raises
+        ImplicitCommitError against ANY connection with pending writes -- exactly
+        the state _make_member_with_schedule() leaves this test in (its Member/
+        Membership/Dues Schedule are inserted but not committed). This used to be
+        untestable for exactly that reason (see prior NOTE, removed once fixed);
+        call it here with those writes still pending -- no manual
+        frappe.db.commit() workaround -- and require it to actually do the sync,
+        not merely avoid raising.
+        """
+        member, schedule = self._make_member_with_schedule(last="BulkTxn")
+        frappe.db.set_value("Member", member.name, "current_dues_schedule", None)
+
+        result = run_bulk_sync_with_transaction(batch_size=100)
+
+        self.assertGreaterEqual(result["members_checked"], 1)
+        self.assertIsInstance(result["errors"], list)
+        self.assertEqual(frappe.db.get_value("Member", member.name, "current_dues_schedule"), schedule.name)
+
+    def test_bulk_sync_with_transaction_does_not_leak_unrelated_pending_write(self):
+        """#1171 review: deleting `begin()` alone made this wrapper's bare
+        commit()/rollback() reachable, and those act on the WHOLE ambient
+        connection -- not just this function's own writes. The test above
+        stages a pending write to the function's OWN target row and checks
+        THAT write's fate; this one stages a write to something the function
+        NEVER TOUCHES (an unrelated Member's middle_name) and checks ITS fate.
+
+        The wrapper now uses a savepoint (see membership_dues_schedule_hooks.py),
+        so release()/rollback(save_point=...) must never durably commit or
+        discard anything outside that savepoint. Proof without a second DB
+        connection: a rollback() issued AFTER the call can only discard
+        genuinely PENDING work -- if the wrapper had leaked and durably
+        committed our probe, this subsequent rollback could no longer undo it.
+        """
+        member, schedule = self._make_member_with_schedule(last="BulkAmbient")
+        frappe.db.set_value("Member", member.name, "current_dues_schedule", None)
+
+        other_member, _ = self._create_committed_member_with_schedule(last="BulkAmbientOther")
+
+        frappe.db.set_value(
+            "Member", other_member.name, "middle_name", "PROBE_AMBIENT_MARK", update_modified=False
+        )
+        # Deliberately NOT committed -- unrelated pending work the wrapper
+        # never reads or writes.
+
+        result = run_bulk_sync_with_transaction(batch_size=100)
+        self.assertGreaterEqual(result["members_checked"], 1)
+
+        frappe.db.rollback()
+        self.assertIsNone(
+            frappe.db.get_value("Member", other_member.name, "middle_name"),
+            "run_bulk_sync_with_transaction committed an UNRELATED pending write",
+        )

@@ -198,10 +198,17 @@ class ProductionReadinessValidator:
                     "errors": [f"Missing required DocTypes: {', '.join(missing_doctypes)}"],
                 }
 
-            # Test transaction capabilities
-            frappe.db.begin()
-            frappe.db.rollback()
-
+            # #1143: a "test transaction capabilities" frappe.db.begin() used to
+            # sit here, immediately followed by rollback(). It tested nothing
+            # SELECT 1 above hadn't already proven (MariaDB's InnoDB engine
+            # always supports transactions) and raised ImplicitCommitError --
+            # turning this health check into a false "Database validation
+            # failed" -- the moment any write was pending on the connection,
+            # which any caller with prior writes in the same request would
+            # trip. Removed rather than fixed-in-place: there is no row lock
+            # here to preserve, so unlike the FOR UPDATE sites in this same
+            # sweep, deleting begin() alone would have left a bare rollback()
+            # that discards the ambient request's pending writes instead.
             return {
                 "success": True,
                 "message": "Database access validated",

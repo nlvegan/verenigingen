@@ -18,7 +18,10 @@ from verenigingen.services.infrastructure.example_service import (
     calculate_fibonacci_api,
     search_members_api,
 )
-from verenigingen.services.infrastructure.production_readiness import validate_production_readiness
+from verenigingen.services.infrastructure.production_readiness import (
+    ProductionReadinessValidator,
+    validate_production_readiness,
+)
 from verenigingen.services.infrastructure.service_factory import get_service_factory
 from verenigingen.services.infrastructure.service_metrics import get_health_monitor, get_metrics_collector
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -460,3 +463,26 @@ class ServiceFieldValidatorFailureTests(EnhancedTestCase):
                 validator.get_valid_fields("Member")
 
         self.assertNotIn("fields_Member", validator._field_cache)
+
+
+class TestValidateDatabaseAccessWithPendingWrites(EnhancedTestCase):
+    """#1143: `_validate_database_access`'s `frappe.db.begin()` (immediately
+    followed by `frappe.db.rollback()`, solely to "test transaction
+    capabilities") raises ImplicitCommitError against ANY connection with
+    pending writes -- the health check would then spuriously report
+    "Database validation failed" the moment anything upstream in the same
+    request wrote so much as one row. Reproduce that caller shape directly:
+    leave a write pending (no commit) and call the health check.
+    """
+
+    def test_succeeds_with_a_pending_uncommitted_write(self):
+        member = self.create_test_member()  # inserted, NOT committed
+        self.assertTrue(frappe.db.exists("Member", member.name), "fixture must be a real pending write")
+
+        result = ProductionReadinessValidator()._validate_database_access()
+
+        self.assertTrue(
+            result["success"],
+            f"database access validation should succeed with a pending write: {result}",
+        )
+        self.assertEqual(result.get("data", {}).get("transaction_support"), True)

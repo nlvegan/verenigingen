@@ -348,8 +348,52 @@ class Pain002IngestionService(StatelessService):
             )
 
         try:
-            # Use explicit transaction with FOR UPDATE lock to prevent TOCTOU race
-            frappe.db.begin()
+            # #1143 / #1171 review: a `frappe.db.begin()` used to sit here. It
+            # raised ImplicitCommitError against any connection with pending
+            # writes, the moment anything upstream wrote a row -- so it was
+            # deleted. Deleting it does NOT scope the commit()/rollback()
+            # calls below to "this function's own writes" -- corrected after
+            # review: they act on the WHOLE ambient connection, same as any
+            # bare frappe.db.commit()/rollback(). This CANNOT be fixed with
+            # `frappe.db.savepoint()` (unlike the no-lock sites in this same
+            # sweep): a savepoint rollback does not release InnoDB row locks
+            # (#1134), so it cannot substitute for the real COMMIT/ROLLBACK
+            # this function needs to release the SEPA Batch Upload Log lock.
+            #
+            # CORRECTED (#1176 review, 2026-09-21): an earlier version of this
+            # comment claimed `update_batch_status`'s real caller (the hourly
+            # `run_pain002_ingestion` scheduled job) leaves an ambient
+            # "Scheduled Job Log" row pending when this method is entered.
+            # That claim was FALSE -- misread `update_scheduler_log()`
+            # (frappe/core/doctype/scheduled_job_type/scheduled_job_type.py),
+            # missing its trailing, UNCONDITIONAL `frappe.db.commit()` (fires
+            # after the `create_log`-enabled branch too, not just the
+            # early-return one). Verified independently, twice: a reviewer
+            # read the row from a separate pymysql connection with no commit
+            # of its own (visible) and then rolled back the SAME connection
+            # (row survived); re-verified directly on test_site_1 by calling
+            # `update_scheduler_log("Start")` and rolling back afterward --
+            # the "Scheduled Job Log" row survived the rollback, i.e. it was
+            # already durably committed.
+            #
+            # So: `update_batch_status` IS reachable via a live caller (the
+            # hourly scheduler, unlike site 1 in this same sweep, which is
+            # dead code) -- but NO genuine ambient pending write has been
+            # established at that call site. The scheduler's own bookkeeping
+            # commits before invoking the job, and each file processed within
+            # one job run leaves the connection clean for the next (this
+            # method's own commit()/rollback() resets it). "Not established"
+            # is the honest answer here, not a confirmed risk.
+            #
+            # This CANNOT be fixed with `frappe.db.savepoint()` regardless
+            # (unlike the no-lock sites in this same sweep): a savepoint
+            # rollback does not release InnoDB row locks (#1134), so it
+            # cannot substitute for the real COMMIT/ROLLBACK this function
+            # needs to release the SEPA Batch Upload Log lock. ACCEPTED, not
+            # fixed, on that structural basis alone -- if this method is ever
+            # reached some other way (a manual admin trigger, a future
+            # caller) with genuinely pending writes, this must be re-audited.
+            # See #1143 / #1176 for detail.
             try:
                 # Lock the row for update to ensure atomicity
                 locked_rows = frappe.db.sql(
