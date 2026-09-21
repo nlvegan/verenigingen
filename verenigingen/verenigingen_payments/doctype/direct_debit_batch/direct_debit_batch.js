@@ -116,13 +116,30 @@ frappe.ui.form.on('Direct Debit Batch', {
 		// Add action buttons based on status
 		if (frm.doc.docstatus === 0) {
 			// Draft state
-			frm.add_custom_button(
-				__('Load Unpaid Invoices'),
-				() => {
-					load_unpaid_invoices(frm);
-				},
-				__('Get Items')
-			);
+			//
+			// "Load Unpaid Invoices" calls `load_unpaid_invoices`, gated at the
+			// CRITICAL security level -- only reachable via an assigned Role
+			// Profile of Treasurer / National Board Member / Verenigingen Admin /
+			// Verenigingen System Administrator. The DocType's own "Verenigingen
+			// Staff" role (create/write) is a lower bar than that, so a Staff
+			// user could open this Draft batch and see a button that always
+			// ends in "Access denied" (#1221). Ask the server -- the actual
+			// authorization decision, not a client-side guess at the role list --
+			// before showing it.
+			frappe.call({
+				method: 'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.can_load_unpaid_invoices',
+				callback(r) {
+					if (r.message) {
+						frm.add_custom_button(
+							__('Load Unpaid Invoices'),
+							() => {
+								load_unpaid_invoices(frm);
+							},
+							__('Get Items')
+						);
+					}
+				}
+			});
 
 			frm.add_custom_button(__('Validate Mandates'), () => {
 				validate_mandates(frm);
