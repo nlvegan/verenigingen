@@ -436,6 +436,103 @@ class TestMembershipDuesCoverageAnalysisReport(VereningingenTestCase):
             self.assertEqual(p["amount"], 45.0)
             self.assertEqual(p["billing_frequency"], "Quarterly")
 
+    def test_calculate_billing_periods_weekly_rolls_full_periods_forward(self):
+        # #1196: Weekly had no case in calculate_billing_periods_for_gap() and fell
+        # into the Custom/Daily "one lump per book-year segment" branch, billing an
+        # entire multi-week gap as a single flat-rate charge. Weekly has a
+        # well-defined natural length (calculate_coverage_end: +6 days), so - like
+        # Monthly/Quarterly (#884) - it must roll full running periods forward from
+        # gap_start rather than collapse into one period. Derive the expected
+        # boundaries from calculate_coverage_end() itself, not hardcoded dates.
+        gap_start = getdate("2025-01-01")
+        first_end = calculate_coverage_end("Weekly", gap_start)
+        second_start = add_days(first_end, 1)
+        second_end = calculate_coverage_end("Weekly", second_start)
+        gap_end = second_end  # exactly two full running periods, no partial tail
+
+        periods = report.calculate_billing_periods_for_gap(gap_start, gap_end, "Weekly", 10.0)
+
+        self.assertEqual(len(periods), 2, periods)
+        self.assertEqual(periods[0]["start"], gap_start, "first period must start at the member's anchor")
+        self.assertEqual(periods[0]["end"], first_end)
+        self.assertEqual(
+            periods[1]["start"],
+            add_days(periods[0]["end"], 1),
+            "second period must start the day after the first ended (chained, not one lump)",
+        )
+        self.assertEqual(periods[1]["end"], second_end)
+        for p in periods:
+            self.assertEqual(p["amount"], 10.0)
+            self.assertEqual(p["billing_frequency"], "Weekly")
+
+    def test_calculate_billing_periods_weekly_partial_tail_clips_to_gap_end(self):
+        # Boundary case: a gap that is NOT a whole number of periods. The trailing
+        # partial period must be clipped to gap_end (still billed at the full
+        # dues_rate per #882/#893's "no proration" invariant), not rounded up into
+        # a third full period or merged into the second.
+        gap_start = getdate("2025-01-01")
+        first_end = calculate_coverage_end("Weekly", gap_start)
+        gap_end = add_days(first_end, 3)  # three days into the second period
+
+        periods = report.calculate_billing_periods_for_gap(gap_start, gap_end, "Weekly", 10.0)
+
+        self.assertEqual(len(periods), 2, periods)
+        self.assertEqual(periods[0]["start"], gap_start)
+        self.assertEqual(periods[0]["end"], first_end)
+        self.assertEqual(periods[1]["start"], add_days(first_end, 1))
+        self.assertEqual(periods[1]["end"], gap_end, "trailing partial period clips to gap_end")
+        for p in periods:
+            self.assertEqual(p["amount"], 10.0)
+
+    def test_calculate_billing_periods_semi_annual_rolls_full_periods_forward(self):
+        # #1196: Semi-Annual had no case either - same missing-dispatch defect,
+        # verified separately since it is a different frequency with a different
+        # natural length (calculate_coverage_end: +6 months) and a different
+        # existing test never covered it.
+        gap_start = getdate("2025-02-01")
+        first_end = calculate_coverage_end("Semi-Annual", gap_start)
+        second_start = add_days(first_end, 1)
+        second_end = calculate_coverage_end("Semi-Annual", second_start)
+        gap_end = second_end
+
+        periods = report.calculate_billing_periods_for_gap(gap_start, gap_end, "Semi-Annual", 20.0)
+
+        self.assertEqual(len(periods), 2, periods)
+        self.assertEqual(periods[0]["start"], gap_start, "first period must start at the member's anchor")
+        self.assertEqual(periods[0]["end"], first_end)
+        self.assertEqual(
+            periods[1]["start"],
+            add_days(periods[0]["end"], 1),
+            "second period must start the day after the first ended (chained, not one lump)",
+        )
+        self.assertEqual(periods[1]["end"], second_end)
+        for p in periods:
+            self.assertEqual(p["amount"], 20.0)
+            self.assertEqual(p["billing_frequency"], "Semi-Annual")
+
+    def test_calculate_billing_periods_semi_annual_crossing_book_year_is_two_periods(self):
+        # #207-class boundary case: a Semi-Annual gap whose natural periods straddle
+        # 1 January must NOT be split at the book-year boundary into extra
+        # full-rate pieces (the exact double-charge bug #207 fixed for Annual).
+        # A member anchored on 1 July has one period 2024-07-01..2024-12-31
+        # (crossing the boundary intact) and a second 2025-01-01..2025-06-30 -
+        # exactly two periods, each billed once.
+        gap_start = getdate("2024-07-01")
+        first_end = calculate_coverage_end("Semi-Annual", gap_start)
+        second_start = add_days(first_end, 1)
+        second_end = calculate_coverage_end("Semi-Annual", second_start)
+        gap_end = second_end
+
+        periods = report.calculate_billing_periods_for_gap(gap_start, gap_end, "Semi-Annual", 20.0)
+
+        self.assertEqual(len(periods), 2, periods)
+        self.assertEqual(periods[0]["start"], gap_start)
+        self.assertEqual(periods[0]["end"], first_end)
+        self.assertEqual(periods[1]["start"], second_start)
+        self.assertEqual(periods[1]["end"], gap_end)
+        for p in periods:
+            self.assertEqual(p["amount"], 20.0)
+
     # ----------------------------------------------------------- calculate_coverage_timeline
 
     def test_calculate_coverage_timeline_nonexistent_member_returns_empty(self):

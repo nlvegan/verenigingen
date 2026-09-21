@@ -1032,18 +1032,23 @@ def calculate_billing_periods_for_gap(gap_start, gap_end, billing_frequency, due
     instead produces exactly one period per actually-missed year, whether or not it
     happens to cross 1 January.
 
-    Monthly and Quarterly are rolled forward from gap_start the same way, via
-    calculate_coverage_end() (#884): this association bills on RUNNING periods
-    anchored to the member's own cycle (see CLAUDE.md's "running periods" section),
-    not calendar months/quarters, so `.replace(day=1)` / Q1-Q4 re-anchoring produced
-    the same double-charge shape #207 fixed for Annual whenever a member's cycle
-    did not start on the 1st of a month/quarter.
+    Monthly, Quarterly (#884), Weekly and Semi-Annual (#1196) are all rolled forward
+    from gap_start the same way, via calculate_coverage_end(): this association
+    bills on RUNNING periods anchored to the member's own cycle (see CLAUDE.md's
+    "running periods" section), not calendar boundaries, so re-anchoring to a
+    calendar month/quarter (or collapsing the whole gap into one lump, which is what
+    Weekly/Semi-Annual fell into before #1196 - they were missing from this
+    dispatch entirely) produced the same double- or under-charge shape #207 fixed
+    for Annual.
 
     Custom/Daily still split by book year first (see ``split_gap_by_book_year``) and
-    chunk within each segment: they have no natural period length available here
-    (the caller does not pass custom_frequency_number/unit), so - as before #207 - a
-    gap is chunked one lump per book year as an anti-runaway-invoice-size heuristic;
-    that approximation is unchanged and out of scope for this issue.
+    chunk within each segment as one lump per book year. Custom has no natural
+    period length available here (the caller does not pass
+    custom_frequency_number/unit). Daily does have one (calculate_coverage_end
+    returns a 1-day period), but rolling it the same way would turn a long gap into
+    one invoice per day - a large behavior change #870 item 2 flags as needing its
+    own design decision, not a mechanical fix, so it is deliberately left on the
+    book-year-lump approximation here (#1196).
     """
     gap_start = getdate(gap_start)
     gap_end = getdate(gap_end)
@@ -1051,7 +1056,7 @@ def calculate_billing_periods_for_gap(gap_start, gap_end, billing_frequency, due
     if billing_frequency == "Annual":
         return _calculate_annual_periods(gap_start, gap_end, dues_rate)
 
-    if billing_frequency in ("Monthly", "Quarterly"):
+    if billing_frequency in ("Monthly", "Quarterly", "Weekly", "Semi-Annual"):
         return _calculate_running_periods(gap_start, gap_end, billing_frequency, dues_rate)
 
     periods = []
@@ -1100,17 +1105,21 @@ def _calculate_annual_periods(gap_start, gap_end, dues_rate):
 
 
 def _calculate_running_periods(gap_start, gap_end, billing_frequency, dues_rate):
-    """Roll full Monthly/Quarterly periods forward from gap_start until gap_end is covered.
+    """Roll full Monthly/Quarterly/Weekly/Semi-Annual periods forward from gap_start
+    until gap_end is covered.
 
-    Mirrors _calculate_annual_periods (#207) for Monthly/Quarterly (#884): each period
-    runs a full billing_frequency period forward from where the previous one ended,
-    via calculate_coverage_end() - the same running-period calculation the dues
-    schedule itself uses (billing_period_calculator.py) - instead of snapping to a
-    calendar month/quarter boundary. By construction, period N's start is always
-    period N-1's end + 1 (or gap_start for the first period), so a period can never
-    land on a span other than one full billing_frequency period; that chaining IS
-    the "period start" invariant this issue's suggested generation-time check
-    describes, made true by how the loop is built rather than asserted separately.
+    Mirrors _calculate_annual_periods (#207) for Monthly/Quarterly (#884) and for
+    Weekly/Semi-Annual (#1196, which were previously missing from the dispatch
+    entirely and fell into the Custom/Daily one-lump-per-segment branch): each
+    period runs a full billing_frequency period forward from where the previous one
+    ended, via calculate_coverage_end() - the same running-period calculation the
+    dues schedule itself uses (billing_period_calculator.py) - instead of snapping
+    to a calendar boundary or collapsing into a single lump. By construction,
+    period N's start is always period N-1's end + 1 (or gap_start for the first
+    period), so a period can never land on a span other than one full
+    billing_frequency period; that chaining IS the "period start" invariant this
+    issue's suggested generation-time check describes, made true by how the loop is
+    built rather than asserted separately.
 
     The last period is clipped to gap_end if it would otherwise run past it. Each
     period is labelled with the book year its OWN start date falls in, purely for the
