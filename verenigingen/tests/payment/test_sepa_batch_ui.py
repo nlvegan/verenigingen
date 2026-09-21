@@ -243,6 +243,13 @@ class TestLoadUnpaidInvoicesExcludesAlreadyBatched(SepaBatchUITestBase):
     itself cancelled (docstatus != 2) AND the parent batch's status is not
     Cancelled or Failed -- a Cancelled or Failed batch collected nothing, so
     its invoice is fair game again.
+
+    Also excludes a batch that is "stranded" -- Draft, no SEPA file generated,
+    dated before today -- via `sepa_constants.stranded_batch_exclusion()`:
+    review of the first version of this fix found it would otherwise
+    PERMANENTLY hide an invoice the moment its batch's collection date passed,
+    with no realistic operator recovery (see
+    test_invoice_in_stranded_draft_batch_is_available_again).
     """
 
     def test_invoice_in_draft_batch_is_excluded(self):
@@ -257,6 +264,65 @@ class TestLoadUnpaidInvoicesExcludesAlreadyBatched(SepaBatchUITestBase):
         self.assertIsInstance(result, list)
         names = {r.get("invoice") for r in result}
         self.assertNotIn(chain["invoice"].name, names)
+
+    def test_invoice_in_stranded_draft_batch_is_available_again(self):
+        """A Draft batch that can never be submitted -- no SEPA file generated,
+        dated before today, so `DirectDebitBatch.before_submit` would refuse it
+        forever -- must not permanently strand its invoice.
+
+        Recovery for an ordinary stuck Draft is not realistic: removing the
+        child row and saving fails with ValidationError "No invoices added to
+        batch" when it is the batch's only row (the realistic single-stranded-
+        invoice case), and Direct Debit Batch's `delete` permission is
+        System-Manager-only, so an ordinary staff user's only route would be
+        submit -> cancel -- which triggers real SEPA XML generation just to
+        un-strand one invoice. Measured live on veg11 (read-only): 6 of the 13
+        invoices the first version of this exclusion caught were exactly this
+        trap.
+        """
+        chain = self._build_member_with_invoice(first_name="StrandedAvail")
+        put_invoice_in_batch(
+            self,
+            chain,
+            status="Draft",
+            batch_date=add_days(today(), -3),
+            sepa_file_generated=False,
+        )
+
+        result = ui.load_unpaid_invoices(
+            date_range="all", membership_type=self._membership_type(chain), limit=500
+        )
+        names = {r.get("invoice") for r in result}
+        self.assertIn(
+            chain["invoice"].name,
+            names,
+            "a stranded (past-dated, no SEPA file) Draft batch must not permanently block re-collection",
+        )
+
+    def test_invoice_in_past_dated_draft_with_sepa_file_is_still_excluded(self):
+        """Control for the stranded-batch carve-out above: a past-dated Draft
+        that already generated a SEPA file is NOT stranded (someone may have
+        taken that file to the bank by hand) and must still exclude its
+        invoice -- otherwise this fix would have widened from "correctly
+        narrowed" to "stopped excluding Drafts at all"."""
+        chain = self._build_member_with_invoice(first_name="PastFileExcl")
+        put_invoice_in_batch(
+            self,
+            chain,
+            status="Draft",
+            batch_date=add_days(today(), -3),
+            sepa_file_generated=True,
+        )
+
+        result = ui.load_unpaid_invoices(
+            date_range="all", membership_type=self._membership_type(chain), limit=500
+        )
+        names = {r.get("invoice") for r in result}
+        self.assertNotIn(
+            chain["invoice"].name,
+            names,
+            "a past-dated Draft batch that already generated a SEPA file is not stranded",
+        )
 
     def test_invoice_in_submitted_batch_is_excluded(self):
         """The exact scenario measured in #1217: a submitted (docstatus=1), open

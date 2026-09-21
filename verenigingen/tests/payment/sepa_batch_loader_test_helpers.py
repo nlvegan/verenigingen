@@ -14,7 +14,14 @@ import frappe
 from frappe.utils import today
 
 
-def put_invoice_in_batch(test_case, chain, status="Draft", force_docstatus=None):
+def put_invoice_in_batch(
+    test_case,
+    chain,
+    status="Draft",
+    force_docstatus=None,
+    batch_date=None,
+    sepa_file_generated=False,
+):
     """Insert chain['invoice'] as a child row of a real Direct Debit Batch.
 
     Inserted at docstatus=0/status="Draft" first (the shape
@@ -30,15 +37,23 @@ def put_invoice_in_batch(test_case, chain, status="Draft", force_docstatus=None)
     the way a real `submit()` would cascade it, so both are set explicitly --
     this is the trap #1217's exclusion query depends on getting right.
 
+    `batch_date` and `sepa_file_generated` let a caller build a "stranded"
+    batch (Draft, no file generated, dated before today) to exercise
+    `sepa_constants.stranded_batch_exclusion()` -- see
+    `TestLoadUnpaidInvoicesExcludesAlreadyBatched` for why that matters.
+    `before_submit` only runs on a real `submit()`, which this helper never
+    calls, so inserting with a past `batch_date` is not itself rejected.
+
     `test_case` needs `_track_test_document` (EnhancedTestCase) for teardown.
     """
     batch = frappe.new_doc("Direct Debit Batch")
-    batch.batch_date = today()
+    batch.batch_date = batch_date or today()
     batch.batch_description = f"loader-exclusion {frappe.generate_hash(length=6)}"
     batch.batch_type = "CORE"
     batch.sequence_type = "RCUR"
     batch.currency = "EUR"
     batch.status = "Draft"
+    batch.sepa_file_generated = 1 if sepa_file_generated else 0
     row = batch.append("invoices", {})
     row.invoice = chain["invoice"].name
     row.amount = float(chain["invoice"].outstanding_amount)

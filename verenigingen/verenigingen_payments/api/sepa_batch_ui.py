@@ -18,6 +18,7 @@ from verenigingen.verenigingen_payments.utils.mandate_candidates import (
     log_ambiguous_mandate_refusal,
     unambiguous_active_mandate,
 )
+from verenigingen.verenigingen_payments.utils.sepa_constants import stranded_batch_exclusion
 from verenigingen.verenigingen_payments.utils.sepa_input_validation import SEPAInputValidator
 
 
@@ -32,25 +33,44 @@ def get_open_batch_invoice_names():
     applies per-invoice; expressed here as one set query so both bulk loaders
     can exclude many candidates without an N+1 round trip per invoice.
 
+    ALSO excludes a batch that is "stranded" -- Draft, with no SEPA file
+    generated, dated before today -- from counting as "open", via the
+    canonical `sepa_constants.stranded_batch_exclusion()` predicate (already
+    used by `dd_batch_optimizer`, `sepa_mandate_service`, and `payment_retry`;
+    see its docstring for the full rationale). Without this, a Draft batch
+    whose collection date has simply passed would PERMANENTLY hide its
+    invoice from every future call here: `DirectDebitBatch.before_submit`
+    refuses to submit a past-dated batch, so it can never leave Draft through
+    the real UI path, and an ordinary staff user has no recovery route either
+    -- removing the child row and saving fails with ValidationError "No
+    invoices added to batch" when it is the batch's only row, and this
+    doctype's `delete` permission is System-Manager-only. Measured live on
+    veg11 (read-only) during review of the first version of this fix: 6 of 13
+    invoices it excluded were exactly this trap.
+
     Used by `load_unpaid_invoices` and `load_unpaid_invoices_secure`
     (sepa_batch_ui_secure.py) so "already spoken for" is defined once for the
     "what can still be offered for batching" endpoints. `create_sepa_batch_validated`
     keeps its own per-invoice check below rather than sharing this bulk form --
     it also loads the specific batch name to report in its refusal message, which
-    a bulk name-only query would still need a second lookup for.
+    a bulk name-only query would still need a second lookup for. That per-invoice
+    check does NOT apply the stranded-batch carve-out; see #1222, which tracks
+    unifying the multiple divergent copies of this predicate across the codebase.
 
     Callers must not swallow an error from this call: a caller that fell back to
     "no exclusions" on failure would silently re-offer invoices this predicate
     exists to hide (fails open on a money path). Let it raise.
     """
     rows = frappe.db.sql(
-        """
+        f"""
         SELECT DISTINCT ddi.invoice
         FROM `tabDirect Debit Batch Invoice` ddi
         JOIN `tabDirect Debit Batch` ddb ON ddi.parent = ddb.name
         WHERE ddi.docstatus != 2
           AND ddb.status NOT IN ('Cancelled', 'Failed')
+          AND {stranded_batch_exclusion("ddb")}
         """,
+        {"today": getdate(today())},
         as_dict=True,
     )
     # Defensive: `ddi.invoice` is a required Link and should never be NULL, but a
