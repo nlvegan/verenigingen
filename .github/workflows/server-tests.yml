@@ -25,6 +25,24 @@ on:
       # verenigingen/, so widening further would only add load to an
       # already runner-starved queue (#935) without covering anything more.
       - 'scripts/migration/**/*.py'
+      # #1189: verenigingen/tests/unit/test_savepoint_rollback_cannot_mask_the_error.py
+      # now imports these two modules directly (extracted so the #561 ratchet has a
+      # fast, stdlib-only pre-commit/CI entry point). Listed as SPECIFIC files, not
+      # `scripts/validation/**/*.py`, on purpose -- that directory holds 108 files
+      # with 277 historical commits (vs. 27 files / 7 commits for scripts/migration/
+      # above), and only these 2 are imported by anything under verenigingen/tests/.
+      # A broad glob here would run the full server suite on every one of the other
+      # ~106 validator edits (a routine, frequent activity in this repo) for zero
+      # additional coverage, compounding #935's runner starvation. The tradeoff this
+      # accepts instead: a THIRD future scripts/validation/ import added under
+      # verenigingen/tests/ needs a human to add its path here too -- but
+      # scripts/validation/tests/test_workflow_path_filter.py (#1113/#1184) already
+      # fails loudly the moment that happens (it did, for exactly these two files,
+      # a few hours after #1191 merged), so the missing-coverage failure mode #1113
+      # was filed for is now caught by that guard rather than needing a wide glob to
+      # avoid it.
+      - 'scripts/validation/non_resumable_ast.py'
+      - 'scripts/validation/savepoint_rollback_validator.py'
       - 'pyproject.toml'
       - '.github/workflows/server-tests.yml'
       - '.github/workflows/_base-server-tests.yml'
@@ -41,6 +59,9 @@ on:
       - 'verenigingen/**/*.js'
       # See the matching push.paths comment above -- same rationale, #1113.
       - 'scripts/migration/**/*.py'
+      # See the matching push.paths comment above -- same rationale, #1189.
+      - 'scripts/validation/non_resumable_ast.py'
+      - 'scripts/validation/savepoint_rollback_validator.py'
       - 'pyproject.toml'
       - '.github/workflows/server-tests.yml'
       - '.github/workflows/_base-server-tests.yml'
