@@ -24,11 +24,14 @@ Run:
     --app verenigingen --module verenigingen.verenigingen_payments.doctype.direct_debit_batch.test_staff_submit_not_blocked_by_critical_gate
 """
 
+from unittest.mock import patch
+
 import frappe
 from frappe.utils import add_days, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
+from verenigingen.verenigingen_payments.services.sepa_xml_generation_service import sepa_xml_service
 
 
 class TestStaffSubmitNotBlockedByCriticalGate(EnhancedTestCase):
@@ -40,6 +43,9 @@ class TestStaffSubmitNotBlockedByCriticalGate(EnhancedTestCase):
         # on the shared test DB (same known test-artifact suppressed in
         # test_batch_processing_service_happy_path.py).
         self.expectErrorLog("Fiscal Year Auto-Creation Error")
+        # on_submit's deferral path deliberately keeps an Error Log audit trail
+        # (see direct_debit_batch.py on_submit) whenever generation is skipped.
+        self.expectErrorLog("Direct Debit Batch SEPA Generation Deferred")
 
     def tearDown(self):
         # Submitted batches / their invoices can commit past the FrappeTestCase
@@ -92,3 +98,60 @@ class TestStaffSubmitNotBlockedByCriticalGate(EnhancedTestCase):
             batch.reload()
             with self.assertRaises(frappe.PermissionError):
                 batch.generate_sepa_xml()
+
+    def test_non_auth_permission_error_is_not_misattributed_to_no_permission(self):
+        """Review nit on #1224: api_security_framework's wrapper raises
+        frappe.PermissionError from FOUR independent checks (validate_authentication,
+        validate_ip_restrictions, validate_rate_limits, validate_request_method), not
+        only a role/profile denial -- and generate_sepa_xml_for_batch's own body can
+        also raise/wrap a PermissionError for a real, unrelated reason. on_submit
+        must ask the AuthorizationEngine directly (via _can_clear_security_level)
+        rather than catching broadly around the whole call, so ANY such failure for
+        a user who genuinely holds CRITICAL still propagates as a real failure
+        instead of being recorded as the false claim "{user} does not have
+        permission".
+
+        "Verenigingen Treasurer" is used here (not "Verenigingen Staff"): its Role
+        Profile's own role list includes "Verenigingen Staff" (role_profile.json),
+        so this user clears BOTH the DocType's submit permission AND the CRITICAL
+        security level -- i.e. a genuinely AUTHORISED submitter. Faking
+        generate_sepa_xml_for_batch's OWN result (not any validate_* method, and not
+        generate_sepa_xml itself, which would also blind _can_clear_security_level
+        to the real decorator's _security_level) keeps the decorator chain --
+        including the authorisation check this test depends on -- completely real;
+        only the wrapped function's own outcome is faked.
+        """
+        batch = self._make_draft_batch()
+
+        with self.as_role("Verenigingen Treasurer"):
+            batch.reload()
+            with patch.object(
+                sepa_xml_service,
+                "generate_sepa_xml_for_batch",
+                side_effect=frappe.PermissionError(
+                    "Rate limit validation failed: simulated for #1224 review"
+                ),
+            ):
+                with self.assertRaises(frappe.PermissionError) as ctx:
+                    batch.submit()
+
+        # The REAL cause must reach the caller -- not a silently-swallowed generic
+        # "no permission" claim. (docstatus is not asserted here: on_submit runs
+        # after _save()'s db_update(), so the in-transaction row already reads
+        # docstatus=1 the instant the exception is raised, inside this FrappeTestCase
+        # transaction that only rolls back at tearDown -- that reflects Frappe's own
+        # save() ordering, not anything this fix controls, and asserting on it would
+        # test that ordering rather than the misattribution this test targets.)
+        self.assertIn(
+            "rate limit",
+            str(ctx.exception).lower(),
+            "The genuine failure reason must propagate to the caller unchanged.",
+        )
+
+        batch.reload()
+        self.assertNotIn(
+            "does not have permission",
+            (batch.batch_log or "").lower(),
+            "A non-authorisation PermissionError for an AUTHORISED user must never "
+            "be recorded as a false 'no permission' claim.",
+        )
