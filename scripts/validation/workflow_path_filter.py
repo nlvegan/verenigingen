@@ -14,14 +14,25 @@ triggers the server test suite, even though that suite's own test exercises
 the changed code.
 
 This module answers "does this paths: filter cover this path" well enough to
-write a regression guard for that gap. It is deliberately a small subset of
-GitHub's real matcher (which is `@actions/glob`, itself based on minimatch):
-just `**` (zero or more path segments) and `*`/`?` within a single segment,
-which is all this repo's workflow files actually use. It does not depend on
-PyYAML: #1079 measured that `code-validation.yml`'s validation job installs
-no dependencies beyond `pathlib` (a stdlib-shadowing no-op on 3.12), so a
-module loaded by that job's `unittest discover` catch-all step must survive
-on the standard library alone.
+write a regression guard for that gap. GitHub does not document which
+library evaluates `on.push.paths`/`on.pull_request.paths` server-side --
+`@actions/glob` is a different, documented mechanism (action-input file
+globbing, e.g. `actions/upload-artifact`), not this one, so it is not cited
+here as the implementation. What IS documented is GitHub's own path-filter
+reference ("Workflow syntax for GitHub Actions" > "Path filters" / the
+filter-pattern cheat sheet), and this module implements a deliberate subset
+of the shapes it shows: `**` as an entire path segment (zero or more
+segments, e.g. `dir/**/file.py`, `dir/**`) and `*`/`?` within a single
+segment. It does NOT implement `**` glued to other characters inside one
+segment (the cheat sheet's `**.js`, which crosses directory boundaries too,
+matching `index.js`, `js/index.js` AND `src/js/app.js`) -- see
+`UnsupportedGlobPattern`. That subset is all this repo's workflow files
+actually use (checked all `paths:` entries across every `.github/workflows/*.yml`
+still active, 2026-09-21). It does not depend on PyYAML: #1079 measured that
+`code-validation.yml`'s validation job installs no dependencies beyond
+`pathlib` (a stdlib-shadowing no-op on 3.12), so a module loaded by that
+job's `unittest discover` catch-all step must survive on the standard
+library alone.
 
 `extract_trigger_paths` is a line-based scanner, not a YAML parser, and
 assumes this repo's consistent 2-space-per-level indentation under `on:`.
@@ -91,6 +102,22 @@ def extract_trigger_paths(workflow_text: str, trigger: str) -> list[str]:
     return collected
 
 
+class UnsupportedGlobPattern(ValueError):
+    """A `paths:` pattern uses a `**` shape this module does not implement.
+
+    Specifically: `**` glued to other characters within a single path segment
+    (e.g. `**.js`, `pre**`, `**suffix`) -- GitHub's cheat sheet documents this
+    shape as ALSO crossing directory boundaries (`**.js` matches `index.js`,
+    `js/index.js` and `src/js/app.js`), which is a different, more permissive
+    rule than a bare `*` in a segment (which never crosses `/`). Implementing
+    that correctly is more than this CI-trigger regression guard needs, and
+    no `paths:` entry in this repo's workflow files uses it as of 2026-09-21.
+    Raising here, rather than silently falling back to the plain `*`
+    (no-cross-`/`) rule, means a future pattern written in this shape gets a
+    loud failure instead of a wrong answer nobody notices.
+    """
+
+
 def _glob_to_regex(pattern: str) -> re.Pattern:
     segments = pattern.split("/")
     regex_parts = []
@@ -98,6 +125,11 @@ def _glob_to_regex(pattern: str) -> re.Pattern:
         is_last = i == len(segments) - 1
         if segment == "**":
             regex_parts.append(".*" if is_last else "(?:.*/)?")
+        elif "**" in segment:
+            raise UnsupportedGlobPattern(
+                f"pattern {pattern!r} has `**` glued to other characters in "
+                f"segment {segment!r}; see UnsupportedGlobPattern's docstring"
+            )
         else:
             escaped = re.escape(segment).replace(r"\*", "[^/]*").replace(r"\?", "[^/]")
             regex_parts.append(escaped)
@@ -107,5 +139,9 @@ def _glob_to_regex(pattern: str) -> re.Pattern:
 
 
 def path_matches_any(path: str, patterns: list[str]) -> bool:
-    """True if `path` matches at least one of `patterns` (GitHub `paths:` glob subset)."""
+    """True if `path` matches at least one of `patterns` (GitHub `paths:` glob subset).
+
+    Raises `UnsupportedGlobPattern` if any pattern uses a `**` shape this
+    module does not implement -- see that exception's docstring.
+    """
     return any(_glob_to_regex(pattern).match(path) for pattern in patterns)
