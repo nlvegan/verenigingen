@@ -531,8 +531,9 @@ class TestBatchCreationInnerLogic(EnhancedTestCase):
         self.assertEqual(batch.entry_count, 1)
 
     def test_missing_membership_fails_with_a_named_error_not_a_bare_mandatory(self):
-        """A caller that omits member/membership must get a message naming the
-        invoice and the missing field.
+        """A caller that omits member/membership, on an invoice with NO dues
+        schedule link either, must get a message naming the invoice and the
+        missing field.
 
         `member` resolves from the locked Sales Invoice, so only `membership`
         should be reported. Regression guard for the fallback itself: it used to
@@ -540,8 +541,11 @@ class TestBatchCreationInnerLogic(EnhancedTestCase):
         `si.membership_dues_schedule_display AS membership` -- a Link to
         Membership Dues Schedule aliased over the real si.membership column, so
         it fed a dues-schedule name into a Link->Membership field and blew up
-        inside insert(). The alias is now `dues_schedule` and the real
-        si.membership is selected.
+        inside insert(). The alias is `dues_schedule`, the real si.membership is
+        selected, AND (#1249) the dues schedule's own `membership` is resolved as
+        a second fallback -- but `_make_unpaid_invoice` leaves
+        `membership_dues_schedule_display` unset, so neither DB source can
+        resolve anything here and the named error must still fire.
         """
         invoice, member, mandate = self._make_unpaid_invoice()
         # The SEPA factory does not populate Sales Invoice.member (it accepts a
@@ -565,6 +569,87 @@ class TestBatchCreationInnerLogic(EnhancedTestCase):
         self.assertNotIn("member,", message)
         # And it must not be a raw MandatoryError from inside insert().
         self.assertNotIn("Value missing", message)
+
+    def test_missing_caller_membership_resolves_via_dues_schedule(self):
+        """#1249: si.membership is populated on 0 of 1927 submitted unpaid
+        invoices on veg11 (measured 2026-09-22, read-only production copy), so
+        the DB fallback in `_append_invoice_rows` cannot resolve anything
+        through it. The link `create_sepa_batch_validated` documents as
+        AUTHORITATIVE -- and which `dd_batch_optimizer` and (#1248)
+        `load_unpaid_invoices` already use -- is
+        `Membership Dues Schedule.membership`. When the caller omits
+        `membership` entirely, the fallback must resolve it from there instead
+        of failing closed.
+        """
+        member = self.sepa.create_test_member(first_name="RaceSchedule")
+        customer_name = member.customer
+        if not customer_name:
+            customer_name = self.sepa.create_test_customer(customer_name=f"Cust {member.full_name}").name
+            member.db_set("customer", customer_name)
+        # Customer.member backlink is what Sales Invoice before_validate reads.
+        frappe.db.set_value("Customer", customer_name, "member", member.name)
+        mandate = self.sepa.create_test_sepa_mandate(member=member.name)
+        membership = self.sepa.create_test_membership(member=member.name)
+        schedule = self.sepa.create_test_membership_dues_schedule(
+            member=member.name, payment_terms_template="SEPA Direct Debit"
+        )
+        invoice = self.sepa.create_test_sales_invoice(
+            customer=customer_name,
+            member=member.name,
+            membership_dues_schedule_display=schedule.name,
+            submit=True,
+        )
+        invoice.reload()
+        frappe.db.set_value("Sales Invoice", invoice.name, "member", member.name)
+        self._committed_fixtures = [
+            ("Customer", customer_name),
+            ("Member", member.name),
+            ("SEPA Mandate", mandate.name),
+            ("Membership", membership.name),
+            ("Membership Dues Schedule", schedule.name),
+            ("Sales Invoice", invoice.name),
+        ]
+
+        expected_membership = frappe.db.get_value("Membership Dues Schedule", schedule.name, "membership")
+        # Precondition, not an assertion about the code under test: the fixture
+        # must actually carry a resolvable membership, or the whole test is
+        # vacuous.
+        self.assertTrue(
+            expected_membership, "fixture precondition: the dues schedule must resolve a membership"
+        )
+        self.assertNotEqual(
+            expected_membership,
+            schedule.name,
+            "fixture precondition: the two names must differ, or the bug is invisible",
+        )
+
+        batch_data = {
+            "batch_date": frappe.utils.add_days(frappe.utils.today(), 3),
+            "batch_type": "CORE",
+            "invoice_list": [
+                {
+                    "invoice": invoice.name,
+                    "amount": float(invoice.outstanding_amount),
+                    "currency": "EUR",
+                    "member": member.name,
+                    # NOTE: no "membership" key -- the caller omits it, exactly
+                    # as sepa_batch_ui.load_unpaid_invoices' rows would before
+                    # #1248/#1249, forcing the DB fallback to do the work.
+                    "member_name": member.full_name,
+                    "iban": mandate.iban,
+                    "bic": "INGBNL2A",
+                    "mandate_reference": mandate.mandate_id,
+                }
+            ],
+        }
+
+        result = self.manager._execute_batch_creation_with_isolation(batch_data, [invoice.name])
+        self.assertTrue(result.get("success"), f"batch creation should succeed: {result}")
+        self.addCleanup(self._force_delete_batch, result["batch_name"])
+
+        batch = frappe.get_doc("Direct Debit Batch", result["batch_name"])
+        self.assertEqual(batch.invoices[0].membership, expected_membership)
+        self.assertNotEqual(batch.invoices[0].membership, schedule.name)
 
     def test_execute_batch_creation_deadlock_propagates_as_deadlock_not_sepa_error(self):
         """Same defect, one frame up: `_execute_batch_creation_with_isolation`'s
