@@ -472,8 +472,10 @@ class TestEnsureChapterBoardMembership(EnhancedTestCase):
         self.addCleanup(self._cleanup_member_and_customer, member_name)
         self.addCleanup(self._cleanup_volunteer, volunteer_name)
 
-        # Need a real Chapter Role
-        chapter_role = self._ensure_chapter_role("Test Chair")
+        # Need a real Chapter Role, run-scoped (#1274: "Test Chair" is also
+        # taken -- with different flags -- by
+        # test_volunteer_assignment_history_bugs.py's setUpClass).
+        chapter_role = self._ensure_chapter_role(f"Test Chair {frappe.generate_hash(length=8)}")
 
         result = get_volunteer_sync_service()._ensure_chapter_board_membership(
             member_name, division_id=70003, chapter_role=chapter_role
@@ -497,7 +499,7 @@ class TestEnsureChapterBoardMembership(EnhancedTestCase):
         self.addCleanup(self._cleanup_member_and_customer, member_name)
         self.addCleanup(self._cleanup_volunteer, volunteer_name)
 
-        chapter_role = self._ensure_chapter_role("Test Chair")
+        chapter_role = self._ensure_chapter_role(f"Test Chair {frappe.generate_hash(length=8)}")
 
         # Pre-add the volunteer to the board via fixture helper
         self._create_board_membership(chapter.name, volunteer_name, chapter_role)
@@ -541,12 +543,19 @@ class TestEnsureChapterBoardMembership(EnhancedTestCase):
         drain and the tracked drain, so `_insert_capture_suspended` never gets
         a chance to matter. Decorating this with `@shared_fixture` was
         therefore a no-op: the row never survives past its own test regardless
-        of the decorator, exactly as it did before #1026. Both calls in this
-        class use the same literal ("Test Chair"), so each test simply rebuilds
-        it fresh; nothing depends on it surviving across tests, and nothing
-        outside this class references it. `suspend_insert_capture()` below
-        changes no observable behaviour -- `addCleanup` still deletes the row
-        -- it exists only so the by-name guard
+        of the decorator, exactly as it did before #1026.
+
+        Callers must pass a RUN-SCOPED role_name, not a bare literal like
+        "Test Chair" (#1274 corrected this docstring's own prior claim that
+        "nothing outside this class references it" -- untrue at the time:
+        test_volunteer_assignment_history_bugs.py's setUpClass created a
+        Chapter Role named exactly "Test Chair" too, with is_unique=1 where
+        this method's callers left it at the 0 default, and had that class
+        run first in a shard, `_ensure_chapter_role("Test Chair")` here would
+        have silently adopted its is_unique=1 row instead of creating its
+        own). `suspend_insert_capture()` below changes no observable
+        behaviour -- `addCleanup` still deletes the row -- it exists only so
+        the by-name guard
         (`_divergent_shared_fixture_copies` in test_harness_leak_attribution.py)
         does not flag this copy as a stray undecorated sibling of the OTHER
         `_ensure_chapter_role` copies that genuinely are `@shared_fixture`.

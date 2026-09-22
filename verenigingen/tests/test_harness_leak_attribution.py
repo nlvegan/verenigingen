@@ -2739,6 +2739,60 @@ class DrainMustNotStrandLedgerRowsTest(unittest.TestCase):
         )
 
 
+class EnsureChapterRoleTrackingTest(EnhancedTestCase):
+    """#1273: `EnhancedTestDataFactory.ensure_chapter_role()` tracked its row as
+    `"Team Role"`, not `"Chapter Role"` -- `_drain_tracked_documents` matches
+    tracked entries by `(doctype, name)`, so it could never find the real row
+    under that wrong identity: not to skip it deliberately, not to delete it
+    correctly either.
+
+    `ensure_chapter_role` is a genuinely SHARED get-or-create -- it returns
+    the EXISTING row by bare `role_name` with no per-call scoping, and many
+    call sites across different test modules pass the same literal ("Board
+    Member", "Chair", "Coverage Board Role", ...) expecting the same row
+    back. That is exactly #1026's "genuinely shared master data" class (see
+    `_get_or_create_income_account`'s Account tracking a few hundred lines
+    above this file for the same contract). So the fix is not merely "track
+    under the right doctype": it is `@shared_fixture` (exempts the
+    captured-insert drain) PLUS `track_document(..., priority=-1)` under the
+    real doctype (exempts the tracked drain too, per its priority contract).
+    """
+
+    def test_creates_a_row_tracked_under_its_own_doctype_at_skip_priority(self):
+        role_name = f"Sweep Role {frappe.generate_hash(length=8)}"
+        self.assertFalse(frappe.db.exists("Chapter Role", role_name))
+
+        role = self.factory.ensure_chapter_role(role_name)
+        self.addCleanup(
+            lambda: frappe.delete_doc("Chapter Role", role.name, force=True, ignore_permissions=True)
+        )
+
+        tracked = [d for d in self.factory.created_documents if d["name"] == role.name]
+        self.assertTrue(tracked, f"ensure_chapter_role never tracked {role.name!r} at all")
+        self.assertEqual(
+            tracked[0]["doctype"],
+            "Chapter Role",
+            f"tracked {role.name!r} as {tracked[0]['doctype']!r} -- the tracked drain "
+            f"matches by (doctype, name) and can never find the real row under its "
+            f"wrong doctype",
+        )
+        self.assertEqual(
+            tracked[0]["priority"],
+            -1,
+            "Chapter Role rows from ensure_chapter_role are shared master data -- the "
+            "same contract as _get_or_create_income_account's Account tracking -- so "
+            "priority=-1 is required or the tracked drain strands the row for every "
+            "later caller sharing the same role_name",
+        )
+
+        # Positive control: a second call with the same name must reuse the
+        # shared row (existing get-or-create semantics), not create another.
+        role_again = self.factory.ensure_chapter_role(role_name)
+        self.assertEqual(
+            role.name, role_again.name, "a second call with the same name must reuse the shared row"
+        )
+
+
 class ClassFixturesSurviveTheDrainRollbackTest(unittest.TestCase):
     """A test's teardown may discard the TEST's rows. Not the CLASS's.
 
