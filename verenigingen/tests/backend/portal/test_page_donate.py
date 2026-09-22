@@ -278,6 +278,56 @@ class TestPageDonate(EnhancedTestCase):
 
         self.assertEqual(get_donation_status(None), {"error": "Donation ID required"})
 
+    def test_get_donation_status_is_not_guest_reachable(self):
+        """Control: unlike retry_payment/get_context, this endpoint has no
+        allow_guest=True, so frappe's own dispatch gate already refuses a
+        Guest session before the function body runs (#1092's boundary, not
+        the escalation it reports). Checked at the whitelist-registry layer
+        per CLAUDE.md ("whitelisting gates DISPATCH, not calls") -- frappe's
+        is_whitelisted() raises PermissionError rather than returning a bool."""
+        from verenigingen.templates.pages.donate import get_donation_status
+
+        with self.as_user("Guest"):
+            with self.assertRaises(frappe.PermissionError):
+                frappe.is_whitelisted(get_donation_status)
+
+    def test_get_donation_status_denies_unauthorized_authenticated_user(self):
+        """#1092: get_donation_status_data called frappe.get_doc directly, which
+        performs no permission check, so any authenticated user who cleared
+        the endpoint's HIGH security-level gate could read ANY donation's
+        amount/status/purpose -- roles that are not in Donation's own DocPerm
+        read list (System Manager, Verenigingen Administrator, Verenigingen
+        Webhook User; see tests/security/test_permission_registry_consistency
+        .py's DONATION_READ_ROLES). "Verenigingen Chapter Board Member" is one
+        of the roles #965 measured as clearing HIGH (via its Role Profile,
+        api_security_framework.py's Rule 4) while sitting outside
+        DONATION_READ_ROLES -- exactly the escalation this issue reports --
+        and this user is not linked to this donation's donor either, so it
+        must be refused."""
+        from verenigingen.templates.pages.donate import get_donation_status
+
+        donation = self._make_donation(paid=1, amount=42.0)
+
+        with self.as_role("Verenigingen Chapter Board Member"):
+            result = get_donation_status(donation.name)
+
+        self.assertEqual(result, {"error": "Insufficient permissions"})
+
+    def test_get_donation_status_allows_permitted_user(self):
+        """Positive control: a user who DOES hold Donation read access (per
+        DONATION_READ_ROLES) still gets real data back -- the fix must not
+        also break the legitimate admin/webhook path."""
+        from verenigingen.templates.pages.donate import get_donation_status
+
+        donation = self._make_donation(paid=1, amount=42.0)
+        admin = self.ensure_test_admin_user()
+
+        with self.as_user(admin.email):
+            result = get_donation_status(donation.name)
+
+        self.assertEqual(result["status"], "Paid")
+        self.assertEqual(result["amount"], 42.0)
+
     # ----- mark_donation_paid ------------------------------------------
 
     def test_mark_donation_paid_happy_path(self):

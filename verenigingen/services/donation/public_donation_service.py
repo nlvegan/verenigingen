@@ -503,11 +503,25 @@ class PublicDonationService(StatelessService):
             return {"payment_status": "pending", "title": _("Payment Status Unknown")}
 
     def get_donation_status_data(self, donation_id):
-        """Get donation status for tracking (moved from donate.py:get_donation_status)."""
+        """Get donation status for tracking (moved from donate.py:get_donation_status).
+
+        frappe.get_doc performs no permission check of its own, so without a
+        guard here any authenticated caller who cleared the endpoint's HIGH
+        security level (Treasurer, Chapter Board Member, Staff, ...) could
+        read ANY donation's amount/status/purpose -- bypassing Donation's own
+        DocPerm read list (System Manager / Verenigingen Administrator /
+        Verenigingen Webhook User). This is not allow_guest=True, so no guest
+        donor flow relies on this endpoint (the guest return page renders
+        status via get_context's own token-gated path, #1018); the guard
+        below only has to match the doctype's existing permission scheme (#1092).
+        """
         if not donation_id:
             return {"error": "Donation ID required"}
 
         donation = frappe.get_doc("Donation", donation_id)
+
+        if not frappe.has_permission("Donation", "read", doc=donation):
+            return {"error": "Insufficient permissions"}
 
         return {
             "donation_id": donation.name,
