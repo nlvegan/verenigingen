@@ -12,6 +12,7 @@ from verenigingen.utils.security.authorization import (
     SEPAPermissionLevel,
     require_sepa_permission,
 )
+from verenigingen.utils.sql_like import escape_sql_like_wildcards
 from verenigingen.utils.transaction_errors import insert_and_submit_atomically
 from verenigingen.verenigingen_payments.clients.settlements_client import SettlementsClient
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
@@ -329,7 +330,14 @@ class PaymentReconciliationManager:
         if not amount or not reference:
             return None
 
-        # Find invoices with matching amount and reference using safe SQL
+        # Find invoices with matching amount and reference using safe SQL.
+        #
+        # #1258: same #1242/#1253 gap match_by_batch_reference already carries
+        # (see its comment) -- a batch at docstatus=1/Submitted can still have
+        # sepa_file_generated=0 (PR #1231's Staff-submit path defers file
+        # generation), meaning it cannot have reached a bank yet. This match
+        # feeds create_reconciliation() -> a live Payment Entry writer, at
+        # confidence 0.95, so the same filter applies here.
         try:
             matching_invoices = frappe.db.sql(
                 """
@@ -346,6 +354,7 @@ class PaymentReconciliationManager:
                     ddi.amount = %(amount)s
                     AND (ddi.invoice = %(reference)s OR ddb.name LIKE %(batch_ref)s)
                     AND ddb.status IN ('Submitted', 'Processed')
+                    AND ddb.sepa_file_generated = 1
                     AND ddb.batch_date BETWEEN DATE_SUB(%(date)s, INTERVAL 7 DAY) AND DATE_ADD(%(date)s, INTERVAL 7 DAY)
                 ORDER BY ddb.batch_date DESC
                 LIMIT 10
@@ -353,7 +362,12 @@ class PaymentReconciliationManager:
                 {
                     "amount": amount,
                     "reference": reference,
-                    "batch_ref": f"%{reference}%",
+                    # #1258: reference is bank-supplied (transaction["reference_number"]),
+                    # unlike match_by_batch_reference's batch_ref (bounded by a
+                    # [A-Z0-9-]+ regex). Escape LIKE metacharacters before wrapping in
+                    # '%...%' so a stray '%'/'_' in the reference cannot widen the match
+                    # to a batch this value was never a literal substring of (#1153 class).
+                    "batch_ref": f"%{escape_sql_like_wildcards(reference)}%",
                     "date": transaction["date"],
                 },
                 as_dict=True,

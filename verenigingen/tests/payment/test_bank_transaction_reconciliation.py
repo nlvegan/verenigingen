@@ -449,6 +449,40 @@ class TestMatchByAmountAndReference(BTRBase):
         self.assertEqual(match["confidence"], 0.7)
         self.assertGreaterEqual(len(match["matches"]), 2)
 
+    def test_never_generated_batch_not_matched(self):
+        """#1258: same #1253 gap as match_by_batch_reference (see
+        TestMatchByBatchReference.test_never_generated_batch_not_matched), but here in
+        the amount+reference matcher, which ALSO feeds create_reconciliation() -- at
+        confidence 0.95, the second-highest of any strategy. A batch that reached
+        docstatus=1/Submitted without ever generating its SEPA file (PR #1231's
+        Staff-submit path) cannot have reached a bank, so an exact amount+invoice-
+        reference hit against it must not be returned as a match."""
+        it = self._make_member_with_invoice(first_name="AmtNeverGen", grand_total=88.0)
+        self._make_batch([it], sepa_file_generated=False)
+        bt = self._make_bank_transaction(deposit=88.0, reference_number=it["invoice"].name, date=today())
+        self.assertIsNone(self.mgr.match_by_amount_and_reference(self._txn_dict(bt)))
+
+    def test_wildcard_reference_does_not_widen_batch_ref_match(self):
+        """#1258: `batch_ref` is built as f"%{reference}%" from the bank-supplied
+        `reference_number`, unlike the sibling `match_by_batch_reference`'s batch_ref
+        (bounded by a [A-Z0-9-]+ regex and escaped before this fix -- see #1153, the
+        Mollie-payment-id-contains-an-underscore class). An unescaped '_' in the
+        reference is a LIKE single-character wildcard, so a reference that is NOT a
+        literal substring of any batch name can still match one through the wildcard.
+
+        The malicious reference is derived from the batch's own generated name
+        (format BATCH-{YY}-{MM}-{####}): swap the '-' between the YY and MM segments
+        for '_'. The result is not a literal substring of the name (hyphen !=
+        underscore) but IS one once '_' is treated as "any single character"."""
+        it = self._make_member_with_invoice(first_name="AmtWildcard", grand_total=77.0)
+        batch = self._make_batch([it])
+        parts = batch.name.split("-")  # ["BATCH", "YY", "MM", "####"]
+        wildcard_reference = f"{parts[1]}_{parts[2]}"
+        self.assertNotIn(wildcard_reference, batch.name)  # sanity: not a literal substring
+
+        bt = self._make_bank_transaction(deposit=77.0, reference_number=wildcard_reference, date=today())
+        self.assertIsNone(self.mgr.match_by_amount_and_reference(self._txn_dict(bt)))
+
 
 # =============================================================================
 # match_by_description (regex + fuzzy fallback)
