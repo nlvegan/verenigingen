@@ -128,13 +128,20 @@ def load_unpaid_invoices_secure(date_range="overdue", membership_type: str | Non
             "outstanding_amount as amount",
             "currency",
             "due_date",
-            # Aliased to match the non-secure twin (sepa_batch_ui.py) -- the client
-            # flow that consumes this endpoint's rows (direct_debit_batch.js's
-            # `load_unpaid_invoices` dialog) calls `frm.add_child('invoices', inv)`
-            # directly on the raw response with no re-derivation, and
-            # `Direct Debit Batch Invoice.membership` is a required Link. Without
-            # the alias, rows from this endpoint carried no `membership` key at
-            # all and would leave that required field blank (#1227).
+            # Aliased to match the non-secure twin (sepa_batch_ui.py), whose rows
+            # `direct_debit_batch.js` feeds into `frm.add_child('invoices', inv)`
+            # with no re-derivation against the required Link
+            # `Direct Debit Batch Invoice.membership`. Without the alias, rows from
+            # THIS endpoint carried no `membership` key at all (#1227).
+            #
+            # This endpoint itself has NO JavaScript caller -- there is no reference
+            # to `load_unpaid_invoices_secure` in any .js file in the app, and the
+            # button's own visibility gate (`can_load_unpaid_invoices`) checks the
+            # non-secure function. It is reachable only by a direct RPC/REST call
+            # from a role its Critical Operation Rule admits. So the defect this
+            # alias closes is a twin-parity gap, not a live UI failure; an earlier
+            # version of this comment claimed the dialog consumed these rows, and
+            # that was wrong.
             "membership_dues_schedule_display as membership",
         ],
         order_by="due_date",

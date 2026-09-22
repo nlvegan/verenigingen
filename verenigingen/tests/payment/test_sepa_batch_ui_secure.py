@@ -91,13 +91,19 @@ class TestLoadUnpaidInvoicesSecure(SecureBase):
         self.assertTrue(match["iban"])
 
     def test_loaded_invoice_row_has_nonblank_membership_key(self):
-        """#1227: `direct_debit_batch.js:505-538`'s `load_unpaid_invoices` dialog
-        feeds each server row straight into `frm.add_child('invoices', inv)` with
-        no re-derivation, and `Direct Debit Batch Invoice.membership` is a
-        required Link. The non-secure twin (`sepa_batch_ui.py`) selects
-        `membership_dues_schedule_display as membership`; this endpoint selected
-        the unaliased column, so its rows had no `membership` key at all and
-        would leave that required field blank.
+        """#1227: this endpoint's rows must carry the same keys as its non-secure
+        twin's. `direct_debit_batch.js:505-538` feeds the TWIN's rows straight into
+        `frm.add_child('invoices', inv)` with no re-derivation, against the
+        required Link `Direct Debit Batch Invoice.membership`. The twin
+        (`sepa_batch_ui.py`) selects the aliased column; this endpoint selected the
+        unaliased one, so its rows had no `membership` key at all.
+
+        The dialog does NOT call this endpoint -- no .js file in the app references
+        `load_unpaid_invoices_secure`, and the button's visibility gate checks the
+        non-secure function. This is reachable only by direct RPC from an
+        authorized role, so what is guarded here is twin parity, not a live UI
+        path. Stated explicitly because an earlier version of this docstring
+        claimed the dialog consumed these rows.
 
         This asserts the row actually clears Frappe's own mandatory-field check
         (`_get_missing_mandatory_fields`), not merely that a dict key exists --
@@ -125,7 +131,7 @@ class TestLoadUnpaidInvoicesSecure(SecureBase):
         self.assertNotIn(
             "membership",
             missing_fields,
-            f"membership left blank on the row consumed by direct_debit_batch.js: {match}",
+            f"membership key missing or blank, breaking parity with the non-secure twin: {match}",
         )
 
     def test_invalid_date_range_raises(self):
