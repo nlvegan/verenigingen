@@ -138,7 +138,15 @@ class BTRBase(EnhancedTestCase):
             "invoice": invoice,
         }
 
-    def _make_batch(self, items, batch_date=None, status="Submitted", submit=True, row_status="Successful"):
+    def _make_batch(
+        self,
+        items,
+        batch_date=None,
+        status="Submitted",
+        submit=True,
+        row_status="Successful",
+        sepa_file_generated=True,
+    ):
         """Build a Direct Debit Batch from already-built member/invoice dicts.
 
         Real batch.submit() triggers generate_sepa_xml (needs org SEPA settings),
@@ -147,6 +155,13 @@ class BTRBase(EnhancedTestCase):
         ``row_status`` sets the per-invoice child-row status. Reconciliation only
         books rows that were actually collected ("Successful"/"Processed"), so the
         default is "Successful"; pass a list to set per-row statuses.
+
+        ``sepa_file_generated`` defaults True (only applied when ``submit=True``):
+        a submitted batch normally already generated its SEPA file, matching the
+        default #1246 chose for the sibling ``_make_batch``/``ReconBase`` test
+        helper. Pass ``False`` to model #1253's excluded case -- a batch whose
+        file generation was deferred (PR #1231's Staff-submit path) reaching
+        ``docstatus=1`` without ever setting this field.
         """
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = batch_date or today()
@@ -181,7 +196,11 @@ class BTRBase(EnhancedTestCase):
             frappe.db.set_value(
                 "Direct Debit Batch",
                 batch.name,
-                {"docstatus": 1, "status": status or "Submitted"},
+                {
+                    "docstatus": 1,
+                    "status": status or "Submitted",
+                    "sepa_file_generated": int(bool(sepa_file_generated)),
+                },
                 update_modified=False,
             )
             batch.reload()
@@ -355,6 +374,21 @@ class TestMatchByBatchReference(BTRBase):
         batch = self._make_batch([it])
         token = batch.name.replace("BATCH-", "") if batch.name.startswith("BATCH-") else batch.name
         bt = self._make_bank_transaction(deposit=batch.total_amount + 99, description=f"BATCH-{token}")
+        self.assertIsNone(self.mgr.match_by_batch_reference(self._txn_dict(bt)))
+
+    def test_never_generated_batch_not_matched(self):
+        """#1253: a batch that reached docstatus=1 without ever generating its
+        SEPA file (PR #1231's Staff-submit path) must NOT be returned as an
+        exact (confidence 1.0) batch-reference match, even though its name is
+        a substring of the description and the amount is exact -- unlike
+        #1246's sibling fix, this match feeds a live Payment Entry writer via
+        create_reconciliation() -> create_payment_entries_from_batch()."""
+        it = self._make_member_with_invoice(first_name="BatchNeverGen", grand_total=30.0)
+        batch = self._make_batch([it], sepa_file_generated=False)
+        token = batch.name.replace("BATCH-", "") if batch.name.startswith("BATCH-") else batch.name
+        bt = self._make_bank_transaction(
+            deposit=batch.total_amount, description=f"Incoming BATCH-{token} collection"
+        )
         self.assertIsNone(self.mgr.match_by_batch_reference(self._txn_dict(bt)))
 
     def test_no_batch_pattern_returns_none(self):

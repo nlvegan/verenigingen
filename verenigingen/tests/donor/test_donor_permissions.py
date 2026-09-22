@@ -11,6 +11,7 @@ import frappe
 
 from verenigingen.permissions import get_donor_permission_query, has_donor_permission
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.utils.member_utils import get_member_name_for_user
 
 
 class TestDonorPermissions(EnhancedTestCase):
@@ -41,17 +42,28 @@ class TestDonorPermissions(EnhancedTestCase):
         )
         # Enhanced Test Factory handles cleanup automatically
 
-        # Define test users for convenience
-        self.test_member_user = "test_member@example.com"
+        # A user string that deliberately matches NO Member. Every assertion below
+        # that uses it is a DENIAL case ("has the role, has no member record"), so
+        # it has to be unrelated to self.test_member by construction.
+        #
+        # It used to be self.test_member's own literal email, and only failed to
+        # resolve because the factory silently rewrote Member.email to
+        # "test_member.<suffix>@example.com" -- a side effect, not a property of
+        # the fixture. That rewrite is gone (#1254), so the literal now resolves
+        # straight to self.test_member and every denial case here would assert the
+        # opposite of what it claims.
+        self.test_member_user = f"no-member-{frappe.generate_hash(length=8)}@example.com"
         self.test_admin_user = "Administrator"
         self.test_unauthorized_user = "Guest"
 
     def test_sql_injection_prevention_in_permission_query(self):
         """A user string with no matching User/roles always gets the restrictive query.
 
-        The Enhanced Test Factory suffixes emails for uniqueness, so the literal
-        "malicious@example.com" passed to get_donor_permission_query never
-        corresponds to a real User account. frappe.get_roles() for such a user
+        "malicious@example.com" is never handed to the factory, so no User or
+        Member carries it and get_donor_permission_query cannot resolve it.
+        (This docstring used to credit the factory's email-suffixing for that,
+        which was never the reason -- the literal is simply unused. #1254.)
+        frappe.get_roles() for such a user
         resolves to ["All", "Guest"], which the permission_query factory maps
         deterministically to "1=0" (see verenigingen.permissions._make_member_linked_permission)
         - there is no code path where this literal reaches the generated SQL.
@@ -204,9 +216,11 @@ class TestDonorPermissions(EnhancedTestCase):
     def test_document_object_vs_string_handling(self):
         """Test permission check works with both document objects and strings"""
 
-        # The factory uniquifies member emails (e.g. test_member.<suffix>@...), so
-        # use the member's actual stored email rather than the original literal —
-        # get_member_name_for_user looks the member up by that email.
+        # Read the email off the created Member rather than repeating the literal:
+        # get_member_name_for_user looks the member up by the stored value, and the
+        # fixture is the authority on what that is. (Before #1254 the factory could
+        # silently rewrite it, which is what made this necessary; it is now simply
+        # the right habit.)
         member_user = self.test_member.email
         with frappe.mock_roles(["Verenigingen Member"]):
             # Test with string (donor name)
@@ -243,10 +257,21 @@ class TestDonorPermissions(EnhancedTestCase):
         must deny access rather than raise, since callers rely on this fallback in
         the has_permission hook chain."""
 
+        # CONTROL: the denial cases below only mean anything while the sentinel
+        # resolves to no Member at all. Assert that directly -- if a future change
+        # makes it resolve (which is exactly what #1254's fix did to the old
+        # literal), fail here naming the reason instead of passing three denials
+        # for the wrong reason.
+        self.assertIsNone(
+            get_member_name_for_user(self.test_member_user),
+            "the denial sentinel resolved to a Member; the assertions below no longer "
+            "exercise the 'role but no member record' branch",
+        )
+
         with frappe.mock_roles(["Verenigingen Member"]):
-            # self.test_member_user never resolves to a real Member (no matching
-            # User was created - see setUp), so this exercises the "user has the
-            # role but no member record" denial branch for a real donor.
+            # self.test_member_user resolves to no Member (see setUp), so this
+            # exercises the "user has the role but no member record" denial branch
+            # for a real donor.
             self.assertFalse(has_donor_permission(self.test_donor.name, self.test_member_user))
             # Non-existent donor record.
             self.assertFalse(has_donor_permission("NON-EXISTENT", self.test_member_user))

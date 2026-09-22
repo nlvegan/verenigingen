@@ -181,6 +181,10 @@ class TestSEPAReconciliation(VereningingenTestCase):
                 "currency": company_currency,
                 "total_amount": 100,
                 "status": "Submitted",
+                # #1253: match_by_batch_reference now requires sepa_file_generated=1
+                # for an exact batch-reference match; this fixture models a batch
+                # whose file WAS produced.
+                "sepa_file_generated": 1,
                 "invoices": [
                     {
                         "invoice": self.test_invoice.name,  # Correct field name

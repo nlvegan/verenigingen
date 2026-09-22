@@ -583,6 +583,11 @@ class SEPABatchRaceConditionManager:
                     -- Schedule, NOT to Membership. It used to be selected as
                     -- `membership`, which shadowed the real si.membership column
                     -- and fed a dues-schedule name into a Link->Membership field.
+                    -- si.membership itself is populated on 0 of 1927 submitted
+                    -- unpaid invoices measured on veg11 (#1249, 2026-09-22), so
+                    -- it cannot be relied on either -- see
+                    -- _attach_resolved_membership below, which resolves the real
+                    -- Membership from THIS column instead.
                     si.membership_dues_schedule_display as dues_schedule,
                     si.posting_date,
                     si.due_date
@@ -595,6 +600,7 @@ class SEPABatchRaceConditionManager:
                 as_dict=True,
             )
 
+            self._attach_resolved_membership(locked_invoices)
             return locked_invoices
 
         except NON_RESUMABLE_DB_ERRORS:
@@ -605,6 +611,36 @@ class SEPABatchRaceConditionManager:
             raise
         except Exception as e:
             raise SEPAError(_(f"Failed to lock invoices for processing: {str(e)}"))
+
+    @staticmethod
+    def _attach_resolved_membership(locked_invoices: List[Dict[str, Any]]) -> None:
+        """Resolve each row's real Membership through its dues schedule (#1249).
+
+        `si.membership` is populated on 0 of 1927 submitted unpaid invoices
+        measured on veg11 (read-only production copy, 2026-09-22), so it cannot
+        be used as a source. The AUTHORITATIVE link --
+        `sepa_batch_ui.create_sepa_batch_validated`'s own description of it, and
+        the one `dd_batch_optimizer` and (#1248) `load_unpaid_invoices` already
+        use -- is `Membership Dues Schedule.membership`, reached from the
+        dues-schedule name this query already selects as `dues_schedule`.
+
+        Deliberately a SEPARATE, non-locking query rather than a JOIN folded
+        into the `SELECT ... FOR UPDATE` above: joining would extend the row
+        lock to matching `Membership Dues Schedule` rows too, widening the
+        serialisation this method exists to provide beyond the Sales Invoice
+        rows it is scoped to lock.
+        """
+        dues_schedule_names = {row["dues_schedule"] for row in locked_invoices if row.get("dues_schedule")}
+        if not dues_schedule_names:
+            return
+        schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"name": ["in", list(dues_schedule_names)]},
+            fields=["name", "membership"],
+        )
+        membership_by_schedule = {s.name: s.membership for s in schedules if s.membership}
+        for row in locked_invoices:
+            row["membership_from_schedule"] = membership_by_schedule.get(row.get("dues_schedule"))
 
     def _validate_invoice_availability(
         self, locked_invoices: List[Dict[str, Any]], batch_data: Dict[str, Any]
@@ -804,17 +840,32 @@ class SEPABatchRaceConditionManager:
         for invoice_data in validated_invoices:
             # member and membership are mandatory on Direct Debit Batch Invoice.
             # Prefer what the caller passed, else fall back to the locked Sales
-            # Invoice row (_lock_invoices_for_processing selects both).
+            # Invoice row (_lock_invoices_for_processing selects all three).
+            #
+            # membership resolution order, and why (#1249):
+            #   1. invoice_data["membership"]     -- caller-supplied, e.g. an
+            #      already-resolved sepa_batch_ui.load_unpaid_invoices row.
+            #   2. db_record["membership_from_schedule"] -- the AUTHORITATIVE
+            #      link (sepa_batch_ui.create_sepa_batch_validated's own
+            #      description of it), resolved by
+            #      _attach_resolved_membership from the invoice's dues
+            #      schedule. Same source dd_batch_optimizer and (#1248)
+            #      load_unpaid_invoices already use, so a caller that omits
+            #      `membership` gets the same answer those two would give it.
+            #   3. db_record["membership"] -- the raw Sales Invoice column.
+            #      Kept as a last-resort fallback only: measured on veg11
+            #      (2026-09-22), it is populated on 0 of 1927 submitted unpaid
+            #      invoices, so in practice this never fires today.
             db_record = invoice_data.get("db_record") or {}
             member = invoice_data.get("member") or db_record.get("member")
-            membership = invoice_data.get("membership") or db_record.get("membership")
+            membership = (
+                invoice_data.get("membership")
+                or db_record.get("membership_from_schedule")
+                or db_record.get("membership")
+            )
             if not member or not membership:
                 # Fail with the field and the invoice named, rather than letting
-                # Frappe raise a bare MandatoryError from inside insert(). No
-                # deeper resolution is attempted here: deriving a Membership from
-                # a dues schedule is the canonical batch builder's job
-                # (api/sepa_batch_ui.py), and guessing it here would duplicate
-                # that logic in a third place.
+                # Frappe raise a bare MandatoryError from inside insert().
                 missing = ", ".join(n for n, v in (("member", member), ("membership", membership)) if not v)
                 raise SEPAError(
                     _(
