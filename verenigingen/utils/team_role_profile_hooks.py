@@ -72,6 +72,13 @@ def _sync_team_lead_role(user):
             user_doc = frappe.get_doc("User", user)
             user_doc.append("roles", {"role": "Team Lead"})
             user_doc.save(ignore_permissions=True)
+            # #1195: the append above is silently defeated by User.validate()'s
+            # role-profile re-derivation whenever `user` carries a Role Profile
+            # that doesn't include "Team Lead" (none of this app's shipped
+            # profiles do) -- verify and fall back to a direct Has Role insert.
+            from verenigingen.utils.user_role_grant import ensure_role_survives_profile_resync
+
+            ensure_role_survives_profile_resync(user, "Team Lead")
             frappe.logger().info(f"Assigned Team Lead role to {user}")
         elif not is_still_leading and has_role:
             frappe.delete_doc("Has Role", has_role, ignore_permissions=True)

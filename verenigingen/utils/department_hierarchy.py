@@ -3,6 +3,7 @@ from frappe import _
 
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+from verenigingen.utils.user_role_grant import ensure_role_survives_profile_resync
 
 
 class DepartmentHierarchyManager:
@@ -370,6 +371,12 @@ class DepartmentHierarchyManager:
                     "User Role Update Security",
                 )
                 # Continue without failing - role addition is not critical to main workflow
+            else:
+                # #1195: the append above is silently defeated by User.validate()'s
+                # role-profile re-derivation whenever user_email carries a Role
+                # Profile that doesn't include "Expense Approver" -- verify and
+                # fall back to a direct Has Role insert.
+                ensure_role_survives_profile_resync(user_email, "Expense Approver")
 
     def update_employee_departments(self, volunteer_name=None):
         """Update employee departments for volunteers"""

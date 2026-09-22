@@ -7,6 +7,7 @@ import frappe
 
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+from verenigingen.utils.user_role_grant import ensure_role_survives_profile_resync
 
 
 def get_volunteer_expense_approver(volunteer_name):
@@ -215,6 +216,11 @@ def fix_expense_approver_issues():
             )
 
             if result.success:
+                # #1195: the append above is silently defeated by User.validate()'s
+                # role-profile re-derivation whenever the user carries a Role
+                # Profile that doesn't include "Expense Approver" -- verify and
+                # fall back to a direct Has Role insert.
+                ensure_role_survives_profile_resync(approver_data.expense_approver, "Expense Approver")
                 fixed_count += 1
             else:
                 frappe.log_error(

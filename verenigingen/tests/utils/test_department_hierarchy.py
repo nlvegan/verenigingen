@@ -362,6 +362,23 @@ class TestDepartmentHierarchy(EnhancedTestCase):
         mgr = DepartmentHierarchyManager()
         self.assertEqual(mgr._get_financial_approvers(chapter.name), [treas_user.email])
 
+    def test_ensure_expense_approver_role_survives_role_profile(self):
+        """#1195: the plain append+save in _ensure_expense_approver_role is
+        silently defeated by User.validate()'s role-profile re-derivation
+        whenever the user carries a Role Profile that doesn't include
+        "Expense Approver" -- "Verenigingen Volunteer" (a real, shipped
+        profile) is one such profile."""
+        self._ensure_company()
+        user = self.factory.create_user_with_roles(roles=["Verenigingen Volunteer"])
+        user_doc = frappe.get_doc("User", user.name)
+        user_doc.append("role_profiles", {"role_profile": "Verenigingen Volunteer"})
+        user_doc.save(ignore_permissions=True)
+
+        mgr = DepartmentHierarchyManager()
+        mgr._ensure_expense_approver_role(user.name)
+
+        self.assertIn("Expense Approver", frappe.get_roles(user.name))
+
     # ------------------------------------------------ _update_department_approvers
     def test_update_department_approvers_missing_department_noop(self):
         self._ensure_company()

@@ -159,6 +159,13 @@ class TestChapterSubscribers(EnhancedTestCase):
         chapter_doc.save(ignore_permissions=True)
         return chapter_doc
 
+    def _grant_role_profile(self, user_name, role_profile):
+        """Attach a Role Profile to an existing User (#1195 test fixture)."""
+        user_doc = frappe.get_doc("User", user_name)
+        user_doc.append("role_profiles", {"role_profile": role_profile})
+        user_doc.save(ignore_permissions=True)
+        return user_doc
+
     def _persist_chapter_published(self, chapter):
         chapter_doc = frappe.get_doc("Chapter", chapter.name)
         chapter_doc.published = 1
@@ -528,6 +535,25 @@ class TestChapterSubscribers(EnhancedTestCase):
         user_doc = frappe.get_doc("User", user.name)
         roles = [r.role for r in user_doc.roles]
         self.assertIn("Chapter Member", roles)
+
+    def test_member_role_update_joined_grants_role_surviving_role_profile(self):
+        """#1195: _grant_chapter_member_permissions's plain append+save is
+        silently defeated by User.validate()'s role-profile re-derivation
+        whenever the member's user carries a Role Profile -- none of this
+        app's shipped profiles include "Chapter Member", so any member with
+        a profile attached (e.g. every volunteer) was never actually
+        granted the role despite the "joined" event handler reporting no
+        error."""
+        self._ensure_role("Chapter Member")
+        member, user = self._make_member_with_user()
+        self._grant_role_profile(user.name, "Verenigingen Volunteer")
+
+        chapter = self._new_chapter()
+        cs.handle_member_role_updates(
+            "member.joined",
+            {"chapter": chapter.name, "member": member.name, "action": "joined"},
+        )
+        self.assertIn("Chapter Member", frappe.get_roles(user.name))
 
     def test_member_role_update_left_revokes_when_no_other_chapters(self):
         self._ensure_role("Chapter Member")
