@@ -54,6 +54,13 @@ def ensure_role_survives_profile_resync(user_email: str, role: str) -> bool:
     or the profile already includes ``role``); this only covers the case
     where ``User.populate_role_profile_roles()`` silently stripped it.
 
+    No permission check by design: this function grants `role`
+    unconditionally, via ``ignore_permissions=True``. The caller MUST have
+    already authorized the grant (e.g. via its own permission check, or
+    because it runs as trusted internal system/business logic reacting to
+    a validated event) -- this helper only fixes *persistence*, not
+    *authorization*.
+
     Args:
         user_email: The User whose roles should include ``role``.
         role: The Role that should be present (must already exist as a
@@ -81,8 +88,15 @@ def ensure_role_survives_profile_resync(user_email: str, role: str) -> bool:
         }
     ).insert(ignore_permissions=True)
     frappe.clear_cache(user=user_email)
+    # Debug line only, not an audit trail: frappe.logger() defaults to level
+    # ERROR (WARNING on a dev server) and this is .info(), so it is not
+    # written anywhere in CI or production -- see CLAUDE.md's "Known traps"
+    # and verenigingen/utils/service_logger.py's docstring ("do not rely on
+    # these for audit trails"). If this grant ever needs a real, queryable
+    # audit trail, route it through verenigingen.utils.security.
+    # audit_logging.log_security_event instead of adding severity here.
     frappe.logger().info(
-        f"SECURITY AUDIT: Granted {role} role to {user_email} via direct insert "
-        f"(role-profile re-sync stripped the standard assignment) - User: {frappe.session.user}"
+        f"Granted {role} role to {user_email} via direct Has Role insert "
+        f"(role-profile re-sync stripped the standard append+save) - by: {frappe.session.user}"
     )
     return True
