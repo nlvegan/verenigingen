@@ -394,6 +394,170 @@ class TestLoadUnpaidInvoicesExcludesAlreadyBatched(SepaBatchUITestBase):
         self.assertTrue(self._is_error_result(result), result)
 
 
+class TestLoadUnpaidInvoicesEligibilityGuards(SepaBatchUITestBase):
+    """#1218: `load_unpaid_invoices` offered ANY unpaid submitted invoice as a SEPA
+    candidate -- no membership-link guard, no currency guard. Measured on veg11
+    (read-only, 2026-09-23): of 1927 Unpaid/Overdue submitted invoices, 8 are
+    non-EUR and 1362 carry no `membership_dues_schedule_display` link at all
+    (donations, general sales, imports); of those 1362, exactly ONE
+    (a genuine "Membership Fee" invoice) carries a non-blank `member`.
+
+    The guard therefore excludes an invoice only when it has NEITHER a
+    dues-schedule link NOR a `member` -- not merely "no dues-schedule link" --
+    so it cannot repeat #1228 (an exclusion fix silently stranding real
+    invoices): the one measured invoice with a member but no schedule link
+    stays visible, carrying `unbatchable_reason` per #1239's already-established
+    "report the reason, don't drop the row" rule.
+    """
+
+    def _customer_only_invoice(self, first_name, currency="EUR"):
+        """A Sales Invoice with no `member` and no dues-schedule link -- the
+        shape of a donation invoice or a general sale."""
+        f = SEPATestDataFactory(seed=frappe.generate_hash(length=4).__hash__() & 0xFFFF, use_faker=True)
+        self.factory = f
+        customer = f.create_test_customer(customer_name=f"Cust {first_name}").name
+        invoice = f.create_test_sales_invoice(
+            customer=customer,
+            grand_total=42.0,
+            currency=currency,
+            submit=True,
+        )
+        return invoice
+
+    def test_invoice_with_no_member_and_no_dues_schedule_link_is_excluded(self):
+        invoice = self._customer_only_invoice("NoLinkNoMember")
+
+        result = ui.load_unpaid_invoices(date_range="all", limit=500)
+        names = {r.get("invoice") for r in result}
+        self.assertNotIn(
+            invoice.name,
+            names,
+            "an invoice with no member and no dues-schedule link must not be offered as a SEPA candidate",
+        )
+
+    def test_invoice_with_member_but_no_dues_schedule_link_is_still_included(self):
+        """The exact shape measured on veg11: a real member's invoice, missing
+        only its dues-schedule link. Dropping it would repeat #1228."""
+        f = SEPATestDataFactory(seed=frappe.generate_hash(length=4).__hash__() & 0xFFFF, use_faker=True)
+        self.factory = f
+        member = f.create_test_member(first_name="MemberNoSchedule")
+        customer = member.customer
+        if not customer:
+            customer = f.create_test_customer(customer_name=f"Cust {member.full_name}").name
+            member.db_set("customer", customer)
+        frappe.db.set_value("Customer", customer, "member", member.name)
+        invoice = f.create_test_sales_invoice(
+            customer=customer,
+            member=member.name,
+            grand_total=15.0,
+            submit=True,
+        )
+
+        result = ui.load_unpaid_invoices(date_range="all", limit=500)
+        names = {r.get("invoice") for r in result}
+        self.assertIn(
+            invoice.name,
+            names,
+            "a real member's invoice missing only its dues-schedule link must stay visible",
+        )
+        match = next(r for r in result if r.get("invoice") == invoice.name)
+        self.assertEqual(match["membership"], "")
+        self.assertIn("no membership dues schedule", match["unbatchable_reason"].lower())
+
+    def test_non_eur_invoice_is_excluded_from_the_picker(self):
+        """`create_sepa_batch_validated` already rejects a non-EUR invoice at
+        batch-creation time (test_non_eur_invoice_is_rejected above); this pins
+        the same rule where it actually protects the operator -- before they
+        can select it at all."""
+        data = self._build_member_with_invoice(first_name="NonEurPicker")
+        frappe.db.set_value(
+            "Sales Invoice", data["invoice"].name, "currency", "USD", update_modified=False
+        )
+
+        result = ui.load_unpaid_invoices(
+            date_range="all", membership_type=self._membership_type(data), limit=500
+        )
+        names = {r.get("invoice") for r in result}
+        self.assertNotIn(
+            data["invoice"].name, names, "a non-EUR invoice must not be offered as a SEPA candidate"
+        )
+
+    def test_a_real_dues_invoice_is_still_offered(self):
+        """Positive control: neither new guard drops a genuine EUR dues invoice
+        with a resolvable member and dues-schedule link."""
+        data = self._build_member_with_invoice(first_name="EligibilityControl")
+        result = ui.load_unpaid_invoices(
+            date_range="all", membership_type=self._membership_type(data), limit=500
+        )
+        names = {r.get("invoice") for r in result}
+        self.assertIn(data["invoice"].name, names)
+
+
+class TestLoadUnpaidInvoicesTotalEligibleCount(SepaBatchUITestBase):
+    """#1219: the "Maximum Invoices" limit (dialog default 100) truncated the
+    result silently -- no total-eligible count was ever returned, so an operator
+    could not tell a truncated load from a complete one.
+
+    `load_unpaid_invoices` keeps returning a plain list (every existing caller,
+    including ~30 test call sites, treats the result as one), so the count is
+    reported as a sibling key on the raw response -- `frappe.local.response`,
+    which `frappe.response["message"] = data` (frappe/handler.py) does not
+    clear -- rather than folded into the return value.
+    """
+
+    def test_total_eligible_equals_page_length_when_not_truncated(self):
+        data = self._build_member_with_invoice(first_name="TotalNoTrunc")
+        frappe.local.response.pop("total_eligible", None)
+
+        result = ui.load_unpaid_invoices(
+            date_range="all", membership_type=self._membership_type(data), limit=500
+        )
+        self.assertEqual(len(result), 1)
+        self.assertEqual(frappe.local.response.get("total_eligible"), 1)
+
+    def test_total_eligible_reports_truncation_when_limit_caps_the_page(self):
+        data = self._build_member_with_invoice(first_name="TotalTrunc")
+        f = self.factory
+        # Two more invoices against the SAME member/dues schedule, so all three
+        # share one membership_type and can be counted deterministically.
+        f.create_test_sales_invoice(
+            customer=data["customer"],
+            member=data["member"].name,
+            membership=data["membership"].name,
+            membership_dues_schedule_display=data["schedule"].name,
+            due_date=add_days(today(), 20),
+            grand_total=25.0,
+            submit=True,
+        )
+        f.create_test_sales_invoice(
+            customer=data["customer"],
+            member=data["member"].name,
+            membership=data["membership"].name,
+            membership_dues_schedule_display=data["schedule"].name,
+            due_date=add_days(today(), 21),
+            grand_total=25.0,
+            submit=True,
+        )
+        membership_type = self._membership_type(data)
+        frappe.local.response.pop("total_eligible", None)
+
+        result = ui.load_unpaid_invoices(date_range="all", membership_type=membership_type, limit=2)
+        self.assertEqual(len(result), 2, "page must be capped at the limit")
+        self.assertEqual(
+            frappe.local.response.get("total_eligible"),
+            3,
+            "must report the true eligible count, not the truncated page size",
+        )
+
+    def test_total_eligible_is_zero_when_membership_type_matches_no_schedules(self):
+        self._build_member_with_invoice(first_name="TotalZero")
+        frappe.local.response.pop("total_eligible", None)
+
+        result = ui.load_unpaid_invoices(date_range="all", membership_type="__nonexistent_mt__", limit=500)
+        self.assertEqual(result, [])
+        self.assertEqual(frappe.local.response.get("total_eligible"), 0)
+
+
 class TestGetInvoiceMandateInfo(SepaBatchUITestBase):
     def test_returns_mandate_info_for_valid_invoice(self):
         data = self._build_member_with_invoice(first_name="MandInfo")

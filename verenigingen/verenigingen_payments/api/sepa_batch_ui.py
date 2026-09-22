@@ -131,6 +131,34 @@ def load_unpaid_invoices(date_range="overdue", membership_type: str | None = Non
 
     filters = {"status": ["in", ["Unpaid", "Overdue"]], "docstatus": 1}
 
+    # SEPA Direct Debit is EUR-only (#1218) -- the same rule
+    # `create_sepa_batch_validated` already enforces per-invoice below. Reject
+    # non-EUR invoices at the query level so the picker never offers one in the
+    # first place. Measured on veg11 (read-only, 2026-09-23): all 8 of the
+    # site's Unpaid/Overdue non-EUR invoices are also unrelated to any
+    # membership (no dues-schedule link, no member) -- excluding them here
+    # drops zero real dues invoices.
+    filters["currency"] = "EUR"
+
+    # Require SOME link to a member or dues schedule (#1218): a donation
+    # invoice or a general sale carries neither, and was otherwise
+    # indistinguishable from a real dues invoice except by blank enrichment
+    # fields once loaded. Excluding a row with NEITHER link is safe without
+    # repeating #1228 (an exclusion silently stranding real invoices):
+    # `set_membership_or_reason` below already handles an invoice whose
+    # `membership_dues_schedule_display` IS set but points at a broken/missing
+    # schedule, by returning the row WITH a reason instead of dropping it
+    # (#1239) -- this guard only removes rows that could never reach that
+    # branch in the first place. Measured on veg11 (read-only, 2026-09-23): of
+    # 1362 EUR/non-EUR Unpaid/Overdue invoices with no dues-schedule link,
+    # exactly ONE (a real "Membership Fee" invoice missing only its schedule
+    # link) carries a non-blank `member`; the OR keeps that one visible while
+    # excluding the other 1361 unrelated invoices.
+    or_filters = [
+        ["membership_dues_schedule_display", "is", "set"],
+        ["member", "is", "set"],
+    ]
+
     # Add date range filter
     if date_range == "overdue":
         filters["due_date"] = ["<", today()]
@@ -153,6 +181,7 @@ def load_unpaid_invoices(date_range="overdue", membership_type: str | None = Non
             "Membership Dues Schedule", filters={"membership_type": membership_type}, pluck="name"
         )
         if not schedules:
+            frappe.local.response["total_eligible"] = 0
             return []
         filters["membership_dues_schedule_display"] = ["in", schedules]
 
@@ -168,6 +197,7 @@ def load_unpaid_invoices(date_range="overdue", membership_type: str | None = Non
     invoices = frappe.get_all(
         "Sales Invoice",
         filters=filters,
+        or_filters=or_filters,
         fields=[
             "name as invoice",
             "customer",
@@ -187,6 +217,24 @@ def load_unpaid_invoices(date_range="overdue", membership_type: str | None = Non
         order_by="due_date",
         limit=limit,
     )
+
+    # #1219: report the true eligible count so the caller (the "Load Unpaid
+    # Invoices" dialog) can tell "loaded everything" from "silently truncated
+    # at the limit". Set as a SIBLING response key -- frappe/handler.py does
+    # `frappe.response["message"] = data`, which only overwrites "message" and
+    # leaves other keys already on `frappe.local.response` alone -- rather than
+    # folded into the return value, so every existing caller that treats the
+    # result as a plain list (~30 test call sites, plus other Python callers)
+    # keeps working unchanged. Only re-queries when the page came back exactly
+    # `limit` long: anything shorter already proves there was nothing left to
+    # truncate.
+    if limit is not None and len(invoices) == limit:
+        total_eligible = len(
+            frappe.get_all("Sales Invoice", filters=filters, or_filters=or_filters, pluck="name")
+        )
+    else:
+        total_eligible = len(invoices)
+    frappe.local.response["total_eligible"] = total_eligible
 
     # Optimized: Get member and mandate information in single batch query
     if invoices:

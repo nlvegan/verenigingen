@@ -168,6 +168,149 @@ class TestLoadUnpaidInvoicesSecure(SecureBase):
         self.assertIsInstance(result, list)
 
 
+class TestLoadUnpaidInvoicesSecureEligibilityGuards(SecureBase):
+    """#1218: `load_unpaid_invoices_secure` shares the non-secure loader's query
+    shape and the same omission -- no membership-link guard, no currency guard.
+    Same fix, same twin-parity requirement (#1244 tracks the OTHER divergence,
+    security levels, which is NOT fixed here). See
+    TestLoadUnpaidInvoicesEligibilityGuards (test_sepa_batch_ui.py) for the
+    measured veg11 counts this guard is based on.
+    """
+
+    def _customer_only_invoice(self, first_name, currency="EUR"):
+        f = SEPATestDataFactory(seed=frappe.generate_hash(length=4).__hash__() & 0xFFFF, use_faker=True)
+        self.factory = f
+        customer = f.create_test_customer(customer_name=f"Cust {first_name}").name
+        invoice = f.create_test_sales_invoice(
+            customer=customer,
+            grand_total=42.0,
+            currency=currency,
+            submit=True,
+        )
+        return invoice
+
+    def test_invoice_with_no_member_and_no_dues_schedule_link_is_excluded(self):
+        invoice = self._customer_only_invoice("SecNoLinkNoMember")
+
+        result = s.load_unpaid_invoices_secure(date_range="all", limit=500)
+        names = {r.get("invoice") for r in result}
+        self.assertNotIn(
+            invoice.name,
+            names,
+            "an invoice with no member and no dues-schedule link must not be offered as a SEPA candidate",
+        )
+
+    def test_invoice_with_member_but_no_dues_schedule_link_is_still_included(self):
+        f = SEPATestDataFactory(seed=frappe.generate_hash(length=4).__hash__() & 0xFFFF, use_faker=True)
+        self.factory = f
+        member = f.create_test_member(first_name="SecMemberNoSchedule")
+        customer = member.customer
+        if not customer:
+            customer = f.create_test_customer(customer_name=f"Cust {member.full_name}").name
+            member.db_set("customer", customer)
+        frappe.db.set_value("Customer", customer, "member", member.name)
+        invoice = f.create_test_sales_invoice(
+            customer=customer,
+            member=member.name,
+            grand_total=15.0,
+            submit=True,
+        )
+
+        result = s.load_unpaid_invoices_secure(date_range="all", limit=500)
+        names = {r.get("invoice") for r in result}
+        self.assertIn(
+            invoice.name,
+            names,
+            "a real member's invoice missing only its dues-schedule link must stay visible",
+        )
+        match = next(r for r in result if r.get("invoice") == invoice.name)
+        self.assertEqual(match["membership"], "")
+        self.assertIn("no membership dues schedule", match["unbatchable_reason"].lower())
+
+    def test_non_eur_invoice_is_excluded_from_the_picker(self):
+        data = self._build_member_with_invoice(first_name="SecNonEurPicker")
+        frappe.db.set_value(
+            "Sales Invoice", data["invoice"].name, "currency", "USD", update_modified=False
+        )
+
+        result = s.load_unpaid_invoices_secure(
+            date_range="all", membership_type=self._dues_schedule_membership_type(data), limit=500
+        )
+        names = {r.get("invoice") for r in result}
+        self.assertNotIn(
+            data["invoice"].name, names, "a non-EUR invoice must not be offered as a SEPA candidate"
+        )
+
+    def test_a_real_dues_invoice_is_still_offered(self):
+        data = self._build_member_with_invoice(first_name="SecEligibilityControl")
+        result = s.load_unpaid_invoices_secure(
+            date_range="all", membership_type=self._dues_schedule_membership_type(data), limit=500
+        )
+        names = {r.get("invoice") for r in result}
+        self.assertIn(data["invoice"].name, names)
+
+
+class TestLoadUnpaidInvoicesSecureTotalEligibleCount(SecureBase):
+    """#1219: same truncation-visibility fix as the non-secure twin; see
+    TestLoadUnpaidInvoicesTotalEligibleCount (test_sepa_batch_ui.py)."""
+
+    def test_total_eligible_equals_page_length_when_not_truncated(self):
+        data = self._build_member_with_invoice(first_name="SecTotalNoTrunc")
+        frappe.local.response.pop("total_eligible", None)
+
+        result = s.load_unpaid_invoices_secure(
+            date_range="all", membership_type=self._dues_schedule_membership_type(data), limit=500
+        )
+        self.assertEqual(len(result), 1)
+        self.assertEqual(frappe.local.response.get("total_eligible"), 1)
+
+    def test_total_eligible_reports_truncation_when_limit_caps_the_page(self):
+        data = self._build_member_with_invoice(first_name="SecTotalTrunc")
+        f = self.factory
+        f.create_test_sales_invoice(
+            customer=data["customer"],
+            member=data["member"].name,
+            membership=data["membership"].name,
+            membership_dues_schedule_display=data["schedule"].name,
+            due_date=add_days(today(), 20),
+            grand_total=25.0,
+            submit=True,
+        )
+        f.create_test_sales_invoice(
+            customer=data["customer"],
+            member=data["member"].name,
+            membership=data["membership"].name,
+            membership_dues_schedule_display=data["schedule"].name,
+            due_date=add_days(today(), 21),
+            grand_total=25.0,
+            submit=True,
+        )
+        membership_type = self._dues_schedule_membership_type(data)
+        frappe.local.response.pop("total_eligible", None)
+
+        result = s.load_unpaid_invoices_secure(date_range="all", membership_type=membership_type, limit=2)
+        self.assertEqual(len(result), 2, "page must be capped at the limit")
+        self.assertEqual(
+            frappe.local.response.get("total_eligible"),
+            3,
+            "must report the true eligible count, not the truncated page size",
+        )
+
+    def test_total_eligible_is_zero_when_membership_type_matches_no_schedules(self):
+        # The secure endpoint pre-checks `frappe.db.exists("Membership Type", ...)`
+        # (unlike the non-secure twin), so an arbitrary nonexistent name would
+        # raise SEPAError instead of exercising the "zero schedules" branch. Use
+        # a real, freshly created Membership Type that no schedule references.
+        from verenigingen.tests.fixtures.test_data_factory import ensure_membership_type_exists
+
+        mt_name = ensure_membership_type_exists(f"SecZeroEligible-{frappe.generate_hash(length=6)}")
+        frappe.local.response.pop("total_eligible", None)
+
+        result = s.load_unpaid_invoices_secure(date_range="all", membership_type=mt_name, limit=500)
+        self.assertEqual(result, [])
+        self.assertEqual(frappe.local.response.get("total_eligible"), 0)
+
+
 class TestLoadUnpaidInvoicesSecureExcludesAlreadyBatched(SecureBase):
     """#1217: `load_unpaid_invoices_secure` shares the non-secure loader's query
     shape and the same omission (confirmed in the issue, not independently
