@@ -35,7 +35,9 @@ caught it is why this file now has two tests instead of one:
 
 - `test_cleanup_does_not_orphan_a_non_ledger_submittable_doc` -- the case the fix
   CAN fully close: a submittable, non-ledger-bearing tracked document is cancelled
-  and removed cleanly, and nothing it referenced is left dangling.
+  and removed cleanly by `_cleanup_tracked_docs` itself (its only tracked doc --
+  see the test's own docstring for why a second, related tracked doc would
+  confound this with an unrelated production cleanup cascade).
 - `test_cleanup_does_not_strand_ledger_rows_for_a_leaked_invoice` -- the case it
   cannot: an ordinary Sales Invoice posts real GL/Payment Ledger Entry rows on
   submit, so the ledger guard means it is deliberately left as a leak (still
@@ -200,17 +202,28 @@ class TrackedDocCleanupLedgerAndDanglingLinkSafetyTest(unittest.TestCase):
 
     def test_cleanup_does_not_orphan_a_non_ledger_submittable_doc(self):
         """The case this fix CAN close completely: a submittable, non-ledger-
-        bearing tracked document (Membership) is cancelled and removed cleanly,
-        and the Member it depends on is untouched by anything left dangling.
+        bearing tracked document (Membership) is cancelled and removed cleanly
+        by `_cleanup_tracked_docs` ITSELF.
+
+        Deliberately tracks ONLY the Membership, not the Member it belongs to.
+        A reviewer caught that the original version tracked both: force-
+        deleting Member fires `Member.on_trash` ->
+        `MemberCleanupService.handle_member_deletion`
+        (member_cleanup_service.py:165-176), which independently cancels and
+        force-deletes every Membership for that member as a production side
+        effect -- confirmed by removing the ENTIRE cancel-before-delete block
+        from `_cleanup_tracked_docs` and re-running with both tracked: the
+        Membership still vanished, cleaned up by that cascade instead of by
+        the code under test, so the assertion held whether or not the fix
+        existed. Tracking only the Membership removes that confound: the
+        Member is created and cleaned up by this test's own `tearDown`
+        (`_leftover`), never routed through `_cleanup_tracked_docs`, so
+        nothing but the method under test can make this assertion pass.
         """
         member = self._probe_make_member("A")
         membership = self._create_membership(member.name)
 
-        # Real creation order (Member then Membership); tearDownClass drains in
-        # reverse, so Membership -- the submitted, newer record -- is handled
-        # first, exactly as it would be for a real class-level fixture chain.
         VereningingenTestCase._track_created_docs = [
-            {"doctype": "Member", "name": member.name},
             {"doctype": "Membership", "name": membership.name},
         ]
         VereningingenTestCase._cleanup_tracked_docs()
@@ -219,11 +232,6 @@ class TrackedDocCleanupLedgerAndDanglingLinkSafetyTest(unittest.TestCase):
             frappe.db.exists("Membership", membership.name),
             "a non-ledger-bearing submitted Membership should be cancelled and "
             "fully removed by the fix, not left behind as a leak",
-        )
-        self.assertFalse(
-            frappe.db.exists("Member", member.name),
-            "with the Membership gone, the Member it referenced should also "
-            "have been removed -- nothing should have blocked this drain",
         )
 
     def test_cleanup_does_not_strand_ledger_rows_for_a_leaked_invoice(self):
