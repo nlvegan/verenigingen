@@ -37,10 +37,9 @@ import re
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.js_source_scan import strip_js_comments
 
 FORM_ON_PATTERN = re.compile(r"""frappe\.ui\.form\.on\(\s*(['"])([^'"]+)\1""")
-BLOCK_COMMENT_PATTERN = re.compile(r"/\*.*?\*/", re.DOTALL)
-LINE_COMMENT_PATTERN = re.compile(r"//[^\n]*")
 
 # (doctype, path-relative-to-app) pairs the scan below already knows are dead, kept
 # out of the hard assertion so this test gates NEW occurrences of the class without
@@ -63,18 +62,13 @@ def _app_path():
     return frappe.get_app_path("verenigingen")
 
 
-def _strip_comments(content):
-    content = BLOCK_COMMENT_PATTERN.sub("", content)
-    return LINE_COMMENT_PATTERN.sub("", content)
-
-
 def _iter_form_on_doctype_targets():
     app_path = _app_path()
     for path in glob.glob(os.path.join(app_path, "**", "*.js"), recursive=True):
         if f"{os.sep}node_modules{os.sep}" in path:
             continue
         with open(path, encoding="utf-8", errors="ignore") as fh:
-            content = _strip_comments(fh.read())
+            content = strip_js_comments(fh.read())
         for match in FORM_ON_PATTERN.finditer(content):
             yield match.group(2), os.path.relpath(path, app_path)
 

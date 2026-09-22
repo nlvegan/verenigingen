@@ -665,8 +665,12 @@ function validate_mandates(frm) {
 						frappe.model.set_value(inv.doctype, inv.name, 'mandate_reference', data.mandate_reference);
 						// Same field-name bug as the invoices_add handler above
 						// (mandate_sign_date, not mandate_date) -- this one was reachable
-						// today via the unconditional "Validate Mandates" button, not just
-						// latent behind #1251's dead registration.
+						// today, not just latent behind #1251's dead registration. The
+						// "Validate Mandates" button itself has no client-side visibility
+						// pre-check (unlike "Load Unpaid Invoices" above, which asks
+						// can_load_unpaid_invoices first), but validate_invoice_mandate IS
+						// gated server-side at HIGH (PROFILE_ONLY_LEVELS), so this was live
+						// for any user who could actually reach it.
 						frappe.model.set_value(inv.doctype, inv.name, 'mandate_sign_date', data.mandate_date);
 					} else {
 						frappe.model.set_value(inv.doctype, inv.name, 'status', 'Invalid');
