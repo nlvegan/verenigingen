@@ -81,7 +81,14 @@ class Membership(Document):
 
         for schedule_name in dues_schedules:
             try:
-                frappe.delete_doc("Membership Dues Schedule", schedule_name, force=True)
+                # #1264: force=True bypasses the ordinary link-integrity check, so
+                # a schedule still named by a Sales Invoice's
+                # membership_dues_schedule_display was deleted anyway, leaving the
+                # invoice with a dangling reference (#1250's shape). Without
+                # force, a still-referenced schedule raises LinkExistsError,
+                # caught below and logged like any other per-schedule failure --
+                # the schedule survives instead of orphaning the invoice.
+                frappe.delete_doc("Membership Dues Schedule", schedule_name)
                 frappe.logger().info(f"Deleted orphaned Membership Dues Schedule {schedule_name}")
             except Exception as e:
                 frappe.logger().error(f"Error deleting Membership Dues Schedule {schedule_name}: {str(e)}")

@@ -31,6 +31,7 @@ from frappe.utils import add_days, today
 
 from verenigingen.services.billing import invoice_management as im
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils import ledger_rows
 
 
 class TestInvoiceManagement(EnhancedTestCase):
@@ -59,7 +60,27 @@ class TestInvoiceManagement(EnhancedTestCase):
         for doctype, name in reversed(self._committed_docs):
             if frappe.db.exists(doctype, name):
                 try:
+                    # A submitted, submittable doc (e.g. the Sales Invoice fixture
+                    # used by the dangling-link tests below) must be cancelled
+                    # first -- force=True bypasses link-integrity but NOT the
+                    # submitted-record guard, so a bare force-delete would raise
+                    # and leave the row behind. ignore_links=True mirrors the
+                    # harness's own cancel-before-delete pattern (this cancel is
+                    # test teardown, not the code under test). Ledger rows are
+                    # swept after the parent is gone so a real Sales Invoice does
+                    # not leak GL/Payment Ledger Entry rows into later tests.
+                    if (
+                        frappe.get_meta(doctype).is_submittable
+                        and frappe.db.get_value(doctype, name, "docstatus") == 1
+                    ):
+                        doc = frappe.get_doc(doctype, name)
+                        doc.flags.ignore_permissions = True
+                        doc.flags.ignore_links = True
+                        doc.cancel()
+                    had_ledger_rows = ledger_rows.has_ledger_rows(doctype, name)
                     frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+                    if had_ledger_rows:
+                        ledger_rows.purge_ledger_rows(doctype, name)
                 except Exception:
                     pass
         frappe.db.commit()
@@ -147,8 +168,70 @@ class TestInvoiceManagement(EnhancedTestCase):
         frappe.db.set_value(
             "Membership Dues Schedule", ds.name, "member", bogus_member, update_modified=False
         )
+        # #1264: the cleanup endpoints below now respect ordinary link-integrity
+        # (frappe.delete_doc without force) instead of bypassing it, so a
+        # schedule this test's OWN still-live Member still names via its own
+        # current_dues_schedule / application_dues_schedule back-links (or via
+        # a Member Fee Change History child row the same save() auto-appended,
+        # which Frappe's link check reports under the parent Member) is not a
+        # true orphan any more -- LinkExistsError would (correctly) name that
+        # Member, unrelated to whatever this test is actually exercising. In
+        # production this back-link cannot exist, because the Member row that
+        # is_orphaned() detects is gone entirely; clear it here so this
+        # fixture models that instead of relying on the old bypass to hide it.
+        for fieldname in ("current_dues_schedule", "application_dues_schedule"):
+            if frappe.db.get_value("Member", member.name, fieldname) == ds.name:
+                frappe.db.set_value("Member", member.name, fieldname, None, update_modified=False)
+        frappe.db.delete("Member Fee Change History", {"dues_schedule": ds.name})
         frappe.db.commit()
         return ds.name
+
+    def _make_orphaned_schedule_with_dangling_invoice(self):
+        """#1264: an orphaned schedule (member link dangling, as above) that is
+        ALSO still referenced by a real, submitted Sales Invoice via
+        `membership_dues_schedule_display` -- the #1250 shape. A cleanup that
+        force-deletes (or raw `frappe.db.delete`s) this schedule leaves the
+        invoice with a dangling `membership_dues_schedule_display`; the correct
+        behaviour is to refuse the delete (LinkExistsError) and leave the
+        schedule intact. Returns (schedule_name, invoice_name).
+        """
+        sched_name = self._make_orphaned_schedule()
+
+        company = "_Test Company"
+        customer = frappe.db.get_value("Customer", {}, "name")
+        item = frappe.db.get_value("Item", {"is_sales_item": 1}, "name")
+        income_account = frappe.db.get_value(
+            "Account",
+            {
+                "company": company,
+                "account_type": "Income Account",
+                "is_group": 0,
+                "account_currency": frappe.db.get_value("Company", company, "default_currency"),
+            },
+            "name",
+        )
+        cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
+
+        si = frappe.new_doc("Sales Invoice")
+        si.customer = customer
+        si.company = company
+        si.membership_dues_schedule_display = sched_name
+        si.set_posting_time = 1
+        si.append(
+            "items",
+            {
+                "item_code": item,
+                "qty": 1,
+                "rate": 25,
+                "income_account": income_account,
+                "cost_center": cost_center,
+            },
+        )
+        si.insert(ignore_permissions=True)
+        si.submit()
+        self._committed_docs.append(("Sales Invoice", si.name))
+        frappe.db.commit()
+        return sched_name, si.name
 
     def _make_decoy_orphans(self, count, seconds_ago=3600):
         """Create `count` orphaned schedules that predate our own fixture, to
@@ -314,6 +397,54 @@ class TestInvoiceManagement(EnhancedTestCase):
         if data["orphaned_found"] == 0:
             self.assertEqual(data["message"], "No orphaned dues schedules found")
 
+    def test_cleanup_schedules_refuses_when_invoice_still_references_it(self):
+        """#1264: the schedule is orphaned (member link dangling) AND still
+        named by a submitted Sales Invoice via `membership_dues_schedule_display`
+        -- the exact shape of #1250's 134 dangling rows. Before the fix, this
+        endpoint used a raw `frappe.db.delete`, which bypasses Frappe's
+        link-integrity check and deletes the schedule anyway, leaving the
+        invoice with a dangling reference. After the fix, the delete must be
+        refused (LinkExistsError, caught by the existing per-item handler) and
+        the schedule must survive.
+        """
+        sched_name, invoice_name = self._make_orphaned_schedule_with_dangling_invoice()
+
+        data = im.cleanup_orphaned_schedules(dry_run=False)["data"]
+
+        self.assertTrue(
+            frappe.db.exists("Membership Dues Schedule", sched_name),
+            "a schedule still referenced by a Sales Invoice must not be deleted "
+            "-- doing so leaves the invoice with a dangling "
+            "membership_dues_schedule_display (#1250's shape)",
+        )
+        my_item = next(
+            (p for p in data["processed_schedules"] if p["schedule"] == sched_name),
+            None,
+        )
+        self.assertIsNotNone(my_item, "our referenced orphan should be processed")
+        self.assertEqual(my_item["action"], "delete_failed")
+        self.assertIn(invoice_name, my_item.get("error", ""))
+        # The invoice itself is untouched and still names a real schedule.
+        self.assertEqual(
+            frappe.db.get_value("Sales Invoice", invoice_name, "membership_dues_schedule_display"),
+            sched_name,
+        )
+
+    def test_cleanup_schedules_still_deletes_unreferenced_orphan(self):
+        """Positive control for the fix above: an orphaned schedule with NO
+        referencing documents must still be deleted normally -- the fix must
+        not turn every delete into a refusal.
+        """
+        sched_name = self._make_orphaned_schedule()
+        data = im.cleanup_orphaned_schedules(dry_run=False)["data"]
+        self.assertFalse(frappe.db.exists("Membership Dues Schedule", sched_name))
+        my_item = next(
+            (p for p in data["processed_schedules"] if p["schedule"] == sched_name),
+            None,
+        )
+        self.assertIsNotNone(my_item)
+        self.assertEqual(my_item["action"], "deleted")
+
     # ------------------------------------------------------------------
     # cleanup_orphaned_member_references
     # ------------------------------------------------------------------
@@ -377,6 +508,50 @@ class TestInvoiceManagement(EnhancedTestCase):
             # Clean run committed -> orphan really deleted.
             self.assertFalse(frappe.db.exists("Membership Dues Schedule", sched_name))
 
+    def test_cleanup_membership_data_refuses_when_invoice_still_references_schedule(self):
+        """#1264: same defect as test_cleanup_schedules_refuses_..., but for the
+        second raw `frappe.db.delete` call in `cleanup_orphaned_membership_data`
+        (invoice_management.py, the "Also clean up orphaned dues schedules"
+        branch).
+
+        This endpoint operates SITE-WIDE (like the neighbouring
+        test_cleanup_membership_data_real_deletes_orphan_schedule already notes),
+        so it can pick up unrelated pre-existing debris on a shared test site and
+        roll the whole call back for reasons that have nothing to do with this
+        fix. Scope the assertion to OUR item's own recorded action (whether the
+        delete call for OUR schedule itself raised), not to the call's aggregate
+        success/errors, which is not discriminating in a dirty site.
+        """
+        sched_name, invoice_name = self._make_orphaned_schedule_with_dangling_invoice()
+
+        result = im.cleanup_orphaned_membership_data(dry_run=False)
+        data = result["data"]
+
+        my_item = next(
+            (
+                it
+                for it in data["processed_items"]
+                if it.get("type") == "orphaned_schedule" and it.get("name") == sched_name
+            ),
+            None,
+        )
+        self.assertIsNotNone(my_item, "our orphan schedule should be processed")
+        self.assertEqual(
+            my_item["action"],
+            "delete_failed",
+            "a schedule still referenced by a Sales Invoice must not be deleted "
+            "-- raw frappe.db.delete bypasses link-integrity and would orphan "
+            "the invoice's membership_dues_schedule_display (#1250's shape)",
+        )
+        self.assertIn(invoice_name, my_item.get("error", ""))
+        # The schedule row and the invoice's reference to it are untouched
+        # regardless of whether the whole call committed or rolled back.
+        self.assertTrue(frappe.db.exists("Membership Dues Schedule", sched_name))
+        self.assertEqual(
+            frappe.db.get_value("Sales Invoice", invoice_name, "membership_dues_schedule_display"),
+            sched_name,
+        )
+
     def test_cleanup_membership_data_real_run_succeeds_without_prior_commit(self):
         """#1143: cleanup_orphaned_membership_data's `frappe.db.begin()` (guarded
         by `if not dry_run:`) raises ImplicitCommitError against ANY connection
@@ -393,6 +568,16 @@ class TestInvoiceManagement(EnhancedTestCase):
         frappe.db.set_value(
             "Membership Dues Schedule", ds.name, "member", bogus_member, update_modified=False
         )
+        # #1264: same back-link clearing as _make_orphaned_schedule() -- see its
+        # comment. Without it, this Member's own current_dues_schedule /
+        # Member Fee Change History row still names the schedule, so the fixed
+        # (link-integrity-respecting) delete refuses for a reason unrelated to
+        # what this test is actually exercising (the pending-write/commit
+        # ordering from #1143).
+        for fieldname in ("current_dues_schedule", "application_dues_schedule"):
+            if frappe.db.get_value("Member", member.name, fieldname) == ds.name:
+                frappe.db.set_value("Member", member.name, fieldname, None, update_modified=False)
+        frappe.db.delete("Member Fee Change History", {"dues_schedule": ds.name})
         # No commit here -- this write is still pending when we call the endpoint.
 
         result = im.cleanup_orphaned_membership_data(dry_run=False)

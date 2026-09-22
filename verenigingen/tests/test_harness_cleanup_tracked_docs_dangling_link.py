@@ -64,6 +64,7 @@ import unittest
 
 import frappe
 
+from verenigingen.services.member.lifecycle.member_cleanup_service import get_member_cleanup_service
 from verenigingen.tests.utils import ledger_rows
 from verenigingen.tests.utils.base import VereningingenTestCase
 
@@ -163,11 +164,18 @@ class TrackedDocCleanupLedgerAndDanglingLinkSafetyTest(unittest.TestCase):
         frappe.db.commit()
         return membership
 
-    def _probe_make_schedule(self, tag, member_name):
+    def _probe_make_schedule(self, tag, member_name=None, membership_name=None):
+        """`membership_name` is optional and additive: #1264's on_trash tests
+        below (Membership.on_trash's own schedule cleanup) need a schedule
+        keyed by `membership`, not just `member`.
+        """
         mds = frappe.new_doc("Membership Dues Schedule")
         mds.schedule_name = f"PROBE-1250{tag}-Schedule-{frappe.generate_hash(length=6)}"
         mds.membership_type = self.membership_type
-        mds.member = member_name
+        if member_name:
+            mds.member = member_name
+        if membership_name:
+            mds.membership = membership_name
         mds.status = "Active"
         mds.billing_frequency = "Annual"
         mds.currency = "EUR"
@@ -176,6 +184,21 @@ class TrackedDocCleanupLedgerAndDanglingLinkSafetyTest(unittest.TestCase):
         mds.flags.ignore_validate = True
         mds.insert(ignore_permissions=True, ignore_mandatory=True)
         self._leftover.append(("Membership Dues Schedule", mds.name))
+        if member_name:
+            # #1264: a save() side effect (unrelated to this schedule's OWN
+            # subject) points the Member's own current_dues_schedule /
+            # application_dues_schedule back at this schedule even for a
+            # bare, ignore_validate insert -- confirmed empirically on
+            # test_site_3. Left alone, that back-link makes Frappe's ordinary
+            # link-integrity check refuse a delete for a reason unrelated to
+            # whatever a given test is actually exercising (the Sales
+            # Invoice link, or -- for a positive control -- no link at all).
+            # Clear it so the only remaining reference is whatever the test
+            # itself created.
+            for fieldname in ("current_dues_schedule", "application_dues_schedule"):
+                if frappe.db.get_value("Member", member_name, fieldname) == mds.name:
+                    frappe.db.set_value("Member", member_name, fieldname, None, update_modified=False)
+            frappe.db.delete("Member Fee Change History", {"dues_schedule": mds.name})
         return mds
 
     def _create_submitted_invoice(self, schedule_name):
@@ -285,3 +308,104 @@ class TrackedDocCleanupLedgerAndDanglingLinkSafetyTest(unittest.TestCase):
             "otherwise touched its ledger rows) instead of leaving it alone, "
             "which either writes reversals or strands rows (#328/#482).",
         )
+
+    # ------------------------------------------------------------------
+    # #1264: the same dangling-link defect, in the two LIVE production
+    # `on_trash` cascades rather than the test harness above. Reusing this
+    # file's fixture helpers (same subject: a Membership Dues Schedule a
+    # Sales Invoice still names via `membership_dues_schedule_display`)
+    # rather than duplicating them in a new file.
+    #
+    # - `Member.on_trash` -> `MemberCleanupService.handle_member_deletion`
+    #   (member_cleanup_service.py:200) clears a Sales Invoice's `member`
+    #   reference ("preserve invoices") but never touches
+    #   `membership_dues_schedule_display`, then force-deleted every
+    #   Membership Dues Schedule for that member.
+    # - `Membership.on_trash` (membership.py:84) did the same for schedules
+    #   linked by `membership`, independent of any Member deletion.
+    #
+    # Both are real `on_trash` hooks, reachable through any ordinary
+    # document deletion of a Member or a Membership (Desk delete with the
+    # "delete linked documents" confirmation, or any admin/service code that
+    # force-deletes one), not just the test harness above.
+    # ------------------------------------------------------------------
+
+    def test_member_deletion_does_not_orphan_invoice_via_dangling_schedule(self):
+        """MemberCleanupService.handle_member_deletion (member_cleanup_service.py:200)
+        must not force-delete a schedule a Sales Invoice still names.
+        """
+        member = self._probe_make_member("E")
+        # No Membership record for this member -- isolates this test to the
+        # member-level dues-schedule cleanup (member_cleanup_service.py:200),
+        # not the sibling Membership.on_trash cascade (membership.py:84).
+        ds = self._probe_make_schedule("E", member_name=member.name)
+        si = self._create_submitted_invoice(ds.name)
+
+        get_member_cleanup_service().handle_member_deletion(member)
+
+        self.assertTrue(
+            frappe.db.exists("Membership Dues Schedule", ds.name),
+            "a schedule still referenced by a Sales Invoice must not be "
+            "force-deleted -- doing so leaves the invoice with a dangling "
+            "membership_dues_schedule_display (#1250's shape)",
+        )
+        self.assertEqual(
+            frappe.db.get_value("Sales Invoice", si.name, "membership_dues_schedule_display"),
+            ds.name,
+        )
+
+    def test_member_deletion_still_deletes_unreferenced_schedule(self):
+        """Positive control: a schedule with no referencing documents is still
+        cleaned up normally when its Member is deleted.
+        """
+        member = self._probe_make_member("F")
+        ds = self._probe_make_schedule("F", member_name=member.name)
+
+        get_member_cleanup_service().handle_member_deletion(member)
+
+        self.assertFalse(frappe.db.exists("Membership Dues Schedule", ds.name))
+
+    def test_membership_deletion_does_not_orphan_invoice_via_dangling_schedule(self):
+        """Membership.on_trash (membership.py:84) must not force-delete a
+        schedule a Sales Invoice still names, independent of any Member
+        deletion.
+        """
+        member = self._probe_make_member("G")
+        membership = self._create_membership(member.name)
+        ds = self._probe_make_schedule("G", membership_name=membership.name)
+        si = self._create_submitted_invoice(ds.name)
+
+        # _create_membership() submits it, so it must be cancelled before
+        # force=True can delete it (force bypasses link-integrity but NOT the
+        # submitted-record guard -- the same lesson #1266 already applies
+        # elsewhere in this file), mirroring the real production caller
+        # (member_cleanup_service.py:174: cancel if submitted, then
+        # force-delete). Neither step affects on_trash's own behaviour, which
+        # is what this test exercises.
+        membership.cancel()
+        frappe.delete_doc("Membership", membership.name, force=True, ignore_permissions=True)
+
+        self.assertTrue(
+            frappe.db.exists("Membership Dues Schedule", ds.name),
+            "a schedule still referenced by a Sales Invoice must not be "
+            "force-deleted when its Membership is deleted -- doing so leaves "
+            "the invoice with a dangling membership_dues_schedule_display "
+            "(#1250's shape)",
+        )
+        self.assertEqual(
+            frappe.db.get_value("Sales Invoice", si.name, "membership_dues_schedule_display"),
+            ds.name,
+        )
+
+    def test_membership_deletion_still_deletes_unreferenced_schedule(self):
+        """Positive control: a schedule with no referencing documents is still
+        cleaned up normally when its Membership is deleted.
+        """
+        member = self._probe_make_member("H")
+        membership = self._create_membership(member.name)
+        ds = self._probe_make_schedule("H", membership_name=membership.name)
+
+        membership.cancel()
+        frappe.delete_doc("Membership", membership.name, force=True, ignore_permissions=True)
+
+        self.assertFalse(frappe.db.exists("Membership Dues Schedule", ds.name))

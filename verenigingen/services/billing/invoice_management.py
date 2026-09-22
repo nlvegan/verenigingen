@@ -450,8 +450,20 @@ def cleanup_orphaned_schedules(dry_run=True, max_cleanup=20) -> OperationResult[
 
                 if not dry_run:
                     try:
-                        # Use direct DB deletion to bypass validation rules entirely
-                        frappe.db.delete("Membership Dues Schedule", {"name": schedule_data["name"]})
+                        # #1264: a raw frappe.db.delete() bypasses Frappe's
+                        # link-integrity check entirely, so a schedule still
+                        # named by a Sales Invoice's membership_dues_schedule_display
+                        # was deleted anyway, leaving the invoice with a dangling
+                        # reference (#1250's exact shape: 134 unpaid invoices
+                        # pointing at a schedule that no longer existed). Use the
+                        # normal document delete instead, so a still-referenced
+                        # schedule raises LinkExistsError -- caught below and
+                        # recorded as delete_failed, same as any other failure
+                        # this loop already handles per-item.
+                        # Security: Cleanup function protected by Administrator/System Manager role check
+                        frappe.delete_doc(
+                            "Membership Dues Schedule", schedule_data["name"], ignore_permissions=True
+                        )
                         schedule_result["action"] = "deleted"
                         results["cleaned_up"] += 1
                     except Exception as e:
@@ -866,9 +878,20 @@ def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20) -> OperationR
 
             if not dry_run:
                 try:
-                    # Use direct DB deletion to bypass validation rules entirely
-                    # This is safe for orphaned schedules since the member no longer exists
-                    frappe.db.delete("Membership Dues Schedule", {"name": schedule_data["name"]})
+                    # #1264: the member being gone does not mean nothing else
+                    # references this schedule -- a raw frappe.db.delete()
+                    # bypassed Frappe's link-integrity check entirely, so a
+                    # schedule still named by a Sales Invoice's
+                    # membership_dues_schedule_display was deleted anyway,
+                    # leaving the invoice with a dangling reference (#1250's
+                    # exact shape). Use the normal document delete so a
+                    # still-referenced schedule raises LinkExistsError --
+                    # caught below and recorded as delete_failed, same as any
+                    # other per-item failure this loop already handles.
+                    # Security: Cleanup function protected by Administrator/System Manager role check
+                    frappe.delete_doc(
+                        "Membership Dues Schedule", schedule_data["name"], ignore_permissions=True
+                    )
                     schedule_info["action"] = "deleted"
                     results["orphaned_schedules"]["cleaned"] += 1
                 except Exception as e:

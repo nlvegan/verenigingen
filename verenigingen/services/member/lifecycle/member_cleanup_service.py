@@ -197,7 +197,19 @@ class MemberCleanupService(StatelessService):
 
         for schedule_name in dues_schedules:
             try:
-                frappe.delete_doc("Membership Dues Schedule", schedule_name, force=True)
+                # #1264: force=True bypasses the ordinary link-integrity check
+                # (check_if_doc_is_linked), so a schedule still named by a Sales
+                # Invoice's membership_dues_schedule_display was deleted anyway --
+                # the Sales Invoice above only has its `member` reference cleared,
+                # not the schedule display field, so this left the invoice
+                # pointing at a schedule that no longer existed (#1250's exact
+                # shape: 134 unpaid Sales Invoices with a dangling
+                # membership_dues_schedule_display). Without force, a
+                # still-referenced schedule raises LinkExistsError, caught below
+                # and logged, exactly like any other failure this loop already
+                # handles per-schedule -- the schedule is left intact instead of
+                # orphaning the invoice's reference to it.
+                frappe.delete_doc("Membership Dues Schedule", schedule_name)
                 self.logger.info(f"Deleted orphaned Membership Dues Schedule {schedule_name}")
             except Exception as e:
                 self.logger.error(f"Error deleting Membership Dues Schedule {schedule_name}: {str(e)}")
