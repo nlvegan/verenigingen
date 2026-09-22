@@ -82,8 +82,18 @@ class TestLoadUnpaidInvoicesSecure(SecureBase):
         self.assertIsInstance(result, list)
 
     def test_loaded_invoice_enriched_with_member_and_mandate(self):
+        # Scoped to this chain's own membership type (#1223). An unscoped call caps
+        # at `limit` and orders by due_date, so on any site already holding more than
+        # `limit` unpaid invoices the fixture falls off the page and this fails
+        # whether or not the code is correct. Measured on test_site_3, 2026-09-22:
+        # 584 unpaid invoices vs limit=500, and this test failed there on untouched
+        # develop for exactly that reason. Its non-secure counterpart
+        # (`test_loaded_invoice_has_member_and_mandate_fields`) was already scoped;
+        # this file was the sibling #1223 names as never having had the treatment.
         data = self._build_member_with_invoice(first_name="SecLoadHit")
-        result = s.load_unpaid_invoices_secure(date_range="all", limit=500)
+        result = s.load_unpaid_invoices_secure(
+            date_range="all", membership_type=self._dues_schedule_membership_type(data), limit=500
+        )
         match = next((r for r in result if r.get("invoice") == data["invoice"].name), None)
         self.assertIsNotNone(match, "fresh unpaid invoice should be loaded")
         self.assertEqual(match["member"], data["member"].name)
@@ -497,3 +507,54 @@ class TestCreateSepaBatchValidatedSecure(SecureBase):
         )
         self.assertFalse(result["success"])
         self.assertIn("not in EUR", " ".join(result.get("errors", [])))
+
+
+class TestLoadUnpaidInvoicesSecureResolvesRealMembership(SecureBase):
+    """#1239, twin half: the `_secure` loader must emit a Membership, not a schedule.
+
+    #1227 gave this endpoint the non-secure twin's `membership` alias to restore
+    parity. #1239 then established the alias was wrong in BOTH: it put a Membership
+    Dues Schedule name into a key that `Direct Debit Batch Invoice.membership`
+    (Link -> Membership, reqd) consumes. Fixing only the non-secure twin would have
+    left these two divergent for the third time (#1227, #1244), so both resolve the
+    real Membership from `Membership Dues Schedule.membership` -- the link
+    `create_sepa_batch_validated` documents as AUTHORITATIVE.
+    """
+
+    def test_loaded_row_carries_the_membership_not_the_dues_schedule(self):
+        data = self._build_member_with_invoice(first_name="SecRealMembership")
+        expected = frappe.db.get_value("Membership Dues Schedule", data["schedule"].name, "membership")
+        self.assertTrue(expected, "fixture precondition: the schedule must name a Membership")
+        self.assertNotEqual(
+            expected,
+            data["schedule"].name,
+            "fixture precondition: the names must differ, or the alias bug is invisible",
+        )
+
+        rows = s.load_unpaid_invoices_secure(
+            date_range="all", membership_type=self._dues_schedule_membership_type(data), limit=500
+        )
+        match = next((r for r in rows if r.get("invoice") == data["invoice"].name), None)
+        self.assertIsNotNone(match, "freshly created unpaid invoice should be loaded")
+        self.assertEqual(match["membership"], expected)
+        self.assertNotEqual(match["membership"], match["dues_schedule"])
+
+    def test_the_two_twins_return_the_same_membership_for_the_same_invoice(self):
+        """Parity is the property that keeps regressing, so assert it directly."""
+        from verenigingen.verenigingen_payments.api import sepa_batch_ui as nonsec
+
+        data = self._build_member_with_invoice(first_name="SecTwinParity")
+        mtype = self._dues_schedule_membership_type(data)
+
+        secure_rows = s.load_unpaid_invoices_secure(date_range="all", membership_type=mtype, limit=500)
+        plain_rows = nonsec.load_unpaid_invoices(date_range="all", membership_type=mtype, limit=500)
+
+        def pick(rows):
+            return next((r for r in rows if r.get("invoice") == data["invoice"].name), None)
+
+        a, b = pick(secure_rows), pick(plain_rows)
+        self.assertIsNotNone(a)
+        self.assertIsNotNone(b)
+        self.assertEqual(a["membership"], b["membership"])
+        self.assertEqual(a["dues_schedule"], b["dues_schedule"])
+        self.assertEqual(a["unbatchable_reason"], b["unbatchable_reason"])
