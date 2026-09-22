@@ -287,8 +287,22 @@ class PaymentReconciliationManager:
         if match:
             batch_ref = match.group(1)
 
-            # Find matching batch
-            batch = frappe.db.exists("Direct Debit Batch", {"name": ["like", f"%{batch_ref}%"]})
+            # Find matching batch. #1253: same gap #1246 fixed on the sibling
+            # find_original_sepa_batch_for_return() -- a batch whose SEPA file
+            # generation was deferred (Staff-submit path, PR #1231) can still be
+            # docstatus=1/status="Draft"/sepa_file_generated=0, i.e. no file was
+            # ever produced for it to have reached a bank. Unlike that sibling
+            # (which only builds a display list), a match here feeds
+            # create_reconciliation() -> create_payment_entries_from_batch(), a
+            # live Payment Entry writer, at the highest confidence (1.0) of any
+            # strategy in match_transaction. sepa_file_generated is a proxy, not
+            # proof of transmission (see #1246's comment on the sibling filter),
+            # but a batch with no generated file cannot have reached a bank, so
+            # it must not be treated as an exact reference match.
+            batch = frappe.db.exists(
+                "Direct Debit Batch",
+                {"name": ["like", f"%{batch_ref}%"], "sepa_file_generated": 1},
+            )
 
             if batch:
                 batch_doc = frappe.get_doc("Direct Debit Batch", batch)

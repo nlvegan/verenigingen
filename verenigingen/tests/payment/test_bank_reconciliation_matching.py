@@ -178,7 +178,11 @@ class TestReconciliationMatchingPositive(EnhancedTestCase):
     def test_batch_reference_matches_seeded_batch(self):
         """match_by_batch_reference finds a real Direct Debit Batch when the
         description carries its BATCH- name and the deposit equals total_amount."""
-        batch = self.create_test_direct_debit_batch(invoice_count=1)
+        # sepa_file_generated=1: models a batch whose file WAS produced (#1253
+        # requires this field for an exact match). The factory default is 0
+        # (a fresh Draft batch), which is the case test_never_generated_batch_
+        # not_matched (test_bank_transaction_reconciliation.py) now covers.
+        batch = self.create_test_direct_debit_batch(invoice_count=1, sepa_file_generated=1)
         # The batch autonames to BATCH-YY-MM-#### which the matcher's
         # r"BATCH-([A-Z0-9-]+)" regex captures, then resolves via a LIKE on name.
         self.assertTrue(batch.name.startswith("BATCH-"))
