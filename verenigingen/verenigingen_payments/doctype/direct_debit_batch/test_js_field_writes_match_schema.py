@@ -30,26 +30,33 @@ Why this needs a test at all (#1251/#1263 review):
     field name written by either call shape and checks it against the real
     DocType schema, so it generalises the gate instead of pinning one line.
 
-Parsing scope, and what happens outside it (round-2 review finding):
-    A first version of this test matched only a quoted string as the
-    field-name argument, via a regex requiring ``['"]`` in that position. That
-    silently passed on two shapes that are real, legitimate Frappe API calls
-    and would have hidden the exact defect class this test exists to catch:
+Parsing scope -- read this before touching the parser again:
+    This is **not a JS parser**, and after two rounds of trying to make it a
+    slightly-better one, round 3 stopped. It checks exactly one shape and
+    refuses everything else:
 
-    - ``frm.set_value({ field1: v1, field2: v2 })`` -- the documented
-      multi-field object-literal form (frappe/public/js/frappe/form/form.js,
-      ``set_value``), not merely a hypothetical shape.
-    - A field name passed as a variable/expression, e.g.
-      ``frappe.model.set_value(cdt, cdn, someVar, value)``.
+    - A field-name argument that is a **plain quoted string literal**
+      (``'foo'`` or ``"foo"``) is checked against the schema. This covers all
+      17 real call sites in this file today.
+    - **Anything else is unparseable and hard-fails** the
+      ``test_no_unparseable_*`` tests below with "needs manual audit" --
+      a variable (``frappe.model.set_value(cdt, cdn, someVar, value)``), a
+      template literal, a concatenation, AND an object literal
+      (``frm.set_value({ field1: v1, field2: v2 })``, the documented
+      multi-field form of ``frm.set_value``).
 
-    Neither shape appears in this file today (see the "no unparseable calls"
-    tests below, which assert that and fail loudly if it ever stops being
-    true), but a scanner that silently skips what it cannot parse is this
-    repo's single most-repeated failure. So this version does two things
-    instead of one: (1) also parses the object-literal form and checks its
-    keys, and (2) treats any OTHER shape (a variable, a template literal, a
-    concatenation, ...) as a hard failure demanding manual audit, rather than
-    quietly not matching it.
+    An earlier version of this test (round 2) also tried to parse the
+    object-literal form and extract its keys. That attempt itself shipped two
+    defects in one round: a flat regex that harvested keys from *nested*
+    objects (phantom "missing field" reports against fields never actually
+    written), and a spread/computed-key case that was silently absorbed with
+    no warning at all -- the exact "silently skip what it cannot parse"
+    failure this test exists to avoid. Round 3 removed that code rather than
+    patching it again: every object literal is now unparseable, full stop.
+    That can never produce a phantom field and can never silently drop one --
+    the tradeoff is that a real object-literal call site (none exist in this
+    file today) will need a human to look at it once, which is the correct
+    default for a gate that would otherwise have to guess.
 
 Scope: every ``frappe.model.set_value(...)`` call in this file targets a row
 of the ``invoices`` child table (confirmed by reading the file -- there are no
@@ -71,8 +78,6 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.utils.js_source_scan import strip_js_comments
 
 STRING_LITERAL_PATTERN = re.compile(r"""^(['"])(.*)\1$""", re.DOTALL)
-# A top-level `key: ` or `'key': ` inside an object literal's body.
-OBJECT_KEY_PATTERN = re.compile(r"""(?:^|[{,]\s*)(?:(['"])([^'"]+)\1|([A-Za-z_$][\w$]*))\s*:""")
 
 
 def _js_path():
@@ -161,32 +166,24 @@ def _split_top_level_args(arg_text):
 
 
 def _classify_field_argument(arg_text):
-    """Classify a single call argument that is supposed to name one or more
-    target fields.
+    """Classify a single call argument that is supposed to name the target
+    field.
 
-    Returns (fields, unparseable): `fields` is a set of field-name strings
-    (empty if the argument could not be classified), `unparseable` is a bool.
+    Returns (fields, unparseable). `fields` is a single-element set holding
+    the literal field name when `arg_text` is a plain quoted string, else
+    empty. `unparseable` is True for anything else, INCLUDING an object
+    literal -- this scanner deliberately does not parse object literals; see
+    the module docstring's "Parsing scope" section for why.
     """
-    arg_text = arg_text.strip()
-
-    literal = STRING_LITERAL_PATTERN.match(arg_text)
+    literal = STRING_LITERAL_PATTERN.match(arg_text.strip())
     if literal:
         return {literal.group(2)}, False
-
-    if arg_text.startswith("{") and arg_text.endswith("}"):
-        keys = set()
-        for match in OBJECT_KEY_PATTERN.finditer(arg_text):
-            keys.add(match.group(2) or match.group(3))
-        # An object literal with no keys we could extract (e.g. spread-only,
-        # computed keys) is itself unparseable -- do not silently pass it.
-        return keys, len(keys) == 0
-
     return set(), True
 
 
 def _scan_model_set_value(source):
-    """Every `frappe.model.set_value(doctype, name, fieldname_or_dict, ...)`
-    call. Returns (fields, unparseable_snippets)."""
+    """Every `frappe.model.set_value(doctype, name, fieldname, ...)` call.
+    Returns (fields, unparseable_snippets)."""
     fields = set()
     unparseable = []
     for arg_list in _iter_call_arg_lists(source, "frappe.model.set_value("):
@@ -202,7 +199,7 @@ def _scan_model_set_value(source):
 
 
 def _scan_frm_set_value(source):
-    """Every `frm.set_value(fieldname_or_dict, ...)` call. Returns (fields,
+    """Every `frm.set_value(fieldname, ...)` call. Returns (fields,
     unparseable_snippets)."""
     fields = set()
     unparseable = []
@@ -230,18 +227,19 @@ class TestDirectDebitBatchJsFieldWritesMatchSchema(EnhancedTestCase):
         self.assertGreater(len(fields) + len(unparseable), 3, "frm.set_value scan found too few")
 
     def test_no_unparseable_model_set_value_field_arguments(self):
-        """Fail LOUD, not silently, on a field-name argument this scanner
-        cannot classify (a variable, a template literal, a concatenation,
-        ...) -- see the module docstring's "Parsing scope" section. An
-        unparseable call needs a human to read it; that is different from
-        (and a prerequisite to) the schema check below, which can only run on
-        what it could classify."""
+        """Fail LOUD, not silently, on a field-name argument that is not a
+        plain quoted string literal -- a variable, a template literal, a
+        concatenation, or an object literal. See the module docstring's
+        "Parsing scope" section for why object literals are refused rather
+        than parsed. An unparseable call needs a human to read it; that is
+        different from (and a prerequisite to) the schema check below, which
+        can only run on what it could classify."""
         _fields, unparseable = _scan_model_set_value(_js_source())
         self.assertEqual(
             unparseable,
             [],
             "frappe.model.set_value call(s) whose field-name argument is not a "
-            f"string or object literal -- needs manual audit: {unparseable}",
+            f"plain string literal -- needs manual audit: {unparseable}",
         )
 
     def test_no_unparseable_frm_set_value_field_arguments(self):
@@ -249,8 +247,8 @@ class TestDirectDebitBatchJsFieldWritesMatchSchema(EnhancedTestCase):
         self.assertEqual(
             unparseable,
             [],
-            "frm.set_value call(s) whose field-name argument is not a string "
-            f"or object literal -- needs manual audit: {unparseable}",
+            "frm.set_value call(s) whose field-name argument is not a plain "
+            f"string literal -- needs manual audit: {unparseable}",
         )
 
     def test_child_row_field_writes_exist_on_direct_debit_batch_invoice(self):

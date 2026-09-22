@@ -21,7 +21,15 @@ def strip_js_comments(content):
     block or an inline comment illustrating a call must not be mistaken for
     real code, and a comment mentioning a bogus field/doctype name must not
     turn a scan red. Does not attempt to handle a `//` inside a string literal
-    (e.g. a URL) correctly; none of the files this is used on need that.
+    (e.g. a URL) correctly, and a nested `/* outer /* inner */ ... */` closes
+    at the FIRST `*/` rather than the logically-matching one, leaving the
+    remainder past that point as unstripped text; none of the files this is
+    used on today exercise either case.
+
+    This is shared by two gates (`test_js_form_on_registration_targets.py`
+    and `direct_debit_batch/test_js_field_writes_match_schema.py`) precisely
+    so they cannot silently disagree about what counts as a comment -- which
+    also means a behaviour change here affects BOTH of them at once.
     """
     content = _BLOCK_COMMENT_PATTERN.sub("", content)
     return _LINE_COMMENT_PATTERN.sub("", content)
