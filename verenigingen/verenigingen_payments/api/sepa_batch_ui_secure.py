@@ -36,7 +36,10 @@ from verenigingen.utils.security.authorization import (
 
 # Security imports
 from verenigingen.utils.security.csrf_protection import require_csrf_token
-from verenigingen.verenigingen_payments.api.sepa_batch_ui import get_open_batch_invoice_names
+from verenigingen.verenigingen_payments.api.sepa_batch_ui import (
+    get_open_batch_invoice_names,
+    set_membership_or_reason,
+)
 from verenigingen.verenigingen_payments.utils.mandate_candidates import (
     log_ambiguous_mandate_refusal,
     unambiguous_active_mandate,
@@ -128,21 +131,20 @@ def load_unpaid_invoices_secure(date_range="overdue", membership_type: str | Non
             "outstanding_amount as amount",
             "currency",
             "due_date",
-            # Aliased to match the non-secure twin (sepa_batch_ui.py), whose rows
-            # `direct_debit_batch.js` feeds into `frm.add_child('invoices', inv)`
-            # with no re-derivation against the required Link
-            # `Direct Debit Batch Invoice.membership`. Without the alias, rows from
-            # THIS endpoint carried no `membership` key at all (#1227).
+            # Aliased `dues_schedule`, NOT `membership`: this column is a Link to
+            # Membership Dues Schedule, and `Direct Debit Batch Invoice.membership`
+            # is a required Link to Membership. #1227 restored parity with the
+            # non-secure twin by copying the twin's alias; #1239 then established
+            # that the alias was itself wrong in BOTH, so both now resolve the real
+            # Membership below. Kept identical to `load_unpaid_invoices` on purpose
+            # -- these two have diverged twice (#1227, #1244).
             #
-            # This endpoint itself has NO JavaScript caller -- there is no reference
-            # to `load_unpaid_invoices_secure` in any .js file in the app, and the
-            # button's own visibility gate (`can_load_unpaid_invoices`) checks the
-            # non-secure function. It is reachable only by a direct RPC/REST call
-            # from a role its Critical Operation Rule admits. So the defect this
-            # alias closes is a twin-parity gap, not a live UI failure; an earlier
-            # version of this comment claimed the dialog consumed these rows, and
-            # that was wrong.
-            "membership_dues_schedule_display as membership",
+            # This endpoint has NO JavaScript caller -- nothing in any .js file
+            # references `load_unpaid_invoices_secure`, and the button's visibility
+            # gate (`can_load_unpaid_invoices`) checks the non-secure function. It
+            # is reachable only by direct RPC from a role its Critical Operation
+            # Rule admits, so what is maintained here is twin parity.
+            "membership_dues_schedule_display as dues_schedule",
         ],
         order_by="due_date",
         limit=limit,
@@ -150,14 +152,18 @@ def load_unpaid_invoices_secure(date_range="overdue", membership_type: str | Non
 
     # Optimized: Get member and mandate information in single batch query
     if invoices:
-        membership_ids = [inv.membership for inv in invoices if inv.membership]
+        membership_ids = [inv.dues_schedule for inv in invoices if inv.dues_schedule]
 
         if membership_ids:
             # Single query to get all member and mandate data
             member_mandate_data = frappe.db.sql(
                 """
                 SELECT
-                    mds.name as membership,
+                    mds.name as dues_schedule,
+                    -- The real Membership this invoice bills (#1239); NOT
+                    -- mds.name, and NOT si.membership, which is populated on
+                    -- 0 of 1927 submitted unpaid invoices (measured on veg11).
+                    mds.membership as membership,
                     mem.name as member,
                     mem.full_name as member_name,
                     sm.iban,
@@ -200,14 +206,14 @@ def load_unpaid_invoices_secure(date_range="overdue", membership_type: str | Non
             member_data_lookup = {}
             ambiguous = {}
             for row in member_mandate_data:
-                existing = member_data_lookup.get(row.membership)
+                existing = member_data_lookup.get(row.dues_schedule)
                 if existing is None:
-                    member_data_lookup[row.membership] = row
+                    member_data_lookup[row.dues_schedule] = row
                     continue
-                ambiguous.setdefault(row.membership, [existing]).append(row)
+                ambiguous.setdefault(row.dues_schedule, [existing]).append(row)
 
-            for membership, candidates in ambiguous.items():
-                chosen = member_data_lookup[membership]
+            for dues_schedule, candidates in ambiguous.items():
+                chosen = member_data_lookup[dues_schedule]
                 # LOG BEFORE BLANKING. `candidates[0]` IS `chosen` -- the same dict
                 # object -- so blanking first destroyed half the evidence the log
                 # exists to carry, and the Error Log read
@@ -227,8 +233,8 @@ def load_unpaid_invoices_secure(date_range="overdue", membership_type: str | Non
 
             # Apply data to invoices in single loop
             for invoice in invoices:
-                if invoice.membership and invoice.membership in member_data_lookup:
-                    data = member_data_lookup[invoice.membership]
+                if invoice.dues_schedule and invoice.dues_schedule in member_data_lookup:
+                    data = member_data_lookup[invoice.dues_schedule]
                     invoice.update(
                         {
                             "member": data.member,
@@ -239,6 +245,7 @@ def load_unpaid_invoices_secure(date_range="overdue", membership_type: str | Non
                             "mandate_date": str(data.sign_date) if data.sign_date else "",
                         }
                     )
+                    set_membership_or_reason(invoice, data.membership)
                 else:
                     # No membership or member data found
                     invoice.update(
@@ -251,6 +258,7 @@ def load_unpaid_invoices_secure(date_range="overdue", membership_type: str | Non
                             "mandate_date": "",
                         }
                     )
+                    set_membership_or_reason(invoice, None)
         else:
             # No memberships found, set empty values
             for invoice in invoices:
@@ -264,6 +272,7 @@ def load_unpaid_invoices_secure(date_range="overdue", membership_type: str | Non
                         "mandate_date": "",
                     }
                 )
+                set_membership_or_reason(invoice, None)
 
     return invoices
 

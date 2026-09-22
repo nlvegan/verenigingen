@@ -80,6 +80,38 @@ def get_open_batch_invoice_names():
     return {row.invoice for row in rows if row.invoice}
 
 
+def set_membership_or_reason(row, membership):
+    """Put the real Membership on a loader row, or say why there isn't one (#1239).
+
+    `Direct Debit Batch Invoice.membership` is a reqd Link -> Membership, and
+    `direct_debit_batch.js` feeds these rows into `frm.add_child('invoices', inv)`
+    verbatim, so whatever lands in this key is what the batch is saved with.
+
+    An unresolvable row is returned WITH a reason rather than dropped. Dropping it
+    would silently remove a collectable invoice from the operator's picker with no
+    signal -- the failure mode #1228 nearly shipped, where an exclusion stranded 6
+    real invoices. Measured on veg11 (read-only, production copy, 2026-09-22): 134
+    of the 565 unpaid invoices carrying a dues-schedule link point at a Membership
+    Dues Schedule row that no longer exists, so this is a live population, not a
+    hypothetical. This mirrors how the ambiguous-mandate path above already returns
+    a row with a blank IBAN and a logged reason instead of debiting against a guess.
+
+    NOTE: this reports only the MEMBERSHIP half. `member`, `iban` and
+    `mandate_reference` are reqd on the same child row and can independently block
+    the save; they are not covered here. See #1218.
+    """
+    if membership:
+        row.update({"membership": membership, "unbatchable_reason": ""})
+        return
+
+    dues_schedule = row.get("dues_schedule")
+    if not dues_schedule:
+        reason = _("Invoice has no membership dues schedule, so no membership can be resolved")
+    else:
+        reason = _("Membership dues schedule {0} is missing or has no membership").format(dues_schedule)
+    row.update({"membership": "", "unbatchable_reason": reason})
+
+
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
@@ -142,7 +174,15 @@ def load_unpaid_invoices(date_range="overdue", membership_type: str | None = Non
             "outstanding_amount as amount",
             "currency",
             "due_date",
-            "membership_dues_schedule_display as membership",
+            # Aliased explicitly, NOT as `membership`: this is a Link to Membership
+            # Dues Schedule, not to Membership. It used to be selected as
+            # `membership`, and `direct_debit_batch.js` feeds these rows straight
+            # into `frm.add_child('invoices', inv)`, so a dues-schedule name landed
+            # in `Direct Debit Batch Invoice.membership` (Link -> Membership, reqd)
+            # and the SAVE died with LinkValidationError (#1239). The real
+            # Membership is resolved below, from the same link
+            # `create_sepa_batch_validated` calls AUTHORITATIVE.
+            "membership_dues_schedule_display as dues_schedule",
         ],
         order_by="due_date",
         limit=limit,
@@ -150,14 +190,19 @@ def load_unpaid_invoices(date_range="overdue", membership_type: str | None = Non
 
     # Optimized: Get member and mandate information in single batch query
     if invoices:
-        membership_ids = [inv.membership for inv in invoices if inv.membership]
+        membership_ids = [inv.dues_schedule for inv in invoices if inv.dues_schedule]
 
         if membership_ids:
             # Single query to get all member and mandate data
             member_mandate_data = frappe.db.sql(
                 """
                 SELECT
-                    mds.name as membership,
+                    mds.name as dues_schedule,
+                    -- The real Membership this invoice bills (#1239). NOT
+                    -- mds.name, and NOT si.membership: measured on veg11
+                    -- 2026-09-22, si.membership is populated on 0 of 1927
+                    -- submitted unpaid invoices, so it resolves nothing.
+                    mds.membership as membership,
                     mem.name as member,
                     mem.full_name as member_name,
                     sm.iban,
@@ -200,14 +245,14 @@ def load_unpaid_invoices(date_range="overdue", membership_type: str | None = Non
             member_data_lookup = {}
             ambiguous = {}
             for row in member_mandate_data:
-                existing = member_data_lookup.get(row.membership)
+                existing = member_data_lookup.get(row.dues_schedule)
                 if existing is None:
-                    member_data_lookup[row.membership] = row
+                    member_data_lookup[row.dues_schedule] = row
                     continue
-                ambiguous.setdefault(row.membership, [existing]).append(row)
+                ambiguous.setdefault(row.dues_schedule, [existing]).append(row)
 
-            for membership, candidates in ambiguous.items():
-                chosen = member_data_lookup[membership]
+            for dues_schedule, candidates in ambiguous.items():
+                chosen = member_data_lookup[dues_schedule]
                 # LOG BEFORE BLANKING. `candidates[0]` IS `chosen` -- the same dict
                 # object -- so blanking first destroyed half the evidence the log
                 # exists to carry, and the Error Log read
@@ -227,8 +272,8 @@ def load_unpaid_invoices(date_range="overdue", membership_type: str | None = Non
 
             # Apply data to invoices in single loop
             for invoice in invoices:
-                if invoice.membership and invoice.membership in member_data_lookup:
-                    data = member_data_lookup[invoice.membership]
+                if invoice.dues_schedule and invoice.dues_schedule in member_data_lookup:
+                    data = member_data_lookup[invoice.dues_schedule]
                     invoice.update(
                         {
                             "member": data.member,
@@ -239,6 +284,7 @@ def load_unpaid_invoices(date_range="overdue", membership_type: str | None = Non
                             "mandate_date": str(data.sign_date) if data.sign_date else "",
                         }
                     )
+                    set_membership_or_reason(invoice, data.membership)
                 else:
                     # No membership or member data found
                     invoice.update(
@@ -251,6 +297,7 @@ def load_unpaid_invoices(date_range="overdue", membership_type: str | None = Non
                             "mandate_date": "",
                         }
                     )
+                    set_membership_or_reason(invoice, None)
         else:
             # No memberships found, set empty values
             for invoice in invoices:
@@ -264,6 +311,7 @@ def load_unpaid_invoices(date_range="overdue", membership_type: str | None = Non
                         "mandate_date": "",
                     }
                 )
+                set_membership_or_reason(invoice, None)
 
     return invoices
 

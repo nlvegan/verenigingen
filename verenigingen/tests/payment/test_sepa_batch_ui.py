@@ -712,3 +712,194 @@ class TestCreateSepaBatchValidated(SepaBatchUITestBase):
         self.assertFalse(result["success"])
         joined = " ".join(result.get("errors", []))
         self.assertIn("not in EUR", joined)
+
+
+class TestLoadUnpaidInvoicesResolvesRealMembership(SepaBatchUITestBase):
+    """#1239: the `membership` key must hold a Membership name, not a dues-schedule name.
+
+    `load_unpaid_invoices` used to select
+    `membership_dues_schedule_display as membership` -- a Link to Membership Dues
+    Schedule aliased over a key that `Direct Debit Batch Invoice.membership`
+    (Link -> Membership, reqd) consumes verbatim. `direct_debit_batch.js`'s
+    "Load Unpaid Invoices" dialog feeds the server's rows straight into
+    `frm.add_child('invoices', inv)` with no re-derivation, so the grid populated
+    and the SAVE failed with LinkValidationError.
+
+    `create_sepa_batch_validated` already resolves this correctly and documents the
+    link it trusts ("the AUTHORITATIVE link: the invoice's dues schedule points to
+    the exact Membership this invoice bills"); these tests hold the two bulk loaders
+    to that same resolution.
+
+    Measured on veg11 (read-only, production copy, 2026-09-22) before the fix:
+    `Sales Invoice.membership` -- the column the sibling repair in
+    `sepa_race_condition_manager` reads -- is populated on 0 of 1927 submitted
+    unpaid invoices, so it is NOT an available source here; `Membership Dues
+    Schedule.membership` resolves 431 of the 565 unpaid invoices that carry a
+    dues-schedule link.
+    """
+
+    def test_loaded_row_carries_the_membership_not_the_dues_schedule(self):
+        data = self._build_member_with_invoice(first_name="RealMembership")
+        schedule_name = data["schedule"].name
+        expected_membership = frappe.db.get_value(
+            "Membership Dues Schedule", schedule_name, "membership"
+        )
+        # Precondition, not an assertion about the code under test: the whole point
+        # of the test is the gap between these two names, so a fixture whose
+        # schedule carries no membership would make it vacuous.
+        self.assertTrue(
+            expected_membership,
+            "fixture precondition: the dues schedule must point at a Membership",
+        )
+        self.assertNotEqual(
+            expected_membership,
+            schedule_name,
+            "fixture precondition: the two names must differ, or the alias bug is invisible",
+        )
+
+        result = ui.load_unpaid_invoices(
+            date_range="all", membership_type=self._membership_type(data), limit=500
+        )
+        match = next((r for r in result if r.get("invoice") == data["invoice"].name), None)
+        self.assertIsNotNone(match, "freshly created unpaid invoice should be loaded")
+
+        self.assertEqual(
+            match["membership"],
+            expected_membership,
+            "loader must emit the Membership the dues schedule points at",
+        )
+
+    def test_batch_built_from_a_loaded_row_saves(self):
+        """The live path: `frm.add_child('invoices', row)` + save, with no re-derivation.
+
+        This is what `direct_debit_batch.js:505-538` does with the dialog's rows.
+        Before the fix this raised
+        `LinkValidationError: Could not find Row #1: Membership: Schedule-...`.
+        """
+        data = self._build_member_with_invoice(first_name="BatchFromRow")
+        result = ui.load_unpaid_invoices(
+            date_range="all", membership_type=self._membership_type(data), limit=500
+        )
+        match = next((r for r in result if r.get("invoice") == data["invoice"].name), None)
+        self.assertIsNotNone(match, "freshly created unpaid invoice should be loaded")
+
+        batch = frappe.new_doc("Direct Debit Batch")
+        batch.batch_date = _next_weekday(add_days(today(), 3))
+        batch.batch_description = "1239 loader row"
+        batch.batch_type = "CORE"
+        batch.currency = "EUR"
+        batch.append("invoices", dict(match))
+        batch.insert()
+        self.addCleanup(frappe.delete_doc, "Direct Debit Batch", batch.name, True, True)
+
+        saved = frappe.get_doc("Direct Debit Batch", batch.name)
+        self.assertEqual(len(saved.invoices), 1)
+        self.assertEqual(
+            saved.invoices[0].membership,
+            frappe.db.get_value("Membership Dues Schedule", data["schedule"].name, "membership"),
+        )
+
+    def test_unresolvable_row_is_returned_with_a_reason_not_a_bogus_membership(self):
+        """A row whose Membership cannot be resolved stays visible, and says why.
+
+        Measured on veg11 (read-only, production copy, 2026-09-22): 134 of the 565
+        unpaid invoices carrying a dues-schedule link cannot resolve a Membership.
+        Dropping them from the picker would silently hide ~EUR 13.4k of collectable
+        invoices from staff -- the harm #1228 nearly shipped. They are returned with
+        `membership` blank and an `unbatchable_reason` instead.
+
+        The unresolvable shape used here is "schedule exists, but its `membership` is
+        empty" rather than "schedule link dangles", because only the former still
+        carries a `membership_type` to scope the query by. An unscoped call is not a
+        weaker test, it is a BROKEN one: `load_unpaid_invoices` caps at `limit` and
+        orders by due_date, so on any site holding more than `limit` unpaid invoices
+        the fixture falls outside the page and the test fails whether or not the bug
+        is present (#1223). Both shapes reach the same branch; the dangling-name
+        branch is pinned directly in TestSetMembershipOrReason below.
+        """
+        data = self._build_member_with_invoice(first_name="NoMembershipLink")
+        frappe.db.set_value(
+            "Membership Dues Schedule",
+            data["schedule"].name,
+            "membership",
+            None,
+            update_modified=False,
+        )
+
+        result = ui.load_unpaid_invoices(
+            date_range="all", membership_type=self._membership_type(data), limit=500
+        )
+        match = next((r for r in result if r.get("invoice") == data["invoice"].name), None)
+        self.assertIsNotNone(match, "an unresolvable invoice must still be offered, not dropped")
+
+        self.assertEqual(match["membership"], "", "no Membership resolved, so the key must be blank")
+        self.assertIn(data["schedule"].name, match["unbatchable_reason"])
+
+    def test_no_returned_row_ever_carries_a_dues_schedule_name_as_its_membership(self):
+        """Class-level invariant: the two keys must never coincide.
+
+        The defect was structural -- one SQL alias -- so the guard is too. A row that
+        resolved and a row that did not are both covered: `membership` is either a
+        real Membership name or blank, never the dues-schedule name.
+        """
+        resolvable = self._build_member_with_invoice(first_name="InvariantOk")
+        unresolvable = self._build_member_with_invoice(first_name="InvariantBad")
+        frappe.db.set_value(
+            "Membership Dues Schedule",
+            unresolvable["schedule"].name,
+            "membership",
+            None,
+            update_modified=False,
+        )
+
+        # Scoped per fixture (see the note above): each chain has its own membership
+        # type, so neither call can be pushed off the page by ambient unpaid invoices.
+        rows = []
+        for chain in (resolvable, unresolvable):
+            page = ui.load_unpaid_invoices(
+                date_range="all", membership_type=self._membership_type(chain), limit=500
+            )
+            match = next((r for r in page if r.get("invoice") == chain["invoice"].name), None)
+            self.assertIsNotNone(match, f"fixture {chain['invoice'].name} must be in its own page")
+            rows.append(match)
+
+        # Both halves of the invariant are actually exercised, not just asserted over
+        # whatever happened to come back.
+        self.assertTrue(rows[0]["membership"])
+        self.assertEqual(rows[1]["membership"], "")
+        for row in rows:
+            self.assertNotEqual(
+                row["membership"],
+                row["dues_schedule"],
+                f"row {row['invoice']} carries a dues-schedule name in its membership key",
+            )
+
+
+class TestSetMembershipOrReason(EnhancedTestCase):
+    """Direct tests for the resolution helper (#1239).
+
+    These need no site data at all, so they pin the reason branches deterministically
+    -- including the dangling-schedule-link shape, which is the one the live data
+    actually exhibits (134 of 565 on veg11) but which no query-scoped integration test
+    can reach, since a nonexistent schedule has no `membership_type` to filter on.
+    """
+
+    def test_a_resolved_membership_is_set_and_carries_no_reason(self):
+        row = frappe._dict({"dues_schedule": "Schedule-X"})
+        ui.set_membership_or_reason(row, "MEMB-26-09-0001")
+        self.assertEqual(row["membership"], "MEMB-26-09-0001")
+        self.assertEqual(row["unbatchable_reason"], "")
+
+    def test_a_dangling_schedule_link_is_named_in_the_reason(self):
+        row = frappe._dict({"dues_schedule": "Schedule-Does-Not-Exist-1239"})
+        ui.set_membership_or_reason(row, None)
+        self.assertEqual(row["membership"], "")
+        self.assertIn("Schedule-Does-Not-Exist-1239", row["unbatchable_reason"])
+
+    def test_an_invoice_with_no_schedule_at_all_gets_its_own_reason(self):
+        row = frappe._dict({"dues_schedule": None})
+        ui.set_membership_or_reason(row, None)
+        self.assertEqual(row["membership"], "")
+        self.assertTrue(row["unbatchable_reason"])
+        # Must not name a schedule it does not have.
+        self.assertNotIn("None", row["unbatchable_reason"])
