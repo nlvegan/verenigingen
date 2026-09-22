@@ -663,7 +663,11 @@ function validate_mandates(frm) {
 						frappe.model.set_value(inv.doctype, inv.name, 'iban', iban);
 						frappe.model.set_value(inv.doctype, inv.name, 'bic', data.bic);
 						frappe.model.set_value(inv.doctype, inv.name, 'mandate_reference', data.mandate_reference);
-						frappe.model.set_value(inv.doctype, inv.name, 'mandate_date', data.mandate_date);
+						// Same field-name bug as the invoices_add handler above
+						// (mandate_sign_date, not mandate_date) -- this one was reachable
+						// today via the unconditional "Validate Mandates" button, not just
+						// latent behind #1251's dead registration.
+						frappe.model.set_value(inv.doctype, inv.name, 'mandate_sign_date', data.mandate_date);
 					} else {
 						frappe.model.set_value(inv.doctype, inv.name, 'status', 'Invalid');
 						frappe.model.set_value(inv.doctype, inv.name, 'result_message', data.error);
