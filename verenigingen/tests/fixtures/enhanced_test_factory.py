@@ -778,7 +778,22 @@ class EnhancedTestDataFactory:
             kwargs["last_name"] = f"{kwargs['last_name']}{unique_suffix}"
         if "email" in kwargs:
             email = kwargs["email"]
-            if "@" in email and not any(c.isdigit() for c in email.split("@")[0][-5:]):
+            # Uniquify an address that is actually TAKEN, not one that merely
+            # looks un-unique. The previous trigger -- "the local part's last
+            # five characters contain no digit" -- stood in for "the caller did
+            # not uniquify this themselves", and misfired on the very shape
+            # callers use for uniqueness: frappe.generate_hash() is lowercase
+            # hex, so a hash-suffixed local part draws a digit-free tail with
+            # probability (6/16)**5 = 1 run in ~135. When it fired, Member.email
+            # diverged from the string the caller went on to build the User
+            # from, get_member_name_for_user() resolved neither by `user`
+            # (blank -- the Member is created first) nor by `email`, and the
+            # test failed for a reason unrelated to its subject (#1254). ~16
+            # test files carry that shape. Asking the database is deterministic
+            # and keeps the original intent intact: a static literal replayed
+            # against a persistent DB still finds the earlier run's row and is
+            # still moved aside.
+            if "@" in email and frappe.db.exists("Member", {"email": email}):
                 local, domain = email.rsplit("@", 1)
                 kwargs["email"] = f"{local}.{unique_suffix}@{domain}"
 
