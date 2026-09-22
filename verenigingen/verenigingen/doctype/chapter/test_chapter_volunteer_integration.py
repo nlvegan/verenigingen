@@ -2,7 +2,7 @@ import unittest
 import uuid
 
 import frappe
-from frappe.utils import today
+from frappe.utils import cint, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
@@ -11,6 +11,15 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
 class TestChapterVolunteerIntegration(EnhancedTestCase):
+    # Logical role -> flags. The docnames are built per run in
+    # create_test_chapter_roles(); see the note there on why they are scoped.
+    ROLE_SPECS = [
+        {"key": "Chair", "is_chair": 1, "is_unique": 1},
+        {"key": "Secretary", "is_unique": 1},
+        {"key": "Treasurer", "is_unique": 1},
+        {"key": "New Role", "is_unique": 0},
+    ]
+
     def setUp(self):
         # Create a unique identifier for this test run
         super().setUp()
@@ -70,8 +79,15 @@ class TestChapterVolunteerIntegration(EnhancedTestCase):
             except Exception as e:
                 print(f"Error deleting chapter head volunteer {self.chapter_head_volunteer.name}: {e}")
 
-        # Delete chapter roles
-        for role in ["Chair", "Secretary", "Treasurer", "New Role"]:
+        # Delete chapter roles -- only the ones THIS run created. The bare names
+        # ("Chair", ...) are global master data other modules build and link to,
+        # and this loop force-deleted them by name whether or not it had created
+        # them. Measured: the delete does succeed on an unlinked Chapter Role,
+        # but inside the harness it is undone by the teardown rollback, so no
+        # stranding was observed -- scoping the loop closes a latent hazard, not
+        # a demonstrated one. The demonstrated half of #1272 is the read
+        # direction, in create_test_chapter_roles() below.
+        for role in getattr(self, "board_roles", {}).values():
             try:
                 if frappe.db.exists("Chapter Role", role):
                     frappe.delete_doc("Chapter Role", role, force=True)
@@ -80,28 +96,34 @@ class TestChapterVolunteerIntegration(EnhancedTestCase):
         super().tearDown()
 
     def create_test_chapter_roles(self):
-        """Create test chapter roles for use in board memberships"""
-        roles = [
-            {"name": "Chair", "is_chair": 1, "is_unique": 1},
-            {"name": "Secretary", "is_unique": 1},
-            {"name": "Treasurer", "is_unique": 1},
-            {"name": "New Role", "is_unique": 0},
-        ]
+        """Create this run's own chapter roles, under names no co-tenant can claim.
 
-        for role_data in roles:
-            if not frappe.db.exists("Chapter Role", role_data["name"]):
-                role_doc = frappe.get_doc(
-                    {
-                        "doctype": "Chapter Role",
-                        "name": role_data["name"],
-                        "role_name": role_data["name"],
-                        "permissions_level": "Admin",
-                        "is_chair": role_data.get("is_chair", 0),
-                        "is_unique": role_data.get("is_unique", 0),
-                        "is_active": 1,
-                    }
-                )
-                role_doc.insert()  # EnhancedTestCase handles permissions properly
+        Chapter Role is autonamed ``field:role_name``, so a bare name like
+        "Chair" is a GLOBAL key. This module needs Chair/Secretary/Treasurer to
+        carry ``is_unique=1``, but at least five other test modules create a
+        "Chair" leaving ``is_unique`` at its 0 default. Whichever ran first in the shard
+        won the name, the get-or-create here then skipped creation, and
+        test_duplicate_roles_validation asserted on a flag nobody had set --
+        failing with "Exception not raised" on code the branch never touched
+        (#1272). Role uniqueness is enforced from the ``is_unique`` FLAG
+        (board_member_validator._get_unique_roles), never from the role's name,
+        so a run-scoped name is behaviour-identical for what these tests assert.
+        """
+        self.board_roles = {}
+
+        for spec in self.ROLE_SPECS:
+            role_name = f"{spec['key']} {self.test_id[:8]}"
+            frappe.get_doc(
+                {
+                    "doctype": "Chapter Role",
+                    "role_name": role_name,
+                    "permissions_level": "Admin",
+                    "is_chair": spec.get("is_chair", 0),
+                    "is_unique": spec.get("is_unique", 0),
+                    "is_active": 1,
+                }
+            ).insert()  # EnhancedTestCase handles permissions properly
+            self.board_roles[spec["key"]] = role_name
 
     def create_test_chapter(self):
         # NOTE: Intentionally local — complex multi-doc setup (member+volunteer+board head)
@@ -200,8 +222,8 @@ class TestChapterVolunteerIntegration(EnhancedTestCase):
 
     def add_board_members_to_chapter(self):
         """Add test volunteers as board members to test chapter"""
-        # Define board roles
-        roles = ["Chair", "Secretary", "Treasurer"]
+        # Define board roles (this run's own, see create_test_chapter_roles)
+        roles = [self.board_roles[key] for key in ("Chair", "Secretary", "Treasurer")]
 
         # Add each volunteer with a role
         for i, volunteer_name in enumerate(self.test_volunteers):
@@ -258,6 +280,47 @@ class TestChapterVolunteerIntegration(EnhancedTestCase):
 
         self.assertTrue(has_board_assignment, "Volunteer should have a board position assignment")
 
+    def test_board_roles_are_run_scoped_and_carry_their_declared_flags(self):
+        """Control for #1272: the roles these tests assert on must be this run's own.
+
+        `Chapter Role` is autonamed ``field:role_name``, so the bare names this
+        module used to take ("Chair", "Secretary", "Treasurer", "New Role") are
+        global keys that any co-tenant in the shard can create first -- and at
+        least five of them do, leaving ``is_unique`` at its 0 default. That
+        silently disarmed test_duplicate_roles_validation, which then failed with
+        "Exception not raised" on a branch that touched none of this code.
+
+        Revert create_test_chapter_roles() to the bare-name get-or-create and
+        this reddens on the first assertion with no co-tenant needed, and on the
+        flag assertion when one is present. It also pins the tearDown contract:
+        tearDown drops exactly ``self.board_roles``, so run-scoped names are what
+        keep it from aiming a force-delete at a globally-named role this module
+        did not create.
+        """
+        for spec in self.ROLE_SPECS:
+            key = spec["key"]
+            role_name = self.board_roles[key]
+
+            self.assertNotEqual(
+                role_name,
+                key,
+                f"Board role {key!r} must be run-scoped, not the global name any "
+                f"other test module can claim or delete",
+            )
+
+            flags = frappe.db.get_value("Chapter Role", role_name, ["is_unique", "is_chair"], as_dict=True)
+            self.assertIsNotNone(flags, f"Chapter Role {role_name!r} was not created")
+            self.assertEqual(
+                cint(flags.is_unique),
+                spec.get("is_unique", 0),
+                f"{role_name!r} does not carry the is_unique this module declared for {key!r}",
+            )
+            self.assertEqual(
+                cint(flags.is_chair),
+                spec.get("is_chair", 0),
+                f"{role_name!r} does not carry the is_chair this module declared for {key!r}",
+            )
+
     def test_duplicate_roles_validation(self):
         """Test validation of duplicate unique roles"""
         # Add first board member with Chair role (unique)
@@ -267,7 +330,7 @@ class TestChapterVolunteerIntegration(EnhancedTestCase):
                 "volunteer": self.test_volunteers[0],
                 "volunteer_name": frappe.get_value("Volunteer", self.test_volunteers[0], "volunteer_name"),
                 "email": frappe.get_value("Volunteer", self.test_volunteers[0], "email"),
-                "chapter_role": "Chair",  # Unique role
+                "chapter_role": self.board_roles["Chair"],  # Unique role
                 "from_date": today(),
                 "is_active": 1,
             },
@@ -285,7 +348,7 @@ class TestChapterVolunteerIntegration(EnhancedTestCase):
                         "Volunteer", self.test_volunteers[1], "volunteer_name"
                     ),
                     "email": frappe.get_value("Volunteer", self.test_volunteers[1], "email"),
-                    "chapter_role": "Chair",  # Same unique role
+                    "chapter_role": self.board_roles["Chair"],  # Same unique role
                     "from_date": today(),
                     "is_active": 1,
                 },
@@ -301,7 +364,7 @@ class TestChapterVolunteerIntegration(EnhancedTestCase):
                 "volunteer": self.test_volunteers[0],
                 "volunteer_name": frappe.get_value("Volunteer", self.test_volunteers[0], "volunteer_name"),
                 "email": frappe.get_value("Volunteer", self.test_volunteers[0], "email"),
-                "chapter_role": "New Role",  # Non-unique role
+                "chapter_role": self.board_roles["New Role"],  # Non-unique role
                 "from_date": today(),
                 "is_active": 1,
             },
@@ -319,7 +382,7 @@ class TestChapterVolunteerIntegration(EnhancedTestCase):
                         "Volunteer", self.test_volunteers[1], "volunteer_name"
                     ),
                     "email": frappe.get_value("Volunteer", self.test_volunteers[1], "email"),
-                    "chapter_role": "New Role",  # Same non-unique role
+                    "chapter_role": self.board_roles["New Role"],  # Same non-unique role
                     "from_date": today(),
                     "is_active": 1,
                 },
@@ -329,7 +392,7 @@ class TestChapterVolunteerIntegration(EnhancedTestCase):
             # Count board members with this role
             count = 0
             for member in self.test_chapter.board_members:
-                if member.chapter_role == "New Role" and member.is_active:
+                if member.chapter_role == self.board_roles["New Role"] and member.is_active:
                     count += 1
 
             self.assertEqual(count, 2, "Should allow two active board members with the same non-unique role")
