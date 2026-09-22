@@ -120,7 +120,7 @@ class InvoiceDescriptionBuilder:
         """
         if billing_frequency == "Daily":
             return f"Membership dues for {member_name} ({membership_type}) - Daily fee for {period_start}"
-        elif billing_frequency in ["Monthly", "Quarterly", "Semi-Annual", "Annual"]:
+        elif billing_frequency in ["Weekly", "Monthly", "Quarterly", "Semi-Annual", "Annual"]:
             return f"Membership dues for {member_name} ({membership_type}) - {billing_frequency} period: {period_start} to {period_end}"
         else:
             return f"Membership dues for {member_name} ({membership_type}) - Period: {period_start} to {period_end}"
