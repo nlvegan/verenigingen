@@ -922,8 +922,23 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         still linked to, orphaning it (#1250: a submitted Sales Invoice left
         behind with a `membership_dues_schedule_display` naming a Membership
         Dues Schedule this same loop had just force-deleted out from under
-        it). Mirrors the cancel-before-delete rule already used by
-        `_cleanup_document_with_retry` / `_cancel_if_submitted` above.
+        it).
+
+        This is the SAME mechanism `_cancel_if_submitted` above already
+        carries -- `_cleanup_document_with_retry` merely CALLS it, so there is
+        one cancel-before-delete rule in this file, not two -- and this block
+        has to carry its ledger carve-out too, not just its cancel step:
+        cancelling a ledger-bearing voucher does not remove its GL Entry /
+        Payment Ledger Entry rows, it WRITES MORE (reversals), and
+        `delete_doc` does not take them with the parent -- so cancel-then-
+        delete on one of those converts an honest "still submitted" leak into
+        ORPHANED ledger rows pointing at a voucher_no the naming series then
+        reissues to the next document (#328's mechanism, the same one #482 /
+        PR #518 fixed for the sibling drain). `ledger_rows.has_ledger_rows` is
+        the shared, data-driven guard both bases key off (see its module
+        docstring for why it lives there instead of being restated) -- skip
+        the cancel when it says yes, and let the delete fail/report exactly
+        as it did before this fix.
         """
         for doc_info in reversed(cls._track_created_docs):
             try:
@@ -932,6 +947,7 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
                     if (
                         frappe.get_meta(doctype).is_submittable
                         and frappe.db.get_value(doctype, name, "docstatus") == 1
+                        and not ledger_rows.has_ledger_rows(doctype, name)
                     ):
                         try:
                             doc = frappe.get_doc(doctype, name)
