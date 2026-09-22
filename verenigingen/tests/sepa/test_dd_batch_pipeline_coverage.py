@@ -371,6 +371,32 @@ class TestBatchProcessingServiceGuards(_BatchPipelineBase):
         with self.assertRaises(frappe.ValidationError):
             self.service.mark_batch_invoices_as_paid(batch)
 
+    def test_mark_invoices_as_paid_requires_sepa_file_generated(self):
+        """#1242: a batch can be docstatus=1 with sepa_file_generated=0 -- the
+        Staff-submit deferred-generation state from #1231, reached when the
+        submitter cannot clear the CRITICAL security level generate_sepa_xml()
+        requires. mark_batch_invoices_as_paid() must refuse to mark such a
+        batch's invoices paid: no SEPA file was ever sent to a bank, so there
+        is nothing for "paid" to confirm.
+
+        Simulate the submitted-but-deferred state directly in the DB (the
+        same technique test_sepa_reconciliation.py's _make_batch uses)
+        instead of calling batch.submit(), which would auto-generate the file
+        for the Administrator test user and never reach the gap this guards.
+        """
+        batch, _m, _mn = self._one_invoice_batch()
+        frappe.db.set_value(
+            "Direct Debit Batch",
+            batch.name,
+            {"docstatus": 1, "sepa_file_generated": 0},
+            update_modified=False,
+        )
+        batch.reload()
+        self.assertEqual(batch.docstatus, 1)
+        self.assertFalse(batch.sepa_file_generated)
+        with self.assertRaises(frappe.ValidationError):
+            self.service.mark_batch_invoices_as_paid(batch)
+
     def test_process_batch_submission_requires_sepa_file(self):
         # The guard logs the failure before re-raising; assert both.
         self.expectErrorLog("SEPA file must be generated")
