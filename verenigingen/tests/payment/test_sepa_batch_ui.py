@@ -44,7 +44,10 @@ from frappe.utils import add_days, getdate, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
-from verenigingen.tests.payment.sepa_batch_loader_test_helpers import put_invoice_in_batch
+from verenigingen.tests.payment.sepa_batch_loader_test_helpers import (
+    customer_only_invoice,
+    put_invoice_in_batch,
+)
 from verenigingen.verenigingen_payments.api import sepa_batch_ui as ui
 
 
@@ -410,22 +413,8 @@ class TestLoadUnpaidInvoicesEligibilityGuards(SepaBatchUITestBase):
     "report the reason, don't drop the row" rule.
     """
 
-    def _customer_only_invoice(self, first_name, currency="EUR"):
-        """A Sales Invoice with no `member` and no dues-schedule link -- the
-        shape of a donation invoice or a general sale."""
-        f = SEPATestDataFactory(seed=frappe.generate_hash(length=4).__hash__() & 0xFFFF, use_faker=True)
-        self.factory = f
-        customer = f.create_test_customer(customer_name=f"Cust {first_name}").name
-        invoice = f.create_test_sales_invoice(
-            customer=customer,
-            grand_total=42.0,
-            currency=currency,
-            submit=True,
-        )
-        return invoice
-
     def test_invoice_with_no_member_and_no_dues_schedule_link_is_excluded(self):
-        invoice = self._customer_only_invoice("NoLinkNoMember")
+        invoice = customer_only_invoice(self, "NoLinkNoMember")
 
         result = ui.load_unpaid_invoices(date_range="all", limit=500)
         names = {r.get("invoice") for r in result}
