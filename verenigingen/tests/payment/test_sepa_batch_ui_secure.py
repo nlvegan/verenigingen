@@ -90,6 +90,50 @@ class TestLoadUnpaidInvoicesSecure(SecureBase):
         self.assertEqual(match["mandate_reference"], data["mandate"].mandate_id)
         self.assertTrue(match["iban"])
 
+    def test_loaded_invoice_row_has_nonblank_membership_key(self):
+        """#1227: this endpoint's rows must carry the same keys as its non-secure
+        twin's. `direct_debit_batch.js:505-538` feeds the TWIN's rows straight into
+        `frm.add_child('invoices', inv)` with no re-derivation, against the
+        required Link `Direct Debit Batch Invoice.membership`. The twin
+        (`sepa_batch_ui.py`) selects the aliased column; this endpoint selected the
+        unaliased one, so its rows had no `membership` key at all.
+
+        The dialog does NOT call this endpoint -- no .js file in the app references
+        `load_unpaid_invoices_secure`, and the button's visibility gate checks the
+        non-secure function. This is reachable only by direct RPC from an
+        authorized role, so what is guarded here is twin parity, not a live UI
+        path. Stated explicitly because an earlier version of this docstring
+        claimed the dialog consumed these rows.
+
+        This asserts the row actually clears Frappe's own mandatory-field check
+        (`_get_missing_mandatory_fields`), not merely that a dict key exists --
+        i.e. that the row is usable by its real consumer. It does NOT assert the
+        *value* resolves to an existing Membership record: both this endpoint and
+        its non-secure twin put a Membership Dues Schedule name there, which is a
+        separate, wider defect (LinkValidationError on save) tracked in #1239,
+        not fixed here.
+        """
+        data = self._build_member_with_invoice(first_name="SecMandField")
+        # Scoped to this chain's own (unique) membership type -- like the
+        # exclusion tests above -- so the match is not lost among unpaid
+        # invoices already on a shared test site (see #1223, a pre-existing
+        # flake from `limit=500` alone on a busy site).
+        result = s.load_unpaid_invoices_secure(
+            date_range="all", membership_type=self._dues_schedule_membership_type(data), limit=500
+        )
+        match = next((r for r in result if r.get("invoice") == data["invoice"].name), None)
+        self.assertIsNotNone(match, "fresh unpaid invoice should be loaded")
+
+        batch = frappe.new_doc("Direct Debit Batch")
+        batch.append("invoices", dict(match))
+        child = batch.invoices[0]
+        missing_fields = [fieldname for fieldname, _msg in child._get_missing_mandatory_fields()]
+        self.assertNotIn(
+            "membership",
+            missing_fields,
+            f"membership key missing or blank, breaking parity with the non-secure twin: {match}",
+        )
+
     def test_invalid_date_range_raises(self):
         with self.assertRaises(SEPAError):
             s.load_unpaid_invoices_secure(date_range="bogus")

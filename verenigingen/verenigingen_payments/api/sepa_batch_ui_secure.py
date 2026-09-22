@@ -128,7 +128,21 @@ def load_unpaid_invoices_secure(date_range="overdue", membership_type: str | Non
             "outstanding_amount as amount",
             "currency",
             "due_date",
-            "membership_dues_schedule_display",
+            # Aliased to match the non-secure twin (sepa_batch_ui.py), whose rows
+            # `direct_debit_batch.js` feeds into `frm.add_child('invoices', inv)`
+            # with no re-derivation against the required Link
+            # `Direct Debit Batch Invoice.membership`. Without the alias, rows from
+            # THIS endpoint carried no `membership` key at all (#1227).
+            #
+            # This endpoint itself has NO JavaScript caller -- there is no reference
+            # to `load_unpaid_invoices_secure` in any .js file in the app, and the
+            # button's own visibility gate (`can_load_unpaid_invoices`) checks the
+            # non-secure function. It is reachable only by a direct RPC/REST call
+            # from a role its Critical Operation Rule admits. So the defect this
+            # alias closes is a twin-parity gap, not a live UI failure; an earlier
+            # version of this comment claimed the dialog consumed these rows, and
+            # that was wrong.
+            "membership_dues_schedule_display as membership",
         ],
         order_by="due_date",
         limit=limit,
@@ -136,9 +150,7 @@ def load_unpaid_invoices_secure(date_range="overdue", membership_type: str | Non
 
     # Optimized: Get member and mandate information in single batch query
     if invoices:
-        membership_ids = [
-            inv.membership_dues_schedule_display for inv in invoices if inv.membership_dues_schedule_display
-        ]
+        membership_ids = [inv.membership for inv in invoices if inv.membership]
 
         if membership_ids:
             # Single query to get all member and mandate data
@@ -215,11 +227,8 @@ def load_unpaid_invoices_secure(date_range="overdue", membership_type: str | Non
 
             # Apply data to invoices in single loop
             for invoice in invoices:
-                if (
-                    invoice.membership_dues_schedule_display
-                    and invoice.membership_dues_schedule_display in member_data_lookup
-                ):
-                    data = member_data_lookup[invoice.membership_dues_schedule_display]
+                if invoice.membership and invoice.membership in member_data_lookup:
+                    data = member_data_lookup[invoice.membership]
                     invoice.update(
                         {
                             "member": data.member,
