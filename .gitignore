@@ -99,3 +99,6 @@ sessions/transcripts/
 sessions/.archived/
 deprecated_functions_report.md
 deprecated_functions_report.md
+
+# Local review scratch (session notes, rescued patches) - never committed
+.review-scratch/
