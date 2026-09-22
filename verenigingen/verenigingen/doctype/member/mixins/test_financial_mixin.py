@@ -207,3 +207,61 @@ class TestFinancialMixin(EnhancedTestCase):
         result = member.mark_as_paid()
         self.assertTrue(result["success"])
         self.assertIn("0 invoices", result["message"])
+
+    def test_mark_as_paid_creates_balanced_payment_entry(self):
+        """mark_as_paid() pays down a real outstanding invoice via a correctly
+        accounted, submitted Payment Entry (#1200).
+
+        No live production caller of mark_as_paid was found while tracing
+        #1200 (only this test and a Jest mock stub reference it) - reachability
+        is NOT established, but it shares #906's exact construction-site defect
+        (Payment Entry built with no paid_from/paid_to/company), so it is fixed
+        alongside the two reachable sites. Before the fix, insert() failed the
+        same way #906 did, the whole method body is wrapped in one try/except,
+        and the failure was silently swallowed into `result["success"] = False`
+        with no invoice ever paid - assertNoErrorLog would not have caught that
+        specific shape (log_error IS called), so this asserts the real
+        observable outcome (success, GL rows, outstanding paid to zero) instead.
+        """
+        from verenigingen.tests.support.invoice_payments import build_eur_membership_invoice
+        from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+
+        member = self._member_with_customer(payment_method="Bank Transfer")
+        invoice = build_eur_membership_invoice(self, member.customer, rate=45.0)
+        # Priority 6, matching DRAIN_PRIORITY_BY_DOCTYPE's "Sales Invoice" tier:
+        # both this invoice and the Payment Entry below reference the member's
+        # Customer as party, so they must drain before it or cleanup hits
+        # "Could not find Party" (the same ordering bug #1200's Ponto test hit).
+        self.factory.track_document("Sales Invoice", invoice.name, priority=6)
+
+        result = member.mark_as_paid()
+        self.assertTrue(result["success"], result.get("error") or result.get("message"))
+        self.assertIn("1 invoices", result["message"])
+
+        invoice.reload()
+        self.assertEqual(invoice.outstanding_amount, 0)
+
+        company = get_eur_test_company()
+        payment_entries = frappe.get_all(
+            "Payment Entry Reference",
+            filters={"reference_doctype": "Sales Invoice", "reference_name": invoice.name},
+            fields=["parent"],
+        )
+        self.assertEqual(len(payment_entries), 1)
+        pe = frappe.get_doc("Payment Entry", payment_entries[0].parent)
+        self.factory.track_document("Payment Entry", pe.name, priority=6)
+
+        self.assertEqual(pe.docstatus, 1)
+        self.assertEqual(pe.payment_type, "Receive")
+        self.assertEqual(pe.company, company)
+        self.assertEqual(pe.paid_from, invoice.debit_to)
+
+        gl_rows = frappe.get_all(
+            "GL Entry",
+            filters={"voucher_type": "Payment Entry", "voucher_no": pe.name},
+            fields=["account", "debit", "credit"],
+        )
+        total_debit = sum(r.debit for r in gl_rows)
+        total_credit = sum(r.credit for r in gl_rows)
+        self.assertEqual(total_debit, total_credit, "GL rows must balance")
+        self.assertEqual(total_debit, invoice.grand_total)

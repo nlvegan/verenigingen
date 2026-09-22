@@ -83,16 +83,39 @@ class FinancialMixin:
             from verenigingen.utils.financial_utils import get_outstanding_invoices
 
             outstanding_invoices = get_outstanding_invoices(
-                self.customer, fields=["name", "outstanding_amount"]
+                self.customer, fields=["name", "outstanding_amount", "company", "debit_to"]
             )
 
             for invoice in outstanding_invoices:
                 if invoice.outstanding_amount > 0:
-                    # Create payment entry
+                    # Create payment entry. company/paid_from/paid_to were never set
+                    # here (#1200): insert() fails the same #906 way ("Source
+                    # Exchange Rate is mandatory"). paid_from is the invoice's own
+                    # receivable account (matches Payment Entry's "Receive"
+                    # convention: party_account = paid_from) -- the same
+                    # invoice.debit_to reuse #906's fix made for the reciprocal
+                    # "Pay" refund's paid_to. paid_to (the bank/cash side) reuses
+                    # #906's own get_default_bank_cash_account() helper directly.
+                    from erpnext.accounts.doctype.journal_entry.journal_entry import (
+                        get_default_bank_cash_account,
+                    )
+
+                    bank_account = get_default_bank_cash_account(
+                        invoice.company, "Bank"
+                    ) or get_default_bank_cash_account(invoice.company, "Cash")
+                    if not bank_account:
+                        frappe.log_error(
+                            f"No default bank/cash account configured for company {invoice.company}"
+                        )
+                        continue
+
                     payment_entry = frappe.new_doc("Payment Entry")
                     payment_entry.payment_type = "Receive"
+                    payment_entry.company = invoice.company
                     payment_entry.party_type = "Customer"
                     payment_entry.party = self.customer
+                    payment_entry.paid_from = invoice.debit_to
+                    payment_entry.paid_to = bank_account["account"]
                     payment_entry.paid_amount = invoice.outstanding_amount
                     payment_entry.received_amount = invoice.outstanding_amount
                     payment_entry.reference_no = f"Manual payment - {self.name}"
