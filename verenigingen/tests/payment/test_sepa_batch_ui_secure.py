@@ -17,6 +17,7 @@ PRODUCT BUGS exposed (xfailed):
       currency, and omits reqd child-row member/membership -> insert always fails.
 """
 
+import inspect
 import unittest
 from unittest.mock import patch
 
@@ -232,6 +233,23 @@ class TestGetInvoiceMandateInfoSecure(SecureBase):
     def test_nonexistent_invoice_raises(self):
         with self.assertRaises(SEPAError):
             s.get_invoice_mandate_info_secure("SINV-NOT-HERE-0000")
+
+    def test_sql_does_not_alias_dues_schedule_display_as_membership(self):
+        """#1252: mirrors the same rename in the non-secure twin
+        (test_sepa_batch_ui.py::TestGetInvoiceMandateInfo). The old alias never
+        leaked to any caller, so this is a naming/structural check, not a
+        behavioural one -- see the control test below."""
+        source = inspect.getsource(s.get_invoice_mandate_info_secure)
+        self.assertNotIn("as membership", source)
+        self.assertIn("as dues_schedule", source)
+
+    def test_still_resolves_mandate_after_rename(self):
+        """Control for the rename above: it must not change behaviour for a real,
+        valid chain (same assertions as test_valid_invoice)."""
+        data = self._build_member_with_invoice(first_name="SecMandInfoRenameControl")
+        result = s.get_invoice_mandate_info_secure(data["invoice"].name)
+        self.assertTrue(result["valid"])
+        self.assertEqual(result["mandate_reference"], data["mandate"].mandate_id)
 
 
 class TestValidateInvoiceMandateSecure(SecureBase):

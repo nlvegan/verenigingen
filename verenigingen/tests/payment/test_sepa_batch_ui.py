@@ -36,6 +36,7 @@ Fixed during this sweep:
       TestLoadUnpaidInvoicesExcludesAlreadyBatched.
 """
 
+import inspect
 from unittest.mock import patch
 
 import frappe
@@ -405,6 +406,25 @@ class TestGetInvoiceMandateInfo(SepaBatchUITestBase):
     def test_returns_none_for_unknown_invoice(self):
         result = ui.get_invoice_mandate_info("SINV-NOPE-0000")
         self.assertIsNone(result)
+
+    def test_sql_does_not_alias_dues_schedule_display_as_membership(self):
+        """#1252: `si.membership_dues_schedule_display` is a Membership Dues Schedule
+        name, not a Link to Membership. The old alias (`as membership`) never leaked
+        to any caller -- the function's return dict never includes that key -- so
+        this is a naming/structural check, not a behavioural one: the function was
+        self-consistent under either alias, which is exactly why the bug produced no
+        observable symptom on its own (see the behavioural control below)."""
+        source = inspect.getsource(ui.get_invoice_mandate_info)
+        self.assertNotIn("as membership", source)
+        self.assertIn("as dues_schedule", source)
+
+    def test_still_resolves_mandate_after_rename(self):
+        """Control for the rename above: it must not change behaviour for a real,
+        valid chain (same assertions as test_returns_mandate_info_for_valid_invoice)."""
+        data = self._build_member_with_invoice(first_name="MandInfoRenameControl")
+        result = ui.get_invoice_mandate_info(data["invoice"].name)
+        self.assertTrue(result["valid"])
+        self.assertEqual(result["mandate_reference"], data["mandate"].mandate_id)
 
 
 class TestValidateInvoiceMandate(SepaBatchUITestBase):

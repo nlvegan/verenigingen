@@ -280,8 +280,23 @@ frappe.ui.form.on('Direct Debit Batch', {
 	}
 });
 
-// Child table events
-frappe.ui.form.on('Direct Debit Invoice', {
+// Child table events -- registered on the CHILD doctype 'Direct Debit Batch Invoice',
+// not the parent 'Direct Debit Batch' and not the nonexistent 'Direct Debit Invoice'
+// (#1251). Frappe dispatches `<fieldname>_add` / `<fieldname>_remove` with the CHILD
+// row's doctype (frappe/public/js/frappe/form/grid.js:1046 and
+// frappe/public/js/frappe/form/grid_row.js:111), and a field-change trigger on a
+// child-table field is bound the same way (frappe/public/js/frappe/form/form.js:
+// 305-326: `frappe.model.on(df.options, "*", ...)`, `df.options` being the child
+// doctype) -- so all three handlers belong together here, exactly like erpnext's
+// `items_add` on "<Parent> Item" (erpnext/public/js/controllers/transaction.js).
+//
+// `invoices_add` only ever sees a populated `row.invoice` when a row is duplicated
+// in the grid (copy_doc) -- NOT when "Load Unpaid Invoices" adds rows via
+// `frm.add_child('invoices', inv)` below, which does not go through the grid and so
+// never fires this trigger (frappe/public/js/frappe/model/create_new.js:add_child).
+// So there is no N+1 and no risk of overwriting the loader's already-correct
+// iban/bic/mandate values.
+frappe.ui.form.on('Direct Debit Batch Invoice', {
 	invoices_add(frm, cdt, cdn) {
 		// Auto-populate mandate info when invoice is selected
 		const row = locals[cdt][cdn];
@@ -296,7 +311,10 @@ frappe.ui.form.on('Direct Debit Invoice', {
 						frappe.model.set_value(cdt, cdn, 'iban', data.iban);
 						frappe.model.set_value(cdt, cdn, 'bic', data.bic);
 						frappe.model.set_value(cdt, cdn, 'mandate_reference', data.mandate_reference);
-						frappe.model.set_value(cdt, cdn, 'mandate_date', data.mandate_date);
+						// Child doctype field is `mandate_sign_date`, not `mandate_date`
+						// (direct_debit_batch_invoice.json) -- setting the wrong name is a
+						// silent no-op that left this field permanently blank.
+						frappe.model.set_value(cdt, cdn, 'mandate_sign_date', data.mandate_date);
 					}
 				}
 			});
@@ -645,7 +663,15 @@ function validate_mandates(frm) {
 						frappe.model.set_value(inv.doctype, inv.name, 'iban', iban);
 						frappe.model.set_value(inv.doctype, inv.name, 'bic', data.bic);
 						frappe.model.set_value(inv.doctype, inv.name, 'mandate_reference', data.mandate_reference);
-						frappe.model.set_value(inv.doctype, inv.name, 'mandate_date', data.mandate_date);
+						// Same field-name bug as the invoices_add handler above
+						// (mandate_sign_date, not mandate_date) -- this one was reachable
+						// today, not just latent behind #1251's dead registration. The
+						// "Validate Mandates" button itself has no client-side visibility
+						// pre-check (unlike "Load Unpaid Invoices" above, which asks
+						// can_load_unpaid_invoices first), but validate_invoice_mandate IS
+						// gated server-side at HIGH (PROFILE_ONLY_LEVELS), so this was live
+						// for any user who could actually reach it.
+						frappe.model.set_value(inv.doctype, inv.name, 'mandate_sign_date', data.mandate_date);
 					} else {
 						frappe.model.set_value(inv.doctype, inv.name, 'status', 'Invalid');
 						frappe.model.set_value(inv.doctype, inv.name, 'result_message', data.error);

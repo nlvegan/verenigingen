@@ -325,12 +325,16 @@ def get_invoice_mandate_info(invoice: str):
     ambiguous pick can be REFUSED rather than ordered by recency (#584).
     """
 
-    # Single query to get invoice, membership dues schedule, member, and mandate data
+    # Single query to get invoice, membership dues schedule, member, and mandate data.
+    #
+    # Aliased `dues_schedule`, NOT `membership` (#1252): this is a Membership Dues
+    # Schedule name, not a Link to Membership. Matches the convention already used by
+    # `load_unpaid_invoices` (#1239) and `sepa_race_condition_manager`.
     result = frappe.db.sql(
         """
         SELECT
             si.name as invoice,
-            si.membership_dues_schedule_display as membership,
+            si.membership_dues_schedule_display as dues_schedule,
             mem.name as member,
             mem.full_name as member_name
         FROM `tabSales Invoice` si
@@ -347,7 +351,7 @@ def get_invoice_mandate_info(invoice: str):
 
     data = result[0]
 
-    if not data.membership:
+    if not data.dues_schedule:
         return None
 
     if not data.member:
