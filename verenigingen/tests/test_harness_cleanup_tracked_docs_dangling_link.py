@@ -85,7 +85,7 @@ class TrackedDocCleanupDoesNotOrphanInvoiceLinksTest(unittest.TestCase):
                 print(f"test cleanup could not remove {doctype} {name}: {e}")
         frappe.db.commit()
 
-    def _make_member(self, tag):
+    def _probe_make_member(self, tag):
         member = frappe.new_doc("Member")
         member.first_name = f"Probe1250{tag}"
         member.last_name = frappe.generate_hash(length=6)
@@ -94,7 +94,7 @@ class TrackedDocCleanupDoesNotOrphanInvoiceLinksTest(unittest.TestCase):
         self._leftover.append(("Member", member.name))
         return member
 
-    def _make_schedule(self, tag, member_name):
+    def _probe_make_schedule(self, tag, member_name):
         mds = frappe.new_doc("Membership Dues Schedule")
         mds.schedule_name = f"PROBE-1250{tag}-Schedule-{frappe.generate_hash(length=6)}"
         mds.membership_type = self.membership_type
@@ -109,7 +109,7 @@ class TrackedDocCleanupDoesNotOrphanInvoiceLinksTest(unittest.TestCase):
         self._leftover.append(("Membership Dues Schedule", mds.name))
         return mds
 
-    def _make_submitted_invoice(self, schedule_name):
+    def _probe_make_submitted_invoice(self, schedule_name):
         si = frappe.new_doc("Sales Invoice")
         si.customer = self.customer
         si.company = self.company
@@ -132,9 +132,9 @@ class TrackedDocCleanupDoesNotOrphanInvoiceLinksTest(unittest.TestCase):
         return si
 
     def test_cleanup_does_not_orphan_a_submitted_invoice_link(self):
-        member = self._make_member("A")
-        mds = self._make_schedule("A", member.name)
-        si = self._make_submitted_invoice(mds.name)
+        member = self._probe_make_member("A")
+        mds = self._probe_make_schedule("A", member.name)
+        si = self._probe_make_submitted_invoice(mds.name)
 
         # Isolate the scenario: strip every OTHER reference to the schedule so
         # the Sales Invoice's `membership_dues_schedule_display` is the only
