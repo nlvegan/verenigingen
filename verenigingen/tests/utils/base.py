@@ -911,11 +911,52 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
     @classmethod
     def _cleanup_tracked_docs(cls):
-        """Clean up all tracked documents"""
+        """Clean up all tracked documents.
+
+        Cancel before delete for anything still submitted. `force=True` on
+        `frappe.delete_doc` bypasses the link-integrity check
+        (`check_if_doc_is_linked`) but NOT the submitted-record guard
+        (`check_permission_and_not_submitted` runs first) -- so a submitted
+        row's delete used to raise `ValidationError`, get swallowed by the
+        `except` below, and leave the loop to force-delete whatever THAT row
+        still linked to, orphaning it (#1250: a submitted Sales Invoice left
+        behind with a `membership_dues_schedule_display` naming a Membership
+        Dues Schedule this same loop had just force-deleted out from under
+        it).
+
+        This is the SAME mechanism `_cancel_if_submitted` above already
+        carries -- `_cleanup_document_with_retry` merely CALLS it, so there is
+        one cancel-before-delete rule in this file, not two -- and this block
+        has to carry its ledger carve-out too, not just its cancel step:
+        cancelling a ledger-bearing voucher does not remove its GL Entry /
+        Payment Ledger Entry rows, it WRITES MORE (reversals), and
+        `delete_doc` does not take them with the parent -- so cancel-then-
+        delete on one of those converts an honest "still submitted" leak into
+        ORPHANED ledger rows pointing at a voucher_no the naming series then
+        reissues to the next document (#328's mechanism, the same one #482 /
+        PR #518 fixed for the sibling drain). `ledger_rows.has_ledger_rows` is
+        the shared, data-driven guard both bases key off (see its module
+        docstring for why it lives there instead of being restated) -- skip
+        the cancel when it says yes, and let the delete fail/report exactly
+        as it did before this fix.
+        """
         for doc_info in reversed(cls._track_created_docs):
             try:
-                if frappe.db.exists(doc_info["doctype"], doc_info["name"]):
-                    frappe.delete_doc(doc_info["doctype"], doc_info["name"], force=True)
+                doctype, name = doc_info["doctype"], doc_info["name"]
+                if frappe.db.exists(doctype, name):
+                    if (
+                        frappe.get_meta(doctype).is_submittable
+                        and frappe.db.get_value(doctype, name, "docstatus") == 1
+                        and not ledger_rows.has_ledger_rows(doctype, name)
+                    ):
+                        try:
+                            doc = frappe.get_doc(doctype, name)
+                            doc.flags.ignore_permissions = True
+                            doc.flags.ignore_links = True
+                            doc.cancel()
+                        except Exception as cancel_error:
+                            print(f"Could not cancel {doctype} {name} before delete: {cancel_error}")
+                    frappe.delete_doc(doctype, name, force=True)
             except (frappe.DoesNotExistError, frappe.ValidationError, frappe.LinkExistsError) as e:
                 print(f"Error cleaning up {doc_info['doctype']} {doc_info['name']}: {e}")
 
