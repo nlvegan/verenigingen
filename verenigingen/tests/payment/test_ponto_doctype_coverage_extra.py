@@ -364,12 +364,26 @@ class TestPontoPaymentRequestExtra(EnhancedTestCase):
         self.assertFalse(req.payment_entry)
 
     def _mapped_bank_account(self, ponto_account_id, bank_account):
-        """Point a Ponto Settings mapping at `bank_account`, restored on exit."""
+        """Point a Ponto Settings mapping at `bank_account`, restored on exit.
+
+        `validate_credentials_configured()` throws "Sandbox Client ID is
+        required when Sandbox Mode is enabled" when sandbox_mode is truthy and
+        sandbox_client_id is empty - and sandbox_mode's JSON default is "1"
+        with no default for sandbox_client_id, so a site whose singleton has
+        never had a sandbox client id set (e.g. test_site_7) ERRORs here before
+        create_payment_entry is ever reached. A site that happens to carry a
+        leftover sandbox_client_id from another test masks this - test_site_2
+        did. Set both explicitly (same pattern as
+        TestPontoSettingsExtra.test_get_active_client_secret_sandbox_empty)
+        instead of depending on whatever a sibling test left behind.
+        """
         from verenigingen.tests.fixtures.singleton_backup import singleton_backup
 
         ctx = singleton_backup("Ponto Settings")
         ctx.__enter__()
         settings = frappe.get_single("Ponto Settings")
+        settings.sandbox_mode = 1
+        settings.sandbox_client_id = "sandbox-test-client-id"
         settings.bank_account_mappings = []
         settings.append(
             "bank_account_mappings",
