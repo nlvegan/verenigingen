@@ -705,16 +705,18 @@ def create_member_from_application(data, application_id, address=None):
                         new_app_id = generate_application_id()
                         member.application_id = new_app_id
                         frappe.log_error(
-                            f"Application ID collision detected, retrying with new ID: {new_app_id} (attempt {attempt + 1})",
-                            "Application ID Collision Retry",
+                            title="Application ID Collision Retry",
+                            message=f"Application ID collision detected, retrying with new ID: {new_app_id} (attempt {attempt + 1})",
                         )
                         continue
                     else:
-                        # Last attempt failed, log and re-raise
-                        frappe.log_error(
-                            f"Failed to create member after {max_attempts} attempts due to application_id collision: {error_str}",
-                            "Application ID Collision Fatal",
-                        )
+                        # Last attempt failed, re-raise WITHOUT logging here. This
+                        # function's only caller (submit_application) already owns a
+                        # single, higher-context "Member Creation Error" row for the
+                        # whole member-creation step -- with the same error_str and a
+                        # full traceback -- so a log here was a pure duplicate for
+                        # every path that reaches it (#1165, same amplification shape
+                        # as #1130/#1162/#1173).
                         raise
                 else:
                     # Not an application_id collision, re-raise immediately

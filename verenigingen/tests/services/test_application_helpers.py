@@ -20,6 +20,8 @@ to verify:
 - application-status lookup (PII-safe response)
 """
 
+from unittest.mock import patch
+
 import frappe
 from frappe.utils import today
 
@@ -308,6 +310,72 @@ class TestCreateMemberFromApplication(EnhancedTestCase):
         # IBAN is normalized (spaces) by the Member controller; compare digits.
         self.assertEqual(member.iban.replace(" ", ""), iban.replace(" ", ""))
         self.assertEqual(member.bank_account_name, "Jan Applicant")
+
+    def test_application_id_collision_exhaustion_writes_no_fatal_log(self):
+        """#1165: retry-exhaustion must not log its own "Application ID Collision
+        Fatal" row. This function's only production caller
+        (api/membership_application.py's submit_application) already owns a
+        single, higher-context "Member Creation Error" row for the whole
+        member-creation step -- built from the SAME propagated exception, with a
+        full traceback -- so logging here too was a pure duplicate for every
+        path that reaches it (same amplification shape as #1130/#1162/#1173).
+
+        Forces EVERY attempt (including both retries) to collide by pre-seeding
+        a Member that owns the target application_id, then patching
+        generate_application_id (at its canonical source, so both this
+        module's wrapper and any other caller see the same patched value) to
+        keep returning that same colliding id -- so the loop exhausts all 3
+        attempts deterministically instead of self-healing on retry 2.
+        """
+        from verenigingen.services.member.core import member_id_service
+
+        data, app_id = self._build_application()
+        seed = helpers.create_member_from_application(data, app_id)
+        self.track_doc("Member", seed.name)
+        self.assertEqual(seed.application_id, app_id)
+
+        data2, _unused_id = self._build_application()
+
+        marker = frappe.utils.now_datetime()
+        before = {
+            r.name
+            for r in frappe.get_all("Error Log", filters={"creation": [">=", marker]}, fields=["name"])
+        }
+        with patch.object(member_id_service, "generate_application_id", return_value=app_id):
+            with self.assertRaises(Exception) as ctx:
+                helpers.create_member_from_application(data2, app_id)
+
+        self.assertIn("application_id", str(ctx.exception))
+
+        rows = frappe.get_all(
+            "Error Log",
+            filters={"creation": [">=", marker]},
+            fields=["name", "method", "error"],
+            order_by="creation asc",
+        )
+        rows = [r for r in rows if r.name not in before]
+        # "Fatal" must not appear in EITHER field: frappe.log_error's swap
+        # heuristic only fires when the first positional arg contains a
+        # newline, so the old positional call (no newline in its message)
+        # stored the long dynamic string as `method` and the literal
+        # "Application ID Collision Fatal" as `error` -- checking `method`
+        # alone would have missed that shape entirely (confirmed against the
+        # unfixed code: this assertion reddened there, an assertNotIn on
+        # `method` alone did not).
+        haystacks = [f"{r.method or ''}\n{r.error or ''}" for r in rows]
+        self.assertFalse(
+            any("Collision Fatal" in h for h in haystacks),
+            f"the retry-exhaustion path must not write its own row, got: {haystacks}",
+        )
+        # The two non-final retry attempts still log their own diagnostic row
+        # (not a duplicate -- each represents a genuinely different attempt),
+        # with correctly-ordered title/message (kwargs, not the positional swap
+        # #1165 also flagged) -- so `method` is exactly the intended title, not
+        # a truncated dynamic message.
+        retry_rows = [r for r in rows if r.method == "Application ID Collision Retry"]
+        self.assertEqual(len(retry_rows), 2, f"expected 2 retry rows, got: {haystacks}")
+        for r in retry_rows:
+            self.assertIn("collision", r.error.lower())
 
 
 class TestReapplicationUpdate(EnhancedTestCase):
