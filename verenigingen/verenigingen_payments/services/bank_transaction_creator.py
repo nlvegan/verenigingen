@@ -12,6 +12,18 @@ from frappe.utils import getdate
 
 from verenigingen.utils.retry_utilities import execute_with_deadlock_retry, is_deadlock_error
 
+# Substrings secure_document_operation()'s swallowed-exception text carries for a unique-
+# constraint violation. It reports the failure as a formatted string (see
+# secure_operations.py's `result.add_error(f"Operation failed: {str(e)}")`), not the
+# original exception object, so this is a text match rather than an isinstance check --
+# empirically confirmed against both frappe.UniqueValidationError's message and MariaDB's
+# raw IntegrityError 1062 text (2026-09-23, see #1267).
+_DUPLICATE_KEY_ERROR_MARKERS = ("Duplicate entry", "UniqueValidationError", "DuplicateEntryError")
+
+
+def _is_duplicate_key_error(error_msg: str) -> bool:
+    return any(marker in error_msg for marker in _DUPLICATE_KEY_ERROR_MARKERS)
+
 
 class BankTransactionCreator:
     """
@@ -817,6 +829,44 @@ class BankTransactionCreator:
 
                 if not create_result.success:
                     error_msg = ", ".join(create_result.errors) if create_result.errors else "Unknown error"
+
+                    if _is_duplicate_key_error(error_msg):
+                        # secure_document_operation() catches the IntegrityError /
+                        # UniqueValidationError that doc.insert() raises on a real race
+                        # and reports it as success=False with the error text here --
+                        # it does NOT re-raise. So the `except (DuplicateEntryError,
+                        # frappe.UniqueValidationError)` block below this loop, written
+                        # for exactly this race, is never reached from this call (#1267).
+                        # Recover the same way that block does.
+                        frappe.logger().info(
+                            f"⏭️ Bank Transaction create failed on a duplicate key for "
+                            f"{reference_number} (bank_account={bank_account}); checking "
+                            "for the row that won the race"
+                        )
+                        existing_match = self._find_matching_bank_transaction(
+                            reference_number, bank_account, company
+                        )
+                        if existing_match:
+                            frappe.logger().info(
+                                "✅ Successfully recovered from race condition - using "
+                                f"existing BT: {existing_match.name}"
+                            )
+                            return existing_match.name
+
+                        frappe.logger().error(
+                            f"❌ CRITICAL: Bank Transaction create failed on a duplicate "
+                            f"key for {reference_number} but cannot find existing record"
+                        )
+                        frappe.log_error(
+                            title="Bank Transaction Race Condition Error",
+                            message=(
+                                f"Duplicate-key create failure for {reference_number} "
+                                f"(bank_account={bank_account}) but no matching row "
+                                f"found: {error_msg}"
+                            ),
+                        )
+                        return None
+
                     frappe.logger().error(f"❌ Failed to create Bank Transaction: {error_msg}")
                     return None
 
