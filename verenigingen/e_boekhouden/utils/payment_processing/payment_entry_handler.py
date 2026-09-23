@@ -16,6 +16,7 @@ from frappe.utils import flt, getdate, nowdate
 
 from verenigingen.e_boekhouden.utils.invoice_helpers import ensure_fiscal_year_exists
 from verenigingen.e_boekhouden.utils.security_helper import atomic_migration_operation, validate_and_insert
+from verenigingen.utils.sql_like import escape_sql_like_wildcards
 
 # Lock for thread-safe monkey patching of Payment Entry during floating point fix
 _floating_point_fix_lock = threading.Lock()
@@ -1168,7 +1169,10 @@ class PaymentEntryHandler:
                 doctype,
                 filters={
                     party_field: party,
-                    "name": ["like", f"%{invoice_num}%"],
+                    # #1277: invoice_num is e-Boekhouden-supplied and may contain
+                    # a literal '_'/'%', a LIKE wildcard unless escaped -- see
+                    # #1153/#1258.
+                    "name": ["like", f"%{escape_sql_like_wildcards(invoice_num)}%"],
                     "docstatus": 1,
                 },
                 fields=["name", "grand_total", "outstanding_amount", "posting_date"],

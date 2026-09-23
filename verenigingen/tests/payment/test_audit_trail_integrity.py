@@ -22,7 +22,25 @@ from verenigingen.verenigingen_payments.core.compliance.audit_trail import (
 )
 
 
-class TestAuditTrailIntegrity(EnhancedTestCase):
+class AuditLogFixtureMixin:
+    """Shared factory for a standalone (non-chain) Mollie Audit Log test entry.
+
+    Extracted (#1277) so a second suite needing the same fixture imports this
+    instead of pasting a near-identical copy -- the duplicate-helper guard
+    treats a second same-shaped ``_make_audit_log_entry`` as a clone.
+    """
+
+    def _make_audit_log_entry(self, **fields):
+        """Insert a standalone (non-chain) Mollie Audit Log entry for test
+        scenarios. ignore_permissions is confined to this factory method (per the
+        test-quality standard) rather than being scattered through test bodies."""
+        entry = frappe.new_doc("Mollie Audit Log")
+        entry.update(fields)
+        entry.insert(ignore_permissions=True)
+        return entry
+
+
+class TestAuditTrailIntegrity(AuditLogFixtureMixin, EnhancedTestCase):
     """Tests for ImmutableAuditTrail chain integrity verification."""
 
     def setUp(self):
@@ -110,15 +128,6 @@ class TestAuditTrailIntegrity(EnhancedTestCase):
 
         self.assertFalse(is_valid)
         self.assertTrue(errors)
-
-    def _make_audit_log_entry(self, **fields):
-        """Factory helper: insert a standalone (non-chain) Mollie Audit Log entry for
-        test scenarios. ignore_permissions is confined to this factory method (per the
-        test-quality standard) rather than being scattered through test bodies."""
-        entry = frappe.new_doc("Mollie Audit Log")
-        entry.update(fields)
-        entry.insert(ignore_permissions=True)
-        return entry
 
     def test_verify_integrity_ignores_non_chain_entries(self):
         """Standalone Mollie Audit Log entries (no chain linkage) must not break verification."""
