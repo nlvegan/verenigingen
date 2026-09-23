@@ -1101,6 +1101,41 @@ def api_security_framework(
     return decorator
 
 
+def can_clear_security_level(fn) -> bool:
+    """Report whether the CURRENT session user would clear the security level
+    ``fn``'s own ``@critical_api``/``@high_security_api``/etc. decorator enforces.
+
+    Reads the required level directly off ``fn`` (the ``_security_level``
+    attribute the decorator stamps on it, see ``wrapper._security_level`` above)
+    rather than restating the level as a second literal at each call site, so a
+    caller can never state a different level than the endpoint actually enforces
+    if its decorator ever changes.
+
+    Deliberately answers ONLY the role/profile authorisation question -- it does
+    not check IP restrictions, rate limits, or HTTP method, and it never calls
+    ``fn``. Those are dispatch-time/request-shape concerns that only apply to an
+    actual invocation, and conflating them here would let an unrelated failure
+    (e.g. a rate-limit hiccup) masquerade as "no permission" for a caller who
+    actually has it (#1224, review commit 6a83f355f).
+
+    Fails closed (returns False without even checking the caller's roles) if
+    ``fn`` carries no ``_security_level`` -- e.g. because its decorator was
+    removed -- rather than falling back to a default level, which could
+    silently be more permissive than intended. This is the shared home for a
+    check first written for ``DirectDebitBatch.on_submit`` (#1224) and reused by
+    ``ChapterRole.on_update`` (#1229) -- both are the same shape: a document
+    lifecycle hook that must not let an internal call to a HIGH/CRITICAL-gated
+    function block or silently no-op an otherwise-permitted save.
+    """
+    from verenigingen.utils.security.authorization_engine import AuthorizationEngine
+
+    required_level = getattr(fn, "_security_level", None)
+    if required_level is None:
+        return False
+
+    return AuthorizationEngine().authorize(frappe.session.user, required_level).granted
+
+
 # Convenience decorators for common security patterns
 #
 # Security Level Selection Guide:
