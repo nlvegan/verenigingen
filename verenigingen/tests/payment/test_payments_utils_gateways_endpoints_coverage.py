@@ -35,6 +35,7 @@ from unittest.mock import patch
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.portal_self_service_mixin import PortalSelfServiceTestMixin
 from verenigingen.utils.constants import Roles
 from verenigingen.verenigingen_payments.utils import payment_gateways as pg
 
@@ -115,6 +116,83 @@ class TestCancelMemberSubscriptionOwnership(EnhancedTestCase):
         with self.as_user(other.user):
             with self.assertRaises(frappe.PermissionError):
                 pg.cancel_member_subscription(member_id=member.name)
+
+
+class TestCancelMemberSubscriptionStaffAccess(PortalSelfServiceTestMixin, EnhancedTestCase):
+    """#1101: staff MAY act on a member's behalf to cancel a subscription.
+
+    cancel_member_subscription accepts an explicit member_id, unlike the three
+    mollie_payment.py dashboard endpoints and sepa_api.py's
+    setup_sepa_direct_debit, which resolve "member" purely from
+    frappe.session.user and take no caller-supplied target. It is the one of
+    the five #1101 call sites where allow_admin=True has an observable effect
+    (mirrors update_mollie_subscription_amount, #957/#1099).
+    """
+
+    def test_ordinary_member_still_refused_for_another_member(self):
+        """Control for the allow_admin change: a plain member (no ADMIN_ROLES)
+        must still be refused when acting on a DIFFERENT member's subscription.
+        Uses PortalSelfServiceTestMixin's deterministic user link rather than
+        create_test_member's optional one, so this does not skip.
+        """
+        member = self.create_test_member(first_name="StaffAccessOwner")
+        other = self.create_test_member(first_name="StaffAccessOther")
+        other_user = self._link_member_to_user(other)
+
+        with self._as_user(other_user.name):
+            with self.assertRaises(frappe.PermissionError):
+                pg.cancel_member_subscription(member_id=member.name)
+
+    class _StubGateway:
+        def __init__(self):
+            self.cancelled_for = None
+
+        def cancel_subscription(self, member):
+            self.cancelled_for = member.name
+            return {"status": "success"}
+
+    def _staff_user(self):
+        """A user holding Roles.ADMIN_ROLES ("Verenigingen Staff") and clearing
+        the endpoint's HIGH security tier via a matching Role Profile, but with
+        NO Member record of their own -- matching validate_member_ownership's
+        own allow_admin docstring ("even without an owning Member record").
+        """
+        from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
+
+        user_email = f"staff.subprobe.{frappe.generate_hash(length=8)}@example.com".lower()
+        frappe.get_doc(
+            {
+                "doctype": "User",
+                "email": user_email,
+                "first_name": "Staff",
+                "last_name": "SubProbe",
+                "send_welcome_email": 0,
+                "roles": [{"role": "Verenigingen Staff"}],
+            }
+        ).insert()
+        grant_matching_role_profiles(user_email, "Verenigingen Staff")
+
+        self.assertTrue(
+            set(frappe.get_roles(user_email)) & Roles.ADMIN_ROLES,
+            "test setup: staff user must hold a Roles.ADMIN_ROLES role",
+        )
+        self.assertIsNone(
+            frappe.db.get_value("Member", {"user": user_email}, "name"),
+            "test setup: staff user must have no Member record of their own",
+        )
+        return user_email
+
+    def test_staff_can_cancel_another_members_subscription(self):
+        member = self.create_test_member(first_name="StaffActsFor")
+        staff_user = self._staff_user()
+        stub = self._StubGateway()
+
+        with self.set_user(staff_user):
+            with patch.object(pg.PaymentGatewayFactory, "get_gateway", return_value=stub):
+                result = pg.cancel_member_subscription(member_id=member.name)
+
+        self.assertEqual(result["status"], "success", result)
+        self.assertEqual(stub.cancelled_for, member.name)
 
 
 class TestUpdateSubscriptionAmountOwnership(EnhancedTestCase):

@@ -33,7 +33,17 @@ def get_subscription_details():
         member_name = get_current_user_member_name_required()
 
         # CRITICAL SECURITY: a member may only view their OWN subscription details.
-        validate_member_ownership(member_name, _("You can only access your own subscription details"))
+        # allow_admin=True per #1101 (staff may act on a member's behalf), matching
+        # the other validate_member_ownership call sites. NOTE: member_name above is
+        # always the CALLER's own record (get_current_user_member_name_required has
+        # no target-member parameter), so this check can never see a mismatch and
+        # allow_admin has no observable effect here today -- a staff caller with no
+        # Member record of their own still fails one line earlier. Making this
+        # endpoint actually actionable on another member's behalf needs a
+        # caller-supplied target parameter, tracked separately (#1101 comment).
+        validate_member_ownership(
+            member_name, _("You can only access your own subscription details"), allow_admin=True
+        )
 
         member = frappe.get_doc("Member", member_name)
         customer_infos = _collect_member_customer_infos(member)
@@ -254,8 +264,12 @@ def cancel_specific_subscription(customer_id: str = None, subscription_id: str =
         # Get member record using improved utility
         member_name = get_current_user_member_name_required()
 
-        # CRITICAL SECURITY: Validate user can only cancel their own subscriptions
-        validate_member_ownership(member_name, _("You can only cancel your own subscriptions"))
+        # CRITICAL SECURITY: Validate user can only cancel their own subscriptions.
+        # allow_admin=True per #1101; see get_subscription_details() above for why
+        # it has no observable effect at this self-resolving call site today.
+        validate_member_ownership(
+            member_name, _("You can only cancel your own subscriptions"), allow_admin=True
+        )
 
         # Verify the customer ID belongs to this member
         member = frappe.get_doc("Member", member_name)
@@ -360,7 +374,9 @@ def update_mollie_bank_account(iban: str = None, account_holder_name: str = None
 
     # Get and validate member
     member_name = get_current_user_member_name_required()
-    validate_member_ownership(member_name, _("You can only update your own bank account"))
+    # allow_admin=True per #1101; see get_subscription_details() above for why
+    # it has no observable effect at this self-resolving call site today.
+    validate_member_ownership(member_name, _("You can only update your own bank account"), allow_admin=True)
 
     member = frappe.get_doc("Member", member_name)
 
