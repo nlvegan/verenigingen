@@ -42,6 +42,8 @@ Usage Examples:
 
 import frappe
 
+from verenigingen.utils.user_role_grant import ensure_role_survives_profile_resync
+
 
 def migrate_to_native_expense_system():
     """
@@ -216,6 +218,12 @@ def ensure_board_members_have_approver_roles():
                 if "Expense Approver" not in user_roles:
                     user.append("roles", {"role": "Expense Approver"})
                     user.save(ignore_permissions=True)
+                    # #1195: the append above is silently defeated by
+                    # User.validate()'s role-profile re-derivation whenever
+                    # user_email carries a Role Profile that doesn't include
+                    # "Expense Approver" -- verify and fall back to a direct
+                    # Has Role insert.
+                    ensure_role_survives_profile_resync(user_email, "Expense Approver")
                     updated_count += 1
                     print(f"   Added Expense Approver role to {member.volunteer_name} ({user_email})")
 
