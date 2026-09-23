@@ -15,6 +15,8 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCANNER = os.path.normpath(os.path.join(HERE, "..", "scan_order_dependence.py"))
+# scripts/testing/tests -> repo root -> verenigingen (the app package CI scans by default).
+VERENIGINGEN_ROOT = os.path.normpath(os.path.join(HERE, "..", "..", "..", "verenigingen"))
 
 
 def _load_scanner_module():
@@ -204,16 +206,21 @@ class SelfCheckControlTest(unittest.TestCase):
         # Skeptical review of #910: run_self_check() used to scan the control via
         # discover_findings(control_path) -- a FILE path, which takes the
         # os.path.isfile branch straight into scan_file() and never touches the
-        # os.walk + fn.startswith("test_") filter every real (directory) invocation
-        # uses. A typo in that filter alone left the self-check green while a real
+        # os.walk + _is_scannable() filter every real (directory) invocation uses.
+        # A typo in that filter alone left the self-check green while a real
         # directory scan with genuine findings silently returned "Total findings: 0".
         # Reproduce that exact mutation end-to-end and require the self-check to
-        # catch it now that it scans the control through a real directory.
+        # catch it now that it scans the control through a real directory. #1311
+        # moved the filter from an inline `fn.startswith("test_")` in the walk loop
+        # into `_is_scannable()`; the control file sits directly under the temp
+        # root (not under a `tests/` directory), so breaking just its `test_`-prefix
+        # branch is still enough to make `_is_scannable` return False for it, same
+        # as the original mutation did for the inline check.
         with open(SCANNER, encoding="utf-8") as fh:
             src = fh.read()
-        old = 'if fn.startswith("test_") and fn.endswith(".py"):'
+        old = '    if fn.startswith("test_"):\n        return True\n'
         self.assertEqual(src.count(old), 1, "expected filter line not found -- scanner changed shape")
-        broken = src.replace(old, 'if fn.startswith("ZZZ_NEVER_MATCHES_") and fn.endswith(".py"):')
+        broken = src.replace(old, '    if fn.startswith("ZZZ_NEVER_MATCHES_"):\n        return True\n')
         with tempfile.TemporaryDirectory() as tmp:
             broken_path = os.path.join(tmp, "scan_order_dependence_broken.py")
             with open(broken_path, "w", encoding="utf-8") as fh:
@@ -263,6 +270,214 @@ class SelfCheckControlTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("SELF-CHECK FAILED", result.stdout + result.stderr)
         self.assertNotIn("Total findings", result.stdout)
+
+
+class HelperModuleScanTest(unittest.TestCase):
+    """#1311: the walk used to visit only `test_*.py`, so a bare commit in a shared,
+    non-`test_`-prefixed helper module under `tests/` -- e.g. `tests/utils/*.py`,
+    `tests/fixtures/*.py` -- was invisible even though every test importing it
+    executes it. PR #1290's round 2 named a helper specifically so its filename
+    would NOT match `test_*.py` and would escape this scan."""
+
+    def _write(self, tmp, name, body):
+        path = os.path.join(tmp, name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write(body)
+        return path
+
+    def test_commit_in_a_non_test_prefixed_helper_under_tests_dir_is_found(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            # Mirrors the real shape: verenigingen/tests/utils/some_cleanup.py --
+            # a bare commit in a plain function, not named test_* and not inside
+            # a _cleanup_*/_create_*/tearDown fixture-builder shape either.
+            self._write(
+                tmp, os.path.join("tests", "utils", "dues_schedule_test_cleanup.py"),
+                "import frappe\n\n\ndef cancel_and_delete_invoice_and_schedule():\n"
+                "    frappe.db.commit()\n",
+            )
+            result = subprocess.run(
+                [sys.executable, SCANNER, tmp], capture_output=True, text=True,
+            )
+        self.assertIn("Total findings: 1", result.stdout, result.stdout)
+        self.assertIn("COMMIT=1", result.stdout, result.stdout)
+
+    def test_helper_under_tests_fixtures_dir_is_found(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write(
+                tmp, os.path.join("tests", "fixtures", "some_factory.py"),
+                "import frappe\n\n\ndef build():\n    frappe.db.commit()\n",
+            )
+            result = subprocess.run(
+                [sys.executable, SCANNER, tmp], capture_output=True, text=True,
+            )
+        self.assertIn("COMMIT=1", result.stdout, result.stdout)
+
+    def test_a_non_test_prefixed_helper_outside_any_tests_dir_is_still_not_scanned(self):
+        # Control for the widened walk: production code sitting beside its own
+        # test_*.py file (e.g. a doctype's controller.py) must NOT be swept in just
+        # because the walk got broader. Only a `tests/` path component -- or the
+        # `test_` filename prefix -- makes a file in scope.
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write(
+                tmp, os.path.join("verenigingen", "services", "helper.py"),
+                "import frappe\n\n\ndef go():\n    frappe.db.commit()\n",
+            )
+            result = subprocess.run(
+                [sys.executable, SCANNER, tmp], capture_output=True, text=True,
+            )
+        self.assertIn("Total findings: 0", result.stdout, result.stdout)
+
+
+class GetValueReuseTest(unittest.TestCase):
+    """#1311: REUSE detection covered get_all/get_list only. An unscoped
+    frappe.db.get_value(DT, {}, ...) in setUp picks an arbitrary row the same way,
+    and made two tests in test_harness_cleanup_tracked_docs_dangling_link.py pass
+    on test_site_3 and error on test_site_8."""
+
+    def _write(self, tmp, name, body):
+        path = os.path.join(tmp, name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write(body)
+        return path
+
+    def _scan(self, tmp, body, name="test_probe.py"):
+        self._write(tmp, name, body)
+        return subprocess.run([sys.executable, SCANNER, tmp], capture_output=True, text=True)
+
+    def test_empty_dict_filters_in_setup_is_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._scan(
+                tmp,
+                "import frappe\n\n\nclass T:\n"
+                "    def setUp(self):\n"
+                "        self.customer = frappe.db.get_value(\"Customer\", {}, \"name\")\n",
+            )
+        self.assertIn("REUSE=1", result.stdout, result.stdout)
+
+    def test_none_filters_in_setup_is_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._scan(
+                tmp,
+                "import frappe\n\n\nclass T:\n"
+                "    def setUp(self):\n"
+                "        self.x = frappe.db.get_value(\"Customer\", None, \"name\")\n",
+            )
+        self.assertIn("REUSE=1", result.stdout, result.stdout)
+
+    def test_omitted_filters_in_setup_is_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._scan(
+                tmp,
+                "import frappe\n\n\nclass T:\n"
+                "    def setUp(self):\n"
+                "        self.x = frappe.db.get_value(\"System Settings\")\n",
+            )
+        self.assertIn("REUSE=1", result.stdout, result.stdout)
+
+    def test_scoped_dict_filters_in_setup_is_not_flagged(self):
+        # Control: a real filter (even a single key) pins the query to specific
+        # records and is the intended, safe use of get_value -- must not fire.
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._scan(
+                tmp,
+                "import frappe\n\n\nclass T:\n"
+                "    def setUp(self):\n"
+                "        self.x = frappe.db.get_value(\"Item\", {\"is_sales_item\": 1}, \"name\")\n",
+            )
+        self.assertIn("REUSE=0", result.stdout, result.stdout)
+
+    def test_frappe_get_value_shortcut_is_also_flagged(self):
+        # frappe/__init__.py re-exports get_value as a shortcut for db.get_value --
+        # same hazard, no `.db.` in the chain.
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._scan(
+                tmp,
+                "import frappe\n\n\nclass T:\n"
+                "    def setUp(self):\n"
+                "        self.x = frappe.get_value(\"Bank\", {}, \"name\")\n",
+            )
+        self.assertIn("REUSE=1", result.stdout, result.stdout)
+
+    def test_cache_get_value_is_not_flagged(self):
+        # Real false positive found in #1311's own before/after census:
+        # frappe.cache().get_value(key) is Redis's single-key get (a completely
+        # different signature), not frappe.db.get_value. The receiver is a Call
+        # (frappe.cache()), so it must never be treated as the frappe/db get_value
+        # this rule targets.
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._scan(
+                tmp,
+                "import frappe\n\n\nclass T:\n"
+                "    def setUp(self):\n"
+                "        self.x = frappe.cache().get_value(\"some_key\")\n",
+            )
+        self.assertIn("REUSE=0", result.stdout, result.stdout)
+
+    def test_name_lookup_in_setup_is_not_flagged(self):
+        # Control: a string filter is a specific-document lookup, not a reuse hazard.
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._scan(
+                tmp,
+                "import frappe\n\n\nclass T:\n"
+                "    def setUp(self):\n"
+                "        self.x = frappe.db.get_value(\"User\", \"test@example.com\", \"name\")\n",
+            )
+        self.assertIn("REUSE=0", result.stdout, result.stdout)
+
+    def test_unscoped_get_value_outside_setup_is_not_flagged(self):
+        # Deliberate scope decision (#1311): unlike get_all, get_value's single-row
+        # return is its normal shape everywhere, so only setUp/setUpClass/
+        # setUpModule -- the actual shape of the established defect -- is scanned.
+        # This is a control against a future over-broad rescan silently flagging
+        # every one of the ~250 other unscoped get_value calls in the suite.
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._scan(
+                tmp,
+                "import frappe\n\n\nclass T:\n"
+                "    def test_something(self):\n"
+                "        x = frappe.db.get_value(\"Customer\", {}, \"name\")\n",
+            )
+        self.assertIn("REUSE=0", result.stdout, result.stdout)
+
+
+class RealRepoRegressionTest(unittest.TestCase):
+    """#1311: control against the two blind spots re-closing silently -- not against a
+    synthetic snippet, but against the two ESTABLISHED real defects the issue names. If
+    either of these ever stops firing (a future refactor of `_is_scannable`, or of the
+    get_value detector), this fails loudly instead of the class quietly going dark
+    the way the original blind spots did for #1290's round 2 and the two tests it broke
+    across test_site_3/test_site_8.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        if not os.path.isdir(VERENIGINGEN_ROOT):
+            raise unittest.SkipTest(f"{VERENIGINGEN_ROOT} not found -- not a full checkout")
+        module = _load_scanner_module()
+        cls.findings = module.discover_findings(VERENIGINGEN_ROOT)
+
+    def test_the_established_get_value_defect_is_still_found(self):
+        # test_harness_cleanup_tracked_docs_dangling_link.py's setUp -- the exact site
+        # the issue names as making two tests pass on test_site_3 and error on
+        # test_site_8.
+        hits = [
+            f for f in self.findings
+            if f.kind == "REUSE"
+            and f.file == os.path.join("tests", "test_harness_cleanup_tracked_docs_dangling_link.py")
+        ]
+        self.assertTrue(hits, "expected an unscoped get_value REUSE finding in this file's setUp")
+
+    def test_a_real_non_test_prefixed_helper_module_commit_is_still_found(self):
+        # tests/setup/__init__.py: a real, non-`test_`-prefixed helper module under
+        # `tests/` that the pre-#1311 walk never visited at all.
+        hits = [
+            f for f in self.findings
+            if f.kind in ("COMMIT", "COMMIT_EXEMPT")
+            and f.file == os.path.join("tests", "setup", "__init__.py")
+        ]
+        self.assertTrue(hits, "expected at least one commit finding in tests/setup/__init__.py")
 
 
 if __name__ == "__main__":

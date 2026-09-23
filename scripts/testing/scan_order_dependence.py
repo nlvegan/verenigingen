@@ -9,10 +9,14 @@ latent offender into a failure -- this finds them first.
 
 Patterns flagged (each is a way a test's result can depend on its neighbours):
 
-  REUSE   frappe.get_all(DT, limit=1) / get_all(DT)[0] in setUp/setUpClass.
+  REUSE   frappe.get_all(DT, limit=1) / get_all(DT)[0], or an unscoped
+          frappe.db.get_value(DT, {}, ...) / get_value(DT, None, ...) / a
+          get_value call with no filters argument at all, in setUp/setUpClass.
           The test reuses *whatever record already exists*, so its behaviour
           depends on what preceding files in the shard left in the DB. This is
-          the exact bug in test_team_assignment_history.
+          the exact bug in test_team_assignment_history (get_all) and in
+          test_harness_cleanup_tracked_docs_dangling_link.py's setUp
+          (get_value -- #1311).
 
   COUNT   *** STRUCTURALLY UNREACHABLE against this codebase -- see below. ***
           An assertion over len(frappe.get_all(DT)) or frappe.db.count(DT) with
@@ -27,6 +31,21 @@ Patterns flagged (each is a way a test's result can depend on its neighbours):
           load-bearing pattern). Reported for visibility, never gated: see
           #825, "FIXED" section below, for why this is tracked rather than
           silently dropped.
+
+SCOPE -- test_*.py PLUS any .py under a `tests/` directory (#1311)
+--------------------------------------------------------------------
+The walk used to visit only files named `test_*.py`, so a bare commit or unscoped
+get_value in a shared, non-`test_`-prefixed helper module -- `verenigingen/tests/
+utils/*.py`, `verenigingen/tests/fixtures/*.py`, `verenigingen/tests/support/*.py`,
+and their siblings under other apps' `.../tests/` trees -- was invisible to this
+scanner even though every test that imports the helper executes it. PR #1290's
+round 2 named a helper specifically so it would NOT match `test_*.py` and would
+therefore escape this scan; the finding text said so in the PR body. `_is_scannable()`
+now also matches any `.py` file under a directory literally named `tests`, which
+covers every marker `test_quality_enforcer.py`'s own `helper_path_markers` list
+names (fixtures/utils/conftest/setup/config) without a second list to keep in sync,
+while leaving non-test code alone (`verenigingen/fixtures/`, the Frappe data-fixture
+export directory, sits at the app root, not under `tests/`).
 
 KNOWN GAP -- COUNT reports 0 and always will (#815 review, 2026-09-04)
 -------------------------------------------------------------------
@@ -129,6 +148,60 @@ def _query_is_scoped(call):
     return False
 
 
+def _is_get_value(call):
+    """Matches frappe.db.get_value(...)/*.db.get_value(...) and the frappe.get_value(...)
+    shortcut (frappe/__init__.py re-exports it). Deliberately narrower than
+    _is_get_all's bare `chain.endswith("get_all")`: a receiver that is itself a Call
+    (not a dotted Name/Attribute chain) makes _attr_chain stop early and return a bare
+    "get_value" with no prefix at all, e.g. frappe.cache().get_value(key) -- Redis's
+    single-key get, an entirely different signature. Measured as a real false positive
+    from this rule's own before/after census (#1311): a bare-suffix match fired on it.
+    """
+    chain = _attr_chain(call.func)
+    return chain == "frappe.get_value" or chain.endswith(".db.get_value") or chain == "db.get_value"
+
+
+def _get_value_filters_arg(call):
+    """Return the AST node passed as `filters` to db.get_value(doctype, filters, ...),
+    or a sentinel meaning "omitted", distinguishing it from the positional/keyword
+    lookup so the caller can tell "no filters given at all" from "given and empty".
+    """
+    if len(call.args) >= 2:
+        return call.args[1]
+    for kw in call.keywords:
+        if kw.arg == "filters":
+            return kw.value
+    return _FILTERS_OMITTED
+
+
+_FILTERS_OMITTED = object()
+
+
+def _get_value_is_unscoped(call):
+    """True for frappe.db.get_value(DT, filters, ...) where `filters` cannot pin the
+    query to a specific record: omitted, an explicit None, or an empty dict/list.
+    ``get_value`` always returns a single row (it is implicitly limit=1 -- see
+    database.py's get_values(..., limit=1) call it delegates to), so unlike
+    get_all/get_list there is no separate "did this ask for one row" signal to
+    require; any of those three filters shapes already means "whichever row the
+    table happens to return first", which is exactly the REUSE hazard: the answer
+    depends on what a previous test in the shard left behind. A non-empty dict/list,
+    or a string name lookup (`get_value("User", "test@example.com", ...)`), pins a
+    specific record and is scoped, matching get_all/get_list's treatment of any
+    non-empty filters as scoped.
+    """
+    arg = _get_value_filters_arg(call)
+    if arg is _FILTERS_OMITTED:
+        return True
+    if isinstance(arg, ast.Constant) and arg.value is None:
+        return True
+    if isinstance(arg, ast.Dict) and not arg.keys:
+        return True
+    if isinstance(arg, ast.List) and not arg.elts:
+        return True
+    return False
+
+
 def _has_limit_one(call):
     for kw in call.keywords:
         if kw.arg in ("limit", "limit_page_length") and isinstance(kw.value, ast.Constant):
@@ -189,6 +262,21 @@ class Visitor(ast.NodeVisitor):
             if in_setup or _has_limit_one(node):
                 self._add("REUSE", node)
 
+        # REUSE: unscoped frappe.db.get_value(DT, {}, ...) in a setUp -- #1311. get_value
+        # is implicitly limit=1 (see _get_value_is_unscoped's docstring), so scoping this
+        # to setUp/setUpClass/setUpModule matches get_all's REUSE semantics -- the same
+        # "arbitrary record" hazard as the get_all case above, restricted to the same
+        # shared-fixture context where #1311's established defect actually occurred
+        # (test_harness_cleanup_tracked_docs_dangling_link.py's setUp). An unscoped
+        # get_value in a single test method's body is not scanned: unlike get_all(...,
+        # limit=1) called directly in a test, get_value's single-row return is its normal,
+        # intended shape everywhere, not a signal of this specific anti-pattern -- see
+        # #1311's own before/after census for why setUp-only keeps this reviewable.
+        if _is_get_value(node) and _get_value_is_unscoped(node):
+            in_setup = any(f in SETUP_FUNCS for f in self.func_stack)
+            if in_setup:
+                self._add("REUSE", node)
+
         self.generic_visit(node)
 
     def visit_Compare(self, node):
@@ -223,8 +311,36 @@ def scan_file(path, root):
     return v.findings
 
 
+def _is_scannable(dirpath, root, fn):
+    """True for a `test_*.py` file anywhere, OR any `.py` file under a directory
+    literally named `tests` -- #1311. The walk used to visit only `test_*.py`, so a
+    bare frappe.db.commit() in a shared helper module such as
+    verenigingen/tests/utils/dues_schedule_test_cleanup.py or
+    verenigingen/tests/fixtures/enhanced_test_factory.py was invisible even though
+    every test that imports the helper executes it -- established by PR #1290's
+    round 2, where a helper was named specifically so its filename would not match
+    `test_*.py` and its commit would escape this scan.
+
+    The boundary is a `tests` path component, not a broader marker list: it is a
+    strict superset of `test_quality_enforcer.py`'s own `helper_path_markers`
+    (fixtures/conftest/setup/config/utils all live under a `tests/` directory in
+    this tree -- see #1311's own directory census), it requires no separately
+    maintained list to fall out of sync, and it does not pull in unrelated
+    non-test code that merely has "test" in its name (`verenigingen/fixtures/`,
+    the Frappe data-fixture export directory, sits at the app root, not under
+    `tests/`, and is correctly left out).
+    """
+    if not fn.endswith(".py"):
+        return False
+    if fn.startswith("test_"):
+        return True
+    rel_dir = os.path.relpath(dirpath, root)
+    return "tests" in rel_dir.split(os.sep)
+
+
 def discover_findings(root):
-    """Scan `root`: a single file, or a directory walked for test_*.py files.
+    """Scan `root`: a single file, or a directory walked for test_*.py files plus
+    any .py helper module under a `tests/` directory (see `_is_scannable`).
 
     #851: the old logic handed `root` straight to os.walk(), which silently yields
     nothing for a file path -- indistinguishable from a genuinely clean directory
@@ -243,7 +359,7 @@ def discover_findings(root):
         if "__pycache__" in dirs:
             dirs.remove("__pycache__")
         for fn in files:
-            if fn.startswith("test_") and fn.endswith(".py"):
+            if _is_scannable(dirpath, root, fn):
                 findings.extend(scan_file(os.path.join(dirpath, fn), root))
     return findings
 
