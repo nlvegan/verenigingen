@@ -322,3 +322,46 @@ class TestDonationPortalBehavior(EnhancedTestCase):
             self.assertNotIn(self.GENERIC_UPDATE_TEXT, message)
 
         self.assertEqual(len({missing_id, bad_amount, not_mine, not_recurring}), 4)
+
+    # ------------------------------------------------------------------
+    # #1314: existence oracle. Both endpoints used to frappe.get_doc(donation_id)
+    # BEFORE their ownership check, so an unknown donation_id raised a distinct
+    # DoesNotExistError ("Donation X not found") while an existing-but-foreign id
+    # raised the ownership ValidationError -- #359's own re-raise clause
+    # (`except (ValidationError, PermissionError): raise`) let BOTH reach the
+    # caller distinguishably, because DoesNotExistError subclasses ValidationError.
+    # An unauthorized (non-owner) caller must now get the IDENTICAL refusal for
+    # both. There is no admin/staff bypass in either endpoint -- ownership is
+    # required for every caller, including staff -- so there is no separate
+    # "staff succeeds" shape to test here.
+    # ------------------------------------------------------------------
+
+    def test_cancel_unauthorized_caller_cannot_distinguish_unknown_from_foreign(self):
+        from verenigingen.templates.pages.manage_donations import cancel_recurring_donation
+
+        stranger = self.create_test_donor(donor_email="stranger-oracle-cancel@example.com")
+        foreign = self._create_recurring_donation(30.0, donor=stranger.name)
+
+        unknown = self._refusal_message(
+            cancel_recurring_donation, donation_id="NONEXISTENT-DONATION-XYZ-1314"
+        )
+        not_mine = self._refusal_message(cancel_recurring_donation, donation_id=foreign.name)
+
+        self.assertEqual(unknown, not_mine)
+        self.assertIn("You can only cancel your own donations", unknown)
+
+    def test_update_unauthorized_caller_cannot_distinguish_unknown_from_foreign(self):
+        from verenigingen.templates.pages.manage_donations import update_recurring_donation
+
+        stranger = self.create_test_donor(donor_email="stranger-oracle-update@example.com")
+        foreign = self._create_recurring_donation(30.0, donor=stranger.name)
+
+        unknown = self._refusal_message(
+            update_recurring_donation, donation_id="NONEXISTENT-DONATION-XYZ-1314", new_amount=10.0
+        )
+        not_mine = self._refusal_message(
+            update_recurring_donation, donation_id=foreign.name, new_amount=10.0
+        )
+
+        self.assertEqual(unknown, not_mine)
+        self.assertIn("You can only update your own donations", unknown)

@@ -324,14 +324,20 @@ def cancel_recurring_donation():
         member_name = get_current_user_member_name_required()
         member = frappe.get_doc("Member", member_name)
 
-        # Get and validate the donation
-        donation = frappe.get_doc("Donation", donation_id)
-
-        # Verify ownership - donation must belong to this member. Guard against
-        # empty values on BOTH sides: a member with a blank email must never match
-        # an anonymous / email-less donation ("" == "").
-        if not donation.donor_email or not member.email or donation.donor_email != member.email:
+        # Resolve ownership from a cheap field lookup, not frappe.get_doc, and
+        # decide it BEFORE any response could reveal whether donation_id
+        # exists at all (#1314): an unauthorized caller then gets the
+        # identical refusal whether donation_id is unknown or belongs to
+        # someone else. Guard against empty values on BOTH sides: a member
+        # with a blank email must never match an anonymous / email-less
+        # donation ("" == "").
+        donor_email = frappe.db.get_value("Donation", donation_id, "donor_email")
+        if not donor_email or not member.email or donor_email != member.email:
             frappe.throw(_("You can only cancel your own donations"))
+
+        # Get and validate the donation -- only reached once ownership (and
+        # therefore existence) is established.
+        donation = frappe.get_doc("Donation", donation_id)
 
         # A charge donation satisfies every other gate below: it carries
         # status="Recurring" and the SAME mollie_subscription_id, so the liveness
@@ -441,14 +447,20 @@ def update_recurring_donation():
         member_name = get_current_user_member_name_required()
         member = frappe.get_doc("Member", member_name)
 
-        # Get and validate the donation
-        donation = frappe.get_doc("Donation", donation_id)
-
-        # Verify ownership - donation must belong to this member. Guard against
-        # empty values on BOTH sides: a member with a blank email must never match
-        # an anonymous / email-less donation ("" == "").
-        if not donation.donor_email or not member.email or donation.donor_email != member.email:
+        # Resolve ownership from a cheap field lookup, not frappe.get_doc, and
+        # decide it BEFORE any response could reveal whether donation_id
+        # exists at all (#1314): an unauthorized caller then gets the
+        # identical refusal whether donation_id is unknown or belongs to
+        # someone else. Guard against empty values on BOTH sides: a member
+        # with a blank email must never match an anonymous / email-less
+        # donation ("" == "").
+        donor_email = frappe.db.get_value("Donation", donation_id, "donor_email")
+        if not donor_email or not member.email or donor_email != member.email:
             frappe.throw(_("You can only update your own donations"))
+
+        # Get and validate the donation -- only reached once ownership (and
+        # therefore existence) is established.
+        donation = frappe.get_doc("Donation", donation_id)
 
         # A charge donation passes every other gate below (status "Recurring",
         # the origin's mollie_subscription_id, so the liveness check reports the
