@@ -97,7 +97,7 @@ frappe.query_reports['Membership Dues Coverage Analysis'] = {
 			fieldname: 'billing_frequency',
 			label: __('Billing Frequency'),
 			fieldtype: 'Select',
-			options: '\nDaily\nMonthly\nQuarterly\nAnnual\nCustom',
+			options: '\nDaily\nWeekly\nMonthly\nQuarterly\nSemi-Annual\nAnnual\nCustom',
 			width: '80'
 		},
 		{

@@ -18,6 +18,8 @@ No business logic is mocked. Tests run as Administrator.
 """
 
 import datetime
+import os
+import re
 
 import frappe
 from frappe.utils import add_days, getdate, today
@@ -172,6 +174,24 @@ class TestMembershipDuesCoverageAnalysisReport(VereningingenTestCase):
         with self.assertRaises(frappe.ValidationError):
             report.execute({"billing_frequency": "Hourly"})
 
+    def test_validate_filters_accepts_every_billing_frequency_option(self):
+        """#1240: the filter's valid_frequencies list must accept every real
+        Membership Dues Schedule.billing_frequency option, not a hand-picked
+        subset - the list previously omitted Weekly and Semi-Annual even
+        though both are real schedule frequencies."""
+        options = (
+            frappe.get_meta("Membership Dues Schedule").get_field("billing_frequency").options.split("\n")
+        )
+        frequencies = [o for o in options if o]
+        self.assertIn("Weekly", frequencies, "test fixture sanity: DocType lost the Weekly option")
+        self.assertIn("Semi-Annual", frequencies, "test fixture sanity: DocType lost the Semi-Annual option")
+
+        for frequency in frequencies:
+            with self.subTest(billing_frequency=frequency):
+                # Must not raise - a real Select option can never be an "invalid
+                # billing frequency" filter value.
+                report.execute({"billing_frequency": frequency})
+
     def test_validate_filters_rejects_bad_gap_severity(self):
         with self.assertRaises(frappe.ValidationError):
             report.execute({"gap_severity": "Catastrophic"})
@@ -184,6 +204,52 @@ class TestMembershipDuesCoverageAnalysisReport(VereningingenTestCase):
         self.assertIn("chapter", fieldnames)
         self.assertIn("from_date", fieldnames)
         self.assertIn("show_only_gaps", fieldnames)
+
+    def test_get_filters_billing_frequency_matches_doctype_options(self):
+        """#1240 sibling: get_filters()'s billing_frequency Select options is a
+        second hand-written copy of the same list validate_filters() checks
+        against - it also omitted Weekly and Semi-Annual."""
+        options = (
+            frappe.get_meta("Membership Dues Schedule").get_field("billing_frequency").options.split("\n")
+        )
+        frequencies = [o for o in options if o]
+
+        filters = report.get_filters()
+        billing_frequency_filter = next(f for f in filters if f["fieldname"] == "billing_frequency")
+        filter_options = [o for o in billing_frequency_filter["options"].split("\n") if o]
+
+        missing = [f for f in frequencies if f not in filter_options]
+        self.assertEqual(missing, [], f"get_filters() billing_frequency options is missing: {missing}")
+
+    def test_js_billing_frequency_dropdown_matches_doctype_options(self):
+        """#1240: the report's own JS filter dropdown must offer every real
+        Membership Dues Schedule.billing_frequency option. The dropdown
+        previously omitted Weekly and Semi-Annual, so a user could not even
+        select the values that (before this PR) validate_filters() would
+        then have rejected anyway."""
+        options = (
+            frappe.get_meta("Membership Dues Schedule").get_field("billing_frequency").options.split("\n")
+        )
+        frequencies = [o for o in options if o]
+
+        js_path = os.path.join(
+            os.path.dirname(report.__file__), "membership_dues_coverage_analysis.js"
+        )
+        with open(js_path) as f:
+            js_source = f.read()
+
+        match = re.search(
+            r"fieldname:\s*'billing_frequency'.*?options:\s*'([^']*)'", js_source, re.DOTALL
+        )
+        self.assertIsNotNone(match, "billing_frequency filter definition not found in the report JS")
+        js_options = [o for o in match.group(1).split("\\n") if o]
+
+        missing = [f for f in frequencies if f not in js_options]
+        self.assertEqual(
+            missing,
+            [],
+            f"billing_frequency dropdown in {js_path} is missing DocType options: {missing}",
+        )
 
     # ----------------------------------------------------------- pure helpers
 

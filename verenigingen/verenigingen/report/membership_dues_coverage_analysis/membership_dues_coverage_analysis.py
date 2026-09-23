@@ -51,7 +51,7 @@ def get_filters():
             "fieldname": "billing_frequency",
             "label": _("Billing Frequency"),
             "fieldtype": "Select",
-            "options": "\nDaily\nMonthly\nQuarterly\nAnnual\nCustom",
+            "options": "\nDaily\nWeekly\nMonthly\nQuarterly\nSemi-Annual\nAnnual\nCustom",
         },
         {
             "fieldname": "gap_severity",
@@ -123,7 +123,7 @@ def validate_filters(filters):
 
     # Validate billing frequency
     if filters.get("billing_frequency"):
-        valid_frequencies = ["Daily", "Monthly", "Quarterly", "Annual", "Custom"]
+        valid_frequencies = ["Daily", "Weekly", "Monthly", "Quarterly", "Semi-Annual", "Annual", "Custom"]
         if filters["billing_frequency"] not in valid_frequencies:
             raise ValueError(f"Invalid billing frequency: {filters['billing_frequency']}")
 
