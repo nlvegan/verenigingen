@@ -2792,6 +2792,39 @@ class EnsureChapterRoleTrackingTest(EnhancedTestCase):
             role.name, role_again.name, "a second call with the same name must reuse the shared row"
         )
 
+    def test_is_exempt_from_the_captured_insert_drain_too(self):
+        """The tracked-drain half above is not the whole contract.
+
+        Round-2 review: removing `@shared_fixture` from `ensure_chapter_role`
+        (leaving the `priority=-1` tracked-drain exemption in place) left the
+        test above GREEN, because it only ever asked the TRACKED drain's
+        question. A live two-class probe showed that combination does NOT
+        protect the row: `_install_insert_capture` (see its own docstring)
+        captures every `Document.db_insert` call made during a test's body
+        UNLESS it runs inside `suspend_insert_capture()` -- which only
+        `@shared_fixture` (or an explicit `with suspend_insert_capture():`)
+        provides. Mirrors `SharedFixturesAreNotCapturedTest`'s
+        `test_capture_ignores_inserts_made_while_suspended` in this same
+        file, but against the real harness capture this EnhancedTestCase's
+        own `setUp()` already installed, not a standalone probe.
+        """
+        role_name = f"Sweep Role {frappe.generate_hash(length=8)}"
+        role = self.factory.ensure_chapter_role(role_name)
+        self.addCleanup(
+            lambda: frappe.delete_doc("Chapter Role", role.name, force=True, ignore_permissions=True)
+        )
+
+        captured_names = [name for _doctype, name in self._captured_inserts]
+        self.assertNotIn(
+            role.name,
+            captured_names,
+            "ensure_chapter_role's row was captured by the insert-capture hook -- "
+            "@shared_fixture must suspend capture for the whole insert, or the "
+            "captured-insert drain claims this shared row for whichever test "
+            "happened to create it first and deletes it out from under every "
+            "later caller sharing the same role_name",
+        )
+
 
 class ClassFixturesSurviveTheDrainRollbackTest(unittest.TestCase):
     """A test's teardown may discard the TEST's rows. Not the CLASS's.

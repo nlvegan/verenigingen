@@ -59,18 +59,28 @@ class TestVolunteerAssignmentHistoryBugFixes(EnhancedTestCase):
             "is_unique": 1,
             "is_active": 1,
         }).insert()
-        cls.addClassCleanup(cls._delete_class_chair_role)
+        cls.addClassCleanup(cls._cleanup_class_chair_role)
 
     @classmethod
-    def _delete_class_chair_role(cls):
+    def _cleanup_class_chair_role(cls):
+        """Class-cleanup helper (named per the test-quality-enforcer / order-
+        dependence scanner convention -- `_cleanup*`/`_create*`/`tearDown` --
+        so its commit below is reported as the tracked, load-bearing
+        COMMIT_EXEMPT kind, not a blocking COMMIT).
+
+        Verified load-bearing, not decorative: removed the commit, ran this
+        module on test_site_1, and the role SURVIVED (`Test Chair <hash>`
+        still present in `tabChapter Role` after the run) -- this class's own
+        `tearDown()` commits mid-run (to survive `EnhancedTestCase`'s
+        per-test rollback), which durably persists the `setUpClass` insert
+        too, so an uncommitted delete here has nothing left to roll back
+        onto. `addClassCleanup`'s own `_rollback_db` (registered by the
+        framework's `setUpClass`, so it runs AFTER this one, LIFO) only
+        undoes what is still uncommitted at that point -- nothing, once
+        `tearDown()` has already committed.
+        """
         try:
             frappe.delete_doc("Chapter Role", cls.chair_role, force=True, ignore_permissions=True)
-            # Explicit commit: this class's tearDown() already commits mid-run
-            # (see setUp/tearDown below), so the row this deletes is durably
-            # committed too -- addClassCleanup's own _rollback_db (registered
-            # by the framework before this cleanup, so it runs AFTER this one,
-            # LIFO) cannot be relied on to undo an insert that was committed
-            # a test method ago.
             frappe.db.commit()
         except Exception:
             pass

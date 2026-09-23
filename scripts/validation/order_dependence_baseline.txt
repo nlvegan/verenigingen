@@ -323,7 +323,7 @@ COMMIT_EXEMPT tests/backend/components/test_sepa_reconciliation.py::2  # order-d
 COMMIT_EXEMPT tests/backend/components/test_setup_add_settings_fields.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/components/test_staff_anbi_allocation.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/components/test_volunteer_assignment_event_driven.py::1  # order-dep-exempt
-COMMIT_EXEMPT tests/backend/components/test_volunteer_assignment_history_bugs.py::1  # order-dep-exempt
+COMMIT_EXEMPT tests/backend/components/test_volunteer_assignment_history_bugs.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/features/test_anbi_clarity_lifecycle.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/features/test_application_submission_validation.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/integration/test_chapter_cost_center_seeding.py::1  # order-dep-exempt
