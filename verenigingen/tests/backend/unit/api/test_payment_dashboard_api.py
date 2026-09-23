@@ -694,6 +694,81 @@ class TestPaymentDashboardAPI(EnhancedTestCase):
         self.assertIn("not found", (result["error"]["message"] or "").lower())
 
     # ------------------------------------------------------------------
+    # Regression guard (PR #1335 review): `member` is a custom, OPTIONAL
+    # field on Sales Invoice -- measured on veg11: 3009 of 3471 Sales
+    # Invoices have it NULL, 1495 of those outstanding. The first version of
+    # the #1314 fix used a single `invoice_member is None` check for BOTH
+    # "no such invoice" and "a real invoice whose member is blank", so a
+    # staff caller (has_write=True, who never needed ownership at all) got a
+    # false "Invoice not found" on a real, common-case invoice.
+    # ------------------------------------------------------------------
+
+    def test_retry_failed_payment_staff_succeeds_on_null_member_invoice(self):
+        """A real invoice with member=NULL must not read as "doesn't exist"
+        for a staff caller (ambient Administrator, has Sales Invoice write)."""
+        invoice = self.create_test_sales_invoice(self.member.name, grand_total=50.0)
+        invoice.db_set("member", None)
+
+        result = retry_failed_payment(invoice.name)
+
+        # The call must reach the real retry-scheduling logic (which may
+        # itself succeed or fail on SEPA-state grounds) -- what must NOT
+        # happen is the existence/ownership guard misreporting "not found".
+        if not result["success"]:
+            self.assertNotIn("not found", (result["error"]["message"] or "").lower())
+
+    def test_retry_failed_payment_unauthorized_null_member_matches_unknown_message(self):
+        """A null-member invoice must fail CLOSED for a non-staff caller, with
+        the IDENTICAL refusal an unknown id gets -- not a distinguishable
+        "not found" that would reopen #1314's oracle for the common
+        null-member case."""
+        user_email, _attacker_member = self._national_board_member_user()
+        invoice = self.create_test_sales_invoice(self.member.name, grand_total=50.0)
+        invoice.db_set("member", None)
+
+        with self.set_user(user_email):
+            null_member = retry_failed_payment(invoice.name)
+            unknown = retry_failed_payment("ACC-SINV-DOES-NOT-EXIST-1314-B")
+
+        self.assertEqual(self._op_result_shape(null_member), self._op_result_shape(unknown))
+        self.assertFalse(null_member["success"], msg=null_member)
+        self.assertIn("permission", (null_member["error"]["message"] or "").lower())
+
+    def test_retry_failed_payment_null_member_does_not_match_caller_with_no_member(self):
+        """The is_owner comparison must not let None == None grant access: a
+        caller who resolves to no Member record at all must not match a
+        null-member invoice."""
+        from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
+
+        user_email = f"nomember.probe.{self.member.name}@example.com".lower()
+        if not frappe.db.exists("User", user_email):
+            frappe.get_doc(
+                {
+                    "doctype": "User",
+                    "email": user_email,
+                    "first_name": "NoMember",
+                    "last_name": "Probe",
+                    "send_welcome_email": 0,
+                    "roles": [{"role": "Verenigingen Member"}],
+                }
+            ).insert()
+        # Deliberately NOT linked to any Member record -- get_member_from_user()
+        # must resolve to None for this user.
+        grant_matching_role_profiles(user_email, "Verenigingen National Board Member")
+
+        invoice = self.create_test_sales_invoice(self.member.name, grand_total=50.0)
+        invoice.db_set("member", None)
+
+        with self.set_user(user_email):
+            self.assertIsNone(
+                get_member_from_user(), "test setup: probe must resolve to no Member record"
+            )
+            result = retry_failed_payment(invoice.name)
+
+        self.assertFalse(result["success"], msg=result)
+        self.assertIn("permission", (result["error"]["message"] or "").lower())
+
+    # ------------------------------------------------------------------
     # download_payment_receipt (Payment Entry id) -- #1314
     # ------------------------------------------------------------------
 

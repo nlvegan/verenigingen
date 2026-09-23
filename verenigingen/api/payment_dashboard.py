@@ -615,13 +615,25 @@ def retry_failed_payment(invoice_id: str) -> OperationResult[Dict[str, Any]]:
         # all (#1314): an unauthorized caller (no Sales Invoice write, not
         # the invoice's own member) then gets the identical refusal whether
         # invoice_id is real or made up.
-        invoice_member = frappe.db.get_value("Sales Invoice", invoice_id, "member")
+        #
+        # invoice_exists and invoice_member are tracked SEPARATELY (PR #1335
+        # review): member is a custom, optional field -- on veg11, 3009/3471
+        # Sales Invoices have it NULL (1495 of them outstanding). A single
+        # `invoice_member is None` check conflated "no such invoice" with "a
+        # real invoice whose member happens to be blank", so a staff caller
+        # (has_write=True, who never needs ownership at all) got a false
+        # "Invoice not found" on a real invoice.
+        invoice_row = frappe.db.get_value("Sales Invoice", invoice_id, ["name", "member"], as_dict=True)
+        invoice_exists = invoice_row is not None
+        invoice_member = invoice_row.member if invoice_row else None
+        # `invoice_member is not None` also guards a null-member invoice from
+        # matching a caller who has no resolved member of their own (None == None).
         is_owner = invoice_member is not None and invoice_member == member
 
         if not has_write and not is_owner:
             return OperationResult.fail(_("You don't have permission to retry this payment"))
 
-        if invoice_member is None:
+        if not invoice_exists:
             return OperationResult.fail(_("Invoice not found"))
 
         # Check if already being retried
@@ -664,9 +676,21 @@ def download_payment_receipt(payment_id: str) -> OperationResult[Dict[str, Any]]
         # decide it BEFORE any response could reveal whether payment_id exists
         # at all (#1314): an unauthorized caller then gets the identical
         # refusal whether payment_id is unknown or belongs to someone else.
-        payment_party = frappe.db.get_value("Payment Entry", payment_id, "party")
+        #
+        # payment_exists and payment_party are tracked SEPARATELY (PR #1335
+        # review), same reasoning as retry_failed_payment: a real Payment
+        # Entry with a NULL party must not read as "doesn't exist". Measured
+        # on veg11: party is NULL on 0 of 3642 Payment Entries, and this
+        # endpoint has no staff bypass to begin with (ownership is required
+        # for every caller), so there is no reachable regression here today
+        # -- kept structurally identical to the fix above so the two lookups
+        # can't drift apart if a bypass is ever added.
+        payment_row = frappe.db.get_value("Payment Entry", payment_id, ["name", "party"], as_dict=True)
+        payment_exists = payment_row is not None
+        payment_party = payment_row.party if payment_row else None
+        is_owner = payment_party is not None and payment_party == member_doc.customer
 
-        if payment_party is None or payment_party != member_doc.customer:
+        if not payment_exists or not is_owner:
             frappe.log_error(
                 title=_("Unauthorized Receipt Download"),
                 message=f"User {frappe.session.user} attempted to download receipt for payment {payment_id}",
