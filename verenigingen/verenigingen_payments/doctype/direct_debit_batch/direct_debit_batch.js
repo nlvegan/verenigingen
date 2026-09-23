@@ -579,10 +579,11 @@ function load_unpaid_invoices(frm) {
 
 						frm.dirty();
 
-						frappe.show_alert({
-							message: __('Loaded {0} invoices', [data.length]),
-							indicator: 'green'
-						});
+						// #1219: the "Maximum Invoices" limit above can truncate the page
+						// silently. `r.total_eligible` is a sibling of `r.message`, not
+						// nested inside it (see load_unpaid_invoices' docstring), so it is
+						// read off `r` directly rather than off `data`.
+						frappe.show_alert(verenigingen.utils.formatLoadedInvoicesAlert(data.length, r.total_eligible));
 
 						dialog.hide();
 						add_batch_summary(frm);

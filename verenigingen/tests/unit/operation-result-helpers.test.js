@@ -25,6 +25,20 @@ global.frappe.provide = function provide(path) {
 	return obj;
 };
 
+// Minimal translate stub: real `__(text, args)` substitutes {0}/{1}/... from
+// args into text. The mock in tests/setup/frappe-mocks.js ignores args
+// entirely (`(text) => text`), which would hide a wrong placeholder/arg-order
+// bug in formatLoadedInvoicesAlert, so this one actually substitutes.
+global.__ = function (text, args) {
+	if (!args) {
+		return text;
+	}
+	return text.replace(/\{(\d+)\}/g, (match, index) => {
+		const value = args[Number(index)];
+		return value === undefined ? match : String(value);
+	});
+};
+
 require('../../public/js/utils/operation-result-helpers.js');
 const utils = global.verenigingen.utils;
 
@@ -249,6 +263,40 @@ describe('OperationResult helpers', () => {
 
 		test('tolerates being called with no options object', () => {
 			expect(() => utils.handleOperationResult({ success: true, data: 1 })).not.toThrow();
+		});
+	});
+
+	describe('formatLoadedInvoicesAlert (#1219)', () => {
+		test('plain "Loaded N invoices" when nothing was truncated', () => {
+			const result = utils.formatLoadedInvoicesAlert(5, 5);
+			expect(result.message).toBe('Loaded 5 invoices');
+			expect(result.indicator).toBe('green');
+		});
+
+		test('plain message when totalEligible is not a number (legacy/absent response key)', () => {
+			const result = utils.formatLoadedInvoicesAlert(5, undefined);
+			expect(result.message).toBe('Loaded 5 invoices');
+			expect(result.indicator).toBe('green');
+		});
+
+		test('truncation message when totalEligible exceeds the loaded count', () => {
+			const result = utils.formatLoadedInvoicesAlert(2, 3);
+			expect(result.message).toContain('2');
+			expect(result.message).toContain('3');
+			expect(result.message).not.toBe('Loaded 2 invoices');
+			expect(result.indicator).toBe('orange');
+		});
+
+		test('plain message when totalEligible equals the loaded count (not "> loadedCount")', () => {
+			const result = utils.formatLoadedInvoicesAlert(4, 4);
+			expect(result.message).toBe('Loaded 4 invoices');
+			expect(result.indicator).toBe('green');
+		});
+
+		test('plain message when totalEligible is somehow less than loaded (defensive, never truncated)', () => {
+			const result = utils.formatLoadedInvoicesAlert(4, 1);
+			expect(result.message).toBe('Loaded 4 invoices');
+			expect(result.indicator).toBe('green');
 		});
 	});
 
