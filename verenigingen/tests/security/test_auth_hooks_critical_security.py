@@ -18,11 +18,13 @@ class TestAuthHooksCriticalSecurity(VereningingenTestCase):
 
     def setUp(self):
         """Minimal setup for critical tests"""
+        super().setUp()
         self.original_user = frappe.session.user
 
     def tearDown(self):
         """Clean up after tests"""
         frappe.session.user = self.original_user
+        super().tearDown()
 
     @contextmanager
     def session_user(self, value):

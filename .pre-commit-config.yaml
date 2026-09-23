@@ -428,6 +428,29 @@ repos:
         always_run: true
         stages: [pre-push]
 
+      - id: harness-super-skip-validator
+        name: 🧬 Harness super() Skip Guard (ratchet)
+        description: >-
+          Blocks a VereningingenTestCase/EnhancedTestCase-rooted test class that
+          overrides setUp/tearDown/setUpClass/tearDownClass without calling
+          super().<method>(...) anywhere in its body (#1307). The harness's own
+          tearDown is where the per-test rollback, the Error Log capture/leak
+          check, and the batch-queue / volunteer-cache isolation resets live --
+          none of that runs for a subclass that skips super(), and nothing about
+          a passing test run announces it. Measured: one offending class wrote 27
+          Error Log rows per run with the leak check entirely dark. NO ALLOWLIST
+          today: the census baseline is empty (#1307 fixed every instance that
+          existed at the time), so any new occurrence fails immediately -- see
+          scripts/validation/harness_super_skip_baseline.txt if that ever needs
+          to change deliberately. Runs at pre-push, not pre-commit — it walks the
+          whole tree to resolve cross-file inheritance (a few seconds), and the
+          answer cannot change from the file list of one commit.
+        entry: python scripts/validation/harness_super_skip_validator.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
       - id: submittability-drift-validator
         name: 📝 Submittability Drift Guard (ratchet)
         description: >-

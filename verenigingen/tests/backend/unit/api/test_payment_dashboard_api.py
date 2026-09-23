@@ -12,12 +12,15 @@ in-process calls, so every assertion targets the dict shape the caller receives
 the internal OperationResult object.
 """
 
+from unittest.mock import patch
+
 import frappe
 from frappe.utils import add_days, add_months, getdate, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.api.payment_dashboard import (
+    download_payment_receipt,
     export_all_financial_data,
     export_payment_history_csv,
     get_dashboard_data,
@@ -67,6 +70,19 @@ class TestPaymentDashboardAPI(EnhancedTestCase):
             member_doc.create_customer()
             member_doc.reload()
         return member_doc.customer
+
+    @staticmethod
+    def _op_result_shape(result):
+        """(success, error message, data) for an OperationResult dict, dropping
+        its `timestamp` field -- two calls a millisecond apart are otherwise
+        never equal, which is noise unrelated to what #1314's oracle tests
+        compare (whether the RESPONSE distinguishes "doesn't exist" from
+        "exists but isn't yours")."""
+        return (
+            result.get("success"),
+            (result.get("error") or {}).get("message"),
+            result.get("data"),
+        )
 
     # ------------------------------------------------------------------
     # validate_member_exists / get_member_from_user
@@ -539,3 +555,281 @@ class TestPaymentDashboardAPI(EnhancedTestCase):
             result = get_next_payment(self.member.name)
         self.assertFalse(result["success"], msg=result)
         self.assertIn("permission", (result["error"]["message"] or "").lower())
+
+    # ------------------------------------------------------------------
+    # #1314: existence oracle. get_doc-before-permission-check let an
+    # unauthorized caller tell "id doesn't exist" from "id exists but isn't
+    # mine" apart -- for validate_member_exists (used by get_dashboard_data,
+    # get_payment_method, get_payment_history, get_mandate_history,
+    # get_payment_schedule), get_next_payment (its own code path),
+    # retry_failed_payment (Sales Invoice id) and download_payment_receipt
+    # (Payment Entry id). Each fix must make BOTH outcomes identical (same
+    # exception type/message, or same OperationResult) for an unauthorized
+    # caller, while a genuine owner or admin/staff still gets in.
+    # ------------------------------------------------------------------
+
+    def test_validate_member_exists_unauthorized_cannot_distinguish_unknown_from_foreign(self):
+        """A non-admin board-profile user who is not the target member must get
+        the IDENTICAL refusal (exception type AND message) for an unknown member
+        id and an existing-but-foreign one -- otherwise the response shape leaks
+        whether a Member id exists."""
+        user_email, _attacker_member = self._board_member_user()
+
+        def _call(member_id):
+            with self.set_user(user_email):
+                try:
+                    validate_member_exists(member_id)
+                    return (None, None)
+                except Exception as e:
+                    return (type(e), str(e))
+
+        unknown = _call("MEMBER-DOES-NOT-EXIST-XYZ-1314")
+        # self.member exists but is not the board-profile probe's own record.
+        foreign = _call(self.member.name)
+
+        self.assertEqual(unknown, foreign)
+        self.assertIs(unknown[0], frappe.PermissionError)
+
+    def test_get_next_payment_unauthorized_cannot_distinguish_unknown_from_foreign(self):
+        """get_next_payment resolves `member` itself (not via validate_member_exists)
+        and used to reveal a missing id as a silent success ("No member found for
+        current user") while an existing-but-foreign id failed with a permission
+        message -- distinguishable outcomes for an unauthorized caller."""
+        user_email, _attacker_member = self._board_member_user()
+
+        with self.set_user(user_email):
+            unknown = get_next_payment("MEMBER-DOES-NOT-EXIST-XYZ-1314")
+            foreign = get_next_payment(self.member.name)
+
+        self.assertEqual(self._op_result_shape(unknown), self._op_result_shape(foreign))
+        self.assertFalse(unknown["success"], msg=unknown)
+        self.assertIn("permission", (unknown["error"]["message"] or "").lower())
+
+    # ------------------------------------------------------------------
+    # retry_failed_payment (Sales Invoice id) -- #1314
+    # ------------------------------------------------------------------
+
+    def _national_board_member_user(self):
+        """A caller whose Role Profile clears CRITICAL security level but has no
+        Sales Invoice write access -- the specific unauthorized shape
+        retry_failed_payment's own check (frappe.has_permission("Sales
+        Invoice", "write")) cares about.
+
+        Unlike "Verenigingen Chapter Board Member" (HIGH/MEDIUM/LOW only),
+        retry_failed_payment is @critical_api (CRITICAL tier), so the probe
+        needs a Role Profile from ROLE_PROFILE_SECURITY_MAPPING that reaches
+        CRITICAL. Every such profile on this site (checked via `Role
+        Profile.roles`) bundles "Verenigingen Staff" -- so, unlike
+        _board_member_user()'s probe, this one is NOT usable to test
+        validate_member_exists's Roles.ADMIN_ROLES check (it WOULD clear
+        that). "Verenigingen National Board Member" is used here because its
+        bundle carries no Accounts User/Manager, so
+        frappe.has_permission("Sales Invoice", "write") is still False for
+        it -- confirmed below -- isolating retry_failed_payment's OWNERSHIP
+        branch (is_owner, not has_write) from its security-tier gate.
+        """
+        from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
+
+        user_email = f"natboard.probe.{self.member.name}@example.com".lower()
+        if not frappe.db.exists("User", user_email):
+            frappe.get_doc(
+                {
+                    "doctype": "User",
+                    "email": user_email,
+                    "first_name": "National",
+                    "last_name": "BoardProbe",
+                    "send_welcome_email": 0,
+                    "roles": [{"role": "Verenigingen Member"}],
+                }
+            ).insert()
+        grant_matching_role_profiles(user_email, "Verenigingen National Board Member")
+
+        attacker_member = self.create_test_member(
+            first_name="National", last_name="BoardProbe", status="Active"
+        )
+        frappe.db.set_value("Member", attacker_member.name, "user", user_email)
+
+        with self.set_user(user_email):
+            self.assertFalse(
+                frappe.has_permission("Sales Invoice", "write"),
+                "test setup: probe must NOT have Sales Invoice write access",
+            )
+        return user_email, attacker_member.name
+
+    def test_retry_failed_payment_unauthorized_cannot_distinguish_unknown_from_foreign(self):
+        user_email, _attacker_member = self._national_board_member_user()
+        victim_invoice = self.create_test_sales_invoice(self.member.name, grand_total=50.0)
+        victim_invoice.db_set("member", self.member.name)
+
+        with self.set_user(user_email):
+            unknown = retry_failed_payment("ACC-SINV-DOES-NOT-EXIST-1314")
+            foreign = retry_failed_payment(victim_invoice.name)
+
+        self.assertEqual(self._op_result_shape(unknown), self._op_result_shape(foreign))
+        self.assertFalse(unknown["success"], msg=unknown)
+        self.assertIn("permission", (unknown["error"]["message"] or "").lower())
+
+    def test_retry_failed_payment_allows_own_invoice_for_non_admin_board_role(self):
+        """Positive control: the ownership branch (no Sales Invoice write, but
+        the invoice IS the caller's own) must still let the caller through --
+        the fix must not turn is_owner into unreachable dead code."""
+        user_email, attacker_member = self._national_board_member_user()
+        own_invoice = self.create_test_sales_invoice(attacker_member, grand_total=50.0)
+        own_invoice.db_set("member", attacker_member)
+
+        with self.set_user(user_email):
+            result = retry_failed_payment(own_invoice.name)
+
+        # Ownership passes; the call proceeds into the real retry-scheduling
+        # logic (which may itself succeed or fail depending on SEPA state) --
+        # what matters here is that it is NOT refused for lack of permission.
+        if not result["success"]:
+            self.assertNotIn("permission", (result["error"]["message"] or "").lower())
+
+    def test_retry_failed_payment_admin_gets_clear_not_found(self):
+        """Positive control: a caller who DOES hold Sales Invoice write access
+        (ambient Administrator session, same convention as
+        test_retry_failed_payment_invoice_not_found) must still get a distinct
+        "Invoice not found" for a genuinely missing id."""
+        result = retry_failed_payment("ACC-SINV-DOES-NOT-EXIST-1314")
+        self.assertFalse(result["success"], msg=result)
+        self.assertIn("not found", (result["error"]["message"] or "").lower())
+
+    # ------------------------------------------------------------------
+    # Regression guard (PR #1335 review): `member` is a custom, OPTIONAL
+    # field on Sales Invoice -- measured on veg11: 3009 of 3471 Sales
+    # Invoices have it NULL, 1495 of those outstanding. The first version of
+    # the #1314 fix used a single `invoice_member is None` check for BOTH
+    # "no such invoice" and "a real invoice whose member is blank", so a
+    # staff caller (has_write=True, who never needed ownership at all) got a
+    # false "Invoice not found" on a real, common-case invoice.
+    # ------------------------------------------------------------------
+
+    def test_retry_failed_payment_staff_succeeds_on_null_member_invoice(self):
+        """A real invoice with member=NULL must not read as "doesn't exist"
+        for a staff caller (ambient Administrator, has Sales Invoice write)."""
+        invoice = self.create_test_sales_invoice(self.member.name, grand_total=50.0)
+        invoice.db_set("member", None)
+
+        result = retry_failed_payment(invoice.name)
+
+        # The call must reach the real retry-scheduling logic (which may
+        # itself succeed or fail on SEPA-state grounds) -- what must NOT
+        # happen is the existence/ownership guard misreporting "not found".
+        if not result["success"]:
+            self.assertNotIn("not found", (result["error"]["message"] or "").lower())
+
+    def test_retry_failed_payment_unauthorized_null_member_matches_unknown_message(self):
+        """A null-member invoice must fail CLOSED for a non-staff caller, with
+        the IDENTICAL refusal an unknown id gets -- not a distinguishable
+        "not found" that would reopen #1314's oracle for the common
+        null-member case."""
+        user_email, _attacker_member = self._national_board_member_user()
+        invoice = self.create_test_sales_invoice(self.member.name, grand_total=50.0)
+        invoice.db_set("member", None)
+
+        with self.set_user(user_email):
+            null_member = retry_failed_payment(invoice.name)
+            unknown = retry_failed_payment("ACC-SINV-DOES-NOT-EXIST-1314-B")
+
+        self.assertEqual(self._op_result_shape(null_member), self._op_result_shape(unknown))
+        self.assertFalse(null_member["success"], msg=null_member)
+        self.assertIn("permission", (null_member["error"]["message"] or "").lower())
+
+    def test_retry_failed_payment_null_member_does_not_match_caller_with_no_member(self):
+        """The is_owner comparison must not let None == None grant access: a
+        caller who resolves to no Member record at all must not match a
+        null-member invoice."""
+        from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
+
+        user_email = f"nomember.probe.{self.member.name}@example.com".lower()
+        if not frappe.db.exists("User", user_email):
+            frappe.get_doc(
+                {
+                    "doctype": "User",
+                    "email": user_email,
+                    "first_name": "NoMember",
+                    "last_name": "Probe",
+                    "send_welcome_email": 0,
+                    "roles": [{"role": "Verenigingen Member"}],
+                }
+            ).insert()
+        # Deliberately NOT linked to any Member record -- get_member_from_user()
+        # must resolve to None for this user.
+        grant_matching_role_profiles(user_email, "Verenigingen National Board Member")
+
+        invoice = self.create_test_sales_invoice(self.member.name, grand_total=50.0)
+        invoice.db_set("member", None)
+
+        with self.set_user(user_email):
+            self.assertIsNone(
+                get_member_from_user(), "test setup: probe must resolve to no Member record"
+            )
+            result = retry_failed_payment(invoice.name)
+
+        self.assertFalse(result["success"], msg=result)
+        self.assertIn("permission", (result["error"]["message"] or "").lower())
+
+    # ------------------------------------------------------------------
+    # download_payment_receipt (Payment Entry id) -- #1314
+    # ------------------------------------------------------------------
+
+    def test_download_payment_receipt_unauthorized_cannot_distinguish_unknown_from_foreign(self):
+        user_email, attacker_member = self._board_member_user()
+
+        victim_customer = self._ensure_customer()
+        victim_payment = self.create_test_payment_entry(
+            party_type="Customer", party=victim_customer, paid_amount=25.0
+        )
+
+        with self.set_user(user_email):
+            unknown = download_payment_receipt("ACC-PAY-DOES-NOT-EXIST-1314")
+            foreign = download_payment_receipt(victim_payment.name)
+
+        self.assertEqual(self._op_result_shape(unknown), self._op_result_shape(foreign))
+        self.assertFalse(unknown["success"], msg=unknown)
+        self.assertIn("permission", (unknown["error"]["message"] or "").lower())
+
+    def test_download_payment_receipt_allows_own_payment(self):
+        """Positive control: a caller downloading a receipt for a Payment Entry
+        that genuinely belongs to them (party == their own Customer) must clear
+        the OWNERSHIP check and reach PDF generation.
+
+        The actual wkhtmltopdf render is stubbed at frappe.utils.pdf.get_pdf --
+        the external-binary boundary frappe.get_print(as_pdf=True) calls
+        internally (frappe/utils/print_utils.py: `from frappe.utils.pdf import
+        get_pdf` then `return get_pdf(html, ...)`), NOT the print-view HTML
+        generation above it, so the real ownership/business logic under test
+        here still runs unmocked. This mirrors an existing, deliberate pattern
+        in this app (verenigingen/tests/setup/__init__.py's
+        disable_workflow_action_emails()): the test site's fake host_name
+        (frappe.utils.get_url() == "http://test_site_1") has no real listener,
+        so wkhtmltopdf's own network fetch for the print HTML's asset URLs
+        either errors (measured locally: OSError HostNotFoundError) or hangs
+        (measured on CI, PR #1335: the whole shard hung until the 60-minute
+        cancellation, with an orphaned wkhtmltopdf process still alive) --
+        neither of which this test is about. Tier 1 (tests/backend/unit/):
+        the test-quality-enforcer allows all mocks here; the module docstring's
+        "NO business-logic mocking" still holds -- get_pdf is Frappe's own
+        external-process wrapper, not this app's logic."""
+        user_email, attacker_member = self._board_member_user()
+
+        # create_customer() is itself @critical_api-gated; "Verenigingen Chapter
+        # Board Member" only clears HIGH/MEDIUM/LOW (see
+        # _national_board_member_user's docstring), so this setup step runs
+        # under the ambient (Administrator) test session, not the probe user.
+        attacker_doc = frappe.get_doc("Member", attacker_member)
+        attacker_doc.create_customer()
+        attacker_doc.reload()
+        own_customer = attacker_doc.customer
+
+        own_payment = self.create_test_payment_entry(
+            party_type="Customer", party=own_customer, paid_amount=25.0
+        )
+
+        with patch("frappe.utils.pdf.get_pdf", return_value=b"%PDF-1.4 fake receipt"):
+            with self.set_user(user_email):
+                result = download_payment_receipt(own_payment.name)
+
+        self.assertTrue(result["success"], msg=result)
+        self.assertEqual(result["data"]["filename"], f"payment_receipt_{own_payment.name}.pdf")

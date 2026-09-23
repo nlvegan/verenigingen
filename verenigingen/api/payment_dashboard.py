@@ -23,11 +23,20 @@ from verenigingen.utils.security.api_security_framework import (
 
 
 def validate_member_exists(member_id: str | None) -> str:
-    """Validate member exists and return member ID - development helper"""
+    """Validate member exists and return member ID - development helper.
+
+    Authorization runs BEFORE the existence check (#1314): an unauthorized
+    caller (not the id's owner, not an admin) is refused by
+    _authorize_member_access regardless of whether member_id resolves to a
+    real Member, so "doesn't exist" and "exists but isn't yours" are
+    indistinguishable to them. Only once authorization has passed does a
+    None resolution become a distinct "Member not found" -- for the id's
+    owner or an admin.
+    """
     member = get_member_from_user(member_id)
+    _authorize_member_access(member_id, member)
     if not member:
         frappe.throw(_("Member not found"), frappe.DoesNotExistError)
-    _authorize_member_access(member_id, member)
     return member
 
 
@@ -561,10 +570,14 @@ def get_next_payment(member: str = None) -> OperationResult[Dict[str, Any]]:
         explicit_member = member
         member = get_member_from_user(member)
 
+        # Authorization BEFORE the not-found branch (#1314): otherwise an
+        # unauthorized caller could distinguish an unknown member id (silent
+        # "no member found" success) from an existing-but-foreign one (a
+        # PermissionError caught below as a failure) -- an existence oracle.
+        _authorize_member_access(explicit_member, member)
+
         if not member:
             return OperationResult.ok(None, message=_("No member found for current user"))
-
-        _authorize_member_access(explicit_member, member)
 
         schedule_result = get_payment_schedule(member)
 
@@ -594,17 +607,34 @@ def get_next_payment(member: str = None) -> OperationResult[Dict[str, Any]]:
 def retry_failed_payment(invoice_id: str) -> OperationResult[Dict[str, Any]]:
     """Manually trigger payment retry"""
     try:
-        invoice = frappe.get_doc("Sales Invoice", invoice_id)
-
-        # Verify permissions
         member = get_member_from_user()
+        has_write = frappe.has_permission("Sales Invoice", "write")
 
-        # Allow administrators
-        if not frappe.has_permission("Sales Invoice", "write"):
-            # Check if user is the member for this invoice
-            invoice_member = invoice.member  # Custom field on Sales Invoice
-            if invoice_member != member:
-                return OperationResult.fail(_("You don't have permission to retry this payment"))
+        # Resolve ownership from a cheap field lookup, not frappe.get_doc, and
+        # decide authorization BEFORE deciding whether invoice_id exists at
+        # all (#1314): an unauthorized caller (no Sales Invoice write, not
+        # the invoice's own member) then gets the identical refusal whether
+        # invoice_id is real or made up.
+        #
+        # invoice_exists and invoice_member are tracked SEPARATELY (PR #1335
+        # review): member is a custom, optional field -- on veg11, 3009/3471
+        # Sales Invoices have it NULL (1495 of them outstanding). A single
+        # `invoice_member is None` check conflated "no such invoice" with "a
+        # real invoice whose member happens to be blank", so a staff caller
+        # (has_write=True, who never needs ownership at all) got a false
+        # "Invoice not found" on a real invoice.
+        invoice_row = frappe.db.get_value("Sales Invoice", invoice_id, ["name", "member"], as_dict=True)
+        invoice_exists = invoice_row is not None
+        invoice_member = invoice_row.member if invoice_row else None
+        # `invoice_member is not None` also guards a null-member invoice from
+        # matching a caller who has no resolved member of their own (None == None).
+        is_owner = invoice_member is not None and invoice_member == member
+
+        if not has_write and not is_owner:
+            return OperationResult.fail(_("You don't have permission to retry this payment"))
+
+        if not invoice_exists:
+            return OperationResult.fail(_("Invoice not found"))
 
         # Check if already being retried
         existing_retry = frappe.db.exists(
@@ -639,13 +669,28 @@ def retry_failed_payment(invoice_id: str) -> OperationResult[Dict[str, Any]]:
 def download_payment_receipt(payment_id: str) -> OperationResult[Dict[str, Any]]:
     """Generate payment receipt PDF"""
     try:
-        payment = frappe.get_doc("Payment Entry", payment_id)
-
-        # Verify permissions
         member = get_member_from_user()
         member_doc = frappe.get_doc("Member", member)
 
-        if payment.party != member_doc.customer:
+        # Resolve ownership from a cheap field lookup, not frappe.get_doc, and
+        # decide it BEFORE any response could reveal whether payment_id exists
+        # at all (#1314): an unauthorized caller then gets the identical
+        # refusal whether payment_id is unknown or belongs to someone else.
+        #
+        # payment_exists and payment_party are tracked SEPARATELY (PR #1335
+        # review), same reasoning as retry_failed_payment: a real Payment
+        # Entry with a NULL party must not read as "doesn't exist". Measured
+        # on veg11: party is NULL on 0 of 3642 Payment Entries, and this
+        # endpoint has no staff bypass to begin with (ownership is required
+        # for every caller), so there is no reachable regression here today
+        # -- kept structurally identical to the fix above so the two lookups
+        # can't drift apart if a bypass is ever added.
+        payment_row = frappe.db.get_value("Payment Entry", payment_id, ["name", "party"], as_dict=True)
+        payment_exists = payment_row is not None
+        payment_party = payment_row.party if payment_row else None
+        is_owner = payment_party is not None and payment_party == member_doc.customer
+
+        if not payment_exists or not is_owner:
             frappe.log_error(
                 title=_("Unauthorized Receipt Download"),
                 message=f"User {frappe.session.user} attempted to download receipt for payment {payment_id}",
