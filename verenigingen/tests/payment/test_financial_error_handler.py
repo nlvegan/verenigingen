@@ -235,6 +235,69 @@ class TestErrorSummary(EnhancedTestCase):
         self.assertIn("context", summary["critical_errors"][0])
 
 
+class TestErrorLogIsBounded(EnhancedTestCase):
+    """error_log must not grow without limit (#1177).
+
+    ``handle_error()`` appends unconditionally and nothing ever trims the
+    list, so a long-lived gunicorn worker accumulates every financial error
+    for the life of the process -- unbounded memory, and an ever-slower
+    ``get_error_summary()`` (O(n) over a growing n). Bound it the same way
+    ``ServiceMetrics`` already bounds its own history collections
+    (``collections.deque(maxlen=...)``).
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.handler = FinancialErrorHandler()
+
+    def test_error_log_does_not_grow_past_the_bound(self):
+        max_size = FinancialErrorHandler.MAX_ERROR_LOG_SIZE
+        overflow = 5
+
+        for i in range(max_size + overflow):
+            # Cycle two known codes so both severity/category buckets stay
+            # populated in the retained window.
+            code = "F1001" if i % 2 == 0 else "F2001"
+            self.handler.handle_error(code, context={"i": i}, user_facing=False)
+
+        self.assertEqual(len(self.handler.error_log), max_size)
+
+    def test_most_recent_entries_are_kept_oldest_dropped(self):
+        max_size = FinancialErrorHandler.MAX_ERROR_LOG_SIZE
+        overflow = 5
+        total = max_size + overflow
+
+        for i in range(total):
+            self.handler.handle_error("F1001", context={"i": i}, user_facing=False)
+
+        contexts = [e.context["i"] for e in self.handler.error_log]
+        # The oldest `overflow` entries (0..overflow-1) were evicted; the
+        # newest entry (total - 1) is retained.
+        self.assertNotIn(0, contexts)
+        self.assertNotIn(overflow - 1, contexts)
+        self.assertIn(overflow, contexts)
+        self.assertIn(total - 1, contexts)
+
+    def test_get_error_summary_reports_over_the_retained_window(self):
+        max_size = FinancialErrorHandler.MAX_ERROR_LOG_SIZE
+        overflow = 3
+
+        # Fill past the bound with COMPLIANCE errors that will be evicted...
+        for i in range(overflow):
+            self.handler.handle_error("F1001", user_facing=False)  # COMPLIANCE
+        # ...then fill the rest of the window with SECURITY errors that
+        # remain.
+        for i in range(max_size):
+            self.handler.handle_error("F2001", user_facing=False)  # SECURITY
+
+        summary = self.handler.get_error_summary()
+
+        self.assertEqual(summary["total_errors"], max_size)
+        self.assertEqual(summary["by_severity"].get("security"), max_size)
+        # The evicted COMPLIANCE errors no longer count toward the summary.
+        self.assertNotIn("compliance", summary["by_severity"])
+
+
 class TestSingletonAndConvenience(EnhancedTestCase):
     """Module-level singleton + convenience wrappers (which throw by default)."""
 
