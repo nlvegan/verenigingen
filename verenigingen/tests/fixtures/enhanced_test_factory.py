@@ -1630,8 +1630,26 @@ class EnhancedTestDataFactory:
 
         _shared_align_membership_type_amount(type_name, amount)
 
+    @shared_fixture
     def ensure_chapter_role(self, role_name: str, attributes: dict = None) -> frappe._dict:
-        """Ensure a chapter role exists, create if not"""
+        """Get-or-create a Chapter Role, keyed on the bare `role_name` -- callers
+        across many modules pass the same literal ("Board Member", "Chair",
+        "Coverage Board Role", ...) and expect the SAME row back, exactly
+        #1026's "genuinely shared master data" class (see the Account/Cost
+        Center examples above). It must therefore be `@shared_fixture`
+        (exempts the captured-insert drain) AND tracked at priority=-1 under
+        its REAL doctype (exempts the tracked drain too -- see the priority
+        contract in `_drain_tracked_documents`).
+
+        #1273: this used to track the row as `"Team Role"` at priority=3
+        (delete-me). The tracked drain matches by `(doctype, name)`, so it
+        could never find the real `Chapter Role` row under that wrong
+        identity -- it neither skipped it (the row leaked, undetected,
+        instead of being deliberately kept) nor could it ever have deleted it
+        correctly either. Worse, priority=3 meant any OTHER test that
+        happened to track a real `Team Role` document under the same `name`
+        would have that unrelated document force-deleted by this entry.
+        """
         if frappe.db.exists("Chapter Role", role_name):
             return frappe.get_doc("Chapter Role", role_name)
 
@@ -1650,8 +1668,7 @@ class EnhancedTestDataFactory:
         role = frappe.get_doc(role_data)
         role.insert()
 
-        # Track for cleanup in tearDown
-        self.track_document("Team Role", role.name, priority=3)
+        self.track_document("Chapter Role", role.name, priority=-1)
 
         return role
 

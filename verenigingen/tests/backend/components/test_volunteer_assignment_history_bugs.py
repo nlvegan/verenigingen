@@ -16,7 +16,7 @@ Related Files:
 """
 
 import frappe
-from frappe.utils import today, add_days, now
+from frappe.utils import cint, today, add_days, now
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.assignment_history_manager import AssignmentHistoryManager
 import unittest
@@ -38,16 +38,52 @@ class TestVolunteerAssignmentHistoryBugFixes(EnhancedTestCase):
                 "region_code": "TEST",
             }).insert()
 
-        # Create chapter role if it doesn't exist
-        if not frappe.db.exists("Chapter Role", "Test Chair"):
-            frappe.get_doc({
-                "doctype": "Chapter Role",
-                "role_name": "Test Chair",
-                "permissions_level": "Admin",
-                "is_chair": 1,
-                "is_unique": 1,
-                "is_active": 1,
-            }).insert()
+        # Chapter Role is autonamed field:role_name, so the bare literal
+        # "Test Chair" is a GLOBAL key -- test_volunteer_sync_service.py's
+        # _ensure_chapter_role("Test Chair") creates a Chapter Role by that
+        # same name and leaves is_unique at its 0 default, while this class
+        # needs is_unique=1/is_chair=1. Whichever module's version wins the
+        # name in a shard silently gives the OTHER module the wrong flags
+        # (#1274). This class's tearDown() also commits (to survive
+        # EnhancedTestCase's per-test rollback), which durably persists this
+        # setUpClass insert -- insert capture is only installed at the end of
+        # setUp(), so it deliberately does not see setUpClass fixtures, and
+        # nothing here ever deletes it. Run-scope the name (the way #1275 did
+        # for "Chair"/"Secretary"/"Treasurer") and clean it up explicitly.
+        cls.chair_role = f"Test Chair {frappe.generate_hash(length=8)}"
+        frappe.get_doc({
+            "doctype": "Chapter Role",
+            "role_name": cls.chair_role,
+            "permissions_level": "Admin",
+            "is_chair": 1,
+            "is_unique": 1,
+            "is_active": 1,
+        }).insert()
+        cls.addClassCleanup(cls._cleanup_class_chair_role)
+
+    @classmethod
+    def _cleanup_class_chair_role(cls):
+        """Class-cleanup helper (named per the test-quality-enforcer / order-
+        dependence scanner convention -- `_cleanup*`/`_create*`/`tearDown` --
+        so its commit below is reported as the tracked, load-bearing
+        COMMIT_EXEMPT kind, not a blocking COMMIT).
+
+        Verified load-bearing, not decorative: removed the commit, ran this
+        module on test_site_1, and the role SURVIVED (`Test Chair <hash>`
+        still present in `tabChapter Role` after the run) -- this class's own
+        `tearDown()` commits mid-run (to survive `EnhancedTestCase`'s
+        per-test rollback), which durably persists the `setUpClass` insert
+        too, so an uncommitted delete here has nothing left to roll back
+        onto. `addClassCleanup`'s own `_rollback_db` (registered by the
+        framework's `setUpClass`, so it runs AFTER this one, LIFO) only
+        undoes what is still uncommitted at that point -- nothing, once
+        `tearDown()` has already committed.
+        """
+        try:
+            frappe.delete_doc("Chapter Role", cls.chair_role, force=True, ignore_permissions=True)
+            frappe.db.commit()
+        except Exception:
+            pass
 
     def setUp(self):
         """Set up test data for each test"""
@@ -110,7 +146,7 @@ class TestVolunteerAssignmentHistoryBugFixes(EnhancedTestCase):
             assignment_type="Board Position",
             reference_doctype="Chapter",
             reference_name=self.test_chapter.name,
-            role="Test Chair",
+            role=self.chair_role,
             start_date=start_date,
         )
         self.assertTrue(success1, "First add should succeed")
@@ -120,7 +156,7 @@ class TestVolunteerAssignmentHistoryBugFixes(EnhancedTestCase):
         count_after_first = len([
             a for a in self.test_volunteer.assignment_history or []
             if a.reference_name == self.test_chapter.name
-            and a.role == "Test Chair"
+            and a.role == self.chair_role
         ])
         self.assertEqual(count_after_first, 1, "Should have exactly 1 assignment")
 
@@ -130,7 +166,7 @@ class TestVolunteerAssignmentHistoryBugFixes(EnhancedTestCase):
             assignment_type="Board Position",
             reference_doctype="Chapter",
             reference_name=self.test_chapter.name,
-            role="Test Chair",
+            role=self.chair_role,
             start_date=start_date,
         )
         self.assertTrue(success2, "Second add should succeed (idempotent)")
@@ -140,7 +176,7 @@ class TestVolunteerAssignmentHistoryBugFixes(EnhancedTestCase):
         count_after_second = len([
             a for a in self.test_volunteer.assignment_history or []
             if a.reference_name == self.test_chapter.name
-            and a.role == "Test Chair"
+            and a.role == self.chair_role
         ])
         self.assertEqual(
             count_after_second, 1,
@@ -161,7 +197,7 @@ class TestVolunteerAssignmentHistoryBugFixes(EnhancedTestCase):
             assignment_type="Board Position",
             reference_doctype="Chapter",
             reference_name=self.test_chapter.name,
-            role="Test Chair",
+            role=self.chair_role,
             start_date=start_date,
         )
 
@@ -171,7 +207,7 @@ class TestVolunteerAssignmentHistoryBugFixes(EnhancedTestCase):
             assignment_type="Board Position",
             reference_doctype="Chapter",
             reference_name=self.test_chapter.name,
-            role="Test Chair",
+            role=self.chair_role,
             start_date=start_date,
             end_date=end_date,
         )
@@ -192,7 +228,7 @@ class TestVolunteerAssignmentHistoryBugFixes(EnhancedTestCase):
             assignment_type="Board Position",
             reference_doctype="Chapter",
             reference_name=self.test_chapter.name,
-            role="Test Chair",
+            role=self.chair_role,
             start_date=start_date,
             end_date=end_date,
         )
@@ -223,7 +259,7 @@ class TestVolunteerAssignmentHistoryBugFixes(EnhancedTestCase):
             assignment_type="Board Position",
             reference_doctype="Chapter",
             reference_name=self.test_chapter.name,
-            role="Test Chair",
+            role=self.chair_role,
             start_date=start_date,
         )
 
@@ -233,7 +269,7 @@ class TestVolunteerAssignmentHistoryBugFixes(EnhancedTestCase):
             assignment_type="Board Position",
             reference_doctype="Chapter",
             reference_name=self.test_chapter.name,
-            role="Test Chair",
+            role=self.chair_role,
             start_date=start_date,
             end_date=today(),
         )
@@ -253,7 +289,7 @@ class TestVolunteerAssignmentHistoryBugFixes(EnhancedTestCase):
             assignment_type="Board Position",
             reference_doctype="Chapter",
             reference_name=self.test_chapter.name,
-            role="Test Chair",
+            role=self.chair_role,
             start_date=start_date,  # Same start date
         )
 
@@ -261,7 +297,7 @@ class TestVolunteerAssignmentHistoryBugFixes(EnhancedTestCase):
         self.test_volunteer.reload()
         total_assignments = [
             a for a in self.test_volunteer.assignment_history or []
-            if a.reference_name == self.test_chapter.name and a.role == "Test Chair"
+            if a.reference_name == self.test_chapter.name and a.role == self.chair_role
         ]
         active_assignments = [a for a in total_assignments if a.status == "Active"]
         completed_assignments = [a for a in total_assignments if a.status == "Completed"]
@@ -291,7 +327,7 @@ class TestVolunteerAssignmentHistoryBugFixes(EnhancedTestCase):
                 assignment_type="Board Position",
                 reference_doctype="Chapter",
                 reference_name=self.test_chapter.name,
-                role="Test Chair",
+                role=self.chair_role,
                 start_date=start_date,
             )
 
@@ -300,7 +336,7 @@ class TestVolunteerAssignmentHistoryBugFixes(EnhancedTestCase):
         assignments = [
             a for a in self.test_volunteer.assignment_history or []
             if a.reference_name == self.test_chapter.name
-            and a.role == "Test Chair"
+            and a.role == self.chair_role
             and a.status == "Active"
         ]
 
@@ -321,7 +357,7 @@ class TestVolunteerAssignmentHistoryBugFixes(EnhancedTestCase):
         self.test_chapter.reload()
         self.test_chapter.append("board_members", {
             "volunteer": self.test_volunteer.name,
-            "chapter_role": "Test Chair",
+            "chapter_role": self.chair_role,
             "from_date": today(),
             "is_active": 1,
         })
@@ -341,7 +377,7 @@ class TestVolunteerAssignmentHistoryBugFixes(EnhancedTestCase):
                 "chapter": self.test_chapter.name,
                 "volunteer": self.test_volunteer.name,
                 "action": "added",
-                "role": "Test Chair",
+                "role": self.chair_role,
             }
         )
 
@@ -350,7 +386,7 @@ class TestVolunteerAssignmentHistoryBugFixes(EnhancedTestCase):
         assignments = [
             a for a in self.test_volunteer.assignment_history or []
             if a.reference_name == self.test_chapter.name
-            and a.role == "Test Chair"
+            and a.role == self.chair_role
             and a.status == "Active"
         ]
 
@@ -374,7 +410,7 @@ class TestVolunteerAssignmentHistoryBugFixes(EnhancedTestCase):
             assignment_type="Board Position",
             reference_doctype="Chapter",
             reference_name=self.test_chapter.name,
-            role="Test Chair",
+            role=self.chair_role,
             start_date=first_start,
         )
 
@@ -383,7 +419,7 @@ class TestVolunteerAssignmentHistoryBugFixes(EnhancedTestCase):
             assignment_type="Board Position",
             reference_doctype="Chapter",
             reference_name=self.test_chapter.name,
-            role="Test Chair",
+            role=self.chair_role,
             start_date=first_start,
             end_date=first_end,
         )
@@ -394,7 +430,7 @@ class TestVolunteerAssignmentHistoryBugFixes(EnhancedTestCase):
             assignment_type="Board Position",
             reference_doctype="Chapter",
             reference_name=self.test_chapter.name,
-            role="Test Chair",
+            role=self.chair_role,
             start_date=second_start,  # DIFFERENT start date
         )
 
@@ -402,7 +438,7 @@ class TestVolunteerAssignmentHistoryBugFixes(EnhancedTestCase):
         self.test_volunteer.reload()
         all_assignments = [
             a for a in self.test_volunteer.assignment_history or []
-            if a.reference_name == self.test_chapter.name and a.role == "Test Chair"
+            if a.reference_name == self.test_chapter.name and a.role == self.chair_role
         ]
 
         self.assertEqual(len(all_assignments), 2, "Should have 2 separate stints")
@@ -432,7 +468,7 @@ class TestVolunteerAssignmentHistoryBugFixes(EnhancedTestCase):
             assignment_type="Board Position",
             reference_doctype="Chapter",
             reference_name=self.test_chapter.name,
-            role="Test Chair",
+            role=self.chair_role,
             start_date=start_date,
         )
 
@@ -442,7 +478,7 @@ class TestVolunteerAssignmentHistoryBugFixes(EnhancedTestCase):
             assignment_type="Board Position",
             reference_doctype="Chapter",
             reference_name=self.test_chapter.name,
-            role="Test Chair",
+            role=self.chair_role,
             start_date=start_date,
             end_date=today(),
         )
@@ -477,7 +513,7 @@ class TestVolunteerAssignmentHistoryBugFixes(EnhancedTestCase):
         self.assertEqual(len(all_assignments), 2, "Should have 2 assignments (different roles)")
 
         # Verify Chair assignment is completed
-        chair_assignment = [a for a in all_assignments if a.role == "Test Chair"]
+        chair_assignment = [a for a in all_assignments if a.role == self.chair_role]
         self.assertEqual(len(chair_assignment), 1)
         self.assertEqual(chair_assignment[0].status, "Completed")
 
@@ -498,7 +534,7 @@ class TestVolunteerAssignmentHistoryBugFixes(EnhancedTestCase):
             assignment_type="Board Position",
             reference_doctype="Chapter",
             reference_name=self.test_chapter.name,
-            role="Test Chair",
+            role=self.chair_role,
             start_date=start_date,
         )
 
@@ -512,7 +548,7 @@ class TestVolunteerAssignmentHistoryBugFixes(EnhancedTestCase):
             assignment_type="Board Position",
             reference_doctype="Chapter",
             reference_name=self.test_chapter.name,
-            role="Test Chair",
+            role=self.chair_role,
             start_date=start_date,
         )
 
@@ -528,6 +564,38 @@ class TestVolunteerAssignmentHistoryBugFixes(EnhancedTestCase):
 
         # Should still have just 1 assignment (from initial add)
         self.assertEqual(assignment_count, 1, "Recursion guard should prevent updates")
+
+    def test_09_chair_role_is_run_scoped_and_carries_its_declared_flags(self):
+        """Control for #1274: this class's Chapter Role must be its own, not the
+        bare global name "Test Chair" that test_volunteer_sync_service.py's
+        _ensure_chapter_role("Test Chair") also creates (with is_unique left
+        at its 0 default). Revert setUpClass to the bare-name get-or-create
+        and this reddens on the first assertion with no co-tenant needed --
+        and if a competing "Test Chair" with is_unique=0 exists first, the
+        get-or-create silently adopts it, contradicting the is_chair=1 /
+        is_unique=1 this class actually needs.
+        """
+        self.assertNotEqual(
+            self.chair_role,
+            "Test Chair",
+            "this class's Chapter Role must be run-scoped, not the global name "
+            "test_volunteer_sync_service.py also creates",
+        )
+
+        flags = frappe.db.get_value(
+            "Chapter Role", self.chair_role, ["is_unique", "is_chair"], as_dict=True
+        )
+        self.assertIsNotNone(flags, f"Chapter Role {self.chair_role!r} was not created")
+        self.assertEqual(
+            cint(flags.is_unique),
+            1,
+            f"{self.chair_role!r} does not carry the is_unique this class declared",
+        )
+        self.assertEqual(
+            cint(flags.is_chair),
+            1,
+            f"{self.chair_role!r} does not carry the is_chair this class declared",
+        )
 
 
 if __name__ == "__main__":
