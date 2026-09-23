@@ -16,10 +16,20 @@ the next `bench migrate` tries again.
 It does NOT delete or merge duplicates. Choosing which Payment Entry survives is a data
 decision with GL consequences, not a migration's call -- the same disposition as
 `enforce_unique_user_per_member`.
+
+The Custom Field lifecycle (create unmarked -> backfill -> flip unique -> verify the index)
+is shared with `enforce_unique_bank_transaction_reference.py` (#1267) via
+`verenigingen.utils.unique_custom_field_patch` -- see that module's docstring for why it was
+extracted rather than left as two copies.
 """
 
 import frappe
 
+from verenigingen.utils.unique_custom_field_patch import (
+    ensure_unique,
+    get_custom_field_name,
+    unique_index_exists,
+)
 from verenigingen.verenigingen_payments.utils.mollie_idempotency_key import (
     FIELDNAME,
     MOLLIE_REFERENCE_SQL_CONDITION,
@@ -43,9 +53,10 @@ def execute():
     updated = _backfill()
     print(f"Backfilled {FIELDNAME} on {updated} Mollie-style Payment Entries")
 
-    _ensure_unique()
+    if ensure_unique(DOCTYPE, FIELDNAME):
+        print(f"Set unique on {DOCTYPE}.{FIELDNAME}")
 
-    if not _unique_index_exists():
+    if not unique_index_exists(DOCTYPE, FIELDNAME):
         frappe.throw(
             f"{FIELDNAME} is marked unique but no unique index exists on tab{DOCTYPE}. "
             "The schema sync did not create it; do not treat this guard as active."
@@ -53,12 +64,8 @@ def execute():
     print(f"Unique index on {DOCTYPE}.{FIELDNAME} is in place")
 
 
-def _custom_field_name():
-    return frappe.db.get_value("Custom Field", {"dt": DOCTYPE, "fieldname": FIELDNAME}, "name")
-
-
 def _ensure_field_exists():
-    if _custom_field_name():
+    if get_custom_field_name(DOCTYPE, FIELDNAME):
         return
 
     frappe.get_doc(
@@ -148,23 +155,3 @@ def _backfill():
         """
     )
     return len(rows)
-
-
-def _ensure_unique():
-    name = _custom_field_name()
-    if frappe.db.get_value("Custom Field", name, "unique"):
-        return
-
-    field = frappe.get_doc("Custom Field", name)
-    field.unique = 1
-    field.save(ignore_permissions=True)
-    print(f"Set unique on {DOCTYPE}.{FIELDNAME}")
-
-
-def _unique_index_exists():
-    return bool(
-        frappe.db.sql(
-            f"SHOW INDEX FROM `tab{DOCTYPE}` WHERE Column_name = %s AND Non_unique = 0",
-            FIELDNAME,
-        )
-    )

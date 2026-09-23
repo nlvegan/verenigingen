@@ -40,7 +40,14 @@ verenigingen.patches.v2_0.migrate_team_role_integration
 verenigingen.patches.v2_1.cleanup_duplicate_dues_schedule_templates
 verenigingen.patches.v2_1.configure_age_validation_settings
 verenigingen.patches.v2_1.clear_deprecated_retry_queue
-verenigingen.patches.v2_1.add_bank_transaction_reference_unique_index
+# NOTE: add_bank_transaction_reference_unique_index removed 2026-09-23 (#1267) - it was
+# one-shot (recorded in Patch Log even when it silently declined on a duplicate, so the
+# index stayed permanently absent on most sites) and its scope was global, which is
+# stricter than the app's own bank_transaction_creator.py idempotency lookup (#383) and the
+# maintainer's decision on #1267. Already recorded in __patches on existing sites; a fresh
+# site never runs it now, so it never creates the retired global index. Superseded by
+# v2_2.enforce_unique_bank_transaction_reference, which also drops that index if a prior
+# run of this patch already created it.
 verenigingen.patches.v15_0.add_chapter_performance_indexes
 verenigingen.patches.v15_0.add_member_performance_indexes
 verenigingen.patches.v15_0.add_volunteer_performance_indexes
@@ -90,3 +97,4 @@ verenigingen.patches.v2_2.force_enable_sepa_strict_mandate_validation
 verenigingen.patches.v2_2.add_retry_payment_critical_operation_rule
 verenigingen.patches.v2_2.add_initiate_payment_critical_operation_rule
 verenigingen.patches.v2_2.add_refresh_payment_status_critical_operation_rule
+verenigingen.patches.v2_2.enforce_unique_bank_transaction_reference
