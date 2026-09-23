@@ -49,12 +49,9 @@ KNOWN_DEAD_REGISTRATIONS = {
     # scripts/validation/doctype_name_validator.py's own docstring (measured
     # 2026-08-31) -- a pre-existing, already-tracked condition, not a new finding.
     ("Bank Integration Settings", "utils/doctype/bank_integration_settings/bank_integration_settings.js"),
-    # #1256: an empty `{}` handler block (nothing to be dead) registered against a
-    # doctype that has never existed. Filed separately; zero behavioural impact.
-    (
-        "Expulsion Report Entry Item",
-        "verenigingen/doctype/expulsion_report_entry/expulsion_report_entry.js",
-    ),
+    # #1256's dead `frappe.ui.form.on('Expulsion Report Entry Item', {})` block was
+    # deleted outright (empty handler, doctype never existed -- nothing was dead to
+    # keep an exception for). Do not re-add an entry here for it.
 }
 
 

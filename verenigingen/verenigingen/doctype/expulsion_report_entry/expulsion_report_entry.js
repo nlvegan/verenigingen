@@ -288,8 +288,3 @@ function set_query_filters(frm) {
 		};
 	});
 }
-
-// Child table events if needed
-frappe.ui.form.on('Expulsion Report Entry Item', {
-	// Add child table events here if required
-});
