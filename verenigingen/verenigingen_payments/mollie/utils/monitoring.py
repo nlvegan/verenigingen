@@ -5,10 +5,10 @@ Performance monitoring, health checks, and operational metrics for Mollie integr
 """
 
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Deque, Dict, List, Optional
 
 import frappe
 from frappe.utils import add_to_date, now_datetime
@@ -46,8 +46,21 @@ class MolliePerformanceMonitor:
     Tracks operation durations, success rates, and identifies bottlenecks.
     """
 
+    # `performance_monitor` (below) is one process-local singleton for the life
+    # of a gunicorn worker, and `record_operation()` appends unconditionally on
+    # every Mollie webhook call (webhook_wrapper_service_unified.py, 8 call
+    # sites) -- nothing ever trimmed self.metrics, so it grew without bound
+    # (#1304, same singleton-lifetime shape as #1177/#962/#867/#927). Every
+    # reader (get_operation_stats, get_overall_health) only ever filters by a
+    # recency cutoff, so full-history retention buys nothing functionally.
+    # Bound it the same way `ServiceMetrics`
+    # (verenigingen/services/infrastructure/service_metrics.py) and
+    # `FinancialErrorHandler` (#1177) already bound their own history
+    # collections: a `deque(maxlen=...)`. 1000 matches that precedent.
+    MAX_METRICS_SIZE = 1000
+
     def __init__(self):
-        self.metrics: List[PerformanceMetric] = []
+        self.metrics: Deque[PerformanceMetric] = deque(maxlen=self.MAX_METRICS_SIZE)
         self.logger = MollieLogger("performance_monitor")
 
     def start_operation(self, operation: str):
@@ -120,6 +133,11 @@ class MolliePerformanceMonitor:
         """
         Get statistics for a specific operation over the last N hours.
 
+        self.metrics is bounded (see MAX_METRICS_SIZE), so if more than that
+        many operations have been recorded, this reports over the most recent
+        retained window, not the full requested `hours` if that window is
+        larger.
+
         Args:
             operation: Operation name
             hours: Hours to look back
@@ -156,6 +174,9 @@ class MolliePerformanceMonitor:
     def get_overall_health(self, hours: int = 24) -> Dict[str, Any]:
         """
         Get overall health metrics for the last N hours.
+
+        self.metrics is bounded (see MAX_METRICS_SIZE); see get_operation_stats
+        for what that means when the retained window is smaller than `hours`.
 
         Args:
             hours: Hours to look back
