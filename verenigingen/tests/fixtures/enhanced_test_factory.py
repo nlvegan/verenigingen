@@ -2788,15 +2788,51 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # this step deletes records that survived because the test (or production
         # code it called) issued frappe.db.commit(). See _drain_tracked_documents
         # for the dedupe + priority-order semantics.
+        #
+        # #1306 round 3 tried simply REORDERING this call after the
+        # captured-insert drain below, on the theory that a Sales
+        # Invoice/Payment Plan referencing a Member's schedule is never
+        # track_document()'d (so DRAIN_PRIORITY_BY_DOCTYPE's "Sales Invoice:
+        # 6, before Member: 5" is never consulted for it) and is only ever
+        # caught in the captured-insert drain instead. That measurably made
+        # things WORSE: test_site_5 runs live RQ workers (CI does not -- see
+        # CLAUDE.md's "known traps"), and reordering shifted a genuinely
+        # separate, pre-existing hazard into the drain's path -- an ordinary
+        # Sales Invoice submit/cancel earlier in the SAME test dispatches a
+        # `payment_history_update_<member>` job via
+        # `enqueue_after_commit=True` (events/invoice_events.py), which a
+        # live worker can pick up and hold the Member row locked (an
+        # explicit `SELECT ... FOR UPDATE` in
+        # member_financial_history_manager.py's add_or_update_entry, ~800ms
+        # measured) at the exact moment a SECOND delete_doc attempt on that
+        # same Member hits its own `FOR UPDATE NOWAIT` probe
+        # (frappe/model/delete_doc.py). Confirmed empirically: neutralizing
+        # `enqueue_after_commit`'s real Redis dispatch as a control made the
+        # SAME reordered-drain test suite pass cleanly, 0 failures. CI has no
+        # RQ workers running during tests, so this exact race cannot occur
+        # there -- but it is real on this dev box, and a bare reorder doubles
+        # the Member's exposure to it (two delete_doc attempts instead of
+        # one) rather than removing it.
+        #
+        # #1306 round 4's fix instead defers ONLY the specific Member entries
+        # that would actually trip the anonymize-instead-of-delete guard here
+        # (checked read-only, via _member_has_blocked_schedule) to the
+        # captured-insert drain below, leaving every other doctype's ordering
+        # untouched. A deferred Member is attempted exactly ONCE, in the
+        # phase where its referencing document has already been removed in
+        # the SAME pass -- so neither the CI-relevant "Member: anonymized
+        # instead" leak nor the dev-box lock race (which needs a SECOND
+        # attempt on an already-committed row) can occur for that Member.
+        # See _drain_tracked_documents' deferral comment for the mechanism.
         try:
             self._drain_tracked_documents()
         except Exception as e:
             logger.warning(f"Tracked doc drain failed in tearDown: {e}")
 
-        # DRAIN CAPTURED INSERTS: catch committed records the factory tracker missed
-        # (raw frappe inserts / production-code inserts). This is what makes failures
-        # order-INDEPENDENT — without it a leaked record fails a later test depending
-        # on shard split / execution order.
+        # DRAIN CAPTURED INSERTS: catch committed records the factory tracker
+        # missed (raw frappe inserts / production-code inserts). This is what
+        # makes failures order-INDEPENDENT — without it a leaked record fails
+        # a later test depending on shard split / execution order.
         try:
             self._drain_captured_inserts()
         except Exception as e:
@@ -2958,6 +2994,37 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         unique.sort(key=lambda x: -x[2])
 
+        # #1306: a tracked Member whose Membership Dues Schedule is currently
+        # blocked by a captured-only financial document (a Sales Invoice via
+        # membership_dues_schedule_display, a Payment Plan, ...) would trip
+        # MemberCleanupService's anonymize-instead-of-delete guard right here,
+        # simply because THIS phase runs before _drain_captured_inserts ever
+        # touches the referencing document -- not because the Member is
+        # genuinely undeletable. _drain_captured_inserts deletes in REVERSE
+        # CREATION ORDER, so it always removes a later-created referencing
+        # document before an earlier-created Member -- the ordinary case in
+        # every test that builds Member -> schedule -> invoice in that order.
+        # Defer such a Member there instead of attempting it here.
+        #
+        # Deferral is gated on the SAME key being confirmed present in
+        # _captured_inserts, so a deferred Member is guaranteed to be picked
+        # up by the other drain -- this can only delay a delete, never drop
+        # one from cleanup. The check itself reuses the exact read-only
+        # pre-pass the production guard consults
+        # (MemberCleanupService._find_blocked_schedules) rather than
+        # re-deriving which doctypes can block a schedule, and fails OPEN
+        # (attempt the ordinary delete now, as before #1306 round 4) if the
+        # check itself errors -- worst case that reproduces the pre-fix
+        # behaviour (an ordinary anonymize-and-leak), not a new failure mode.
+        captured_keys = {(dt, nm) for dt, nm in getattr(self, "_captured_inserts", None) or []}
+        deferred_to_captured_drain = set()
+        if captured_keys:
+            for doctype, name, _prio in unique:
+                if doctype != "Member" or (doctype, name) not in captured_keys:
+                    continue
+                if self._member_has_blocked_schedule(name):
+                    deferred_to_captured_drain.add((doctype, name))
+
         try:
             frappe.db.rollback()
         except Exception as e:
@@ -2976,6 +3043,8 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 # Consulted here too. It used to be checked only by the
                 # captured-insert drain, so exempting a doctype silenced one drain
                 # and left this one retrying it every teardown (#328).
+                continue
+            if (doctype, name) in deferred_to_captured_drain:
                 continue
             try:
                 self._remove_drained_record(doctype, name)
@@ -3000,6 +3069,57 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 f"Drain completed with {delete_failures} unresolved deletion(s); "
                 f"records may persist into next run and require _cleanup_stale_test_data"
             )
+
+    def _member_has_blocked_schedule(self, member_name):
+        """Read-only (#1306): would MemberCleanupService's anonymize-instead-of-
+        delete guard refuse to delete this Member right now?
+
+        Used by _drain_tracked_documents to decide whether to defer a Member
+        to _drain_captured_inserts instead of attempting it immediately (see
+        the comment at that call site). Reuses
+        MemberCleanupService._find_blocked_schedules -- the exact read-only
+        pre-pass the production guard itself consults -- rather than
+        re-deriving which doctypes can block a Membership Dues Schedule.
+
+        Fails OPEN (returns False) on any error: the caller's fallback is to
+        attempt the ordinary delete immediately, which reproduces the
+        pre-#1306-round-4 behaviour (an ordinary anonymize-and-leak) rather
+        than a new failure mode.
+
+        Logs at WARNING, not ERROR, on that fallback -- deliberately, per
+        harness_logger.py's `>= ERROR` residual-limit rationale. This method
+        is only reachable from EnhancedTestCase.tearDown() via
+        _drain_tracked_documents, so the call is a class-teardown record the
+        `>= ERROR` stderr mirror drops at WARNING; that is accepted, not an
+        oversight, because losing it costs no diagnosis of a REAL failure.
+        `_find_blocked_schedules` is the SAME call the production guard
+        itself makes, unguarded, from
+        MemberCleanupService.handle_member_deletion -- if it were ever
+        broken enough to raise for real reasons, that first (correct,
+        expected) attempt would ALSO raise, loudly, as an ordinary TEST-LEAK
+        carrying the full exception via `_record_leak` (the existing
+        WARNING at `_drain_tracked_documents`'s own `except Exception as e:
+        ... logger.warning(...)` a few lines above THIS method's caller, and
+        the leak-ratchet's `check_test_leaks.py` comparison, both already
+        cover that). This log line exists only so a reader working locally
+        (or from a full job log, where the `>= ERROR` mirror does not apply)
+        can see WHY a deferral did not happen, not to be a CI-visible
+        alarm -- see scripts/validation/harness_logger_teardown_baseline.txt.
+        """
+        try:
+            from verenigingen.services.member.lifecycle.member_cleanup_service import (
+                MemberCleanupService,
+            )
+
+            schedules = frappe.get_all(
+                "Membership Dues Schedule", filters={"member": member_name}, pluck="name"
+            )
+            if not schedules:
+                return False
+            return bool(MemberCleanupService()._find_blocked_schedules(member_name, schedules))
+        except Exception as e:
+            logger.warning(f"_member_has_blocked_schedule check failed for {member_name}: {e}")
+            return False
 
     def _cleanup_document_with_retry(
         self, doc_info, max_retries=3, retry_delay=0.5, is_team_role=False, use_secure_operations=False

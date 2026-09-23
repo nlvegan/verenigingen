@@ -71,7 +71,20 @@ BASELINE = Path(__file__).resolve().parents[1] / "harness_logger_teardown_baseli
 # shard would never reach a CI log. So MRO_ERRORS moves 3 -> 4 WITH the call count, and
 # RESIDUAL_BELOW_ERROR (22-4) stays 18 -- the gate's rationale is unchanged rather than
 # merely still-true-by-luck.
-MRO_CALLS, MRO_ERRORS, MRO_TEARDOWNS = 22, 4, 11
+# 22, 4 -> 23, 4 (#1306 round 5): EnhancedTestCase._member_has_blocked_schedule
+# (reached from tearDown via _drain_tracked_documents) fails OPEN and logs a
+# WARNING when its own read-only pre-pass errors -- the caller's fallback is
+# to attempt the ordinary delete immediately, reproducing the pre-#1306-round-4
+# behaviour (an anonymize-and-leak), which is not a new failure mode. Kept at
+# WARNING deliberately, not promoted: `_find_blocked_schedules` is the SAME
+# call MemberCleanupService.handle_member_deletion makes unguarded in
+# production, so a real break here would ALSO break that first, expected
+# attempt -- loudly, as an ordinary TEST-LEAK via `_record_leak`, already
+# covered by the `>= ERROR` gate and by the leak ratchet's own baseline
+# comparison. Losing this specific line costs no diagnosis of a real failure,
+# only the "why didn't deferral happen" detail -- so MRO_ERRORS does NOT move,
+# only the call count, and RESIDUAL_BELOW_ERROR (23-4) moves 18 -> 19.
+MRO_CALLS, MRO_ERRORS, MRO_TEARDOWNS = 23, 4, 11
 # 35, 7 -> 36, 8 (#392): this branch replaced a silent `except Exception: pass`
 # in test_rest_migration_payments.py's tearDown with a get_harness_logger
 # `.error()` call, so name-mode gains one site and it is an ERROR one. The
@@ -106,10 +119,14 @@ MRO_CALLS, MRO_ERRORS, MRO_TEARDOWNS = 22, 4, 11
 # at WARNING, so NAME_ERRORS does NOT move -- only the call count.
 # 41, 12 -> 42, 13 (#1154, second round): the same single route as the MRO note above.
 # It enters AT ERROR, so NAME_ERRORS moves too, not just the call count.
-NAME_CALLS, NAME_ERRORS = 42, 13
-RESIDUAL_BELOW_ERROR = 18  # 17 -> 18 (#1154's WARNING success-path sweep, dropped by the
+# 42, 13 -> 43, 13 (#1306 round 5): the same single route as the MRO note above
+# (EnhancedTestCase._member_has_blocked_schedule). It enters at WARNING, so
+# NAME_ERRORS does NOT move -- only the call count.
+NAME_CALLS, NAME_ERRORS = 43, 13
+RESIDUAL_BELOW_ERROR = 19  # 17 -> 18 (#1154's WARNING success-path sweep, dropped by the
 # mirror knowingly); UNCHANGED at 18 when its ERROR failure-path sibling landed, because
-# that one entered at ERROR and moved MRO_ERRORS with it.
+# that one entered at ERROR and moved MRO_ERRORS with it. 18 -> 19 (#1306 round 5):
+# _member_has_blocked_schedule's fail-open WARNING, same reasoning as the MRO note above.
 
 
 class TestHarnessLoggerTeardownCensus(unittest.TestCase):
@@ -156,14 +173,14 @@ class TestHarnessLoggerTeardownCensus(unittest.TestCase):
         )
 
     def test_the_residual_limit_is_still_the_documented_size(self):
-        """18 of 22 records are below ERROR and are LOST. The docstring says so."""
+        """19 of 23 records are below ERROR and are LOST. The docstring says so."""
         _routes, sites, _fns = v.census("mro")
         below = [s for s in sites if s[2] not in ("error", "critical", "exception")]
         self.assertEqual(
             len(below),
             RESIDUAL_BELOW_ERROR,
-            "harness_logger.py's 'residual limit' paragraph says eighteen of the "
-            f"twenty-two class-teardown records are below ERROR and lost. Now {len(below)}. "
+            "harness_logger.py's 'residual limit' paragraph says nineteen of the "
+            f"twenty-three class-teardown records are below ERROR and lost. Now {len(below)}. "
             "Update the paragraph, not just the baseline.",
         )
 

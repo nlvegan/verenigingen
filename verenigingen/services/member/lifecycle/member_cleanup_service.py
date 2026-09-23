@@ -35,14 +35,37 @@ Dependencies:
 - Direct SQL for child table cleanup
 """
 
-from typing import TYPE_CHECKING, Set
+from typing import TYPE_CHECKING, Dict, List, Set
 
 import frappe
+from frappe import _
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
+
+
+class MemberAnonymizedInsteadOfDeleted(frappe.ValidationError):
+    """Raised by MemberCleanupService.handle_member_deletion (#1306) when one of
+    the Member's Membership Dues Schedules is still referenced by another
+    document -- a Sales Invoice, a Payment Plan, a Contribution Amendment
+    Request, or anything else with a Link field to Membership Dues Schedule
+    -- so the Member cannot be safely deleted: doing so would leave the
+    schedule's own `member` field pointing at a Member that no longer exists.
+
+    By the time this is raised, the Member's personal data has already been
+    anonymized and that change committed -- raising here (inside on_trash)
+    aborts frappe.delete_doc()'s in-progress delete before it removes the
+    Member row, because on_trash runs before check_if_doc_is_linked and
+    delete_from_table (see frappe/model/delete_doc.py). Nothing about the
+    Member row or ANY of its Membership Dues Schedules is touched -- a
+    read-only pre-pass (_find_blocked_schedules) decides whether to raise
+    this BEFORE deleting anything, so a non-blocked schedule is left alone
+    too, not just the blocked one. Only the cascade cleanup this method
+    chose to skip entirely (Memberships, SEPA Mandates, Chapter Member
+    links, etc.) is left undone.
+    """
 
 
 class MemberCleanupService(StatelessService):
@@ -166,6 +189,104 @@ class MemberCleanupService(StatelessService):
             delete_dues_schedule_with_backlink_cleanup,
         )
 
+        # Membership Dues Schedules linked to this member. A READ-ONLY
+        # pre-pass (#1306 round 2) decides BEFORE deleting anything whether
+        # any of them would be refused -- see _find_blocked_schedules for why
+        # this has to run first: an earlier version deleted schedules as it
+        # went and only checked for a block at the end, so the anonymize
+        # branch's own commit made durable every already-deleted, NON-blocked
+        # schedule from earlier in the same loop, contradicting the "either
+        # fully cleaned up and deleted, or left untouched" invariant below.
+        #
+        # If ANY schedule would be refused, the whole operation is converted
+        # into an anonymization (see _anonymize_member_instead_of_deleting)
+        # and every other cascade step -- Memberships, SEPA Mandates, Sales
+        # Invoice reference clearing, Chapter Member links, Customer/Address
+        # handling, child tables, and every OTHER dues schedule too -- is
+        # skipped, so the Member is either fully cleaned up and deleted, or
+        # left untouched except for the deliberate PII scrub.
+        dues_schedules = frappe.get_all(
+            "Membership Dues Schedule", filters={"member": member_doc.name}, pluck="name"
+        )
+
+        blocked_schedules = self._find_blocked_schedules(member_doc.name, dues_schedules)
+
+        if blocked_schedules:
+            for schedule_name, blocking_refs in blocked_schedules.items():
+                refs_text = ", ".join(f"{dt} {dn}" for dt, dn in blocking_refs)
+                self.logger.error(
+                    f"Membership Dues Schedule {schedule_name} is still referenced by "
+                    f"{refs_text}; converting Member {member_doc.name}'s deletion into "
+                    "an anonymization."
+                )
+                # This refusal is the guard working as intended, but its only
+                # trace so far was self.logger.error above (a file under
+                # sites/<site>/logs/, not something an operator browsing the
+                # Desk normally checks) -- give it the same operator-visible
+                # audit trail this file already gives permission-bypass
+                # events, not just a log line.
+                frappe.log_error(
+                    title="Member Deletion: Dues Schedule Not Deleted",
+                    message=(
+                        f"Membership Dues Schedule {schedule_name} was not deleted while "
+                        f"deleting Member {member_doc.name}: still referenced by "
+                        f"{refs_text}.\n\n"
+                        "The schedule was left in place, and the Member was anonymized "
+                        "instead of deleted, so its `member` field still resolves."
+                    ),
+                )
+            self._anonymize_member_instead_of_deleting(member_doc, list(blocked_schedules.keys()))
+            return  # pragma: no cover - _anonymize_member_instead_of_deleting always raises
+
+        for schedule_name in dues_schedules:
+            try:
+                # #1264: force=True bypasses the ordinary link-integrity check
+                # (check_if_doc_is_linked), so a schedule still named by a Sales
+                # Invoice's membership_dues_schedule_display was deleted anyway --
+                # the Sales Invoice above only has its `member` reference cleared,
+                # not the schedule display field, so this left the invoice
+                # pointing at a schedule that no longer existed (#1250's exact
+                # shape: 134 unpaid Sales Invoices with a dangling
+                # membership_dues_schedule_display). Without force, a
+                # still-referenced schedule raises LinkExistsError, caught below
+                # and logged, exactly like any other failure this loop already
+                # handles per-schedule -- the schedule is left intact instead of
+                # orphaning the invoice's reference to it.
+                #
+                # #1264 round 2: a real schedule's OWNING Member (this one)
+                # always carries its own current_dues_schedule/
+                # application_dues_schedule back-link, which would otherwise
+                # raise LinkExistsError for every ordinary (non-invoice) case
+                # too -- clear it first so only a genuine external reference
+                # can still block the delete.
+                #
+                # #1264 round 3: clearing the back-link and deleting the
+                # schedule now happen as one savepoint-wrapped unit, so a
+                # refused delete rolls the back-link clearing back too,
+                # instead of leaving the Member's own current_dues_schedule
+                # cleared while the schedule survives.
+                #
+                # #1306 round 2: _find_blocked_schedules above already ruled
+                # out a KNOWN block for every schedule reaching this loop, so
+                # this except branch is now only a safety net for a genuinely
+                # unexpected failure (a race -- e.g. a new reference created
+                # between the pre-pass and this call -- or an infra error),
+                # not the primary detection path.
+                delete_dues_schedule_with_backlink_cleanup(schedule_name, member_doc.name)
+                self.logger.info(f"Deleted orphaned Membership Dues Schedule {schedule_name}")
+            except Exception as e:
+                self.logger.error(f"Error deleting Membership Dues Schedule {schedule_name}: {str(e)}")
+                frappe.log_error(
+                    title="Member Deletion: Dues Schedule Not Deleted",
+                    message=(
+                        f"Could not delete Membership Dues Schedule {schedule_name} while "
+                        f"deleting Member {member_doc.name}: {str(e)}\n\n"
+                        "This was NOT predicted by the read-only pre-pass (a race, or an "
+                        "unexpected error) -- the schedule was left in place, and the "
+                        "Member deletion proceeded regardless."
+                    ),
+                )
+
         # Delete related Membership records (both draft and submitted)
         memberships = frappe.get_all("Membership", filters={"member": member_doc.name}, pluck="name")
 
@@ -193,61 +314,6 @@ class MemberCleanupService(StatelessService):
                 self.logger.info(f"Deleted SEPA Mandate {mandate_name}")
             except Exception as e:
                 self.logger.error(f"Error deleting SEPA Mandate {mandate_name}: {str(e)}")
-
-        # Delete Membership Dues Schedules linked to this member
-        dues_schedules = frappe.get_all(
-            "Membership Dues Schedule", filters={"member": member_doc.name}, pluck="name"
-        )
-
-        for schedule_name in dues_schedules:
-            try:
-                # #1264: force=True bypasses the ordinary link-integrity check
-                # (check_if_doc_is_linked), so a schedule still named by a Sales
-                # Invoice's membership_dues_schedule_display was deleted anyway --
-                # the Sales Invoice above only has its `member` reference cleared,
-                # not the schedule display field, so this left the invoice
-                # pointing at a schedule that no longer existed (#1250's exact
-                # shape: 134 unpaid Sales Invoices with a dangling
-                # membership_dues_schedule_display). Without force, a
-                # still-referenced schedule raises LinkExistsError, caught below
-                # and logged, exactly like any other failure this loop already
-                # handles per-schedule -- the schedule is left intact instead of
-                # orphaning the invoice's reference to it.
-                #
-                # #1264 round 2: a real schedule's OWNING Member (this one)
-                # always carries its own current_dues_schedule/
-                # application_dues_schedule back-link, which would otherwise
-                # raise LinkExistsError for every ordinary (non-invoice) case
-                # too -- clear it first so only a genuine external reference
-                # (the invoice) can still block the delete.
-                #
-                # #1264 round 3: clearing the back-link and deleting the
-                # schedule now happen as one savepoint-wrapped unit, so a
-                # refused delete (the invoice case) rolls the back-link
-                # clearing back too, instead of leaving the Member's own
-                # current_dues_schedule cleared while the schedule survives.
-                delete_dues_schedule_with_backlink_cleanup(schedule_name, member_doc.name)
-                self.logger.info(f"Deleted orphaned Membership Dues Schedule {schedule_name}")
-            except Exception as e:
-                self.logger.error(f"Error deleting Membership Dues Schedule {schedule_name}: {str(e)}")
-                # #1264 round 2: this refusal is the guard working as intended,
-                # but its only trace was self.logger.error above (a file under
-                # sites/<site>/logs/, not something an operator browsing the
-                # Desk normally checks). The Member is about to be deleted
-                # regardless (see below), so this schedule is left pointing at
-                # a `member` that is about to stop existing -- a real, if
-                # smaller, dangling-link risk (#1290 follow-up) that deserves
-                # the same operator-visible audit trail this file already
-                # gives permission-bypass events, not just a log line.
-                frappe.log_error(
-                    title="Member Deletion: Dues Schedule Not Deleted",
-                    message=(
-                        f"Could not delete Membership Dues Schedule {schedule_name} while "
-                        f"deleting Member {member_doc.name}: {str(e)}\n\n"
-                        "The schedule was left in place with its `member` field still "
-                        "pointing at a Member that is about to be deleted."
-                    ),
-                )
 
         # Clear Member reference from Sales Invoices to allow deletion
         # This prevents link validation errors when deleting members with invoices
@@ -324,6 +390,130 @@ class MemberCleanupService(StatelessService):
             except Exception as e:
                 # Some tables might not exist in all installations, so just log and continue
                 self.logger.debug(f"Could not clean up {table_name}: {str(e)}")
+
+    def _find_blocked_schedules(self, member_name: str, schedule_names: List[str]) -> Dict[str, list]:
+        """Read-only: which of `schedule_names` would Frappe's own
+        link-integrity check refuse to delete right now? (#1306 round 2)
+
+        Reuses frappe.model.delete_doc.get_linked_docs/get_dynamic_linked_docs
+        with method="Delete" -- the EXACT mechanism a real (non-force)
+        frappe.delete_doc("Membership Dues Schedule", ...) call consults via
+        check_if_doc_is_linked/check_if_doc_is_dynamically_linked -- instead
+        of guessing at specific referencing doctypes (Sales Invoice, Payment
+        Plan, Contribution Amendment Request, ...). This is what "ask the
+        system, not a guess" means here: any real external reference is
+        caught uniformly, and a new one added to the schema in the future is
+        caught automatically too, with no new code in this file.
+
+        Excludes the two references clear_member_schedule_backlinks_before_
+        delete (membership_dues_schedule_hooks.py) always clears immediately
+        before a real delete attempt: the schedule's own Member back-link
+        (current_dues_schedule / application_dues_schedule, scoped to
+        `member_name` -- that function only ever clears THIS member's own
+        fields, never another member's), and Member Fee Change History rows'
+        `dues_schedule` field (cleared unconditionally, not member-scoped,
+        matching that function's own filter). Neither of those would
+        actually block a real delete, so counting them here would make every
+        ordinary (unreferenced) schedule look blocked.
+
+        Returns {schedule_name: [(reference_doctype, reference_docname), ...]}
+        for every schedule with at least one genuine external reference; a
+        schedule with none is omitted entirely.
+        """
+        from frappe.model.delete_doc import get_dynamic_linked_docs, get_linked_docs
+
+        blocked: Dict[str, list] = {}
+        for schedule_name in schedule_names:
+            schedule_doc = frappe.get_doc("Membership Dues Schedule", schedule_name)
+            links = get_linked_docs(schedule_doc, method="Delete") + get_dynamic_linked_docs(
+                schedule_doc, method="Delete"
+            )
+            external = [
+                (link["reference_doctype"], link["reference_docname"])
+                for link in links
+                if not (link["reference_doctype"] == "Member" and link["reference_docname"] == member_name)
+                and link["reference_doctype"] != "Member Fee Change History"
+            ]
+            if external:
+                blocked[schedule_name] = external
+        return blocked
+
+    def _anonymize_member_instead_of_deleting(
+        self, member_doc: "Document", blocked_schedules: List[str]
+    ) -> None:
+        """Convert a refused Member delete into an anonymization (#1306).
+
+        Called from handle_member_deletion when one or more of the Member's
+        Membership Dues Schedules could not be deleted because some other
+        document still references it (a Sales Invoice via
+        membership_dues_schedule_display, a Payment Plan, a Contribution
+        Amendment Request, or anything else with a Link field to Membership
+        Dues Schedule -- see _find_blocked_schedules, which decides this
+        generically rather than by naming specific doctypes). Force-deleting
+        the Member anyway (the pre-#1306 behaviour) would leave that
+        schedule's own `member` field pointing at a Member that no longer
+        exists -- a financially or administratively load-bearing document
+        must never be touched as a side effect of this, so the Member is
+        scrubbed in place and kept instead.
+
+        Reuses DataRetentionPolicy._anonymize_personal_data (via the public
+        anonymize_member wrapper) rather than a second anonymizer, matching
+        the pattern data_retention_policy.py already uses for its own
+        Member-with-dependencies case (_delete_personal_data).
+
+        The anonymization is committed here, before raising, because the
+        exception this raises is expected to propagate out of an in-progress
+        frappe.delete_doc() call: an uncaught exception reaching a Frappe
+        request/background-job boundary triggers an ambient
+        frappe.db.rollback(), which would otherwise undo the very
+        anonymization this method exists to make stick (see Pattern 1,
+        "Explicit Commit After db_set()", in this repo's CLAUDE.md).
+        """
+        from verenigingen.verenigingen_payments.core.compliance.data_retention_policy import (
+            anonymize_member,
+        )
+
+        anonymize_member(member_doc.name)
+        # Commit here, not later, because the exception this method raises
+        # is expected to propagate to a request/job boundary that performs
+        # an ambient rollback -- without this, that rollback would undo the
+        # very anonymization this method exists to make stick (see Pattern
+        # 1, "Explicit Commit After db_set()", in this repo's CLAUDE.md).
+        # Unconditional, including under frappe.flags.in_test: this is not a
+        # test-mode-only concession -- a Member row this method leaves
+        # behind is anonymized, not corrupted, regardless of caller.
+        #
+        # The shared test harness (EnhancedTestCase's teardown,
+        # enhanced_test_factory.py) does NOT special-case this exception --
+        # a test that hits it is recorded as an ordinary leak, same as any
+        # other refused delete, so this guard firing during test cleanup is
+        # still visible in known_test_leaks.txt if it happens. #1306's real
+        # fix for the common case (a tracked Member whose schedule is
+        # referenced only by test-created debris -- a Sales Invoice,
+        # Payment Plan, etc.) is DRAIN ORDER: _drain_tracked_documents
+        # defers exactly this shape (a Member with a currently-blocked
+        # schedule, read-only-checked via _member_has_blocked_schedule) to
+        # _drain_captured_inserts, which deletes in reverse creation order
+        # and therefore always removes the later-created referencing
+        # document before the earlier-created Member -- so the ordinary
+        # delete path runs and this guard should not fire at all for that
+        # shape (#1306 round 4).
+        frappe.db.commit()
+
+        schedule_list = ", ".join(blocked_schedules)
+        self.logger.info(
+            f"Member {member_doc.name} anonymized instead of deleted: Membership Dues "
+            f"Schedule(s) {schedule_list} are still referenced by another document."
+        )
+        frappe.throw(
+            _(
+                "Member {0} was not deleted because Membership Dues Schedule(s) {1} "
+                "are still referenced by another document. The member's personal data "
+                "has been anonymized instead, and the schedule(s) and whatever "
+                "references them were left unchanged."
+            ).format(member_doc.name, schedule_list),
+            exc=MemberAnonymizedInsteadOfDeleted,
+        )
 
     def _unlink_member_from_customer(self, member_doc: "Document") -> None:
         """

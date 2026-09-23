@@ -223,11 +223,11 @@ class _StderrHandler(logging.StreamHandler):
     duplicates every in-test record and gives back the attribution the lazy read was
     for. ERROR is where the gate sits because that is the level of the three
     class-teardown records that must not be lost, above. It does NOT cover the other
-    eighteen -- see the residual limit.
+    nineteen -- see the residual limit.
 
     **The residual limit:** anything below ERROR from class teardown is still lost -- a
-    ``.warning()``, ``.info()`` or ``.debug()``. Measured, that is eighteen of the
-    twenty-two: seventeen WARNING and one DEBUG. No INFO site is class-teardown-reachable
+    ``.warning()``, ``.info()`` or ``.debug()``. Measured, that is nineteen of the
+    twenty-three: eighteen WARNING and one DEBUG. No INFO site is class-teardown-reachable
     today, so the gate's INFO behaviour is untested by that census rather than confirmed
     by it. Fixing the loss properly means draining the buffer in ``stopTestRun``, which is
     ``frappe/``'s to do, not this app's.

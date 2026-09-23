@@ -13,6 +13,10 @@ docs/plans/2026-05-24-test-framework-tracked-doc-drain-design.md.
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.dues_schedule_invoice_fixtures import (
+    make_referenceable_dues_schedule,
+    make_submitted_invoice_for_schedule,
+)
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 
@@ -531,3 +535,143 @@ class TestFactoryExistsBeforeMasterDataSetup(EnhancedTestCase):
             "without it, master-data setup dies on AttributeError and silently "
             "skips the rest of the master data",
         )
+
+
+class TestDrainDefersInvoiceBlockedMember(EnhancedTestCase):
+    """Regression for #1306 round 4: _drain_tracked_documents must not attempt
+    a tracked Member whose Membership Dues Schedule is currently blocked by a
+    captured-only financial document (a Sales Invoice, here) -- doing so trips
+    MemberCleanupService's anonymize-instead-of-delete guard for a reason that
+    has nothing to do with the Member being genuinely undeletable: the
+    referencing Sales Invoice is never track_document()'d (see
+    DRAIN_PRIORITY_BY_DOCTYPE's comment), so _drain_tracked_documents runs
+    before anything has removed it.
+
+    _member_has_blocked_schedule (a read-only check reusing
+    MemberCleanupService._find_blocked_schedules, the exact pre-pass the
+    production guard itself consults) lets _drain_tracked_documents defer such
+    a Member to _drain_captured_inserts instead, which deletes in REVERSE
+    CREATION ORDER and therefore removes the later-created Sales Invoice
+    before the earlier-created Member -- so the ordinary delete path runs.
+    """
+
+    def _create_blocked_member_fixture(self):
+        """Member + referenceable schedule + blocking invoice, committed.
+
+        `_create_*` is a recognised helper prefix (scan_order_dependence.py),
+        so the commit here -- required to make the fixture visible to the
+        drain calls the test invokes directly, mirroring the sibling
+        `test_drain_deletes_committed_member_and_customer`'s own inline
+        commit -- is the non-blocking COMMIT_EXEMPT kind.
+        """
+        member = self.create_test_member(
+            first_name="DrainDefer",
+            last_name=f"Test{frappe.generate_hash(length=6)}",
+            email=f"drain.defer.{frappe.generate_hash(length=8)}@example.com",
+        )
+        schedule = make_referenceable_dues_schedule(self, member)
+        # customer=: a dedicated, freshly-created Customer -- deliberately NOT
+        # the schedule's own Member's auto-created Customer. The default
+        # (an arbitrary existing Customer) would, in a test that creates the
+        # Member immediately before this call, silently pick up that SAME
+        # Member's own Customer (frappe.db.get_value with no filter defaults
+        # to `creation DESC`), entangling this invoice's `customer_address`
+        # with the Customer this test's own ordinary-delete assertions later
+        # exercise -- a real, but unrelated-to-#1306, pre-existing
+        # harness/ERPNext ordering interaction (see #1346's "second,
+        # independent contributor" note). Not this test's subject.
+        invoice = make_submitted_invoice_for_schedule(
+            self, schedule.name, customer=self.factory.create_test_customer().name
+        )
+        frappe.db.commit()
+        return member, schedule, invoice
+
+    def test_tracked_drain_defers_blocked_member_ordinary_delete_runs_in_captured_phase(self):
+        member, schedule, invoice = self._create_blocked_member_fixture()
+        original_first_name = member.first_name
+        customer_name = member.customer
+
+        try:
+            self.assertTrue(
+                (member.doctype, member.name) in getattr(self, "_captured_inserts", []),
+                "precondition: the Member must be captured, or deferral can never "
+                "be confirmed safe (a deferred key must be guaranteed present in "
+                "_captured_inserts, or the record would be dropped from cleanup)",
+            )
+
+            # Phase 1: the tracked drain must NOT attempt this Member -- it
+            # should survive, untouched (not even anonymized), because the
+            # guard would otherwise fire for a reason that has nothing to do
+            # with the Member being genuinely undeletable.
+            self._drain_tracked_documents()
+
+            self.assertTrue(
+                frappe.db.exists("Member", member.name),
+                "a Member with a currently-blocked schedule must be DEFERRED "
+                "by the tracked drain, not attempted (which would anonymize "
+                "it)",
+            )
+            self.assertEqual(
+                frappe.db.get_value("Member", member.name, "first_name"),
+                original_first_name,
+                "a deferred Member must not be anonymized by the tracked "
+                "drain -- anonymization firing here means the deferral did "
+                "not happen",
+            )
+            self.assertTrue(
+                frappe.db.exists("Sales Invoice", invoice.name),
+                "precondition: the tracked drain never touches a "
+                "captured-only Sales Invoice",
+            )
+
+            # Phase 2: the captured-insert drain deletes in reverse creation
+            # order, so the later-created Sales Invoice is removed before the
+            # earlier-created Member is reached -- the ordinary delete path.
+            self._drain_captured_inserts()
+
+            self.assertFalse(
+                frappe.db.exists("Sales Invoice", invoice.name),
+                "the captured-insert drain should remove the referencing "
+                "invoice",
+            )
+            self.assertFalse(
+                frappe.db.exists("Member", member.name),
+                "with its blocking reference gone, the deferred Member must "
+                "be deleted ORDINARILY (not anonymized) by the "
+                "captured-insert drain",
+            )
+            self.assertFalse(
+                frappe.db.exists("Membership Dues Schedule", schedule.name),
+                "the schedule itself is no longer referenced, so the "
+                "ordinary Member-deletion cascade should remove it too",
+            )
+        finally:
+            self._cleanup_stray_customer_and_address(member.name, customer_name)
+
+    def _cleanup_stray_customer_and_address(self, member_name, customer_name):
+        """Safety net, unrelated to this test's subject: the ordinary
+        (non-#1306) Customer-handling step inside handle_member_deletion runs
+        BEFORE the Address-unlink step, so a Customer sharing an Address
+        still Dynamic-Linked to the Member can leave that Address (and then
+        the Customer) undeletable when this scenario runs outside a full
+        tearDown -- the same "second, independent contributor" #1346 flags
+        as unresolved, not something this test is about. Force-clear it so
+        an unrelated collision here can't fail the leak ratchet.
+
+        `_cleanup_*` is a recognised helper prefix (scan_order_dependence.py),
+        so the commit below is the non-blocking COMMIT_EXEMPT kind.
+        """
+        stray_addresses = frappe.get_all(
+            "Address",
+            filters=[
+                ["Dynamic Link", "link_doctype", "in", ["Member", "Customer"]],
+                ["Dynamic Link", "link_name", "in", [member_name, customer_name]],
+            ],
+            pluck="name",
+        )
+        for addr in set(stray_addresses):
+            if frappe.db.exists("Address", addr):
+                frappe.delete_doc("Address", addr, force=True, ignore_permissions=True)
+        if customer_name and frappe.db.exists("Customer", customer_name):
+            frappe.delete_doc("Customer", customer_name, force=True, ignore_permissions=True)
+        frappe.db.commit()
