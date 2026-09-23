@@ -107,6 +107,14 @@ class TestSEPAReconciliation(VereningingenTestCase):
         """Set up for each test"""
         self.reconciliation_engine = PaymentReconciliationManager()
 
+        # Names of Bank Transactions this test creates via create_test_transaction(),
+        # deleted in tearDown regardless of whether the test body reached its own
+        # `transaction.delete()` (several tests call self.skipTest() first, which
+        # raises before that line runs). See #1268: the previous
+        # `DELETE ... WHERE description LIKE 'TEST-RECON-%'` never matched any
+        # description this class actually creates, so it cleaned up nothing.
+        self._recon_transaction_names = []
+
         # Resolve a EUR company that also has a Fiscal Year covering today. Picking an
         # arbitrary company (global default / get_value({})) is unsafe under parallel
         # load: the shared site DB accumulates stray companies (e.g. INR "Test Quality
@@ -203,13 +211,14 @@ class TestSEPAReconciliation(VereningingenTestCase):
 
     def tearDown(self):
         """Clean up after each test"""
-        # Delete test transactions
-        frappe.db.sql(
-            """
-            DELETE FROM `tabBank Transaction`
-            WHERE description LIKE 'TEST-RECON-%'
-        """
-        )
+        # Delete test transactions this test created. Tracked by name (#1268) --
+        # the descriptions this class actually creates ("BATCH-... TEST-RECON-DESC",
+        # "SEPA DD ...", "INVOICE ...", "Vague description", "Random payment") never
+        # start with "TEST-RECON-", so a `LIKE 'TEST-RECON-%'` filter never matched
+        # any of them.
+        for name in self._recon_transaction_names:
+            if frappe.db.exists("Bank Transaction", name):
+                frappe.delete_doc("Bank Transaction", name, force=True)
 
         # Delete test batch
         if frappe.db.exists("Direct Debit Batch", self.test_batch.name):
@@ -240,7 +249,12 @@ class TestSEPAReconciliation(VereningingenTestCase):
             "bank_account": self.test_bank_account.name,
             "currency": account_currency,
             "status": "Pending",
-            "reference_number": reference_number or "REF123"
+            # A shared literal default collided with itself once
+            # idx_reference_number_unique existed (#1268): several call sites in
+            # this class rely on the default, and it also collided across runs via
+            # the tearDown leak fixed above. Unique per call, same pattern as
+            # elsewhere in this suite (frappe.generate_hash()).
+            "reference_number": reference_number or frappe.generate_hash(length=10)
         }
 
         # Use deposit for incoming (positive) amounts, withdrawal for outgoing (negative)
@@ -249,7 +263,9 @@ class TestSEPAReconciliation(VereningingenTestCase):
         else:
             transaction_data["withdrawal"] = abs(amount)
 
-        return frappe.get_doc(transaction_data).insert()
+        transaction = frappe.get_doc(transaction_data).insert()
+        self._recon_transaction_names.append(transaction.name)
+        return transaction
 
     def test_match_by_batch_reference(self):
         """Test matching transaction by SEPA batch reference"""
