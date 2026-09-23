@@ -1,0 +1,5 @@
+# Harness-base classes that override a lifecycle method without calling
+# super() -- see #1307. Upward-only: a NEW entry here must be a deliberate,
+# justified addition (state before/after counts in the PR), not a silent
+# widening. Regenerate with:
+#   python scripts/validation/harness_super_skip_validator.py --update-baseline <this file>

@@ -46,6 +46,7 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
     @classmethod
     def setUpClass(cls):
         """Set up performance testing environment"""
+        super().setUpClass()
         cls.factory = TestDataFactory()
         cls.performance_metrics = {}
         cls.test_start_time = time.time()
@@ -74,8 +75,19 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
         for test_name, metrics in cls.performance_metrics.items():
             print(f"   - {test_name}: {metrics.get('duration', 0):.2f}s")
 
+        super().tearDownClass()
+
     def setUp(self):
         """Set up each performance test"""
+        super().setUp()
+        # VereningingenTestCase.setUp() (just called above) sets its own
+        # self.factory (a fresh, untracked CoreTestDataFactory for the
+        # harness's own use) -- which would otherwise SHADOW the class-level
+        # `self.factory` this suite's tests read via perf_test_data() and whose
+        # tearDownClass cleanup (`cls.factory.cleanup()`) depends on. Point
+        # back at the shared, tracked instance or every perf_test_data() record
+        # created in a test body would silently stop being cleaned up (#1307).
+        self.factory = type(self).factory
         frappe.set_user("Administrator")
         self.test_start = time.time()
         self.start_memory = psutil.virtual_memory().available
@@ -91,6 +103,7 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
             "memory_used_mb": memory_used / (1024 * 1024),
             "timestamp": datetime.now().isoformat(),
         }
+        super().tearDown()
 
     def measure_time(self, func, *args, **kwargs):
         """Measure execution time of a function"""
