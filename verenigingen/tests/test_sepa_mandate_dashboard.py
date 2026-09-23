@@ -104,6 +104,24 @@ class TestSepaMandateDashboard(EnhancedTestCase):
 
         from frappe.desk.notifications import get_open_count
 
+        # get_open_count() calls frappe.db.set_execution_timeout(1) (SET SESSION
+        # max_statement_time = 1) and never restores it -- a frappe core gap this
+        # app cannot fix directly (apps/frappe/ is framework code). Left alone,
+        # every later test sharing this process's DB connection inherits a
+        # permanent 1s statement ceiling: any query that legitimately runs (or
+        # blocks) for more than a second is killed with MariaDB error 1969
+        # ("max_statement_time exceeded") instead of completing normally.
+        # Measured: this is exactly what broke
+        # test_base_history_manager_row_lock.TestBaseHistoryManagerLocksItsParentRow
+        # .test_the_lock_is_taken_before_anything_is_read_or_written when this
+        # test ran earlier in the same CI shard -- its deliberate 2-second
+        # innodb_lock_wait_timeout wait never got the chance to fire because the
+        # leaked 1s max_statement_time killed the query first, and that MariaDB
+        # error is not one BaseHistoryManager treats as a lock conflict, so it
+        # was swallowed into an ordinary failed result instead of raised (#1350).
+        original_timeout = frappe.db.sql("SELECT @@session.max_statement_time")[0][0]
+        self.addCleanup(frappe.db.sql, f"SET SESSION max_statement_time = {int(original_timeout)}")
+
         result = get_open_count("SEPA Mandate", mandate.name)
         found_doctypes = {d["doctype"] for d in result["count"]["external_links_found"]}
 

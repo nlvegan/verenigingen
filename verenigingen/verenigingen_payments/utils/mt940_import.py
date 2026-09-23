@@ -1074,8 +1074,6 @@ def create_enhanced_bank_transaction_from_mt940(
         preloaded_lookups: Optional dict from batch_preload_party_lookups() for N+1 optimization
     """
     try:
-        import contextlib
-
         # Extract enhanced SEPA data
         sepa_data = extract_sepa_data_enhanced(mt940_transaction)
 
@@ -1261,17 +1259,27 @@ def create_enhanced_bank_transaction_from_mt940(
             # Enhanced fields module not available
             pass
 
-        # Insert and submit with enhanced error handling
-        with contextlib.suppress(frappe.exceptions.UniqueValidationError):
-            bt.insert()
-            bt.submit()
+        # Insert and submit. This used to wrap the insert in
+        # contextlib.suppress(frappe.exceptions.UniqueValidationError), which silently
+        # dropped the transaction on any unique-constraint collision -- including a
+        # genuinely distinct MT940 payment that happened to share a payer-chosen EREF with
+        # an earlier one on the same account (#1267: MT940 references are unconstrained by
+        # the Bank Transaction reference key precisely because they are not system-issued,
+        # so that specific collision cannot happen here any more; but swallowing ANY
+        # UniqueValidationError -- including one from a real, unrelated constraint -- was
+        # never correct, and the maintainer's #1267 decision requires it to be loud). Let it
+        # propagate to the except block below, which logs and re-raises to the per-
+        # transaction caller in process_mt940_document(), so a real failure shows up in that
+        # import's `errors` list instead of being counted as an indistinguishable "skipped".
+        bt.insert()
+        bt.submit()
 
-            # Log enhanced transaction creation for debugging
-            frappe.logger().info(
-                f"Enhanced MT940 transaction created: {transaction_id} - "
-                f"{bt.transaction_type} - {amount} {bt.currency} - {sepa_data['counterparty']}"
-            )
-            return True
+        # Log enhanced transaction creation for debugging
+        frappe.logger().info(
+            f"Enhanced MT940 transaction created: {transaction_id} - "
+            f"{bt.transaction_type} - {amount} {bt.currency} - {sepa_data['counterparty']}"
+        )
+        return True
 
     except Exception as e:
         frappe.logger().error(f"Error creating enhanced bank transaction from MT940: {str(e)}")

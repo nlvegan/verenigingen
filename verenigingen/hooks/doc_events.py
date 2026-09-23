@@ -365,6 +365,16 @@ doc_events = {
         ],
     },
     "Bank Transaction": {
+        # Derives custom_reference_number_key from (bank_account, reference_number).
+        # `validate`, NOT `before_save`: run_before_save_methods dispatches before_save
+        # only for _action == "save", so a before_save handler is skipped entirely on a
+        # bare .submit() (frappe/model/document.py) and the key would go stale against an
+        # edited draft. See #809's identical reasoning for Payment Entry, and #1267 -- this
+        # field is what turns bank_transaction_creator.py's account-scoped idempotency
+        # lookup (#383) into a real database constraint.
+        "validate": [
+            "verenigingen.verenigingen_payments.utils.bank_transaction_reference_key.set_bank_transaction_reference_key",
+        ],
         "on_submit": "verenigingen.services.member.donor.donor_auto_creation.process_payment_for_donor_creation",
     },
     # The producer none of the registrations above can see: UnreconcilePayment.on_submit

@@ -16,6 +16,8 @@ class TestSEPAReconciliation(VereningingenTestCase):
     @classmethod
     def setUpClass(cls):
         """Set up test data"""
+        super().setUpClass()
+
         # Create test customer
         if not frappe.db.exists("Customer", "TEST-RECON-CUSTOMER"):
             cls.test_customer = frappe.get_doc(
@@ -102,9 +104,11 @@ class TestSEPAReconciliation(VereningingenTestCase):
         # suite that reuses it in the same shard.
 
         frappe.db.commit()
+        super().tearDownClass()
 
     def setUp(self):
         """Set up for each test"""
+        super().setUp()
         self.reconciliation_engine = PaymentReconciliationManager()
 
         # Names of Bank Transactions this test creates via create_test_transaction(),
@@ -231,7 +235,22 @@ class TestSEPAReconciliation(VereningingenTestCase):
                 self.test_invoice.cancel()
             frappe.delete_doc("Sales Invoice", self.test_invoice.name, force=True)
 
+        # #1307: this class now calls super().tearDown() below, which adds a
+        # per-test rollback (`_rollback_once_before_draining`) on top of the
+        # explicit delete-by-name-and-commit teardown #1268/#1302 put here.
+        # Deliberately KEEPING the commit rather than dropping it in favour of
+        # the rollback: the rollback only undoes what is still uncommitted at
+        # this point, and this commit is what makes the class-scoped fixtures
+        # (test_mandate/test_member/test_customer, reused across every test
+        # method) and each test's own explicit deletes durable and visible to
+        # the NEXT test's setUp -- the class was written around a commit
+        # boundary per test, not a rollback boundary, and switching that model
+        # is a separate, larger change than #1307's scope (restoring the
+        # missing super() calls). The rollback below is still useful as a
+        # safety net for anything this method's own cleanup did not reach
+        # (e.g. a test that raised before reaching this line).
         frappe.db.commit()
+        super().tearDown()
 
     def create_test_transaction(self, amount, description, reference_number=None, is_deposit=True):
         """Helper to create test bank transaction"""
