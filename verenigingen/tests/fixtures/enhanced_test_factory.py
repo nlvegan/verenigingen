@@ -2195,10 +2195,6 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         submitted parent resident in every suite that commits a posted voucher, and
         move the leak ratchet by an amount nobody has measured (#482 discussion).
         """
-        from verenigingen.services.member.lifecycle.member_cleanup_service import (
-            MemberAnonymizedInsteadOfDeleted,
-        )
-
         if not frappe.db.exists(doctype, name):
             # The row being gone does NOT mean its orphans are: a Company deleted by
             # somebody else's cleanup strands exactly the same rows, and this drain is
@@ -2252,50 +2248,6 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         try:
             frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
-        except MemberAnonymizedInsteadOfDeleted:
-            # The Member was intentionally NOT deleted -- one of its
-            # Membership Dues Schedules is still referenced by another
-            # document (a Sales Invoice, Payment Plan, Contribution
-            # Amendment Request, ...), so MemberCleanupService anonymized it
-            # in place instead, and committed that unconditionally (see its
-            # own docstring on why, including under tests). This is NOT the
-            # "Fail CLOSED" case every other exception below assumes --
-            # delete_doc's own row removal (delete_from_table) never ran
-            # (on_trash raises strictly before that step), and the ONE write
-            # that did happen already scrubbed the row's PII, so the
-            # surviving Member cannot collide with a later test's use of the
-            # SAME test-specific email/name -- the only risk this drain's
-            # leak reporting exists to catch. So: do not record a leak for
-            # it (measured via CI's leak ratchet on two unrelated test
-            # modules that never deliberately exercise this guard, whose
-            # generic teardown happened to hit it while cleaning up a
-            # tracked Member with an -- also test-created -- invoice-
-            # referenced dues schedule; before #1306 this same Member would
-            # have force-deleted cleanly, so the guard's correctness is what
-            # newly surfaces this path here, not a regression in the drain).
-            #
-            # Do clear its `customer` link, though: unlike the Member
-            # itself, the linked Customer is NOT anonymized (Member.customer
-            # still resolves until cleared), so this drain's own SEPARATE,
-            # later attempt to delete that tracked Customer (priority 3,
-            # after Member's 5) would otherwise ALSO fail purely because the
-            # surviving Member still references it. Test cleanup, unlike
-            # production, has no ledger to preserve that link for.
-            #
-            # This does not guarantee the Customer itself goes cleanly --
-            # measured case: erpnext's own Customer.on_trash ->
-            # delete_contact_and_address() tries to delete the Customer's
-            # Address WITHOUT force, and that Address can ALSO still be
-            # referenced by a Sales Invoice's own customer_address field.
-            # When that Sales Invoice independently fails to delete (a
-            # pre-existing, unrelated cancellation bug -- "Multiple fiscal
-            # years exist for the date"), its surviving customer_address
-            # reference blocks the Address, and hence the Customer, entirely
-            # independent of anything Member-related. See #1306's follow-up
-            # issue for that root cause; it is out of scope here.
-            if frappe.db.get_value("Member", name, "customer"):
-                frappe.db.set_value("Member", name, "customer", None, update_modified=False)
-            return
         except Exception:
             # Fail CLOSED. frappe removes the row in `delete_from_table` and then keeps
             # going: `after_delete`, attachment removal, `delete_dynamic_links` (which
@@ -2836,15 +2788,43 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # this step deletes records that survived because the test (or production
         # code it called) issued frappe.db.commit(). See _drain_tracked_documents
         # for the dedupe + priority-order semantics.
+        #
+        # #1306 round 3: tried reordering this ahead of the captured-insert
+        # drain below, on the theory that a Sales Invoice/Payment Plan
+        # referencing a Member's schedule is never track_document()'d (so
+        # DRAIN_PRIORITY_BY_DOCTYPE's "Sales Invoice: 6, before Member: 5"
+        # is never consulted for it -- that table only applies within
+        # _drain_tracked_documents itself / to core.created_records, not
+        # across the phase boundary to _drain_captured_inserts) and is only
+        # ever caught in the captured-insert drain instead. Reordering
+        # measurably made things WORSE, not better: reproduced twice,
+        # deterministically, on test_site_5 with
+        # VERENIGINGEN_FAIL_ON_TEST_LEAK=1 --
+        # test_duplicate_invoice_detector went from 1 new "Member: ...
+        # anonymized instead" leak to 3 DIFFERENT tests each failing with
+        # "This document can not be deleted right now as it's being
+        # modified by another user" (delete_doc's FOR UPDATE NOWAIT probe).
+        # Queried those Members directly afterward: none were anonymized
+        # (first_name was still the original test value), so this was not
+        # the #1306 guard firing at all -- a different, unidentified lock
+        # conflict from having BOTH drains attempt the SAME Member (it is
+        # captured by the insert hook AND tracked), now in an order where
+        # captured-drain's own per-doc `except Exception: continue` (no
+        # rollback) can apparently leave something locked for the
+        # tracked-drain's later, separate attempt. Not root-caused further
+        # within this round's budget; reverted rather than ship an
+        # unexplained regression. See PR #1327 (#1306)'s review thread for
+        # the full evidence and the "STOP and report" instruction this
+        # follows.
         try:
             self._drain_tracked_documents()
         except Exception as e:
             logger.warning(f"Tracked doc drain failed in tearDown: {e}")
 
-        # DRAIN CAPTURED INSERTS: catch committed records the factory tracker missed
-        # (raw frappe inserts / production-code inserts). This is what makes failures
-        # order-INDEPENDENT — without it a leaked record fails a later test depending
-        # on shard split / execution order.
+        # DRAIN CAPTURED INSERTS: catch committed records the factory tracker
+        # missed (raw frappe inserts / production-code inserts). This is what
+        # makes failures order-INDEPENDENT — without it a leaked record fails
+        # a later test depending on shard split / execution order.
         try:
             self._drain_captured_inserts()
         except Exception as e:

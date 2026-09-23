@@ -479,15 +479,22 @@ class MemberCleanupService(StatelessService):
         # an ambient rollback -- without this, that rollback would undo the
         # very anonymization this method exists to make stick (see Pattern
         # 1, "Explicit Commit After db_set()", in this repo's CLAUDE.md).
-        # Unconditional, including under frappe.flags.in_test: a test that
-        # incidentally hits this guard while cleaning up a tracked Member
-        # (e.g. via the shared test harness's generic teardown drain) is
-        # left with a Member row that is anonymized, not corrupted -- its
-        # PII is scrubbed, so it cannot collide with a later test's use of
-        # the SAME test-specific email/name, which is the only risk that
-        # matters for test-shard hygiene. See
-        # enhanced_test_factory.py's _remove_drained_record for how the
-        # harness recognizes this outcome and stops treating it as a leak.
+        # Unconditional, including under frappe.flags.in_test: this is not a
+        # test-mode-only concession -- a Member row this method leaves
+        # behind is anonymized, not corrupted, regardless of caller.
+        #
+        # The shared test harness (EnhancedTestCase's teardown,
+        # enhanced_test_factory.py) does NOT special-case this exception --
+        # a test that hits it is recorded as an ordinary leak, same as any
+        # other refused delete, so this guard firing during test cleanup is
+        # still visible in known_test_leaks.txt if it happens. #1306's real
+        # fix for the common case (a tracked Member whose schedule is
+        # referenced only by test-created debris -- a Sales Invoice,
+        # Payment Plan, etc.) is DRAIN ORDER: that debris is never tracked
+        # with a doctype priority (see the comment on tearDown's
+        # _drain_captured_inserts()/_drain_tracked_documents() call order),
+        # so it is now drained BEFORE the Member, and the ordinary delete
+        # path runs -- this guard should not fire at all for that shape.
         frappe.db.commit()
 
         schedule_list = ", ".join(blocked_schedules)
