@@ -515,27 +515,48 @@ class PublicDonationService(StatelessService):
         status via get_context's own token-gated path, #1018); the guard
         below only has to match the doctype's existing permission scheme (#1092).
 
-        The doctype-level permission check below must run BEFORE any lookup
-        keyed on the caller-supplied donation_id, and without ever touching
-        frappe.get_doc: get_doc raises DoesNotExistError for an unknown id but
-        a plain {"error": ...} for an existing one the caller cannot read, and
-        those two are distinguishable -- an existence oracle over Donation
-        names for anyone who fails the check (#1284). So a caller without
-        general Donation read access gets the identical refusal whichever the
-        case; only a caller who already has read access reaches the
-        existence check, and gets a distinct "not found" for a genuinely
-        missing id.
+        A cheap existence check (frappe.db.exists, before ever touching
+        frappe.get_doc) is what lets an authorized caller be told a real
+        "not found" instead of get_doc's own DoesNotExistError -- but it is
+        only safe for a caller whose access does NOT depend on donation_id.
+        frappe.has_permission("Donation", "read") with no `doc` falls through
+        to false_if_not_shared() (frappe/permissions.py), whose no-doc branch
+        returns True if the caller has ANY Donation shared with them for read
+        -- not specifically donation_id. Donation grants share:1 to System
+        Manager / Verenigingen Administrator (donation.json), so a board user
+        with exactly one shared donation would pass that check for every id,
+        which reopened this issue's oracle for share recipients (round-2
+        review, #1284): real data for the shared id, "Insufficient
+        permissions" for an unrelated existing id, "Donation not found" for
+        an unknown one -- distinguishable again.
+
+        So the existence-check shortcut is gated on genuine ROLE-LEVEL read
+        (ignore_share_permissions=True skips false_if_not_shared() entirely,
+        per frappe/permissions.py's `if not perm and not
+        ignore_share_permissions` guard), which does not depend on
+        donation_id at all. Everyone else -- including a legitimate share
+        recipient -- skips the shortcut and goes straight to frappe.get_doc +
+        the per-document frappe.has_permission(doc=...) check (which DOES
+        honour shares); a DoesNotExistError there is caught and collapsed
+        into the same refusal an existing-but-unshared id gets, so existence
+        is never revealed to them either way. The donation actually shared
+        with them still returns real data, because the doc-level check
+        passes for that specific id.
         """
         if not donation_id:
             return {"error": "Donation ID required"}
 
-        if not frappe.has_permission("Donation", "read"):
-            return {"error": "Insufficient permissions"}
+        has_role_level_read = frappe.has_permission("Donation", "read", ignore_share_permissions=True)
 
-        if not frappe.db.exists("Donation", donation_id):
-            return {"error": _("Donation not found")}
-
-        donation = frappe.get_doc("Donation", donation_id)
+        if has_role_level_read:
+            if not frappe.db.exists("Donation", donation_id):
+                return {"error": _("Donation not found")}
+            donation = frappe.get_doc("Donation", donation_id)
+        else:
+            try:
+                donation = frappe.get_doc("Donation", donation_id)
+            except frappe.DoesNotExistError:
+                return {"error": "Insufficient permissions"}
 
         if not frappe.has_permission("Donation", "read", doc=donation):
             return {"error": "Insufficient permissions"}

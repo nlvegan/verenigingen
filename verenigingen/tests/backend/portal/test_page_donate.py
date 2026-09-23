@@ -372,6 +372,51 @@ class TestPageDonate(EnhancedTestCase):
         self.assertIn("error", result)
         self.assertIn("not found", result["error"].lower())
 
+    def test_get_donation_status_share_recipient_cannot_distinguish_unknown_from_unrelated(self):
+        """Round-2 review of #1284's fix: frappe.has_permission("Donation", "read")
+        with no `doc` falls through to false_if_not_shared() (frappe/permissions.py),
+        whose no-doc branch returns True if the caller has ANY Donation shared with
+        them for read -- not specifically the requested donation_id. Donation grants
+        share:1 to System Manager / Verenigingen Administrator (donation.json), so an
+        admin can share exactly one donation with an otherwise-unprivileged board
+        user, and that user's doctype-level check then passes for every donation_id,
+        reopening the existence oracle the first round of the fix closed: an
+        unrelated EXISTING id reaches frappe.db.exists (True) then fails the
+        doc-level check ("Insufficient permissions"), while an UNKNOWN id fails
+        db.exists first ("Donation not found") -- distinguishable again.
+
+        A share recipient must get the SAME refusal for "unrelated existing" and
+        "unknown" as anyone else without genuine role-level access, while still
+        being able to read the donation actually shared with them (positive
+        control)."""
+        shared_donation = self._make_donation(paid=1, amount=42.0)
+        unrelated_donation = self._make_donation(paid=1, amount=99.0)
+
+        email = "scratch.donation-share-recipient-1284@test.invalid"
+
+        # as_role() creates/configures the scratch user as a side effect of the
+        # call itself (before the `with` even starts) and returns the as_user()
+        # context manager -- so the user exists here, before it is entered, and
+        # a share can be granted to it first.
+        board_member_session = self.as_role("Verenigingen Chapter Board Member", email=email)
+
+        with self.as_user("Administrator"):
+            frappe.share.add("Donation", shared_donation.name, user=email, read=1)
+
+        with board_member_session:
+            from verenigingen.templates.pages.donate import get_donation_status
+
+            shared_result = get_donation_status(shared_donation.name)
+            unrelated_result = self._call_get_donation_status(unrelated_donation.name)
+            unknown_result = self._call_get_donation_status("NONEXISTENT-DONATION-XYZ-999")
+
+        # Positive control: the share itself must still work.
+        self.assertEqual(shared_result["status"], "Paid")
+        self.assertEqual(shared_result["amount"], 42.0)
+
+        # The oracle: an unrelated existing id and an unknown id must be identical.
+        self.assertEqual(unrelated_result, unknown_result)
+
     # ----- mark_donation_paid ------------------------------------------
 
     def test_mark_donation_paid_happy_path(self):
