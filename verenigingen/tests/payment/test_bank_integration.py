@@ -675,6 +675,36 @@ class TestInvoiceAmountMatching(VereningingenTestCase):
             must_contain=["2 customer(s)", "Reconcile this transaction manually"],
         )
 
+    def test_wildcard_debtor_name_does_not_falsely_match_unrelated_customer(self):
+        """#1277 site 6: the ``customer_name LIKE f"%{debtor_name}%"`` fallback is
+        built from an unescaped bank-supplied ``debtor_name``. A literal '_' in
+        the debtor name is a LIKE single-character wildcard unless escaped -- see
+        #1153/#1258. This is additive to #567's cross-party substring ambiguity
+        (which fires when the LIKE match, even escaped, legitimately hits more
+        than one customer): here the wildcard creates a match that would not
+        exist at all without it, so there is only ONE candidate and #567's
+        ambiguity refusal never engages -- the wrong customer's invoice is
+        returned with confidence."""
+        unique_id = frappe.generate_hash(length=6)
+        # Real char at the position under test is 'X'; the bank-supplied debtor
+        # name below has a literal '_' there instead, which is NOT the same
+        # customer name but IS a LIKE wildcard match for it when unescaped.
+        wrong_customer_name = f"Debtor AmtWildXabc{unique_id}"
+        customer = self._debtor_customer(wrong_customer_name)
+        invoice = self._outstanding_invoice(customer)
+
+        bank_debtor_name = f"AmtWild_abc{unique_id}"
+        self.assertNotIn(bank_debtor_name, wrong_customer_name)  # sanity: not a literal substring
+
+        matched = self.importer._find_matching_invoice(
+            {"reference": "", "amount": self.AMOUNT, "debtor_name": bank_debtor_name}
+        )
+        self.assertIsNone(
+            matched,
+            f"debtor name {bank_debtor_name!r} is not a literal substring of any customer name; "
+            f"got {matched} (wrongly attached to {customer}'s invoice {invoice.name})",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

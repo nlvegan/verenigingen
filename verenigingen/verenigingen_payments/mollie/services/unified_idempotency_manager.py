@@ -14,6 +14,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import frappe
 
+from verenigingen.utils.sql_like import escape_sql_like_wildcards
+
 from ..utils.logging import MollieLogger
 
 
@@ -277,7 +279,10 @@ class UnifiedIdempotencyManager:
         processed_refunds_db = frappe.db.get_all(
             "Payment Entry",
             filters={
-                "reference_no": ["like", f"%{payment_id}_refund_%"],
+                # #1277: payment_id is Mollie-supplied and routinely contains a
+                # literal '_' (e.g. "tr_abc123"), which LIKE reads as a
+                # single-character wildcard unless escaped -- see #1153.
+                "reference_no": ["like", f"%{escape_sql_like_wildcards(payment_id)}_refund_%"],
                 "payment_type": "Pay",
                 "docstatus": 1,
             },
@@ -360,7 +365,8 @@ class UnifiedIdempotencyManager:
                 "reference_no": ["like", "chb_%"],
                 "payment_type": "Pay",
                 "docstatus": 1,
-                "remarks": ["like", f"%{payment_id}%"],
+                # #1277: same wildcard hazard as the refund lookup above.
+                "remarks": ["like", f"%{escape_sql_like_wildcards(payment_id)}%"],
             },
             fields=["name", "reference_no", "paid_amount"],
         )
@@ -447,7 +453,12 @@ class UnifiedIdempotencyManager:
 
         # Also check for credit notes with this refund ID in remarks
         existing_credit_note = frappe.db.exists(
-            "Sales Invoice", {"return_against": ["!=", ""], "remarks": ["like", f"%{refund_id}%"]}
+            "Sales Invoice",
+            {
+                "return_against": ["!=", ""],
+                # #1277: refund_id is Mollie-supplied ("re_..."); same wildcard hazard.
+                "remarks": ["like", f"%{escape_sql_like_wildcards(refund_id)}%"],
+            },
         )
         if existing_credit_note:
             self.logger.info(f"Refund {refund_id} already processed as Credit Note {existing_credit_note}")

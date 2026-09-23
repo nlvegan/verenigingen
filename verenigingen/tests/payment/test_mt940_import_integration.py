@@ -289,6 +289,40 @@ class TestMT940ImportIntegration(EnhancedTestCase):
         self.assertEqual(result["internal_bank_account"], own_account.name)
         self.assertIsNone(result["party"])
 
+    def test_wildcard_counterparty_name_does_not_falsely_match_own_account(self):
+        """#1277 site 7: find_own_bank_account_by_reference's Priority-2 match
+        (``LOWER(account_name) LIKE LOWER(f"%{counterparty_name}%")``) is built
+        from an unescaped MT940-supplied counterparty name. A literal '_' in the
+        counterparty name is a LIKE single-character wildcard unless escaped --
+        see #1153/#1258. A false match here means an ordinary external payment is
+        wrongly classified as an internal transfer, silently dropping its real
+        party (party=None, is_internal_transfer=True) -- see
+        find_party_by_iban_or_name's Priority-0/Priority-2 branches above."""
+        from verenigingen.verenigingen_payments.utils.bank_utils import get_or_create_unknown_bank
+
+        unique_id = self.uid
+        # Real char at the position under test is 'X'; the counterparty name
+        # below has a literal '_' there instead -- not the same name, but a LIKE
+        # wildcard match for it when unescaped.
+        own_account = frappe.new_doc("Bank Account")
+        own_account.account_name = f"SavingsXabc{unique_id}"
+        own_account.bank = get_or_create_unknown_bank()
+        own_account.company = self.company
+        own_account.insert()
+        self.created_records.append(("Bank Account", own_account.name))
+
+        counterparty_name = f"Savings_abc{unique_id}"
+        self.assertNotIn(counterparty_name, own_account.account_name)  # sanity: not a literal substring
+
+        result = M.find_own_bank_account_by_reference(None, counterparty_name, self.company)
+        self.assertFalse(
+            result["is_own_account"],
+            f"counterparty name {counterparty_name!r} is not a literal substring of "
+            f"{own_account.account_name!r} but was wildcard-matched to it "
+            f"({result['bank_account']}), wrongly classifying an external payment as an "
+            "internal transfer",
+        )
+
     def test_import_mt940_file_wrapper_decodes_base64(self):
         result = M.import_mt940_file(self.bank_account, S.as_base64(S.SEPA_INCOMING_CREDIT))
         self.assertTrue(result["success"], msg=result.get("message"))
