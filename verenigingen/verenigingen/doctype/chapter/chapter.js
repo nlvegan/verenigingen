@@ -1050,11 +1050,16 @@ function show_board_management_dialog(frm) {
 }
 
 function show_board_history(frm) {
+	// NOTE: this deliberately does NOT dispatch to the Chapter doc method
+	// get_board_members via `doc: frm.doc` -- that method has never carried
+	// @frappe.whitelist() and every such call refuses with a PermissionError
+	// (#1208). get_chapter_board_history() is the whitelisted, permission-gated
+	// (board member of this chapter, or admin) module-level twin that already
+	// exists for this exact purpose and returns the same shape.
 	frappe.call({
-		method: 'get_board_members',
-		doc: frm.doc,
+		method: 'verenigingen.verenigingen.doctype.chapter.chapter.get_chapter_board_history',
 		args: {
-			include_inactive: true
+			chapter_name: frm.doc.name
 		},
 		callback(r) {
 			if (r.message) {
