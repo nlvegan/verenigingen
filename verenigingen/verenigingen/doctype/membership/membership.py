@@ -75,11 +75,15 @@ class Membership(Document):
 
     def on_trash(self) -> None:
         """Clean up Membership Dues Schedules linked to this membership"""
-        dues_schedules = frappe.get_all(
-            "Membership Dues Schedule", filters={"membership": self.name}, pluck="name"
+        from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule_hooks import (
+            clear_member_schedule_backlinks_before_delete,
         )
 
-        for schedule_name in dues_schedules:
+        dues_schedules = frappe.get_all(
+            "Membership Dues Schedule", filters={"membership": self.name}, fields=["name", "member"]
+        )
+
+        for schedule in dues_schedules:
             try:
                 # #1264: force=True bypasses the ordinary link-integrity check, so
                 # a schedule still named by a Sales Invoice's
@@ -88,10 +92,18 @@ class Membership(Document):
                 # force, a still-referenced schedule raises LinkExistsError,
                 # caught below and logged like any other per-schedule failure --
                 # the schedule survives instead of orphaning the invoice.
-                frappe.delete_doc("Membership Dues Schedule", schedule_name)
-                frappe.logger().info(f"Deleted orphaned Membership Dues Schedule {schedule_name}")
+                #
+                # #1264 round 2: a real schedule's OWNING Member always carries
+                # its own current_dues_schedule/application_dues_schedule
+                # back-link, which would otherwise raise LinkExistsError for
+                # every ordinary (non-invoice) case too -- clear it first so
+                # only a genuine external reference (the invoice) can still
+                # block the delete.
+                clear_member_schedule_backlinks_before_delete(schedule.name, schedule.member)
+                frappe.delete_doc("Membership Dues Schedule", schedule.name)
+                frappe.logger().info(f"Deleted orphaned Membership Dues Schedule {schedule.name}")
             except Exception as e:
-                frappe.logger().error(f"Error deleting Membership Dues Schedule {schedule_name}: {str(e)}")
+                frappe.logger().error(f"Error deleting Membership Dues Schedule {schedule.name}: {str(e)}")
 
     def create_or_update_dues_schedule(self):
         """Create or update the member's dues schedule with improved error handling"""

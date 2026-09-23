@@ -8,6 +8,36 @@ from frappe.utils import getdate, today
 from verenigingen.utils.transaction_errors import release_savepoint_if_present, rollback_to_savepoint
 
 
+def clear_member_schedule_backlinks_before_delete(schedule_name, member_name=None):
+    """Clear a Member's OWN back-references to a Membership Dues Schedule
+    that is about to be deleted, so the delete is blocked ONLY by a genuine
+    EXTERNAL reference (e.g. a Sales Invoice's membership_dues_schedule_display),
+    never by the owning Member's own denormalized bookkeeping fields.
+
+    #1264 round 2: update_member_current_dues_schedule (above) keeps
+    Member.current_dues_schedule in sync on insert/update of the schedule,
+    but nothing clears it on DELETE -- so in production, where every real
+    schedule has this back-link set, a plain (non-force) frappe.delete_doc()
+    always raised LinkExistsError citing the Member itself, making every
+    delete path that switched from force=True to a plain delete a no-op for
+    the ordinary case (no invoice involved), not just safer for the invoice
+    case it was meant to fix. Call this immediately before deleting a
+    schedule via frappe.delete_doc(), from every site that used to force it.
+
+    Member Fee Change History rows are NOT deleted -- only the dangling
+    `dues_schedule` reference is cleared, preserving the rest of each
+    row as a historical record.
+    """
+    if member_name is None:
+        member_name = frappe.db.get_value("Membership Dues Schedule", schedule_name, "member")
+    if not member_name:
+        return
+    for fieldname in ("current_dues_schedule", "application_dues_schedule"):
+        if frappe.db.get_value("Member", member_name, fieldname) == schedule_name:
+            frappe.db.set_value("Member", member_name, fieldname, None, update_modified=False)
+    frappe.db.set_value("Member Fee Change History", {"dues_schedule": schedule_name}, "dues_schedule", None)
+
+
 def update_member_current_dues_schedule(doc, method=None):
     """
     Update the Member's current_dues_schedule field when a dues schedule changes.

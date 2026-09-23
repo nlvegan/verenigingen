@@ -16,6 +16,13 @@ class TestMemberMerge(FrappeTestCase):
     def setUp(self):
         """Set up test data before each test."""
         self.service = MemberMergeService()
+        # #1264 round 2: (doctype, name) pairs a test wants force-deleted in
+        # tearDown, ADDITIONAL to the source/target Members below. Routed
+        # through tearDown's own existing commit rather than adding a new
+        # bare frappe.db.commit() site (the order_dependence ratchet is
+        # zero-growth: even a COMMIT_EXEMPT-classified new site counts as
+        # growth for the "baseline is in sync" gate, not just plain COMMIT).
+        self._extra_cleanup_docs = []
 
         # Create test members
         self.source = frappe.get_doc({
@@ -42,6 +49,23 @@ class TestMemberMerge(FrappeTestCase):
 
     def tearDown(self):
         """Clean up after each test."""
+        # Extra docs a test registered (e.g. a Sales Invoice / Membership
+        # Dues Schedule fixture) -- cancel first if still submitted, since
+        # force=True bypasses link-integrity but NOT the submitted-record
+        # guard.
+        for doctype, name in reversed(self._extra_cleanup_docs):
+            if not frappe.db.exists(doctype, name):
+                continue
+            try:
+                doc = frappe.get_doc(doctype, name)
+                if doc.docstatus == 1:
+                    doc.flags.ignore_permissions = True
+                    doc.flags.ignore_links = True
+                    doc.cancel()
+                frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+
         # Delete test members if they exist
         for name in [self.source.name, self.target.name]:
             if frappe.db.exists("Member", name):
@@ -195,3 +219,143 @@ class TestMemberMerge(FrappeTestCase):
                 "INVALID-MEMBER-1",
                 self.target.name
             )
+
+    # ------------------------------------------------------------------
+    # #1264 round 2: _delete_source_member_and_dependencies used
+    # frappe.delete_doc("Membership Dues Schedule", ..., force=True), the same
+    # link-integrity bypass fixed elsewhere for this PR. The merge service's
+    # OWN documented design already says unpaid invoices "remain linked to the
+    # source member" (_check_merge_conflicts's warning text) -- i.e. the
+    # invoice is deliberately preserved, unmerged. Force-deleting the schedule
+    # such an invoice still names via membership_dues_schedule_display
+    # produced #1250's exact shape as an unintended side effect of that
+    # bypass, not anything the merge design called for.
+    # ------------------------------------------------------------------
+
+    def _make_merge_test_membership_type(self):
+        mt_name = "ZZ Merge Test Type"
+        if not frappe.db.exists("Membership Type", mt_name):
+            frappe.get_doc(
+                {
+                    "doctype": "Membership Type",
+                    "membership_type_name": mt_name,
+                    "billing_period": "Annual",
+                    "minimum_amount": 50.0,
+                    "is_active": 1,
+                }
+            ).insert(ignore_permissions=True)
+        return mt_name
+
+    def _make_merge_test_dues_schedule(self, member_name, membership_type):
+        """Deliberately does NOT clear the Member's own current_dues_schedule /
+        application_dues_schedule back-link that a bare insert sets as a
+        save() side effect (confirmed empirically). #1264 round 2's review
+        caught that clearing it here made the "still deletes" test pass by
+        constructing a state real production schedules never have (every
+        real schedule's owning Member carries this back-link) -- the fix
+        (member_merge_service.py calling
+        clear_member_schedule_backlinks_before_delete) now clears it itself,
+        so this fixture instead models the REAL state.
+        """
+        schedule = frappe.new_doc("Membership Dues Schedule")
+        schedule.schedule_name = f"MERGE-TEST-{member_name}-{frappe.generate_hash(length=6)}"
+        schedule.member = member_name
+        schedule.membership_type = membership_type
+        schedule.status = "Active"
+        schedule.billing_frequency = "Annual"
+        schedule.currency = "EUR"
+        schedule.is_template = 0
+        schedule.dues_rate = 25
+        schedule.flags.ignore_validate = True
+        schedule.insert(ignore_permissions=True, ignore_mandatory=True)
+        self._extra_cleanup_docs.append(("Membership Dues Schedule", schedule.name))
+        return schedule
+
+    def _make_merge_test_invoice(self, schedule_name):
+        company = "_Test Company"
+        customer = frappe.db.get_value("Customer", {}, "name")
+        item = frappe.db.get_value("Item", {"is_sales_item": 1}, "name")
+        income_account = frappe.db.get_value(
+            "Account",
+            {
+                "company": company,
+                "account_type": "Income Account",
+                "is_group": 0,
+                "account_currency": frappe.db.get_value("Company", company, "default_currency"),
+            },
+            "name",
+        )
+        cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
+
+        invoice = frappe.new_doc("Sales Invoice")
+        invoice.customer = customer
+        invoice.company = company
+        invoice.membership_dues_schedule_display = schedule_name
+        invoice.set_posting_time = 1
+        invoice.append(
+            "items",
+            {
+                "item_code": item,
+                "qty": 1,
+                "rate": 25,
+                "income_account": income_account,
+                "cost_center": cost_center,
+            },
+        )
+        invoice.insert(ignore_permissions=True)
+        invoice.submit()
+        # No frappe.db.commit() here -- execute_merge (the code under test)
+        # reads on the SAME connection within the same test, and cleanup is
+        # handled by tearDown's own existing commit via _extra_cleanup_docs
+        # (#815/order_dependence ratchet: this helper is not named
+        # _create_*/_cleanup_*, so a bare commit here would not be exempt).
+        self._extra_cleanup_docs.append(("Sales Invoice", invoice.name))
+        return invoice
+
+    def test_merge_does_not_orphan_invoice_via_dangling_schedule(self):
+        """A schedule still referenced by a Sales Invoice via
+        membership_dues_schedule_display must survive a merge that deletes
+        its source Member, rather than being force-deleted out from under
+        the invoice.
+        """
+        mt_name = self._make_merge_test_membership_type()
+        schedule = self._make_merge_test_dues_schedule(self.source.name, mt_name)
+        invoice = self._make_merge_test_invoice(schedule.name)
+
+        result = self.service.execute_merge(self.source.name, self.target.name, {})
+
+        self.assertTrue(result["success"])
+        # The merge still completes -- the source Member is gone either way.
+        self.assertFalse(frappe.db.exists("Member", self.source.name))
+        self.assertTrue(
+            frappe.db.exists("Membership Dues Schedule", schedule.name),
+            "a schedule still referenced by a Sales Invoice must not be "
+            "force-deleted during merge -- doing so leaves the invoice with "
+            "a dangling membership_dues_schedule_display (#1250's shape)",
+        )
+        self.assertEqual(
+            frappe.db.get_value("Sales Invoice", invoice.name, "membership_dues_schedule_display"),
+            schedule.name,
+        )
+
+    def test_merge_still_deletes_unreferenced_schedule(self):
+        """#1264 round 2: a REAL schedule (the source Member's own back-link
+        IS present, matching every real schedule in production) with no
+        Sales Invoice referencing it must still be deleted by a merge --
+        proving the fix clears the schedule's own back-link rather than
+        refusing every ordinary delete.
+        """
+        mt_name = self._make_merge_test_membership_type()
+        schedule = self._make_merge_test_dues_schedule(self.source.name, mt_name)
+        self.assertEqual(
+            frappe.db.get_value("Member", self.source.name, "current_dues_schedule"),
+            schedule.name,
+            "test precondition: the source Member's own back-link must be "
+            "set by the real save() side effect, or this test cannot "
+            "distinguish the fix from a fixture that never had the problem",
+        )
+
+        result = self.service.execute_merge(self.source.name, self.target.name, {})
+
+        self.assertTrue(result["success"])
+        self.assertFalse(frappe.db.exists("Membership Dues Schedule", schedule.name))

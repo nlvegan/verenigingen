@@ -168,6 +168,19 @@ class TrackedDocCleanupLedgerAndDanglingLinkSafetyTest(unittest.TestCase):
         """`membership_name` is optional and additive: #1264's on_trash tests
         below (Membership.on_trash's own schedule cleanup) need a schedule
         keyed by `membership`, not just `member`.
+
+        Deliberately does NOT clear the Member's own current_dues_schedule /
+        application_dues_schedule back-link that a bare insert sets as a
+        save() side effect (confirmed empirically on test_site_3) -- #1264
+        round 2's review caught that clearing it here made every "still
+        deletes" test pass by constructing a state real production schedules
+        never have (every real schedule's owning Member carries this
+        back-link), hiding a real bug: the delete paths' own plain
+        frappe.delete_doc() call refused EVERY ordinary delete, not just the
+        invoice-referenced one. The fix now clears that back-link itself
+        (membership_dues_schedule_hooks.clear_member_schedule_backlinks_before_delete),
+        so this fixture instead models the REAL state and lets each test
+        prove the fix handles it.
         """
         mds = frappe.new_doc("Membership Dues Schedule")
         mds.schedule_name = f"PROBE-1250{tag}-Schedule-{frappe.generate_hash(length=6)}"
@@ -180,25 +193,15 @@ class TrackedDocCleanupLedgerAndDanglingLinkSafetyTest(unittest.TestCase):
         mds.billing_frequency = "Annual"
         mds.currency = "EUR"
         mds.is_template = 0
-        mds.dues_rate = 25
+        # 150, not 25: the G/H tests below cancel a real Membership that
+        # references this schedule, and Membership.on_cancel ->
+        # pause_dues_schedule() -> schedule_doc.save() runs THIS schedule's
+        # normal (non-ignore_validate) validation, which enforces the
+        # membership type's minimum amount (measured: 100 on test_site_3).
+        mds.dues_rate = 150
         mds.flags.ignore_validate = True
         mds.insert(ignore_permissions=True, ignore_mandatory=True)
         self._leftover.append(("Membership Dues Schedule", mds.name))
-        if member_name:
-            # #1264: a save() side effect (unrelated to this schedule's OWN
-            # subject) points the Member's own current_dues_schedule /
-            # application_dues_schedule back at this schedule even for a
-            # bare, ignore_validate insert -- confirmed empirically on
-            # test_site_3. Left alone, that back-link makes Frappe's ordinary
-            # link-integrity check refuse a delete for a reason unrelated to
-            # whatever a given test is actually exercising (the Sales
-            # Invoice link, or -- for a positive control -- no link at all).
-            # Clear it so the only remaining reference is whatever the test
-            # itself created.
-            for fieldname in ("current_dues_schedule", "application_dues_schedule"):
-                if frappe.db.get_value("Member", member_name, fieldname) == mds.name:
-                    frappe.db.set_value("Member", member_name, fieldname, None, update_modified=False)
-            frappe.db.delete("Member Fee Change History", {"dues_schedule": mds.name})
         return mds
 
     def _create_submitted_invoice(self, schedule_name):
@@ -355,11 +358,21 @@ class TrackedDocCleanupLedgerAndDanglingLinkSafetyTest(unittest.TestCase):
         )
 
     def test_member_deletion_still_deletes_unreferenced_schedule(self):
-        """Positive control: a schedule with no referencing documents is still
-        cleaned up normally when its Member is deleted.
+        """#1264 round 2: a REAL schedule (the Member's own back-link IS
+        present, matching every real schedule in production) with no Sales
+        Invoice referencing it must still be deleted when its Member is
+        deleted -- proving the fix clears the schedule's own back-link
+        rather than refusing every ordinary delete.
         """
         member = self._probe_make_member("F")
         ds = self._probe_make_schedule("F", member_name=member.name)
+        self.assertEqual(
+            frappe.db.get_value("Member", member.name, "current_dues_schedule"),
+            ds.name,
+            "test precondition: the Member's own back-link must be set by "
+            "the real save() side effect, or this test cannot distinguish "
+            "the fix from a fixture that never had the problem",
+        )
 
         get_member_cleanup_service().handle_member_deletion(member)
 
@@ -372,7 +385,10 @@ class TrackedDocCleanupLedgerAndDanglingLinkSafetyTest(unittest.TestCase):
         """
         member = self._probe_make_member("G")
         membership = self._create_membership(member.name)
-        ds = self._probe_make_schedule("G", membership_name=membership.name)
+        # member_name=member.name matches real schedule creation (both fields
+        # set), so the Member's own back-link is present too -- proving the
+        # invoice, not the back-link, is what blocks this delete.
+        ds = self._probe_make_schedule("G", member_name=member.name, membership_name=membership.name)
         si = self._create_submitted_invoice(ds.name)
 
         # _create_membership() submits it, so it must be cancelled before
@@ -398,12 +414,23 @@ class TrackedDocCleanupLedgerAndDanglingLinkSafetyTest(unittest.TestCase):
         )
 
     def test_membership_deletion_still_deletes_unreferenced_schedule(self):
-        """Positive control: a schedule with no referencing documents is still
-        cleaned up normally when its Membership is deleted.
+        """#1264 round 2: a REAL schedule (both member and membership set,
+        matching production shape, so the owning Member's own
+        current_dues_schedule back-link IS present) with no Sales Invoice
+        referencing it must still be deleted when its Membership is deleted
+        -- proving the fix clears the schedule's own back-link rather than
+        refusing every ordinary delete.
         """
         member = self._probe_make_member("H")
         membership = self._create_membership(member.name)
-        ds = self._probe_make_schedule("H", membership_name=membership.name)
+        ds = self._probe_make_schedule("H", member_name=member.name, membership_name=membership.name)
+        self.assertEqual(
+            frappe.db.get_value("Member", member.name, "current_dues_schedule"),
+            ds.name,
+            "test precondition: the Member's own back-link must be set by "
+            "the real save() side effect, or this test cannot distinguish "
+            "the fix from a fixture that never had the problem",
+        )
 
         membership.cancel()
         frappe.delete_doc("Membership", membership.name, force=True, ignore_permissions=True)

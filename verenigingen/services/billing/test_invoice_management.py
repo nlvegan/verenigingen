@@ -230,7 +230,12 @@ class TestInvoiceManagement(EnhancedTestCase):
         si.insert(ignore_permissions=True)
         si.submit()
         self._committed_docs.append(("Sales Invoice", si.name))
-        frappe.db.commit()
+        # No frappe.db.commit() here -- the endpoints under test read on the
+        # SAME connection within the same test (see _make_decoy_orphans's own
+        # note above), and neither of this helper's two callers rolls back,
+        # so an explicit commit is not load-bearing (#815/order_dependence
+        # ratchet: a bare commit here is not exempt, since this helper is not
+        # named _create_*/_cleanup_*).
         return sched_name, si.name
 
     def _make_decoy_orphans(self, count, seconds_ago=3600):

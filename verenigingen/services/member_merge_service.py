@@ -387,6 +387,10 @@ class MemberMergeService(StatelessService):
             - Child record deletes use ignore_permissions=True for cascade cleanup
             - Final member delete uses ignore_permissions=False to re-verify
         """
+        from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule_hooks import (
+            clear_member_schedule_backlinks_before_delete,
+        )
+
         # SECURITY JUSTIFICATION: ignore_permissions=True on child record deletes because:
         # 1. Write permission on source member already verified (line 308)
         # 2. @critical_api decorator provides audit logging
@@ -399,9 +403,30 @@ class MemberMergeService(StatelessService):
         dues_schedules = dues_repo.get_schedules_for_members([source.name], fields=["name"])
         for schedule in dues_schedules:
             try:
-                frappe.delete_doc(
-                    "Membership Dues Schedule", schedule.name, force=True, ignore_permissions=True
-                )
+                # #1264: force=True bypassed the ordinary link-integrity check
+                # (LinkExistsError), so a schedule still named by a Sales
+                # Invoice's membership_dues_schedule_display was deleted
+                # anyway -- an unintended side effect of the bypass, not
+                # anything this merge's own design calls for: the merge
+                # already documents (_check_merge_conflicts) that unpaid
+                # invoices "remain linked to the source member" and are
+                # deliberately NOT touched by the merge. Without force, a
+                # still-referenced schedule raises LinkExistsError, caught
+                # below and logged like any other per-schedule failure --
+                # the schedule survives instead of orphaning the invoice,
+                # mirroring the Customer-preservation branch a few lines
+                # below (keep the record, log, move on).
+                #
+                # #1264 round 2: a real schedule's OWNING Member (source,
+                # here) always carries its own current_dues_schedule/
+                # application_dues_schedule back-link, which would otherwise
+                # raise LinkExistsError for every ordinary (non-invoice) case
+                # too -- clear it first so only a genuine external reference
+                # (the invoice) can still block the delete.
+                clear_member_schedule_backlinks_before_delete(schedule.name, source.name)
+                # Security: see the SECURITY JUSTIFICATION note above (write
+                # permission on source member already verified).
+                frappe.delete_doc("Membership Dues Schedule", schedule.name, ignore_permissions=True)
             except Exception as e:
                 self.logger.error(f"Failed to delete Dues Schedule {schedule.name}: {str(e)}")
 
@@ -409,6 +434,9 @@ class MemberMergeService(StatelessService):
         memberships = frappe.get_all("Membership", filters={"member": source.name})
         for membership in memberships:
             try:
+                # Security: see the SECURITY JUSTIFICATION note at the top of
+                # this method -- write permission on source member already
+                # verified (execute_merge, line 308) before this cascade runs.
                 frappe.delete_doc("Membership", membership.name, force=True, ignore_permissions=True)
             except Exception as e:
                 self.logger.error(f"Failed to delete Membership {membership.name}: {str(e)}")

@@ -162,6 +162,10 @@ class MemberCleanupService(StatelessService):
             - Addresses: Unlink but preserve records
             - Child tables: Direct SQL deletion for performance
         """
+        from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule_hooks import (
+            clear_member_schedule_backlinks_before_delete,
+        )
+
         # Delete related Membership records (both draft and submitted)
         memberships = frappe.get_all("Membership", filters={"member": member_doc.name}, pluck="name")
 
@@ -209,10 +213,36 @@ class MemberCleanupService(StatelessService):
                 # and logged, exactly like any other failure this loop already
                 # handles per-schedule -- the schedule is left intact instead of
                 # orphaning the invoice's reference to it.
+                #
+                # #1264 round 2: a real schedule's OWNING Member (this one)
+                # always carries its own current_dues_schedule/
+                # application_dues_schedule back-link, which would otherwise
+                # raise LinkExistsError for every ordinary (non-invoice) case
+                # too -- clear it first so only a genuine external reference
+                # (the invoice) can still block the delete.
+                clear_member_schedule_backlinks_before_delete(schedule_name, member_doc.name)
                 frappe.delete_doc("Membership Dues Schedule", schedule_name)
                 self.logger.info(f"Deleted orphaned Membership Dues Schedule {schedule_name}")
             except Exception as e:
                 self.logger.error(f"Error deleting Membership Dues Schedule {schedule_name}: {str(e)}")
+                # #1264 round 2: this refusal is the guard working as intended,
+                # but its only trace was self.logger.error above (a file under
+                # sites/<site>/logs/, not something an operator browsing the
+                # Desk normally checks). The Member is about to be deleted
+                # regardless (see below), so this schedule is left pointing at
+                # a `member` that is about to stop existing -- a real, if
+                # smaller, dangling-link risk (#1290 follow-up) that deserves
+                # the same operator-visible audit trail this file already
+                # gives permission-bypass events, not just a log line.
+                frappe.log_error(
+                    title="Member Deletion: Dues Schedule Not Deleted",
+                    message=(
+                        f"Could not delete Membership Dues Schedule {schedule_name} while "
+                        f"deleting Member {member_doc.name}: {str(e)}\n\n"
+                        "The schedule was left in place with its `member` field still "
+                        "pointing at a Member that is about to be deleted."
+                    ),
+                )
 
         # Clear Member reference from Sales Invoices to allow deletion
         # This prevents link validation errors when deleting members with invoices
