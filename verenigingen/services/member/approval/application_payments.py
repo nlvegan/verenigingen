@@ -213,8 +213,19 @@ def coverage_end_for_billing_period(billing_period, period_start, billing_period
 # donation, Mollie orphan-customer, and eBoekhouden Customer-creation paths.
 
 
-def create_customer_for_member(member):
-    """Create customer record for member with proper Contact integration"""
+def create_customer_for_member(member, suppress_error_log=False):
+    """Create customer record for member with proper Contact integration
+
+    Args:
+        member: Member document to create a Customer for.
+        suppress_error_log: If True, skip this function's own Error Log write on
+            failure (still raises). Set this when the caller already owns a single,
+            higher-context Error Log row for the whole operation -- otherwise a
+            failure is logged twice: once here, once by the caller (#1173, same
+            amplification shape as #1130/#1162/#1165). A retrying caller must pass
+            this too, or every retry attempt logs its own row on top of the
+            caller's one canonical row at exhaustion.
+    """
     # Check if customer already exists for this member
     existing_customer = frappe.db.get_value("Customer", {"member": member.name}, "name")
     if existing_customer:
@@ -303,10 +314,11 @@ def create_customer_for_member(member):
         # 140-char `method` field in Error Log) - the framework either
         # self-truncates and loses context or raises CharacterLengthExceeded
         # depending on version. Keyword args sidestep the ordering hazard.
-        frappe.log_error(
-            message=f"Failed to create Customer for Member {member.name}: {str(e)}",
-            title="Customer Creation Error",
-        )
+        if not suppress_error_log:
+            frappe.log_error(
+                message=f"Failed to create Customer for Member {member.name}: {str(e)}",
+                title="Customer Creation Error",
+            )
         raise
 
     frappe.db.release_savepoint(savepoint_name)
