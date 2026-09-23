@@ -249,15 +249,27 @@ class TestRetryCreatesExactlyOnePaymentEntry(EnhancedTestCase):
 
     def _create_eur_default_company_if_needed(self, company):
         """Idempotently make `company` the resolvable default (Verenigingen
-        Settings.company), durably -- NOT via singleton_backup, because the
-        same full-rollback this test deliberately provokes (see
-        _create_pp1288_intent's commit) would undo an uncommitted restore-on-exit
-        just as it would any other uncommitted write, leaving the setting
-        wrong for the real retry that follows. Mirrors the same idempotent,
-        committed-once-if-needed shape as tests/setup/ensure_default_company().
-        A no-op (no mutation, nothing to commit) when already correct, which
-        is expected on this app's own test sites (#1288 self-review: do not
-        silently depend on ambient site config -- assert/ensure it instead).
+        Settings.company), durably -- via a direct commit, not singleton_backup.
+
+        This is safe to leave committed (not restored by this helper itself)
+        because EnhancedTestCase already restores it: setUp() ->
+        _ensure_production_ready_setup() -> _ensure_master_data() ->
+        _ensure_verenigingen_settings() snapshots the CURRENT Verenigingen
+        Settings.company into frappe.local._original_verenigingen_settings
+        before this test body ever runs, and tearDown() ->
+        _restore_verenigingen_settings() unconditionally restores and commits
+        that snapshot afterwards -- every test method, regardless of what ran
+        in between. (Corrected 2026-09-23 per independent review on PR #1326:
+        an earlier version of this docstring credited this helper's own
+        "idempotent, committed-once" shape as the reason nothing leaks, which
+        was the wrong reason -- moving this test off EnhancedTestCase, e.g. to
+        a plain VereningingenTestCase, would silently reintroduce a real
+        site-config leak, since that restore cycle would not run.) Mirrors the
+        same idempotent committed-once-if-needed WRITE shape as tests/setup/
+        ensure_default_company() -- a no-op (no mutation, nothing to commit)
+        when already correct, which is expected on this app's own test sites
+        (#1288 self-review: do not silently depend on ambient site config --
+        assert/ensure it instead).
         """
         if frappe.db.get_single_value("Verenigingen Settings", "company") == company:
             return
