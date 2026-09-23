@@ -8,6 +8,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import add_days, add_months, flt, getdate, today
 
+from verenigingen.utils.member_utils import validate_member_ownership
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
@@ -461,6 +462,8 @@ class PaymentPlan(Document):
 @high_security_api(operation_type=OperationType.FINANCIAL)
 def create_payment_plan_from_application(member: str, total_amount, installments, frequency, reason=None):
     """Create payment plan from membership application or dues schedule"""
+    validate_member_ownership(member, allow_admin=True)
+
     try:
         payment_plan = frappe.new_doc("Payment Plan")
         payment_plan.member = member

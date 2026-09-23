@@ -122,11 +122,38 @@ class TestSEPAMandateAPI(EnhancedTestCase):
         self.assertIsNotNone(result)
         self.assertIn("success", result)
 
-    def test_sepa_apis_never_throw_exceptions(self):
-        """Test that SEPA APIs never throw exceptions"""
-        # Test with various invalid inputs
+    def test_sepa_apis_reject_empty_member_before_reaching_business_logic(self):
+        """#1088: each function now opens with validate_member_ownership(member,
+        allow_admin=True), which rejects a structurally invalid member id
+        (frappe.ValidationError) before the admin bypass or any manager call.
+
+        This replaces the empty-member case that used to live in
+        test_sepa_apis_never_throw_exceptions (removed) -- that test asserted
+        the PRE-#1088 behaviour, where member="" silently reached
+        SEPAMandateManager with no ownership check at all and degraded to a
+        failed-but-not-raised OperationResult. That was encoding the absence of
+        a check, not a real contract; validate_member_ownership's "reject a
+        malformed id outright" behaviour is identical at the six other call
+        sites already using it elsewhere in the app (verenigingen/utils/
+        member_utils.py). Running as Administrator (setUp) shows this is
+        genuine input validation, not an authorization gap: even an
+        admin-tier caller is rejected for a structurally invalid id, because
+        the format check runs before the allow_admin bypass.
+        """
+        with self.assertRaises(frappe.ValidationError):
+            validate_mandate_creation_api("", "NL91ABNA0417164300", "TEST")
+        with self.assertRaises(frappe.ValidationError):
+            create_mandate_api("", "NL91ABNA0417164300")
+        with self.assertRaises(frappe.ValidationError):
+            deactivate_mandates_for_iban_change_api("", "NL91ABNA0417164300")
+
+    def test_sepa_apis_with_nonexistent_member_never_throw(self):
+        """A syntactically valid but non-existent/malformed member id still
+        degrades to a failed OperationResult (business-logic validation), not
+        a raised exception -- unaffected by #1088's ownership check, since
+        running as Administrator (setUp) takes the allow_admin bypass before
+        SEPAMandateManager ever sees the member id."""
         invalid_tests = [
-            ("", "NL91ABNA0417164300", "TEST"),
             ("INVALID", "", "TEST"),
             ("INVALID", "INVALID", ""),
         ]
