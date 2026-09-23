@@ -318,13 +318,31 @@ class PaymentPlan(Document):
             payment_entry.reference_no = reference or f"Payment Plan {self.name}"
             payment_entry.reference_date = payment_date
 
-            # Set accounts (you may need to adjust these based on your setup)
-            payment_entry.paid_to = frappe.db.get_single_value(
-                "Verenigingen Settings", "default_receivable_account"
+            # `company` was never set here (#1200): insert() fails the same #906
+            # way ("Source Exchange Rate is mandatory", since set_exchange_rate()
+            # cannot resolve a currency without paid_from/paid_to being set on a
+            # real company's accounts). Resolved the same way this file already
+            # resolves it for the email context below (get_mollie_config
+            # .get_default_company(): Verenigingen Settings.company -> Global
+            # Defaults -> user default).
+            #
+            # The account lookup below ALSO fixes two more bugs found while
+            # tracing #1200, independent of the missing company:
+            # 1. "Verenigingen Settings" has never had a default_receivable_account
+            #    field, and lost default_cash_account to "Verenigingen Payments
+            #    Settings" in the v2_1 settings migration -- both
+            #    get_single_value() calls always silently returned None.
+            # 2. paid_from/paid_to were swapped relative to ERPNext's own
+            #    "Receive" convention (Payment Entry.setup_party_account_field:
+            #    for Receive, party_account = paid_from). member_utils.py's
+            #    add_manual_payment_record() -- the same "Receive from a member"
+            #    shape -- already resolves both fields correctly from Company;
+            #    reused that shape here instead of the broken Settings lookup.
+            payment_entry.company = get_mollie_config().get_default_company()
+            payment_entry.paid_from = frappe.get_value(
+                "Company", payment_entry.company, "default_receivable_account"
             )
-            payment_entry.paid_from = frappe.db.get_single_value(
-                "Verenigingen Settings", "default_cash_account"
-            )
+            payment_entry.paid_to = frappe.get_value("Company", payment_entry.company, "default_cash_account")
 
             payment_entry.save()
             payment_entry.submit()

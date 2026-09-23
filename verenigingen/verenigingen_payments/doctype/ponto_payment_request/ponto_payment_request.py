@@ -261,6 +261,15 @@ class PontoPaymentRequest(Document):
             frappe.logger().warning(f"No company found for bank account {bank_account}")
             return
 
+        # paid_from: the GL account behind the Ponto-mapped Bank Account this SEPA
+        # payment is debited from. `bank_account` above is a reconciliation-only
+        # Link(Bank Account) field on Payment Entry -- it is NOT paid_from, which is
+        # a Link(Account) -- #1200.
+        paid_from = frappe.db.get_value("Bank Account", bank_account, "account")
+        if not paid_from:
+            frappe.logger().warning(f"Bank Account {bank_account} has no linked GL account")
+            return
+
         # Determine party type and party from reference
         party_type = None
         party = None
@@ -274,11 +283,35 @@ class PontoPaymentRequest(Document):
                 party = self.reference_name
             # Could add more mappings as needed
 
+        # paid_to: for payment_type "Pay", ERPNext needs the PARTY's own
+        # Payable/Advance account here (Payment Entry.setup_party_account_field:
+        # for Pay, party_account = paid_to) -- #1200, the same missing-field shape
+        # as #906. Resolved with ERPNext's own get_party_account(), the same
+        # resolver its get_payment_entry() factory uses. Without a party there is
+        # no established account to post the other side of this SEPA payment to
+        # (this construction never set paid_from/paid_to at all before, so no case
+        # ever posted correctly) -- refuse rather than guess, matching the
+        # no-bank_account / no-company guards already above.
+        if not (party_type and party):
+            frappe.logger().warning(
+                f"Ponto Payment Request {self.name} has no reference party (Supplier/Employee); "
+                "cannot resolve a paid_to account for the Payment Entry"
+            )
+            return
+
+        from erpnext.accounts.party import get_party_account
+
+        paid_to = get_party_account(party_type, party, company)
+
         # Create Payment Entry
         try:
             pe = frappe.new_doc("Payment Entry")
             pe.payment_type = "Pay"
             pe.company = company
+            pe.party_type = party_type
+            pe.party = party
+            pe.paid_from = paid_from
+            pe.paid_to = paid_to
             pe.mode_of_payment = "Bank Transfer"
             pe.paid_from_account_currency = self.currency
             pe.paid_to_account_currency = self.currency
@@ -287,10 +320,6 @@ class PontoPaymentRequest(Document):
             pe.reference_no = self.name
             pe.reference_date = frappe.utils.today()
             pe.bank_account = bank_account
-
-            if party_type and party:
-                pe.party_type = party_type
-                pe.party = party
 
             pe.insert()
             pe.submit()
