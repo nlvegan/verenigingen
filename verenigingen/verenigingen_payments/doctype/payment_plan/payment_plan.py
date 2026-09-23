@@ -9,6 +9,7 @@ from frappe.model.document import Document
 from frappe.utils import add_days, add_months, flt, getdate, today
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
@@ -278,77 +279,107 @@ class PaymentPlan(Document):
         if installment.status == "Paid":
             frappe.throw(_("Installment {0} is already paid").format(installment_number))
 
-        # Update installment
-        installment.status = "Paid"
-        installment.payment_date = payment_date
-        installment.payment_reference = payment_reference or ""
+        # The installment is marked Paid (and saved) ONLY after the Payment
+        # Entry has actually been created -- #1288. Before this, the
+        # installment was saved as Paid first and create_payment_entry()
+        # swallowed its own exceptions, so any PE failure left the
+        # installment permanently Paid with no PE and no retry. A savepoint
+        # scopes the installment mutation (including the partial-payment
+        # amount/notes rewrite below) and the PE creation as one atomic
+        # unit: either both land, or neither does, so a redelivered webhook
+        # sees the installment exactly as it was and can retry cleanly.
+        savepoint = f"pp_process_payment_{frappe.generate_hash(length=10)}"
+        frappe.db.savepoint(savepoint)
+        try:
+            installment.status = "Paid"
+            installment.payment_date = payment_date
+            installment.payment_reference = payment_reference or ""
 
-        # Handle partial payments
-        if flt(payment_amount) < flt(installment.amount):
-            # Create a note about partial payment
-            installment.notes = f"Partial payment of €{payment_amount} received. Outstanding: €{flt(installment.amount) - flt(payment_amount)}"
-            installment.amount = flt(installment.amount) - flt(payment_amount)
-            installment.status = "Pending"  # Keep as pending for remaining amount
+            # Handle partial payments
+            if flt(payment_amount) < flt(installment.amount):
+                # Create a note about partial payment
+                installment.notes = f"Partial payment of €{payment_amount} received. Outstanding: €{flt(installment.amount) - flt(payment_amount)}"
+                installment.amount = flt(installment.amount) - flt(payment_amount)
+                installment.status = "Pending"  # Keep as pending for remaining amount
 
-        self.update_tracking_fields()
-        self.save()
+            self.update_tracking_fields()
+            self.save()
 
-        # Create payment entry if ERPNext integration is available
-        self.create_payment_entry(payment_amount, payment_reference, payment_date)
+            # Create payment entry if ERPNext integration is available. No
+            # longer swallows its own exceptions (#1288): a failure here
+            # rolls back the installment mutation above and propagates to
+            # the caller (finalize_payment_plan_installment), which turns
+            # it into an error response so the gateway webhook retries.
+            self.create_payment_entry(payment_amount, payment_reference, payment_date)
+        except NON_RESUMABLE_DB_ERRORS:
+            # A 1213/1205 has already destroyed (1213) or half-applied (1205) the
+            # transaction server-side; ROLLBACK TO SAVEPOINT here would raise 1305
+            # and replace this error instead of propagating it. Let it propagate
+            # as-is (transaction_errors.py).
+            raise
+        except Exception:
+            rollback_to_savepoint(savepoint)
+            raise
+        else:
+            frappe.db.release_savepoint(savepoint)
 
         # Send payment confirmation
         self.send_payment_confirmation(installment_number, payment_amount)
 
     def create_payment_entry(self, amount, reference, payment_date):
-        """Create ERPNext payment entry for the payment"""
-        try:
-            # Get member's customer record
-            member = frappe.get_doc("Member", self.member)
-            if not member.customer:
-                return  # Skip if no customer record
+        """Create ERPNext payment entry for the payment.
 
-            # Create payment entry
-            payment_entry = frappe.new_doc("Payment Entry")
-            payment_entry.payment_type = "Receive"
-            payment_entry.party_type = "Customer"
-            payment_entry.party = member.customer
-            payment_entry.paid_amount = amount
-            payment_entry.received_amount = amount
-            payment_entry.posting_date = payment_date
-            payment_entry.reference_no = reference or f"Payment Plan {self.name}"
-            payment_entry.reference_date = payment_date
+        Raises rather than swallowing its own exceptions (#1288): a caller
+        (process_payment) must see a PE-creation failure so it can roll back
+        the installment mutation, and the webhook finalizer must see it so
+        it can signal an error for the gateway to retry. Silently logging
+        and returning here left the installment permanently Paid with no PE
+        and no retry.
+        """
+        # Get member's customer record
+        member = frappe.get_doc("Member", self.member)
+        if not member.customer:
+            return  # Skip if no customer record
 
-            # `company` was never set here (#1200): insert() fails the same #906
-            # way ("Source Exchange Rate is mandatory", since set_exchange_rate()
-            # cannot resolve a currency without paid_from/paid_to being set on a
-            # real company's accounts). Resolved the same way this file already
-            # resolves it for the email context below (get_mollie_config
-            # .get_default_company(): Verenigingen Settings.company -> Global
-            # Defaults -> user default).
-            #
-            # The account lookup below ALSO fixes two more bugs found while
-            # tracing #1200, independent of the missing company:
-            # 1. "Verenigingen Settings" has never had a default_receivable_account
-            #    field, and lost default_cash_account to "Verenigingen Payments
-            #    Settings" in the v2_1 settings migration -- both
-            #    get_single_value() calls always silently returned None.
-            # 2. paid_from/paid_to were swapped relative to ERPNext's own
-            #    "Receive" convention (Payment Entry.setup_party_account_field:
-            #    for Receive, party_account = paid_from). member_utils.py's
-            #    add_manual_payment_record() -- the same "Receive from a member"
-            #    shape -- already resolves both fields correctly from Company;
-            #    reused that shape here instead of the broken Settings lookup.
-            payment_entry.company = get_mollie_config().get_default_company()
-            payment_entry.paid_from = frappe.get_value(
-                "Company", payment_entry.company, "default_receivable_account"
-            )
-            payment_entry.paid_to = frappe.get_value("Company", payment_entry.company, "default_cash_account")
+        # Create payment entry
+        payment_entry = frappe.new_doc("Payment Entry")
+        payment_entry.payment_type = "Receive"
+        payment_entry.party_type = "Customer"
+        payment_entry.party = member.customer
+        payment_entry.paid_amount = amount
+        payment_entry.received_amount = amount
+        payment_entry.posting_date = payment_date
+        payment_entry.reference_no = reference or f"Payment Plan {self.name}"
+        payment_entry.reference_date = payment_date
 
-            payment_entry.save()
-            payment_entry.submit()
+        # `company` was never set here (#1200): insert() fails the same #906
+        # way ("Source Exchange Rate is mandatory", since set_exchange_rate()
+        # cannot resolve a currency without paid_from/paid_to being set on a
+        # real company's accounts). Resolved the same way this file already
+        # resolves it for the email context below (get_mollie_config
+        # .get_default_company(): Verenigingen Settings.company -> Global
+        # Defaults -> user default).
+        #
+        # The account lookup below ALSO fixes two more bugs found while
+        # tracing #1200, independent of the missing company:
+        # 1. "Verenigingen Settings" has never had a default_receivable_account
+        #    field, and lost default_cash_account to "Verenigingen Payments
+        #    Settings" in the v2_1 settings migration -- both
+        #    get_single_value() calls always silently returned None.
+        # 2. paid_from/paid_to were swapped relative to ERPNext's own
+        #    "Receive" convention (Payment Entry.setup_party_account_field:
+        #    for Receive, party_account = paid_from). member_utils.py's
+        #    add_manual_payment_record() -- the same "Receive from a member"
+        #    shape -- already resolves both fields correctly from Company;
+        #    reused that shape here instead of the broken Settings lookup.
+        payment_entry.company = get_mollie_config().get_default_company()
+        payment_entry.paid_from = frappe.get_value(
+            "Company", payment_entry.company, "default_receivable_account"
+        )
+        payment_entry.paid_to = frappe.get_value("Company", payment_entry.company, "default_cash_account")
 
-        except Exception as e:
-            frappe.log_error(f"Error creating payment entry: {str(e)}")
+        payment_entry.save()
+        payment_entry.submit()
 
     def send_payment_confirmation(self, installment_number, amount):
         """Send payment confirmation email"""
