@@ -112,6 +112,74 @@ class TestRejectMembershipApplication(EnhancedTestCase):
         member.reload()
         return member
 
+    def _make_draft_membership_with_referenced_schedule(self, member):
+        """A draft Membership whose dues schedule is still named by a
+        submitted Sales Invoice via membership_dues_schedule_display. Not
+        committed -- reject_membership_application (the code under test)
+        reads on the SAME connection within the same test, and this fixture
+        relies on EnhancedTestCase's own per-test rollback/drain for cleanup
+        rather than an explicit commit (#815/order_dependence ratchet: this
+        helper is not named _create_*/_cleanup_*, so a bare commit here
+        would not be exempt -- and even an exempt one is zero-growth-gated).
+        """
+        membership_type = _ensure_membership_type()
+        membership = frappe.get_doc(
+            {
+                "doctype": "Membership",
+                "member": member.name,
+                "membership_type": membership_type,
+                "start_date": today(),
+                "status": "Draft",
+            }
+        )
+        membership.flags.ignore_validate = True
+        membership.insert(ignore_mandatory=True)
+
+        schedule = frappe.new_doc("Membership Dues Schedule")
+        schedule.schedule_name = f"REJECT-COV-{frappe.generate_hash(length=6)}"
+        schedule.membership_type = membership_type
+        schedule.membership = membership.name
+        schedule.status = "Active"
+        schedule.billing_frequency = "Annual"
+        schedule.currency = "EUR"
+        schedule.is_template = 0
+        schedule.dues_rate = 25
+        schedule.flags.ignore_validate = True
+        schedule.insert(ignore_permissions=True, ignore_mandatory=True)
+
+        company = "_Test Company"
+        customer = frappe.db.get_value("Customer", {}, "name")
+        item = frappe.db.get_value("Item", {"is_sales_item": 1}, "name")
+        income_account = frappe.db.get_value(
+            "Account",
+            {
+                "company": company,
+                "account_type": "Income Account",
+                "is_group": 0,
+                "account_currency": frappe.db.get_value("Company", company, "default_currency"),
+            },
+            "name",
+        )
+        cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
+        invoice = frappe.new_doc("Sales Invoice")
+        invoice.customer = customer
+        invoice.company = company
+        invoice.membership_dues_schedule_display = schedule.name
+        invoice.set_posting_time = 1
+        invoice.append(
+            "items",
+            {
+                "item_code": item,
+                "qty": 1,
+                "rate": 25,
+                "income_account": income_account,
+                "cost_center": cost_center,
+            },
+        )
+        invoice.insert(ignore_permissions=True)
+        invoice.submit()
+        return membership, schedule, invoice
+
     def test_reject_pending_member(self):
         member = self._pending_member()
         # send_rejection_notification renders a template; allow expected logging.
@@ -156,6 +224,66 @@ class TestRejectMembershipApplication(EnhancedTestCase):
         self.assertTrue(result["success"])
         # The Draft membership is removed by the reject path (review.py:696-703).
         self.assertFalse(frappe.db.exists("Membership", membership_name))
+
+    def test_reject_with_referenced_schedule_throws_clear_message(self):
+        """#1264 round 2: Membership.on_trash's schedule cleanup now respects
+        link-integrity (round 1 of this PR) instead of force-deleting the
+        schedule. If the draft Membership being deleted on rejection has a
+        dues schedule still named by a submitted Sales Invoice, the delete
+        now raises LinkExistsError from inside on_trash's own cascade -- this
+        test asserts the call-site catch turns that into a clear, translated,
+        invoice-naming message (not a raw LinkExistsError), and that the
+        rejection does not silently half-apply.
+
+        Atomicity is verified by spying on frappe.db.commit() rather than by
+        calling frappe.db.rollback() ourselves: this function's own module
+        comment says "Frappe automatically commits successful transactions"
+        -- i.e. only the request layer commits, and only on success -- so
+        proving THIS call never invokes commit() before raising is the
+        empirical check that a real request's automatic rollback-on-exception
+        would leave member.save()'s status change undone. (A self-performed
+        rollback would also revert this test's own fixture rows, since they
+        are deliberately left uncommitted -- see
+        _make_draft_membership_with_referenced_schedule.)
+        """
+        member = self._pending_member()
+        membership, schedule, invoice = self._make_draft_membership_with_referenced_schedule(member)
+        # No explicit cleanup registered here: EnhancedTestCase's own
+        # captured-insert drain (_drain_captured_inserts ->
+        # _remove_drained_record) already cancels-then-deletes every
+        # submitted document inserted during the test, including this
+        # invoice, and cleans up the schedule too -- see that method's own
+        # docstring. A hand-written cleanup helper here would be redundant
+        # AND -- confirmed by round 3's review -- invisible to the
+        # order-dependence scanner if it lived outside a test_*.py file,
+        # which is exactly the gate-evasion this round removes.
+
+        commit_calls = []
+        original_commit = frappe.db.commit
+        frappe.db.commit = lambda *a, **kw: commit_calls.append(1)
+        try:
+            with self.assertRaises(frappe.exceptions.ValidationError) as ctx:
+                reject_membership_application(member.name, reason="Withdraw")
+        finally:
+            frappe.db.commit = original_commit
+
+        self.assertIn(invoice.name, str(ctx.exception))
+        self.assertEqual(
+            commit_calls,
+            [],
+            "reject_membership_application must not commit before raising -- a "
+            "real request's automatic rollback-on-exception is only atomic if "
+            "nothing was committed first",
+        )
+
+        # The schedule and its invoice reference must survive -- the whole
+        # point of the fix this is testing.
+        self.assertTrue(frappe.db.exists("Membership Dues Schedule", schedule.name))
+        self.assertEqual(
+            frappe.db.get_value("Sales Invoice", invoice.name, "membership_dues_schedule_display"),
+            schedule.name,
+        )
+        self.assertTrue(frappe.db.exists("Membership", membership.name))
 
     def test_reject_approved_member_throws(self):
         member = self._pending_member()

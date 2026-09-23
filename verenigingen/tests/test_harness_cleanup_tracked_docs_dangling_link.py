@@ -64,6 +64,7 @@ import unittest
 
 import frappe
 
+from verenigingen.services.member.lifecycle.member_cleanup_service import get_member_cleanup_service
 from verenigingen.tests.utils import ledger_rows
 from verenigingen.tests.utils.base import VereningingenTestCase
 
@@ -92,7 +93,25 @@ class TrackedDocCleanupLedgerAndDanglingLinkSafetyTest(unittest.TestCase):
         self.cost_center = frappe.db.get_value(
             "Cost Center", {"company": self.company, "is_group": 0}, "name"
         )
-        self.membership_type = frappe.db.get_value("Membership Type", {}, "name")
+        # #1264 round 3: this used to be `frappe.db.get_value("Membership Type",
+        # {}, "name")` -- an ARBITRARY, site-dependent pick. Whichever type
+        # got picked already had (or lacked) an auto-created
+        # dues_schedule_template with the framework's own hardcoded
+        # dues_rate=15 default (MembershipType.after_insert always creates
+        # one -- see _get_or_create_harness_membership_type's own comment),
+        # and validate_financial_constraints checks THAT template's rate
+        # against the picked type's own minimum_amount, independent of this
+        # fixture's schedule.dues_rate. Different sites' arbitrary types have
+        # different minimum_amount values, so the check passed on test_site_3
+        # and failed on test_site_8 with "Template dues rate (€15.00) cannot
+        # be less than membership type minimum (...)" purely because of
+        # which row `{}`  happened to return first. A dedicated, run-scoped
+        # type with a KNOWN minimum_amount low enough to stay under that
+        # hardcoded 15 makes this deterministic on every site.
+        self.membership_type = self._get_or_create_harness_membership_type()
+        self.dues_rate = frappe.db.get_value(
+            "Membership Type", self.membership_type, "minimum_amount"
+        ) + 50
         self._leftover = []
         # Never let this test's tracked-doc list leak into a real test class's
         # teardown, and never inherit one left behind by an earlier test.
@@ -129,6 +148,57 @@ class TrackedDocCleanupLedgerAndDanglingLinkSafetyTest(unittest.TestCase):
                 print(f"test cleanup could not remove {doctype} {name}: {e}")
         frappe.db.commit()
 
+    def _get_or_create_harness_membership_type(self):
+        """A dedicated Membership Type for this file, with a KNOWN
+        minimum_amount -- see the comment in setUp for why an arbitrary,
+        site-scanned type is not deterministic.
+
+        `minimum_amount` is deliberately <= 5.0, NOT some larger "safe"
+        number: `MembershipType.after_insert` unconditionally auto-creates a
+        dues_schedule_template with a HARDCODED `dues_rate = 15.0`
+        (membership_type.py's own `create_dues_schedule_template`, its
+        `# Default template dues rate` comment) and links it back as
+        `self.dues_schedule_template` -- there is no way to insert a type
+        with no template at all. That auto-template is what actually made
+        this fixture site-dependent: a schedule save() validates the
+        TEMPLATE's rate against the type's own minimum_amount
+        (dues_schedule_validation_service.py), independent of the schedule's
+        own dues_rate, so a `minimum_amount` above the hardcoded 15 fails
+        the same way on every site, not just test_site_8. This is the exact,
+        widely-documented "Template dues rate (€15) cannot be less than
+        minimum" trap several other test files in this suite already work
+        around (grep the message).
+
+        `role_profile` is mandatory on this doctype; reuse whatever Role
+        Profile the site has rather than hardcoding one that may not exist
+        everywhere (same pattern already used elsewhere in this test suite,
+        e.g. test_member_cleanup_service.py).
+        """
+        name = "PROBE-1264-Harness-Type"
+        if frappe.db.exists("Membership Type", name):
+            # Self-heal rather than trust a row a previous version of this
+            # fixture may have left behind with a different minimum_amount
+            # (measured: this bit a run on test_site_3 mid-development, after
+            # the constant above changed from 20.0 to 5.0 but a stale row
+            # from the earlier run was still on disk).
+            if frappe.db.get_value("Membership Type", name, "minimum_amount") != 5.0:
+                frappe.db.set_value("Membership Type", name, "minimum_amount", 5.0, update_modified=False)
+            return name
+        role_profile = (
+            frappe.db.get_value("Role Profile", {"name": ["like", "%Member%"]}, "name")
+            or frappe.db.get_value("Role Profile", {}, "name")
+        )
+        frappe.get_doc(
+            {
+                "doctype": "Membership Type",
+                "membership_type_name": name,
+                "is_active": 1,
+                "minimum_amount": 5.0,
+                "role_profile": role_profile,
+            }
+        ).insert(ignore_permissions=True, ignore_mandatory=True)
+        return name
+
     def _ledger_row_counts(self, doctype, name):
         """(GL Entry, Payment Ledger Entry) rows currently posted for this voucher."""
         return (
@@ -163,16 +233,43 @@ class TrackedDocCleanupLedgerAndDanglingLinkSafetyTest(unittest.TestCase):
         frappe.db.commit()
         return membership
 
-    def _probe_make_schedule(self, tag, member_name):
+    def _probe_make_schedule(self, tag, member_name=None, membership_name=None):
+        """`membership_name` is optional and additive: #1264's on_trash tests
+        below (Membership.on_trash's own schedule cleanup) need a schedule
+        keyed by `membership`, not just `member`.
+
+        Deliberately does NOT clear the Member's own current_dues_schedule /
+        application_dues_schedule back-link that a bare insert sets as a
+        save() side effect (confirmed empirically on test_site_3) -- #1264
+        round 2's review caught that clearing it here made every "still
+        deletes" test pass by constructing a state real production schedules
+        never have (every real schedule's owning Member carries this
+        back-link), hiding a real bug: the delete paths' own plain
+        frappe.delete_doc() call refused EVERY ordinary delete, not just the
+        invoice-referenced one. The fix now clears that back-link itself
+        (membership_dues_schedule_hooks.clear_member_schedule_backlinks_before_delete),
+        so this fixture instead models the REAL state and lets each test
+        prove the fix handles it.
+        """
         mds = frappe.new_doc("Membership Dues Schedule")
         mds.schedule_name = f"PROBE-1250{tag}-Schedule-{frappe.generate_hash(length=6)}"
         mds.membership_type = self.membership_type
-        mds.member = member_name
+        if member_name:
+            mds.member = member_name
+        if membership_name:
+            mds.membership = membership_name
         mds.status = "Active"
         mds.billing_frequency = "Annual"
         mds.currency = "EUR"
         mds.is_template = 0
-        mds.dues_rate = 25
+        # Derived from self.membership_type's own minimum_amount (set in
+        # setUp), not a hardcoded constant: the G/H tests below cancel a real
+        # Membership that references this schedule, and Membership.on_cancel
+        # -> pause_dues_schedule() -> schedule_doc.save() runs THIS
+        # schedule's normal (non-ignore_validate) validation, which enforces
+        # the membership type's minimum amount. A hardcoded rate here is
+        # exactly what made this fixture site-dependent before (#1264 round 3).
+        mds.dues_rate = self.dues_rate
         mds.flags.ignore_validate = True
         mds.insert(ignore_permissions=True, ignore_mandatory=True)
         self._leftover.append(("Membership Dues Schedule", mds.name))
@@ -285,3 +382,128 @@ class TrackedDocCleanupLedgerAndDanglingLinkSafetyTest(unittest.TestCase):
             "otherwise touched its ledger rows) instead of leaving it alone, "
             "which either writes reversals or strands rows (#328/#482).",
         )
+
+    # ------------------------------------------------------------------
+    # #1264: the same dangling-link defect, in the two LIVE production
+    # `on_trash` cascades rather than the test harness above. Reusing this
+    # file's fixture helpers (same subject: a Membership Dues Schedule a
+    # Sales Invoice still names via `membership_dues_schedule_display`)
+    # rather than duplicating them in a new file.
+    #
+    # - `Member.on_trash` -> `MemberCleanupService.handle_member_deletion`
+    #   (member_cleanup_service.py:200) clears a Sales Invoice's `member`
+    #   reference ("preserve invoices") but never touches
+    #   `membership_dues_schedule_display`, then force-deleted every
+    #   Membership Dues Schedule for that member.
+    # - `Membership.on_trash` (membership.py:84) did the same for schedules
+    #   linked by `membership`, independent of any Member deletion.
+    #
+    # Both are real `on_trash` hooks, reachable through any ordinary
+    # document deletion of a Member or a Membership (Desk delete with the
+    # "delete linked documents" confirmation, or any admin/service code that
+    # force-deletes one), not just the test harness above.
+    # ------------------------------------------------------------------
+
+    def test_member_deletion_does_not_orphan_invoice_via_dangling_schedule(self):
+        """MemberCleanupService.handle_member_deletion (member_cleanup_service.py:200)
+        must not force-delete a schedule a Sales Invoice still names.
+        """
+        member = self._probe_make_member("E")
+        # No Membership record for this member -- isolates this test to the
+        # member-level dues-schedule cleanup (member_cleanup_service.py:200),
+        # not the sibling Membership.on_trash cascade (membership.py:84).
+        ds = self._probe_make_schedule("E", member_name=member.name)
+        si = self._create_submitted_invoice(ds.name)
+
+        get_member_cleanup_service().handle_member_deletion(member)
+
+        self.assertTrue(
+            frappe.db.exists("Membership Dues Schedule", ds.name),
+            "a schedule still referenced by a Sales Invoice must not be "
+            "force-deleted -- doing so leaves the invoice with a dangling "
+            "membership_dues_schedule_display (#1250's shape)",
+        )
+        self.assertEqual(
+            frappe.db.get_value("Sales Invoice", si.name, "membership_dues_schedule_display"),
+            ds.name,
+        )
+
+    def test_member_deletion_still_deletes_unreferenced_schedule(self):
+        """#1264 round 2: a REAL schedule (the Member's own back-link IS
+        present, matching every real schedule in production) with no Sales
+        Invoice referencing it must still be deleted when its Member is
+        deleted -- proving the fix clears the schedule's own back-link
+        rather than refusing every ordinary delete.
+        """
+        member = self._probe_make_member("F")
+        ds = self._probe_make_schedule("F", member_name=member.name)
+        self.assertEqual(
+            frappe.db.get_value("Member", member.name, "current_dues_schedule"),
+            ds.name,
+            "test precondition: the Member's own back-link must be set by "
+            "the real save() side effect, or this test cannot distinguish "
+            "the fix from a fixture that never had the problem",
+        )
+
+        get_member_cleanup_service().handle_member_deletion(member)
+
+        self.assertFalse(frappe.db.exists("Membership Dues Schedule", ds.name))
+
+    def test_membership_deletion_does_not_orphan_invoice_via_dangling_schedule(self):
+        """Membership.on_trash (membership.py:84) must not force-delete a
+        schedule a Sales Invoice still names, independent of any Member
+        deletion.
+        """
+        member = self._probe_make_member("G")
+        membership = self._create_membership(member.name)
+        # member_name=member.name matches real schedule creation (both fields
+        # set), so the Member's own back-link is present too -- proving the
+        # invoice, not the back-link, is what blocks this delete.
+        ds = self._probe_make_schedule("G", member_name=member.name, membership_name=membership.name)
+        si = self._create_submitted_invoice(ds.name)
+
+        # _create_membership() submits it, so it must be cancelled before
+        # force=True can delete it (force bypasses link-integrity but NOT the
+        # submitted-record guard -- the same lesson #1266 already applies
+        # elsewhere in this file), mirroring the real production caller
+        # (member_cleanup_service.py:174: cancel if submitted, then
+        # force-delete). Neither step affects on_trash's own behaviour, which
+        # is what this test exercises.
+        membership.cancel()
+        frappe.delete_doc("Membership", membership.name, force=True, ignore_permissions=True)
+
+        self.assertTrue(
+            frappe.db.exists("Membership Dues Schedule", ds.name),
+            "a schedule still referenced by a Sales Invoice must not be "
+            "force-deleted when its Membership is deleted -- doing so leaves "
+            "the invoice with a dangling membership_dues_schedule_display "
+            "(#1250's shape)",
+        )
+        self.assertEqual(
+            frappe.db.get_value("Sales Invoice", si.name, "membership_dues_schedule_display"),
+            ds.name,
+        )
+
+    def test_membership_deletion_still_deletes_unreferenced_schedule(self):
+        """#1264 round 2: a REAL schedule (both member and membership set,
+        matching production shape, so the owning Member's own
+        current_dues_schedule back-link IS present) with no Sales Invoice
+        referencing it must still be deleted when its Membership is deleted
+        -- proving the fix clears the schedule's own back-link rather than
+        refusing every ordinary delete.
+        """
+        member = self._probe_make_member("H")
+        membership = self._create_membership(member.name)
+        ds = self._probe_make_schedule("H", member_name=member.name, membership_name=membership.name)
+        self.assertEqual(
+            frappe.db.get_value("Member", member.name, "current_dues_schedule"),
+            ds.name,
+            "test precondition: the Member's own back-link must be set by "
+            "the real save() side effect, or this test cannot distinguish "
+            "the fix from a fixture that never had the problem",
+        )
+
+        membership.cancel()
+        frappe.delete_doc("Membership", membership.name, force=True, ignore_permissions=True)
+
+        self.assertFalse(frappe.db.exists("Membership Dues Schedule", ds.name))

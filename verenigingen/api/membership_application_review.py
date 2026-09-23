@@ -62,6 +62,48 @@ def _validate_member_for_review(member_name, operation_label):
         frappe.throw(_("Invalid input data provided"))
 
 
+def _throw_membership_deletion_blocked(membership):
+    """#1264 round 2: deleting a draft Membership during rejection can raise
+    LinkExistsError if a Membership Dues Schedule linked to it is still
+    referenced elsewhere (Membership.on_trash's own cleanup now respects
+    ordinary link-integrity instead of bypassing it with force=True). Before
+    that fix, the delete silently succeeded and force-deleted the schedule
+    out from under whatever still named it -- #1250's exact shape (a Sales
+    Invoice left with a dangling membership_dues_schedule_display). Now it
+    correctly refuses, but the raw LinkExistsError is not a fit message for a
+    reviewer clicking "Reject" -- name the specific invoice(s) when we can
+    find one, so this fails loudly with something actionable rather than
+    either silently corrupting data or surfacing a raw technical error.
+    """
+    schedule_names = frappe.get_all(
+        "Membership Dues Schedule", filters={"membership": membership.name}, pluck="name"
+    )
+    invoice_names = (
+        frappe.get_all(
+            "Sales Invoice",
+            filters={"membership_dues_schedule_display": ["in", schedule_names]},
+            pluck="name",
+        )
+        if schedule_names
+        else []
+    )
+    if invoice_names:
+        frappe.throw(
+            _(
+                "Cannot reject this application: Membership {0} still has a dues schedule "
+                "referenced by invoice(s) {1}. Resolve those invoices before rejecting."
+            ).format(membership.name, ", ".join(invoice_names)),
+            title=_("Cannot Reject Application"),
+        )
+    frappe.throw(
+        _(
+            "Cannot reject this application: Membership {0} could not be deleted because "
+            "other records still reference it or its dues schedule."
+        ).format(membership.name),
+        title=_("Cannot Reject Application"),
+    )
+
+
 def _sanitize_text_fields(text_fields):
     """Sanitize text input fields for API endpoints.
 
@@ -721,7 +763,10 @@ def reject_membership_application(
         if membership.docstatus == 1:
             membership.cancel()
         else:
-            frappe.delete_doc("Membership", membership.name)
+            try:
+                frappe.delete_doc("Membership", membership.name)
+            except frappe.LinkExistsError:
+                _throw_membership_deletion_blocked(membership)
 
     # Remove pending chapter memberships
     from verenigingen.utils.application_helpers import remove_all_pending_chapter_memberships
