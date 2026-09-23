@@ -404,7 +404,7 @@ COMMIT_EXEMPT tests/services/test_chapter_permission_service_integration.py::3  
 COMMIT_EXEMPT tests/services/test_customer_handling_service_coverage.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/services/test_customer_handling_service_integration.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/services/test_field_sync_integration.py::1  # order-dep-exempt
-COMMIT_EXEMPT tests/services/test_member_cleanup_service.py::1  # order-dep-exempt
+COMMIT_EXEMPT tests/services/test_member_cleanup_service.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/services/test_member_lookup_service.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/support/test_sepa_test_company.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/test_harness_cleanup_tracked_docs_dangling_link.py::3  # order-dep-exempt

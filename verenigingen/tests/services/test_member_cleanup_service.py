@@ -439,7 +439,7 @@ class TestMemberCleanupService(EnhancedTestCase):
 
         self._cleanup_invoice_blocked_fixtures(member, schedule, invoice)
 
-    def _cleanup_invoice_blocked_fixtures(self, member, schedule, invoice):
+    def _cleanup_invoice_blocked_fixtures(self, member, schedule, invoice, extra_schedules=()):
         """Tear down the invoice/schedule/customer trio an invoice-blocked
         anonymization test creates, and commit it.
 
@@ -453,6 +453,12 @@ class TestMemberCleanupService(EnhancedTestCase):
         harness's own (non-force) teardown drain fails to delete them --
         Member.customer still points at the Customer, and the schedule is
         still active -- and reports a leak.
+
+        `extra_schedules`: additional Membership Dues Schedule names (#1306
+        round 2's multi-schedule tests) that also survive the call under
+        test -- since the read-only pre-pass now decides BEFORE deleting
+        anything, every one of the member's schedules survives, not just the
+        blocked one passed as `schedule`.
 
         The commit is required, not optional: the mid-test
         MemberAnonymizedInsteadOfDeleted-triggered frappe.db.commit() (see
@@ -471,6 +477,9 @@ class TestMemberCleanupService(EnhancedTestCase):
             invoice.cancel()
         frappe.delete_doc("Sales Invoice", invoice.name, force=True)
         frappe.delete_doc("Membership Dues Schedule", schedule.name, force=True)
+        for extra_schedule_name in extra_schedules:
+            if frappe.db.exists("Membership Dues Schedule", extra_schedule_name):
+                frappe.delete_doc("Membership Dues Schedule", extra_schedule_name, force=True)
         if member.customer:
             frappe.delete_doc("Customer", member.customer, force=True)
         frappe.db.commit()
@@ -553,6 +562,138 @@ class TestMemberCleanupService(EnhancedTestCase):
         frappe.delete_doc("Member", member_name, force=True)
 
         self.assertFalse(frappe.db.exists("Member", member_name))
+
+    def test_multi_schedule_blocked_one_leaves_plain_sibling_untouched(self):
+        """#1306 round 2: a Member with TWO Membership Dues Schedules, only
+        one of which is invoice-blocked, must come out of an anonymized
+        delete with BOTH schedules intact -- not just the blocked one.
+
+        Regression test for a real bug an independent review found in round
+        1: the dues-schedule loop deleted each non-blocked schedule AS IT
+        WENT, and only checked for a block after the whole loop finished, so
+        the anonymization's own commit made durable every already-deleted,
+        non-blocked schedule from earlier in the same loop -- directly
+        contradicting the documented "either fully cleaned up and deleted,
+        or left untouched" invariant. A plain, Cancelled, non-invoice
+        schedule is a realistic shape for that second schedule: contribution
+        changes cancel-and-keep the old schedule rather than deleting it
+        (contribution_amendment_approval_service.py), so a member can easily
+        carry more than one Membership Dues Schedule row.
+        """
+        self.expectErrorLog("Dues Schedule Not Deleted", "Member Deletion Audit Trail")
+        member = self.create_test_member(
+            first_name="Multi", last_name=f"Test{frappe.generate_hash(length=6)}",
+            email=f"multi.sched.{frappe.generate_hash(length=8)}@example.com",
+        )
+        blocked_schedule = self._make_referenceable_dues_schedule(member)
+        invoice = self._make_submitted_invoice_for_schedule(blocked_schedule.name)
+        plain_schedule = self._make_plain_dues_schedule(member, status="Cancelled")
+
+        with self.assertRaises(MemberAnonymizedInsteadOfDeleted):
+            get_member_cleanup_service().handle_member_deletion(member)
+
+        # The invoice-blocked schedule survives (already covered elsewhere),
+        # AND the unrelated, non-blocked sibling survives too -- the read-only
+        # pre-pass must decide BEFORE deleting anything, not delete schedules
+        # as it goes and only check for a block at the end.
+        self.assertTrue(frappe.db.exists("Membership Dues Schedule", blocked_schedule.name))
+        self.assertTrue(
+            frappe.db.exists("Membership Dues Schedule", plain_schedule.name),
+            "a non-blocked sibling schedule must survive too when ANY of the "
+            "member's schedules is invoice-blocked -- the whole cascade is "
+            "skipped, not just the blocked schedule's own deletion",
+        )
+        self.assertEqual(
+            frappe.db.get_value("Membership Dues Schedule", plain_schedule.name, "status"),
+            "Cancelled",
+        )
+
+        self._cleanup_invoice_blocked_fixtures(
+            member, blocked_schedule, invoice, extra_schedules=[plain_schedule.name]
+        )
+
+    def test_schedule_blocked_by_payment_plan_also_triggers_anonymization(self):
+        """#1306 round 2 class sweep: Payment Plan.membership_dues_schedule is
+        a real Link field to Membership Dues Schedule (like Sales Invoice's
+        membership_dues_schedule_display and Contribution Amendment
+        Request's three dues-schedule fields), so a schedule referenced only
+        by a Payment Plan -- no Sales Invoice at all -- hits the exact same
+        Frappe LinkExistsError refusal. _find_blocked_schedules must catch
+        this too: it asks Frappe's own link-integrity check
+        (get_linked_docs/get_dynamic_linked_docs, method="Delete") rather
+        than guessing at specific referencing doctypes, so any real external
+        reference -- not just a Sales Invoice -- converts the delete into an
+        anonymization.
+        """
+        self.expectErrorLog("Dues Schedule Not Deleted", "Member Deletion Audit Trail")
+        member = self.create_test_member(
+            first_name="PlanBlock", last_name=f"Test{frappe.generate_hash(length=6)}",
+            email=f"planblock.{frappe.generate_hash(length=8)}@example.com",
+        )
+        schedule = self._make_plain_dues_schedule(member, status="Active")
+        plan = self._make_payment_plan_referencing_schedule(member, schedule.name)
+
+        with self.assertRaises(MemberAnonymizedInsteadOfDeleted):
+            get_member_cleanup_service().handle_member_deletion(member)
+
+        self.assertTrue(frappe.db.exists("Membership Dues Schedule", schedule.name))
+        self.assertTrue(frappe.db.exists("Payment Plan", plan.name))
+        self.assertEqual(
+            frappe.db.get_value("Payment Plan", plan.name, "membership_dues_schedule"), schedule.name
+        )
+        self.assertTrue(frappe.db.exists("Member", member.name))
+        self.assertEqual(frappe.db.get_value("Member", member.name, "first_name"), "Anonymous")
+
+        self._cleanup_payment_plan_blocked_fixtures(member, schedule, plan)
+
+    def _cleanup_payment_plan_blocked_fixtures(self, member, schedule, plan):
+        """Tear down the Payment Plan/schedule/customer trio the non-invoice
+        class-sweep test creates, and commit it -- same reasoning as
+        _cleanup_invoice_blocked_fixtures (that method's own docstring),
+        just for a Payment Plan instead of a Sales Invoice as the blocker.
+        """
+        frappe.delete_doc("Payment Plan", plan.name, force=True)
+        frappe.delete_doc("Membership Dues Schedule", schedule.name, force=True)
+        if member.customer:
+            frappe.delete_doc("Customer", member.customer, force=True)
+        frappe.db.commit()
+
+    def _make_plain_dues_schedule(self, member, status="Active"):
+        """A schedule keyed to `member` with NO Sales Invoice reference --
+        the sibling used to prove a non-blocked schedule is left alone by
+        the multi-schedule tests, and the base fixture for the non-invoice
+        class-sweep tests. Deliberately does NOT clear the Member's own
+        back-link, matching _make_referenceable_dues_schedule's reasoning.
+        """
+        mt_name = frappe.db.get_value("Membership Type", {}, "name")
+        schedule = frappe.new_doc("Membership Dues Schedule")
+        schedule.schedule_name = f"CLEANUP-PLAIN-{frappe.generate_hash(length=6)}"
+        schedule.membership_type = mt_name
+        schedule.member = member.name
+        schedule.status = status
+        schedule.billing_frequency = "Annual"
+        schedule.currency = "EUR"
+        schedule.is_template = 0
+        schedule.dues_rate = 25
+        schedule.flags.ignore_validate = True
+        schedule.insert(ignore_permissions=True, ignore_mandatory=True)
+        return schedule
+
+    def _make_payment_plan_referencing_schedule(self, member, schedule_name):
+        """A minimal Payment Plan referencing `schedule_name` -- a real,
+        non-Sales-Invoice Link field to Membership Dues Schedule
+        (payment_plan.json's `membership_dues_schedule` field).
+        """
+        plan = frappe.new_doc("Payment Plan")
+        plan.naming_series = "PAY-PLAN-.YYYY.-.MM.-.#####"
+        plan.member = member.name
+        plan.membership_dues_schedule = schedule_name
+        plan.plan_type = "Deferred Payment"
+        plan.total_amount = 100
+        plan.start_date = frappe.utils.today()
+        plan.status = "Draft"
+        plan.insert(ignore_permissions=True)
+        return plan
 
     def _make_referenceable_dues_schedule(self, member):
         """A schedule keyed to `member`. Deliberately does NOT clear the

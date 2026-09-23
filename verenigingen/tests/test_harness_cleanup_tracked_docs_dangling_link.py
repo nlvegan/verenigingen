@@ -64,7 +64,10 @@ import unittest
 
 import frappe
 
-from verenigingen.services.member.lifecycle.member_cleanup_service import get_member_cleanup_service
+from verenigingen.services.member.lifecycle.member_cleanup_service import (
+    MemberAnonymizedInsteadOfDeleted,
+    get_member_cleanup_service,
+)
 from verenigingen.tests.utils import ledger_rows
 from verenigingen.tests.utils.base import VereningingenTestCase
 
@@ -407,6 +410,23 @@ class TrackedDocCleanupLedgerAndDanglingLinkSafetyTest(unittest.TestCase):
     def test_member_deletion_does_not_orphan_invoice_via_dangling_schedule(self):
         """MemberCleanupService.handle_member_deletion (member_cleanup_service.py:200)
         must not force-delete a schedule a Sales Invoice still names.
+
+        #1306 superseded the contract this test originally pinned (#1250/
+        #1290): back then, a refused schedule delete left the SCHEDULE
+        intact but the MEMBER still got force-deleted regardless, moving
+        the dangling link from invoice->schedule to schedule->member. The
+        maintainer's #1306 decision is stronger -- the MEMBER is anonymized
+        in place instead of deleted, so `handle_member_deletion` now raises
+        `MemberAnonymizedInsteadOfDeleted` rather than returning normally.
+
+        Evidence this premise is correct, not assumed: running this module
+        against the pre-#1306-round-2 fix (`PYTHONPATH=<worktree> bench
+        --site test_site_5 run-tests --app verenigingen --module
+        verenigingen.tests.test_harness_cleanup_tracked_docs_dangling_link`)
+        raised exactly `MemberAnonymizedInsteadOfDeleted` at
+        member_cleanup_service.py:409 where this test's own bare call used
+        to complete silently -- a CI shard caught this same test as a
+        genuine ERROR (not a leak) for the same reason.
         """
         member = self._probe_make_member("E")
         # No Membership record for this member -- isolates this test to the
@@ -415,7 +435,8 @@ class TrackedDocCleanupLedgerAndDanglingLinkSafetyTest(unittest.TestCase):
         ds = self._probe_make_schedule("E", member_name=member.name)
         si = self._create_submitted_invoice(ds.name)
 
-        get_member_cleanup_service().handle_member_deletion(member)
+        with self.assertRaises(MemberAnonymizedInsteadOfDeleted):
+            get_member_cleanup_service().handle_member_deletion(member)
 
         self.assertTrue(
             frappe.db.exists("Membership Dues Schedule", ds.name),
@@ -427,6 +448,12 @@ class TrackedDocCleanupLedgerAndDanglingLinkSafetyTest(unittest.TestCase):
             frappe.db.get_value("Sales Invoice", si.name, "membership_dues_schedule_display"),
             ds.name,
         )
+        # Control (#1306): the MEMBER survives too, anonymized rather than
+        # force-deleted -- the new invariant this test now pins. Disabling
+        # the guard reproduces this test's OLD, pre-#1306-round-2 shape:
+        # no raise, and the member force-deleted.
+        self.assertTrue(frappe.db.exists("Member", member.name))
+        self.assertEqual(frappe.db.get_value("Member", member.name, "first_name"), "Anonymous")
 
     def test_member_deletion_still_deletes_unreferenced_schedule(self):
         """#1264 round 2: a REAL schedule (the Member's own back-link IS

@@ -2195,6 +2195,10 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         submitted parent resident in every suite that commits a posted voucher, and
         move the leak ratchet by an amount nobody has measured (#482 discussion).
         """
+        from verenigingen.services.member.lifecycle.member_cleanup_service import (
+            MemberAnonymizedInsteadOfDeleted,
+        )
+
         if not frappe.db.exists(doctype, name):
             # The row being gone does NOT mean its orphans are: a Company deleted by
             # somebody else's cleanup strands exactly the same rows, and this drain is
@@ -2248,6 +2252,50 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         try:
             frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+        except MemberAnonymizedInsteadOfDeleted:
+            # The Member was intentionally NOT deleted -- one of its
+            # Membership Dues Schedules is still referenced by another
+            # document (a Sales Invoice, Payment Plan, Contribution
+            # Amendment Request, ...), so MemberCleanupService anonymized it
+            # in place instead, and committed that unconditionally (see its
+            # own docstring on why, including under tests). This is NOT the
+            # "Fail CLOSED" case every other exception below assumes --
+            # delete_doc's own row removal (delete_from_table) never ran
+            # (on_trash raises strictly before that step), and the ONE write
+            # that did happen already scrubbed the row's PII, so the
+            # surviving Member cannot collide with a later test's use of the
+            # SAME test-specific email/name -- the only risk this drain's
+            # leak reporting exists to catch. So: do not record a leak for
+            # it (measured via CI's leak ratchet on two unrelated test
+            # modules that never deliberately exercise this guard, whose
+            # generic teardown happened to hit it while cleaning up a
+            # tracked Member with an -- also test-created -- invoice-
+            # referenced dues schedule; before #1306 this same Member would
+            # have force-deleted cleanly, so the guard's correctness is what
+            # newly surfaces this path here, not a regression in the drain).
+            #
+            # Do clear its `customer` link, though: unlike the Member
+            # itself, the linked Customer is NOT anonymized (Member.customer
+            # still resolves until cleared), so this drain's own SEPARATE,
+            # later attempt to delete that tracked Customer (priority 3,
+            # after Member's 5) would otherwise ALSO fail purely because the
+            # surviving Member still references it. Test cleanup, unlike
+            # production, has no ledger to preserve that link for.
+            #
+            # This does not guarantee the Customer itself goes cleanly --
+            # measured case: erpnext's own Customer.on_trash ->
+            # delete_contact_and_address() tries to delete the Customer's
+            # Address WITHOUT force, and that Address can ALSO still be
+            # referenced by a Sales Invoice's own customer_address field.
+            # When that Sales Invoice independently fails to delete (a
+            # pre-existing, unrelated cancellation bug -- "Multiple fiscal
+            # years exist for the date"), its surviving customer_address
+            # reference blocks the Address, and hence the Customer, entirely
+            # independent of anything Member-related. See #1306's follow-up
+            # issue for that root cause; it is out of scope here.
+            if frappe.db.get_value("Member", name, "customer"):
+                frappe.db.set_value("Member", name, "customer", None, update_modified=False)
+            return
         except Exception:
             # Fail CLOSED. frappe removes the row in `delete_from_table` and then keeps
             # going: `after_delete`, attachment removal, `delete_dynamic_links` (which
