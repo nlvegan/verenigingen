@@ -8,6 +8,7 @@ Author: Verenigingen Development Team
 Date: August 2025
 """
 
+from collections import deque
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional
@@ -139,8 +140,18 @@ class FinancialErrorHandler:
         },
     }
 
+    # `get_financial_error_handler()` returns one process-local singleton for
+    # the life of a gunicorn worker, and `handle_error()` appends unconditionally
+    # -- nothing ever trimmed error_log, so it grew without bound (#1177, same
+    # singleton-lifetime shape as #962). Bound it the same way `ServiceMetrics`
+    # (verenigingen/services/infrastructure/service_metrics.py) already bounds
+    # its own history collections: a `deque(maxlen=...)`. 1000 matches that
+    # precedent and comfortably covers the SEPA batch path's error volume
+    # (batches run at most a few times a day) while capping worst-case memory.
+    MAX_ERROR_LOG_SIZE = 1000
+
     def __init__(self):
-        self.error_log = []
+        self.error_log = deque(maxlen=self.MAX_ERROR_LOG_SIZE)
 
     def handle_error(
         self, error_code: str, context: Dict[str, Any] = None, user_facing: bool = True
@@ -247,7 +258,12 @@ class FinancialErrorHandler:
             )
 
     def get_error_summary(self) -> Dict[str, Any]:
-        """Get summary of all errors encountered"""
+        """Get summary of errors currently retained in error_log.
+
+        error_log is bounded (see MAX_ERROR_LOG_SIZE), so once more than
+        that many errors have been handled this reports over the most
+        recent window, not the full lifetime of the process.
+        """
         summary = {
             "total_errors": len(self.error_log),
             "by_severity": {},
