@@ -12,6 +12,8 @@ in-process calls, so every assertion targets the dict shape the caller receives
 the internal OperationResult object.
 """
 
+from unittest.mock import patch
+
 import frappe
 from frappe.utils import add_days, add_months, getdate, today
 
@@ -791,11 +793,25 @@ class TestPaymentDashboardAPI(EnhancedTestCase):
     def test_download_payment_receipt_allows_own_payment(self):
         """Positive control: a caller downloading a receipt for a Payment Entry
         that genuinely belongs to them (party == their own Customer) must clear
-        the OWNERSHIP check -- the fix must not turn it into unreachable dead
-        code. PDF rendering itself (wkhtmltopdf) needs network access this
-        sandbox doesn't have, so a non-permission failure past the ownership
-        check is not what this test is about; only the ownership branch is
-        asserted on."""
+        the OWNERSHIP check and reach PDF generation.
+
+        The actual wkhtmltopdf render is stubbed at frappe.utils.pdf.get_pdf --
+        the external-binary boundary frappe.get_print(as_pdf=True) calls
+        internally (frappe/utils/print_utils.py: `from frappe.utils.pdf import
+        get_pdf` then `return get_pdf(html, ...)`), NOT the print-view HTML
+        generation above it, so the real ownership/business logic under test
+        here still runs unmocked. This mirrors an existing, deliberate pattern
+        in this app (verenigingen/tests/setup/__init__.py's
+        disable_workflow_action_emails()): the test site's fake host_name
+        (frappe.utils.get_url() == "http://test_site_1") has no real listener,
+        so wkhtmltopdf's own network fetch for the print HTML's asset URLs
+        either errors (measured locally: OSError HostNotFoundError) or hangs
+        (measured on CI, PR #1335: the whole shard hung until the 60-minute
+        cancellation, with an orphaned wkhtmltopdf process still alive) --
+        neither of which this test is about. Tier 1 (tests/backend/unit/):
+        the test-quality-enforcer allows all mocks here; the module docstring's
+        "NO business-logic mocking" still holds -- get_pdf is Frappe's own
+        external-process wrapper, not this app's logic."""
         user_email, attacker_member = self._board_member_user()
 
         # create_customer() is itself @critical_api-gated; "Verenigingen Chapter
@@ -811,8 +827,9 @@ class TestPaymentDashboardAPI(EnhancedTestCase):
             party_type="Customer", party=own_customer, paid_amount=25.0
         )
 
-        with self.set_user(user_email):
-            result = download_payment_receipt(own_payment.name)
+        with patch("frappe.utils.pdf.get_pdf", return_value=b"%PDF-1.4 fake receipt"):
+            with self.set_user(user_email):
+                result = download_payment_receipt(own_payment.name)
 
-        if not result["success"]:
-            self.assertNotIn("permission", (result["error"]["message"] or "").lower())
+        self.assertTrue(result["success"], msg=result)
+        self.assertEqual(result["data"]["filename"], f"payment_receipt_{own_payment.name}.pdf")
