@@ -368,7 +368,15 @@ def setup_sepa_direct_debit(iban: str = None, account_holder_name: str = None):
 
     # Get and validate member
     member_name = get_current_user_member_name_required()
-    validate_member_ownership(member_name, _("You can only update your own bank details"))
+    # allow_admin=True per #1101 (staff may act on a member's behalf). NOTE:
+    # member_name above is always the CALLER's own record (no target-member
+    # parameter exists on this endpoint), so this can never see a mismatch and
+    # allow_admin has no observable effect here today -- a staff caller with no
+    # Member record of their own still fails one line earlier, at
+    # get_current_user_member_name_required(). Making this endpoint actually
+    # actionable on another member's behalf needs a caller-supplied target
+    # parameter, tracked separately (#1101 comment).
+    validate_member_ownership(member_name, _("You can only update your own bank details"), allow_admin=True)
 
     member = frappe.get_doc("Member", member_name)
 

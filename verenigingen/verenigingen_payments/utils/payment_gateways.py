@@ -2651,10 +2651,16 @@ def create_member_subscription(member_id: str, amount, interval="1 month", descr
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
 def cancel_member_subscription(member_id: str):
-    """Cancel Mollie subscription for a member - SECURED: users can only cancel their own subscriptions"""
+    """Cancel Mollie subscription for a member - SECURED: a member may cancel only
+    their own subscription; a Roles.ADMIN_ROLES holder (incl. Verenigingen Staff)
+    may cancel on a member's behalf (#1101, e.g. a member phones in)."""
 
-    # SECURITY: Validate user can only cancel their own subscription
-    validate_member_ownership(member_id, _("You can only cancel your own subscription"))
+    # SECURITY (#1101): allow_admin=True matches the sibling endpoint on the same
+    # resource, update_mollie_subscription_amount() (below) -- staff must be able
+    # to both raise/lower and cancel a member's subscription, not just one of the
+    # two. See that function's docstring for what allow_admin does and does not
+    # bypass.
+    validate_member_ownership(member_id, _("You can only cancel your own subscription"), allow_admin=True)
 
     try:
         member = frappe.get_doc("Member", member_id)
@@ -2791,12 +2797,10 @@ def update_mollie_subscription_amount(subscription_id, new_amount):
         # has no Member record, so the default contract would refuse it with
         # "No member record found for your account".
         #
-        # NOTE the asymmetry, which is deliberate here but NOT settled policy:
-        # the sibling endpoint cancel_member_subscription() (line ~2575) calls
-        # validate_member_ownership() with NO allow_admin, so it blocks admins
-        # outright. These two endpoints act on the same member's subscription
-        # and disagree about whether an admin may do so. Tracked as #1101;
-        # do not "align" one to the other without deciding which is correct.
+        # #1101 (maintainer decision, 2026-09-23): staff MAY act on a member's
+        # behalf. cancel_member_subscription() (above) now also passes
+        # allow_admin=True, so the two endpoints acting on the same member's
+        # subscription agree. Keep them aligned.
         validate_member_ownership(
             member_data["name"],
             _("You can only manage your own subscription"),
