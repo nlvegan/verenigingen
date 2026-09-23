@@ -20,11 +20,24 @@ can_clear_security_level() pre-check (shared with #1224's fix, now living in
 api_security_framework.py) gates the call BEFORE it runs, instead of catching
 broadly after the fact, and the skipped propagation is made observable via
 msgprint + frappe.log_error rather than silently absorbed.
+
+Round 2 (review finding): the first version of this msgprint told the writer to
+"save this role again" to recover. That is FALSE -- on_update()'s whole body is
+gated by `has_value_changed("is_chair")`, so once the deferred save has already
+persisted is_chair=1, a later save that leaves is_chair unchanged skips the
+entire method silently (no gate check, no message, nothing). The real recovery
+path is the "Update Affected Chapters" button (chapter_role.js, Actions group),
+which calls update_chapters_with_role() directly and is unaffected by
+has_value_changed. The tests below assert the message names that real action
+(not "save again"), and separately prove BOTH that the button's own dispatch
+path recovers the propagation AND that a plain re-save does not -- so nobody
+can reintroduce the false claim without a test going red.
 """
 
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.verenigingen.doctype.chapter_role.chapter_role import update_chapters_with_role
 
 
 class TestChapterRoleOnUpdatePermissionGate(EnhancedTestCase):
@@ -104,6 +117,22 @@ class TestChapterRoleOnUpdatePermissionGate(EnhancedTestCase):
             new_messages,
             "The skipped propagation must surface a visible msgprint warning",
         )
+        # Round 2: the message must name the REAL recovery action (the "Update
+        # Affected Chapters" button, chapter_role.js Actions group), not "save
+        # this role again" -- has_value_changed("is_chair") makes a plain re-save
+        # a silent no-op once is_chair is already persisted as 1 (see
+        # test_plain_resave_does_not_recover_propagation below).
+        self.assertIn(
+            "update affected chapters",
+            new_messages,
+            "The message must name the actual recovery action (the button in the "
+            "Actions group), not an ineffective re-save",
+        )
+        self.assertNotIn(
+            "save this role again",
+            new_messages,
+            "Must not tell the writer to re-save -- has_value_changed() makes that a no-op",
+        )
 
         role.reload()
         self.assertEqual(role.is_chair, 1, "The Chapter Role save itself must succeed for this writer")
@@ -113,4 +142,67 @@ class TestChapterRoleOnUpdatePermissionGate(EnhancedTestCase):
             self.chapter.chapter_head,
             "Chapter head must NOT be updated when the writer cannot clear the HIGH gate "
             "(propagation must be skipped, not silently run as someone else)",
+        )
+
+    def test_recovery_via_update_affected_chapters_button_succeeds(self):
+        """After a deferred save, the message's named recovery action must
+        actually work. chapter_role.js's "Update Affected Chapters" button
+        (Actions group) dispatches straight to update_chapters_with_role() via
+        frappe.call -- the security decorator enforces identically regardless of
+        HTTP dispatch vs. a direct Python call (decorators run on internal calls
+        too in this app, per #1224), so calling the function directly, under a
+        profile-holding user, exercises the exact same path the button uses.
+        """
+        self.expectErrorLog("Chapter Role Update Deferred")
+
+        with self.as_role(["System Manager"]):
+            role = frappe.get_doc("Chapter Role", self.role.name)
+            role.is_chair = 1
+            role.save()  # deferred: is_chair persists, chapter_head does not
+
+        self.chapter.reload()
+        self.assertIsNone(
+            self.chapter.chapter_head, "Fixture sanity: propagation must still be deferred here"
+        )
+
+        with self.as_admin_role():
+            result = update_chapters_with_role(self.role.name)
+
+        self.assertEqual(result["chapters_updated"], 1)
+
+        self.chapter.reload()
+        self.assertEqual(
+            self.chapter.chapter_head,
+            self.board.member,
+            "The Update Affected Chapters button's own dispatch path must recover the propagation",
+        )
+
+    def test_plain_resave_does_not_recover_propagation(self):
+        """Documents the failure mode the round-2 review caught: once is_chair=1
+        is already persisted (from the deferred save), has_value_changed("is_chair")
+        is False on a later save that leaves is_chair untouched, so on_update()
+        returns immediately -- no gate check, no message, no propagation. A
+        profile-holding admin re-saving the SAME role does NOT recover it. This
+        guards against reintroducing "save this role again" as the advertised fix.
+        """
+        self.expectErrorLog("Chapter Role Update Deferred")
+
+        with self.as_role(["System Manager"]):
+            role = frappe.get_doc("Chapter Role", self.role.name)
+            role.is_chair = 1
+            role.save()  # deferred
+
+        self.chapter.reload()
+        self.assertIsNone(self.chapter.chapter_head, "Fixture sanity: still deferred")
+
+        with self.as_admin_role():
+            role = frappe.get_doc("Chapter Role", self.role.name)
+            role.role_name = role.role_name + " (renamed)"  # any change, but NOT is_chair
+            role.save()
+
+        self.chapter.reload()
+        self.assertIsNone(
+            self.chapter.chapter_head,
+            "A plain re-save (is_chair unchanged) must NOT retry the propagation -- "
+            "has_value_changed('is_chair') is False, so on_update() returns immediately",
         )

@@ -68,6 +68,17 @@ class ChapterRole(Document):
         permission" (#1224 review commit 6a83f355f) -- and if the check itself
         errors, update_chapters_with_role() is never reached, so the propagation is
         never silently claimed to have run.
+
+        Recovery is NOT "save this role again": the guard above only runs this whole
+        method when is_chair actually CHANGED VALUE this save
+        (`has_value_changed("is_chair")`). Once the deferred save has persisted
+        is_chair=1, a later save that leaves is_chair untouched skips this entire
+        method silently -- no gate check, no message, nothing -- so a profile-holding
+        admin re-saving the SAME role does not retry the propagation. The real
+        recovery path is the "Update Affected Chapters" button (chapter_role.js,
+        Actions group), which calls update_chapters_with_role() directly and is
+        unaffected by has_value_changed. The msgprint below names that button, not a
+        re-save.
         """
         # Check if this is a chair role and was modified
         if not (self.is_chair and self.is_active and self.has_value_changed("is_chair")):
@@ -86,8 +97,8 @@ class ChapterRole(Document):
             _(
                 "Chapters using this role were NOT updated: {0} does not have "
                 "permission for this administrative operation (HIGH security level). "
-                "A user with the matching Role Profile must save this role again to "
-                "apply the change to chapters."
+                "A user with the matching Role Profile must run "
+                "Actions > Update Affected Chapters on this role to apply the change."
             ).format(frappe.session.user),
             indicator="orange",
             alert=True,
