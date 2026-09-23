@@ -3,10 +3,17 @@
 `bank_transaction_creator.py` already checks "does MY account already have this reference"
 before creating a row (`_find_matching_bank_transaction`, #383), but that is a check-then-act:
 two concurrent writers can both read "no" and both insert. These tests assert the backstop --
-a second row sharing (bank_account, reference_number) is refused by the database itself.
+a second row sharing (bank_account, reference_number) is refused by the database itself, for
+a SYSTEM-issued reference.
 
 They fail loudly rather than skip when the field is missing. A skip here would be the #1267
 failure again in test form -- the guard silently absent, with a green run over it.
+
+The constraint is deliberately narrow (amended maintainer decision after PR #1340's review):
+only Mollie/e-Boekhouden/Ponto references are constrained.
+`test_repeated_mt940_style_references_on_one_account_are_allowed` pins the opposite case --
+this is the exact scenario the wider scope broke, reproduced here at the full ORM/database
+level rather than only at the unit-predicate level.
 """
 
 import frappe
@@ -53,6 +60,13 @@ class TestBankTransactionReferenceConstraint(_BankTxnFixtureMixin, EnhancedTestC
         doc.insert(ignore_permissions=True)
         return doc
 
+    def _system_ref(self, label="sys"):
+        # "EB-" (case-insensitive) is the e-Boekhouden shape -- see
+        # bank_transaction_reference_key.py's module docstring for why this and the Mollie
+        # prefixes are the only ones trusted by shape alone. `label` only distinguishes two
+        # calls from each other; it is never a prefix this module recognises on its own.
+        return f"EB-{self._ref(label)}"
+
     def test_the_field_and_its_unique_index_are_installed(self):
         self.assertTrue(
             frappe.get_meta("Bank Transaction").has_field(FIELDNAME),
@@ -63,27 +77,42 @@ class TestBankTransactionReferenceConstraint(_BankTxnFixtureMixin, EnhancedTestC
         )
         self.assertTrue(index, f"no UNIQUE index on Bank Transaction.{FIELDNAME}")
 
-    def test_a_second_transaction_on_one_account_with_the_same_reference_is_refused(self):
-        ref = self._ref("dup")
+    def test_a_second_transaction_on_one_account_with_the_same_system_reference_is_refused(self):
+        ref = self._system_ref()
         first = self._make_transaction(self.bank_account, ref)
         self.assertIsNotNone(
-            first.get(FIELDNAME), "the validate hook did not derive a key for a real reference"
+            first.get(FIELDNAME), "the validate hook did not derive a key for a system-issued reference"
         )
 
         with self.assertRaises((frappe.UniqueValidationError, frappe.DuplicateEntryError)):
             self._make_transaction(self.bank_account, ref)
 
-    def test_the_same_reference_on_two_different_accounts_is_allowed(self):
+    def test_the_same_system_reference_on_two_different_accounts_is_allowed(self):
         # The whole reason the index is scoped per account (#383, #1267): different banks
         # do not coordinate reference numbering.
         other_gl_account = self._ensure_gl_account(name_suffix=" ConstraintOther")
         other_bank_account = self._ensure_bank_account(other_gl_account, name_suffix=" ConstraintOther")
 
-        ref = self._ref("crossacct")
+        ref = self._system_ref()
         first = self._make_transaction(self.bank_account, ref)
         second = self._make_transaction(other_bank_account, ref)
 
         self.assertNotEqual(first.get(FIELDNAME), second.get(FIELDNAME))
+
+    def test_repeated_mt940_style_references_on_one_account_are_allowed(self):
+        # #1267's amended decision and the exact defect PR #1340's review reproduced: an
+        # MT940 payer's own end-to-end reference is not system-issued, so two genuinely
+        # distinct payments (different amounts here, same as the review's reproduction) may
+        # legitimately share it on one account -- e.g. an unchanged standing-order
+        # reference. Both must be created; neither may be silently dropped.
+        ref = self._ref("SHARED-EREF")
+        first = self._make_transaction(self.bank_account, ref, amount=42.0)
+        second = self._make_transaction(self.bank_account, ref, amount=99.0)
+
+        self.assertNotEqual(first.name, second.name)
+        self.assertIsNone(first.get(FIELDNAME))
+        self.assertIsNone(second.get(FIELDNAME))
+        self.assertEqual(frappe.db.count("Bank Transaction", {"reference_number": ref}), 2)
 
     def test_repeated_blank_references_on_one_account_are_allowed(self):
         # MT940 NONREF and several writers default a missing reference to "".
@@ -99,8 +128,8 @@ class TestBankTransactionReferenceConstraint(_BankTxnFixtureMixin, EnhancedTestC
         # validate + before_submit. With the handler on before_save the persisted key stays
         # the hash of the pre-edit reference, guarding a tuple the row no longer has and
         # reserving a slot nothing occupies.
-        txn = self._make_transaction(self.bank_account, self._ref("presubmit"))
-        moved_to = self._ref("postsubmit")
+        txn = self._make_transaction(self.bank_account, self._system_ref("presubmit"))
+        moved_to = self._system_ref("postsubmit")
         txn.reference_number = moved_to
         txn.submit()
 

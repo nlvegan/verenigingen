@@ -12,12 +12,20 @@ Replaces `patches/v2_1/add_bank_transaction_reference_unique_index.py`, which is
    successful run, and `bench migrate` continued as if the guarantee were in place. This
    patch raises (see `_abort_on_duplicates`), so it stays unrecorded and retries.
 3. Its uniqueness scope was global (`reference_number` alone), which the maintainer decision
-   on #1267 rejects: `reference_number` is legitimately reused across bank accounts (measured
-   on veg11 by account: `EB-<mutation_id>`, Mollie `tr_`/`stl_`/`baltr_`, Ponto ids, MT940
-   bank references -- none of them coordinated across accounts), and
+   on #1267 rejects: `reference_number` is legitimately reused across bank accounts, and
    `bank_transaction_creator.py`'s own idempotency lookup is scoped to `(bank_account,
    reference_number)` for the same reason (#383). This patch installs that narrower scope
    via `bank_transaction_reference_key.py`'s derived key instead.
+
+   The scope is narrower still, per the maintainer's AMENDED decision after PR #1340's
+   review: only SYSTEM-issued references (Mollie `tr_`/`stl_`/`baltr_` ids, e-Boekhouden
+   `EB-<mutation_id>`, Ponto transaction ids) get a key at all. An MT940 bank reference is
+   the payer's own end-to-end reference, not something this app or a payment gateway
+   guarantees unique -- the first version of this scope let two genuinely distinct MT940
+   payments sharing one payer-chosen reference collide, and `mt940_import.py`'s insert
+   silently swallowed the resulting error (see that file's own changes in this same commit
+   series). See `bank_transaction_reference_key.py`'s module docstring for exactly which
+   writers were checked and why each prefix is trusted.
 
 Sequence matters and is not the obvious one, exactly as in #809 (the sibling Mollie Payment
 Entry guard this patch is modelled on): the Custom Field is created WITHOUT `unique`, existing
@@ -54,8 +62,9 @@ from verenigingen.utils.unique_custom_field_patch import (
 )
 from verenigingen.verenigingen_payments.utils.bank_transaction_reference_key import (
     FIELDNAME,
-    IN_SCOPE_SQL_CONDITION,
+    PONTO_TRANSACTION_ID_FIELDNAME,
     build_reference_key,
+    in_scope_sql_condition,
 )
 
 DOCTYPE = "Bank Transaction"
@@ -122,8 +131,9 @@ def _ensure_field_exists():
             "insert_after": "reference_number",
             "description": (
                 "Derived key that turns reference_number unique PER bank_account into a "
-                "database constraint instead of a check-then-act. NULL when reference_number "
-                "or bank_account is blank (see #1267)."
+                "database constraint instead of a check-then-act, for SYSTEM-issued "
+                "references only (Mollie/e-Boekhouden/Ponto). NULL for everything else, "
+                "including MT940 and manual references (see #1267)."
             ),
         }
     ).insert(ignore_permissions=True)
@@ -131,7 +141,7 @@ def _ensure_field_exists():
 
 
 def _find_duplicates():
-    """Rows sharing one (bank_account, reference_number).
+    """Rows sharing one (bank_account, reference_number) among SYSTEM-issued references.
 
     Deliberately does NOT exclude cancelled rows: a unique index has no docstatus predicate,
     so a cancelled Bank Transaction still occupies the key.
@@ -140,7 +150,7 @@ def _find_duplicates():
         f"""
         SELECT bank_account, reference_number, COUNT(*) AS count
         FROM `tab{DOCTYPE}`
-        WHERE {IN_SCOPE_SQL_CONDITION}
+        WHERE {in_scope_sql_condition()}
         GROUP BY bank_account, reference_number
         HAVING count > 1
         ORDER BY count DESC
@@ -168,17 +178,23 @@ def _abort_on_duplicates(duplicates):
 
 
 def _backfill():
+    condition = in_scope_sql_condition()
+    ponto_column = (
+        PONTO_TRANSACTION_ID_FIELDNAME
+        if frappe.db.has_column(DOCTYPE, PONTO_TRANSACTION_ID_FIELDNAME)
+        else "NULL"
+    )
     rows = frappe.db.sql(
         f"""
-        SELECT name, bank_account, reference_number
+        SELECT name, bank_account, reference_number, {ponto_column} AS ponto_transaction_id
         FROM `tab{DOCTYPE}`
-        WHERE {IN_SCOPE_SQL_CONDITION}
+        WHERE {condition}
         """,
         as_dict=True,
     )
 
     for row in rows:
-        key = build_reference_key(row.bank_account, row.reference_number)
+        key = build_reference_key(row.bank_account, row.reference_number, row.ponto_transaction_id)
         frappe.db.set_value(DOCTYPE, row.name, FIELDNAME, key, update_modified=False)
 
     # A re-run after the predicate narrowed would otherwise strand a key on a row that is no
@@ -187,7 +203,7 @@ def _backfill():
         f"""
         UPDATE `tab{DOCTYPE}`
         SET `{FIELDNAME}` = NULL
-        WHERE `{FIELDNAME}` IS NOT NULL AND NOT {IN_SCOPE_SQL_CONDITION}
+        WHERE `{FIELDNAME}` IS NOT NULL AND NOT {condition}
         """
     )
     return len(rows)

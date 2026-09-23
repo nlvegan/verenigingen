@@ -9,6 +9,11 @@ They exercise the detector and the abort directly rather than calling `execute()
 autocommits, so a test that ran the whole patch would leave a column and a unique index
 behind after the transaction rolled back -- the orphan state that Frappe's schema sync later
 drops silently, which is the very failure mode this issue exists to avoid creating.
+
+Duplicate fixtures use an `EB-` prefix (case-insensitively matched, per
+bank_transaction_reference_key.py) so they fall inside the NARROWED scope (amended maintainer
+decision after PR #1340's review): only SYSTEM-issued references are constrained at all.
+`test_detector_ignores_a_repeated_mt940_style_reference` pins the opposite case directly.
 """
 
 import frappe
@@ -19,18 +24,21 @@ from verenigingen.verenigingen_payments.utils import bank_transaction_reference_
 
 
 class TestBankTransactionReferenceBackfill(EnhancedTestCase):
-    def _seed(self, name, bank_account, reference_number, docstatus=1):
+    def _seed(self, name, bank_account, reference_number, docstatus=1, ponto_transaction_id=None):
         frappe.db.sql(
             """INSERT INTO `tabBank Transaction`
                (name, creation, modified, owner, modified_by, docstatus,
-                bank_account, reference_number)
-               VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', %s, %s, %s)""",
-            (name, docstatus, bank_account, reference_number),
+                bank_account, reference_number, custom_ponto_transaction_id)
+               VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', %s, %s, %s, %s)""",
+            (name, docstatus, bank_account, reference_number, ponto_transaction_id),
         )
         self.addCleanup(frappe.db.sql, "DELETE FROM `tabBank Transaction` WHERE name = %s", name)
 
+    def _system_ref(self):
+        return f"EB-{frappe.generate_hash()[:10]}"
+
     def test_detector_finds_a_duplicate_on_one_account(self):
-        ref = f"PROBE-{frappe.generate_hash()[:10]}"
+        ref = self._system_ref()
         self._seed("TEST-1267-DUP-A", "PROBE-Bank Account 1", ref)
         self._seed("TEST-1267-DUP-B", "PROBE-Bank Account 1", ref)
 
@@ -40,7 +48,7 @@ class TestBankTransactionReferenceBackfill(EnhancedTestCase):
     def test_detector_counts_a_cancelled_row(self):
         # A unique index has no docstatus predicate, so a cancelled Bank Transaction still
         # occupies the key.
-        ref = f"PROBE-{frappe.generate_hash()[:10]}"
+        ref = self._system_ref()
         self._seed("TEST-1267-CANC-A", "PROBE-Bank Account 1", ref, docstatus=1)
         self._seed("TEST-1267-CANC-B", "PROBE-Bank Account 1", ref, docstatus=2)
 
@@ -51,7 +59,7 @@ class TestBankTransactionReferenceBackfill(EnhancedTestCase):
         # The whole reason the index is scoped per account (#383, #1267): different banks
         # do not coordinate reference numbering. If this test fails the scope has widened
         # back to global and the patch will refuse to run on any real site.
-        ref = f"PROBE-{frappe.generate_hash()[:10]}"
+        ref = self._system_ref()
         self._seed("TEST-1267-OK-A", "PROBE-Bank Account 1", ref)
         self._seed("TEST-1267-OK-B", "PROBE-Bank Account 2", ref)
 
@@ -68,6 +76,38 @@ class TestBankTransactionReferenceBackfill(EnhancedTestCase):
 
         groups = {(d.bank_account, d.reference_number): d.count for d in patch._find_duplicates()}
         self.assertNotIn(("PROBE-Bank Account 1", ""), groups)
+
+    def test_detector_ignores_a_repeated_mt940_style_reference(self):
+        # The amended #1267 decision, and the exact regression PR #1340's review found: an
+        # MT940 payer's own end-to-end reference (not "EB-"/"tr_"/"stl_"/"baltr_"-shaped,
+        # and no custom_ponto_transaction_id) can legitimately repeat on one account --
+        # e.g. the same member paying twice with an unchanged standing-order reference. If
+        # this test fails the scope has widened back and the patch will refuse to run on
+        # any site with two such payments.
+        ref = f"SHARED-REF-{frappe.generate_hash()[:6]}"
+        self._seed("TEST-1267-MT940-A", "PROBE-Bank Account 1", ref)
+        self._seed("TEST-1267-MT940-B", "PROBE-Bank Account 1", ref)
+
+        groups = {(d.bank_account, d.reference_number): d.count for d in patch._find_duplicates()}
+        self.assertNotIn(("PROBE-Bank Account 1", ref), groups)
+
+    def test_detector_ignores_a_repeated_ponto_shaped_reference_without_the_signal(self):
+        # A bare-UUID-shaped reference with no custom_ponto_transaction_id set is not
+        # system-issued by shape alone -- only the writer's own signal counts.
+        ref = "550e8400-e29b-41d4-a716-446655440099"
+        self._seed("TEST-1267-PONTOLIKE-A", "PROBE-Bank Account 1", ref)
+        self._seed("TEST-1267-PONTOLIKE-B", "PROBE-Bank Account 1", ref)
+
+        groups = {(d.bank_account, d.reference_number): d.count for d in patch._find_duplicates()}
+        self.assertNotIn(("PROBE-Bank Account 1", ref), groups)
+
+    def test_detector_finds_a_duplicate_via_the_ponto_signal(self):
+        ref = "550e8400-e29b-41d4-a716-446655440100"
+        self._seed("TEST-1267-PONTO-A", "PROBE-Bank Account 1", ref, ponto_transaction_id=ref)
+        self._seed("TEST-1267-PONTO-B", "PROBE-Bank Account 1", ref, ponto_transaction_id=ref)
+
+        groups = {(d.bank_account, d.reference_number): d.count for d in patch._find_duplicates()}
+        self.assertEqual(groups.get(("PROBE-Bank Account 1", ref)), 2)
 
     def test_abort_raises_and_names_the_offending_group(self):
         duplicates = [
@@ -98,8 +138,8 @@ class TestBankTransactionReferenceBackfill(EnhancedTestCase):
             key_module.build_reference_key,
         )
 
-    def test_backfill_writes_the_derived_key_and_exempts_blanks(self):
-        in_scope_ref = f"PROBE-{frappe.generate_hash()[:10]}"
+    def test_backfill_writes_the_derived_key_for_system_issued_references(self):
+        in_scope_ref = self._system_ref()
         self._seed("TEST-1267-BF-A", "PROBE-Bank Account 1", in_scope_ref)
         self._seed("TEST-1267-BF-BLANK", "PROBE-Bank Account 1", "")
 
@@ -111,6 +151,52 @@ class TestBankTransactionReferenceBackfill(EnhancedTestCase):
         )
         self.assertIsNone(
             frappe.db.get_value("Bank Transaction", "TEST-1267-BF-BLANK", key_module.FIELDNAME)
+        )
+
+    def test_backfill_leaves_mt940_style_references_unkeyed(self):
+        # The core of the amended scope: backfill must follow the SAME rule the live
+        # validate hook does, or a row saved through the ORM and one backfilled by this
+        # patch could disagree about whether it is constrained.
+        ref = f"SHARED-REF-{frappe.generate_hash()[:6]}"
+        self._seed("TEST-1267-BF-MT940", "PROBE-Bank Account 1", ref)
+
+        patch._backfill()
+
+        self.assertIsNone(frappe.db.get_value("Bank Transaction", "TEST-1267-BF-MT940", key_module.FIELDNAME))
+
+    def test_backfill_writes_the_derived_key_via_the_ponto_signal(self):
+        ref = "550e8400-e29b-41d4-a716-446655440101"
+        self._seed("TEST-1267-BF-PONTO", "PROBE-Bank Account 1", ref, ponto_transaction_id=ref)
+
+        patch._backfill()
+
+        self.assertEqual(
+            frappe.db.get_value("Bank Transaction", "TEST-1267-BF-PONTO", key_module.FIELDNAME),
+            key_module.build_reference_key("PROBE-Bank Account 1", ref, ref),
+        )
+
+    def test_backfill_clears_a_stale_key_from_a_row_the_narrowed_rule_no_longer_covers(self):
+        # Simulates a site that ran this patch under the OLDER, wider scope (before the
+        # maintainer's amended decision): an MT940-style row already carries a key.
+        # _backfill()'s own UPDATE clause must null it out on a re-run, or that row keeps
+        # occupying a slot in the unique index under a rule it no longer satisfies.
+        ref = f"SHARED-REF-{frappe.generate_hash()[:6]}"
+        self._seed("TEST-1267-BF-STALE", "PROBE-Bank Account 1", ref)
+        frappe.db.set_value(
+            "Bank Transaction",
+            "TEST-1267-BF-STALE",
+            key_module.FIELDNAME,
+            "stale-key-from-a-wider-scope",
+            update_modified=False,
+        )
+        self.assertIsNotNone(
+            frappe.db.get_value("Bank Transaction", "TEST-1267-BF-STALE", key_module.FIELDNAME)
+        )
+
+        patch._backfill()
+
+        self.assertIsNone(
+            frappe.db.get_value("Bank Transaction", "TEST-1267-BF-STALE", key_module.FIELDNAME)
         )
 
     def _index_exists(self, index_name):

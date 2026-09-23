@@ -23,31 +23,22 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.utils import mt940_import as M
 
 
-class TestMT940ImportIntegration(EnhancedTestCase):
-    """Full MT940 import against real Bank Account / Company."""
+class MT940BankAccountFixtureMixin:
+    """Bank Account fixture + mid-transaction-commit cleanup shared by MT940 import test
+    classes that drive the real import path against a real Bank Account.
 
-    def setUp(self):
-        super().setUp()
-        self.company = frappe.get_list("Company", limit=1)[0].name
-        self.bank_account = self._ensure_bank_account()
-        # The MT940 import path commits mid-transaction (the API security audit
-        # logger commits unconditionally), so Bank Transactions it creates survive
-        # FrappeTestCase's per-test rollback. Scrub any committed survivors from a
-        # previous test in this class before each test so counts are deterministic.
-        self._cleanup_bank_transactions()
+    Extracted (#1267) from what was already a 5-copy clone family
+    (`duplicate_helper_validator.py`) when `test_mt940_import_reference_collision.py`
+    needed the identical pattern -- a 6th copy would have grown that ratchet instead of
+    following it. The cleanup itself is not optional boilerplate: the import path commits
+    mid-transaction (the API security audit logger commits unconditionally), so the Bank
+    Transactions it creates survive `FrappeTestCase`'s per-test rollback and must be
+    scrubbed explicitly, with its own commit, or they leak into the next test.
 
-    # Bank Account autonames account_name + " - " + bank with no company
-    # component (the guard-key rule), so this (account_name + bank, its full
-    # autoname key) must be the existence-check, not the shared IBAN below --
-    # another suite's Bank Account can carry the same IBAN, and querying on
-    # the IBAN alone adopts whichever one was created most recently
-    # (frappe.db.get_value orders creation DESC) rather than owning this
-    # class's own row. See #308. The company filter is defensive, not part of
-    # the autoname key: self.company is currently a stable, deterministic
-    # singleton (frappe.get_list("Company", limit=1) sorts oldest-first), but
-    # if #532 ever repoints it, this stops a stale row on the old company from
-    # being adopted too.
-    OWN_ACCOUNT_NAME = "MT940 Test Account"
+    Subclasses set `OWN_ACCOUNT_NAME` (a class attribute) and `self.company` before calling
+    `_ensure_bank_account()`, and populate `self.bank_account` from its return value before
+    calling `_cleanup_bank_transactions()`.
+    """
 
     def _ensure_bank_account(self):
         """Create (idempotently) a Bank Account whose IBAN matches the samples."""
@@ -84,6 +75,33 @@ class TestMT940ImportIntegration(EnhancedTestCase):
         # Commit the cleanup because the rows being removed were themselves committed
         # by the import's nested audit-log commit and would otherwise reappear.
         frappe.db.commit()
+
+
+class TestMT940ImportIntegration(MT940BankAccountFixtureMixin, EnhancedTestCase):
+    """Full MT940 import against real Bank Account / Company."""
+
+    def setUp(self):
+        super().setUp()
+        self.company = frappe.get_list("Company", limit=1)[0].name
+        self.bank_account = self._ensure_bank_account()
+        # The MT940 import path commits mid-transaction (the API security audit
+        # logger commits unconditionally), so Bank Transactions it creates survive
+        # FrappeTestCase's per-test rollback. Scrub any committed survivors from a
+        # previous test in this class before each test so counts are deterministic.
+        self._cleanup_bank_transactions()
+
+    # Bank Account autonames account_name + " - " + bank with no company
+    # component (the guard-key rule), so this (account_name + bank, its full
+    # autoname key) must be the existence-check, not the shared IBAN below --
+    # another suite's Bank Account can carry the same IBAN, and querying on
+    # the IBAN alone adopts whichever one was created most recently
+    # (frappe.db.get_value orders creation DESC) rather than owning this
+    # class's own row. See #308. The company filter is defensive, not part of
+    # the autoname key: self.company is currently a stable, deterministic
+    # singleton (frappe.get_list("Company", limit=1) sorts oldest-first), but
+    # if #532 ever repoints it, this stops a stale row on the old company from
+    # being adopted too.
+    OWN_ACCOUNT_NAME = "MT940 Test Account"
 
     def tearDown(self):
         self._cleanup_bank_transactions()
