@@ -374,6 +374,7 @@ COMMIT_EXEMPT tests/payment/test_payment_gateways_coverage.py::1  # order-dep-ex
 COMMIT_EXEMPT tests/payment/test_payment_gateways_subscription_sweep.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/payment/test_payment_gateways_sweep2_coverage.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/payment/test_payment_hook.py::1  # order-dep-exempt
+COMMIT_EXEMPT tests/payment/test_payment_plan_paid_after_pe.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/payment/test_recurring_donation_charge.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/payment/test_sepa_rollback_manager.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/repositories/test_dues_schedule_repository.py::3  # order-dep-exempt
