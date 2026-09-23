@@ -43,21 +43,63 @@ class ChapterRole(Document):
         server-side — Document.run_method() is never invoked with that name — so
         flipping a role to chair never updated the chapters using it. (`after_save` IS
         a real client-side form event; see chapter_role.js.)
+
+        update_chapters_with_role() carries @high_security_api (HIGH). HIGH access
+        is granted only through an assigned Role Profile
+        (AuthorizationPolicy.PROFILE_ONLY_LEVELS) -- never through a bare role -- but
+        this DocType's own permissions (chapter_role.json) grant write/create to the
+        BARE roles "System Manager" and "Verenigingen Administrator". So a user
+        holding one of those roles without the matching Role Profile can save this
+        document (the DocType permission passes) while update_chapters_with_role()
+        raises PermissionError internally -- decorators in this app run on internal
+        calls too, the same mechanism DirectDebitBatch.on_submit hit (#1224). The
+        previous code swallowed that PermissionError -- and every other exception --
+        in a bare `except Exception`, so the save silently succeeded while the
+        chapter_head propagation silently failed with no trace a user would ever see
+        (#1229).
+
+        Like on_submit(), the save must not depend on the propagation succeeding: an
+        admin who cannot clear the HIGH gate still gets their Chapter Role change
+        saved, but is told -- via msgprint AND an Error Log entry -- that the
+        chapter_head propagation did not run, instead of never finding out. The
+        permission check runs BEFORE calling update_chapters_with_role(), not a
+        broad except after the fact, so a real failure inside it (a bug, not an
+        authorisation denial) still propagates instead of being conflated with "no
+        permission" (#1224 review commit 6a83f355f) -- and if the check itself
+        errors, update_chapters_with_role() is never reached, so the propagation is
+        never silently claimed to have run.
         """
         # Check if this is a chair role and was modified
-        if self.is_chair and self.is_active and self.has_value_changed("is_chair"):
-            # Find chapters using this role and update their heads
-            try:
-                from verenigingen.verenigingen.doctype.chapter_role.chapter_role import (
-                    update_chapters_with_role,
-                )
+        if not (self.is_chair and self.is_active and self.has_value_changed("is_chair")):
+            return
 
-                update_chapters_with_role(self.name)
-            except Exception as e:
-                frappe.log_error(
-                    message=f"Error updating chapters from ChapterRole.after_save: {str(e)}",
-                    title="ChapterRole after_save Error",
-                )
+        from verenigingen.utils.security.api_security_framework import can_clear_security_level
+        from verenigingen.verenigingen.doctype.chapter_role.chapter_role import (
+            update_chapters_with_role,
+        )
+
+        if can_clear_security_level(update_chapters_with_role):
+            update_chapters_with_role(self.name)
+            return
+
+        frappe.msgprint(
+            _(
+                "Chapters using this role were NOT updated: {0} does not have "
+                "permission for this administrative operation (HIGH security level). "
+                "A user with the matching Role Profile must save this role again to "
+                "apply the change to chapters."
+            ).format(frappe.session.user),
+            indicator="orange",
+            alert=True,
+        )
+        frappe.log_error(
+            title="Chapter Role Update Deferred",
+            message=(
+                f"Chapter Role {self.name} saved by {frappe.session.user}, who cannot "
+                "clear the HIGH security level update_chapters_with_role() requires. "
+                "Chapters using this role were not updated with the new chapter_head."
+            ),
+        )
 
 
 @frappe.whitelist()

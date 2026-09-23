@@ -104,7 +104,7 @@ class TestStaffSubmitNotBlockedByCriticalGate(EnhancedTestCase):
         validate_ip_restrictions, validate_rate_limits, validate_request_method), not
         only a role/profile denial -- and generate_sepa_xml_for_batch's own body can
         also raise/wrap a PermissionError for a real, unrelated reason. on_submit
-        must ask the AuthorizationEngine directly (via _can_clear_security_level)
+        must ask the AuthorizationEngine directly (via can_clear_security_level)
         rather than catching broadly around the whole call, so ANY such failure for
         a user who genuinely holds CRITICAL still propagates as a real failure
         instead of being recorded as the false claim "{user} does not have
@@ -115,7 +115,7 @@ class TestStaffSubmitNotBlockedByCriticalGate(EnhancedTestCase):
         so this user clears BOTH the DocType's submit permission AND the CRITICAL
         security level -- i.e. a genuinely AUTHORISED submitter. Faking
         generate_sepa_xml_for_batch's OWN result (not any validate_* method, and not
-        generate_sepa_xml itself, which would also blind _can_clear_security_level
+        generate_sepa_xml itself, which would also blind can_clear_security_level
         to the real decorator's _security_level) keeps the decorator chain --
         including the authorisation check this test depends on -- completely real;
         only the wrapped function's own outcome is faked.

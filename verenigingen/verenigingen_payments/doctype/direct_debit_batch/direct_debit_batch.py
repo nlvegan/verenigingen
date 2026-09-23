@@ -59,6 +59,7 @@ from frappe.utils import getdate, today
 
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
+    can_clear_security_level,
     critical_api,
     high_security_api,
     utility_api,
@@ -451,7 +452,7 @@ class DirectDebitBatch(Document):
         if self.sepa_file_generated:
             return
 
-        if _can_clear_security_level(DirectDebitBatch.generate_sepa_xml):
+        if can_clear_security_level(DirectDebitBatch.generate_sepa_xml):
             self.generate_sepa_xml()
             return
 
@@ -741,38 +742,6 @@ def get_dues_collection_preview(collection_date=None, days_ahead=30):
         return {"success": False, "error": str(e)}
 
 
-def _can_clear_security_level(fn) -> bool:
-    """Report whether the CURRENT session user would clear the security level
-    ``fn``'s own ``@critical_api``/``@high_security_api``/etc. decorator enforces.
-
-    Reads the required level directly off ``fn`` (the ``_security_level``
-    attribute the decorator stamps on it) rather than restating the level as a
-    second literal at each call site, so a caller can never state a different
-    level than the endpoint actually enforces if its decorator ever changes.
-    Delegates the decision itself to the same AuthorizationEngine the security
-    framework uses.
-
-    Deliberately answers ONLY the role/profile authorisation question --
-    it does not check IP restrictions, rate limits, or HTTP method, and it
-    never calls ``fn``. Those are dispatch-time/request-shape concerns that
-    only apply to an actual invocation, and conflating them here would let an
-    unrelated failure (e.g. a rate-limit hiccup) masquerade as "no
-    permission" for a caller who actually has it.
-
-    Fails closed (returns False without even checking the caller's roles) if
-    ``fn`` carries no ``_security_level`` -- e.g. because its decorator was
-    removed -- rather than falling back to a default level, which could
-    silently be more permissive than intended.
-    """
-    from verenigingen.utils.security.authorization_engine import AuthorizationEngine
-
-    required_level = getattr(fn, "_security_level", None)
-    if required_level is None:
-        return False
-
-    return AuthorizationEngine().authorize(frappe.session.user, required_level).granted
-
-
 @frappe.whitelist()
 @utility_api(operation_type=OperationType.UTILITY)
 def can_load_unpaid_invoices() -> bool:
@@ -790,4 +759,4 @@ def can_load_unpaid_invoices() -> bool:
     """
     from verenigingen.verenigingen_payments.api.sepa_batch_ui import load_unpaid_invoices
 
-    return _can_clear_security_level(load_unpaid_invoices)
+    return can_clear_security_level(load_unpaid_invoices)
