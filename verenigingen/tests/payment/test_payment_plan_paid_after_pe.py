@@ -34,6 +34,18 @@ Asserts:
 4. That retry is idempotent once the underlying cause is gone: it creates
    exactly one Payment Entry and marks the installment Paid exactly once --
    not a second PE and not a double-applied payment.
+
+Fixture builders below are module-level (not per-class methods): this file
+has four TestCase classes that all need a Member/Payment Plan/Payment Plan
+Payment, and every sibling file in this directory (test_payment_plan_
+finalization.py, test_payment_plan_payment_webhook.py,
+test_payment_plan_create_payment_entry.py) already carries its own private
+per-class copies of the same three shapes -- scripts/validation/
+duplicate_helper_validator.py's clone-family gate (#949) blocks a NEW
+near-identical copy of an EXISTING name, which repeating that per-class
+pattern here would have added on top of an already-recorded baseline.
+Consolidating to one definition per shape, under names that do not collide
+with those existing families, avoids growing it at all.
 """
 
 from unittest.mock import patch
@@ -54,38 +66,73 @@ from verenigingen.verenigingen_payments.services.payment_plan_finalization impor
 _PE_FAILURE_MESSAGE = "Simulated Payment Entry failure (#1288 test)"
 
 
+def _create_pp1288_member(test_case, first_name="Pp1288"):
+    m = frappe.new_doc("Member")
+    m.first_name = first_name
+    m.last_name = "Member"
+    m.email = f"{first_name.lower()}-{frappe.generate_hash(length=6)}@example.com"
+    m.member_since = today()
+    m.save(ignore_permissions=True)
+    test_case.track_doc("Member", m.name)
+    return m
+
+
+def _create_pp1288_plan(test_case, member_name, total_amount=120.0, installments=3):
+    p = frappe.new_doc("Payment Plan")
+    p.member = member_name
+    p.plan_type = "Equal Installments"
+    p.total_amount = total_amount
+    p.number_of_installments = installments
+    p.frequency = "Monthly"
+    p.start_date = today()
+    p.status = "Active"
+    p.reason = "test"
+    p.payment_method = "Bank Transfer"
+    p.save(ignore_permissions=True)
+    test_case.track_doc("Payment Plan", p.name)
+    return p
+
+
+def _create_pp1288_intent(
+    test_case, plan_name, member_name, installment_number=1, amount=40.0, payment_id="ref_1", commit=True
+):
+    """A Payment Plan Payment intent. `commit=True` (the default) durably
+    persists it -- finalize_payment_plan_installment's own except branch does
+    a FULL frappe.db.rollback() (by design, matching its "one request = one
+    transaction" model), and without committing the fixture first that
+    rollback would revert this test's own uncommitted setUp data too (a
+    known harness hazard -- see enhanced_test_factory.py's "transaction-wide
+    frappe.db.rollback() that wipes THIS test's uncommitted setUp data").
+    The `_create_` prefix also makes scripts/testing/scan_order_dependence.py
+    treat this commit as the recognised, non-blocking COMMIT_EXEMPT fixture-
+    builder pattern rather than a leak.
+    """
+    intent = frappe.get_doc(
+        {
+            "doctype": "Payment Plan Payment",
+            "payment_plan": plan_name,
+            "installment_number": installment_number,
+            "amount": amount,
+            "currency": "EUR",
+            "member": member_name,
+            "gateway": "Mollie",
+            "status": "Pending",
+            "payment_id": payment_id,
+        }
+    ).insert(ignore_permissions=True)
+    test_case.track_doc("Payment Plan Payment", intent.name)
+    if commit:
+        frappe.db.commit()
+    return intent
+
+
 class TestProcessPaymentAtomicity(VereningingenTestCase):
     """process_payment() itself: no partial state when the PE fails."""
 
     def setUp(self):
         super().setUp()
-        self.member = self._create_member()
-        self.plan = self._create_plan(self.member.name)
-
-    def _create_member(self):
-        m = frappe.new_doc("Member")
-        m.first_name = "Atomic"
-        m.last_name = "Member"
-        m.email = f"atomic-{frappe.generate_hash(length=6)}@example.com"
-        m.member_since = today()
-        m.save(ignore_permissions=True)
-        self.track_doc("Member", m.name)
-        return m
-
-    def _create_plan(self, member_name, total_amount=120.0, installments=3):
-        p = frappe.new_doc("Payment Plan")
-        p.member = member_name
-        p.plan_type = "Equal Installments"
-        p.total_amount = total_amount
-        p.number_of_installments = installments
-        p.frequency = "Monthly"
-        p.start_date = today()
-        p.status = "Active"
-        p.reason = "test"
-        p.payment_method = "Bank Transfer"
-        p.save(ignore_permissions=True)
-        self.track_doc("Payment Plan", p.name)
-        return p
+        self.member = _create_pp1288_member(self, "Atomic")
+        self.plan = _create_pp1288_plan(self, self.member.name)
 
     def test_pe_failure_leaves_installment_untouched_and_raises(self):
         original = self.plan.installments[0].as_dict()
@@ -137,63 +184,11 @@ class TestFinalizationAtomicity(VereningingenTestCase):
 
     def setUp(self):
         super().setUp()
-        self.member = self._create_member()
-        self.plan = self._create_plan(self.member.name)
-
-    def _create_member(self):
-        m = frappe.new_doc("Member")
-        m.first_name = "Fin"
-        m.last_name = "Atomic"
-        m.email = f"fin-atomic-{frappe.generate_hash(length=6)}@example.com"
-        m.member_since = today()
-        m.save(ignore_permissions=True)
-        self.track_doc("Member", m.name)
-        return m
-
-    def _create_plan(self, member_name):
-        p = frappe.new_doc("Payment Plan")
-        p.member = member_name
-        p.plan_type = "Equal Installments"
-        p.total_amount = 120.0
-        p.number_of_installments = 3
-        p.frequency = "Monthly"
-        p.start_date = today()
-        p.status = "Active"
-        p.reason = "test"
-        p.payment_method = "Bank Transfer"
-        p.save(ignore_permissions=True)
-        self.track_doc("Payment Plan", p.name)
-        return p
-
-    def _create_intent(self, installment_number=1, amount=40.0, payment_id="ref_1"):
-        intent = frappe.get_doc(
-            {
-                "doctype": "Payment Plan Payment",
-                "payment_plan": self.plan.name,
-                "installment_number": installment_number,
-                "amount": amount,
-                "currency": "EUR",
-                "member": self.member.name,
-                "gateway": "Mollie",
-                "status": "Pending",
-                "payment_id": payment_id,
-            }
-        ).insert(ignore_permissions=True)
-        self.track_doc("Payment Plan Payment", intent.name)
-        # Commit the fixture (member/plan/intent) so it represents data from
-        # an already-completed prior request. finalize_payment_plan_installment's
-        # own except branch does a FULL frappe.db.rollback() (by design, matching
-        # its "one request = one transaction" model) -- without this commit that
-        # rollback reverts past this test's own uncommitted setUp data too (a
-        # known harness hazard: see enhanced_test_factory.py's "transaction-wide
-        # frappe.db.rollback() that wipes THIS test's uncommitted setUp data").
-        # Named `_create_*` so scripts/testing/scan_order_dependence.py's COMMIT
-        # exemption applies (a fixture-builder commit, not a leak).
-        frappe.db.commit()
-        return intent
+        self.member = _create_pp1288_member(self, "FinAtomic")
+        self.plan = _create_pp1288_plan(self, self.member.name)
 
     def test_pe_failure_returns_error_and_leaves_installment_and_intent_payable(self):
-        intent = self._create_intent(payment_id="ref_pe_fail")
+        intent = _create_pp1288_intent(self, self.plan.name, self.member.name, payment_id="ref_pe_fail")
         self.expectErrorLog("Payment Plan Payment Webhook")
 
         with patch.object(PaymentPlan, "create_payment_entry", side_effect=RuntimeError(_PE_FAILURE_MESSAGE)):
@@ -212,7 +207,7 @@ class TestFinalizationAtomicity(VereningingenTestCase):
         """First delivery hits a PE failure (patched); the redelivered webhook,
         once the cause is gone, must finalize exactly once -- not double-process
         the now-still-Pending installment."""
-        intent = self._create_intent(payment_id="ref_retry")
+        intent = _create_pp1288_intent(self, self.plan.name, self.member.name, payment_id="ref_retry")
         self.expectErrorLog("Payment Plan Payment Webhook")
 
         with patch.object(PaymentPlan, "create_payment_entry", side_effect=RuntimeError(_PE_FAILURE_MESSAGE)):
@@ -252,52 +247,13 @@ class TestRetryCreatesExactlyOnePaymentEntry(EnhancedTestCase):
         frappe.set_user("Administrator")
         self.company = get_eur_test_company()
 
-    def _plan(self, member_name):
-        plan = frappe.new_doc("Payment Plan")
-        plan.member = member_name
-        plan.plan_type = "Equal Installments"
-        plan.total_amount = 90.0
-        plan.number_of_installments = 3
-        plan.frequency = "Monthly"
-        plan.start_date = today()
-        plan.status = "Active"
-        plan.reason = "test"
-        plan.payment_method = "Bank Transfer"
-        plan.save()
-        self.track_doc("Payment Plan", plan.name)
-        return plan
-
-    def _create_intent(self, plan, member_name, installment_number=1, amount=30.0, payment_id="ref_1"):
-        intent = frappe.get_doc(
-            {
-                "doctype": "Payment Plan Payment",
-                "payment_plan": plan.name,
-                "installment_number": installment_number,
-                "amount": amount,
-                "currency": "EUR",
-                "member": member_name,
-                "gateway": "Mollie",
-                "status": "Pending",
-                "payment_id": payment_id,
-            }
-        ).insert()
-        self.track_doc("Payment Plan Payment", intent.name)
-        # Commit: finalize_payment_plan_installment's except branch does a FULL
-        # frappe.db.rollback() by design (one request = one transaction). Without
-        # committing the fixture first, that rollback would revert this test's own
-        # uncommitted setUp data too -- see the identical note in
-        # TestFinalizationAtomicity._create_intent above. Named `_create_*` so
-        # scan_order_dependence.py's COMMIT exemption applies.
-        frappe.db.commit()
-        return intent
-
     def _create_eur_default_company_if_needed(self, company):
         """Idempotently make `company` the resolvable default (Verenigingen
         Settings.company), durably -- NOT via singleton_backup, because the
         same full-rollback this test deliberately provokes (see
-        _create_intent above) would undo an uncommitted restore-on-exit just
-        as it would any other uncommitted write, leaving the setting wrong
-        for the real retry that follows. Mirrors the same idempotent,
+        _create_pp1288_intent's commit) would undo an uncommitted restore-on-exit
+        just as it would any other uncommitted write, leaving the setting
+        wrong for the real retry that follows. Mirrors the same idempotent,
         committed-once-if-needed shape as tests/setup/ensure_default_company().
         A no-op (no mutation, nothing to commit) when already correct, which
         is expected on this app's own test sites (#1288 self-review: do not
@@ -310,12 +266,12 @@ class TestRetryCreatesExactlyOnePaymentEntry(EnhancedTestCase):
 
     def test_retry_creates_exactly_one_payment_entry(self):
         member = member_with_customer(self, "PPRetry")
-        plan = self._plan(member.name)
+        plan = _create_pp1288_plan(self, member.name, total_amount=90.0)
         self._create_eur_default_company_if_needed(self.company)
 
-        # Intent creation commits (see _create_intent) -- durable, so it survives
-        # the FULL rollback the first (failing) finalize call below issues.
-        intent = self._create_intent(plan, member.name, payment_id="PPRETRY-REF-1")
+        # Intent creation commits -- durable, so it survives the FULL
+        # rollback the first (failing) finalize call below issues.
+        intent = _create_pp1288_intent(self, plan.name, member.name, amount=30.0, payment_id="PPRETRY-REF-1")
 
         with patch.object(PaymentPlan, "create_payment_entry", side_effect=RuntimeError(_PE_FAILURE_MESSAGE)):
             self.expectErrorLog("Payment Plan Payment Webhook")
@@ -409,24 +365,9 @@ class TestCreatePaymentEntryPropagatesFailure(VereningingenTestCase):
         self.track_doc("Company", company.name)
         return company
 
-    def _create_plan(self, member_name):
-        p = frappe.new_doc("Payment Plan")
-        p.member = member_name
-        p.plan_type = "Equal Installments"
-        p.total_amount = 120.0
-        p.number_of_installments = 3
-        p.frequency = "Monthly"
-        p.start_date = today()
-        p.status = "Active"
-        p.reason = "test"
-        p.payment_method = "Bank Transfer"
-        p.save(ignore_permissions=True)
-        self.track_doc("Payment Plan", p.name)
-        return p
-
     def test_pe_failure_propagates_instead_of_being_swallowed(self):
         member = member_with_customer(self, "SwallowGuard")
-        plan = self._create_plan(member.name)
+        plan = _create_pp1288_plan(self, member.name)
         installment_amount = plan.installments[0].amount
 
         # process_payment() calls straight through to the real,
