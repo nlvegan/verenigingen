@@ -35,57 +35,9 @@ from unittest.mock import patch
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.member_ownership_probe_mixin import MemberOwnershipProbeMixin
 from verenigingen.utils.constants import Roles
 from verenigingen.verenigingen_payments.utils import payment_gateways as pg
-
-
-class _BoardMemberProbeMixin:
-    """Shared helper: a non-admin user whose Role Profile clears the HIGH
-    security tier but holds none of Roles.ADMIN_ROLES.
-
-    Used by both TestCancelMemberSubscriptionStaffAccess and
-    TestUpdateSubscriptionAmountOwnership below to isolate an ownership-check
-    test from the separate (already-covered) security-level gate -- a plain
-    "Verenigingen Member" role profile is LOW tier and would be refused by
-    @high_security_api before validate_member_ownership ever runs, making the
-    two gates indistinguishable via exception type alone.
-    """
-
-    def _board_member_user(self):
-        """A non-admin user whose Role Profile clears the HIGH security level.
-
-        Mirrors payment_dashboard.py's own board-member probe added for the
-        sibling #957-adjacent fix (PR #974): "Verenigingen Chapter Board
-        Member" satisfies Rule 4 of the authorization policy (HIGH access via
-        role profile) but holds none of Roles.ADMIN_ROLES, isolating the
-        ownership check under test from the separate (already-covered)
-        security-level gate.
-        """
-        from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
-
-        user_email = f"board.subprobe.{frappe.generate_hash(length=8)}@example.com".lower()
-        frappe.get_doc(
-            {
-                "doctype": "User",
-                "email": user_email,
-                "first_name": "Board",
-                "last_name": "SubProbe",
-                "send_welcome_email": 0,
-                "roles": [{"role": "Verenigingen Member"}],
-            }
-        ).insert()
-        grant_matching_role_profiles(user_email, "Verenigingen Chapter Board Member")
-
-        attacker_member = self.create_test_member(
-            first_name="Board", last_name="SubProbe", status="Active"
-        )
-        frappe.db.set_value("Member", attacker_member.name, "user", user_email)
-
-        self.assertFalse(
-            set(frappe.get_roles(user_email)) & Roles.ADMIN_ROLES,
-            "test setup: attacker must NOT hold an admin role",
-        )
-        return user_email, attacker_member.name
 
 
 class TestManualPaymentConfirmation(EnhancedTestCase):
@@ -166,7 +118,7 @@ class TestCancelMemberSubscriptionOwnership(EnhancedTestCase):
                 pg.cancel_member_subscription(member_id=member.name)
 
 
-class TestCancelMemberSubscriptionStaffAccess(_BoardMemberProbeMixin, EnhancedTestCase):
+class TestCancelMemberSubscriptionStaffAccess(MemberOwnershipProbeMixin, EnhancedTestCase):
     """#1101: staff MAY act on a member's behalf to cancel a subscription.
 
     cancel_member_subscription accepts an explicit member_id, unlike the three
@@ -181,8 +133,9 @@ class TestCancelMemberSubscriptionStaffAccess(_BoardMemberProbeMixin, EnhancedTe
         """Control for the allow_admin change: a non-admin caller must still be
         refused when acting on a DIFFERENT member's subscription.
 
-        Uses _board_member_user() (shared with TestUpdateSubscriptionAmountOwnership
-        below), NOT a plain "Verenigingen Member" role -- a plain member's LOW-tier
+        Uses _board_member_linked_user() (shared with
+        TestUpdateSubscriptionAmountOwnership below, via MemberOwnershipProbeMixin),
+        NOT a plain "Verenigingen Member" role -- a plain member's LOW-tier
         role profile fails @high_security_api's HIGH-tier gate BEFORE
         validate_member_ownership ever runs (api_security_framework.py's
         AuthorizationEngine.authorize, ~line 454), so assertRaises(PermissionError)
@@ -198,7 +151,7 @@ class TestCancelMemberSubscriptionStaffAccess(_BoardMemberProbeMixin, EnhancedTe
         distinguishable even if both raise frappe.PermissionError.
         """
         member = self.create_test_member(first_name="StaffAccessOwner")
-        user_email, _attacker_member = self._board_member_user()
+        user_email, _attacker_member = self._board_member_linked_user("Board")
 
         with self.set_user(user_email):
             with self.assertRaises(frappe.PermissionError) as cm:
@@ -214,40 +167,9 @@ class TestCancelMemberSubscriptionStaffAccess(_BoardMemberProbeMixin, EnhancedTe
             self.cancelled_for = member.name
             return {"status": "success"}
 
-    def _staff_user(self):
-        """A user holding Roles.ADMIN_ROLES ("Verenigingen Staff") and clearing
-        the endpoint's HIGH security tier via a matching Role Profile, but with
-        NO Member record of their own -- matching validate_member_ownership's
-        own allow_admin docstring ("even without an owning Member record").
-        """
-        from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
-
-        user_email = f"staff.subprobe.{frappe.generate_hash(length=8)}@example.com".lower()
-        frappe.get_doc(
-            {
-                "doctype": "User",
-                "email": user_email,
-                "first_name": "Staff",
-                "last_name": "SubProbe",
-                "send_welcome_email": 0,
-                "roles": [{"role": "Verenigingen Staff"}],
-            }
-        ).insert()
-        grant_matching_role_profiles(user_email, "Verenigingen Staff")
-
-        self.assertTrue(
-            set(frappe.get_roles(user_email)) & Roles.ADMIN_ROLES,
-            "test setup: staff user must hold a Roles.ADMIN_ROLES role",
-        )
-        self.assertIsNone(
-            frappe.db.get_value("Member", {"user": user_email}, "name"),
-            "test setup: staff user must have no Member record of their own",
-        )
-        return user_email
-
     def test_staff_can_cancel_another_members_subscription(self):
         member = self.create_test_member(first_name="StaffActsFor")
-        staff_user = self._staff_user()
+        staff_user = self._staff_user("SubProbe", role="Verenigingen Staff", assert_no_member=True)
         stub = self._StubGateway()
 
         with self.set_user(staff_user):
@@ -258,7 +180,7 @@ class TestCancelMemberSubscriptionStaffAccess(_BoardMemberProbeMixin, EnhancedTe
         self.assertEqual(stub.cancelled_for, member.name)
 
 
-class TestUpdateSubscriptionAmountOwnership(_BoardMemberProbeMixin, EnhancedTestCase):
+class TestUpdateSubscriptionAmountOwnership(MemberOwnershipProbeMixin, EnhancedTestCase):
     """update_mollie_subscription_amount enforces ownership on subscription_id (#957).
 
     subscription_id is caller-supplied; get_member_by_subscription_id looks it
@@ -281,7 +203,7 @@ class TestUpdateSubscriptionAmountOwnership(_BoardMemberProbeMixin, EnhancedTest
             victim.name,
             {"mollie_customer_id": "cst_victim", "mollie_subscription_id": "sub_victim_amt"},
         )
-        user_email, _attacker_member = self._board_member_user()
+        user_email, _attacker_member = self._board_member_linked_user("Board")
 
         with self.set_user(user_email):
             with self.assertRaises(frappe.PermissionError):
@@ -300,10 +222,10 @@ class TestUpdateSubscriptionAmountOwnership(_BoardMemberProbeMixin, EnhancedTest
         # Same non-admin board-profile user, managing THEIR OWN subscription,
         # must still succeed -- the ownership fix must not break self-service
         # for the population that legitimately reaches this endpoint.
-        user_email, attacker_member = self._board_member_user()
+        user_email, attacker_member = self._board_member_linked_user("Board")
         frappe.db.set_value(
             "Member",
-            attacker_member,
+            attacker_member.name,
             {"mollie_customer_id": "cst_self", "mollie_subscription_id": "sub_self_amt"},
         )
         with self.set_user(user_email):

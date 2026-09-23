@@ -47,6 +47,7 @@ from frappe.utils import now_datetime, today
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.services.payment.validation_service import ValidationResult, get_payment_validation_service
+from verenigingen.utils.member_utils import validate_member_ownership
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
@@ -1356,6 +1357,8 @@ def get_active_mandates_api(member: str, iban: Optional[str] = None) -> Dict[str
         >>> len(result["mandates"])
         1
     """
+    validate_member_ownership(member, allow_admin=True)
+
     manager = get_sepa_mandate_manager()
     mandates = manager.get_active_mandates(member, iban)
 
@@ -1392,9 +1395,14 @@ def validate_mandate_creation_api(member: str, iban: str, mandate_id: str) -> Op
         OperationResult[Dict]: Validation result with mandate data
 
     Note:
-        - Never throws exceptions (returns failed OperationResult)
+        - Never throws exceptions for validation failures (returns failed
+          OperationResult); an ownership violation still raises
+          frappe.PermissionError/DoesNotExistError, same as every other
+          validate_member_ownership() call site in the app
         - Critical API with FINANCIAL operation classification
     """
+    validate_member_ownership(member, allow_admin=True)
+
     manager = get_sepa_mandate_manager()
     result = manager.validate_mandate_creation(member, iban, mandate_id)
 
@@ -1427,9 +1435,14 @@ def create_mandate_api(
         OperationResult[Dict]: Creation result with mandate data
 
     Note:
-        - Never throws exceptions (returns failed OperationResult)
+        - Never throws exceptions for validation failures (returns failed
+          OperationResult); an ownership violation still raises
+          frappe.PermissionError/DoesNotExistError, same as every other
+          validate_member_ownership() call site in the app
         - Critical API with FINANCIAL operation classification
     """
+    validate_member_ownership(member, allow_admin=True)
+
     manager = get_sepa_mandate_manager()
     result = manager.create_mandate(
         member=member, iban=iban, bic=bic, account_holder_name=account_holder_name, mandate_id=mandate_id
@@ -1455,9 +1468,14 @@ def deactivate_mandates_for_iban_change_api(member: str, new_iban: str) -> Opera
         OperationResult[Dict]: Deactivation result with affected mandates
 
     Note:
-        - Never throws exceptions (returns failed OperationResult)
+        - Never throws exceptions for validation failures (returns failed
+          OperationResult); an ownership violation still raises
+          frappe.PermissionError/DoesNotExistError, same as every other
+          validate_member_ownership() call site in the app
         - Critical API with FINANCIAL operation classification
     """
+    validate_member_ownership(member, allow_admin=True)
+
     manager = get_sepa_mandate_manager()
     result = manager.deactivate_mandates_for_iban_change(member, new_iban)
 

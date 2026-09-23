@@ -8,6 +8,7 @@ Replaces blind nightly sync tasks with targeted problem detection and resolution
 import frappe
 from frappe import _
 
+from verenigingen.utils.member_utils import validate_member_ownership
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, standard_api
 
 
@@ -247,6 +248,8 @@ def fix_member_mandate_issues(member_id: str, issue_types=None):
     Returns:
         dict: Success status and details
     """
+    validate_member_ownership(member_id, allow_admin=True)
+
     try:
         member = frappe.get_doc("Member", member_id)
 
