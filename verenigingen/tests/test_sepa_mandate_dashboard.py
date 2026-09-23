@@ -79,11 +79,13 @@ class TestSepaMandateDashboard(EnhancedTestCase):
             f"sepa_mandate_dashboard.py references doctypes with no DocType record: {missing}",
         )
 
-    def _create_test_sepa_mandate(self):
-        """Minimal, real SEPA Mandate -- inserted with ignore_permissions because
-        this test runs as whatever user the harness leaves active, not because the
-        mandate's own permission boundary is under test here (that boundary has its
-        own tests elsewhere)."""
+    def _insert_minimal_test_mandate(self):
+        """A real SEPA Mandate with no `member` set (the field is optional --
+        "Leave blank for non-member donors" -- and this test is about dashboard
+        link mechanics, not member linkage). Inserted with ignore_permissions
+        because this test runs as whatever user the harness leaves active, not
+        because the mandate's own permission boundary is under test here (that
+        boundary has its own tests elsewhere)."""
         return frappe.get_doc(
             {
                 "doctype": "SEPA Mandate",
@@ -98,7 +100,7 @@ class TestSepaMandateDashboard(EnhancedTestCase):
         """#1261: the real Desk code path (frappe.desk.notifications.get_open_count)
         must not raise for a real SEPA Mandate, and the surviving Payment Entry
         connection must still be queried (positive control)."""
-        mandate = self._create_test_sepa_mandate()
+        mandate = self._insert_minimal_test_mandate()
 
         from frappe.desk.notifications import get_open_count
 
