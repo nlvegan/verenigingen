@@ -3085,6 +3085,26 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         attempt the ordinary delete immediately, which reproduces the
         pre-#1306-round-4 behaviour (an ordinary anonymize-and-leak) rather
         than a new failure mode.
+
+        Logs at WARNING, not ERROR, on that fallback -- deliberately, per
+        harness_logger.py's `>= ERROR` residual-limit rationale. This method
+        is only reachable from EnhancedTestCase.tearDown() via
+        _drain_tracked_documents, so the call is a class-teardown record the
+        `>= ERROR` stderr mirror drops at WARNING; that is accepted, not an
+        oversight, because losing it costs no diagnosis of a REAL failure.
+        `_find_blocked_schedules` is the SAME call the production guard
+        itself makes, unguarded, from
+        MemberCleanupService.handle_member_deletion -- if it were ever
+        broken enough to raise for real reasons, that first (correct,
+        expected) attempt would ALSO raise, loudly, as an ordinary TEST-LEAK
+        carrying the full exception via `_record_leak` (the existing
+        WARNING at `_drain_tracked_documents`'s own `except Exception as e:
+        ... logger.warning(...)` a few lines above THIS method's caller, and
+        the leak-ratchet's `check_test_leaks.py` comparison, both already
+        cover that). This log line exists only so a reader working locally
+        (or from a full job log, where the `>= ERROR` mirror does not apply)
+        can see WHY a deferral did not happen, not to be a CI-visible
+        alarm -- see scripts/validation/harness_logger_teardown_baseline.txt.
         """
         try:
             from verenigingen.services.member.lifecycle.member_cleanup_service import (
