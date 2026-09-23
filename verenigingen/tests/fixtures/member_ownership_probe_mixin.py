@@ -6,6 +6,15 @@ files (test_sepa_mandate_manager_api_ownership.py,
 test_sepa_mandate_diagnostics_ownership.py,
 test_payment_plan_from_application_ownership.py) -- flagged by
 scripts/validation/duplicate_helper_validator.py's pre-push clone-family gate.
+
+Also absorbs PR #1322's (#1101) inline `_BoardMemberProbeMixin` from
+test_payments_utils_gateways_endpoints_coverage.py, which built the same
+"non-admin user cleared for a security tier" shape under a different name
+(`_board_member_user`), invisible to the name-based clone gate until both
+PRs landed in the same tree. `_board_member_linked_user` here is that
+consolidated helper; test_payments_utils_gateways_endpoints_coverage.py now
+imports this mixin instead of keeping its own copy.
+
 See verenigingen/tests/services/test_sepa_mandate_manager_api_ownership.py's
 module docstring for the full derivation of why the CRITICAL-tier tests need
 _bypass_tier_gate(): per the checked-in verenigingen/fixtures/role_profile.json,
@@ -80,12 +89,17 @@ class MemberOwnershipProbeMixin:
         )
         return user_email, member
 
-    def _staff_user(self, first_name="StaffProbe", role="Verenigingen Administrator"):
+    def _staff_user(self, first_name="StaffProbe", role="Verenigingen Administrator", assert_no_member=False):
         """A user holding Roles.ADMIN_ROLES whose matching Role Profile clears
         CRITICAL for real (the default, "Verenigingen Administrator", clears
         CRITICAL/HIGH/MEDIUM/LOW -- "Verenigingen Staff" alone only clears
         HIGH/MEDIUM/LOW per ROLE_PROFILE_SECURITY_MAPPING, so pass
-        role="Verenigingen Staff" only for a HIGH-tier-or-lower endpoint)."""
+        role="Verenigingen Staff" only for a HIGH-tier-or-lower endpoint).
+
+        assert_no_member=True additionally asserts the new user has NO Member
+        record of their own, matching validate_member_ownership's own
+        allow_admin docstring ("even without an owning Member record").
+        """
         user_email = f"staff.{first_name.lower()}.{frappe.generate_hash(length=8)}@example.com"
         frappe.get_doc(
             {
@@ -102,6 +116,11 @@ class MemberOwnershipProbeMixin:
             set(frappe.get_roles(user_email)) & Roles.ADMIN_ROLES,
             "test setup: staff user must hold a Roles.ADMIN_ROLES role",
         )
+        if assert_no_member:
+            self.assertIsNone(
+                frappe.db.get_value("Member", {"user": user_email}, "name"),
+                "test setup: staff user must have no Member record of their own",
+            )
         return user_email
 
     @contextmanager
