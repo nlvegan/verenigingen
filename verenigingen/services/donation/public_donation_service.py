@@ -514,9 +514,26 @@ class PublicDonationService(StatelessService):
         donor flow relies on this endpoint (the guest return page renders
         status via get_context's own token-gated path, #1018); the guard
         below only has to match the doctype's existing permission scheme (#1092).
+
+        The doctype-level permission check below must run BEFORE any lookup
+        keyed on the caller-supplied donation_id, and without ever touching
+        frappe.get_doc: get_doc raises DoesNotExistError for an unknown id but
+        a plain {"error": ...} for an existing one the caller cannot read, and
+        those two are distinguishable -- an existence oracle over Donation
+        names for anyone who fails the check (#1284). So a caller without
+        general Donation read access gets the identical refusal whichever the
+        case; only a caller who already has read access reaches the
+        existence check, and gets a distinct "not found" for a genuinely
+        missing id.
         """
         if not donation_id:
             return {"error": "Donation ID required"}
+
+        if not frappe.has_permission("Donation", "read"):
+            return {"error": "Insufficient permissions"}
+
+        if not frappe.db.exists("Donation", donation_id):
+            return {"error": _("Donation not found")}
 
         donation = frappe.get_doc("Donation", donation_id)
 

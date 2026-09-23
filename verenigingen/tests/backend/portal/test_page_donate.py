@@ -328,6 +328,50 @@ class TestPageDonate(EnhancedTestCase):
         self.assertEqual(result["status"], "Paid")
         self.assertEqual(result["amount"], 42.0)
 
+    def _call_get_donation_status(self, donation_id):
+        """Normalise get_donation_status's result whether it returns a dict or
+        raises -- #1284's bug is that these two cases look different depending
+        on whether the caller-supplied id exists, which is exactly what this
+        helper must not silently paper over."""
+        from verenigingen.templates.pages.donate import get_donation_status
+
+        try:
+            return {"result": get_donation_status(donation_id)}
+        except Exception as e:
+            return {"exception": type(e).__name__}
+
+    def test_get_donation_status_unauthorized_user_cannot_distinguish_unknown_from_forbidden(self):
+        """#1284: get_donation_status_data called frappe.get_doc(donation_id) BEFORE
+        the #1092 permission guard, so an unknown id raised frappe.DoesNotExistError
+        while an existing-but-forbidden id returned {"error": "Insufficient
+        permissions"} -- two distinguishable outcomes an unauthorized caller could
+        use as an existence oracle over Donation names. A caller without Donation
+        read permission must get the IDENTICAL response for both."""
+        donation = self._make_donation(paid=1, amount=42.0)
+
+        with self.as_role("Verenigingen Chapter Board Member"):
+            forbidden = self._call_get_donation_status(donation.name)
+            unknown = self._call_get_donation_status("NONEXISTENT-DONATION-XYZ-123")
+
+        self.assertEqual(forbidden, unknown)
+        self.assertEqual(forbidden, {"result": {"error": "Insufficient permissions"}})
+
+    def test_get_donation_status_permitted_user_gets_clear_not_found(self):
+        """Positive control for #1284's fix: a caller who DOES hold Donation read
+        access must still get a distinct, clear "not found" for a genuinely
+        missing id -- the fix must not turn every unknown id into a blanket
+        "Insufficient permissions" for legitimate readers too."""
+        from verenigingen.templates.pages.donate import get_donation_status
+
+        admin = self.ensure_test_admin_user()
+
+        with self.as_user(admin.email):
+            result = get_donation_status("NONEXISTENT-DONATION-XYZ-123")
+
+        self.assertNotEqual(result, {"error": "Insufficient permissions"})
+        self.assertIn("error", result)
+        self.assertIn("not found", result["error"].lower())
+
     # ----- mark_donation_paid ------------------------------------------
 
     def test_mark_donation_paid_happy_path(self):
