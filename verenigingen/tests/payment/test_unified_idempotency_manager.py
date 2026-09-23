@@ -23,6 +23,11 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.services.test_donation_refund_journal_entry_creator_coverage import (
+    COMPANY,
+    _RefundFixtureMixin,
+)
 from verenigingen.verenigingen_payments.mollie.services.unified_idempotency_manager import (
     PaymentIdempotencyCheckResult,
     UnifiedIdempotencyManager,
@@ -267,6 +272,154 @@ class TestUnifiedIdempotencyManagerDB(FrappeTestCase):
 
     def _any_mode_of_payment(self):
         return frappe.db.get_value("Mode of Payment", {}, "name") or "Cash"
+
+
+class TestUnifiedIdempotencyManagerWildcardEscaping(_RefundFixtureMixin, EnhancedTestCase):
+    """#1277: LIKE patterns built from unescaped Mollie payment/refund ids.
+
+    A Mollie id routinely contains a literal ``_`` (e.g. ``"tr_abc123"``), which is
+    a single-character LIKE wildcard when not escaped. Each test here books a
+    Payment Entry / Sales Invoice for an UNRELATED payment/refund whose
+    reference_no/remarks is NOT a literal substring of the id under test -- it
+    differs at exactly the position of that id's ``_`` -- but DOES match once the
+    ``_`` is read as a wildcard. That is the same class #1153 and #1258 already
+    fixed at four other call sites in this codebase.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.clearing_account = self._ensure_clearing_account()
+        self.income_account = self._ensure_income_account()
+        self.receivable = frappe.get_value(
+            "Account", {"company": COMPANY, "account_type": "Receivable", "is_group": 0}, "name"
+        )
+        self.mgr = UnifiedIdempotencyManager()
+        donor = self._make_donor()
+        self.customer = frappe.get_doc("Donor", donor).get_or_create_customer()
+        if not frappe.db.exists("Mode of Payment", "Mollie Refund"):
+            mop = frappe.new_doc("Mode of Payment")
+            mop.mode_of_payment = "Mollie Refund"
+            mop.insert(ignore_permissions=True)
+
+    def _make_refund_payment_entry(self, reference_no, amount=10.0):
+        pe = frappe.new_doc("Payment Entry")
+        pe.payment_type = "Pay"
+        pe.posting_date = frappe.utils.today()
+        pe.company = COMPANY
+        pe.party_type = "Customer"
+        pe.party = self.customer
+        pe.paid_amount = amount
+        pe.received_amount = amount
+        pe.reference_no = reference_no
+        pe.reference_date = frappe.utils.today()
+        pe.paid_from = self.clearing_account
+        pe.paid_to = self.receivable
+        pe.mode_of_payment = "Mollie Refund"
+        pe.insert(ignore_permissions=True)
+        pe.submit()
+        self.track_test_record("Payment Entry", pe.name)
+        return pe.name
+
+    def _make_return_invoice(self, customer, remarks):
+        invoice = self.create_test_sales_invoice(customer=customer, grand_total=1.0)
+        frappe.db.set_value(
+            "Sales Invoice",
+            invoice.name,
+            {"return_against": invoice.name, "remarks": remarks},
+            update_modified=False,
+        )
+        return invoice.name
+
+    # ---------------------------------------------------- site 1: refund PE lookup
+    def test_wildcard_payment_id_does_not_falsely_mark_refund_processed(self):
+        """#1277 site 1: ``_check_refund_processing_state``'s ``reference_no`` LIKE
+        (``f"%{payment_id}_refund_%"``). An unrelated Payment Entry booked for a
+        DIFFERENT payment (the same refund_id, so a false match is observable)
+        wildcard-matches payment_id_b and makes the manager believe payment_id_b's
+        refund already has a Payment Entry -- silently dropping it from
+        ``pending_refunds``."""
+        uid = frappe.generate_hash(length=6)
+        payment_id_b = f"tr_{uid}"  # realistic Mollie id shape: literal '_' after "tr"
+        payment_id_a = f"trX{uid}"  # same length, '_' swapped for 'X'
+        self.assertNotIn(payment_id_b, payment_id_a)  # sanity: not a literal substring
+
+        refund_id = f"re_{uid}"
+        self._make_refund_payment_entry(f"{payment_id_a}_refund_{refund_id}")
+
+        payment = _FakePayment(
+            refunds=[{"id": refund_id, "amount": {"value": "10.00"}, "createdAt": "2026-01-01"}]
+        )
+        client = _FakeMollieClient(payment=payment)
+        result = PaymentIdempotencyCheckResult(payment_id_b)
+        with patch(
+            "verenigingen.verenigingen_payments.mollie.core.client.MollieClient",
+            return_value=client,
+        ):
+            self.mgr._check_refund_processing_state(payment_id_b, result, include_mollie_api=True)
+
+        self.assertEqual(
+            [r["refund_id"] for r in result.pending_refunds],
+            [refund_id],
+            f"refund {refund_id} has no Payment Entry for payment {payment_id_b!r} -- an unrelated PE "
+            f"for {payment_id_a!r} (not a literal substring) wildcard-matched instead, so it was "
+            "wrongly reported as already processed",
+        )
+
+    # -------------------------------------------------- site 2: chargeback lookup
+    def test_wildcard_payment_id_does_not_falsely_match_chargeback_remarks(self):
+        """#1277 site 2: ``_check_chargeback_processing_state``'s ``remarks`` LIKE
+        (``f"%{payment_id}%"``). An unrelated chargeback Payment Entry's remarks
+        merely containing a string one character away from payment_id_b must not
+        be attached to payment_id_b's chargeback state."""
+        uid = frappe.generate_hash(length=6)
+        payment_id_b = f"tr_{uid}"
+        payment_id_a = f"trX{uid}"
+        self.assertNotIn(payment_id_b, payment_id_a)
+
+        pe_name = self._make_refund_payment_entry(reference_no=f"chb_{uid}", amount=5.0)
+        frappe.db.set_value(
+            "Payment Entry",
+            pe_name,
+            "remarks",
+            f"Chargeback correction for {payment_id_a}",
+            update_modified=False,
+        )
+
+        result = PaymentIdempotencyCheckResult(payment_id_b)
+        self.mgr._check_chargeback_processing_state(payment_id_b, result, include_mollie_api=False)
+
+        self.assertEqual(
+            result.chargebacks_processed,
+            [],
+            f"remarks containing {payment_id_a!r} is not a literal substring of {payment_id_b!r} but "
+            f"was wildcard-matched, wrongly attaching Payment Entry {pe_name} (a different payment) "
+            "to it",
+        )
+
+    # ------------------------------------------ site 3: check_refund_idempotency
+    def test_wildcard_refund_id_does_not_falsely_match_credit_note_remarks(self):
+        """#1277 site 3: ``check_refund_idempotency``'s ``remarks`` LIKE
+        (``f"%{refund_id}%"``) against Sales Invoice.
+
+        Not established to be reachable from any current caller (a repo-wide grep
+        for ``check_refund_idempotency`` finds only this method's own definition
+        and its existing "returns None when absent" test); fixed anyway since the
+        method's own docstring calls it "the ONLY method for refund idempotency
+        checks" and the fix is a zero-risk one-line escape shared with the other
+        sites in this class."""
+        uid = frappe.generate_hash(length=6)
+        refund_id_b = f"re_{uid}"
+        refund_id_a = f"reX{uid}"
+        self.assertNotIn(refund_id_b, refund_id_a)
+
+        invoice_name = self._make_return_invoice(self.customer, remarks=f"Manual correction for {refund_id_a}")
+
+        matched = self.mgr.check_refund_idempotency(refund_id_b)
+        self.assertIsNone(
+            matched,
+            f"remarks containing {refund_id_a!r} is not a literal substring of {refund_id_b!r} but was "
+            f"wildcard-matched to credit note {invoice_name}, wrongly reported as already processed",
+        )
 
 
 if __name__ == "__main__":

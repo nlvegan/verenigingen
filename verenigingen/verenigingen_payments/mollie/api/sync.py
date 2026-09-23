@@ -12,6 +12,7 @@ from frappe.utils import now_datetime
 
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+from verenigingen.utils.sql_like import escape_sql_like_wildcards
 
 from ..core.client import MollieClient
 from ..exceptions import MollieIntegrationError
@@ -161,7 +162,16 @@ def sync_customer_payments(customer_id: str, limit: int = 50) -> Dict[str, Any]:
                     # Check if already processed locally
                     existing_log = frappe.db.exists(
                         "Mollie Audit Log",
-                        {"event_type": "payment_completed", "event_data": ("like", f"%{payment.id}%")},
+                        {
+                            "event_type": "payment_completed",
+                            # #1277: payment.id is Mollie-supplied and routinely
+                            # contains a literal '_' (e.g. "tr_abc123"), a LIKE
+                            # wildcard unless escaped -- see #1153.
+                            "event_data": (
+                                "like",
+                                f"%{escape_sql_like_wildcards(payment.id)}%",
+                            ),
+                        },
                     )
 
                     if not existing_log:
@@ -333,7 +343,14 @@ def bulk_sync_recent_payments(hours: int = 24) -> Dict[str, Any]:
                     # Check if already processed
                     completed_log = frappe.db.exists(
                         "Mollie Audit Log",
-                        {"event_type": "payment_completed", "event_data": ("like", f"%{payment_id}%")},
+                        {
+                            "event_type": "payment_completed",
+                            # #1277: same wildcard hazard as sync_customer_payments above.
+                            "event_data": (
+                                "like",
+                                f"%{escape_sql_like_wildcards(payment_id)}%",
+                            ),
+                        },
                     )
 
                     if not completed_log:
