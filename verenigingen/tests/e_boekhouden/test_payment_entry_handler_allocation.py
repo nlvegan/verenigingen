@@ -391,6 +391,38 @@ class TestHandlerSupportPaths(EnhancedTestCase):
         self.assertEqual(h._find_invoice_by_number("", "Sales Invoice", "customer", "X"), [])
         self.assertEqual(h._find_invoice_by_number("INV-1", "Sales Invoice", "customer", None), [])
 
+    def test_find_invoice_by_number_wildcard_does_not_falsely_match_strategy_4(self):
+        """#1277 site 8: Strategy 4's "partial match (last resort)"
+        (``"name": ["like", f"%{invoice_num}%"]``) is built from an unescaped
+        e-Boekhouden-supplied invoice number. A literal '_' in invoice_num is a
+        LIKE single-character wildcard unless escaped -- see #1153/#1258. The
+        real Sales Invoice name below has '-' at the position under test;
+        invoice_num has '_' there instead -- not a literal substring, but a
+        wildcard match for it when unescaped -- which would allocate a payment
+        against the wrong invoice."""
+        _ensure_current_fiscal_year()
+        receivable = frappe.db.get_value("Company", self.company, "default_receivable_account")
+        customer = _persist_customer(f"EBKH Wildcard Customer {frappe.generate_hash(length=6)}")
+        eb_invoice_number = f"EB-UNRELATED-{frappe.generate_hash(length=6)}"
+        si_name = _persist_submitted_sales_invoice(
+            self.company, customer, receivable, eb_invoice_number, rate=42.0
+        )
+        # si_name looks like "ACC-SINV-2026-00873": swap one '-' for '_' to build
+        # an invoice_num that is NOT a literal substring of si_name but wildcard-
+        # matches it once '_' is read as "any single character".
+        self.assertIn("-", si_name)
+        invoice_num = si_name.replace("-", "_", 1)
+        self.assertNotIn(invoice_num, si_name)  # sanity: not a literal substring
+
+        h = self._handler()
+        matches = h._find_invoice_by_number(invoice_num, "Sales Invoice", "customer", customer)
+        self.assertEqual(
+            matches,
+            [],
+            f"invoice_num {invoice_num!r} is not a literal substring of {si_name!r} but was "
+            f"wildcard-matched to it: {matches}",
+        )
+
     # ---- log_bank_transaction_summary ----
 
     def test_log_bank_transaction_summary_formats_counts(self):

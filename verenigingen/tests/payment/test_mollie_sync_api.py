@@ -20,12 +20,14 @@ functions (via __wrapped__) while still running inside
 `frappe.only_for(...)` role gate is genuinely exercised.
 """
 
+import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.payment.test_audit_trail_integrity import AuditLogFixtureMixin
 from verenigingen.verenigingen_payments.mollie.api import sync as sync_module
 from verenigingen.verenigingen_payments.mollie.exceptions import MollieIntegrationError
 
@@ -123,7 +125,7 @@ class _FakeClient:
         return self._payments
 
 
-class TestMollieSyncAPI(EnhancedTestCase):
+class TestMollieSyncAPI(AuditLogFixtureMixin, EnhancedTestCase):
     """Exercise sync.py orchestration with the Mollie HTTP boundary faked."""
 
     # ------------------------------------------------------------------
@@ -154,6 +156,7 @@ class TestMollieSyncAPI(EnhancedTestCase):
             last_name="Member",
             email=f"plain.{frappe.generate_hash(length=8)}@example.com",
         )
+
 
     # ------------------------------------------------------------------
     # sync_payment_status
@@ -294,6 +297,42 @@ class TestMollieSyncAPI(EnhancedTestCase):
             with self.assertRaises(MollieIntegrationError):
                 sync_customer_payments("")
 
+    def test_sync_customer_payments_wildcard_audit_log_does_not_suppress_processing(self):
+        """#1277 site 4: the "already processed" guard
+        (``event_data`` LIKE ``f"%{payment.id}%"``) is built from an unescaped
+        Mollie payment id. A Mollie id routinely contains a literal '_'
+        (e.g. "tr_abc123"), which LIKE reads as a single-character wildcard
+        unless escaped -- see #1153. An unrelated "payment_completed" audit log
+        entry for a DIFFERENT payment id (one character off, at the '_'
+        position) must not be read as "this payment already processed"."""
+        uid = frappe.generate_hash(length=6)
+        payment_id_b = f"tr_{uid}"  # under test; realistic Mollie id shape
+        payment_id_a = f"trX{uid}"  # unrelated payment; '_' swapped for 'X'
+        self.assertNotIn(payment_id_b, payment_id_a)  # sanity: not a literal substring
+
+        self._make_audit_log_entry(
+            event_type="payment_completed",
+            event_category="payment",
+            timestamp=frappe.utils.now_datetime(),
+            event_data=json.dumps({"payment_id": payment_id_a, "note": "unrelated completed payment"}),
+        )
+
+        payments = [_make_payment_obj(payment_id_b, "paid")]
+        fake_client = _FakeClient(payments)
+        fake_service = _FakePaymentService(completion_result={"entry": "PE-WILD"})
+        with patch(f"{SYNC_PATH}.MollieClient", return_value=fake_client), patch(
+            f"{SYNC_PATH}.PaymentService", return_value=fake_service
+        ):
+            with self.set_user("Administrator"):
+                sync_customer_payments("cst_wild")
+
+        self.assertIn(
+            payment_id_b,
+            fake_service.completion_calls,
+            f"an unrelated audit log entry for {payment_id_a!r} (not a literal substring of "
+            f"{payment_id_b!r}) wildcard-matched and wrongly suppressed processing of {payment_id_b!r}",
+        )
+
     # ------------------------------------------------------------------
     # sync_member_subscriptions
     # ------------------------------------------------------------------
@@ -357,6 +396,43 @@ class TestMollieSyncAPI(EnhancedTestCase):
         self.assertEqual(result["results"]["synced"], 0)
         self.assertEqual(result["results"]["errors"], 0)
         self.assertEqual(result["results"]["skipped"], 0)
+
+    def test_bulk_sync_wildcard_audit_log_does_not_suppress_processing(self):
+        """#1277 site 5: the same "already processed" guard as site 4, this time
+        inside ``bulk_sync_recent_payments``. An unrelated "payment_completed"
+        audit log entry, one character off from payment_id_b at the '_'
+        position, must not suppress processing of payment_id_b."""
+        uid = frappe.generate_hash(length=6)
+        payment_id_b = f"tr_{uid}"
+        payment_id_a = f"trX{uid}"
+        self.assertNotIn(payment_id_b, payment_id_a)
+
+        self._make_audit_log_entry(
+            event_type="payment_created",
+            event_category="payment",
+            timestamp=frappe.utils.now_datetime(),
+            event_data=json.dumps({"payment_id": payment_id_b}),
+        )
+        self._make_audit_log_entry(
+            event_type="payment_completed",
+            event_category="payment",
+            timestamp=frappe.utils.now_datetime(),
+            event_data=json.dumps({"payment_id": payment_id_a, "note": "unrelated"}),
+        )
+
+        fake_service = _FakePaymentService(
+            status={"status": "paid", "is_paid": True}, completion_result={"entry": "PE-BULK"}
+        )
+        with patch(f"{SYNC_PATH}.PaymentService", return_value=fake_service):
+            with self.set_user("Administrator"):
+                bulk_sync_recent_payments(hours=1)
+
+        self.assertIn(
+            payment_id_b,
+            fake_service.completion_calls,
+            f"an unrelated audit log entry for {payment_id_a!r} wildcard-matched {payment_id_b!r} and "
+            "wrongly marked it already processed",
+        )
 
     # ------------------------------------------------------------------
     # _update_local_subscription_records (direct)

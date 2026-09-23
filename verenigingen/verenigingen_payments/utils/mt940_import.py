@@ -9,6 +9,7 @@ import frappe
 from frappe.utils import getdate, today
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+from verenigingen.utils.sql_like import escape_sql_like_wildcards
 from verenigingen.utils.transaction_errors import (
     NON_RESUMABLE_DB_ERRORS,
     release_savepoint_if_present,
@@ -167,7 +168,9 @@ def find_own_bank_account_by_reference(account_ref: str, counterparty_name: str,
             AND (is_company_account = 1 OR company = %s)
             LIMIT 1
             """,
-            (f"%{counterparty_name}%", company),
+            # #1277: counterparty_name is MT940-supplied and may contain a literal
+            # '_'/'%', a LIKE wildcard unless escaped -- see #1153/#1258.
+            (f"%{escape_sql_like_wildcards(counterparty_name)}%", company),
             as_dict=True,
         )
 

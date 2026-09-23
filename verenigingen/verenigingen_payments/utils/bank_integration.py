@@ -21,6 +21,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, today
 
+from verenigingen.utils.sql_like import escape_sql_like_wildcards
 from verenigingen.verenigingen_payments.utils.invoice_candidates import (
     log_ambiguous_refusal,
     unambiguous_invoice,
@@ -341,7 +342,11 @@ class BankStatementImporter:
         if debtor_name and amount:
             # Find customer by name
             customers = frappe.get_all(
-                "Customer", filters={"customer_name": ["like", f"%{debtor_name}%"]}, fields=["name"]
+                "Customer",
+                # #1277: debtor_name is bank-supplied and may contain a literal
+                # '_'/'%', a LIKE wildcard unless escaped -- see #1153/#1258.
+                filters={"customer_name": ["like", f"%{escape_sql_like_wildcards(debtor_name)}%"]},
+                fields=["name"],
             )
 
             if customers:
