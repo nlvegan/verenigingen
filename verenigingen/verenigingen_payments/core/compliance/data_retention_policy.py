@@ -697,6 +697,25 @@ class DataRetentionPolicy:
         return add_days(now_datetime(), 1).isoformat()
 
 
+def anonymize_member(member_name: str) -> None:
+    """Public entry point for scrubbing a Member's PII in place, without
+    deleting the row.
+
+    Reuses DataRetentionPolicy._anonymize_personal_data -- the same code this
+    class's own _delete_personal_data falls back to when a Member has
+    dependencies it cannot safely delete through -- so there is a single
+    anonymization implementation rather than a second one growing elsewhere.
+    Used by MemberCleanupService.handle_member_deletion (#1306), which
+    converts a refused Member delete into an anonymization when one of the
+    Member's Membership Dues Schedules is still referenced by a Sales
+    Invoice.
+
+    Does not commit; the caller owns the transaction boundary (see
+    MemberCleanupService._anonymize_member_instead_of_deleting).
+    """
+    DataRetentionPolicy()._anonymize_personal_data({"name": member_name})
+
+
 def run_scheduled_retention_policies() -> Dict[str, Any]:
     """Weekly scheduler entrypoint: gated, dry-run-by-default retention run.
 

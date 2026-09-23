@@ -13,11 +13,12 @@ Refactored to use real data instead of mocks for more reliable testing.
 import unittest
 
 import frappe
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.services.member.lifecycle.member_cleanup_service import (
+    MemberAnonymizedInsteadOfDeleted,
     get_member_cleanup_service,
 )
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
 class TestMemberCleanupService(EnhancedTestCase):
@@ -324,6 +325,7 @@ class TestMemberCleanupService(EnhancedTestCase):
             first_name="Cleanup", last_name=f"Test{frappe.generate_hash(length=6)}",
             email=f"cleanup.errlog.{frappe.generate_hash(length=8)}@example.com",
         )
+        original_email = member.email
         schedule = self._make_referenceable_dues_schedule(member)
         invoice = self._make_submitted_invoice_for_schedule(schedule.name)
         # No explicit cleanup registered here: EnhancedTestCase's own
@@ -337,7 +339,13 @@ class TestMemberCleanupService(EnhancedTestCase):
         # which is exactly the gate-evasion this round removes.
 
         before = frappe.utils.now_datetime()
-        get_member_cleanup_service().handle_member_deletion(member)
+        # #1306: an invoice-blocked schedule now converts the whole delete
+        # into an anonymization, and aborts by raising rather than returning
+        # normally -- see MemberAnonymizedInsteadOfDeleted's docstring for
+        # why raising here is what stops the Member row itself from being
+        # removed by the outer frappe.delete_doc() call in production.
+        with self.assertRaises(MemberAnonymizedInsteadOfDeleted):
+            get_member_cleanup_service().handle_member_deletion(member)
 
         # The schedule survives -- same guard this whole PR is about.
         self.assertTrue(frappe.db.exists("Membership Dues Schedule", schedule.name))
@@ -357,6 +365,16 @@ class TestMemberCleanupService(EnhancedTestCase):
         )
         self.assertIn(schedule.name, error_logs[0].error)
         self.assertIn(member.name, error_logs[0].error)
+
+        # #1306: the Member is anonymized in place, not force-deleted -- the
+        # row still exists and the schedule's `member` link still resolves.
+        self.assertTrue(frappe.db.exists("Member", member.name))
+        self.assertEqual(frappe.db.get_value("Member", member.name, "first_name"), "Anonymous")
+        anon_email = frappe.db.get_value("Member", member.name, "email")
+        self.assertNotEqual(anon_email, original_email)
+        self.assertTrue(anon_email.startswith("anon_"))
+
+        self._cleanup_invoice_blocked_fixtures(member, schedule, invoice)
 
     def test_refused_schedule_delete_does_not_clear_member_backlink(self):
         """#1264 round 3: clear_member_schedule_backlinks_before_delete()
@@ -387,7 +405,7 @@ class TestMemberCleanupService(EnhancedTestCase):
             email=f"cleanup.backlink.{frappe.generate_hash(length=8)}@example.com",
         )
         schedule = self._make_referenceable_dues_schedule(member)
-        self._make_submitted_invoice_for_schedule(schedule.name)
+        invoice = self._make_submitted_invoice_for_schedule(schedule.name)
 
         self.assertEqual(
             frappe.db.get_value("Member", member.name, "current_dues_schedule"),
@@ -397,7 +415,10 @@ class TestMemberCleanupService(EnhancedTestCase):
             "the fix from a fixture that never had the problem",
         )
 
-        get_member_cleanup_service().handle_member_deletion(member)
+        # #1306: an invoice-blocked schedule now converts the whole delete
+        # into an anonymization, and aborts by raising.
+        with self.assertRaises(MemberAnonymizedInsteadOfDeleted):
+            get_member_cleanup_service().handle_member_deletion(member)
 
         # The schedule survives -- the invoice still names it (same guard
         # this whole PR is about).
@@ -415,6 +436,123 @@ class TestMemberCleanupService(EnhancedTestCase):
             "clearing the back-link and deleting the schedule must be one "
             "atomic (savepoint-wrapped) unit",
         )
+
+        self._cleanup_invoice_blocked_fixtures(member, schedule, invoice)
+
+    def _cleanup_invoice_blocked_fixtures(self, member, schedule, invoice):
+        """Tear down the invoice/schedule/customer trio an invoice-blocked
+        anonymization test creates, and commit it.
+
+        #1306: handle_member_deletion never reaches its own Membership /
+        SEPA Mandate / Sales Invoice-reference / Chapter Member / Customer /
+        Address / child-table cleanup once it chooses to anonymize -- the
+        whole cascade is skipped, by design, so the Member is either fully
+        cleaned up and deleted, or left untouched except for the deliberate
+        PII scrub. That means this test's own invoice, schedule and Customer
+        all survive the call under test and must be torn down here, or the
+        harness's own (non-force) teardown drain fails to delete them --
+        Member.customer still points at the Customer, and the schedule is
+        still active -- and reports a leak.
+
+        The commit is required, not optional: the mid-test
+        MemberAnonymizedInsteadOfDeleted-triggered frappe.db.commit() (see
+        MemberCleanupService._anonymize_member_instead_of_deleting) already
+        persisted the Member/schedule/invoice this test created, since it
+        runs on the same connection as this test's own setup -- so the
+        per-test rollback FrappeTestCase performs afterwards no longer
+        undoes that setup. Without an explicit commit here too, that SAME
+        rollback undoes only this cleanup, leaving the fixtures behind for
+        the drain to trip over -- which is exactly what was observed before
+        this helper existed. `_cleanup_*` is a recognised, exempt shape for
+        this (see scan_order_dependence.py's COMMIT_EXEMPT).
+        """
+        invoice.reload()
+        if invoice.docstatus == 1:
+            invoice.cancel()
+        frappe.delete_doc("Sales Invoice", invoice.name, force=True)
+        frappe.delete_doc("Membership Dues Schedule", schedule.name, force=True)
+        if member.customer:
+            frappe.delete_doc("Customer", member.customer, force=True)
+        frappe.db.commit()
+
+    def test_member_delete_doc_anonymizes_when_schedule_invoice_blocked(self):
+        """#1306 end-to-end: a real frappe.delete_doc("Member", ...) call --
+        the same call data_retention_policy._delete_personal_data and
+        member_merge_service._delete_source_member_and_dependencies make in
+        production, not handle_member_deletion() called directly -- must
+        abort BEFORE removing the Member row when one of its schedules is
+        still referenced by a Sales Invoice, leaving the Member anonymized
+        in place instead.
+
+        This is the design this PR picks: on_trash runs (and can raise)
+        BEFORE frappe.delete_doc()'s check_if_doc_is_linked and
+        delete_from_table steps (frappe/model/delete_doc.py), so raising
+        MemberAnonymizedInsteadOfDeleted from inside on_trash aborts the
+        delete cleanly -- nothing about the Member row, its schedule, or the
+        invoice is touched by delete_doc after that point. Both real
+        force=True callers (data_retention_policy, member_merge_service)
+        and a Desk "delete linked documents" delete all funnel through this
+        same on_trash choke point, so fixing it here protects all of them
+        without duplicating the invoice check in each caller.
+        """
+        self.expectErrorLog("Dues Schedule Not Deleted", "Member Deletion Audit Trail")
+        member = self.create_test_member(
+            first_name="E2E", last_name=f"Test{frappe.generate_hash(length=6)}",
+            email=f"e2e.anon.{frappe.generate_hash(length=8)}@example.com",
+        )
+        original_email = member.email
+        schedule = self._make_referenceable_dues_schedule(member)
+        invoice = self._make_submitted_invoice_for_schedule(schedule.name)
+
+        # force=True mirrors both real production callers; it does not
+        # change whether this guard fires (on_trash always runs, force or
+        # not), only whether delete_doc would otherwise also skip its own
+        # link-existence check for the Member itself.
+        with self.assertRaises(MemberAnonymizedInsteadOfDeleted):
+            frappe.delete_doc("Member", member.name, force=True)
+
+        # The Member row itself was never removed, and is anonymized.
+        self.assertTrue(frappe.db.exists("Member", member.name))
+        self.assertEqual(frappe.db.get_value("Member", member.name, "first_name"), "Anonymous")
+        anon_email = frappe.db.get_value("Member", member.name, "email")
+        self.assertNotEqual(anon_email, original_email)
+        self.assertTrue(anon_email.startswith("anon_"))
+
+        # The invoice (financially load-bearing) and the schedule it names
+        # are completely untouched -- neither deleted nor modified.
+        self.assertTrue(frappe.db.exists("Sales Invoice", invoice.name))
+        self.assertEqual(frappe.db.get_value("Sales Invoice", invoice.name, "docstatus"), 1)
+        self.assertEqual(
+            frappe.db.get_value("Sales Invoice", invoice.name, "membership_dues_schedule_display"),
+            schedule.name,
+        )
+        self.assertTrue(frappe.db.exists("Membership Dues Schedule", schedule.name))
+        self.assertEqual(
+            frappe.db.get_value("Membership Dues Schedule", schedule.name, "member"), member.name
+        )
+        # The schedule's `member` link still resolves -- the whole point of
+        # anonymizing instead of deleting (#1306's title).
+        self.assertTrue(frappe.db.exists("Member", frappe.db.get_value(
+            "Membership Dues Schedule", schedule.name, "member"
+        )))
+
+        self._cleanup_invoice_blocked_fixtures(member, schedule, invoice)
+
+    def test_member_delete_doc_succeeds_when_no_schedule_blocked(self):
+        """#1306 control: the ordinary case (no invoice-referenced schedule)
+        must still go through frappe.delete_doc("Member", ...) and actually
+        remove the row -- proving the new invoice-blocked check does not
+        accidentally engage, or otherwise interfere with, a normal delete.
+        """
+        member = self.create_test_member(
+            first_name="E2E", last_name=f"Plain{frappe.generate_hash(length=6)}",
+            email=f"e2e.plain.{frappe.generate_hash(length=8)}@example.com",
+        )
+        member_name = member.name
+
+        frappe.delete_doc("Member", member_name, force=True)
+
+        self.assertFalse(frappe.db.exists("Member", member_name))
 
     def _make_referenceable_dues_schedule(self, member):
         """A schedule keyed to `member`. Deliberately does NOT clear the

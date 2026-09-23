@@ -35,14 +35,32 @@ Dependencies:
 - Direct SQL for child table cleanup
 """
 
-from typing import TYPE_CHECKING, Set
+from typing import TYPE_CHECKING, List, Set
 
 import frappe
+from frappe import _
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
+
+
+class MemberAnonymizedInsteadOfDeleted(frappe.ValidationError):
+    """Raised by MemberCleanupService.handle_member_deletion (#1306) when one of
+    the Member's Membership Dues Schedules is still referenced by a Sales
+    Invoice, so the Member cannot be safely deleted: doing so would leave the
+    schedule's own `member` field pointing at a Member that no longer exists.
+
+    By the time this is raised, the Member's personal data has already been
+    anonymized and that change committed -- raising here (inside on_trash)
+    aborts frappe.delete_doc()'s in-progress delete before it removes the
+    Member row, because on_trash runs before check_if_doc_is_linked and
+    delete_from_table (see frappe/model/delete_doc.py). Nothing about the
+    Member row or its still-referenced schedule is touched; only the cascade
+    cleanup this method chose to skip (Memberships, SEPA Mandates, Chapter
+    Member links, etc.) is left undone.
+    """
 
 
 class MemberCleanupService(StatelessService):
@@ -166,39 +184,20 @@ class MemberCleanupService(StatelessService):
             delete_dues_schedule_with_backlink_cleanup,
         )
 
-        # Delete related Membership records (both draft and submitted)
-        memberships = frappe.get_all("Membership", filters={"member": member_doc.name}, pluck="name")
-
-        for membership_name in memberships:
-            try:
-                membership = frappe.get_doc("Membership", membership_name)
-                # Cancel if submitted, then delete
-                if membership.docstatus == 1:  # Submitted
-                    membership.cancel()
-                frappe.delete_doc("Membership", membership_name, force=True)
-            except Exception as e:
-                self.logger.error(f"Error deleting Membership {membership_name}: {str(e)}")
-
-        # Delete SEPA Mandate documents linked to this member. The "Member SEPA
-        # Mandate Link" child table cleared further below only holds references;
-        # the actual SEPA Mandate documents carry a `member` Link field pointing
-        # back at this Member, so they must be deleted too -- otherwise deleting a
-        # Member with any mandate raises LinkExistsError. SEPA Mandate is not
-        # submittable, so a force delete is sufficient (also drops the IBAN PII).
-        sepa_mandates = frappe.get_all("SEPA Mandate", filters={"member": member_doc.name}, pluck="name")
-
-        for mandate_name in sepa_mandates:
-            try:
-                frappe.delete_doc("SEPA Mandate", mandate_name, force=True)
-                self.logger.info(f"Deleted SEPA Mandate {mandate_name}")
-            except Exception as e:
-                self.logger.error(f"Error deleting SEPA Mandate {mandate_name}: {str(e)}")
-
-        # Delete Membership Dues Schedules linked to this member
+        # Delete Membership Dues Schedules linked to this member. This runs
+        # BEFORE any other destructive step (#1306): if a schedule cannot be
+        # deleted because a Sales Invoice still references it, the whole
+        # operation is converted into an anonymization (see
+        # _anonymize_member_instead_of_deleting below) and every other cascade
+        # step -- Memberships, SEPA Mandates, Sales Invoice reference
+        # clearing, Chapter Member links, Customer/Address handling, child
+        # tables -- is skipped, so the Member is either fully cleaned up and
+        # deleted, or left untouched except for the deliberate PII scrub.
         dues_schedules = frappe.get_all(
             "Membership Dues Schedule", filters={"member": member_doc.name}, pluck="name"
         )
 
+        invoice_blocked_schedules = []
         for schedule_name in dues_schedules:
             try:
                 # #1264: force=True bypasses the ordinary link-integrity check
@@ -233,12 +232,11 @@ class MemberCleanupService(StatelessService):
                 # #1264 round 2: this refusal is the guard working as intended,
                 # but its only trace was self.logger.error above (a file under
                 # sites/<site>/logs/, not something an operator browsing the
-                # Desk normally checks). The Member is about to be deleted
-                # regardless (see below), so this schedule is left pointing at
-                # a `member` that is about to stop existing -- a real, if
-                # smaller, dangling-link risk (#1290 follow-up) that deserves
-                # the same operator-visible audit trail this file already
-                # gives permission-bypass events, not just a log line.
+                # Desk normally checks). The schedule is left pointing at a
+                # `member` that is about to stop existing unless #1306's check
+                # below converts this into an anonymization -- either way this
+                # deserves the same operator-visible audit trail this file
+                # already gives permission-bypass events, not just a log line.
                 frappe.log_error(
                     title="Member Deletion: Dues Schedule Not Deleted",
                     message=(
@@ -248,6 +246,50 @@ class MemberCleanupService(StatelessService):
                         "pointing at a Member that is about to be deleted."
                     ),
                 )
+                # #1306: ask the system, not the caught exception's message --
+                # query directly whether a Sales Invoice is what is blocking
+                # this specific schedule. Any other cause (a Contribution
+                # Amendment Request, a Payment Plan, a transient DB error) is
+                # left with the pre-#1306 behaviour: logged above, and the
+                # Member deletion proceeds regardless. Scoped this narrowly
+                # because that is what #1306 and its maintainer decision
+                # describe; broadening it to "any refused schedule delete"
+                # would also change already-covered scenarios that have
+                # nothing to do with an invoice.
+                if frappe.db.exists("Sales Invoice", {"membership_dues_schedule_display": schedule_name}):
+                    invoice_blocked_schedules.append(schedule_name)
+
+        if invoice_blocked_schedules:
+            self._anonymize_member_instead_of_deleting(member_doc, invoice_blocked_schedules)
+            return  # pragma: no cover - _anonymize_member_instead_of_deleting always raises
+
+        # Delete related Membership records (both draft and submitted)
+        memberships = frappe.get_all("Membership", filters={"member": member_doc.name}, pluck="name")
+
+        for membership_name in memberships:
+            try:
+                membership = frappe.get_doc("Membership", membership_name)
+                # Cancel if submitted, then delete
+                if membership.docstatus == 1:  # Submitted
+                    membership.cancel()
+                frappe.delete_doc("Membership", membership_name, force=True)
+            except Exception as e:
+                self.logger.error(f"Error deleting Membership {membership_name}: {str(e)}")
+
+        # Delete SEPA Mandate documents linked to this member. The "Member SEPA
+        # Mandate Link" child table cleared further below only holds references;
+        # the actual SEPA Mandate documents carry a `member` Link field pointing
+        # back at this Member, so they must be deleted too -- otherwise deleting a
+        # Member with any mandate raises LinkExistsError. SEPA Mandate is not
+        # submittable, so a force delete is sufficient (also drops the IBAN PII).
+        sepa_mandates = frappe.get_all("SEPA Mandate", filters={"member": member_doc.name}, pluck="name")
+
+        for mandate_name in sepa_mandates:
+            try:
+                frappe.delete_doc("SEPA Mandate", mandate_name, force=True)
+                self.logger.info(f"Deleted SEPA Mandate {mandate_name}")
+            except Exception as e:
+                self.logger.error(f"Error deleting SEPA Mandate {mandate_name}: {str(e)}")
 
         # Clear Member reference from Sales Invoices to allow deletion
         # This prevents link validation errors when deleting members with invoices
@@ -324,6 +366,55 @@ class MemberCleanupService(StatelessService):
             except Exception as e:
                 # Some tables might not exist in all installations, so just log and continue
                 self.logger.debug(f"Could not clean up {table_name}: {str(e)}")
+
+    def _anonymize_member_instead_of_deleting(
+        self, member_doc: "Document", blocked_schedules: List[str]
+    ) -> None:
+        """Convert a refused Member delete into an anonymization (#1306).
+
+        Called from handle_member_deletion when one or more of the Member's
+        Membership Dues Schedules could not be deleted because a Sales
+        Invoice still references it via membership_dues_schedule_display.
+        Force-deleting the Member anyway (the pre-#1306 behaviour) would
+        leave that schedule's own `member` field pointing at a Member that
+        no longer exists -- the invoice, the financially load-bearing
+        document, must never be touched as a side effect of this, so the
+        Member is scrubbed in place and kept instead.
+
+        Reuses DataRetentionPolicy._anonymize_personal_data (via the public
+        anonymize_member wrapper) rather than a second anonymizer, matching
+        the pattern data_retention_policy.py already uses for its own
+        Member-with-dependencies case (_delete_personal_data).
+
+        The anonymization is committed here, before raising, because the
+        exception this raises is expected to propagate out of an in-progress
+        frappe.delete_doc() call: an uncaught exception reaching a Frappe
+        request/background-job boundary triggers an ambient
+        frappe.db.rollback(), which would otherwise undo the very
+        anonymization this method exists to make stick (see Pattern 1,
+        "Explicit Commit After db_set()", in this repo's CLAUDE.md).
+        """
+        from verenigingen.verenigingen_payments.core.compliance.data_retention_policy import (
+            anonymize_member,
+        )
+
+        anonymize_member(member_doc.name)
+        frappe.db.commit()
+
+        schedule_list = ", ".join(blocked_schedules)
+        self.logger.info(
+            f"Member {member_doc.name} anonymized instead of deleted: Membership Dues "
+            f"Schedule(s) {schedule_list} are still referenced by a Sales Invoice."
+        )
+        frappe.throw(
+            _(
+                "Member {0} was not deleted because Membership Dues Schedule(s) {1} "
+                "are still referenced by a Sales Invoice. The member's personal data "
+                "has been anonymized instead, and the schedule(s) and invoice(s) were "
+                "left unchanged."
+            ).format(member_doc.name, schedule_list),
+            exc=MemberAnonymizedInsteadOfDeleted,
+        )
 
     def _unlink_member_from_customer(self, member_doc: "Document") -> None:
         """

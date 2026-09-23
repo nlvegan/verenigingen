@@ -7,6 +7,10 @@ conflict detection, and data preservation.
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+
+from verenigingen.services.member.lifecycle.member_cleanup_service import (
+    MemberAnonymizedInsteadOfDeleted,
+)
 from verenigingen.services.member_merge_service import MemberMergeService
 
 
@@ -313,20 +317,39 @@ class TestMemberMerge(FrappeTestCase):
         return invoice
 
     def test_merge_does_not_orphan_invoice_via_dangling_schedule(self):
-        """A schedule still referenced by a Sales Invoice via
-        membership_dues_schedule_display must survive a merge that deletes
-        its source Member, rather than being force-deleted out from under
-        the invoice.
+        """#1306: a schedule still referenced by a Sales Invoice via
+        membership_dues_schedule_display must survive a merge -- and now
+        the source Member survives too (anonymized in place), instead of
+        being force-deleted out from under the invoice as #1290 left it.
+
+        member_merge_service.py needed NO changes for this: its final
+        frappe.delete_doc("Member", source.name, force=True) call runs
+        Member.on_trash -> MemberCleanupService.handle_member_deletion, the
+        SAME choke point the direct-delete and data-retention-policy
+        callers go through, so the #1306 guard protects this caller too.
+        execute_merge does not catch the resulting exception, so it
+        propagates to the caller instead of returning {"success": True} --
+        a real, disclosed behaviour change from #1290's version of this
+        test, not a silent one.
         """
         mt_name = self._make_merge_test_membership_type()
         schedule = self._make_merge_test_dues_schedule(self.source.name, mt_name)
         invoice = self._make_merge_test_invoice(schedule.name)
 
-        result = self.service.execute_merge(self.source.name, self.target.name, {})
+        with self.assertRaises(MemberAnonymizedInsteadOfDeleted):
+            # contact_number: target has none, source does -- selecting it
+            # proves the merge's positive effect on target (already saved
+            # before the blocked source delete is attempted) survives even
+            # though execute_merge itself ends by raising.
+            self.service.execute_merge(
+                self.source.name, self.target.name, {"contact_number": "source"}
+            )
 
-        self.assertTrue(result["success"])
-        # The merge still completes -- the source Member is gone either way.
-        self.assertFalse(frappe.db.exists("Member", self.source.name))
+        # The source Member is anonymized in place, not deleted -- the
+        # schedule's `member` link still resolves.
+        self.assertTrue(frappe.db.exists("Member", self.source.name))
+        self.assertEqual(frappe.db.get_value("Member", self.source.name, "first_name"), "Anonymous")
+
         self.assertTrue(
             frappe.db.exists("Membership Dues Schedule", schedule.name),
             "a schedule still referenced by a Sales Invoice must not be "
@@ -336,6 +359,14 @@ class TestMemberMerge(FrappeTestCase):
         self.assertEqual(
             frappe.db.get_value("Sales Invoice", invoice.name, "membership_dues_schedule_display"),
             schedule.name,
+        )
+
+        # The target's field merge still committed, despite the raise: the
+        # anonymization's own frappe.db.commit() (MemberCleanupService.
+        # _anonymize_member_instead_of_deleting) runs on the SAME connection
+        # as this test's own target.save(), which happened first.
+        self.assertEqual(
+            frappe.db.get_value("Member", self.target.name, "contact_number"), "+31612345678"
         )
 
     def test_merge_still_deletes_unreferenced_schedule(self):
