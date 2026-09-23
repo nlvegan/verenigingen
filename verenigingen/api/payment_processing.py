@@ -810,14 +810,21 @@ def apply_late_fees(member_name, payment_info):
     return True
 
 
-def get_or_create_customer(member):
-    """Get or create customer record for member - delegates to application_payments module"""
+def get_or_create_customer(member, suppress_error_log=False):
+    """Get or create customer record for member - delegates to application_payments module
+
+    Args:
+        member: Member document to get/create a Customer for.
+        suppress_error_log: Threaded through to create_customer_for_member -- see its
+            docstring. Set this when the caller already owns a single, higher-context
+            Error Log row for the whole operation (#1173).
+    """
     from verenigingen.utils.application_payments import create_customer_for_member
 
     if member.customer:
         return frappe.get_doc("Customer", member.customer)
     else:
-        customer = create_customer_for_member(member)
+        customer = create_customer_for_member(member, suppress_error_log=suppress_error_log)
         member.db_set("customer", customer.name)
         return customer
 

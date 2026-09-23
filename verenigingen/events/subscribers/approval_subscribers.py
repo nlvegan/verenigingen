@@ -45,10 +45,15 @@ def handle_customer_creation(event_name, event_data, **kwargs):
                 logger.info(f"Customer already exists for member {member_name}: {member.customer}")
                 return {"success": True, "action": "already_exists", "customer": member.customer}
 
-            # Create customer using existing helper
+            # Create customer using existing helper. suppress_error_log=True: this
+            # loop already owns the one canonical "Approval Background Job Error"
+            # row at exhaustion below, so create_customer_for_member's own write
+            # must be suppressed on every attempt -- otherwise a persistently
+            # failing creation writes up to 4 Error Log rows for one failure (#1173,
+            # same amplification shape as #1130/#1162/#1165).
             from verenigingen.api.payment_processing import get_or_create_customer
 
-            customer_result = get_or_create_customer(member)
+            customer_result = get_or_create_customer(member, suppress_error_log=True)
             if customer_result:
                 logger.info(f"Customer created for member {member_name}: {customer_result}")
                 return {"success": True, "action": "created", "customer": customer_result}
@@ -63,8 +68,8 @@ def handle_customer_creation(event_name, event_data, **kwargs):
                     f"Error in customer creation background job for {member_name} after {max_retries} attempts: {str(e)}"
                 )
                 frappe.log_error(
-                    f"Customer creation background job failed for {member_name}: {str(e)}",
-                    "Approval Background Job Error",
+                    title="Approval Background Job Error",
+                    message=f"Customer creation background job failed for {member_name}: {str(e)}",
                 )
                 return {"success": False, "error": str(e), "retries": retry_count}
             else:

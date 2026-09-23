@@ -28,6 +28,7 @@ from frappe import _
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.user_role_grant import ensure_role_survives_profile_resync
 
 
 class VolunteerExpenseApproverService(StatelessService):
@@ -173,33 +174,12 @@ class VolunteerExpenseApproverService(StatelessService):
         # A user carrying a Role Profile has its `roles` table re-synced from the
         # profile on every save (User.populate_role_profile_roles), which silently
         # strips this ad-hoc role -- so the save above "succeeds" without granting
-        # it. Since the security hardening made role PROFILES the norm (HIGH/CRITICAL
-        # tiers are profile-only), that is the common case. When the role did not
-        # persist, grant it via a direct Has Role insert -- the sanctioned pattern
-        # for adding a single role without re-validating (hence re-syncing) the whole
-        # roles table (mirrors permissions.py::ensure_chapter_board_member_role).
-        if not frappe.db.exists(
-            "Has Role", {"parent": user_email, "role": "Expense Approver", "parenttype": "User"}
-        ):
-            # validator-skip: child-table-direct-insert (intentional - role-profile re-sync workaround)
-            frappe.get_doc(
-                {
-                    "doctype": "Has Role",
-                    "parent": user_email,
-                    "parenttype": "User",
-                    "parentfield": "roles",
-                    "role": "Expense Approver",
-                }
-                # Security: system operation granting only the single hard-coded "Expense
-                # Approver" role to an already-selected approver, gated by the audited
-                # secure_document_operation above; ignore_permissions avoids re-validating
-                # (and thus re-syncing away) the user's full roles table.
-            ).insert(ignore_permissions=True)
-            frappe.clear_cache(user=user_email)
-            frappe.logger().info(
-                f"SECURITY AUDIT: Granted Expense Approver role to {user_email} via direct insert "
-                f"(role-profile re-sync stripped the standard assignment) - User: {frappe.session.user}"
-            )
+        # it (#1195). Since the security hardening made role PROFILES the norm
+        # (HIGH/CRITICAL tiers are profile-only), that is the common case. Verify
+        # and fall back to a direct Has Role insert -- the sanctioned pattern for
+        # adding a single role without re-validating (hence re-syncing) the whole
+        # roles table, shared with every other affected call site (#1195).
+        ensure_role_survives_profile_resync(user_email, "Expense Approver")
 
     def _load_volunteer(self):
         """Lazy load volunteer document"""

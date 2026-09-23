@@ -10,6 +10,7 @@ import time
 import frappe
 from frappe import _
 
+from verenigingen.utils.user_role_grant import ensure_role_survives_profile_resync
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 
@@ -474,6 +475,12 @@ def _grant_chapter_member_permissions(chapter_name, member_doc):
         if "Chapter Member" not in user_roles:
             user_doc.append("roles", {"role": "Chapter Member"})
             user_doc.save()
+            # #1195: the append above is silently defeated by User.validate()'s
+            # role-profile re-derivation whenever member_doc.user carries a Role
+            # Profile that doesn't include "Chapter Member" (none of this app's
+            # shipped profiles do) -- verify and fall back to a direct Has Role
+            # insert.
+            ensure_role_survives_profile_resync(member_doc.user, "Chapter Member")
 
         frappe.logger("events").info(f"Granted Chapter Member role to {member_doc.user} for {chapter_name}")
 

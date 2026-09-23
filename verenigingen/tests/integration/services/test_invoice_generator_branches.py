@@ -442,8 +442,10 @@ class TestInvoiceGeneratorBranches(EnhancedTestCase):
         )
         self.assertIn("Daily fee for 2025-01-01", desc)
 
-    def test_description_builder_fallback_frequency(self):
-        """An unrecognised frequency uses the generic period form."""
+    def test_description_builder_weekly(self):
+        """Weekly frequency gets a labelled description, same shape as
+        Monthly/Quarterly/Semi-Annual/Annual (#1241: Weekly was missing from the
+        elif list and fell into the unlabelled generic fallback below)."""
         desc = InvoiceDescriptionBuilder().build_description(
             member_name="Jane Doe",
             membership_type="Regular",
@@ -451,4 +453,17 @@ class TestInvoiceGeneratorBranches(EnhancedTestCase):
             period_start=date(2025, 1, 1),
             period_end=date(2025, 1, 7),
         )
+        self.assertIn("Weekly period: 2025-01-01 to 2025-01-07", desc)
+
+    def test_description_builder_fallback_frequency(self):
+        """Custom has no natural single-word period label, so it deliberately
+        uses the generic period form (unlike Weekly, which #1241 fixed)."""
+        desc = InvoiceDescriptionBuilder().build_description(
+            member_name="Jane Doe",
+            membership_type="Regular",
+            billing_frequency="Custom",
+            period_start=date(2025, 1, 1),
+            period_end=date(2025, 1, 7),
+        )
         self.assertIn("Period: 2025-01-01 to 2025-01-07", desc)
+        self.assertNotIn("Custom period:", desc)

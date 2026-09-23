@@ -163,7 +163,6 @@ verenigingen/events/member_events.py::emit_member_lifecycle_changed::1
 verenigingen/events/member_events.py::emit_member_status_changed::1
 verenigingen/events/migration_helper.py::ensure_payment_history_current::2
 verenigingen/events/subscribers/approval_subscribers.py::handle_chapter_assignment::1
-verenigingen/events/subscribers/approval_subscribers.py::handle_customer_creation::1
 verenigingen/events/subscribers/chapter_subscribers.py::handle_board_notifications::1
 verenigingen/events/subscribers/chapter_subscribers.py::handle_board_role_assignments::1
 verenigingen/events/subscribers/chapter_subscribers.py::handle_cache_invalidation::1
@@ -256,7 +255,6 @@ verenigingen/services/member/approval/application_helpers.py::_apply_custom_cont
 verenigingen/services/member/approval/application_helpers.py::_get_membership_type_currency::1
 verenigingen/services/member/approval/application_helpers.py::activate_pending_chapter_membership::2
 verenigingen/services/member/approval/application_helpers.py::create_active_chapter_membership::2
-verenigingen/services/member/approval/application_helpers.py::create_member_from_application::2
 verenigingen/services/member/approval/application_helpers.py::create_pending_chapter_membership::3
 verenigingen/services/member/approval/application_helpers.py::determine_chapter_from_application::2
 verenigingen/services/member/approval/application_helpers.py::ensure_payment_modes_exist::1

@@ -80,6 +80,23 @@ def load_unpaid_invoices_secure(date_range="overdue", membership_type: str | Non
 
     filters = {"status": ["in", ["Unpaid", "Overdue"]], "docstatus": 1}
 
+    # SEPA Direct Debit is EUR-only (#1218) -- the same rule
+    # `create_sepa_batch_validated` already enforces per-invoice. Kept identical
+    # to the non-secure twin (see its docstring for the measured veg11 counts).
+    filters["currency"] = "EUR"
+
+    # Require SOME link to a member or dues schedule (#1218): excludes a
+    # donation invoice or a general sale (neither link), while an EUR invoice
+    # that DOES reference a member -- even with a broken/missing dues-schedule
+    # link -- still passes through, to preserve #1239's "report the reason, do
+    # not silently drop a collectable invoice" rule. Kept identical to the
+    # non-secure twin (see its docstring for the measured veg11 counts this is
+    # based on).
+    or_filters = [
+        ["membership_dues_schedule_display", "is", "set"],
+        ["member", "is", "set"],
+    ]
+
     # Add date range filter
     if date_range == "overdue":
         filters["due_date"] = ["<", today()]
@@ -110,6 +127,7 @@ def load_unpaid_invoices_secure(date_range="overdue", membership_type: str | Non
             "Membership Dues Schedule", filters={"membership_type": membership_type}, pluck="name"
         )
         if not schedules:
+            frappe.local.response["total_eligible"] = 0
             return []
         filters["membership_dues_schedule_display"] = ["in", schedules]
 
@@ -125,6 +143,7 @@ def load_unpaid_invoices_secure(date_range="overdue", membership_type: str | Non
     invoices = frappe.get_all(
         "Sales Invoice",
         filters=filters,
+        or_filters=or_filters,
         fields=[
             "name as invoice",
             "customer",
@@ -149,6 +168,17 @@ def load_unpaid_invoices_secure(date_range="overdue", membership_type: str | Non
         order_by="due_date",
         limit=limit,
     )
+
+    # #1219: same truncation-visibility fix as the non-secure twin. This
+    # endpoint is not `@handle_api_error`-wrapped, but `frappe.local.response`
+    # is set the same way regardless of which decorator sits on top.
+    if limit is not None and len(invoices) == limit:
+        total_eligible = len(
+            frappe.get_all("Sales Invoice", filters=filters, or_filters=or_filters, pluck="name")
+        )
+    else:
+        total_eligible = len(invoices)
+    frappe.local.response["total_eligible"] = total_eligible
 
     # Optimized: Get member and mandate information in single batch query
     if invoices:

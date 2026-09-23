@@ -1,4 +1,4 @@
-"""Shared test helper for the #1217 "already batched" exclusion tests.
+"""Shared test helpers for the SEPA batch loader test files.
 
 Both test_sepa_batch_ui.py and test_sepa_batch_ui_secure.py need to put a
 freshly-built chain's invoice into a real Direct Debit Batch at a specific
@@ -8,10 +8,36 @@ near-identical copies -- one of those was exactly the "two divergent copies of
 an exclusion rule" trap #1217 itself was filed for, and the duplicate-helper
 ratchet (scripts/validation/duplicate_helper_validator.py) is what catches it
 on the test side.
+
+`customer_only_invoice` (#1218) is here for the same reason: both files'
+eligibility-guard tests need a Sales Invoice with no `member` and no
+`membership_dues_schedule_display` link (a donation-invoice/general-sale
+shape), and the ratchet caught the first version of this as a near-identical
+copy-paste across the two files.
 """
 
 import frappe
 from frappe.utils import today
+
+from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
+
+
+def customer_only_invoice(test_case, first_name, currency="EUR"):
+    """A Sales Invoice with no `member` and no dues-schedule link -- the shape
+    of a donation invoice or a general sale (#1218).
+
+    Sets `test_case.factory` to the factory it builds, matching the
+    `_build_member_with_invoice` convention both callers already use.
+    """
+    f = SEPATestDataFactory(seed=frappe.generate_hash(length=4).__hash__() & 0xFFFF, use_faker=True)
+    test_case.factory = f
+    customer = f.create_test_customer(customer_name=f"Cust {first_name}").name
+    return f.create_test_sales_invoice(
+        customer=customer,
+        grand_total=42.0,
+        currency=currency,
+        submit=True,
+    )
 
 
 def put_invoice_in_batch(

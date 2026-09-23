@@ -21,6 +21,7 @@ Two techniques are used throughout:
 """
 
 from contextlib import contextmanager
+from unittest.mock import patch
 
 import frappe
 
@@ -297,6 +298,72 @@ class TestApprovalEventsCoverage(EnhancedTestCase):
     def test_handle_customer_creation_no_member_key_returns_none(self):
         with self.assertNoErrorLog():
             self.assertIsNone(asub.handle_customer_creation("e", {}))
+
+    def test_handle_customer_creation_persistent_failure_writes_exactly_one_error_log_row(self):
+        """#1173: a persistently-failing customer creation must not fan out into
+        up to 4 Error Log rows for one failure.
+
+        Before the fix, create_customer_for_member logged its own "Customer
+        Creation Error" row UNCONDITIONALLY on every failed attempt, and this
+        handler's retry loop calls it (via get_or_create_customer) up to 3 times
+        -- so a persistent failure wrote 3 such rows PLUS this handler's own
+        "Approval Background Job Error" row at exhaustion = 4. Same
+        amplification shape as #1130/#1162/#1165.
+
+        time.sleep is patched to a no-op so the test doesn't pay the real
+        20s/40s exponential backoff between retry attempts.
+        """
+        member = self._make_member(first_name="CustFail")
+        # The Enhanced factory auto-creates a Customer for every Member.
+        # create_customer_for_member's OWN existing-customer lookup is keyed on
+        # the Customer.member link, not Member.customer -- clearing only the
+        # latter (as the idempotency test above does) leaves that lookup
+        # resolving to the auto-created Customer and short-circuiting BEFORE the
+        # patched insert ever runs. Delete the Customer outright so creation is
+        # actually attempted (and fails, via the patch below).
+        existing_customer = frappe.db.get_value("Customer", {"member": member.name}, "name")
+        if existing_customer:
+            frappe.delete_doc("Customer", existing_customer, force=True, ignore_permissions=True)
+        member.db_set("customer", None, update_modified=False)
+        member.reload()
+        self.assertFalse(member.customer)
+
+        import verenigingen.services.member.approval.application_payments as ap
+
+        def _always_fail(*args, **kwargs):
+            raise Exception("forced failure for #1173 test")
+
+        marker = frappe.utils.now_datetime()
+        before = {
+            r.name
+            for r in frappe.get_all("Error Log", filters={"creation": [">=", marker]}, fields=["name"])
+        }
+        with patch.object(
+            ap, "insert_customer_with_duplicate_retry", side_effect=_always_fail
+        ), patch("time.sleep"):
+            result = asub.handle_customer_creation("member_approval_initiated", {"member": member.name})
+
+        rows = frappe.get_all(
+            "Error Log",
+            filters={"creation": [">=", marker]},
+            fields=["name", "method", "error"],
+            order_by="creation asc",
+        )
+        rows = [r for r in rows if r.name not in before]
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["retries"], 3)
+        titles = [r.method for r in rows]
+        self.assertEqual(
+            titles,
+            ["Approval Background Job Error"],
+            f"expected exactly one Error Log row for a persistently-failing customer "
+            f"creation, got: {titles}",
+        )
+        # The surviving row must still carry real diagnostic content -- the member
+        # name and the underlying exception message -- not just a label.
+        self.assertIn(member.name, rows[0].error)
+        self.assertIn("forced failure for #1173 test", rows[0].error)
 
     # ====================================================================
     # handle_chapter_assignment

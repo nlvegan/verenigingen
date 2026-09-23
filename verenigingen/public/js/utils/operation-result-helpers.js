@@ -166,6 +166,34 @@ verenigingen.utils.handleOperationResult = function (message, options) {
 	}
 };
 
+/**
+ * Format the "Loaded N invoices" alert for the SEPA batch loader dialog (#1219).
+ *
+ * `load_unpaid_invoices` / `load_unpaid_invoices_secure` report the true eligible
+ * count as a sibling response key (`r.total_eligible`, NOT folded into `r.message`
+ * -- see the endpoints' docstrings), so a truncated load can be told apart from a
+ * complete one. `totalEligible` is only ever compared, never trusted blindly: a
+ * missing/non-numeric value (legacy caller, older cached JS) or one that is not
+ * actually greater than what was loaded falls back to the plain message.
+ *
+ * @param {number} loadedCount - invoices actually returned (data.length)
+ * @param {*} totalEligible - r.total_eligible from the response, or undefined
+ * @returns {{message: string, indicator: string}}
+ */
+verenigingen.utils.formatLoadedInvoicesAlert = function (loadedCount, totalEligible) {
+	const truncated = typeof totalEligible === 'number' && totalEligible > loadedCount;
+	if (!truncated) {
+		return { message: __('Loaded {0} invoices', [loadedCount]), indicator: 'green' };
+	}
+	return {
+		message: __('Loaded {0} of {1} eligible invoices — raise "Maximum Invoices" to load the rest', [
+			loadedCount,
+			totalEligible
+		]),
+		indicator: 'orange'
+	};
+};
+
 // Also expose as global functions for backward compatibility with HTML templates
 // that may have inline scripts without access to frappe namespace at load time
 if (typeof window !== 'undefined') {

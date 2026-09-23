@@ -29,6 +29,7 @@ from frappe import _
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.user_role_grant import ensure_role_survives_profile_resync
 
 
 class MemberRoleService(StatelessService):
@@ -185,6 +186,15 @@ class MemberRoleService(StatelessService):
 
             # Save with proper permissions (no bypass)
             user.save()
+            # #1195: the appends above are silently defeated by User.validate()'s
+            # role-profile re-derivation if `user_name` already carries a Role
+            # Profile that doesn't include one of `member_roles` -- reachable on
+            # an EXISTING user via create_organization_user_for_member's
+            # "linked_existing" path. Verify and fall back to a direct Has Role
+            # insert for each.
+            for role in member_roles:
+                if frappe.db.exists("Role", role):
+                    ensure_role_survives_profile_resync(user_name, role)
             self.logger.info(f"Assigned individual roles to user {user_name}: {member_roles}")
 
             return user.name

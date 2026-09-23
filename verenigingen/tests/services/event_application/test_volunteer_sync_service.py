@@ -61,7 +61,7 @@ class TestParseMijnRoodRoles(EnhancedTestCase):
 class TestEnsureUserRole(EnhancedTestCase):
     """Ensures a Member's User has the specified Frappe role."""
 
-    def _create_test_user_for_member(self, member, first_name, roles=None):
+    def _create_test_user_for_member(self, member, first_name, roles=None, role_profile=None):
         """Factory helper: create a User, link it to the Member, register cleanup.
 
         Returns the inserted User doc.
@@ -75,6 +75,8 @@ class TestEnsureUserRole(EnhancedTestCase):
         }
         if roles:
             user_data["roles"] = [{"role": r} for r in roles]
+        if role_profile:
+            user_data["role_profiles"] = [{"role_profile": role_profile}]
         user_doc = frappe.get_doc(user_data).insert(ignore_permissions=True)
         self.addCleanup(self._cleanup_user, user_doc.name)
         frappe.db.set_value("Member", member.name, "user", user_doc.name, update_modified=False)
@@ -138,6 +140,31 @@ class TestEnsureUserRole(EnhancedTestCase):
         # Verify the role actually landed
         roles = frappe.get_roles(user_doc.name)
         self.assertIn("Verenigingen Member", roles)
+
+    def test_assigns_role_surviving_role_profile(self):
+        """#1195: _ensure_user_role calls User.add_roles(), which is
+        append_roles() + save() -- silently defeated by User.validate()'s
+        role-profile re-derivation whenever the user carries a Role Profile
+        that doesn't include the role (the comment in _ensure_volunteer,
+        ~30 lines above this method, already documents add_roles() as
+        "futile" for exactly this reason). "Verenigingen Volunteer" is a
+        real, shipped Role Profile that does not include "Expense
+        Approver"."""
+        member = self.factory.create_member(
+            first_name="RoleProfile",
+            last_name="Carrier",
+            email="role-profile-carrier@example.org",
+        )
+        user_doc = self._create_test_user_for_member(
+            member, first_name="RoleProfile", role_profile="Verenigingen Volunteer"
+        )
+        self.assertNotIn("Expense Approver", frappe.get_roles(user_doc.name))
+
+        result = get_volunteer_sync_service()._ensure_user_role(member.name, "Expense Approver")
+
+        self.assertIsNotNone(result)
+        self.assertIn("assigned", result.lower())
+        self.assertIn("Expense Approver", frappe.get_roles(user_doc.name))
 
     def _cleanup_user(self, user_name):
         try:

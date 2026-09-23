@@ -12,6 +12,7 @@ from verenigingen.utils.security.api_security_framework import (  # noqa: F401
     high_security_api,
 )
 from verenigingen.utils.sql_like import escape_sql_like_wildcards  # noqa: F401
+from verenigingen.utils.user_role_grant import ensure_role_survives_profile_resync  # noqa: F401
 
 utils_dir = str(Path(__file__).parent)
 if utils_dir not in sys.path:

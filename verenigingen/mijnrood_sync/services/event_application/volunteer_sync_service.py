@@ -38,6 +38,7 @@ from verenigingen.mijnrood_sync.services.event_application.related_records_orche
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.service_logger import get_service_logger
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+from verenigingen.utils.user_role_grant import ensure_role_survives_profile_resync
 
 logger = get_service_logger("verenigingen.mijnrood_sync", prefix="event_application.volunteer_sync")
 
@@ -182,7 +183,14 @@ class MijnRoodVolunteerSyncService:
                 return None
 
             user_doc = frappe.get_doc("User", user)
+            # #1195: User.add_roles() is append_roles() + save() -- the exact
+            # shape User.validate()'s role-profile re-derivation silently
+            # defeats whenever `user` carries a Role Profile that doesn't
+            # include `role` (the comment in _ensure_volunteer above, about
+            # add_roles() being "futile", is this same defect). Verify and
+            # fall back to a direct Has Role insert.
             user_doc.add_roles(role)
+            ensure_role_survives_profile_resync(user, role)
             self.logger.info("Assigned role '%s' to user %s (member %s)", role, user, member_name)
             return _("Role '{0}' assigned to {1}").format(role, user)
         except Exception as e:

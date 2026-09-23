@@ -8,6 +8,7 @@ import string
 import frappe
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.user_role_grant import ensure_role_survives_profile_resync
 
 # Role name constant
 PUBLIC_CREATOR_ROLE = "Verenigingen Public Document Creator"
@@ -210,6 +211,11 @@ def assign_public_creator_roles(user_email):
         if not has_role:
             user_doc.append("roles", {"role": PUBLIC_CREATOR_ROLE})
             user_doc.save(ignore_permissions=True)
+            # #1195: the append above is silently defeated by User.validate()'s
+            # role-profile re-derivation if this (existing) user carries a Role
+            # Profile that doesn't include PUBLIC_CREATOR_ROLE -- verify and
+            # fall back to a direct Has Role insert.
+            ensure_role_survives_profile_resync(user_email, PUBLIC_CREATOR_ROLE)
             frappe.db.commit()
 
         print(f"   ✅ Assigned role {PUBLIC_CREATOR_ROLE} to {user_email}")

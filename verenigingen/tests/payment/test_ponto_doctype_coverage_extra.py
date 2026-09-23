@@ -363,6 +363,134 @@ class TestPontoPaymentRequestExtra(EnhancedTestCase):
         req.create_payment_entry()
         self.assertFalse(req.payment_entry)
 
+    def _mapped_bank_account(self, ponto_account_id, bank_account):
+        """Point a Ponto Settings mapping at `bank_account`, restored on exit.
+
+        `validate_credentials_configured()` throws "Sandbox Client ID is
+        required when Sandbox Mode is enabled" when sandbox_mode is truthy and
+        sandbox_client_id is empty - and sandbox_mode's JSON default is "1"
+        with no default for sandbox_client_id, so a site whose singleton has
+        never had a sandbox client id set (e.g. test_site_7) ERRORs here before
+        create_payment_entry is ever reached. A site that happens to carry a
+        leftover sandbox_client_id from another test masks this - test_site_2
+        did. Set both explicitly (same pattern as
+        TestPontoSettingsExtra.test_get_active_client_secret_sandbox_empty)
+        instead of depending on whatever a sibling test left behind.
+        """
+        from verenigingen.tests.fixtures.singleton_backup import singleton_backup
+
+        ctx = singleton_backup("Ponto Settings")
+        ctx.__enter__()
+        settings = frappe.get_single("Ponto Settings")
+        settings.sandbox_mode = 1
+        settings.sandbox_client_id = "sandbox-test-client-id"
+        settings.bank_account_mappings = []
+        settings.append(
+            "bank_account_mappings",
+            {
+                "ponto_account_id": ponto_account_id,
+                "ponto_iban": "NL91ABNA0417164300",
+                "bank_account": bank_account,
+                "enabled": 1,
+            },
+        )
+        settings.save()
+        return ctx
+
+    def test_create_payment_entry_with_supplier_posts_balanced_pe(self):
+        """A mapped bank account + Supplier reference produces a correctly
+        accounted, submitted Payment Entry.
+
+        #1200: this construction never set paid_from/paid_to/paid_to's party
+        account at all, so insert() always failed the same #906 way ("Source
+        Exchange Rate is mandatory" - set_exchange_rate() cannot resolve a
+        currency without paid_from being set). Asserts on GL Entry rows, not
+        just docstatus (verenigingen-test-harness skill): a submit() failure
+        can leave docstatus=1 behind a half-posted ledger.
+        """
+        from verenigingen.tests.support.sepa_test_company import (
+            get_eur_bank_account,
+            get_eur_test_company,
+        )
+
+        company = get_eur_test_company()
+        bank_account = get_eur_bank_account(company)
+        bank_gl_account = frappe.db.get_value("Bank Account", bank_account, "account")
+
+        supplier = frappe.new_doc("Supplier")
+        supplier.supplier_name = f"Ponto Test Supplier {frappe.generate_hash(length=6)}"
+        supplier.supplier_group = frappe.db.get_value("Supplier Group", {}, "name")
+        supplier.save()
+        self.track_doc("Supplier", supplier.name)
+
+        ctx = self._mapped_bank_account("acct-with-supplier", bank_account)
+        try:
+            req = self._create_request(
+                ponto_account="acct-with-supplier",
+                reference_doctype="Supplier",
+                reference_name=supplier.name,
+            )
+            req.insert()
+            # Priority 6: drains before the Supplier (default priority 0),
+            # mirroring DRAIN_PRIORITY_BY_DOCTYPE's "Payment Entry" tier - both
+            # this doc and the Payment Entry below reference the Supplier, so
+            # deleting it first breaks cancel/delete with "Could not find Party".
+            self.factory.track_document("Ponto Payment Request", req.name, priority=6)
+
+            with self.assertNoErrorLog():
+                req.create_payment_entry()
+        finally:
+            ctx.__exit__(None, None, None)
+
+        req.reload()
+        self.assertTrue(
+            req.payment_entry, "create_payment_entry should have created and linked a Payment Entry"
+        )
+
+        pe = frappe.get_doc("Payment Entry", req.payment_entry)
+        self.factory.track_document("Payment Entry", pe.name, priority=6)
+        self.assertEqual(pe.docstatus, 1)
+        self.assertEqual(pe.payment_type, "Pay")
+        self.assertEqual(pe.company, company)
+        self.assertEqual(pe.party_type, "Supplier")
+        self.assertEqual(pe.party, supplier.name)
+        self.assertEqual(pe.paid_from, bank_gl_account)
+        expected_paid_to = frappe.get_cached_value("Company", company, "default_payable_account")
+        self.assertEqual(pe.paid_to, expected_paid_to)
+
+        gl_rows = frappe.get_all(
+            "GL Entry",
+            filters={"voucher_type": "Payment Entry", "voucher_no": pe.name},
+            fields=["account", "debit", "credit"],
+        )
+        self.assertEqual(len(gl_rows), 2, "a Pay entry with a party posts exactly two GL rows")
+        total_debit = sum(r.debit for r in gl_rows)
+        total_credit = sum(r.credit for r in gl_rows)
+        self.assertEqual(total_debit, total_credit, "GL rows must balance")
+        self.assertEqual(total_debit, req.amount)
+
+    def test_create_payment_entry_no_party_guard(self):
+        """No reference Supplier/Employee -> refuses rather than posting with a
+        guessed paid_to account (#1200 self-review: fail closed, not open)."""
+        from verenigingen.tests.support.sepa_test_company import (
+            get_eur_bank_account,
+            get_eur_test_company,
+        )
+
+        company = get_eur_test_company()
+        bank_account = get_eur_bank_account(company)
+
+        ctx = self._mapped_bank_account("acct-no-party", bank_account)
+        try:
+            req = self._create_request(ponto_account="acct-no-party")
+            req.insert()
+            self.track_doc("Ponto Payment Request", req.name)
+            req.create_payment_entry()
+        finally:
+            ctx.__exit__(None, None, None)
+
+        self.assertFalse(req.payment_entry)
+
     def test_update_status_from_webhook_no_change(self):
         """Webhook with unchanged status performs no update."""
         req = self._create_request()

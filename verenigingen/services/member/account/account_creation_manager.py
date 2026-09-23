@@ -42,6 +42,7 @@ from frappe import _
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.dutch_name_utils import get_full_last_name
 from verenigingen.utils.retry_utilities import execute_with_deadlock_retry
+from verenigingen.utils.user_role_grant import ensure_role_survives_profile_resync
 
 # Placeholder values for stub Employee records created when the source Member
 # has no gender/birth_date on file. ERPNext's Employee.update_user() hook
@@ -747,7 +748,16 @@ class AccountCreationManager:
             raise
 
     def assign_roles_and_profile(self):
-        """Assign roles and role profile with proper permission validation"""
+        """Assign roles and role profile with proper permission validation
+
+        Invariant (#1195/#1293): the ensure_role_survives_profile_resync()
+        loop near the end of this method must run AFTER every write this
+        method makes to self.created_user's User doc -- including inside
+        _set_member_user_modules(), which does its own, unrelated
+        user.save(). Any save of that User doc can re-strip a role granted
+        earlier in this same method (measured), so if a future edit adds
+        another User-doc write, it must come before that loop, not after.
+        """
         if not self.created_user:
             raise frappe.ValidationError("Cannot assign roles - no user account exists")
 
@@ -823,6 +833,21 @@ class AccountCreationManager:
             if self.request.request_type == "Member":
                 self._set_member_user_modules()
                 frappe.logger().info(f"Module access configured for member user: {self.created_user}")
+
+            # #1195: an individually requested role can be silently defeated by
+            # User.validate()'s role-profile re-derivation -- either in the save
+            # above (this ACR also attached role_profile in the same call, or
+            # self.created_user already carried a Role Profile from an earlier
+            # run) or by _set_member_user_modules()'s OWN, unrelated user.save()
+            # just above (measured: it re-strips a role added seconds earlier,
+            # in the same pipeline run, for every "Member" request). Verify each
+            # requested role LAST, after every write this method makes to the
+            # User doc, and fall back to a direct Has Role insert for anything
+            # that was silently dropped.
+            # INVARIANT (see docstring / #1293): this loop must stay the LAST
+            # thing this method does to self.created_user's User doc.
+            for added_role in roles_added:
+                ensure_role_survives_profile_resync(self.created_user, added_role)
 
         except Exception as e:
             error_msg = str(e)
