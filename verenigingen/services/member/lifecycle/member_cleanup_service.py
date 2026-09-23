@@ -490,11 +490,14 @@ class MemberCleanupService(StatelessService):
         # still visible in known_test_leaks.txt if it happens. #1306's real
         # fix for the common case (a tracked Member whose schedule is
         # referenced only by test-created debris -- a Sales Invoice,
-        # Payment Plan, etc.) is DRAIN ORDER: that debris is never tracked
-        # with a doctype priority (see the comment on tearDown's
-        # _drain_captured_inserts()/_drain_tracked_documents() call order),
-        # so it is now drained BEFORE the Member, and the ordinary delete
-        # path runs -- this guard should not fire at all for that shape.
+        # Payment Plan, etc.) is DRAIN ORDER: _drain_tracked_documents
+        # defers exactly this shape (a Member with a currently-blocked
+        # schedule, read-only-checked via _member_has_blocked_schedule) to
+        # _drain_captured_inserts, which deletes in reverse creation order
+        # and therefore always removes the later-created referencing
+        # document before the earlier-created Member -- so the ordinary
+        # delete path runs and this guard should not fire at all for that
+        # shape (#1306 round 4).
         frappe.db.commit()
 
         schedule_list = ", ".join(blocked_schedules)

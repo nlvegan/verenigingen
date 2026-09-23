@@ -19,6 +19,10 @@ from verenigingen.services.member.lifecycle.member_cleanup_service import (
     get_member_cleanup_service,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.dues_schedule_invoice_fixtures import (
+    make_referenceable_dues_schedule,
+    make_submitted_invoice_for_schedule,
+)
 
 
 class TestMemberCleanupService(EnhancedTestCase):
@@ -696,68 +700,23 @@ class TestMemberCleanupService(EnhancedTestCase):
         return plan
 
     def _make_referenceable_dues_schedule(self, member):
-        """A schedule keyed to `member`. Deliberately does NOT clear the
-        Member's own current_dues_schedule / application_dues_schedule
-        back-link that a bare insert sets as a save() side effect (confirmed
-        empirically) -- #1264 round 2's review caught that clearing it here
-        would hide whether the fix (handle_member_deletion calling
-        clear_member_schedule_backlinks_before_delete) actually handles that
-        back-link itself. This test's schedule is ALSO referenced by a Sales
-        Invoice (added by the caller), which is the reference that must
-        still block the delete.
+        """Thin wrapper -- see dues_schedule_invoice_fixtures.make_referenceable_dues_schedule.
+
+        Kept as a same-named method so every existing call site in this file
+        is unchanged; the implementation moved to a shared module after
+        duplicate_helper_validator.py flagged a near-identical copy in
+        test_enhanced_test_factory_drain.py (#1306 round 4).
         """
-        mt_name = frappe.db.get_value("Membership Type", {}, "name")
-        schedule = frappe.new_doc("Membership Dues Schedule")
-        schedule.schedule_name = f"CLEANUP-ERRLOG-{frappe.generate_hash(length=6)}"
-        schedule.membership_type = mt_name
-        schedule.member = member.name
-        schedule.status = "Active"
-        schedule.billing_frequency = "Annual"
-        schedule.currency = "EUR"
-        schedule.is_template = 0
-        schedule.dues_rate = 25
-        schedule.flags.ignore_validate = True
-        schedule.insert(ignore_permissions=True, ignore_mandatory=True)
-        return schedule
+        return make_referenceable_dues_schedule(self, member)
 
     def _make_submitted_invoice_for_schedule(self, schedule_name):
-        company = "_Test Company"
-        customer = frappe.db.get_value("Customer", {}, "name")
-        item = frappe.db.get_value("Item", {"is_sales_item": 1}, "name")
-        income_account = frappe.db.get_value(
-            "Account",
-            {
-                "company": company,
-                "account_type": "Income Account",
-                "is_group": 0,
-                "account_currency": frappe.db.get_value("Company", company, "default_currency"),
-            },
-            "name",
-        )
-        cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
-        invoice = frappe.new_doc("Sales Invoice")
-        invoice.customer = customer
-        invoice.company = company
-        invoice.membership_dues_schedule_display = schedule_name
-        invoice.set_posting_time = 1
-        invoice.append(
-            "items",
-            {
-                "item_code": item,
-                "qty": 1,
-                "rate": 25,
-                "income_account": income_account,
-                "cost_center": cost_center,
-            },
-        )
-        invoice.insert(ignore_permissions=True)
-        invoice.submit()
-        # No frappe.db.commit() here -- handle_member_deletion (the code
-        # under test) reads on the SAME connection within the same test, and
-        # nothing in this file rolls back, so a commit is not load-bearing
-        # (#815/order_dependence ratchet: this helper is not named
-        # _create_*/_cleanup_*, so a bare commit here is not exempt).
-        return invoice
+        """Thin wrapper -- see
+        dues_schedule_invoice_fixtures.make_submitted_invoice_for_schedule.
+        No frappe.db.commit() here -- handle_member_deletion (the code under
+        test) reads on the SAME connection within the same test, and nothing
+        in this file rolls back, so a commit is not load-bearing.
+        """
+        return make_submitted_invoice_for_schedule(self, schedule_name)
 
     # ------------------------------------------------------------------
     # Extended coverage: unlink helpers + audit + sales-invoice clearing
