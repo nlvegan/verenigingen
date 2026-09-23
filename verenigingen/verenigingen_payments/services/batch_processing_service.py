@@ -45,6 +45,17 @@ class BatchProcessingService:
         if batch_doc.docstatus != 1:
             frappe.throw(_("Batch must be submitted before marking invoices as paid"))
 
+        # #1242: a submitted batch is not proof a SEPA file was ever sent to a
+        # bank -- on_submit() defers generation (leaving sepa_file_generated=0)
+        # when the submitter cannot clear the CRITICAL security level
+        # generate_sepa_xml() requires (#1231's Staff-submit path). Marking such
+        # a batch's invoices "paid" would record a collection that never
+        # happened, so require the file explicitly rather than inferring it
+        # from docstatus/status -- mirroring the same guard already present in
+        # process_batch_submission() a few lines below.
+        if not batch_doc.sepa_file_generated:
+            frappe.throw(_("SEPA file must be generated before marking invoices as paid"))
+
         success_count = 0
 
         for invoice_item in batch_doc.invoices:
