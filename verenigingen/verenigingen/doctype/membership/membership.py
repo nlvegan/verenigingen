@@ -76,7 +76,7 @@ class Membership(Document):
     def on_trash(self) -> None:
         """Clean up Membership Dues Schedules linked to this membership"""
         from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule_hooks import (
-            clear_member_schedule_backlinks_before_delete,
+            delete_dues_schedule_with_backlink_cleanup,
         )
 
         dues_schedules = frappe.get_all(
@@ -99,8 +99,13 @@ class Membership(Document):
                 # every ordinary (non-invoice) case too -- clear it first so
                 # only a genuine external reference (the invoice) can still
                 # block the delete.
-                clear_member_schedule_backlinks_before_delete(schedule.name, schedule.member)
-                frappe.delete_doc("Membership Dues Schedule", schedule.name)
+                #
+                # #1264 round 3: clearing the back-link and deleting the
+                # schedule now happen as one savepoint-wrapped unit, so a
+                # refused delete (the invoice case) rolls the back-link
+                # clearing back too, instead of leaving the Member's own
+                # current_dues_schedule cleared while the schedule survives.
+                delete_dues_schedule_with_backlink_cleanup(schedule.name, schedule.member)
                 frappe.logger().info(f"Deleted orphaned Membership Dues Schedule {schedule.name}")
             except Exception as e:
                 frappe.logger().error(f"Error deleting Membership Dues Schedule {schedule.name}: {str(e)}")

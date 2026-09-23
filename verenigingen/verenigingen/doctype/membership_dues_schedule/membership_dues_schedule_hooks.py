@@ -5,7 +5,11 @@ Hooks for Membership Dues Schedule to keep Member.current_dues_schedule synchron
 import frappe
 from frappe.utils import getdate, today
 
-from verenigingen.utils.transaction_errors import release_savepoint_if_present, rollback_to_savepoint
+from verenigingen.utils.transaction_errors import (
+    NON_RESUMABLE_DB_ERRORS,
+    release_savepoint_if_present,
+    rollback_to_savepoint,
+)
 
 
 def clear_member_schedule_backlinks_before_delete(schedule_name, member_name=None):
@@ -36,6 +40,55 @@ def clear_member_schedule_backlinks_before_delete(schedule_name, member_name=Non
         if frappe.db.get_value("Member", member_name, fieldname) == schedule_name:
             frappe.db.set_value("Member", member_name, fieldname, None, update_modified=False)
     frappe.db.set_value("Member Fee Change History", {"dues_schedule": schedule_name}, "dues_schedule", None)
+
+
+def delete_dues_schedule_with_backlink_cleanup(schedule_name, member_name=None, **delete_kwargs):
+    """Clear a schedule's own Member back-links, then delete it, as ONE
+    atomic unit -- if the delete is refused, the back-link clearing is
+    rolled back too, so a refused delete leaves the Member's own bookkeeping
+    exactly as it was.
+
+    #1264 round 3: without this, clear_member_schedule_backlinks_before_delete()
+    (above) running before a delete that then fails leaves the Member's
+    current_dues_schedule/application_dues_schedule cleared while the
+    schedule itself survives Active -- a real corruption, not merely a
+    smaller one: the schedule now looks unreferenced by its own Member even
+    though it still exists. Measured: calling a caller like
+    handle_member_deletion() directly and reading the Member's
+    current_dues_schedule back from the DB afterwards shows None with the
+    schedule still Active. Today this is invisible in the two production
+    callers only because catch-and-continue there is followed by an OUTER
+    delete (of the Membership, or the Member) that itself then raises and
+    triggers an ambient rollback (app.py / delete_bulk / background_jobs) --
+    but #1264's own review named a per-record catch-and-continue caller
+    (the shape member_merge_service.py's loop uses) as exactly the case
+    where nothing forces that ambient rollback, and the corruption would
+    persist.
+
+    Every existing call site's own `except Exception` still sees the SAME
+    exception this raises (typically frappe.LinkExistsError) -- this
+    function does not change what propagates, only what state survives when
+    it does.
+
+    NON_RESUMABLE_DB_ERRORS (1213 deadlock, 1205 lock-wait timeout) are
+    deliberately NOT rolled back to the savepoint here: a 1213 has already
+    destroyed every savepoint in the transaction, so doing so would raise
+    1305 and replace the real error (the same reasoning
+    rollback_to_savepoint's own docstring gives) -- propagate immediately
+    and let the caller own the transaction boundary.
+    """
+    savepoint_name = "dues_schedule_delete_" + frappe.generate_hash(length=10)
+    frappe.db.savepoint(savepoint_name)
+    try:
+        clear_member_schedule_backlinks_before_delete(schedule_name, member_name)
+        frappe.delete_doc("Membership Dues Schedule", schedule_name, **delete_kwargs)
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
+    except Exception:
+        rollback_to_savepoint(savepoint_name)
+        raise
+    else:
+        release_savepoint_if_present(savepoint_name)
 
 
 def update_member_current_dues_schedule(doc, method=None):

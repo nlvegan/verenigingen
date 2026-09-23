@@ -31,7 +31,6 @@ from verenigingen.api.membership_application_review import (
     update_payment_history_for_invoice,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.tests.utils.dues_schedule_test_cleanup import cancel_and_delete_invoice_and_schedule
 
 
 def _grant_medium_access(email):
@@ -249,7 +248,15 @@ class TestRejectMembershipApplication(EnhancedTestCase):
         """
         member = self._pending_member()
         membership, schedule, invoice = self._make_draft_membership_with_referenced_schedule(member)
-        self.addCleanup(cancel_and_delete_invoice_and_schedule, invoice.name, schedule.name)
+        # No explicit cleanup registered here: EnhancedTestCase's own
+        # captured-insert drain (_drain_captured_inserts ->
+        # _remove_drained_record) already cancels-then-deletes every
+        # submitted document inserted during the test, including this
+        # invoice, and cleans up the schedule too -- see that method's own
+        # docstring. A hand-written cleanup helper here would be redundant
+        # AND -- confirmed by round 3's review -- invisible to the
+        # order-dependence scanner if it lived outside a test_*.py file,
+        # which is exactly the gate-evasion this round removes.
 
         commit_calls = []
         original_commit = frappe.db.commit

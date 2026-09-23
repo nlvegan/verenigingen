@@ -388,7 +388,7 @@ def cleanup_orphaned_schedules(dry_run=True, max_cleanup=20) -> OperationResult[
         frappe.throw(_("Insufficient permissions for schedule cleanup"))
 
     from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule_hooks import (
-        clear_member_schedule_backlinks_before_delete,
+        delete_dues_schedule_with_backlink_cleanup,
     )
 
     try:
@@ -471,12 +471,13 @@ def cleanup_orphaned_schedules(dry_run=True, max_cleanup=20) -> OperationResult[
                         # application_dues_schedule back-link -- but clear it
                         # defensively (a no-op when the Member is truly gone) for
                         # the same reason the on_trash-triggered cascades need it.
-                        clear_member_schedule_backlinks_before_delete(
-                            schedule_data["name"], schedule_data.get("member")
-                        )
+                        #
+                        # #1264 round 3: clearing and deleting now happen as one
+                        # savepoint-wrapped unit, so a refused delete rolls the
+                        # back-link clearing back too.
                         # Security: Cleanup function protected by Administrator/System Manager role check
-                        frappe.delete_doc(
-                            "Membership Dues Schedule", schedule_data["name"], ignore_permissions=True
+                        delete_dues_schedule_with_backlink_cleanup(
+                            schedule_data["name"], schedule_data.get("member"), ignore_permissions=True
                         )
                         schedule_result["action"] = "deleted"
                         results["cleaned_up"] += 1
@@ -875,7 +876,7 @@ def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20) -> OperationR
             MembershipDuesSchedule,
         )
         from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule_hooks import (
-            clear_member_schedule_backlinks_before_delete,
+            delete_dues_schedule_with_backlink_cleanup,
         )
 
         orphaned_schedules = MembershipDuesSchedule.find_orphaned_schedules(limit=max_cleanup)
@@ -910,12 +911,13 @@ def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20) -> OperationR
                     # Member back-links first -- a no-op when the Member is
                     # truly gone (the ordinary is_orphaned() case), but load-
                     # bearing for the on_trash-triggered cascades elsewhere.
-                    clear_member_schedule_backlinks_before_delete(
-                        schedule_data["name"], schedule_data.get("member")
-                    )
+                    #
+                    # #1264 round 3: clearing and deleting now happen as one
+                    # savepoint-wrapped unit, so a refused delete rolls the
+                    # back-link clearing back too.
                     # Security: Cleanup function protected by Administrator/System Manager role check
-                    frappe.delete_doc(
-                        "Membership Dues Schedule", schedule_data["name"], ignore_permissions=True
+                    delete_dues_schedule_with_backlink_cleanup(
+                        schedule_data["name"], schedule_data.get("member"), ignore_permissions=True
                     )
                     schedule_info["action"] = "deleted"
                     results["orphaned_schedules"]["cleaned"] += 1

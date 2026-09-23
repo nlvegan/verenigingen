@@ -93,7 +93,25 @@ class TrackedDocCleanupLedgerAndDanglingLinkSafetyTest(unittest.TestCase):
         self.cost_center = frappe.db.get_value(
             "Cost Center", {"company": self.company, "is_group": 0}, "name"
         )
-        self.membership_type = frappe.db.get_value("Membership Type", {}, "name")
+        # #1264 round 3: this used to be `frappe.db.get_value("Membership Type",
+        # {}, "name")` -- an ARBITRARY, site-dependent pick. Whichever type
+        # got picked already had (or lacked) an auto-created
+        # dues_schedule_template with the framework's own hardcoded
+        # dues_rate=15 default (MembershipType.after_insert always creates
+        # one -- see _get_or_create_harness_membership_type's own comment),
+        # and validate_financial_constraints checks THAT template's rate
+        # against the picked type's own minimum_amount, independent of this
+        # fixture's schedule.dues_rate. Different sites' arbitrary types have
+        # different minimum_amount values, so the check passed on test_site_3
+        # and failed on test_site_8 with "Template dues rate (€15.00) cannot
+        # be less than membership type minimum (...)" purely because of
+        # which row `{}`  happened to return first. A dedicated, run-scoped
+        # type with a KNOWN minimum_amount low enough to stay under that
+        # hardcoded 15 makes this deterministic on every site.
+        self.membership_type = self._get_or_create_harness_membership_type()
+        self.dues_rate = frappe.db.get_value(
+            "Membership Type", self.membership_type, "minimum_amount"
+        ) + 50
         self._leftover = []
         # Never let this test's tracked-doc list leak into a real test class's
         # teardown, and never inherit one left behind by an earlier test.
@@ -129,6 +147,57 @@ class TrackedDocCleanupLedgerAndDanglingLinkSafetyTest(unittest.TestCase):
             except Exception as e:
                 print(f"test cleanup could not remove {doctype} {name}: {e}")
         frappe.db.commit()
+
+    def _get_or_create_harness_membership_type(self):
+        """A dedicated Membership Type for this file, with a KNOWN
+        minimum_amount -- see the comment in setUp for why an arbitrary,
+        site-scanned type is not deterministic.
+
+        `minimum_amount` is deliberately <= 5.0, NOT some larger "safe"
+        number: `MembershipType.after_insert` unconditionally auto-creates a
+        dues_schedule_template with a HARDCODED `dues_rate = 15.0`
+        (membership_type.py's own `create_dues_schedule_template`, its
+        `# Default template dues rate` comment) and links it back as
+        `self.dues_schedule_template` -- there is no way to insert a type
+        with no template at all. That auto-template is what actually made
+        this fixture site-dependent: a schedule save() validates the
+        TEMPLATE's rate against the type's own minimum_amount
+        (dues_schedule_validation_service.py), independent of the schedule's
+        own dues_rate, so a `minimum_amount` above the hardcoded 15 fails
+        the same way on every site, not just test_site_8. This is the exact,
+        widely-documented "Template dues rate (€15) cannot be less than
+        minimum" trap several other test files in this suite already work
+        around (grep the message).
+
+        `role_profile` is mandatory on this doctype; reuse whatever Role
+        Profile the site has rather than hardcoding one that may not exist
+        everywhere (same pattern already used elsewhere in this test suite,
+        e.g. test_member_cleanup_service.py).
+        """
+        name = "PROBE-1264-Harness-Type"
+        if frappe.db.exists("Membership Type", name):
+            # Self-heal rather than trust a row a previous version of this
+            # fixture may have left behind with a different minimum_amount
+            # (measured: this bit a run on test_site_3 mid-development, after
+            # the constant above changed from 20.0 to 5.0 but a stale row
+            # from the earlier run was still on disk).
+            if frappe.db.get_value("Membership Type", name, "minimum_amount") != 5.0:
+                frappe.db.set_value("Membership Type", name, "minimum_amount", 5.0, update_modified=False)
+            return name
+        role_profile = (
+            frappe.db.get_value("Role Profile", {"name": ["like", "%Member%"]}, "name")
+            or frappe.db.get_value("Role Profile", {}, "name")
+        )
+        frappe.get_doc(
+            {
+                "doctype": "Membership Type",
+                "membership_type_name": name,
+                "is_active": 1,
+                "minimum_amount": 5.0,
+                "role_profile": role_profile,
+            }
+        ).insert(ignore_permissions=True, ignore_mandatory=True)
+        return name
 
     def _ledger_row_counts(self, doctype, name):
         """(GL Entry, Payment Ledger Entry) rows currently posted for this voucher."""
@@ -193,12 +262,14 @@ class TrackedDocCleanupLedgerAndDanglingLinkSafetyTest(unittest.TestCase):
         mds.billing_frequency = "Annual"
         mds.currency = "EUR"
         mds.is_template = 0
-        # 150, not 25: the G/H tests below cancel a real Membership that
-        # references this schedule, and Membership.on_cancel ->
-        # pause_dues_schedule() -> schedule_doc.save() runs THIS schedule's
-        # normal (non-ignore_validate) validation, which enforces the
-        # membership type's minimum amount (measured: 100 on test_site_3).
-        mds.dues_rate = 150
+        # Derived from self.membership_type's own minimum_amount (set in
+        # setUp), not a hardcoded constant: the G/H tests below cancel a real
+        # Membership that references this schedule, and Membership.on_cancel
+        # -> pause_dues_schedule() -> schedule_doc.save() runs THIS
+        # schedule's normal (non-ignore_validate) validation, which enforces
+        # the membership type's minimum amount. A hardcoded rate here is
+        # exactly what made this fixture site-dependent before (#1264 round 3).
+        mds.dues_rate = self.dues_rate
         mds.flags.ignore_validate = True
         mds.insert(ignore_permissions=True, ignore_mandatory=True)
         self._leftover.append(("Membership Dues Schedule", mds.name))

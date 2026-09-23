@@ -388,7 +388,7 @@ class MemberMergeService(StatelessService):
             - Final member delete uses ignore_permissions=False to re-verify
         """
         from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule_hooks import (
-            clear_member_schedule_backlinks_before_delete,
+            delete_dues_schedule_with_backlink_cleanup,
         )
 
         # SECURITY JUSTIFICATION: ignore_permissions=True on child record deletes because:
@@ -423,10 +423,17 @@ class MemberMergeService(StatelessService):
                 # raise LinkExistsError for every ordinary (non-invoice) case
                 # too -- clear it first so only a genuine external reference
                 # (the invoice) can still block the delete.
-                clear_member_schedule_backlinks_before_delete(schedule.name, source.name)
+                #
+                # #1264 round 3: this loop is EXACTLY the "per-record
+                # catch-and-continue caller" shape the review flagged as the
+                # one where nothing else forces a rollback if a refused
+                # delete leaves the back-link cleared -- clearing and
+                # deleting now happen as one savepoint-wrapped unit instead.
                 # Security: see the SECURITY JUSTIFICATION note above (write
                 # permission on source member already verified).
-                frappe.delete_doc("Membership Dues Schedule", schedule.name, ignore_permissions=True)
+                delete_dues_schedule_with_backlink_cleanup(
+                    schedule.name, source.name, ignore_permissions=True
+                )
             except Exception as e:
                 self.logger.error(f"Failed to delete Dues Schedule {schedule.name}: {str(e)}")
 

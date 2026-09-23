@@ -14,7 +14,6 @@ import unittest
 
 import frappe
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.tests.utils.dues_schedule_test_cleanup import cancel_and_delete_invoice_and_schedule
 
 from verenigingen.services.member.lifecycle.member_cleanup_service import (
     get_member_cleanup_service,
@@ -320,13 +319,22 @@ class TestMemberCleanupService(EnhancedTestCase):
         (a smaller, disclosed dangling-link risk -- see #1290's PR body),
         so this is the only trace of it.
         """
+        self.expectErrorLog("Dues Schedule Not Deleted", "Member Deletion Audit Trail")
         member = self.create_test_member(
             first_name="Cleanup", last_name=f"Test{frappe.generate_hash(length=6)}",
             email=f"cleanup.errlog.{frappe.generate_hash(length=8)}@example.com",
         )
         schedule = self._make_referenceable_dues_schedule(member)
         invoice = self._make_submitted_invoice_for_schedule(schedule.name)
-        self.addCleanup(cancel_and_delete_invoice_and_schedule, invoice.name, schedule.name)
+        # No explicit cleanup registered here: EnhancedTestCase's own
+        # captured-insert drain (_drain_captured_inserts ->
+        # _remove_drained_record) already cancels-then-deletes every
+        # submitted document inserted during the test, including this
+        # invoice, and cleans up the schedule too -- see that method's own
+        # docstring. A hand-written cleanup helper here would be redundant
+        # AND -- confirmed by round 3's review -- invisible to the
+        # order-dependence scanner if it lived outside a test_*.py file,
+        # which is exactly the gate-evasion this round removes.
 
         before = frappe.utils.now_datetime()
         get_member_cleanup_service().handle_member_deletion(member)
@@ -349,6 +357,64 @@ class TestMemberCleanupService(EnhancedTestCase):
         )
         self.assertIn(schedule.name, error_logs[0].error)
         self.assertIn(member.name, error_logs[0].error)
+
+    def test_refused_schedule_delete_does_not_clear_member_backlink(self):
+        """#1264 round 3: clear_member_schedule_backlinks_before_delete()
+        used to run unconditionally BEFORE the schedule delete it precedes,
+        so a REFUSED delete (the invoice case) still left the Member's own
+        current_dues_schedule cleared, even though the schedule survives
+        Active -- a real corruption, not merely a smaller one than #1250's:
+        the schedule now looks unreferenced by its own Member even though it
+        still exists.
+
+        Calling handle_member_deletion() directly, with nothing catching or
+        re-raising afterward, is what exposes this: in the two production
+        callers this is invisible only because catch-and-continue here is
+        followed by an OUTER delete (of the Member itself, moments later)
+        that raises for an unrelated reason (the Customer/Address unlink
+        steps do not, but the ambient ROLLBACK Frappe's own request/
+        background-job/bulk-delete machinery performs on ANY uncaught
+        exception from the outer call happens to undo this too) -- a
+        per-record catch-and-continue caller with no such outer failure
+        (the shape member_merge_service.py's own loop uses) would persist
+        it. The fix wraps clear-then-delete in a savepoint and rolls back to
+        it on refusal, so the back-link survives regardless of what the
+        caller does next.
+        """
+        self.expectErrorLog("Dues Schedule Not Deleted", "Member Deletion Audit Trail")
+        member = self.create_test_member(
+            first_name="Cleanup", last_name=f"Test{frappe.generate_hash(length=6)}",
+            email=f"cleanup.backlink.{frappe.generate_hash(length=8)}@example.com",
+        )
+        schedule = self._make_referenceable_dues_schedule(member)
+        self._make_submitted_invoice_for_schedule(schedule.name)
+
+        self.assertEqual(
+            frappe.db.get_value("Member", member.name, "current_dues_schedule"),
+            schedule.name,
+            "test precondition: the Member's own back-link must be set by "
+            "the real save() side effect, or this test cannot distinguish "
+            "the fix from a fixture that never had the problem",
+        )
+
+        get_member_cleanup_service().handle_member_deletion(member)
+
+        # The schedule survives -- the invoice still names it (same guard
+        # this whole PR is about).
+        self.assertTrue(frappe.db.exists("Membership Dues Schedule", schedule.name))
+        self.assertEqual(
+            frappe.db.get_value("Membership Dues Schedule", schedule.name, "status"), "Active"
+        )
+        # The Member's own back-link must ALSO survive: a refused delete is
+        # a no-op for the Member's bookkeeping, not a half-applied one.
+        self.assertEqual(
+            frappe.db.get_value("Member", member.name, "current_dues_schedule"),
+            schedule.name,
+            "a refused dues-schedule delete must not leave the Member's own "
+            "current_dues_schedule cleared while the schedule survives -- "
+            "clearing the back-link and deleting the schedule must be one "
+            "atomic (savepoint-wrapped) unit",
+        )
 
     def _make_referenceable_dues_schedule(self, member):
         """A schedule keyed to `member`. Deliberately does NOT clear the

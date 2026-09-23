@@ -163,7 +163,7 @@ class MemberCleanupService(StatelessService):
             - Child tables: Direct SQL deletion for performance
         """
         from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule_hooks import (
-            clear_member_schedule_backlinks_before_delete,
+            delete_dues_schedule_with_backlink_cleanup,
         )
 
         # Delete related Membership records (both draft and submitted)
@@ -220,8 +220,13 @@ class MemberCleanupService(StatelessService):
                 # raise LinkExistsError for every ordinary (non-invoice) case
                 # too -- clear it first so only a genuine external reference
                 # (the invoice) can still block the delete.
-                clear_member_schedule_backlinks_before_delete(schedule_name, member_doc.name)
-                frappe.delete_doc("Membership Dues Schedule", schedule_name)
+                #
+                # #1264 round 3: clearing the back-link and deleting the
+                # schedule now happen as one savepoint-wrapped unit, so a
+                # refused delete (the invoice case) rolls the back-link
+                # clearing back too, instead of leaving the Member's own
+                # current_dues_schedule cleared while the schedule survives.
+                delete_dues_schedule_with_backlink_cleanup(schedule_name, member_doc.name)
                 self.logger.info(f"Deleted orphaned Membership Dues Schedule {schedule_name}")
             except Exception as e:
                 self.logger.error(f"Error deleting Membership Dues Schedule {schedule_name}: {str(e)}")
