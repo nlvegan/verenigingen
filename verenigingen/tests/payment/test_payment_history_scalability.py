@@ -663,43 +663,54 @@ class PaymentHistoryScalabilityTest(VereningingenTestCase):
         print(f"  Peak memory: {metrics.memory_usage_peak_mb:.1f}MB")
 
 
-class PaymentHistoryScalabilityFactoryShadowTest(VereningingenTestCase):
-    """Regression coverage for #1344, split out of PaymentHistoryScalabilityTest
-    so it actually runs in CI.
+def _payment_history_factory_shadow_probe(self):
+    """Stand-in for a real PaymentHistoryScalabilityTest test method body:
+    the only thing this regression test (#1344) cares about. Raising
+    (rather than using self.assertIs) keeps this a plain function with no
+    dependency on which TestCase it gets bound to when substituted in."""
+    if self.factory is not type(self).factory:
+        raise AssertionError(
+            "self.factory is not type(self).factory -- PaymentHistoryScalabilityTest's "
+            "own setUp() no longer re-points self.factory after super().setUp(), so it "
+            "is shadowed by VereningingenTestCase.setUp()'s fresh, untracked instance again"
+        )
+
+
+class PaymentHistoryScalabilityFactoryShadowTest(unittest.TestCase):
+    """Regression coverage for #1344 that drives PaymentHistoryScalabilityTest's
+    OWN setUpClass/setUp/tearDown/tearDownClass -- not a copy of the fix.
 
     PaymentHistoryScalabilityTest.setUp() (above) skips every test unless
-    RUN_SCALABILITY_TESTS=1 is set, which no CI workflow does -- a test
-    placed inside that class never executes there (a prior version of this
-    test lived there and was measured as `OK (skipped=1)` in a normal run).
-    This class builds a class-level factory the exact same way but is not
-    gated, so the regression actually runs in every shard.
+    RUN_SCALABILITY_TESTS=1 is set, which no CI workflow does, so a test
+    placed inside that class never runs there. An earlier version of this
+    fix put a self-contained regression test in a class that re-implemented
+    the same `self.factory = type(self).factory` line itself: that test
+    would stay green even if the real fix line in
+    PaymentHistoryScalabilityTest.setUp() were deleted, since it was only
+    testing its own copy. This version instead substitutes a cheap identity
+    check in place of one of PaymentHistoryScalabilityTest's real test
+    methods and runs it through a plain unittest.TestSuite, which invokes
+    setUpClass/setUp/<method>/tearDown/tearDownClass (and doClassCleanups)
+    exactly the way `bench run-tests` would for a real, heavy test -- so
+    this exercises the REAL class's REAL setUp(), not a stand-in.
     """
 
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls.factory = CoreTestDataFactory(cleanup_on_exit=False, seed=42)
+    def test_real_class_setup_does_not_shadow_factory(self):
+        with patch.dict(os.environ, {"RUN_SCALABILITY_TESTS": "1"}), patch.object(
+            PaymentHistoryScalabilityTest,
+            "test_payment_history_scale_100_members",
+            _payment_history_factory_shadow_probe,
+        ):
+            suite = unittest.TestSuite()
+            suite.addTest(PaymentHistoryScalabilityTest("test_payment_history_scale_100_members"))
+            result = unittest.TestResult()
+            suite.run(result)
 
-    @classmethod
-    def tearDownClass(cls):
-        if hasattr(cls, 'factory'):
-            cls.factory.cleanup()
-        super().tearDownClass()
-
-    def setUp(self):
-        super().setUp()
-        # VereningingenTestCase.setUp() (just called above) sets its own
-        # self.factory (a fresh, untracked CoreTestDataFactory) -- which
-        # would otherwise SHADOW the class-level cls.factory built above,
-        # same mechanism as PaymentHistoryScalabilityTest.setUp() (#1344).
-        self.factory = type(self).factory
-
-    def test_factory_is_not_shadowed_by_harness_setup(self):
-        """Without the re-point in setUp() above, self.factory here would be
-        a different object than type(self).factory, so any record it
-        creates would be invisible to tearDownClass's cls.factory.cleanup()
-        and leak permanently."""
-        self.assertIs(self.factory, type(self).factory)
+        self.assertTrue(
+            result.wasSuccessful(),
+            f"PaymentHistoryScalabilityTest's real setUp() shadowed self.factory: "
+            f"errors={result.errors!r} failures={result.failures!r}",
+        )
 
 
 class BackgroundJobScalabilityTest(VereningingenTestCase):
