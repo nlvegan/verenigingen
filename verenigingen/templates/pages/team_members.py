@@ -57,8 +57,18 @@ def get_context(context: Dict[str, Any]) -> Dict[str, Any]:
     # cheaper than a real-but-foreign one (3 SQL calls vs. 4), an existence oracle
     # over Team ids even though the refusal message and exception type are identical
     # (#1402, same class as #1341/#1367).
-    team_name = team_data.name if team_data else None
-    team_chapter = team_data.chapter if team_data else None
+    #
+    # The sentinel must be a value no real `parent` can ever hold, NOT None:
+    # {"parent": None} in an exists() filter compiles to `parent IS NULL`, and
+    # `parent` is nullable on both Team Member and Chapter Member, so an
+    # orphaned child row with a NULL parent would wrongly match on this path --
+    # for an unknown team id, OR for a real but CHAPTERLESS team, since
+    # `team_data.chapter` is None there too (#1426). A document name is never
+    # the empty string, and `or ""` also folds a real chapterless team's None
+    # into the same safe sentinel, so "" costs exactly one query either way
+    # without ever matching a real row.
+    team_name = (team_data.name if team_data else None) or ""
+    team_chapter = (team_data.chapter if team_data else None) or ""
 
     is_team_member = False
     # Check if user is a member of this team (only if they have a volunteer record)

@@ -202,6 +202,65 @@ class TestTeamMembersPage(EnhancedTestCase):
             "itself an existence oracle behind the identical message",
         )
 
+    def test_orphaned_null_parent_row_does_not_grant_access(self):
+        # #1426 (found reviewing #1402's fix): {"parent": None} in an exists()
+        # filter compiles to `parent IS NULL`, not to an inert/impossible value.
+        # `parent` is nullable on both Team Member and Chapter Member, so an
+        # orphaned child row with parent IS NULL -- a corrupt state that should
+        # never occur, but the column allows it -- would satisfy the Chapter
+        # Member existence check for ANY team whose chapter link resolves to
+        # None: an unknown team id, or (as here) a real, chapterless team like
+        # veg11's Kascommissie/Secretariaat. That would wrongly grant access to
+        # whichever member the orphan row references.
+        outsider = f"team-outsider4-{frappe.generate_hash()[:8]}@test.invalid"
+        outsider_member = self._make_member_with_user(outsider)
+        self.assertIsNone(self.team.chapter, "fixture team must be chapterless for this to be meaningful")
+
+        orphan_name = frappe.generate_hash()[:20]
+        frappe.db.sql(
+            """
+            INSERT INTO `tabChapter Member`
+                (name, creation, modified, modified_by, owner, docstatus, idx,
+                 parent, parentfield, parenttype, member, enabled, status)
+            VALUES
+                (%(name)s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0,
+                 NULL, 'members', 'Chapter', %(member)s, 1, 'Active')
+            """,
+            {"name": orphan_name, "member": outsider_member.name},
+        )
+        try:
+            self.assertEqual(
+                frappe.db.sql(
+                    "SELECT COUNT(*) FROM `tabChapter Member` WHERE name=%s AND parent IS NULL",
+                    orphan_name,
+                )[0][0],
+                1,
+                "orphan row must actually have parent IS NULL, or this test proves nothing",
+            )
+
+            with self.as_user(outsider):
+                ctx = frappe._dict()
+                original = frappe.form_dict
+
+                # A real, chapterless team: the orphan's NULL parent must not
+                # be mistaken for "this team's chapter".
+                frappe.form_dict = frappe._dict({"team": self.team.name})
+                try:
+                    with self.assertRaises(frappe.PermissionError):
+                        team_members.get_context(ctx)
+                finally:
+                    frappe.form_dict = original
+
+                # An unknown team id: same requirement, for completeness.
+                frappe.form_dict = frappe._dict({"team": "Nonexistent-Team-XYZ"})
+                try:
+                    with self.assertRaises(frappe.PermissionError):
+                        team_members.get_context(ctx)
+                finally:
+                    frappe.form_dict = original
+        finally:
+            frappe.db.sql("DELETE FROM `tabChapter Member` WHERE name=%s", orphan_name)
+
     # ---- _get_available_teams_for_user ---------------------------------
 
     def test_available_teams_for_member(self):
