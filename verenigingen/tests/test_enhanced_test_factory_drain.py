@@ -675,3 +675,107 @@ class TestDrainDefersInvoiceBlockedMember(EnhancedTestCase):
         if customer_name and frappe.db.exists("Customer", customer_name):
             frappe.delete_doc("Customer", customer_name, force=True, ignore_permissions=True)
         frappe.db.commit()
+
+
+class TestDrainDefersCustomerBlockedByCapturedInvoice(EnhancedTestCase):
+    """Regression for #1378: a tracked Customer whose on_trash (delete_contact_
+    and_address) tries to remove its Address raises `frappe.LinkExistsError`
+    ("You can disable this Address instead of deleting it.") when a still-live
+    document Link-references that Address -- here, a submitted Sales Invoice's
+    `customer_address`, set from `invoice.customer` and never track_document()'d
+    because production code (InvoiceGenerator), not a test factory method,
+    created it. `_drain_tracked_documents` runs BEFORE anything removes that
+    invoice, so the attempt fails for a reason that has nothing to do with the
+    Customer/Address being genuinely undeletable.
+
+    This is the "second, independent contributor" #1346 flagged as unresolved
+    and `_cleanup_stray_customer_and_address` above works around rather than
+    fixes: measured on `test_coverage_calculator`/`test_invoice_generator`
+    (#1378), the SAME key is also a captured insert, so `_drain_captured_inserts`
+    gets a second try moments later in the SAME tearDown -- deleting the
+    later-created invoice first (reverse creation order) and then the
+    Customer/Address ordinarily. Recording a leak on the first, premature
+    attempt reported a row that was, a few lines later, genuinely gone.
+    """
+
+    def _create_blocked_customer_fixture(self):
+        """Member (auto-Customer+Address) + referenceable schedule + a
+        submitted invoice for the SAME Customer, committed so the drain calls
+        this test invokes directly see it -- mirrors the sibling
+        `TestDrainDefersInvoiceBlockedMember._create_blocked_member_fixture`'s
+        own inline commit (non-blocking COMMIT_EXEMPT `_create_*` prefix).
+
+        Deliberately the SAME customer (unlike that sibling, which uses a
+        separate one to dodge this exact interaction) -- entangling the
+        invoice's `customer_address` with the Member's own Customer/Address is
+        precisely the shape #1378 measures.
+        """
+        member = self.create_test_member(
+            first_name="DrainAddr",
+            last_name=f"Test{frappe.generate_hash(length=6)}",
+            email=f"drain.addr.{frappe.generate_hash(length=8)}@example.com",
+        )
+        schedule = make_referenceable_dues_schedule(self, member)
+        invoice = make_submitted_invoice_for_schedule(self, schedule.name, customer=member.customer)
+        frappe.db.commit()
+        return member, schedule, invoice
+
+    def test_tracked_drain_does_not_report_a_leak_for_a_customer_the_captured_drain_goes_on_to_remove(self):
+        member, schedule, invoice = self._create_blocked_customer_fixture()
+        customer_name = member.customer
+        address_name = frappe.db.get_value("Sales Invoice", invoice.name, "customer_address")
+
+        self.assertTrue(address_name, "precondition: the invoice must carry a customer_address")
+        self.assertTrue(
+            ("Customer", customer_name) in getattr(self, "_captured_inserts", []),
+            "precondition: the Customer must be captured, or deferring the leak "
+            "record can never be confirmed safe (a deferred key must be "
+            "guaranteed a real retry, or the record would be dropped from "
+            "cleanup entirely)",
+        )
+
+        # Phase 1: the tracked drain reaches the Customer first (tracked before
+        # its Address -- CoreTestDataFactory._create_customer_for_member tracks
+        # them in that order), fails with LinkExistsError (the invoice still
+        # references its Address), and must NOT report that failure as a leak --
+        # it is about to be corrected below. The Customer's OWN attempt is what
+        # this test is about; the Address's SEPARATE, later, direct
+        # `frappe.delete_doc(..., force=True)` attempt bypasses its own link
+        # check entirely (force=True skips `check_if_doc_is_linked` outright) and
+        # succeeds regardless -- a pre-existing, orthogonal behaviour this fix
+        # does not touch, so the Address is already gone by the end of this
+        # phase even though nothing yet removed the invoice referencing it.
+        self._drain_tracked_documents()
+
+        self.assertTrue(
+            frappe.db.exists("Customer", customer_name),
+            "the blocked Customer must still exist after this phase -- its own "
+            "attempt failed and was not (and could not be) completed",
+        )
+        self.assertEqual(
+            self.leaked_records,
+            [],
+            "a Customer blocked only by a captured-only invoice must not be "
+            "reported as a leak before the captured-insert drain has had its "
+            "turn -- the row is not stranded, it just has not been retried yet",
+        )
+
+        # Phase 2: the captured-insert drain deletes in reverse creation order,
+        # removing the later-created invoice before retrying the Customer
+        # (which is ALSO a captured insert, tracked or not).
+        self._drain_captured_inserts()
+
+        self.assertFalse(
+            frappe.db.exists("Sales Invoice", invoice.name),
+            "the captured-insert drain should remove the referencing invoice",
+        )
+        self.assertFalse(
+            frappe.db.exists("Customer", customer_name),
+            "with its blocking reference gone, the Customer must be removed",
+        )
+        self.assertEqual(
+            self.leaked_records,
+            [],
+            "no leak should ever be recorded for this row -- it was always "
+            "going to be removed, just not on the first attempt",
+        )
