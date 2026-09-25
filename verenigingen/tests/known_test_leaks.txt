@@ -64,7 +64,7 @@ verenigingen.tests.e_boekhouden.test_migration_controller_accounts_coverage 1
 verenigingen.tests.integration.services.test_coverage_calculator 9
 verenigingen.tests.integration.services.test_coverage_calculator_module 14
 verenigingen.tests.integration.services.test_cutoff_date_calculations 2
-verenigingen.tests.integration.services.test_duplicate_invoice_detector 2
+verenigingen.tests.integration.services.test_duplicate_invoice_detector 0
 verenigingen.tests.integration.services.test_eligibility_checker 4
 verenigingen.tests.integration.services.test_invoice_generator 5
 verenigingen.tests.integration.test_chapter_membership_approval_integration 2

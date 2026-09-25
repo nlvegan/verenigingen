@@ -344,12 +344,26 @@ class TestDuplicateInvoiceDetector(EnhancedTestCase):
                 "posting_date": "2025-01-05",
             },
         )
-        frappe.db.commit()
         invoice.reload()
         invoice.submit()
 
-        # NOW corrupt the posting_date to trigger derivation error
-        # This bypasses validation since the invoice is already submitted
+        # NOW corrupt the posting_date to trigger derivation error.
+        # This bypasses validation since the invoice is already submitted.
+        #
+        # Deliberately NOT committed. A committed NULL posting_date is a state the
+        # ORM can never produce on its own (the field is mandatory), so nothing
+        # downstream guards against it: cancelling such an invoice at teardown
+        # reaches ERPNext's get_gl_dict()->get_fiscal_years(None, company=...),
+        # which -- with no date to filter on -- returns EVERY active Fiscal Year
+        # (including the test fixture's decades of `_Test Fiscal Year YYYY` rows)
+        # and throws "Multiple fiscal years exist for the date . Please set
+        # company in Fiscal Year" (accounts_controller.py). The invoice then
+        # survives cancellation, which strands its customer_address and cascades
+        # into an undeletable Customer (#1346). Leaving this UPDATE uncommitted
+        # keeps it (and the invoice's own submission above) inside the harness's
+        # normal per-test rollback, which erases both once this method returns --
+        # the same-session read below still sees the uncommitted NULL, since a
+        # read always sees its own transaction's writes.
         frappe.db.sql(
             """
             UPDATE `tabSales Invoice`
@@ -358,7 +372,6 @@ class TestDuplicateInvoiceDetector(EnhancedTestCase):
         """,
             (invoice.name,),
         )
-        frappe.db.commit()
 
         # Create recent coverage so fallback runs
         recent_invoice = self.create_test_sales_invoice(customer=self.customer, posting_date="2024-12-05")
