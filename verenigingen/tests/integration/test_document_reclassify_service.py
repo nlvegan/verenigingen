@@ -76,6 +76,26 @@ class TestReclassifyDocuments(VereningingenTestCase):
         cls.factory.cleanup()
         super().tearDownClass()
 
+    def setUp(self):
+        super().setUp()
+        # VereningingenTestCase.setUp() (just called above) sets its own
+        # self.factory (a fresh, untracked CoreTestDataFactory for the
+        # harness's own use) -- which would otherwise SHADOW the class-level
+        # `cls.factory` this class builds in setUpClass and whose
+        # tearDownClass cleanup (`cls.factory.cleanup()`) depends on. Point
+        # back at the shared, tracked instance or a Member created via
+        # self.factory in a test body (e.g. test_permission_denied_for_non_admin)
+        # leaks permanently (#1347, same mechanism as #1307/#1344).
+        self.factory = type(self).factory
+
+    def test_factory_is_not_shadowed_by_harness_setup(self):
+        """Regression test for #1347: without the re-point in setUp() above,
+        self.factory here is a different object than type(self).factory, so
+        any record self.factory creates (e.g. test_permission_denied_for_non_admin's
+        Member) is invisible to tearDownClass's cls.factory.cleanup() and
+        leaks permanently."""
+        self.assertIs(self.factory, type(self).factory)
+
     def _make_doc(self, **overrides):
         defaults = dict(
             doctype="Organization Document",

@@ -451,6 +451,33 @@ repos:
         always_run: true
         stages: [pre-push]
 
+      - id: harness-factory-shadow-validator
+        name: 🧬 Harness Factory Shadow Guard (ratchet)
+        description: >-
+          Blocks a VereningingenTestCase/EnhancedTestCase-rooted test class
+          that builds a class-level fixture in setUpClass (cls.factory = ...),
+          reads it via self.factory in a test body, and never re-points
+          self.factory back to it after the harness's own setUp() (which
+          unconditionally assigns its OWN self.factory) shadows it (#1344,
+          #1347 -- same mechanism as #1307/#1345's TestPerformanceEdgeCases
+          fix, which harness-super-skip-validator does not catch: both
+          offending classes call super().setUp() correctly, or never override
+          setUp() at all -- the bug is an honoured contract's side effect, not
+          a skipped one). Measured: a single Member created through the
+          shadowed factory in test_document_reclassify_service.py survived
+          tearDownClass and stayed in the database (test_site_7, #1347). NO
+          ALLOWLIST today: the census baseline is empty (#1344/#1347 fixed
+          every instance that existed at the time), so any new occurrence
+          fails immediately -- see
+          scripts/validation/harness_factory_shadow_baseline.txt if that ever
+          needs to change deliberately. Runs at pre-push, not pre-commit --
+          same reasoning as harness-super-skip-validator above.
+        entry: python scripts/validation/harness_factory_shadow_validator.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
       - id: submittability-drift-validator
         name: 📝 Submittability Drift Guard (ratchet)
         description: >-

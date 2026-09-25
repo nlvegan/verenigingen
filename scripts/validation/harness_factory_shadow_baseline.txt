@@ -1,0 +1,7 @@
+# Harness-base classes that build a class-level fixture (cls.<attr>) in
+# setUpClass, read it via self.<attr> in a test body, and never re-point
+# self.<attr> back to it after the harness's own setUp() shadows it -- see
+# #1344 / #1347 (same mechanism as #1307's TestPerformanceEdgeCases fix).
+# Upward-only: a NEW entry here must be a deliberate, justified addition
+# (state before/after counts in the PR), not a silent widening. Regenerate:
+#   python scripts/validation/harness_factory_shadow_validator.py --update-baseline <this file>

@@ -438,6 +438,14 @@ class PaymentHistoryScalabilityTest(VereningingenTestCase):
                 "Scalability/load suite; set RUN_SCALABILITY_TESTS=1 to run (heavy: 100-5000 members)"
             )
         super().setUp()
+        # VereningingenTestCase.setUp() (just called above) sets its own
+        # self.factory (a fresh, untracked CoreTestDataFactory) -- which would
+        # otherwise SHADOW the class-level cls.factory this suite's
+        # PaymentHistoryTestDataGenerator writes through and tearDownClass's
+        # cls.factory.cleanup() depends on. Point back at the shared, tracked
+        # instance or every member/invoice/payment this suite generates leaks
+        # permanently (#1344, same mechanism as #1307/#1347).
+        self.factory = type(self).factory
         self.metrics_collector = PerformanceMetricsCollector()
         self.test_data_generator = PaymentHistoryTestDataGenerator(self.factory)
         self.metrics_collector.start_collection()
@@ -454,7 +462,7 @@ class PaymentHistoryScalabilityTest(VereningingenTestCase):
         # Store test results
         test_name = self._testMethodName
         self.test_results[test_name] = self.metrics_collector.metrics.to_dict()
-        
+
     @pytest.mark.smoke
     def test_payment_history_scale_100_members(self):
         """Test payment history performance with 100 members (smoke test)"""
@@ -653,6 +661,45 @@ class PaymentHistoryScalabilityTest(VereningingenTestCase):
         print(f"  Members/second: {metrics.members_processed_per_second:.2f}")
         print(f"  Memory delta: {metrics.memory_delta_mb:.1f}MB")
         print(f"  Peak memory: {metrics.memory_usage_peak_mb:.1f}MB")
+
+
+class PaymentHistoryScalabilityFactoryShadowTest(VereningingenTestCase):
+    """Regression coverage for #1344, split out of PaymentHistoryScalabilityTest
+    so it actually runs in CI.
+
+    PaymentHistoryScalabilityTest.setUp() (above) skips every test unless
+    RUN_SCALABILITY_TESTS=1 is set, which no CI workflow does -- a test
+    placed inside that class never executes there (a prior version of this
+    test lived there and was measured as `OK (skipped=1)` in a normal run).
+    This class builds a class-level factory the exact same way but is not
+    gated, so the regression actually runs in every shard.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.factory = CoreTestDataFactory(cleanup_on_exit=False, seed=42)
+
+    @classmethod
+    def tearDownClass(cls):
+        if hasattr(cls, 'factory'):
+            cls.factory.cleanup()
+        super().tearDownClass()
+
+    def setUp(self):
+        super().setUp()
+        # VereningingenTestCase.setUp() (just called above) sets its own
+        # self.factory (a fresh, untracked CoreTestDataFactory) -- which
+        # would otherwise SHADOW the class-level cls.factory built above,
+        # same mechanism as PaymentHistoryScalabilityTest.setUp() (#1344).
+        self.factory = type(self).factory
+
+    def test_factory_is_not_shadowed_by_harness_setup(self):
+        """Without the re-point in setUp() above, self.factory here would be
+        a different object than type(self).factory, so any record it
+        creates would be invisible to tearDownClass's cls.factory.cleanup()
+        and leak permanently."""
+        self.assertIs(self.factory, type(self).factory)
 
 
 class BackgroundJobScalabilityTest(VereningingenTestCase):
