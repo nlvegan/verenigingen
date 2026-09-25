@@ -332,75 +332,64 @@ class TestDuplicateInvoiceDetector(EnhancedTestCase):
     def test_fallback_handles_derivation_errors(self):
         """Fallback detection logs and skips an invoice whose coverage
         derivation raises, instead of letting the exception propagate out of
-        check_for_duplicates.
+        `_process_fallback_invoices`.
 
-        Realistic trigger (#1382): "Daily" is a real, selectable Membership
-        Dues Schedule billing_frequency. derive_coverage_from_invoice_data's
-        own "Daily" branch sets coverage_end = coverage_start (a same-day
-        period), and its final validation then rejects that as invalid ("end
-        date must be after start date") - so ANY real invoice generated from a
-        Daily-frequency schedule with no explicit coverage dates drives
-        `_process_fallback_invoices` into the `except` branch, unconditionally
-        (verified directly against derive_coverage_from_invoice_data - see
-        #1393 for that being a standalone defect: Daily fallback coverage can
-        never be derived). This test only needs a real
-        invoice to reach and trip that branch, not for the Daily behaviour
-        itself to be correct.
+        Former trigger (#1382), now fixed by #1393: "Daily" billing used to
+        make derive_coverage_from_invoice_data's final validation reject
+        coverage_end == coverage_start unconditionally, for every Daily
+        invoice with no explicit coverage dates. #1393 carved out that
+        equality for Daily specifically (a single-day period, same as
+        calculate_coverage_end()/calculate_billing_period() already treat
+        it), so Daily invoices now derive successfully and can no longer
+        drive this except branch.
 
-        No coverage-dated invoice exists for this customer, so
-        `_check_gap_reset` finds nothing to compare against and does not
-        short-circuit before Phase 4 - important here because the gap-reset
-        threshold for Daily is a single day (get_nominal_period_days), which
-        would otherwise trigger on almost any gap.
+        Swept the remaining raise sites in derive_coverage_from_invoice_data
+        (#1393's own sweep) and found no other invoice/schedule field
+        combination reachable through normal application flow that still
+        raises: posting_date is a mandatory, DB-typed Sales Invoice field
+        (can't hold an unparseable value the way a test's hand-built dict
+        can), and every other malformed-input path in that function
+        (last_invoice_date/next_invoice_date parse failures, an unrecognized
+        billing_frequency, an inverted next_invoice_date) is caught and
+        falls back internally rather than propagating.
+
+        So this drives `_process_fallback_invoices` directly (already done
+        for `_get_fallback_cutoff_date` above) with a hand-built invoice dict
+        carrying an unparseable posting_date - the shape a legacy or
+        externally-migrated record could have, not something a real
+        `Sales Invoice.posting_date` column can hold - rather than through
+        `check_for_duplicates`, since no real invoice can reach it that way
+        any more.
         """
-        frappe.db.set_value("Membership Dues Schedule", self.schedule.name, "billing_frequency", "Daily")
-        self.schedule.reload()
-
-        # Invoice with missing coverage dates, posted well after the sentinel
-        # fallback cutoff (no coverage-dated invoice exists yet), so it passes
-        # `_check_fallback_overlaps`'s own candidate query and actually reaches
-        # `_process_fallback_invoices`. (The old version of this test NULLed
-        # posting_date instead, which that query's own
-        # `si.posting_date > %(cutoff_date)s` filter silently excludes - the
-        # invoice never reached the method the test is named for.)
-        invoice = self.create_test_sales_invoice(customer=self.customer, posting_date="2025-01-05")
-        frappe.db.set_value(
-            "Sales Invoice",
-            invoice.name,
-            {
-                "membership_dues_schedule_display": self.schedule.name,
-                "custom_coverage_start_date": None,
-                "custom_coverage_end_date": None,
-                "posting_date": "2025-01-05",
-            },
-        )
-        invoice.reload()
-        invoice.submit()
-
         detector = DuplicateInvoiceDetector(self.schedule)
+
+        bad_invoice = {
+            "name": "SYNTHETIC-BAD-POSTING-DATE",
+            "posting_date": "not-a-date",
+            "last_invoice_date": None,
+            "next_invoice_date": None,
+            "billing_frequency": None,
+        }
 
         # `_process_fallback_invoices` logs the derivation failure through the
         # shared "verenigingen.services" service logger (base_service.py).
         # Asserting on that specific record - not just the return value -
         # proves the except branch actually ran for THIS invoice, rather than
-        # the invoice having been silently excluded upstream.
+        # some other failure being mistaken for it.
         service_logger = frappe.logger("verenigingen.services")
         with self.assertLogs(service_logger, level="ERROR") as log_capture:
-            result = detector.check_for_duplicates(date(2025, 1, 1), date(2025, 1, 31))
+            overlapping = detector._process_fallback_invoices(
+                [bad_invoice], date(2025, 1, 1), date(2025, 1, 31)
+            )
 
+        self.assertEqual(overlapping, [])
         self.assertTrue(
             any(
-                "Error processing fallback coverage" in line and invoice.name in line
+                "Error processing fallback coverage" in line and bad_invoice["name"] in line
                 for line in log_capture.output
             ),
-            f"Expected a derivation-error log line naming {invoice.name}, got: {log_capture.output}",
+            f"Expected a derivation-error log line naming {bad_invoice['name']}, got: {log_capture.output}",
         )
-
-        # The derivation error is caught and logged: check_for_duplicates still
-        # returns a result (it did not raise) and treats the un-derivable
-        # invoice as no overlap rather than a false-positive block.
-        self.assertTrue(result.can_generate)
-        self.assertNotIn(invoice.name, result.reason)
 
     def test_multiple_exact_duplicates_listed(self):
         """Multiple exact duplicates are all listed in reason"""

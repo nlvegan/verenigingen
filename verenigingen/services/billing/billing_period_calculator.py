@@ -515,7 +515,13 @@ def derive_coverage_from_invoice_data(
     if not coverage_start or not coverage_end:
         raise ValueError(f"Failed to derive valid coverage dates: start={coverage_start}, end={coverage_end}")
 
-    if coverage_end <= coverage_start:
+    # Daily is the one frequency whose period is a single day (coverage_end ==
+    # coverage_start by construction - see the "Daily" branch above and
+    # calculate_coverage_end()/calculate_billing_period() in this module, which
+    # agree). Every other frequency adds a positive offset, so this only loosens
+    # the check for Daily; mirrors the same start == end carve-out in
+    # coverage_calculator.py's calculate_next_coverage_period().
+    if coverage_end < coverage_start or (coverage_end == coverage_start and billing_frequency != "Daily"):
         raise ValueError(
             f"Invalid coverage period: end date ({coverage_end}) must be after start date ({coverage_start})"
         )
