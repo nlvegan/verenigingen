@@ -969,7 +969,10 @@ def get_board_memberships(member_name: str):
 
         # Check if user has permission to view member information
         if not get_chapter_permission_service().can_user_view_member_board_info(member_name):
-            frappe.throw(_("You don't have permission to view this member's board information"))
+            frappe.throw(
+                _("You don't have permission to view this member's board information"),
+                exc=frappe.PermissionError,
+            )
 
         # First find the volunteer record for this member
         volunteer_name = frappe.db.get_value("Volunteer", {"member": member_name}, "name")
@@ -985,6 +988,13 @@ def get_board_memberships(member_name: str):
 
         return board_memberships
 
+    except (frappe.ValidationError, frappe.PermissionError):
+        # Preserve the permission check's own deliberate refusal instead of
+        # masking it with an empty result that also writes a spurious Error
+        # Log row (#374, #1296 sibling).
+        raise
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.log_error(f"Error getting board memberships for {member_name}: {str(e)}")
         return []
@@ -1023,13 +1033,25 @@ def get_chapter_board_history(chapter_name: str):
 
         # Check if user has permission to view chapter board information
         if not get_chapter_permission_service().can_user_view_chapter_board_history(chapter_name):
-            frappe.throw(_("You don't have permission to view board history for this chapter"))
+            frappe.throw(
+                _("You don't have permission to view board history for this chapter"),
+                exc=frappe.PermissionError,
+            )
 
         chapter = frappe.get_doc("Chapter", chapter_name)
         return chapter.get_board_members(include_inactive=True)
 
     except frappe.DoesNotExistError:
         frappe.throw(_("Chapter {0} not found").format(chapter_name))
+    except (frappe.ValidationError, frappe.PermissionError):
+        # Preserve the body's own deliberate refusal (missing name, or the
+        # permission check above) instead of masking it with an empty result
+        # that also writes a spurious Error Log row (#374, #1296).
+        raise
+    except NON_RESUMABLE_DB_ERRORS:
+        # The transaction is already gone (1213) or half-applied (1205); logging
+        # here would itself be a write on broken state. Propagate to the caller.
+        raise
     except Exception as e:
         frappe.log_error(f"Error getting board history for {chapter_name}: {str(e)}")
         return []
