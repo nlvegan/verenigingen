@@ -534,6 +534,18 @@ def _process_executed_payment(payment_link_doc) -> Dict[str, Any]:
 
     Returns:
         Dict with processing result including payment_entry name if created
+
+    Raises:
+        Any exception from create_ponto_payment_entry() other than
+        frappe.PermissionError (#1362). By the time this runs, the link's status
+        has ALREADY been committed "Executed" by the original webhook request
+        (enqueue_after_commit) - no savepoint here can roll that back - but a
+        misconfiguration must still surface loudly rather than leave the link
+        stuck "Executed" with no Payment Entry and a success return nobody reads.
+        execute_job() (frappe/utils/background_jobs.py) rolls this job's own
+        transaction back, logs the error, and marks the RQ job failed on any
+        raised exception, which is strictly more visible/retryable than the
+        previous silent `return result`.
     """
     from frappe.utils import flt, getdate, today
 
@@ -651,7 +663,7 @@ def _process_executed_payment(payment_link_doc) -> Dict[str, Any]:
             title=f"Ponto payment processing failed: {payment_link_doc.name}",
             message=str(e),
         )
-        return result
+        raise
 
 
 def handle_payment_initiation_updated(event_data: Dict[str, Any]) -> Dict[str, Any]:

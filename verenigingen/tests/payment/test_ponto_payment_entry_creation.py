@@ -13,6 +13,7 @@ submitted Sales Invoice, a real Ponto clearing GL Account and a real Ponto Payme
 Link. Nothing in the payment-entry path is mocked.
 """
 
+from contextlib import contextmanager
 from unittest.mock import patch
 
 import frappe
@@ -24,6 +25,34 @@ from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.verenigingen_payments.ponto.services.payment_entry_service import (
     create_ponto_payment_entry,
 )
+
+
+@contextmanager
+def _no_ponto_bank_account_configured(company, ponto_account):
+    """Blank all three resolution paths `create_ponto_payment_entry` tries (settings
+    parent group, `%Ponto%` account name match, company default bank account), so
+    the misconfiguration guard (#1362) is genuinely reachable rather than silently
+    falling through to a real account. Nothing here is committed; everything is
+    restored on exit, mirroring test_sepa_reconciliation.py's
+    test_create_manual_payment_entry_no_default_bank_account_throws.
+    """
+    from verenigingen.utils import settings_utils
+
+    original_default_bank_account = frappe.db.get_value("Company", company, "default_bank_account")
+    original_account_name = frappe.db.get_value("Account", ponto_account, "account_name")
+    frappe.db.set_value("Company", company, "default_bank_account", None)
+    # Must not itself contain "Ponto" (case-insensitively), or the `%Ponto%` LIKE
+    # match this is trying to defeat still finds the row via account_name.
+    frappe.db.set_value("Account", ponto_account, "account_name", "Renamed Elsewhere Clearing")
+    frappe.clear_document_cache("Company", company)
+    try:
+        with patch.object(settings_utils, "get_payments_settings") as mock_settings:
+            mock_settings.return_value.ponto_bank_account_parent = None
+            yield
+    finally:
+        frappe.db.set_value("Company", company, "default_bank_account", original_default_bank_account)
+        frappe.db.set_value("Account", ponto_account, "account_name", original_account_name)
+        frappe.clear_document_cache("Company", company)
 
 
 def _ensure_ponto_clearing_account(company):
@@ -440,3 +469,130 @@ class TestCreatePontoPaymentEntry(EnhancedTestCase):
             [invoice.name],
             "the money must be allocated to the invoice named in the remittance",
         )
+
+    def test_no_bank_account_configured_raises(self):
+        """A misconfigured Ponto bank account must RAISE, not silently return None
+        (#1362, the #1288/#1323 class). Unlike the already-established legitimate
+        no-ops (no invoice, already paid, draft invoice, Guest refusal), there is
+        no configuration under which "nowhere to post the money" is an expected
+        outcome once the bank has confirmed execution - the caller's transaction
+        boundary needs to see this so it can roll the status write back instead of
+        committing "Executed" with no Payment Entry and no signal anything failed.
+        """
+        member = self._member_with_customer(first_name="PontoNoBank")
+        invoice = self._submitted_invoice(member.customer)
+        link = self._payment_link(member)
+
+        self.expectErrorLog("Ponto Payment Entry creation failed")
+        with _no_ponto_bank_account_configured(self.company, self.ponto_account):
+            with self.assertRaises(frappe.ValidationError):
+                create_ponto_payment_entry(link, invoice.name)
+
+        self.assertFalse(
+            frappe.db.exists("Payment Entry", {"reference_no": link.ponto_request_id}),
+            "a refused misconfiguration must leave no Payment Entry behind",
+        )
+
+    def test_process_payment_received_propagates_misconfiguration(self):
+        """`process_payment_received()` (the DocType's own entry point, reached
+        from both `refresh_status()` and the webhook-inline call in
+        `update_status_from_webhook()`) has no try/except around the call - this
+        pins that the raise actually reaches whichever caller invoked it rather
+        than the old `if not pe_name: return` silently absorbing it again.
+        """
+        member = self._member_with_customer(first_name="PontoLinkNoBank")
+        invoice = self._submitted_invoice(member.customer)
+        link = self._payment_link(member)
+        link.sales_invoice = invoice.name
+        link.save()
+
+        self.expectErrorLog("Ponto Payment Entry creation failed")
+        with _no_ponto_bank_account_configured(self.company, self.ponto_account):
+            with self.assertRaises(frappe.ValidationError):
+                link.process_payment_received()
+
+        self.assertFalse(link.payment_entry, "no partial link may survive a raised misconfiguration")
+
+    def test_async_job_raises_instead_of_silently_succeeding(self):
+        """The async `process_executed_payment_job` path (`_process_executed_payment`)
+        must not swallow a genuine misconfiguration either (#1362). By the time it
+        runs, the link's status is ALREADY committed "Executed" by the original
+        webhook request (enqueue_after_commit) - no savepoint here can roll that
+        back - but a silent `return result` was the only place left where the
+        money could get permanently stuck with no Payment Entry and nothing but an
+        unread Error Log to show for it.
+        """
+        from verenigingen.verenigingen_payments.ponto.api.webhook_handlers import (
+            _process_executed_payment,
+        )
+
+        member = self._member_with_customer(first_name="PontoAsyncNoBank")
+        invoice = self._submitted_invoice(member.customer)
+        link = self._payment_link(member)
+        link.sales_invoice = invoice.name
+        link.save()
+
+        self.expectErrorLog("Ponto Payment Entry creation failed", "Ponto payment processing failed")
+        with _no_ponto_bank_account_configured(self.company, self.ponto_account):
+            with self.assertRaises(frappe.ValidationError):
+                _process_executed_payment(link)
+
+        self.assertFalse(
+            frappe.db.get_value("Ponto Payment Link", link.name, "payment_entry"),
+            "no partial payment_entry link may survive a raised misconfiguration",
+        )
+
+    def test_webhook_misconfiguration_rolls_back_status_not_stuck_executed(self):
+        """A misconfigured Ponto bank account must not leave the link "Executed"
+        with no Payment Entry and no way to retry (#1362, the #1288/#1323 class).
+
+        `_update_payment_link_status()` already wraps
+        `update_status_from_webhook()` in a per-link savepoint (pre-existing, not
+        added by this fix); this proves that boundary actually catches the now-
+        RAISED misconfiguration and rolls the status write back with it, rather
+        than the previous swallow leaving "Executed" committed with nothing to
+        show it never actually recorded the payment.
+        """
+        from verenigingen.verenigingen_payments.ponto.api import webhook_handlers as wh
+
+        member = self._member_with_customer(first_name="PontoWHNoBank")
+        invoice = self._submitted_invoice(member.customer)
+        link = self._payment_link(member)
+        link.sales_invoice = invoice.name
+        link.save()
+        # No frappe.db.commit() here: wh._update_payment_link_status() below runs
+        # in-process on the SAME connection, so the uncommitted status write is
+        # already visible to its frappe.get_all()/get_doc() re-read (same-
+        # transaction MVCC) without one.
+        frappe.db.set_value("Ponto Payment Link", link.name, "status", "Authorized")
+
+        self.expectErrorLog("Ponto Payment Entry creation failed", "Payment link webhook status update failed")
+        with _no_ponto_bank_account_configured(self.company, self.ponto_account):
+            result = wh._update_payment_link_status(request_id=link.ponto_request_id, new_status="executed")
+
+        self.assertEqual(result.get("failed_links"), [link.name], result)
+        link.reload()
+        self.assertEqual(
+            link.status,
+            "Authorized",
+            "a misconfiguration must roll back the status write, not leave it stuck "
+            "at Executed with no Payment Entry",
+        )
+        self.assertFalse(link.payment_entry)
+
+    def test_guest_permission_refusal_is_still_a_silent_no_op(self):
+        """The one exception NOT re-raised by #1362's fix: Guest is refused by
+        `frappe.PermissionError`, which stays a legitimate no-op (unchanged
+        contract, see test_guest_cannot_create_the_entry) rather than becoming a
+        raised misconfiguration - the async job is what actually creates the
+        entry for this path, running as the configured webhook user.
+        """
+        member = self._member_with_customer(first_name="PontoGuestStillNoop")
+        invoice = self._submitted_invoice(member.customer)
+        link = self._payment_link(member)
+
+        self.addCleanup(frappe.set_user, "Administrator")
+        frappe.set_user("Guest")
+        pe_name = create_ponto_payment_entry(link, invoice.name)
+
+        self.assertIsNone(pe_name, "Guest must still be refused silently, not raise")

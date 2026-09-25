@@ -905,8 +905,19 @@ class TestPontoPaymentEntryCreation(FrappeTestCase):
         self.assertIsNone(result["payment_entry"])
         self.assertIsNone(result["sales_invoice"])
 
-    def test_create_ponto_payment_entry_nonexistent_invoice(self):
-        """Should handle nonexistent invoice gracefully."""
+    def test_create_ponto_payment_entry_nonexistent_invoice_raises(self):
+        """A nonexistent invoice is a genuine failure, not a legitimate no-op
+        (#1362, the #1288/#1323 class) - updated from the old
+        `self.assertIsNone(result)` contract, which is the swallow #1362 fixes.
+
+        By the time `create_ponto_payment_entry` is called, `sales_invoice` was
+        either a validated Link field set from the desk or a live match found
+        moments earlier by `find_invoice_for_payment`, so a dangling reference
+        here means something is actually wrong (a race, a deleted invoice, bad
+        data) - not an expected life-cycle state like "already paid" or "still a
+        draft". Silently returning None left a caller with no signal that
+        anything had failed at all and no way to retry.
+        """
         from verenigingen.verenigingen_payments.ponto.services.payment_entry_service import (
             create_ponto_payment_entry,
         )
@@ -918,14 +929,12 @@ class TestPontoPaymentEntryCreation(FrappeTestCase):
         mock_payment_link.description = "Test"
         mock_payment_link.member = None
 
-        # Pass nonexistent invoice - should handle error gracefully
-        result = create_ponto_payment_entry(
-            payment_link_doc=mock_payment_link,
-            invoice_name="SINV-NONEXISTENT-001",
-        )
-
-        # Should return None when invoice doesn't exist (caught by exception handler)
-        self.assertIsNone(result)
+        # Pass nonexistent invoice - must now raise, not swallow.
+        with self.assertRaises(frappe.DoesNotExistError):
+            create_ponto_payment_entry(
+                payment_link_doc=mock_payment_link,
+                invoice_name="SINV-NONEXISTENT-001",
+            )
 
 
 if __name__ == "__main__":
