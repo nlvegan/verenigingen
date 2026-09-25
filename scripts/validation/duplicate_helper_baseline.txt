@@ -131,10 +131,8 @@ _create_pending_application::2
 _create_pending_member::3
 _create_permissions_test_donor::3  # clone family, 3 near-identical pair(s)
 _create_plan::5  # clone family, 6 near-identical pair(s)
-_create_purchase_invoice::2
 _create_purposeless_mandate::2
 _create_request::4  # clone family, 3 near-identical pair(s)
-_create_sales_invoice::2
 _create_sepa_mandate::2
 _create_simple_schedule::2
 _create_temp_csv::2  # clone family, 1 near-identical pair(s)
@@ -246,7 +244,7 @@ _get_config::3  # clone family, 1 near-identical pair(s)
 _get_cost_center::3
 _get_credentials::2
 _get_data_preview::2
-_get_default_cost_center::4
+_get_default_cost_center::3
 _get_email_config_service::2  # clone family, 1 near-identical pair(s)
 _get_headers::2
 _get_inner_fn::2
@@ -256,7 +254,7 @@ _get_memory_usage::2  # clone family, 1 near-identical pair(s)
 _get_mollie_client::4
 _get_nested_model_class::13  # clone family, 16 near-identical pair(s)
 _get_notification_recipients::2
-_get_or_create_customer::3
+_get_or_create_customer::2
 _get_or_create_dues_schedule::2
 _get_or_create_historical_invoice::2
 _get_or_create_income_account::2
@@ -264,8 +262,6 @@ _get_or_create_local_membership::2
 _get_or_create_membership_item::2
 _get_or_create_parent_account::5  # clone family, 10 near-identical pair(s)
 _get_or_create_receivable_account::2
-_get_or_create_supplier::2
-_get_or_create_tax_template::2
 _get_request_or_skip::2  # clone family, 1 near-identical pair(s)
 _get_service::28  # clone family, 2 near-identical pair(s)
 _get_session_token::2

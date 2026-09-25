@@ -193,10 +193,6 @@ verenigingen/events/subscribers/team_subscribers.py::handle_team_lead_permission
 verenigingen/events/team_events.py::emit_team_leadership_changed::1
 verenigingen/events/team_events.py::emit_team_membership_changed::1
 verenigingen/events/team_events.py::emit_team_settings_changed::1
-verenigingen/fixes/correct_implementation_example.py::EBoekhoudenCorrectImporter._create_purchase_invoice::1
-verenigingen/fixes/correct_implementation_example.py::EBoekhoudenCorrectImporter._create_sales_invoice::1
-verenigingen/fixes/step1_fix_data_fetching.py::create_purchase_invoice_with_full_data::1
-verenigingen/fixes/step1_fix_data_fetching.py::create_sales_invoice_with_full_data::1
 verenigingen/patches/v1_0/enable_chapter_notifications_for_existing_installations.py::execute::1
 verenigingen/patches/v2_0/migrate_team_role_integration.py::migrate_team_members_atomic::2
 verenigingen/patches/v2_1/configure_age_validation_settings.py::execute::1
