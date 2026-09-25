@@ -24,44 +24,67 @@ the two tests together. PR #1351 fixed that ONE call site with a local
 same variable, or a different one -- production or third-party code neither test
 file controls) does not need its own bug report to be caught.
 
-Snapshot-and-restore, not hardcoded defaults
----------------------------------------------
-CI's MariaDB defaults are not guaranteed to match this bench's, so restoring to
-a literal like ``max_statement_time = 0`` could be wrong in either direction.
-Instead this snapshots the ACTUAL session values once, at harness start
-(whatever a fresh connection already carries -- including anything Frappe's own
-``connect()`` sets), and puts every later class back to that baseline.
+``SET ... = DEFAULT``, not a snapshotted value
+------------------------------------------------
+An earlier revision of this module snapshotted the tracked variables' VALUES
+once, at the first harness class to run, and restored every later class to
+that cached snapshot. That is broken by construction: the app also has ~421
+plain ``FrappeTestCase``-only classes and other non-harness ``unittest.TestCase``
+classes that register no guard. If one of those runs BEFORE the first harness
+class in a shard and leaks a tracked variable, the snapshot captures the
+ALREADY-LEAKED value as though it were the correct baseline -- and every later
+harness class then actively **re-applies** that leaked value at teardown,
+defending the leak instead of undoing it. Measured independently during review
+(test_site_11): a non-harness class set ``lock_wait_timeout = 97531`` first;
+the next two ``EnhancedTestCase`` classes both still saw 97531 after the first
+one's own cleanup ran.
+
+``SET SESSION <var> = DEFAULT`` sidesteps the whole class of bug: MariaDB
+resets the SESSION value to the current GLOBAL value, looked up fresh by the
+server at restore time -- there is nothing here for an earlier leak to poison.
+Verified this app and frappe core never deliberately set any of the tracked
+variables to something other than the global value at connect time (no
+``init_command``, no post-connect ``SET SESSION`` in
+``frappe/database/mariadb/mysqlclient.py``'s ``get_connection_settings()`` /
+``connect()``, and a repo-wide grep of ``verenigingen/`` and ``scripts/`` found
+none either) -- so "the global value" and "what a fresh connection starts with"
+are the same thing here, measured equal for all 7 tracked variables on a fresh
+connection on this bench (test_site_2).
 
 Which variables
 ----------------
 Deliberately a fixed, narrow list, not "every session variable"
 (``SHOW SESSION VARIABLES`` returns several hundred rows and most are never
 touched by test or application code -- guarding an unbounded list would mean
-restoring things nothing ever changes, at real per-class query cost, for no
+resetting things nothing ever changes, at real per-class query cost, for no
 benefit): the one #1350 actually hit, plus the ones #1353 names as "not
-established" but plausible for the same failure shape. A variable name absent
-on this MariaDB version (e.g. ``transaction_isolation`` is MySQL 8's name;
-MariaDB 10.11 here calls it ``tx_isolation``) simply does not appear in the
-snapshot and is silently skipped on restore -- ``SHOW ... WHERE Variable_name
-IN (...)`` only returns rows that exist, so tracking both spellings costs
-nothing on a server that only has one of them.
+established" but plausible for the same failure shape.
+
+A tracked name absent on this MariaDB version (e.g. ``transaction_isolation``
+is MySQL 8's name; MariaDB 10.11 here only has ``tx_isolation``) cannot simply
+be included in the ``SET ... = DEFAULT`` list regardless -- unlike a read
+(``SHOW ... WHERE Variable_name IN (...)``, which just returns fewer rows), a
+``SET`` naming an unknown variable raises ``Unknown system variable`` and,
+measured, aborts the ENTIRE statement without applying any of the other
+(valid) assignments in it. So which names are valid on this server is checked
+once per process (``SHOW SESSION VARIABLES``, name existence only -- no value
+is cached), and the restore only ever names variables confirmed to exist.
 
 Cost
 ----
-One snapshot query, once per PROCESS (module-level cache -- the values a fresh
-connection carries do not change between classes on their own, only tests or
-called production code change them). One restore statement per test CLASS
-(~2972 harness classes app-wide as of #1353) in ``addClassCleanup``, so it also
-runs if the rest of ``setUpClass`` raises after registering it -- same reasoning
-as ``own_settings_company`` (``tests/support/verenigingen_settings.py``). The
-restore is unconditional -- always issued, never diffed against the current
-value first -- because a second query to check for drift would cost as much as
-the restore itself.
+One name-existence query, once per PROCESS (module-level cache -- which
+variable names exist on this MariaDB server does not change during a run).
+One restore statement per test CLASS (~2972 harness classes app-wide as of
+#1353) in ``addClassCleanup``, so it also runs if the rest of ``setUpClass``
+raises after registering it -- same reasoning as ``own_settings_company``
+(``tests/support/verenigingen_settings.py``). The restore is unconditional --
+always issued, never diffed against the current value first -- because a
+second query to check for drift would cost as much as the restore itself.
 
 Deliberately per-CLASS, not per-test
 --------------------------------------
-Matches the granularity #1353 asks for and the cost/benefit above: 2972 cheap
-restores beats one query per test method. A test that legitimately needs a
+Matches the granularity #1353 asks for and the cost/benefit above: ~2972 cheap
+resets beats one query per test method. A test that legitimately needs a
 session variable for the duration of its OWN body (the
 ``innodb_lock_wait_timeout`` probes in
 ``tests/unit/test_base_history_manager_row_lock.py``) already restores it
@@ -69,12 +92,11 @@ itself with its own ``addCleanup`` before its own class ends -- this guard is a
 backstop for the next unrestored leak, not a replacement for that.
 """
 
-import re
-
 import frappe
 
-#: MariaDB/MySQL session variables this guard snapshots and restores. See the
-#: module docstring for why this list and not "every session variable".
+#: MariaDB/MySQL session variables this guard resets to their GLOBAL value
+#: (via ``SET SESSION <var> = DEFAULT``) after each test class. See the module
+#: docstring for why this list and not "every session variable".
 TRACKED_SESSION_VARIABLES = (
     "max_statement_time",
     "innodb_lock_wait_timeout",
@@ -85,71 +107,56 @@ TRACKED_SESSION_VARIABLES = (
     "time_zone",
 )
 
-_NUMERIC_VALUE = re.compile(r"^-?\d+(\.\d+)?$")
-
-#: Populated once per process by `_snapshot_baseline()`. Module-level, not a
-#: frappe.flags attribute, deliberately: it must survive the per-class
-#: `_restore_thread_locals` cleanup FrappeTestCase itself registers, which
-#: restores a deep copy of `frappe.local.flags` at each class's teardown.
-_baseline_cache = None
+#: Populated once per process by `_supported_variables()`: which of
+#: TRACKED_SESSION_VARIABLES actually exist as system variables on this
+#: MariaDB server. Module-level, not a frappe.flags attribute, deliberately:
+#: it must survive the per-class `_restore_thread_locals` cleanup
+#: FrappeTestCase itself registers, which restores a deep copy of
+#: `frappe.local.flags` at each class's teardown. Unlike the value snapshot
+#: this replaced, caching NAME EXISTENCE cannot be poisoned by an earlier
+#: leak -- which names exist is a property of the server version, not of
+#: anything a test set.
+_supported_variables_cache = None
 
 
 def guard_session_variables(test_class) -> None:
-    """Register a class-level restore of the tracked session variables.
+    """Register a class-level reset of the tracked session variables to their
+    GLOBAL (server-default) value.
 
-    Call this from ``setUpClass``, after ``super().setUpClass()``. No-ops on any
-    backend other than MariaDB (``frappe.db.db_type != "mariadb"``): ``SHOW
-    SESSION VARIABLES`` / ``SET SESSION name = value`` are MariaDB/MySQL syntax,
-    and every test site in this bench is MariaDB, so this is cheap insurance
-    rather than a real code path.
+    Call this from ``setUpClass``, after ``super().setUpClass()``. No-ops on
+    any backend other than MariaDB (``frappe.db.db_type != "mariadb"``):
+    ``SHOW SESSION VARIABLES`` / ``SET SESSION name = DEFAULT`` are
+    MariaDB/MySQL syntax, and every test site in this bench is MariaDB, so
+    this is cheap insurance rather than a real code path.
     """
     if getattr(frappe.db, "db_type", None) != "mariadb":
         return
-    baseline = _snapshot_baseline()
-    if not baseline:
+    supported = _supported_variables()
+    if not supported:
         return
-    test_class.addClassCleanup(_restore_tracked_session_variables, dict(baseline))
+    test_class.addClassCleanup(_reset_to_global_default, supported)
 
 
-def _snapshot_baseline() -> dict:
-    """The tracked variables' current values, captured once per process."""
-    global _baseline_cache
-    if _baseline_cache is None:
+def _supported_variables() -> tuple:
+    """Which of TRACKED_SESSION_VARIABLES exist as system variables on this
+    server, checked once per process. See module docstring for why a `SET
+    ... = DEFAULT` naming an unknown variable is not merely a no-op for that
+    one name -- it aborts the whole statement."""
+    global _supported_variables_cache
+    if _supported_variables_cache is None:
         rows = frappe.db.sql(
             "SHOW SESSION VARIABLES WHERE Variable_name IN %(names)s",
             {"names": TRACKED_SESSION_VARIABLES},
             as_dict=True,
         )
-        _baseline_cache = {row["Variable_name"].lower(): row["Value"] for row in rows}
-    return _baseline_cache
+        _supported_variables_cache = tuple(sorted(row["Variable_name"].lower() for row in rows))
+    return _supported_variables_cache
 
 
-def _restore_tracked_session_variables(baseline: dict) -> None:
-    """``SET SESSION`` every tracked variable back to its snapshotted value.
-
-    Not parameterised with ``%s``: MariaDB rejects a quoted string for a numeric
-    session variable (``SET SESSION innodb_lock_wait_timeout = '50'`` raises
-    ``Incorrect argument type to variable 'innodb_lock_wait_timeout'`` --
-    measured), so a single value-typed placeholder cannot cover both the numeric
-    and the string-valued variables tracked here in one statement. The values
-    are self-produced (this module's own earlier ``SHOW SESSION VARIABLES``
-    call, never user input), so a bare numeric literal is rendered directly and
-    anything else goes through ``frappe.db.escape(percent=False)`` -- this
-    statement is sent with no separate ``values`` argument, so there is no
-    second %-formatting pass to collapse ``escape()``'s default ``%`` ->
-    ``%%`` back down; with the default ``percent=True`` a value containing a
-    literal ``%`` would come back out of MariaDB doubled.
-    """
-    if not baseline:
+def _reset_to_global_default(names: tuple) -> None:
+    """`SET SESSION` every named variable to `DEFAULT` (MariaDB's own current
+    GLOBAL value for it, looked up fresh -- never a value this module cached)."""
+    if not names:
         return
-    assignments = ", ".join(f"{name} = {_sql_literal(value)}" for name, value in baseline.items())
+    assignments = ", ".join(f"{name} = DEFAULT" for name in names)
     frappe.db.sql(f"SET SESSION {assignments}")
-
-
-def _sql_literal(value) -> str:
-    if value is None:
-        return "NULL"
-    text = str(value)
-    if _NUMERIC_VALUE.match(text):
-        return text
-    return frappe.db.escape(text, percent=False)

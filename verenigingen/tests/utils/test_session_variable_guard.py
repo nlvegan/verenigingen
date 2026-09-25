@@ -35,6 +35,7 @@ import unittest
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils import session_variable_guard
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 LEAK_VALUE = "97531"  # a lock_wait_timeout no real site would already have
@@ -102,3 +103,85 @@ class TestSessionVariableGuard(unittest.TestCase):
 
     def test_vereningingen_test_case_resets_session_variables_between_classes(self):
         self._assert_leak_is_contained(VereningingenTestCase)
+
+
+class TestSessionVariableGuardSurvivesAPreexistingLeak(unittest.TestCase):
+    """A leak that happens BEFORE the very first harness class ever runs in a
+    process must not get folded into the guard's cached state and then
+    actively RE-APPLIED by every later harness class.
+
+    This app also has ~421 plain ``FrappeTestCase``-only classes, and other
+    non-``EnhancedTestCase``/``VereningingenTestCase`` classes, that register
+    no guard at all. An earlier revision of the guard module snapshotted the
+    tracked variables' VALUES the first time any harness class asked for them
+    -- so if one of those non-harness classes ran first in a shard and leaked
+    a tracked variable, the "baseline" the guard cached was already the leaked
+    value, and every later harness class then dutifully restored EVERYONE
+    back to it. Measured against that revision (commit 35d9dc7ad): a plain
+    ``unittest.TestCase`` set ``lock_wait_timeout = 97531`` and left it; the
+    first ``EnhancedTestCase`` afterward saw 97531 (expected -- nothing has
+    run yet to fix it), and a SECOND ``EnhancedTestCase`` still saw 97531
+    after the first one's own cleanup ran -- the restore was defending the
+    leak instead of undoing it.
+    """
+
+    def setUp(self):
+        self.original = _current_lock_wait_timeout()
+        self.addCleanup(self._restore_original)
+        self._blank_guard_module_caches()
+
+    def _restore_original(self):
+        frappe.db.sql(f"SET SESSION lock_wait_timeout = {self.original}")
+
+    def _blank_guard_module_caches(self):
+        """Simulate this being the very first call in a fresh process: blank
+        every private lazily-populated cache the guard module holds (matched
+        by a `_..._cache` name, not a hardcoded attribute name, so this test
+        does not care which internal caching scheme the module uses). Without
+        this, whatever this test PROCESS already computed earlier -- from a
+        clean session, before this test's leak -- would mask the defect this
+        test exists to catch.
+        """
+        for name in list(vars(session_variable_guard)):
+            if name.startswith("_") and name.endswith("_cache"):
+                setattr(session_variable_guard, name, None)
+
+    def test_a_leak_before_the_first_harness_class_does_not_survive_as_the_restored_value(self):
+        class _NonHarnessLeak(unittest.TestCase):
+            """A plain unittest.TestCase -- like one of this app's ~421
+            FrappeTestCase-only (or otherwise non-EnhancedTestCase /
+            non-VereningingenTestCase) classes -- that leaks a tracked
+            session variable and registers no guard for it at all."""
+
+            def test_leaks_before_any_harness_class_runs(self):
+                frappe.db.sql(f"SET SESSION lock_wait_timeout = {LEAK_VALUE}")
+
+        seen = {}
+
+        class _FirstHarnessClass(EnhancedTestCase):
+            def test_observes_state_right_after_the_leak(self):
+                seen["first"] = _current_lock_wait_timeout()
+
+        class _SecondHarnessClass(EnhancedTestCase):
+            def test_observes_state_after_the_first_harness_classs_cleanup(self):
+                seen["second"] = _current_lock_wait_timeout()
+
+        result = _run_classes_in_one_process(_NonHarnessLeak, _FirstHarnessClass, _SecondHarnessClass)
+
+        self.assertEqual(
+            (result.errors, result.failures),
+            ([], []),
+            f"harness class setup/teardown itself failed: {result.errors or result.failures}",
+        )
+        self.assertEqual(
+            seen.get("first"),
+            LEAK_VALUE,
+            "test setup did not actually leak the session variable before the first harness class",
+        )
+        self.assertEqual(
+            seen.get("second"),
+            self.original,
+            "a SECOND harness class still observed the value a NON-harness class leaked before "
+            "the first harness class ever ran, instead of the server's true default -- the "
+            "restore is defending the leak it should be undoing",
+        )
