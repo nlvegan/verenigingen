@@ -69,12 +69,19 @@ def map_grootboek_to_erpnext_account(grootboek_nr: str, transaction_type: str, c
         if erpnext_account:
             return erpnext_account
 
-    # Try to find account by number in account name
-    account = frappe.db.get_value(
-        "Account", {"company": company, "account_name": ["like", f"%{grootboek_nr}%"]}, "name"
+    # Try to find account by exact account number. A substring LIKE on account_name
+    # (the previous approach) matched any account whose name merely CONTAINED the
+    # ledger number -- e.g. "80" inside "8000" or "1800" -- built from an unescaped
+    # external grootboek_nr, and silently took whichever single row came back with
+    # no ambiguity check at all (#1363). account_number is an exact field, so this
+    # can only ever be a genuine match or none -- refuse rather than guess on 0 or
+    # more than 1, and never persist an unconfirmed mapping.
+    matching_accounts = frappe.get_all(
+        "Account", filters={"company": company, "account_number": grootboek_nr}, pluck="name", limit=2
     )
 
-    if account:
+    if len(matching_accounts) == 1:
+        account = matching_accounts[0]
         # Create mapping for future use
         create_account_mapping(grootboek_nr, account)
         return account
@@ -128,6 +135,13 @@ def create_account_from_grootboek(grootboek_nr: str, transaction_type: str, comp
     account.account_type = account_info["account_type"]
     account.root_type = account_info["root_type"]
     account.company = company
+    # map_grootboek_to_erpnext_account() now matches on account_number (#1363), so
+    # this account must carry it -- without this, the substring-name match it used
+    # to rely on for "find the account THIS function created last time" (grootboek_nr
+    # was always a literal substring of account_name) no longer applies, and every
+    # later call for the same grootboek_nr would create yet another duplicate
+    # account instead of reusing this one.
+    account.account_number = grootboek_nr
     account.custom_eboekhouden_grootboek = grootboek_nr
 
     # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
