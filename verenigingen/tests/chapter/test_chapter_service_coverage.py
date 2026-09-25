@@ -911,6 +911,30 @@ class TestChapterSecurityBoardMemberApproval(EnhancedTestCase):
             self.assertTrue(can_review_application(self.applicant_own.name))
             self.assertFalse(can_review_application(self.applicant_other.name))
 
+    def test_can_review_application_does_not_leak_member_existence(self):
+        """#1394: an unknown member_name must be indistinguishable from a foreign one.
+
+        Before the fix, can_review_application delegated existence checking to
+        _validate_member_for_review, which does an unscoped frappe.db.exists() and
+        frappe.throw()s "Invalid member reference" for an unknown id -- while an
+        existing-but-foreign id (test above) just returns False. That let any
+        MEDIUM-tier caller (this board_user included) enumerate real Member ids by
+        watching which ones raise. Both branches must now return the identical
+        False, through the same call, with no exception raised for either.
+        """
+        from verenigingen.api.membership_application_review import can_review_application
+
+        with self.as_user(self.board_user.name):
+            unknown_result = can_review_application(f"NONEXISTENT-MEMBER-{frappe.generate_hash(length=8)}")
+            foreign_result = can_review_application(self.applicant_other.name)
+
+            self.assertFalse(unknown_result)
+            self.assertEqual(
+                unknown_result,
+                foreign_result,
+                "an unknown member_name must answer identically to an existing-but-foreign one",
+            )
+
     def test_staff_session_gets_all_chapters(self):
         """Staff short-circuit to "all" without consulting any board roster."""
         from verenigingen.services.chapter.chapter_security import get_user_manageable_chapters
