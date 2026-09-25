@@ -213,11 +213,16 @@ class TestDeriveCoverageFromInvoiceData(EnhancedTestCase):
         self.assertEqual(end, getdate("2025-04-14"))
 
     def test_daily_start_equals_end(self):
-        # Daily coverage end == start; function allows equal for the derived case?
-        # NOTE: final validation requires end > start, so Daily would raise. Verify behavior.
-        with self.assertRaises(ValueError) as ctx:
-            derive_coverage_from_invoice_data("2025-03-15", billing_frequency="Daily")
-        self.assertIn("must be after start", str(ctx.exception))
+        # Daily coverage is a single-day period: coverage_end == coverage_start by
+        # construction (matches calculate_coverage_end() and the single-day tuple
+        # calculate_billing_period() returns for Daily elsewhere in this module).
+        # #1393: the final validation used to reject this unconditionally for
+        # EVERY Daily invoice with no explicit coverage dates; it now carves out
+        # equality for Daily only, same as calculate_next_coverage_period()'s
+        # start == end exception in coverage_calculator.py.
+        start, end = derive_coverage_from_invoice_data("2025-03-15", billing_frequency="Daily")
+        self.assertEqual(start, getdate("2025-03-15"))
+        self.assertEqual(end, getdate("2025-03-15"))
 
     def test_weekly_coverage(self):
         start, end = derive_coverage_from_invoice_data("2025-03-15", billing_frequency="Weekly")
