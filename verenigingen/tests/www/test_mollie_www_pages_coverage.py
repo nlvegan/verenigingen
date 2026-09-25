@@ -65,6 +65,39 @@ class TestMollieWwwPagesCoverage(VereningingenTestCase):
         grant_matching_role_profiles(email, roles)
         return email
 
+    def _grant_chapter_user_permission(self, email, chapter_name):
+        """Scope a user to one Chapter via a real User Permission row.
+
+        This is a CONSTRUCTED test scenario, not a state production ever
+        creates or leaves in place (#1366). Member does have a custom
+        `has_permission` hook (`verenigingen.permissions.has_member_permission`,
+        registered in verenigingen/hooks/permissions.py), but Frappe controller
+        hooks can only DENY, never grant (frappe/permissions.py:481-498), so its
+        Roles.ADMIN_ROLES bypass cannot override a User Permission denial --
+        which is why inserting this row still measurably denies
+        frappe.has_permission() below for a Verenigingen-Staff-bearing caller.
+        The row itself, though, is something this app actively prevents:
+        chapter scoping is enforced by permission_query_conditions, not User
+        Permission rows (patches v2_1/cleanup_admin_chapter_user_permissions.py
+        and v2_2/remove_all_chapter_user_permissions.py removed them app-wide,
+        and `cleanup_chapter_user_permissions_for_admins`, a User.on_update
+        hook, deletes any Chapter User Permission row on every subsequent User
+        save). So the reachable population for the oracle this test proves is
+        closed is near-zero today; see #1366. Kept as a code-level regression
+        test (and as a hedge against DocPerm or the hook ever changing), not as
+        evidence of a live exploit path.
+        """
+        user_permission = frappe.get_doc(
+            {
+                "doctype": "User Permission",
+                "user": email,
+                "allow": "Chapter",
+                "for_value": chapter_name,
+            }
+        )
+        user_permission.insert(ignore_permissions=True)
+        self.track_doc("User Permission", user_permission.name)
+
     # ===== mollie_subscription_audit.get_context =====
 
     def test_audit_get_context_sets_page_flags_for_admin(self):
@@ -323,12 +356,110 @@ class TestMollieWwwPagesCoverage(VereningingenTestCase):
         self.assertIn("No fields", str(result))
 
     def test_update_member_fields_missing_member_returns_failure(self):
-        """A non-existent member id produces a handled failure (logged once)."""
+        """A non-existent member id produces a handled failure, WITHOUT reaching
+        frappe.get_doc (#1334): existence is checked first via frappe.db.exists,
+        so this no longer logs "Member Reconciliation Update Error" -- that log
+        only fires from the generic `except Exception` further down, which a
+        missing id can no longer reach.
+        """
         with self.set_user(self.admin_email):
-            self.expectErrorLog("Member Reconciliation Update Error")
-            result = mmr.update_member_mollie_fields(
-                member_id="NONEXISTENT-MEMBER-XYZ",
-                subscription_status="active",
-            )
+            with self.assertNoErrorLog():
+                result = mmr.update_member_mollie_fields(
+                    member_id="NONEXISTENT-MEMBER-XYZ",
+                    subscription_status="active",
+                )
         self.assertIsInstance(result, dict)
         self.assertFalse(result.get("success"))
+        # Pin the exact refusal (not just success=False): this must be the SAME
+        # message the "exists but forbidden" branch returns (#1334), not the old
+        # "Unable to update member. Please contact support." from the bare except.
+        self.assertEqual(
+            result.get("error", {}).get("message"),
+            "Insufficient permissions to update this member",
+        )
+
+    # ===== #1334: existence oracle =====
+
+    def test_update_member_fields_unauthorized_cannot_distinguish_missing_from_forbidden(self):
+        """An unauthorized caller must get the IDENTICAL refusal whether
+        member_id is a real Member outside their scope, or doesn't exist at all.
+
+        The attacker must clear the @critical_api security-tier decorator to
+        reach this function's body at all. Empirically, on this site, EVERY
+        Role Profile that clears CRITICAL (authorization_policy.py's
+        ROLE_PROFILE_SECURITY_MAPPING) bundles the "Verenigingen Staff" role,
+        so doctype-level Member write is unconditionally granted to any caller
+        who can reach this endpoint at all.
+
+        This test's "out of scope" attacker is a CONSTRUCTED scenario, not a
+        state that arises in this app today -- see #1366. Member DOES have a
+        custom `has_permission` hook (has_member_permission, hooks/permissions.py)
+        that grants Roles.ADMIN_ROLES ("Verenigingen Staff" included) full
+        access; the User Permission row `_grant_chapter_user_permission` inserts
+        still denies write here only because Frappe controller hooks can only
+        DENY, never grant, so the ADMIN_ROLES bypass can't override a User
+        Permission denial (frappe/permissions.py:481-498). But this app
+        deliberately does not use Chapter User Permissions for scoping (it uses
+        permission_query_conditions instead) and actively removes any such row
+        via `cleanup_chapter_user_permissions_for_admins` (a User.on_update
+        hook) plus two historical patches that purged them app-wide. So the
+        reachable population for this specific oracle is near-zero today; this
+        test proves the CODE-LEVEL mechanism is closed (hygiene + a hedge
+        against DocPerm/the hook ever changing), not that it was being
+        exploited.
+        """
+        attacker_email = f"mollie-attacker-{frappe.generate_hash()[:8]}@example.com"
+        self._make_user(attacker_email, roles=["Verenigingen National Board Member"])
+
+        allowed_chapter = self.create_test_chapter()
+        other_chapter = self.create_test_chapter()
+        self._grant_chapter_user_permission(attacker_email, allowed_chapter.name)
+
+        member_out_of_scope = self.create_test_member(current_chapter=other_chapter.name)
+
+        with self.set_user(attacker_email):
+            # Sanity/control: doc-level permission genuinely denies this
+            # specific, existing, out-of-scope member. Without this, the test
+            # below would prove nothing about the oracle -- it would just be
+            # comparing two calls that both happen to fail for the same
+            # reason (e.g. an unrelated whitelist gate).
+            self.assertFalse(
+                frappe.has_permission(
+                    "Member", "write", frappe.get_doc("Member", member_out_of_scope.name)
+                ),
+                "test setup is broken: the User Permission does not actually scope this attacker",
+            )
+
+            forbidden_result = mmr.update_member_mollie_fields(
+                member_id=member_out_of_scope.name, subscription_status="active"
+            )
+            missing_result = mmr.update_member_mollie_fields(
+                member_id="NONEXISTENT-MEMBER-XYZ-1334", subscription_status="active"
+            )
+
+        for result in (forbidden_result, missing_result):
+            self.assertIsInstance(result, dict)
+            self.assertFalse(result.get("success"))
+
+        forbidden_result.pop("timestamp", None)
+        missing_result.pop("timestamp", None)
+        self.assertEqual(
+            forbidden_result,
+            missing_result,
+            "an out-of-scope existing member and a nonexistent member must refuse identically",
+        )
+
+    def test_update_member_fields_owner_admin_still_succeeds(self):
+        """Positive control: the #1334 fix must not refuse a genuinely
+        authorized caller. The admin user (Roles.ADMIN_ROLES-equivalent here)
+        can still write a real member -- proving the reordering didn't turn
+        the permission branch into dead code.
+        """
+        member = self._make_member()
+        with self.set_user(self.admin_email):
+            with self.assertNoErrorLog():
+                result = mmr.update_member_mollie_fields(
+                    member_id=member.name,
+                    subscription_status="active",
+                )
+        self.assertTrue(result.get("success"), msg=result)

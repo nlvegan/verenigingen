@@ -79,6 +79,23 @@ def get_member_reconciliation_data() -> OperationResult[Dict[str, Any]]:
         )
 
 
+def _permission_denied_result() -> OperationResult[Dict[str, Any]]:
+    """Identical refusal for update_member_mollie_fields, regardless of existence (#1334).
+
+    Both the "member_id doesn't exist" and the "member_id exists but the caller
+    can't write it" branches below return this SAME message/shape -- deliberately
+    WITHOUT the caller-supplied member_id in the context/metadata, so an
+    unauthorized caller cannot use any difference between the two responses to
+    probe which member ids are real. Kept as one helper (not two call sites) so
+    they can't drift apart.
+    """
+    return OperationResult.fail(
+        _("Insufficient permissions to update this member"),
+        errors=["Permission denied"],
+        context={"operation": "update_member_mollie_fields"},
+    )
+
+
 @frappe.whitelist()
 @critical_api()  # Financial data updates
 def update_member_mollie_fields(
@@ -93,6 +110,25 @@ def update_member_mollie_fields(
 
     Security: Requires Member write permission.
 
+    Existence is resolved via a silent frappe.db.exists() BEFORE any
+    permission-revealing branch runs (#1334): frappe.has_permission("Member",
+    "write", doc=<name>) itself eagerly loads the target document and raises
+    frappe.DoesNotExistError for a missing one -- true for any caller other
+    than the literal "Administrator" user (measured on test_site_6) -- so
+    calling it (or frappe.get_doc) on an unconfirmed id let the bare `except
+    Exception` below catch that DoesNotExistError and return a DIFFERENT
+    message than the explicit permission-denied branch: an existence oracle
+    for an unauthorized caller. Both branches now return the identical
+    _permission_denied_result().
+
+    Trade-off: a genuinely AUTHORIZED caller (including an admin) who simply
+    mistypes member_id now also sees "Insufficient permissions to update this
+    member" instead of a distinct "not found" -- deliberate, since telling
+    "authorized but missing" apart from "authorized and forbidden" would need
+    this function to re-derive the same doc-level scoping decision
+    frappe.has_permission() makes, without loading the document first (#1328
+    is the open issue about that scoping decision being its own oracle).
+
     Args:
         member_id: Member ID to update
         mollie_subscription_id: New subscription ID (optional, can be None to clear)
@@ -104,15 +140,14 @@ def update_member_mollie_fields(
         OperationResult[Dict[str, Any]]: Success status, updated values, and refreshed member data
     """
     try:
+        if not frappe.db.exists("Member", member_id):
+            return _permission_denied_result()
+
         member = frappe.get_doc("Member", member_id)
 
         # Check write permission
         if not frappe.has_permission("Member", "write", member):
-            return OperationResult.fail(
-                _("Insufficient permissions to update Member {0}").format(member_id),
-                errors=["Permission denied"],
-                context={"operation": "update_member_mollie_fields", "member_id": member_id},
-            )
+            return _permission_denied_result()
 
         # Update fields if provided
         updated_fields = []
