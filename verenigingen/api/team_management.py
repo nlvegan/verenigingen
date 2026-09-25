@@ -13,6 +13,31 @@ from verenigingen.utils.security.api_security_framework import standard_api
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
+def _require_team_permission(team_name, ptype, message):
+    """Refuse access to a caller-supplied Team id without an existence oracle.
+
+    frappe.has_permission("Team", ptype, name) loads the document internally
+    (frappe.get_lazy_doc) before consulting the permission tables, and that load
+    raises DoesNotExistError for an unknown name while the same call returns plain
+    False for a real-but-forbidden one (#1401) -- two different exceptions (and
+    messages, once @handle_api_error renders them) for the identical "can I access
+    this id" question. Catching the raise and folding it into the same refusal as
+    "False" closes that without an extra existence lookup on the success path, and
+    without changing behaviour for the literal "Administrator" user: its
+    frappe.has_permission call returns True before touching the document at all
+    (frappe/permissions.py), so it never raises here regardless of team_name, and
+    a subsequent frappe.get_doc still surfaces the ordinary "not found" for a truly
+    unknown id -- exactly as before this fix.
+    """
+    try:
+        allowed = frappe.has_permission("Team", ptype, team_name)
+    except frappe.DoesNotExistError:
+        allowed = False
+
+    if not allowed:
+        frappe.throw(message)
+
+
 @frappe.whitelist()
 @standard_api
 @handle_api_error
@@ -21,8 +46,7 @@ def get_team_members(team):
     if not team:
         frappe.throw(_("Team is required"))
 
-    if not frappe.has_permission("Team", "read", team):
-        frappe.throw(_("Insufficient permissions to access team data"))
+    _require_team_permission(team, "read", _("Insufficient permissions to access team data"))
 
     team_doc = frappe.get_doc("Team", team)
     members = []
@@ -69,8 +93,9 @@ def sync_team_with_volunteers(team_name: str | None = None):
 
     teams_to_sync = []
     if team_name:
-        if not frappe.has_permission("Team", "write", team_name):
-            frappe.throw(_("Insufficient permissions to sync team {0}").format(team_name))
+        _require_team_permission(
+            team_name, "write", _("Insufficient permissions to sync team {0}").format(team_name)
+        )
         teams_to_sync = [{"name": team_name}]
     else:
         # get_list, NOT get_all. `get_all` bypasses permissions by design, so this branch
@@ -122,8 +147,7 @@ def sync_team_with_volunteers(team_name: str | None = None):
 def get_role_profile_preview(team_name: str):
     """Get preview of which role profiles would be assigned to team members"""
 
-    if not frappe.has_permission("Team", "read", team_name):
-        frappe.throw(_("Insufficient permissions to access team data"))
+    _require_team_permission(team_name, "read", _("Insufficient permissions to access team data"))
 
     team_doc = frappe.get_doc("Team", team_name)
     preview = []
@@ -163,8 +187,7 @@ def bulk_apply_team_role_profiles(team_name: str):
     """
     from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
 
-    if not frappe.has_permission("Team", "write", team_name):
-        frappe.throw(_("Insufficient permissions to modify team"))
+    _require_team_permission(team_name, "write", _("Insufficient permissions to modify team"))
 
     if not frappe.db.exists("Team", team_name):
         return {"success": False, "applied_count": 0, "message": f"Team '{team_name}' does not exist"}
