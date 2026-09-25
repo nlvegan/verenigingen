@@ -142,6 +142,49 @@ class TestCustomerHandlingServiceIntegration(EnhancedTestCase):
         result = self.service.check_similar_customers(None)
         self.assertEqual(result, [])
 
+    def test_check_similar_customers_does_not_treat_underscore_as_wildcard(self):
+        """#1376: full_name is free text; a literal '_' must not act as a SQL
+        LIKE single-char wildcard.
+
+        A customer whose name merely has an unrelated character in the same
+        position as the literal underscore must NOT be reported as "similar" --
+        that would surface a stranger's customer in the staff-facing
+        duplicate-detection warning.
+        """
+        unique = frappe.generate_hash(length=8)
+        # Differs from the search term only by the character standing in for
+        # the literal "_" below, so an unescaped LIKE '%...%' would match it.
+        decoy = frappe.new_doc("Customer")
+        decoy.customer_name = f"Wild{unique}XCard"
+        decoy.customer_type = "Individual"
+        decoy.insert()
+        self._created_customers.append(decoy.name)
+
+        search_name = f"Wild{unique}_Card"
+        similar = self.service.check_similar_customers(search_name)
+
+        found_names = [c.customer_name for c in similar]
+        self.assertNotIn(
+            decoy.customer_name,
+            found_names,
+            "check_similar_customers() used '_' in full_name as a SQL LIKE "
+            "wildcard and matched an unrelated customer name",
+        )
+
+    def test_check_similar_customers_still_finds_genuine_substring_matches(self):
+        """Escaping must not break the intended substring search (#1376)."""
+        unique = frappe.generate_hash(length=8)
+        customer = frappe.new_doc("Customer")
+        customer.customer_name = f"Genuine Match {unique} Foundation"
+        customer.customer_type = "Individual"
+        customer.insert()
+        self._created_customers.append(customer.name)
+
+        similar = self.service.check_similar_customers(f"Genuine Match {unique}")
+
+        found_names = [c.customer_name for c in similar]
+        self.assertIn(customer.customer_name, found_names)
+
     def test_validate_customer_creation_requirements_valid(self):
         """Test validation passes for valid member"""
         member = self.create_test_member(
