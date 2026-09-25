@@ -19,17 +19,22 @@ def get_context(context):
 
     plan_name = frappe.form_dict.get("plan")
     member = get_current_user_member_name()
-    if not member or not plan_name or not frappe.db.exists("Payment Plan", plan_name):
-        context.no_access = True
-        context.message = _("Payment plan not found.")
-        return context
 
-    plan = frappe.get_doc("Payment Plan", plan_name)
-    if plan.member != member:
+    # Ownership is resolved from a single, existence-independent lookup BEFORE
+    # frappe.get_doc (mirrors #1358's fix in payment_plan_management.py).
+    # frappe.db.exists() + frappe.get_doc gave a nonexistent plan id a
+    # different context.message ("Payment plan not found.") than an
+    # existing-but-foreign one ("You can only pay your own payment plans."),
+    # an existence oracle over Payment Plan ids for any authenticated member
+    # who can reach this page (#1373). member is reqd=1 on Payment Plan, so a
+    # None lookup means "no such plan", never "real plan, blank member".
+    plan_member = frappe.db.get_value("Payment Plan", plan_name, "member") if plan_name else None
+    if not member or plan_member != member:
         context.no_access = True
         context.message = _("You can only pay your own payment plans.")
         return context
 
+    plan = frappe.get_doc("Payment Plan", plan_name)
     context.plan = plan
     context.member = member
     context.installment = get_next_payable_installment(plan)

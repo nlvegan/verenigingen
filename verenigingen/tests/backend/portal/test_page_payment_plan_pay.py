@@ -72,6 +72,48 @@ class TestPagePaymentPlanPay(VereningingenTestCase):
             payment_plan_pay.get_context(ctx)
         self.assertTrue(ctx.get("no_access"))
 
+    def test_unknown_and_foreign_plan_return_identical_refusal(self):
+        # #1373: a nonexistent plan id and an existing-but-foreign one must be
+        # indistinguishable to the caller -- same message, same query cost, no
+        # frappe.get_doc (and therefore no DoesNotExistError) on either path.
+        from verenigingen.templates.pages import payment_plan_pay
+
+        other = self._create_member()
+
+        def _get_context_with_query_count(plan_value):
+            frappe.form_dict = frappe._dict({"plan": plan_value})
+            queries = []
+            orig_sql = frappe.db.__class__.sql
+
+            def _counting_sql(*args, **kwargs):
+                queries.append(args[0])
+                return orig_sql(*args, **kwargs)
+
+            with self.as_user(other.email):
+                frappe.db.__class__.sql = _counting_sql
+                try:
+                    ctx = frappe._dict()
+                    payment_plan_pay.get_context(ctx)
+                finally:
+                    frappe.db.__class__.sql = orig_sql
+            return ctx, len(queries)
+
+        ctx_unknown, count_unknown = _get_context_with_query_count("NONEXISTENT-PLAN-ID")
+        ctx_foreign, count_foreign = _get_context_with_query_count(self.plan.name)
+
+        self.assertTrue(ctx_unknown.get("no_access"))
+        self.assertTrue(ctx_foreign.get("no_access"))
+        self.assertEqual(
+            ctx_unknown.message,
+            ctx_foreign.message,
+            "unknown-plan and foreign-plan refusals must render the same message",
+        )
+        self.assertEqual(
+            count_unknown,
+            count_foreign,
+            "unknown-plan and foreign-plan paths must cost the same number of queries",
+        )
+
     def test_page_lists_enabled_online_methods(self):
         from unittest.mock import patch
 
