@@ -13,11 +13,18 @@ from verenigingen.utils.error_codes import log_operation_error
 def find_donors_by_field(fieldname: str, value, fields=("name",)) -> List[dict]:
     """Return ALL Donor rows with an EXACT match on ``fieldname == value``.
 
+    The single, canonical Donor-resolution query for the whole app: every
+    tiered lookup (``get_donor_for_member``, ``DonorManagementService.
+    check_donor_exists``, and ``api/member/general_api.get_linked_donations``)
+    calls this rather than issuing its own ``frappe.get_all``/``get_value``,
+    so there is exactly one place that decides what "an exact match" means.
+
     An empty/falsy ``value`` returns ``[]`` without querying (there is nothing
     to match). Callers MUST treat more than one row as an unresolvable
-    ambiguity and refuse rather than picking one arbitrarily -- this mirrors
-    ``_find_donor_by`` in ``api/member/general_api.py`` (#1392/#1356) so every
-    Donor-resolution tier in the app shares the same ambiguity semantics.
+    ambiguity and refuse rather than picking one arbitrarily (#1356/#1384/
+    #1389/#1392/#1406) -- an ambiguous match at one tier must never fall
+    through to try a weaker tier instead, since that can resolve via a
+    completely unrelated Donor (see #1392's review).
     """
     if not value:
         return []

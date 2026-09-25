@@ -121,6 +121,13 @@ def get_linked_donations(member: str | None = None):
     tier, which then resolved via a completely unrelated Donor that merely
     shared the member's e-mail address -- see the #1356 review.
 
+    Uses ``find_donors_by_field`` (services/member/donor/
+    donor_member_reconciliation.py) -- the single canonical Donor-resolution
+    query shared by every tiered lookup in the app (``get_donor_for_member``,
+    ``DonorManagementService.check_donor_exists``, and this function) -- so
+    there is exactly one place that decides what "an exact, unambiguous
+    match" means (#1406).
+
     Args:
         member: Member name/ID
 
@@ -130,39 +137,25 @@ def get_linked_donations(member: str | None = None):
     if not member:
         return {"success": False, "message": "No member specified"}
 
+    from verenigingen.services.member.donor.donor_member_reconciliation import find_donors_by_field
+
     member_doc = frappe.get_doc("Member", member)
 
-    donor, ambiguous = _find_donor_by("member", member_doc.name)
-    if ambiguous:
+    matches = find_donors_by_field("member", member_doc.name)
+    if len(matches) > 1:
         return {"success": False, "message": "Multiple donor records are linked to this member"}
-    if donor:
-        return {"success": True, "donor": donor}
+    if matches:
+        return {"success": True, "donor": matches[0].name}
 
     if member_doc.email:
-        donor, ambiguous = _find_donor_by("donor_email", member_doc.email)
-        if ambiguous:
+        matches = find_donors_by_field("donor_email", member_doc.email)
+        if len(matches) > 1:
             return {
                 "success": False,
                 "message": "Multiple donor records share this member's e-mail address",
             }
-        if donor:
-            return {"success": True, "donor": donor}
+        if matches:
+            return {"success": True, "donor": matches[0].name}
 
     # No donor found
     return {"success": False, "message": "No donor record found for this member"}
-
-
-def _find_donor_by(fieldname: str, value: str) -> tuple[str | None, bool]:
-    """Return ``(donor_name, ambiguous)`` for an EXACT match on ``fieldname``.
-
-    ``ambiguous`` is True when more than one Donor matches. The caller
-    MUST refuse immediately when ``ambiguous`` is True and never fall
-    through to a weaker tier -- returning ``(None, False)`` for both "no
-    match" and "ambiguous" collapsed that distinction and let an ambiguous
-    match resolve via an unrelated donor at a later tier (see #1356
-    review).
-    """
-    donors = frappe.get_all("Donor", filters={fieldname: value}, fields=["name"])
-    if len(donors) == 1:
-        return donors[0].name, False
-    return None, len(donors) > 1

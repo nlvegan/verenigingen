@@ -120,10 +120,20 @@ class TestDonorMemberReconciliation(EnhancedTestCase):
     def test_get_donor_for_member_ambiguous_member_link_refuses(self):
         """Two Donor rows both linked (Donor.member) to the same Member is a
         genuine data anomaly - refuses rather than picking one arbitrarily,
-        and never falls through to try the e-mail tier instead (#1406)."""
+        and never falls through to try the (weaker) e-mail tier instead
+        (#1406). A third, UNLINKED decoy donor shares the member's actual
+        e-mail: if the ambiguous member-link tier ever silently fell
+        through to the e-mail tier instead of refusing (the exact bug
+        shape #1392's review found and fixed for get_linked_donations), it
+        would resolve to the decoy - a single, otherwise-unambiguous match
+        there - instead of returning None. Without this decoy, the two
+        linked donors' own (unrelated) e-mails wouldn't match the member's
+        either, so a silent fall-through would ALSO land on "no match" and
+        this assertion would pass for the wrong reason."""
         member = self._make_member(email=self._unique_email("ambiglink"))
         self._make_donor(self._unique_email("d1"), donor_name="Link A", member=member.name)
         self._make_donor(self._unique_email("d2"), donor_name="Link B", member=member.name)
+        self._make_donor(member.email, donor_name="Unlinked Decoy (shares member's e-mail)")
         self.expectErrorLog("DONOR_001")
         self.assertIsNone(get_donor_for_member(member))
 
