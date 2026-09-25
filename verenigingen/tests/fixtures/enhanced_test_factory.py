@@ -198,6 +198,7 @@ from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.tests.utils.company_orphans import purge_company_orphans
 from verenigingen.tests.utils.error_log_guard import ErrorLogGuardMixin
 from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
+from verenigingen.tests.utils.session_variable_guard import guard_session_variables
 from verenigingen.utils.timestamp_normalization import strip_whole_second_suffix
 
 from .field_validator import FieldValidationError, FieldValidator
@@ -2338,6 +2339,18 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                     swept,
                     name,
                 )
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+
+        # #1353: put tracked MariaDB session variables (max_statement_time,
+        # innodb_lock_wait_timeout, ...) back to their true (global) values
+        # both NOW and once this class's tests are done, regardless of who
+        # set them or whether they cleaned up -- a CI shard runs every class
+        # in one process, on one DB connection, and frappe.db.rollback()
+        # never touches session state.
+        guard_session_variables(cls)
 
     def setUp(self):
         super().setUp()

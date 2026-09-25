@@ -42,6 +42,7 @@ from werkzeug.wrappers import Request
 
 from verenigingen.tests.utils import ledger_rows
 from verenigingen.tests.utils.error_log_guard import ErrorLogGuardMixin
+from verenigingen.tests.utils.session_variable_guard import guard_session_variables
 
 
 class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
@@ -65,6 +66,15 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
     def setUpClass(cls):
         """Set up class-level test environment"""
         super().setUpClass()
+
+        # #1353: put tracked MariaDB session variables (max_statement_time,
+        # innodb_lock_wait_timeout, ...) back to their true (global) values
+        # both NOW and once this class's tests are done, regardless of who
+        # set them or whether they cleaned up -- a CI shard runs every class
+        # in one process, on one DB connection, and frappe.db.rollback()
+        # never touches session state.
+        guard_session_variables(cls)
+
         cls._ensure_test_environment()
         cls._track_created_docs = []
 
