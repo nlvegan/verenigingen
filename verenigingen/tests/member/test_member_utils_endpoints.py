@@ -278,13 +278,15 @@ class TestMemberUtilsEndpoints(VereningingenTestCase):
         self.assertTrue(result["success"])
         self.assertEqual(result["donor"], donor.name)
 
-    def test_get_linked_donations_exact_name_match(self):
-        """No e-mail match; an exact donor_name match still resolves (#1356)."""
+    def test_get_linked_donations_same_name_stranger_not_attached(self):
+        """#1356 review: there is no name-based tier at all, so a donor whose
+        donor_name EXACTLY equals this member's full_name -- a real
+        possibility for a common Dutch name -- must never be attached
+        without a link or matching e-mail to back it up."""
         member_doc = frappe.get_doc("Member", self.member.name)
-        donor = self.create_test_donor(donor_name=member_doc.full_name, donor_email=None)
+        self.create_test_donor(donor_name=member_doc.full_name, donor_email=None)
         result = mu.get_linked_donations(self.member.name)
-        self.assertTrue(result["success"])
-        self.assertEqual(result["donor"], donor.name)
+        self.assertFalse(result["success"])
 
     def test_get_linked_donations_does_not_substring_match_a_strangers_donor(self):
         """#1356: a stranger's donor whose name merely CONTAINS this member's
@@ -299,12 +301,25 @@ class TestMemberUtilsEndpoints(VereningingenTestCase):
         result = mu.get_linked_donations(self.member.name)
         self.assertFalse(result["success"])
 
-    def test_get_linked_donations_ambiguous_name_refuses(self):
-        """Two donors sharing this member's exact full_name must refuse rather
-        than silently picking the first one (#1356)."""
+    def test_get_linked_donations_ambiguous_member_link_never_falls_through_to_email(self):
+        """Regression for the #1356 review finding: an ambiguous match at the
+        (stronger) member-link tier must refuse immediately, not fall through
+        to the (weaker) e-mail tier. Without that guard, this scenario
+        resolved to the THIRD donor below -- an unrelated donor that merely
+        happens to share this member's e-mail address."""
         member_doc = frappe.get_doc("Member", self.member.name)
-        self.create_test_donor(donor_name=member_doc.full_name, donor_email=None)
-        self.create_test_donor(donor_name=member_doc.full_name, donor_email=None)
+        self.create_test_donor(member=self.member.name, donor_email=None)
+        self.create_test_donor(member=self.member.name, donor_email=None)
+        self.create_test_donor(donor_email=member_doc.email)
+        result = mu.get_linked_donations(self.member.name)
+        self.assertFalse(result["success"])
+
+    def test_get_linked_donations_ambiguous_email_refuses(self):
+        """Two donors sharing this member's exact e-mail must refuse rather
+        than silently picking the first one."""
+        member_doc = frappe.get_doc("Member", self.member.name)
+        self.create_test_donor(donor_email=member_doc.email)
+        self.create_test_donor(donor_email=member_doc.email)
         result = mu.get_linked_donations(self.member.name)
         self.assertFalse(result["success"])
 

@@ -97,15 +97,29 @@ def get_linked_donations(member: str | None = None):
     """
     Find linked donor record for a member to view donations.
 
-    Matches the Donor via the authoritative ``Donor.member`` link field first
-    (set by MemberDonorIntegrationService.create_donor_from_member), then
-    falls back to an exact e-mail match, then an exact full_name match.
+    Matches the Donor via the authoritative ``Donor.member`` link field
+    first (set by MemberDonorIntegrationService.create_donor_from_member),
+    then falls back to an exact e-mail match.
 
-    Each tier requires EXACTLY ONE match. A fuzzy/substring name match with
-    no ambiguity guard let a member's own free-text full_name (e.g. "Jan")
-    silently attach an unrelated donor's ("Jan de Vries") donations to the
-    wrong member; see #1356. None of the three signals below is a
-    wildcard/LIKE query, so there is nothing to escape.
+    There is deliberately no name-based fallback. On production data
+    (veg11, measured while fixing #1356) zero Donor records have ``member``
+    or ``donor_email`` set, so a name match would be the ONLY signal that
+    ever fires there -- and a member's ``full_name`` is free text that any
+    number of unrelated donors can share (a common Dutch name), with
+    nothing to disambiguate them. A member with a genuinely linked Donor
+    now correctly needs that link (or a matching e-mail) rather than a
+    same-name stranger being attached; staff can set ``Donor.member`` to
+    resolve it. This is a visible UX change (a linked-but-unrecorded donor
+    now shows "no donor" instead of a guess) but a safe one, since #1356's
+    own measurement found zero members who were getting a correct match
+    under the old logic.
+
+    Each tier requires EXACTLY ONE match, and an AMBIGUOUS match (more than
+    one) refuses IMMEDIATELY rather than falling through to a weaker tier:
+    an earlier version of this fix let an ambiguous ``member`` link (two
+    Donors both linked to the same Member) fall through to the e-mail
+    tier, which then resolved via a completely unrelated Donor that merely
+    shared the member's e-mail address -- see the #1356 review.
 
     Args:
         member: Member name/ID
@@ -118,17 +132,19 @@ def get_linked_donations(member: str | None = None):
 
     member_doc = frappe.get_doc("Member", member)
 
-    donor = _find_unambiguous_donor("member", member_doc.name)
+    donor, ambiguous = _find_donor_by("member", member_doc.name)
+    if ambiguous:
+        return {"success": False, "message": "Multiple donor records are linked to this member"}
     if donor:
         return {"success": True, "donor": donor}
 
     if member_doc.email:
-        donor = _find_unambiguous_donor("donor_email", member_doc.email)
-        if donor:
-            return {"success": True, "donor": donor}
-
-    if member_doc.full_name:
-        donor = _find_unambiguous_donor("donor_name", member_doc.full_name)
+        donor, ambiguous = _find_donor_by("donor_email", member_doc.email)
+        if ambiguous:
+            return {
+                "success": False,
+                "message": "Multiple donor records share this member's e-mail address",
+            }
         if donor:
             return {"success": True, "donor": donor}
 
@@ -136,14 +152,17 @@ def get_linked_donations(member: str | None = None):
     return {"success": False, "message": "No donor record found for this member"}
 
 
-def _find_unambiguous_donor(fieldname: str, value: str) -> str | None:
-    """Return the single Donor matching ``fieldname == value``, or None.
+def _find_donor_by(fieldname: str, value: str) -> tuple[str | None, bool]:
+    """Return ``(donor_name, ambiguous)`` for an EXACT match on ``fieldname``.
 
-    Returns None both when there is no match and when there is more than
-    one -- an ambiguous match must never be resolved by picking the first
-    result arbitrarily (see #1356).
+    ``ambiguous`` is True when more than one Donor matches. The caller
+    MUST refuse immediately when ``ambiguous`` is True and never fall
+    through to a weaker tier -- returning ``(None, False)`` for both "no
+    match" and "ambiguous" collapsed that distinction and let an ambiguous
+    match resolve via an unrelated donor at a later tier (see #1356
+    review).
     """
     donors = frappe.get_all("Donor", filters={fieldname: value}, fields=["name"])
     if len(donors) == 1:
-        return donors[0].name
-    return None
+        return donors[0].name, False
+    return None, len(donors) > 1
