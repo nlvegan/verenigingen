@@ -6,7 +6,7 @@ import json
 
 import frappe
 
-from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.secure_operations import is_duplicate_key_error, secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 
@@ -258,35 +258,51 @@ def ensure_root_cost_center(company):
         cc.cost_center_name = company
         cc.company = company
         cc.is_group = 1
-        cc.parent_cost_center = ""
+        cc.parent_cost_center = None
+        # Frappe's own Document._validate_mandatory() runs before ERPNext's
+        # CostCenter.validate_mandatory() (the controller method that explicitly
+        # permits a blank parent when cost_center_name == company), so the
+        # generic reqd-field check on parent_cost_center fires first and rejects
+        # this insert regardless of that business rule. Mirror the flag
+        # ERPNext's own root-cost-center creator sets for exactly this case
+        # (erpnext.setup.doctype.company.company.Company.create_default_cost_center).
+        # See #1359.
+        cc.flags.ignore_mandatory = True
 
-        # Try to insert, if it fails due to duplicate, find the existing one
-        try:
-            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-            result = secure_document_operation(
-                operation="insert",
-                doc=cc,
-                justification=f"Create root cost center {cc.cost_center_name} for company {company} - E-Boekhouden hierarchy setup",
-                required_permissions=["Cost Center:create"],
-            )
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="insert",
+            doc=cc,
+            justification=f"Create root cost center {cc.cost_center_name} for company {company} - E-Boekhouden hierarchy setup",
+            required_permissions=["Cost Center:create"],
+        )
 
-            if result.success:
-                cc = result.document
-                frappe.logger().info(f"Created root cost center for company: {company}")
-                return cc.name
-            else:
-                # Creation failed - log error and return None
-                error_msg = f"Failed to create root cost center: {'; '.join(result.errors)}"
-                frappe.log_error(title="Cost Center Creation Failed", message=error_msg)
-                return None
-        except frappe.DuplicateEntryError:
-            # If duplicate, find the existing one
+        if result.success:
+            cc = result.document
+            frappe.logger().info(f"Created root cost center for company: {company}")
+            return cc.name
+
+        error_msg = "; ".join(result.errors) if result.errors else "Unknown error"
+        # secure_document_operation() swallows the DuplicateEntryError a
+        # concurrent caller's race raises here and reports success=False
+        # instead of re-raising -- the `except frappe.DuplicateEntryError`
+        # this used to have was written for exactly that race and could never
+        # be reached (#1336's finding for this call site, tracked separately as
+        # #1359 because the create attempt above always failed on
+        # MandatoryError first). Recover the same way it intended to.
+        if is_duplicate_key_error(error_msg):
             existing = frappe.db.get_value(
                 "Cost Center", {"cost_center_name": company, "company": company}, "name"
             )
             if existing:
                 return existing
-            raise
+
+        # Creation failed - log error and return None
+        frappe.log_error(
+            title="Cost Center Creation Failed",
+            message=f"Failed to create root cost center: {error_msg}",
+        )
+        return None
 
     except Exception as e:
         frappe.log_error(title="E-Boekhouden", message=f"Could not create root cost center: {str(e)}")
