@@ -22,9 +22,17 @@ Every case here is checked for TWO non-Administrator callers: a "bare" user
 with no meaningful role beyond the automatic "All", and a real
 "Verenigingen Member" role-profile user -- #1411 measured both as reachable
 this way.
+
+**Third review round changed get_doc_permissions' contract**: it no longer
+returns a permissions dict for a forbidden/unknown docname at all -- it
+raises frappe.PermissionError identically for both, and only returns the
+real dict for a document the caller can actually read (see the module
+docstring's "Third review round" section for why). has_permission is
+unchanged: it still returns {"has_permission": False} for both.
 """
 
 import os
+from unittest import mock
 
 import frappe
 
@@ -73,11 +81,7 @@ class TestCoreClientPermissionOracleOverride(EnhancedTestCase):
         # Guest (frappe.STANDARD_USERS). User's own has_permission hook
         # (frappe/core/doctype/user/user.py:1281) denies unconditionally for
         # STANDARD_USERS only; for everyone else it permits, and the REAL
-        # decision falls to the role-permission dict. Comparing "unknown"
-        # against Administrator specifically would exercise only the
-        # hook's STANDARD_USERS branch, which the 2nd review round found
-        # papered over the fact that a typical (non-standard) existing user
-        # was NOT reproduced correctly by the first version of this fix.
+        # decision falls to the role-permission dict.
         self.foreign_other_user = _make_bare_user(
             f"core-oracle-other-{frappe.generate_hash()[:8]}@test.invalid"
         )
@@ -116,6 +120,26 @@ class TestCoreClientPermissionOracleOverride(EnhancedTestCase):
         update_password(email, password)
         frappe.db.commit()
         return password
+
+    def _create_user_permission_scoped_user(self, role, allow, for_value):
+        """Fixture helper: a user with `role` (a real DocPerm on the scoped
+        doctype) plus an is_default=1 User Permission restricting `allow` to
+        `for_value`. This is the FINDING A (3rd review round) shape: any
+        caller scoped this way must not be able to tell an unknown docname
+        of the scoped doctype apart from an OUT-of-scope existing one."""
+        email = f"core-oracle-scoped-{frappe.generate_hash()[:8]}@test.invalid"
+        user = self.create_test_user(email, roles=[role]).name
+        permission = frappe.get_doc(
+            {
+                "doctype": "User Permission",
+                "user": user,
+                "allow": allow,
+                "for_value": for_value,
+                "is_default": 1,
+            }
+        ).insert(ignore_permissions=True)
+        self.track_doc("User Permission", permission.name)
+        return user
 
     # ---- dispatch wiring -----------------------------------------------
 
@@ -189,66 +213,103 @@ class TestCoreClientPermissionOracleOverride(EnhancedTestCase):
                 )
 
     # ---- get_doc_permissions: unknown vs existing-forbidden ------------
+    #
+    # Third review round: get_doc_permissions no longer returns a shape for a
+    # forbidden/unknown docname -- it raises frappe.PermissionError
+    # identically for both (and only for both: a readable/own document still
+    # returns the real dict, see the "permitted caller" tests below).
 
-    def _assert_get_doc_permissions_unknown_matches_forbidden(
-        self, user, doctype, unknown_name, forbidden_name
-    ):
+    def _assert_get_doc_permissions_refuses_identically(self, user, doctype, unknown_name, forbidden_name):
+        """Both names must raise the exact same frappe.PermissionError (type,
+        message, and message_log state) -- not merely "both raise something".
+        """
         with self.as_user(user):
-            unknown = safe_get_doc_permissions(doctype=doctype, docname=unknown_name)
-            forbidden = safe_get_doc_permissions(doctype=doctype, docname=forbidden_name)
-        self.assertEqual(unknown, forbidden)
-        return forbidden
+            frappe.clear_messages()
+            with self.assertRaises(frappe.PermissionError) as unknown_ctx:
+                safe_get_doc_permissions(doctype=doctype, docname=unknown_name)
+            unknown_log = frappe.get_message_log()
+
+            frappe.clear_messages()
+            with self.assertRaises(frappe.PermissionError) as forbidden_ctx:
+                safe_get_doc_permissions(doctype=doctype, docname=forbidden_name)
+            forbidden_log = frappe.get_message_log()
+
+        self.assertEqual(str(unknown_ctx.exception), str(forbidden_ctx.exception))
+        self.assertEqual(unknown_log, forbidden_log)
+        self.assertEqual(unknown_log, [])
 
     def test_get_doc_permissions_user_doctype(self):
         """Compared against a typical (non-standard) foreign user, not
-        Administrator -- see the setUp comment on self.foreign_other_user.
-        The role-permission dict shape varies by caller role (this is
-        exactly why a constant shape can't be claimed for User), so this
-        only asserts equality, not a specific hardcoded value -- and
-        confirms the comparison is actually exercising the role-dict branch
-        (not accidentally still the hook-denial {None: 0} shape) by
-        checking a role-permission key is present.
-        """
+        Administrator -- see the setUp comment on self.foreign_other_user."""
         for user in (self.bare_user, self.role_user):
             with self.subTest(user=user):
-                forbidden = self._assert_get_doc_permissions_unknown_matches_forbidden(
+                self._assert_get_doc_permissions_refuses_identically(
                     user, "User", self.unknown_user_name, self.foreign_other_user
                 )
-                self.assertIn("select", forbidden["permissions"])
-
-    def test_get_doc_permissions_user_doctype_administrator_reference_is_atypical(self):
-        """Control, on CORE's own unmodified behaviour (Administrator exists,
-        so this never reaches this fix's substitution branch at all): shows
-        WHY self.foreign_other_user, not Administrator, is the right
-        comparison target for test_get_doc_permissions_user_doctype above.
-        Administrator is a frappe.STANDARD_USERS member, so User's
-        has_permission hook (frappe/core/doctype/user/user.py:1281) denies
-        it unconditionally regardless of the caller's role, giving the
-        controller-hook shape ({None: 0}) rather than the role-permission
-        dict a typical (non-standard) foreign user produces. Using this
-        atypical, hook-name-matched record as the "existing-forbidden"
-        reference is exactly what let the first version of this fix's tests
-        pass while the general User case stayed broken (2nd review round,
-        DEFECT 1)."""
-        with self.as_user(self.bare_user):
-            result = safe_get_doc_permissions(doctype="User", docname="Administrator")
-        self.assertEqual(result, {"permissions": {None: 0}})
 
     def test_get_doc_permissions_todo_doctype(self):
         for user in (self.bare_user, self.role_user):
             with self.subTest(user=user):
-                forbidden = self._assert_get_doc_permissions_unknown_matches_forbidden(
+                self._assert_get_doc_permissions_refuses_identically(
                     user, "ToDo", self.unknown_todo_name, self.foreign_todo.name
                 )
-                self.assertEqual(forbidden, {"permissions": {None: 0}})
 
     def test_get_doc_permissions_member_doctype(self):
         for user in (self.bare_user, self.role_user):
             with self.subTest(user=user):
-                forbidden = self._assert_get_doc_permissions_unknown_matches_forbidden(
+                self._assert_get_doc_permissions_refuses_identically(
                     user, "Member", self.unknown_member_name, self.foreign_member.name
                 )
-                self.assertEqual(forbidden, {"permissions": {None: 0}})
+
+    def test_get_doc_permissions_role_doctype_hookless(self):
+        """"Role" (System Manager only) carries no has_permission controller
+        hook at all -- unlike User/ToDo/Member, its "forbidden" comes purely
+        from lacking doctype-level role permission. Required by the 3rd
+        review round explicitly, to prove the refusal is uniform regardless
+        of whether a hook is involved."""
+        unknown_role = f"No Such Role {frappe.generate_hash()[:8]}"
+        for user in (self.bare_user, self.role_user):
+            with self.subTest(user=user):
+                self._assert_get_doc_permissions_refuses_identically(
+                    user, "Role", unknown_role, "System Manager"
+                )
+
+    def test_get_doc_permissions_user_permission_scoped_doctype(self):
+        """FINDING A (3rd review round, CRITICAL): a caller scoped by an
+        is_default=1 User Permission -- Company -> Cost Center is the
+        reviewer's own example and extremely common in ERPNext -- must see
+        an unknown docname as indistinguishable from an OUT-of-scope
+        EXISTING record, never from an IN-scope one.
+
+        The prior (84fffff15) synthetic frappe.new_doc() approach failed
+        this exact case: new_doc() -> make_new_doc ->
+        set_user_and_static_default_values (frappe/model/create_new.py)
+        autofills Link field defaults from the CALLER's own is_default User
+        Permissions, so the fabricated "unknown" document's Company field
+        silently took the caller's OWN default company -- making an unknown
+        Cost Center indistinguishable from one the caller CAN read, and
+        clearly different from one it cannot. This fix has no synthetic
+        document at all any more, so there is nothing left to autofill.
+
+        "_Test Company" / "_Test Company 1" are standing ERPNext fixture
+        companies (shipped with every site, not created by this test), used
+        here exactly as the reviewer's own probe did.
+        """
+        scoped_user = self._create_user_permission_scoped_user(
+            role="Accounts User", allow="Company", for_value="_Test Company"
+        )
+        in_scope_cost_center = "_Test Company - _TC"
+        out_of_scope_cost_center = "_Test Company 1 - _TC1"
+        unknown_cost_center = f"Totally-Fake-Cost-Center-{frappe.generate_hash()[:8]}"
+
+        self._assert_get_doc_permissions_refuses_identically(
+            scoped_user, "Cost Center", unknown_cost_center, out_of_scope_cost_center
+        )
+
+        # No over-refusal: the in-scope record must still work.
+        with self.as_user(scoped_user):
+            result = safe_get_doc_permissions(doctype="Cost Center", docname=in_scope_cost_center)
+        self.assertTrue(result["permissions"].get("read"))
 
     # ---- controls: Administrator and permitted callers are unaffected --
 
@@ -269,11 +330,37 @@ class TestCoreClientPermissionOracleOverride(EnhancedTestCase):
         with self.assertRaises(frappe.DoesNotExistError):
             safe_get_doc_permissions(doctype="User", docname=self.unknown_user_name)
 
+    def test_administrator_unknown_docname_message_preserved_not_trimmed(self):
+        """get_doc_permissions' message-log trim is deliberately NOT a
+        blanket `finally`: a `finally` runs even while the `except` block's
+        own `raise` is propagating, which would delete the "not found"
+        message frappe.get_lazy_doc queued for exactly the two callers who
+        are SUPPOSED to still see it (Administrator, and an unknown
+        doctype). This asserts the message survives for Administrator --
+        the ordering the coordinator asked to be tested explicitly, not just
+        the exception type."""
+        frappe.clear_messages()
+        with self.assertRaises(frappe.DoesNotExistError):
+            safe_get_doc_permissions(doctype="User", docname=self.unknown_user_name)
+        log = frappe.get_message_log()
+        self.assertEqual(len(log), 1, log)
+        self.assertIn(self.unknown_user_name, log[0]["message"])
+        self.assertIn("not found", log[0]["message"])
+
     def test_administrator_has_permission_true_for_existing_docs(self):
         self.assertEqual(
             safe_has_permission(doctype="ToDo", docname=self.foreign_todo.name, perm_type="read"),
             {"has_permission": True},
         )
+
+    def test_administrator_get_doc_permissions_reads_any_existing_doc(self):
+        """Administrator's frappe.has_permission(doctype, "read", doc) call
+        inside get_doc_permissions short-circuits to True before ever
+        touching the document (frappe/permissions.py), so `readable` is
+        always True for Administrator on an EXISTING doc regardless of who
+        owns it -- the real permission dict, never a refusal."""
+        result = safe_get_doc_permissions(doctype="ToDo", docname=self.foreign_todo.name)
+        self.assertIn("permissions", result)
 
     def test_unknown_doctype_itself_is_not_swallowed(self):
         """This fix targets a record-existence oracle, not a DocType-existence
@@ -287,8 +374,17 @@ class TestCoreClientPermissionOracleOverride(EnhancedTestCase):
         with self.as_user(self.bare_user):
             with self.assertRaises(frappe.DoesNotExistError):
                 safe_has_permission(doctype=fake_doctype, docname="whatever", perm_type="read")
+
+            frappe.clear_messages()
             with self.assertRaises(frappe.DoesNotExistError):
                 safe_get_doc_permissions(doctype=fake_doctype, docname="whatever")
+            # Same ordering guarantee as test_administrator_unknown_docname_
+            # message_preserved_not_trimmed, for the OTHER re-raise branch
+            # (unknown doctype rather than Administrator): the message must
+            # survive, not be trimmed by the length-diff cleanup.
+            log = frappe.get_message_log()
+            self.assertEqual(len(log), 1, log)
+            self.assertIn(fake_doctype, log[0]["message"])
 
     def test_permitted_caller_keeps_real_answer_for_todo(self):
         """The fix must not overcorrect: a user who genuinely owns/is
@@ -321,61 +417,99 @@ class TestCoreClientPermissionOracleOverride(EnhancedTestCase):
 
         with self.as_user(self.role_user):
             result = safe_has_permission(doctype="Member", docname=own_member.name, perm_type="read")
+            perms = safe_get_doc_permissions(doctype="Member", docname=own_member.name)
 
         self.assertEqual(result, {"has_permission": True})
+        self.assertTrue(perms["permissions"].get("read"))
 
-    # ---- CHANGES-REQUIRED review round: message_log survives the catch ---
+    def test_permitted_caller_keeps_real_answer_for_own_user_record(self):
+        """Every ordinary user can read their OWN User doctype record --
+        NOT via role permissions or if_owner (measured: both are 0/disabled
+        for a plain "All"-only user on this doctype), but via a DocShare
+        Frappe creates automatically for a user's own record, which
+        frappe.has_permission's share-fallback (`false_if_not_shared`) picks
+        up and `readable` therefore reflects. Confirms get_doc_permissions'
+        new read-gated design does not over-refuse this extremely common
+        case: the call must return normally (no PermissionError), not raise.
+
+        Note what this does NOT assert: that the returned dict itself shows
+        read=1. frappe.permissions.get_doc_permissions (core, unmodified,
+        called here exactly as core's own client.get_doc_permissions always
+        has) does not consider sharing at all -- only controller hooks, role
+        permissions, and User Permissions -- so it can legitimately show 0
+        even for a document `readable` (and frappe.has_permission) correctly
+        says the caller can see. That asymmetry is a pre-existing Frappe
+        core quirk, not something this fix introduces or is responsible for
+        reconciling -- this test instead checks equality with calling core's
+        function directly, to confirm the fix doesn't distort the value it
+        passes through.
+        """
+        with self.as_user(self.bare_user):
+            doc = frappe.get_lazy_doc("User", self.bare_user)
+            expected = frappe.permissions.get_doc_permissions(doc)
+            result = safe_get_doc_permissions(doctype="User", docname=self.bare_user)
+        self.assertEqual(result, {"permissions": expected})
+
+    # ---- message-log hygiene --------------------------------------------
 
     def test_unknown_docname_leaves_no_message_log_entry(self):
         """frappe.get_lazy_doc's load_from_db appends "<doctype> <docname> not
         found" to frappe.local.message_log via frappe.throw BEFORE it raises
         (frappe/model/document.py) -- catching the exception does not undo
-        that append. Confirmed over a real WSGI round trip (see
-        test_session_login_roleless_user_unknown_matches_forbidden_over_real_request
-        below) that an uncleared entry here reaches the HTTP response as
-        _server_messages/messages, alongside the substituted (and otherwise
-        correct) has_permission/permissions value -- the oracle survived one
-        layer up even though the return value and status code were already
-        fixed. The fix captures len(frappe.message_log) before the call and
-        deletes everything past that point on the substituted-unknown exit;
-        this test asserts the log is empty afterwards, directly."""
+        that append. The fix captures len(frappe.message_log) before the call
+        and deletes everything past that point on the substituted-unknown
+        exit; this test asserts the log is empty afterwards, directly, for
+        both endpoints."""
         with self.as_user(self.bare_user):
             frappe.clear_messages()
             safe_has_permission(doctype="User", docname=self.unknown_user_name, perm_type="read")
             self.assertEqual(frappe.get_message_log(), [])
 
             frappe.clear_messages()
-            safe_get_doc_permissions(doctype="User", docname=self.unknown_user_name)
+            with self.assertRaises(frappe.PermissionError):
+                safe_get_doc_permissions(doctype="User", docname=self.unknown_user_name)
             self.assertEqual(frappe.get_message_log(), [])
 
     def test_message_log_symmetric_between_existing_forbidden_and_unknown(self):
-        """DEFECT 2 (2nd review round): the message-log leak was not fully
-        closed -- residue survived on the EXISTS path too, not just the
-        unknown one, via a mechanism the test above cannot see (it only
-        calls the unknown branch).
+        """DEFECT 2 (2nd review round): has_permission's message-log leak was
+        not fully closed by clearing only the unknown/except branch --
+        residue could survive on the EXISTS path too, via a nested
+        has_permission(doc.doctype) nested call whose OWN
+        print_has_permission_check_logs decorator (frappe/permissions.py:43)
+        used to default print_logs to True regardless of the outer call's
+        intent.
 
-        frappe.permissions.has_permission, when a real `doc` is given and
-        the computed permission is falsy, builds an error MESSAGE by calling
-        has_permission(doc.doctype) again -- no doc this time -- purely to
-        decide whether to append "- doc.name" to it. That nested call is
-        wrapped by print_has_permission_check_logs (frappe/permissions.py:43)
-        with its OWN print_logs, defaulting to True regardless of what the
-        OUTER call passed (client.has_permission always calls with
-        print_logs=False, via throw=False). When the caller lacks
-        doctype-level read entirely, that nested call's decorator does an
-        unconditional msgprint(...), queuing "User X does not have doctype
-        access via role permission for document Y" into frappe.message_log
-        -- ONLY on the EXISTS path (the nested call only runs once
-        frappe.get_lazy_doc has already succeeded), so it survives
-        untouched by whatever the except branch does.
+        On Frappe 16.35 (this bench, verified by reading frappe/permissions.py):
+        that nested call now passes print_logs=False explicitly
+        (`elif has_permission(doc.doctype, print_logs=False):`), and the
+        outer frappe.__init__.has_permission passes print_logs=throw down to
+        it -- so THIS SPECIFIC leak no longer reproduces on stock 16.35.
 
-        "Role" (System Manager only, no controller hook) isolates this: a
-        roleless/Volunteer caller has zero doctype-level access to Role
-        either way, so any message-log difference between existing and
-        unknown here is this side effect, not a get_doc_permissions shape
-        difference (DEFECT 1's fix does not apply to Role at all -- no
-        hook, and Role's role-permission dict is all-zero for both real and
-        synthetic docs regardless).
+        **This test's has_permission assertions (existing_log/unknown_log
+        above) are therefore a REGRESSION GUARD on 16.35, NOT a red/green
+        discriminator for this round.** Measured directly, both against the
+        FULL 2nd-review-round implementation (parent commit 2f2bd3d09,
+        clear_last_message()-only, no length-trim on the success path at
+        all) and against a surgical mutation of THIS round's own
+        has_permission that removes only its success-path
+        `del frappe.message_log[log_len:]` (the trim added specifically
+        because of this defect): existing_log and unknown_log are BOTH `[]`
+        either way on this bench -- the assertions pass whether or not the
+        fix is present, because the underlying core mechanism the fix
+        targeted is gone on 16.35 regardless. The get_doc_permissions
+        assertions below it DO still discriminate (they depend on the 3rd
+        review round's raise-based contract, which neither older
+        implementation has), which is why running this whole test method
+        against 2f2bd3d09 or 84fffff15 still fails overall -- but not for
+        the message-log reason its own name and docstring describe.
+
+        Kept anyway: the trim is cheap and harmless, and protects against
+        this class of leak if a future Frappe version (or a hook this app
+        adds) ever queues a message on the success path again -- exactly
+        the situation Frappe 16.30 was already in before 16.35's fix.
+
+        "Role" (no controller hook) isolates the has_permission side of this
+        from any get_doc_permissions shape/refusal question.
         """
         existing_role = "System Manager"
         unknown_role = f"No Such Role {frappe.generate_hash()[:8]}"
@@ -394,12 +528,43 @@ class TestCoreClientPermissionOracleOverride(EnhancedTestCase):
                 self.assertEqual(unknown_log, [])
 
                 frappe.clear_messages()
-                safe_get_doc_permissions(doctype="Role", docname=existing_role)
+                with self.assertRaises(frappe.PermissionError):
+                    safe_get_doc_permissions(doctype="Role", docname=existing_role)
                 self.assertEqual(frappe.get_message_log(), [])
 
                 frappe.clear_messages()
-                safe_get_doc_permissions(doctype="Role", docname=unknown_role)
+                with self.assertRaises(frappe.PermissionError):
+                    safe_get_doc_permissions(doctype="Role", docname=unknown_role)
                 self.assertEqual(frappe.get_message_log(), [])
+
+    # ---- error propagation ------------------------------------------------
+
+    def test_non_resumable_db_error_propagates_uncaught(self):
+        """FINDING B (3rd review round): the prior (84fffff15)
+        `_forbidden_doc_permissions`'s bare `except Exception: return {}`
+        silently swallowed verenigingen.utils.transaction_errors.
+        NON_RESUMABLE_DB_ERRORS (QueryDeadlockError, QueryTimeoutError) --
+        exactly the "silent swallow, worse than log-and-return" class that
+        module warns against, since a 1213/1205 rolls back the WHOLE
+        transaction and the caller would continue believing it got an
+        ordinary "forbidden" answer.
+
+        This round's get_doc_permissions has no bare `except Exception`
+        anywhere -- only `except frappe.DoesNotExistError` -- so there is
+        nothing left that COULD catch a deadlock. Simulated by patching
+        frappe.get_lazy_doc (framework infrastructure, not this app's
+        business logic -- there is none left in this function to mock
+        around) to raise frappe.QueryDeadlockError directly.
+        """
+        # Mock justified: infrastructure -- simulates a DB-level deadlock
+        # raised by the framework's document loader; this fix's own logic
+        # under test has no business-logic call left to substitute for.
+        with mock.patch("frappe.get_lazy_doc", side_effect=frappe.QueryDeadlockError("deadlock")):
+            with self.as_user(self.bare_user):
+                with self.assertRaises(frappe.QueryDeadlockError):
+                    safe_get_doc_permissions(doctype="User", docname=self.unknown_user_name)
+
+    # ---- real request round trip ------------------------------------------
 
     def test_session_login_roleless_user_unknown_matches_forbidden_over_real_request(self):
         """A caller authenticated by SESSION COOKIE (not a direct Python call,
@@ -416,24 +581,17 @@ class TestCoreClientPermissionOracleOverride(EnhancedTestCase):
         "no permission for the doctype" for whoever could never have read any
         record of it anyway.
 
-        Measured over a real WSGI round trip (frappe.app.application via a
-        werkzeug test client, session-cookie login through POST /api/method/
-        login) against UNFIXED core code (no override registered): unknown
-        docname -> HTTP 403 PermissionError "User <x> does not have doctype
-        access via role permission for document User"; existing-but-forbidden
-        (Administrator) -> HTTP 200 {"has_permission": false}. Two different
-        outcomes for the identical question, via a THIRD mechanism (neither
-        DoesNotExistError-vs-value at the direct-call layer this file's other
-        tests exercise, nor the message_log leak the test above covers).
-
         This fix's wrapper closes it as a side effect, not a separate branch:
         it catches the DoesNotExistError INSIDE has_permission()/
         get_doc_permissions() before it can ever escape to app.py's outer
         exception handler, so handle_does_not_exist_error's masking logic
-        never runs at all for a caller who reaches this fix. Verified over the
-        same real WSGI round trip, on this branch: unknown and
-        existing-but-forbidden both return HTTP 200 with an identical body,
-        for both endpoints, with no _server_messages/messages leak.
+        never runs at all for a caller who reaches this fix.
+
+        has_permission still returns HTTP 200 for both unknown and forbidden
+        (unchanged contract). get_doc_permissions is DIFFERENT as of the 3rd
+        review round: both unknown and forbidden now return HTTP 403
+        (frappe.PermissionError), not 200 -- the deliberate behaviour change
+        documented in the module docstring.
 
         Run as a SUBPROCESS rather than in-process: frappe.app.application
         calls frappe.destroy()/frappe.init() per request, which would tear
@@ -493,13 +651,6 @@ class TestCoreClientPermissionOracleOverride(EnhancedTestCase):
                 "has_permission_unknown": call("frappe.client.has_permission", fake_1),
                 "has_permission_forbidden": call("frappe.client.has_permission", "Administrator"),
                 "get_doc_permissions_unknown": call("frappe.client.get_doc_permissions", fake_2),
-                # NOT Administrator here -- see the setUp comment on
-                # self.foreign_other_user and
-                # test_get_doc_permissions_user_doctype_administrator_reference_is_atypical:
-                # Administrator is a frappe.STANDARD_USERS member, so User's
-                # has_permission hook denies it unconditionally regardless of
-                # caller role, which would mask DEFECT 1 (2nd review round)
-                # the same way it did in the first version of this fix.
                 "get_doc_permissions_forbidden": call(
                     "frappe.client.get_doc_permissions", {self.foreign_other_user!r}
                 ),
@@ -517,20 +668,22 @@ class TestCoreClientPermissionOracleOverride(EnhancedTestCase):
         self.assertEqual(result.returncode, 0, result.stdout + "\n" + result.stderr)
         out = json.loads(result.stdout.strip().splitlines()[-1])
 
-        for endpoint in ("has_permission", "get_doc_permissions"):
-            unknown = out[f"{endpoint}_unknown"]
-            forbidden = out[f"{endpoint}_forbidden"]
-            with self.subTest(endpoint=endpoint):
-                self.assertEqual(unknown["status"], 200, unknown)
-                self.assertEqual(unknown["status"], forbidden["status"])
-                self.assertEqual(json.loads(unknown["body"]), json.loads(forbidden["body"]))
-                self.assertNotIn("_server_messages", unknown["body"])
-                self.assertNotIn("messages", unknown["body"])
+        # has_permission: unchanged contract -- 200 both sides, identical body.
+        hp_unknown = out["has_permission_unknown"]
+        hp_forbidden = out["has_permission_forbidden"]
+        self.assertEqual(hp_unknown["status"], 200, hp_unknown)
+        self.assertEqual(hp_unknown["status"], hp_forbidden["status"])
+        self.assertEqual(json.loads(hp_unknown["body"]), json.loads(hp_forbidden["body"]))
+        self.assertNotIn("_server_messages", hp_unknown["body"])
+        self.assertNotIn("messages", hp_unknown["body"])
 
-        # Confirm this is actually exercising the role-permission-dict branch
-        # for get_doc_permissions (self.foreign_other_user is not a
-        # STANDARD_USERS name), not accidentally still the controller-hook
-        # {None: 0} shape DEFECT 1 (2nd review round) shipped for every User.
-        self.assertIn(
-            "select", json.loads(out["get_doc_permissions_forbidden"]["body"])["message"]["permissions"]
+        # get_doc_permissions: 3rd review round -- both now refuse with 403.
+        gdp_unknown = out["get_doc_permissions_unknown"]
+        gdp_forbidden = out["get_doc_permissions_forbidden"]
+        self.assertEqual(gdp_unknown["status"], 403, gdp_unknown)
+        self.assertEqual(gdp_unknown["status"], gdp_forbidden["status"])
+        self.assertEqual(
+            json.loads(gdp_unknown["body"])["exc_type"],
+            json.loads(gdp_forbidden["body"])["exc_type"],
         )
+        self.assertEqual(json.loads(gdp_unknown["body"])["exc_type"], "PermissionError")

@@ -740,6 +740,12 @@ class TestQualityEnforcer:
                 r"patch\s*\(\s*['\"]frappe\.get_all['\"]",
                 r"patch\s*\(\s*['\"]frappe\.get_single['\"]",
                 r"patch\s*\(\s*['\"]frappe\.new_doc['\"]",
+                # Same document-loading category as get_doc/new_doc above --
+                # added when a security test needed to simulate a DB-level
+                # deadlock/timeout from the loader itself (frappe.get_lazy_doc
+                # is a newer sibling of frappe.get_doc, not present when this
+                # list was first written).
+                r"patch\s*\(\s*['\"]frappe\.get_lazy_doc['\"]",
                 r"patch\s*\(\s*['\"]frappe\.get_site_config['\"]",
                 r"patch\s*\(\s*['\"]frappe\.installer\.",
                 r"patch\s*\(\s*['\"]frappe\.log_error['\"]",
