@@ -20,16 +20,33 @@ deliberately excluded below rather than "fixed".
 This walks every production .py file under the verenigingen package
 (excluding tests/) and statically resolves the event_type argument of every
 call that actually reaches
-verenigingen.utils.security.audit_logging.log_security_event -- i.e. a bare
-`log_security_event(...)` call in a file where that exact name is bound via
-`from verenigingen.utils.security.audit_logging import log_security_event`
-(module-level or local to a function; several call sites import it lazily).
-Matching is done by which name is actually bound, not by substring, which is
-exactly what let #1417's own census over-count.
+verenigingen.utils.security.audit_logging.log_security_event. Two call shapes
+are matched, both by which name/module is actually bound -- never by
+substring, which is exactly what let #1417's own census over-count:
+
+1. A bare `log_security_event(...)` call, where that exact name is bound via
+   `from verenigingen.utils.security.audit_logging import log_security_event
+   [as alias]` (module-level or local to a function; several real call sites
+   import it lazily).
+2. A module-attribute call, `audit_logging.log_security_event(...)`, where
+   `audit_logging` resolves to the audit_logging module itself -- via
+   `from verenigingen.utils.security import audit_logging [as alias]`,
+   `import verenigingen.utils.security.audit_logging as alias`, or the fully
+   qualified dotted expression
+   `verenigingen.utils.security.audit_logging.log_security_event(...)`
+   written out after a bare `import verenigingen.utils.security.audit_logging`.
+
+An attribute call is matched ONLY when its base resolves to this exact
+module. `self._log_security_event(...)`, `PaymentLogger.log_security_event(...)`
+and `WebhookSecurityManager.log_security_event(...)` are same-named but
+genuinely different functions -- their base (`self`, `PaymentLogger`,
+`security_manager`) never resolves to `audit_logging`, so they are correctly
+left unmatched, not because "attribute calls are unrelated" in general.
 """
 
 import ast
 import json
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -97,6 +114,42 @@ def _bound_names(tree, module, target):
     return names
 
 
+def _module_aliases(tree, target_module):
+    """Every local name bound to the whole `target_module` (not one function
+    inside it), via `import target_module as alias` or
+    `from <parent> import <leaf> [as alias]` where `<parent>.<leaf> ==
+    target_module`. Deliberately excludes a bare `import target_module`
+    (no `as`) -- that binds only the top-level package name (e.g.
+    `verenigingen`), which would false-match any unrelated
+    `verenigingen.log_security_event(...)`; that unaliased shape is instead
+    matched by `_dotted_name` against the full literal dotted path."""
+    aliases = set()
+    parent, _, leaf = target_module.rpartition(".")
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == target_module and alias.asname:
+                    aliases.add(alias.asname)
+        elif isinstance(node, ast.ImportFrom) and node.module == parent:
+            for alias in node.names:
+                if alias.name == leaf:
+                    aliases.add(alias.asname or alias.name)
+    return aliases
+
+
+def _dotted_name(node):
+    """Reconstruct a plain dotted-attribute chain (`a.b.c`) back to a string,
+    or None if `node` isn't purely Name/Attribute nodes."""
+    parts = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if isinstance(node, ast.Name):
+        parts.append(node.id)
+        return ".".join(reversed(parts))
+    return None
+
+
 def _event_type_arg(call):
     for kw in call.keywords:
         if kw.arg == "event_type":
@@ -107,19 +160,39 @@ def _event_type_arg(call):
 
 
 def _find_target_calls(tree):
-    """Calls that are bare `name(...)` where `name` is bound to the real
-    log_security_event via an ImportFrom in this file. Deliberately does NOT
-    match attribute calls (`self.log_security_event(...)`,
-    `PaymentLogger.log_security_event(...)`) -- those are different,
-    same-named functions, not this one."""
-    bound = _bound_names(tree, TARGET_MODULE, TARGET_FUNC)
-    if not bound:
-        return []
-    return [
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in bound
-    ]
+    """Calls that reach the real log_security_event, in either of two shapes:
+
+    - bare `name(...)` where `name` is bound to it via an ImportFrom in this
+      file (`_bound_names`);
+    - `base.log_security_event(...)` where `base` resolves to the
+      audit_logging module itself (`_module_aliases`), or the full literal
+      dotted expression `verenigingen.utils.security.audit_logging.
+      log_security_event(...)` (`_dotted_name`).
+
+    Deliberately does NOT match an attribute call whose base is anything
+    else (`self._log_security_event(...)`,
+    `PaymentLogger.log_security_event(...)`,
+    `security_manager.log_security_event(...)`) -- those bases never resolve
+    to the audit_logging module, so they are different, same-named
+    functions, not this one.
+    """
+    bound_names = _bound_names(tree, TARGET_MODULE, TARGET_FUNC)
+    module_aliases = _module_aliases(tree, TARGET_MODULE)
+    full_dotted_target = f"{TARGET_MODULE}.{TARGET_FUNC}"
+
+    calls = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Name) and func.id in bound_names:
+            calls.append(node)
+        elif isinstance(func, ast.Attribute) and func.attr == TARGET_FUNC:
+            if isinstance(func.value, ast.Name) and func.value.id in module_aliases:
+                calls.append(node)
+            elif _dotted_name(func) == full_dotted_target:
+                calls.append(node)
+    return calls
 
 
 def _scan_package():
@@ -186,3 +259,134 @@ class TestLogSecurityEventTypesAreValidSelectOptions(unittest.TestCase):
             "log_security_event() called with an event_type that is not a valid API Audit "
             f"Log.event_type Select option (nor a SEPA event type): {offenders}",
         )
+
+
+class TestFindTargetCallsMatchesEveryRealCallShape(unittest.TestCase):
+    """Planted-case coverage for `_find_target_calls`/`_dotted_name`/
+    `_module_aliases` themselves, independent of what the real tree currently
+    contains. `_scan_package` alone would stay green forever if a NEW call
+    shape were introduced and simply never matched -- these snippets pin the
+    matcher's behaviour directly, including the module-attribute shape a
+    review of this file's first version flagged as an unhandled blind spot.
+    """
+
+    def _calls_and_literals(self, source):
+        tree = ast.parse(textwrap.dedent(source))
+        literals = []
+        for call in _find_target_calls(tree):
+            arg = _event_type_arg(call)
+            literals.append(_resolve_event_type_literal(arg) if arg is not None else None)
+        return literals
+
+    def test_bare_call_via_direct_import(self):
+        literals = self._calls_and_literals(
+            """
+            from verenigingen.utils.security.audit_logging import log_security_event
+
+            def f():
+                log_security_event("bad_literal", {}, severity="error")
+            """
+        )
+        self.assertEqual(["bad_literal"], literals)
+
+    def test_bare_call_via_aliased_direct_import(self):
+        literals = self._calls_and_literals(
+            """
+            from verenigingen.utils.security.audit_logging import log_security_event as lse
+
+            def f():
+                lse("bad_literal", {})
+            """
+        )
+        self.assertEqual(["bad_literal"], literals)
+
+    def test_attribute_call_via_submodule_import(self):
+        """The blind spot flagged in review: `from ... import audit_logging`
+        then `audit_logging.log_security_event(...)`."""
+        literals = self._calls_and_literals(
+            """
+            from verenigingen.utils.security import audit_logging
+
+            def f():
+                audit_logging.log_security_event("bad_literal", {})
+            """
+        )
+        self.assertEqual(["bad_literal"], literals)
+
+    def test_attribute_call_via_aliased_submodule_import(self):
+        literals = self._calls_and_literals(
+            """
+            from verenigingen.utils.security import audit_logging as al
+
+            def f():
+                al.log_security_event("bad_literal", {})
+            """
+        )
+        self.assertEqual(["bad_literal"], literals)
+
+    def test_attribute_call_via_aliased_dotted_import(self):
+        literals = self._calls_and_literals(
+            """
+            import verenigingen.utils.security.audit_logging as aal
+
+            def f():
+                aal.log_security_event("bad_literal", {})
+            """
+        )
+        self.assertEqual(["bad_literal"], literals)
+
+    def test_attribute_call_via_unaliased_dotted_import(self):
+        literals = self._calls_and_literals(
+            """
+            import verenigingen.utils.security.audit_logging
+
+            def f():
+                verenigingen.utils.security.audit_logging.log_security_event("bad_literal", {})
+            """
+        )
+        self.assertEqual(["bad_literal"], literals)
+
+    def test_unrelated_same_named_method_on_self_is_not_matched(self):
+        """document_portal_service.py's actual shape: a private method of the
+        same name, no audit_logging import anywhere in the file."""
+        literals = self._calls_and_literals(
+            """
+            class DocumentPortalService:
+                def _log_security_event(self, event_type, details=None):
+                    pass
+
+                def f(self):
+                    self._log_security_event("upload_failed", {})
+            """
+        )
+        self.assertEqual([], literals)
+
+    def test_unrelated_same_named_staticmethod_call_is_not_matched(self):
+        """payment_services/logging_utils.py's actual shape: an unrelated
+        class attribute call, no audit_logging import anywhere in the file."""
+        literals = self._calls_and_literals(
+            """
+            class PaymentLogger:
+                @staticmethod
+                def log_security_event(event_type, details, severity="warning"):
+                    pass
+
+            def f():
+                PaymentLogger.log_security_event("concurrent_refund_detected", {})
+            """
+        )
+        self.assertEqual([], literals)
+
+    def test_unaliased_module_import_without_the_full_dotted_call_is_not_matched(self):
+        """`import verenigingen.utils.security.audit_logging` alone binds only
+        the top-level `verenigingen` name; a call through some OTHER
+        attribute path off that name must not be mistaken for the target."""
+        literals = self._calls_and_literals(
+            """
+            import verenigingen.utils.security.audit_logging
+
+            def f():
+                verenigingen.log_security_event("not_the_real_one", {})
+            """
+        )
+        self.assertEqual([], literals)
