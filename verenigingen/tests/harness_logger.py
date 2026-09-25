@@ -158,7 +158,7 @@ class _StderrHandler(logging.StreamHandler):
     Read that script's module docstring before trusting any number here: the figure in
     this paragraph was wrong twice (#564, #571), both times because it could not be
     re-run. What follows is what the walk currently reports:
-    **eleven** ``tearDownClass`` bodies reach this logger -- nine through
+    **twelve** ``tearDownClass`` bodies reach this logger -- ten through
     ``SingletonBackup.restore()`` -> ``_restore_singleton``, one through
     ``TestWebhookUserSetup._sweep_webhook_users``, and one through
     ``cls._test_instance.tearDown()`` (``test_chapter_permission_service_integration.py:182``),
