@@ -11,7 +11,6 @@ from frappe.utils import format_date
 
 from verenigingen.utils.constants import get_volunteer_admin_roles
 from verenigingen.utils.error_handling import (
-    validate_entity_exists,
     validate_member_for_user,
     validate_user_logged_in,
 )
@@ -33,11 +32,13 @@ def get_context(context: Dict[str, Any]) -> Dict[str, Any]:
         context.available_teams = _get_available_teams_for_user(user, member)
         return context
 
-    team_name = validate_entity_exists("Team", team_param)
-
-    context.no_cache = 1
-    context.title = _("Team Members")
-    context.team = frappe.get_doc("Team", team_name)
+    # Resolve existence and the chapter link with a single, existence-independent
+    # lookup BEFORE frappe.get_doc (mirrors #1358/#1373's fix). validate_entity_exists()
+    # + frappe.get_doc gave an unknown team id a distinct DoesNotExistError ("Team not
+    # found") from a real-but-foreign team id's later, differently-worded
+    # PermissionError -- an existence oracle over Team ids for any logged-in member who
+    # can reach this page (#1386).
+    team_data = frappe.db.get_value("Team", team_param, ["name", "chapter"], as_dict=True)
 
     volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name")
 
@@ -50,35 +51,42 @@ def get_context(context: Dict[str, Any]) -> Dict[str, Any]:
     user_roles = frappe.get_roles(user)
     is_admin = any(role in user_roles for role in admin_roles)
 
-    if not is_admin:
+    is_team_member = False
+    if team_data:
         # Check if user is a member of this team (only if they have a volunteer record)
-        is_team_member = False
         if volunteer:
-            is_team_member = frappe.db.exists(
-                "Team Member", {"parent": team_name, "volunteer": volunteer, "is_active": 1}
-            )
-
-        # Also check if member has chapter membership that relates to this team
-        if not is_team_member:
-            # Allow if member belongs to the same chapter as the team
-            team_doc = frappe.get_doc("Team", team_name)
-            if team_doc.chapter:
-                member_in_chapter = frappe.db.exists(
-                    "Chapter Member", {"parent": team_doc.chapter, "member": member, "enabled": 1}
+            is_team_member = bool(
+                frappe.db.exists(
+                    "Team Member", {"parent": team_data.name, "volunteer": volunteer, "is_active": 1}
                 )
-                is_team_member = bool(member_in_chapter)
-
-        if not is_team_member:
-            frappe.throw(
-                _("You can only view members of teams where you are a member or belong to the same chapter"),
-                frappe.PermissionError,
             )
+
+        # Also allow if member belongs to the same chapter as the team
+        if not is_team_member and team_data.chapter:
+            is_team_member = bool(
+                frappe.db.exists(
+                    "Chapter Member", {"parent": team_data.chapter, "member": member, "enabled": 1}
+                )
+            )
+
+    # An unknown team id and a real-but-forbidden one must be indistinguishable to a
+    # non-admin caller: same message, same exception type, and no frappe.get_doc (so
+    # no DoesNotExistError) on either path.
+    if not team_data or (not is_admin and not is_team_member):
+        frappe.throw(
+            _("You can only view members of teams where you are a member or belong to the same chapter"),
+            frappe.PermissionError,
+        )
+
+    context.no_cache = 1
+    context.title = _("Team Members")
+    context.team = frappe.get_doc("Team", team_data.name)
 
     # Get team members - modernized ORM approach with batch queries
     # First get team member records
     team_member_records = frappe.get_all(
         "Team Member",
-        filters={"parent": team_name, "is_active": 1},
+        filters={"parent": team_data.name, "is_active": 1},
         fields=["volunteer", "volunteer_name", "role_type", "role", "from_date", "to_date", "status"],
         order_by="role_type DESC, from_date ASC",
     )
