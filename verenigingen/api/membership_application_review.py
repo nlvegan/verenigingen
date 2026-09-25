@@ -476,11 +476,21 @@ def can_review_application(member_name: str) -> bool:
     This is a UX affordance, NOT the access control. Approval and rejection are
     enforced server-side by validate_chapter_permission_or_throw regardless of what
     the client renders, so a stale or bypassed check here cannot grant anything.
+
+    Deliberately does NOT call _validate_member_for_review (unlike
+    approve_membership_application/reject_membership_application below). That
+    helper's unscoped frappe.db.exists() throws a distinct "Invalid member
+    reference" for an unknown id, while can_user_manage_application() returns a
+    plain False for an existing-but-inaccessible one -- an existence oracle over
+    Member ids reachable by any MEDIUM-tier caller (Volunteer, Auditor, Chapter
+    Board Member, ...), not just staff (#1394). A read-only probe has no
+    legitimate reason to distinguish "doesn't exist" from "exists, not yours", so
+    both now fall through the identical code path to can_user_manage_application's
+    own False -- never raising for either.
     """
     from verenigingen.services.chapter.chapter_security import can_user_manage_application
 
-    member_name = _validate_member_for_review(member_name, "review permission check")
-    return can_user_manage_application(member_name)
+    return can_user_manage_application(str(member_name))
 
 
 @frappe.whitelist()
