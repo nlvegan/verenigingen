@@ -518,8 +518,25 @@ class EnhancedTestDataFactory:
 
         # Generate compact uniqueness components
         seq = self.get_next_sequence(f"forced_{clean_base}")
-        # Use deterministic ID based on hash for compactness and reproducibility
-        short_deterministic_id = hash(f"{self.test_run_id}_{clean_base}_{seq}") % 1000000
+        # Mix in the process-global monotonic counter (see _global_unique_seq
+        # above, next to _process_run_token). Without it, this hash is fully
+        # determined by (test_run_id, clean_base, seq) alone -- all THREE are
+        # identical across fresh EnhancedTestDataFactory instances built with
+        # the same hardcoded seed=12345 (test_run_id derives from the seed;
+        # seq restarts at 1 in every fresh instance's sequence_counters). So
+        # two different test methods' setUp() calling force_unique_name with
+        # the same literal base_name got the SAME "unique" id every time --
+        # not a rare hash draw, a guaranteed collision by construction (#1404).
+        # _global_unique_seq strictly increases across every call in the
+        # process regardless of which factory instance calls it, so the hash
+        # now genuinely varies between calls even when the other inputs repeat.
+        short_deterministic_id = (
+            hash(
+                f"{self.test_run_id}_{clean_base}_{seq}_"
+                f"{next(EnhancedTestDataFactory._global_unique_seq)}"
+            )
+            % 1000000
+        )
 
         # Create shorter, length-aware unique name
         unique_name = f"TEST {clean_base} {seq:03d}_{short_deterministic_id}"
