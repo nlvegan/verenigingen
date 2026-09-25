@@ -1108,10 +1108,13 @@ function add_donor_creation_button(frm) {
 					},
 					__('Create')
 				);
+			} else if (parsed.status === 'ambiguous') {
+				// More than one Donor record matches this member (#1389) -- show
+				// neither button (routing to a Donor with a null name, or offering
+				// to create another duplicate, would both be wrong), but still tell
+				// staff why nothing appeared instead of leaving the section silent.
+				frm.dashboard.add_indicator(__('Multiple Donor Records Found — Reconcile Manually'), 'orange');
 			}
-			// status === 'ambiguous': more than one Donor record matches this member
-			// (#1389) -- show neither button rather than routing to a Donor with a
-			// null name or offering to create another duplicate.
 		}
 	});
 }
