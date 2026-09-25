@@ -16,6 +16,7 @@ from frappe.utils import today
 
 from verenigingen.templates.pages import team_members
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.query_counter import count_queries
 
 
 class TestTeamMembersPage(EnhancedTestCase):
@@ -152,6 +153,53 @@ class TestTeamMembersPage(EnhancedTestCase):
             unknown_message,
             foreign_message,
             "unknown-team and foreign-team refusals must render the same message",
+        )
+
+    def test_unknown_and_foreign_team_refusals_cost_the_same_queries(self):
+        # #1402: #1386 made the two refusals byte-identical in message and
+        # exception type, but the *query count* still distinguished them --
+        # the Chapter Member existence check only ran once team_data resolved
+        # truthy, so a real-but-foreign team (with a chapter) cost one more
+        # SQL call than an unknown id. Same class as #1341/#1367: a refusal's
+        # cost must not depend on whether the resource exists.
+        chapter = self.create_test_chapter(chapter_name="Team Query Parity Chapter")
+        self.team.db_set("chapter", chapter.name)
+
+        outsider = f"team-outsider3-{frappe.generate_hash()[:8]}@test.invalid"
+        self._make_member_with_user(outsider)
+
+        def _call(team_value):
+            with self.as_user(outsider):
+                ctx = frappe._dict()
+                original = frappe.form_dict
+                frappe.form_dict = frappe._dict({"team": team_value})
+                try:
+                    with self.assertRaises(frappe.PermissionError):
+                        team_members.get_context(ctx)
+                finally:
+                    frappe.form_dict = original
+
+        def _refusal_query_count(team_value):
+            with count_queries() as ctr:
+                _call(team_value)
+            return len(ctr.queries)
+
+        # Warm meta/role/permission caches on BOTH paths first: cold caches (Team
+        # meta, role lists, permission query conditions) add SQL noise that has
+        # nothing to do with the code path under test, and would swamp a 1-query
+        # residue with unrelated first-call cost.
+        _call("Nonexistent-Team-XYZ")
+        _call(self.team.name)
+
+        unknown_count = _refusal_query_count("Nonexistent-Team-XYZ")
+        foreign_count = _refusal_query_count(self.team.name)
+
+        self.assertEqual(
+            unknown_count,
+            foreign_count,
+            "an unknown team id and a real-but-foreign one (with a chapter) must "
+            "issue the same number of queries on refusal, or the query count is "
+            "itself an existence oracle behind the identical message",
         )
 
     # ---- _get_available_teams_for_user ---------------------------------
