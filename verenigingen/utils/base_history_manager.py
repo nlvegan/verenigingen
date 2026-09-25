@@ -16,6 +16,7 @@ from verenigingen.utils.history_manager_utils import (
     recursion_guard,
     safe_child_table_update,
 )
+from verenigingen.utils.transaction_errors import is_statement_timeout
 
 
 class BaseHistoryManager:
@@ -130,7 +131,7 @@ class BaseHistoryManager:
             # Contention on the lock above is NOT an ordinary "history update failed".
             # Before that lock existed this branch was unreachable, and the handler
             # below would fold it into HistoryOperationResult(success=False) -- which
-            # the five call sites in chapter/managers/member_manager.py discard
+            # the eleven call sites in chapter/managers/member_manager.py discard
             # entirely, so a Chapter save would commit the membership change with no
             # history row and report nothing.
             #
@@ -148,6 +149,17 @@ class BaseHistoryManager:
             raise
 
         except Exception as e:
+            if is_statement_timeout(e):
+                # MariaDB 1969 ("max_statement_time exceeded") is exactly as
+                # non-resumable as the 1213/1205 pair above -- the statement was
+                # killed mid-flight -- but frappe's dispatch does not wrap it into a
+                # typed exception the way it does for those two, so it cannot be
+                # caught by the except clause above and falls through to here by
+                # default. Folding it into an ordinary HistoryOperationResult would
+                # be the exact swallow this method exists to prevent for 1213/1205.
+                # See transaction_errors.is_statement_timeout and #1352.
+                raise
+
             log_history_error(
                 title=error_title,
                 message=f"Error in {operation_name} for {cls.PARENT_DOCTYPE} {doc_name}: {str(e)}",

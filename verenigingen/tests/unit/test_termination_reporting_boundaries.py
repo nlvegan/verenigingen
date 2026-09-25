@@ -40,8 +40,11 @@ from unittest.mock import patch
 import frappe
 from frappe.utils import today
 
-from verenigingen.tests.support.non_resumable_errors import deadlock as _deadlock
-from verenigingen.tests.support.non_resumable_errors import lock_wait_timeout as _timeout
+from verenigingen.tests.support.non_resumable_errors import (
+    deadlock as _deadlock,
+    lock_wait_timeout as _timeout,
+    statement_timeout as _statement_timeout,
+)
 from verenigingen.tests.support.termination_request import create_termination_request
 from verenigingen.tests.utils.base import VereningingenTestCase
 
@@ -319,6 +322,17 @@ class TestSafeChildTableUpdateReportsTheClass(VereningingenTestCase):
             with self.assertRaises(frappe.QueryDeadlockError):
                 update(doc, "payment_history", "deadlock (#475)", "Member:write")
 
+    def test_a_statement_timeout_writing_the_child_table_propagates(self):
+        """#1352. Same boundary as the deadlock test above, for the ONE non-resumable
+        condition that is not isinstance-matchable (see non_resumable_errors.statement_timeout):
+        NON_RESUMABLE_DB_ERRORS cannot catch it by type, so the guard checks the error
+        code instead."""
+        doc, update, exploding = self._update_over(_statement_timeout())
+        with exploding:
+            with self.assertRaises(Exception) as ctx:
+                update(doc, "payment_history", "statement timeout (#1352)", "Member:write")
+        self.assertEqual(ctx.exception.args[0], 1969)
+
     def test_the_class_survives_the_helper_so_with_doc_can_see_it(self):
         """The composition, and the reason #460's guard existed at all.
 
@@ -340,6 +354,23 @@ class TestSafeChildTableUpdateReportsTheClass(VereningingenTestCase):
                 ChapterMembershipHistoryManager._with_doc(
                     self.member.name, "deadlock composition (#475)", lambda doc: None
                 )
+
+    def test_a_statement_timeout_composition_survives_to_with_doc(self):
+        """Same composition as above, for #1352's 1969. ``_with_doc``'s own
+        ``except Exception`` (below its ``NON_RESUMABLE_DB_ERRORS`` clause) is the frame
+        that must recognise this one by code, since it never reaches the typed clause."""
+        from verenigingen.utils.chapter_membership_history_manager import (
+            ChapterMembershipHistoryManager,
+        )
+
+        with patch.object(
+            frappe.model.document.Document, "update_child_table", side_effect=_statement_timeout()
+        ):
+            with self.assertRaises(Exception) as ctx:
+                ChapterMembershipHistoryManager._with_doc(
+                    self.member.name, "statement timeout composition (#1352)", lambda doc: None
+                )
+        self.assertEqual(ctx.exception.args[0], 1969)
 
     def test_an_ordinary_write_failure_is_still_a_failed_result(self):
         """CONTROL. Returning ``HistoryOperationResult(success=False)`` for ordinary errors is

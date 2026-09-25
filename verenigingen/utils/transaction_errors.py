@@ -24,6 +24,22 @@ caller restart it.
 This is deliberately a superset of ``retry_utilities.is_deadlock_error()``, which
 answers a different question ("may I retry this statement?") and matches on 1213
 only, partly by string.
+
+A third condition belongs in this same "must propagate" family but cannot join the
+``NON_RESUMABLE_DB_ERRORS`` tuple above, because it has no type to join it with:
+
+* MariaDB **1969** (``max_statement_time`` exceeded) -- frappe's dispatch
+  (``frappe/database/database.py``) wraps 1213 and 1205 into
+  ``QueryDeadlockError``/``QueryTimeoutError`` but does not do the same for 1969; it
+  stays a raw driver ``OperationalError``, the same class as many ordinary,
+  resumable errors. So no ``except`` clause can single it out by type, and
+  ``is_statement_timeout`` below checks the error code instead. Measured on
+  test_site_8 (10.11.14-MariaDB): unlike 1213, a 1969 does NOT roll back the whole
+  transaction -- ``ROLLBACK TO SAVEPOINT`` after one still succeeds, and a plain
+  ``SELECT 1`` on the same connection immediately afterward still works. It behaves
+  like 1205: the killed statement's own effects are undone, the transaction and its
+  savepoints are still live, and the caller is the only frame that can decide
+  whether to retry or abort. #1352.
 """
 
 import frappe
@@ -34,11 +50,28 @@ NON_RESUMABLE_DB_ERRORS = (frappe.QueryDeadlockError, frappe.QueryTimeoutError)
 # had the only correct copy and now imports these from here.
 SAVEPOINT_DOES_NOT_EXIST = 1305
 
+# MariaDB "max_statement_time exceeded". See the module docstring for why this is a
+# code check, not a member of NON_RESUMABLE_DB_ERRORS.
+STATEMENT_TIMEOUT = 1969
+
 
 def mysql_error_code(exc):
     """First positional arg of a MySQLdb-style error, or None."""
     args = getattr(exc, "args", None)
     return args[0] if args else None
+
+
+def is_statement_timeout(exc) -> bool:
+    """True if *exc* is a MariaDB 1969 (``max_statement_time`` exceeded).
+
+    Checks ``exc.args`` directly rather than calling
+    ``frappe.db.is_statement_timeout`` (which does the same thing for the MariaDB
+    backend), for the same reason ``mysql_error_code`` and ``SAVEPOINT_DOES_NOT_EXIST``
+    above do: a pure error-code predicate has no ``frappe.db`` dependency at all, so it
+    needs no live connection and cannot be affected by whatever state that connection
+    is in.
+    """
+    return mysql_error_code(exc) == STATEMENT_TIMEOUT
 
 
 def release_savepoint_if_present(save_point):

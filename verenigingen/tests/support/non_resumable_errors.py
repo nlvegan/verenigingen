@@ -43,6 +43,23 @@ def lock_wait_timeout():
     return frappe.QueryTimeoutError("Lock wait timeout exceeded; try restarting transaction")
 
 
+def statement_timeout():
+    """MariaDB 1969 (``max_statement_time`` exceeded). A THIRD non-resumable condition,
+    like ``connection_lost()`` below, and for the same reason NOT a member of the
+    ``NON_RESUMABLE_DB_ERRORS`` tuple: frappe's dispatch
+    (``frappe/database/database.py``) wraps 1213/1205 into
+    ``QueryDeadlockError``/``QueryTimeoutError`` but leaves 1969 a raw driver
+    ``OperationalError`` -- the same class as many ordinary, resumable errors -- so it
+    is matched on the error CODE (``transaction_errors.is_statement_timeout``), not by
+    isinstance. #1352.
+
+    Built via ``frappe.db.OperationalError`` for the same reason ``connection_lost()``
+    is: it tracks whichever backend the site actually resolves to instead of only ever
+    proving one driver's exception class.
+    """
+    return frappe.db.OperationalError(1969, "Query execution was interrupted (max_statement_time exceeded)")
+
+
 def connection_lost(code=2006):
     """MySQL client-side CR_SERVER_GONE_ERROR (2006, default) / CR_SERVER_LOST
     (2013, pass ``code=2013``). Verified (#731) against this bench's driver
