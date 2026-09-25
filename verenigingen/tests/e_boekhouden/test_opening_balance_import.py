@@ -38,6 +38,7 @@ from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
     _import_opening_balances_from_data,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 
 COMPANY_NAME = "TEST-EB-Opening-Company"
 ABBR = "TEBOC"
@@ -193,6 +194,7 @@ class _OpeningBalanceBase(EnhancedTestCase):
             except Exception:
                 frappe.db.rollback()
             frappe.delete_doc("Journal Entry", name, force=True, ignore_permissions=True)
+            purge_ledger_rows("Journal Entry", name)
         frappe.db.commit()
 
 
@@ -903,6 +905,7 @@ class TestOpeningBalanceForceReimport(EnhancedTestCase):
             except Exception:
                 frappe.db.rollback()
             frappe.delete_doc("Journal Entry", name, force=True, ignore_permissions=True)
+            purge_ledger_rows("Journal Entry", name)
         frappe.db.commit()
 
     def test_force_deletes_existing_opening_balance_je(self):

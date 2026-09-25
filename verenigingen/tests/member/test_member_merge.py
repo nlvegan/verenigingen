@@ -12,6 +12,7 @@ from verenigingen.services.member.lifecycle.member_cleanup_service import (
     MemberAnonymizedInsteadOfDeleted,
 )
 from verenigingen.services.member_merge_service import MemberMergeService
+from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 
 
 class TestMemberMerge(FrappeTestCase):
@@ -67,6 +68,7 @@ class TestMemberMerge(FrappeTestCase):
                     doc.flags.ignore_links = True
                     doc.cancel()
                 frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+                purge_ledger_rows(doctype, name)
             except Exception:
                 pass
 

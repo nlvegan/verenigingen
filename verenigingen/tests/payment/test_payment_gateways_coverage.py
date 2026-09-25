@@ -34,6 +34,7 @@ import unittest
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 from verenigingen.verenigingen_payments.utils import payment_gateways as pg
 
 
@@ -665,6 +666,7 @@ class TestProcessSubscriptionPayment(EnhancedTestCase):
                 if doc.docstatus == 1:
                     doc.cancel()
                 frappe.delete_doc("Payment Entry", pe_name, force=True, ignore_permissions=True)
+                purge_ledger_rows("Payment Entry", pe_name)
         frappe.db.commit()
         super().tearDown()
 

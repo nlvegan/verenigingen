@@ -20,6 +20,7 @@ from verenigingen.api.membership_application import (
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 from verenigingen.utils.validation.application_validators import (
     validate_birth_date as validate_birth_date_util,
 )
@@ -422,6 +423,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
                     if inv_doc.docstatus == 1:
                         inv_doc.cancel()
                     frappe.delete_doc("Sales Invoice", inv.name, force=True)
+                    purge_ledger_rows("Sales Invoice", inv.name)
                 except Exception:
                     pass
 
@@ -434,6 +436,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
                     if pe_doc.docstatus == 1:
                         pe_doc.cancel()
                     frappe.delete_doc("Payment Entry", pe.name, force=True)
+                    purge_ledger_rows("Payment Entry", pe.name)
                 except Exception:
                     pass
 
@@ -2570,6 +2573,7 @@ class TestChapterSelection(EnhancedTestCase):
                         if inv_doc.docstatus == 1:
                             inv_doc.cancel()
                         frappe.delete_doc("Sales Invoice", inv.name, force=True)
+                        purge_ledger_rows("Sales Invoice", inv.name)
                     except Exception:
                         pass
 

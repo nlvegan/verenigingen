@@ -23,6 +23,7 @@ from verenigingen.tests.support.dues_schedule_invoice_fixtures import (
     make_referenceable_dues_schedule,
     make_submitted_invoice_for_schedule,
 )
+from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 
 
 class TestMemberCleanupService(EnhancedTestCase):
@@ -480,6 +481,7 @@ class TestMemberCleanupService(EnhancedTestCase):
         if invoice.docstatus == 1:
             invoice.cancel()
         frappe.delete_doc("Sales Invoice", invoice.name, force=True)
+        purge_ledger_rows("Sales Invoice", invoice.name)
         frappe.delete_doc("Membership Dues Schedule", schedule.name, force=True)
         for extra_schedule_name in extra_schedules:
             if frappe.db.exists("Membership Dues Schedule", extra_schedule_name):

@@ -23,6 +23,7 @@ from verenigingen.services.billing.invoice_generation_orchestrator import (
     InvoiceGenerationOrchestrator,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 
 
 class TestInvoiceGenerationOrchestratorE2E(EnhancedTestCase):
@@ -51,6 +52,7 @@ class TestInvoiceGenerationOrchestratorE2E(EnhancedTestCase):
                 if doc.docstatus == 1:
                     doc.cancel()
                 frappe.delete_doc("Sales Invoice", name, force=True, ignore_permissions=True)
+                purge_ledger_rows("Sales Invoice", name)
                 frappe.db.commit()
             except Exception:
                 pass

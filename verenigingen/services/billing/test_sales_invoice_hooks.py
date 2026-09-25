@@ -27,6 +27,7 @@ from frappe.utils import nowdate
 
 from verenigingen.services.billing.sales_invoice_hooks import set_member_from_customer
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 
 
 class TestSalesInvoiceHooks(EnhancedTestCase):
@@ -45,6 +46,7 @@ class TestSalesInvoiceHooks(EnhancedTestCase):
                     if getattr(doc, "docstatus", 0) == 1:
                         doc.cancel()
                     frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+                    purge_ledger_rows(doctype, name)
                 except Exception:
                     pass
         frappe.db.commit()

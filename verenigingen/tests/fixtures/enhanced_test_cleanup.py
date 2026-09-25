@@ -9,6 +9,8 @@ tracks Member document names that were created via create_test_membership_applic
 import frappe
 import unittest
 
+from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
+
 
 class EnhancedTestCleanup:
     """Enhanced cleanup that tracks and cleans up related customers"""
@@ -129,6 +131,7 @@ class EnhancedTestCleanup:
                 if doc.docstatus == 1:
                     doc.cancel()
                 frappe.delete_doc("Sales Invoice", invoice.name, force=True, )
+                purge_ledger_rows("Sales Invoice", invoice.name)
             except:
                 pass
         
@@ -139,6 +142,7 @@ class EnhancedTestCleanup:
                 if doc.docstatus == 1:
                     doc.cancel()
                 frappe.delete_doc("Payment Entry", payment.name, force=True, )
+                purge_ledger_rows("Payment Entry", payment.name)
             except:
                 pass
         

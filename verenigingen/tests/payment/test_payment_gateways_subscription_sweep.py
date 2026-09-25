@@ -45,6 +45,7 @@ from verenigingen.tests.payment.test_payment_gateways_unit import _StubAmount, _
 from verenigingen.tests.support.error_log_assertions import assert_error_log
 from verenigingen.tests.support.invoice_payments import member_with_customer, receive_against_invoice
 from verenigingen.tests.support.sepa_test_company import get_eur_bank_account, get_eur_test_company
+from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 from verenigingen.verenigingen_payments.doctype.mollie_settings.mollie_settings import MollieSettings
 from verenigingen.verenigingen_payments.mollie.tests.fixtures.webhook_fixtures import (
     install_fake_request,
@@ -288,6 +289,7 @@ class TestSubscriptionWebhookEntry(EnhancedTestCase):
                 if doc.docstatus == 1:
                     doc.cancel()
                 frappe.delete_doc("Payment Entry", pe_name, force=True, ignore_permissions=True)
+                purge_ledger_rows("Payment Entry", pe_name)
         frappe.db.commit()
         super().tearDown()
 
@@ -568,6 +570,7 @@ class TestSubscriptionPaymentInvoiceChoice(EnhancedTestCase):
                 if doc.docstatus == 1:
                     doc.cancel()
                 frappe.delete_doc("Payment Entry", pe_name, force=True, ignore_permissions=True)
+                purge_ledger_rows("Payment Entry", pe_name)
         frappe.db.commit()
         super().tearDown()
 

@@ -17,6 +17,7 @@ from verenigingen.tests.fixtures.enhanced_test_factory import (
 from frappe.utils import add_days, add_months, today, random_string, now_datetime
 from verenigingen.tests.utils.setup_helpers import TestEnvironmentSetup
 from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
+from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 from verenigingen.tests.fixtures.test_data_factory import CoreTestDataFactory as TestDataFactory
 
 
@@ -124,6 +125,7 @@ class TestMemberLifecycleComplete(EnhancedTestCase):
                     if doc.docstatus == 1:
                         doc.cancel()
                 frappe.delete_doc(doctype, name, force=True)
+                purge_ledger_rows(doctype, name)
             except:
                 pass
                 

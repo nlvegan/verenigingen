@@ -33,6 +33,7 @@ from verenigingen.tests.payment.test_history_manager_row_lock import (
     row_is_locked_from_another_connection,
 )
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 from verenigingen.verenigingen_payments.mollie.tests.fixtures.factory import MollieTestCase
 from verenigingen.verenigingen_payments.utils.payment_gateways import (
     _process_subscription_payment
@@ -424,9 +425,14 @@ class TestMollieFinancialSafeguards(MollieTestCase):
                 if doc.docstatus == 1:
                     doc.cancel()
                 frappe.delete_doc("Payment Entry", pe.name, force=True)
+                purge_ledger_rows("Payment Entry", pe.name)
             except Exception:
                 frappe.db.sql(
                     "DELETE FROM `tabGL Entry` WHERE voucher_type='Payment Entry' AND voucher_no=%s",
+                    pe.name,
+                )
+                frappe.db.sql(
+                    "DELETE FROM `tabPayment Ledger Entry` WHERE voucher_type='Payment Entry' AND voucher_no=%s",
                     pe.name,
                 )
                 frappe.db.sql("DELETE FROM `tabPayment Entry` WHERE name=%s", pe.name)
