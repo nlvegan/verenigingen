@@ -11,18 +11,7 @@ import frappe
 from frappe.utils import getdate
 
 from verenigingen.utils.retry_utilities import execute_with_deadlock_retry, is_deadlock_error
-
-# Substrings secure_document_operation()'s swallowed-exception text carries for a unique-
-# constraint violation. It reports the failure as a formatted string (see
-# secure_operations.py's `result.add_error(f"Operation failed: {str(e)}")`), not the
-# original exception object, so this is a text match rather than an isinstance check --
-# empirically confirmed against both frappe.UniqueValidationError's message and MariaDB's
-# raw IntegrityError 1062 text (2026-09-23, see #1267).
-_DUPLICATE_KEY_ERROR_MARKERS = ("Duplicate entry", "UniqueValidationError", "DuplicateEntryError")
-
-
-def _is_duplicate_key_error(error_msg: str) -> bool:
-    return any(marker in error_msg for marker in _DUPLICATE_KEY_ERROR_MARKERS)
+from verenigingen.utils.secure_operations import is_duplicate_key_error as _is_duplicate_key_error
 
 
 class BankTransactionCreator:

@@ -287,6 +287,32 @@ def can_use_bypass_validations(user: str = None) -> bool:
         return False
 
 
+# Text markers a duplicate-key failure carries in the formatted error string
+# secure_document_operation() records on SecureOperationResult (see the
+# `except Exception` handler below: `result.add_error(f"Operation failed:
+# {str(e)}")`). That handler swallows EVERY exception it isn't explicitly told
+# to re-raise -- including frappe.DuplicateEntryError / frappe.
+# UniqueValidationError from a real create-time race -- and reports
+# success=False instead. A caller written as `except (DuplicateEntryError,
+# frappe.UniqueValidationError):` around a secure_document_operation() call
+# therefore never reaches that except clause (#1336; the pattern was first
+# found and fixed one call site at a time in bank_transaction_creator.py,
+# #1267). Since the original exception object never leaves this function, a
+# caller that needs to recover from the race must match on this formatted
+# text instead of isinstance -- empirically confirmed against both frappe.
+# UniqueValidationError's message and MariaDB's raw IntegrityError 1062 text
+# (2026-09-23, see #1267).
+DUPLICATE_KEY_ERROR_MARKERS = ("Duplicate entry", "UniqueValidationError", "DuplicateEntryError")
+
+
+def is_duplicate_key_error(error_text: str) -> bool:
+    """True if a secure_document_operation() failure was a swallowed
+    duplicate-key violation rather than some other failure. Pass
+    `"; ".join(result.errors)` (or any string containing the recorded error)
+    from a `result.success is False` branch."""
+    return any(marker in error_text for marker in DUPLICATE_KEY_ERROR_MARKERS)
+
+
 class SecureOperationResult:
     """Result object for secure operations"""
 

@@ -1,7 +1,7 @@
 import frappe
 
 from verenigingen.utils.constants import Roles
-from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.secure_operations import is_duplicate_key_error, secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
@@ -399,15 +399,23 @@ def create_workflow_state_masters():
                 )
 
                 if not result.success:
+                    error_msg = "; ".join(result.errors) if result.errors else "Unknown error"
+                    # secure_document_operation() swallows the DuplicateEntryError
+                    # a concurrent creator's race raises here and reports
+                    # success=False instead of re-raising -- the `except
+                    # frappe.exceptions.DuplicateEntryError` this used to have
+                    # was written for exactly that race and could never be
+                    # reached (#1336). Recover the same way it did.
+                    if is_duplicate_key_error(error_msg):
+                        print(f"      ✓ State already exists: {state}")
+                        continue
                     frappe.log_error(
                         title="Workflow State Creation Failed",
-                        message=f"Failed to create workflow state {state}: {'; '.join(result.errors)}",
+                        message=f"Failed to create workflow state {state}: {error_msg}",
                     )
                     continue  # Continue with other states
                 created_count += 1
                 print(f"      ✓ Created workflow state: {state}")
-            except frappe.exceptions.DuplicateEntryError:
-                print(f"      ✓ State already exists: {state}")
             except Exception as e:
                 print(f"      ⚠️ Could not create state {state}: {str(e)}")
         else:
@@ -441,15 +449,23 @@ def create_workflow_action_masters():
                 )
 
                 if not result.success:
+                    error_msg = "; ".join(result.errors) if result.errors else "Unknown error"
+                    # secure_document_operation() swallows the DuplicateEntryError
+                    # a concurrent creator's race raises here and reports
+                    # success=False instead of re-raising -- the `except
+                    # frappe.exceptions.DuplicateEntryError` this used to have
+                    # was written for exactly that race and could never be
+                    # reached (#1336). Recover the same way it did.
+                    if is_duplicate_key_error(error_msg):
+                        print(f"      ✓ Action already exists: {action}")
+                        continue
                     frappe.log_error(
                         title="Workflow Action Creation Failed",
-                        message=f"Failed to create workflow action {action}: {'; '.join(result.errors)}",
+                        message=f"Failed to create workflow action {action}: {error_msg}",
                     )
                     continue  # Continue with other actions
                 created_count += 1
                 print(f"      ✓ Created workflow action: {action}")
-            except frappe.exceptions.DuplicateEntryError:
-                print(f"      ✓ Action already exists: {action}")
             except Exception as e:
                 print(f"      ⚠️ Could not create action {action}: {str(e)}")
         else:

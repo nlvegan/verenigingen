@@ -371,7 +371,10 @@ class SmartTegenrekeningMapper:
                 )
 
             # Use secure operation framework instead of bypassing permissions
-            from verenigingen.utils.secure_operations import secure_document_operation
+            from verenigingen.utils.secure_operations import (
+                is_duplicate_key_error,
+                secure_document_operation,
+            )
 
             result = secure_document_operation(
                 operation="insert",
@@ -383,6 +386,17 @@ class SmartTegenrekeningMapper:
             if not result.success:
                 # Build detailed error message from result
                 error_details = "\n".join(result.errors) if result.errors else "Unknown error"
+
+                # secure_document_operation() swallows the DuplicateEntryError a
+                # concurrent caller's pre-existing-item race raises here and
+                # reports success=False instead of re-raising -- an
+                # `except frappe.DuplicateEntryError` written for exactly this
+                # race used to sit here and could never be reached (#1336).
+                # Item already existing is expected and safe to ignore, same
+                # as that dead except clause intended.
+                if is_duplicate_key_error(error_details):
+                    return
+
                 frappe.log_error(
                     title="Fallback Item Creation Failed",
                     message=(
@@ -393,9 +407,6 @@ class SmartTegenrekeningMapper:
                 )
                 # Don't throw here - fallback items are optional
                 return
-        except frappe.DuplicateEntryError:
-            # Item already exists - this is expected and safe to ignore
-            pass
         except Exception as e:
             frappe.log_error(
                 title="Unexpected Error in Fallback Item Creation",

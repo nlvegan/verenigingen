@@ -22,12 +22,17 @@ _get_account_by_code resolution) WITHOUT duplicating it. Here we cover:
 
 OUT OF SCOPE (needs item-group + secure_document_operation permission scaffolding,
 and is the DEPRECATED path the module itself warns against using):
-- _create_dynamic_item actual Item insert, _create_fallback_item, _get_fallback_item.
+- _create_dynamic_item actual Item insert, _get_fallback_item.
+- _create_fallback_item's happy path (a real Item insert) -- but its
+  duplicate-key-race recovery IS covered below (TestCreateFallbackItemRace),
+  since that is the specific defect #1336 fixes.
 
 Run with:
     bench --site test_site_1 run-tests --app verenigingen \
         --module verenigingen.tests.e_boekhouden.test_tegenrekening_mapper_coverage
 """
+
+from unittest.mock import patch
 
 import frappe
 
@@ -37,6 +42,7 @@ from verenigingen.e_boekhouden.utils.smart_tegenrekening_mapper import (
     get_item_for_purchase_transaction,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
+from verenigingen.utils.secure_operations import SecureOperationResult
 
 
 class TestSmartItemResolution(EnhancedTestCase):
@@ -173,6 +179,69 @@ class TestSmartItemResolution(EnhancedTestCase):
         with self.assertNoErrorLog():
             resolved = mapper._get_account_by_code(ledger_id)
         self.assertEqual(resolved, acct)
+
+
+class TestCreateFallbackItemRace(EnhancedTestCase):
+    """#1336: secure_document_operation() swallows the DuplicateEntryError a
+    concurrent caller's pre-existing-item race raises and reports
+    success=False instead of re-raising, so the `except
+    frappe.DuplicateEntryError` block _create_fallback_item() relied on to
+    treat "item already exists" as expected-and-safe-to-ignore was
+    unreachable -- a losing racer logged a spurious "Fallback Item Creation
+    Failed" Error Log instead of quietly returning.
+
+    Mocks secure_document_operation() directly rather than exercising a real
+    Item insert: the module's own comment marks the real-insert path
+    out-of-scope pending item-group + permission scaffolding (see module
+    docstring), and this defect is entirely about how the RESULT is
+    interpreted, not about the insert itself.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+
+        cls.company = get_eur_test_company()
+
+    def _duplicate_key_result(self):
+        result = SecureOperationResult(False, "test_fallback_item_race")
+        result.add_error(
+            "Operation failed: ('Item', 'EB-GENERIC-INCOME', "
+            "IntegrityError(1062, \"Duplicate entry 'EB-GENERIC-INCOME' for key 'PRIMARY'\"))"
+        )
+        return result
+
+    def test_duplicate_key_swallow_is_ignored_silently(self):
+        mapper = SmartTegenrekeningMapper(company=self.company)
+
+        with patch(
+            "verenigingen.utils.secure_operations.secure_document_operation",
+            return_value=self._duplicate_key_result(),
+        ):
+            with self.assertNoErrorLog():
+                mapper._create_fallback_item(
+                    "EB-GENERIC-INCOME", "Generic Income Item", "Revenue Items", "sales"
+                )
+
+    def test_non_duplicate_failure_still_logs(self):
+        # Control: a genuine (non-duplicate) failure must still be reported,
+        # so the fix narrows the swallow to duplicate-key errors only.
+        mapper = SmartTegenrekeningMapper(company=self.company)
+        result = SecureOperationResult(False, "test_fallback_item_other_failure")
+        result.add_error("Operation failed: PermissionError('No create permission for Item')")
+
+        with patch(
+            "verenigingen.utils.secure_operations.secure_document_operation",
+            return_value=result,
+        ):
+            self.expectErrorLog("Fallback Item Creation Failed")
+            mapper._create_fallback_item(
+                "EB-GENERIC-EXPENSE", "Generic Expense Item", "Expense Items", "purchase"
+            )
+        self.assertTrue(
+            frappe.db.exists("Error Log", {"method": "Fallback Item Creation Failed"})
+        )
 
 
 class TestCreateInvoiceLine(EnhancedTestCase):

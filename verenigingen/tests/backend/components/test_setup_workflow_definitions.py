@@ -28,11 +28,14 @@
 # transaction. setup_workflows_corrected() DOES commit; the only tests that call
 # it are the ones asserting its (non-)effects.
 
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from verenigingen.setup import workflow_setup as wf
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.secure_operations import SecureOperationResult
 
 TERMINATION_WORKFLOW = "Membership Termination Workflow"
 TARGET_DOCTYPE = "Membership Termination Request"
@@ -81,6 +84,103 @@ class TestWorkflowMasters(FrappeTestCase):
             frappe.db.exists("Workflow Action Master", "Submit"),
             "If 'Submit' now exists the upstream bug was fixed - update this test "
             "and the workflow-creation tests below",
+        )
+
+
+class TestWorkflowMasterDuplicateRace(FrappeTestCase):
+    """#1336: secure_document_operation() swallows the DuplicateEntryError a
+    concurrent creator's race raises here and reports success=False instead
+    of re-raising, so the `except frappe.exceptions.DuplicateEntryError`
+    create_workflow_state_masters()/create_workflow_action_masters() relied
+    on to recognise "another process just created this" was unreachable -- a
+    losing racer logged a spurious "... Creation Failed" Error Log instead of
+    quietly treating it as already-created.
+
+    frappe.db.exists() is faked for exactly the (doctype, name) pair the loop
+    checks, so the function still believes the row is absent and enters the
+    create branch -- the window a real concurrent creator would win in --
+    while every other frappe.db.exists() call (harness bookkeeping, etc.)
+    passes through untouched.
+    """
+
+    def _duplicate_key_result(self, doctype, name):
+        result = SecureOperationResult(False, "test_master_race")
+        result.add_error(
+            f"Operation failed: ('{doctype}', '{name}', "
+            f"IntegrityError(1062, \"Duplicate entry '{name}' for key 'PRIMARY'\"))"
+        )
+        return result
+
+    def _fake_exists_missing_for(self, doctype, name):
+        real_exists = frappe.db.exists
+
+        def _fake(dt, *args, **kwargs):
+            if dt == doctype and args and args[0] == name:
+                return False
+            return real_exists(dt, *args, **kwargs)
+
+        return _fake
+
+    def test_state_master_race_is_not_logged_as_a_failure(self):
+        error_log_marker = frappe.utils.now_datetime()
+
+        with patch.object(
+            frappe.db, "exists", side_effect=self._fake_exists_missing_for("Workflow State", "Executed")
+        ):
+            with patch.object(
+                wf,
+                "secure_document_operation",
+                return_value=self._duplicate_key_result("Workflow State", "Executed"),
+            ):
+                created = wf.create_workflow_state_masters()
+
+        self.assertEqual(created, 0)
+        self.assertFalse(
+            frappe.db.exists(
+                "Error Log",
+                {"method": "Workflow State Creation Failed", "creation": [">=", error_log_marker]},
+            )
+        )
+
+    def test_action_master_race_is_not_logged_as_a_failure(self):
+        error_log_marker = frappe.utils.now_datetime()
+
+        with patch.object(
+            frappe.db, "exists", side_effect=self._fake_exists_missing_for("Workflow Action Master", "Execute")
+        ):
+            with patch.object(
+                wf,
+                "secure_document_operation",
+                return_value=self._duplicate_key_result("Workflow Action Master", "Execute"),
+            ):
+                created = wf.create_workflow_action_masters()
+
+        self.assertEqual(created, 0)
+        self.assertFalse(
+            frappe.db.exists(
+                "Error Log",
+                {"method": "Workflow Action Creation Failed", "creation": [">=", error_log_marker]},
+            )
+        )
+
+    def test_non_duplicate_state_failure_still_logs(self):
+        # Control: a genuine (non-duplicate) failure must still be reported,
+        # so the fix narrows the swallow to duplicate-key errors only.
+        error_log_marker = frappe.utils.now_datetime()
+        result = SecureOperationResult(False, "test_master_other_failure")
+        result.add_error("Operation failed: PermissionError('No create permission for Workflow State')")
+
+        with patch.object(
+            frappe.db, "exists", side_effect=self._fake_exists_missing_for("Workflow State", "Executed")
+        ):
+            with patch.object(wf, "secure_document_operation", return_value=result):
+                wf.create_workflow_state_masters()
+
+        self.assertTrue(
+            frappe.db.exists(
+                "Error Log",
+                {"method": "Workflow State Creation Failed", "creation": [">=", error_log_marker]},
+            )
         )
 
 
