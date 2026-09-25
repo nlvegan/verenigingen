@@ -352,6 +352,29 @@ class TestDuesInvoiceWorkflow(VereningingenTestCase):
         reason = data["ineligible_invoices"][0]["reason"]
         self.assertIn("EUR", reason)
 
+    def test_validate_sepa_eligibility_rejects_blank_currency(self):
+        """The guard must fail CLOSED on a blank/missing currency, not just a
+        non-EUR one (review of #1286): `currency` is `reqd: 1` on Sales
+        Invoice with no `ignore_mandatory` call site, so this is not
+        reachable through the normal insert path -- but a SEPA money guard
+        should not depend on that staying true. Also pins that the reason
+        text reads sensibly for a blank value rather than "invoice is in
+        None".
+        """
+        member, schedule = self._make_member_with_schedule(dues_rate=22.0)
+        self.create_test_sepa_mandate(member=member.name)
+        invoice = self._make_dues_invoice(member, schedule)
+        frappe.db.set_value("Sales Invoice", invoice.name, "currency", "", update_modified=False)
+
+        data = self._ok(validate_sepa_eligibility(invoice_list=[invoice.name]))
+
+        self.assertEqual(data["summary"]["sepa_eligible"], 0)
+        self.assertEqual(len(data["eligible_invoices"]), 0)
+        self.assertEqual(len(data["ineligible_invoices"]), 1)
+        reason = data["ineligible_invoices"][0]["reason"]
+        self.assertNotIn("None", reason)
+        self.assertIn("EUR", reason)
+
     def test_validate_sepa_eligibility_marks_invoice_without_mandate(self):
         """A dues invoice whose member has NO active mandate is ineligible."""
         member, schedule = self._make_member_with_schedule()

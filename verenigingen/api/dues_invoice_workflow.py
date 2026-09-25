@@ -321,13 +321,20 @@ def validate_sepa_eligibility(invoice_list: List[str] = None) -> OperationResult
                 # (#1218, b5f1d6cfe) and `create_sepa_batch_validated` enforces
                 # at batch-creation time. Without this, a non-EUR invoice with
                 # an otherwise-valid mandate was reported eligible (#1286).
-                if invoice.currency and invoice.currency != "EUR":
+                # Fails closed on a blank/missing currency too -- `currency` is
+                # `reqd: 1` on Sales Invoice with no `ignore_mandatory` call
+                # site, so this is not reachable on real data, but a SEPA money
+                # guard should not depend on that staying true.
+                if invoice.currency != "EUR":
+                    reason = (
+                        _("SEPA Direct Debit requires EUR (invoice currency is not set)")
+                        if not invoice.currency
+                        else _("SEPA Direct Debit requires EUR (invoice is in {0})").format(invoice.currency)
+                    )
                     ineligible_invoices.append(
                         {
                             "invoice": invoice_name,
-                            "reason": _("SEPA Direct Debit requires EUR (invoice is in {0})").format(
-                                invoice.currency
-                            ),
+                            "reason": reason,
                             "customer": invoice.customer,
                         }
                     )
