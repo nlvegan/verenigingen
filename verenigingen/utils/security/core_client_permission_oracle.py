@@ -19,10 +19,10 @@ real-but-forbidden one -- two different outcomes (a 404 vs. a 200 with a
 value) for the identical "can I access this id" question, for ANY doctype and
 ANY docname, reachable by any authenticated user regardless of role. See
 issue #1411 (core-reachability finding) and #1401/#1394 for the app-level
-version of the same mechanism. #1401 (fixed by PR #1416, `_require_team_permission`
-in `verenigingen/api/team_management.py`) is the established fix shape this
-file follows: catch the raise, fold it into the same refusal a real forbidden
-record gets.
+version of the same mechanism. #1401 (proposed in PR #1416, `_require_team_permission`
+in `verenigingen/api/team_management.py`, still open) is the established fix
+shape this file follows: catch the raise, fold it into the same refusal a
+real forbidden record gets.
 
 **Administrator is exempt from only half of this pair.**
 `frappe.permissions.has_permission` short-circuits to `True` for the literal

@@ -90,8 +90,12 @@ class TestCoreClientPermissionOracleOverride(EnhancedTestCase):
 
         The commit is load-bearing, not decoration: the caller spawns a
         SEPARATE process (a fresh DB connection) that logs in as this user
-        over a real WSGI request, and an uncommitted password change in this
-        test's own transaction would be invisible to it."""
+        over a real WSGI request. It carries across TWO things this test's
+        own transaction would otherwise keep invisible to that process: the
+        password set here, and the `email` User row itself -- setUp's
+        _make_bare_user() inserts it in the same (still-open) transaction, so
+        without this commit the subprocess's login fails with
+        AuthenticationError (no such user), not merely a stale password."""
         from frappe.utils.password import update_password
 
         password = f"Probe-{frappe.generate_hash()[:12]}!"
