@@ -89,6 +89,55 @@ class TestTeamManagementPermissionOracle(EnhancedTestCase):
         self.assertEqual(unknown["http_status"], foreign["http_status"])
         self.assertEqual(foreign["message"], "Insufficient permissions to access team data")
 
+    def test_get_team_members_unknown_and_foreign_team_queue_no_distinguishing_message(self):
+        """The raise-vs-False asymmetry also queues a distinguishing message.
+
+        Named to avoid the vacuous-error-log-test-validator's name pattern
+        (a `_`-delimited "log(s)" segment): this test is about
+        frappe.message_log, the msgprint queue rendered as _server_messages
+        on an API response, NOT the "Error Log" doctype/tabError Log that
+        validator polices -- see its own docstring for why it keys on the name.
+
+        frappe.throw() (raised by the internal document load for an unknown
+        Team id) appends a "Team <name> not found" entry to frappe.message_log
+        BEFORE raising, and catching the exception does not remove it -- that
+        entry would ride along in _server_messages on an unknown id and not on
+        a foreign one, reopening the oracle in the response body even though
+        the exception itself is masked (sibling to #1430's
+        frappe.client.has_permission finding). A single frappe.clear_last_message()
+        is not sufficient either: for a real-but-forbidden team,
+        frappe.has_permission's own internal message composition (recomputing
+        has_permission(doctype) with no `doc`) makes an unrelated, unsuppressable
+        recursive call that queues its OWN message when the caller's role holds
+        no blanket doctype-level grant -- true for "Verenigingen Volunteer" here.
+        So both the unknown and the foreign refusal must leave an IDENTICAL
+        message_log, not just an identical return value.
+        """
+        with self.as_user(self.outsider):
+            frappe.clear_messages()
+            get_team_members(self.unknown_team)
+            unknown_log = list(frappe.message_log)
+
+            frappe.clear_messages()
+            get_team_members(self.team.name)
+            foreign_log = list(frappe.message_log)
+
+        for entry in unknown_log:
+            self.assertNotIn(
+                "not found",
+                entry.get("message", ""),
+                msg=f"unknown-team message_log still carries an existence-revealing entry: {entry}",
+            )
+
+        # Compare messages only: each frappe.throw() mints its own random
+        # __frappe_exc_id correlation token, so the raw dicts always differ on
+        # that field alone even when the visible content is identical.
+        self.assertEqual(
+            [entry.get("message") for entry in unknown_log],
+            [entry.get("message") for entry in foreign_log],
+            "unknown-team and foreign-team refusals must leave identical message logs",
+        )
+
     def test_get_role_profile_preview_unknown_and_foreign_team_identical_refusal(self):
         unknown = self._refusal(self.outsider, get_role_profile_preview, self.unknown_team)
         foreign = self._refusal(self.outsider, get_role_profile_preview, self.team.name)
