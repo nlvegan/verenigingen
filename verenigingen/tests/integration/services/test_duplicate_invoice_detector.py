@@ -330,10 +330,40 @@ class TestDuplicateInvoiceDetector(EnhancedTestCase):
         self.assertIn(invoice.name, result.reason)
 
     def test_fallback_handles_derivation_errors(self):
-        """Fallback detection gracefully handles derivation errors"""
-        # Create invoice with missing coverage dates
+        """Fallback detection logs and skips an invoice whose coverage
+        derivation raises, instead of letting the exception propagate out of
+        check_for_duplicates.
+
+        Realistic trigger (#1382): "Daily" is a real, selectable Membership
+        Dues Schedule billing_frequency. derive_coverage_from_invoice_data's
+        own "Daily" branch sets coverage_end = coverage_start (a same-day
+        period), and its final validation then rejects that as invalid ("end
+        date must be after start date") - so ANY real invoice generated from a
+        Daily-frequency schedule with no explicit coverage dates drives
+        `_process_fallback_invoices` into the `except` branch, unconditionally
+        (verified directly against derive_coverage_from_invoice_data - see
+        #1393 for that being a standalone defect: Daily fallback coverage can
+        never be derived). This test only needs a real
+        invoice to reach and trip that branch, not for the Daily behaviour
+        itself to be correct.
+
+        No coverage-dated invoice exists for this customer, so
+        `_check_gap_reset` finds nothing to compare against and does not
+        short-circuit before Phase 4 - important here because the gap-reset
+        threshold for Daily is a single day (get_nominal_period_days), which
+        would otherwise trigger on almost any gap.
+        """
+        frappe.db.set_value("Membership Dues Schedule", self.schedule.name, "billing_frequency", "Daily")
+        self.schedule.reload()
+
+        # Invoice with missing coverage dates, posted well after the sentinel
+        # fallback cutoff (no coverage-dated invoice exists yet), so it passes
+        # `_check_fallback_overlaps`'s own candidate query and actually reaches
+        # `_process_fallback_invoices`. (The old version of this test NULLed
+        # posting_date instead, which that query's own
+        # `si.posting_date > %(cutoff_date)s` filter silently excludes - the
+        # invoice never reached the method the test is named for.)
         invoice = self.create_test_sales_invoice(customer=self.customer, posting_date="2025-01-05")
-        # Set schedule link and clear coverage dates
         frappe.db.set_value(
             "Sales Invoice",
             invoice.name,
@@ -347,48 +377,30 @@ class TestDuplicateInvoiceDetector(EnhancedTestCase):
         invoice.reload()
         invoice.submit()
 
-        # NOW corrupt the posting_date to trigger derivation error.
-        # This bypasses validation since the invoice is already submitted.
-        #
-        # Deliberately NOT committed. A committed NULL posting_date is a state the
-        # ORM can never produce on its own (the field is mandatory), so nothing
-        # downstream guards against it: cancelling such an invoice at teardown
-        # reaches ERPNext's get_gl_dict()->get_fiscal_years(None, company=...),
-        # which -- with no date to filter on -- returns EVERY active Fiscal Year
-        # (including the test fixture's decades of `_Test Fiscal Year YYYY` rows)
-        # and throws "Multiple fiscal years exist for the date . Please set
-        # company in Fiscal Year" (accounts_controller.py). The invoice then
-        # survives cancellation, which strands its customer_address and cascades
-        # into an undeletable Customer (#1346). Leaving this UPDATE uncommitted
-        # keeps it (and the invoice's own submission above) inside the harness's
-        # normal per-test rollback, which erases both once this method returns --
-        # the same-session read below still sees the uncommitted NULL, since a
-        # read always sees its own transaction's writes.
-        frappe.db.sql(
-            """
-            UPDATE `tabSales Invoice`
-            SET posting_date = NULL
-            WHERE name = %s
-        """,
-            (invoice.name,),
-        )
-
-        # Create recent coverage so fallback runs
-        recent_invoice = self.create_test_sales_invoice(customer=self.customer, posting_date="2024-12-05")
-        frappe.db.set_value(
-            "Sales Invoice",
-            recent_invoice.name,
-            {"custom_coverage_start_date": "2024-12-01", "custom_coverage_end_date": "2024-12-31"},
-        )
-        recent_invoice.reload()
-        recent_invoice.submit()
-
-        # Should continue gracefully despite derivation error
         detector = DuplicateInvoiceDetector(self.schedule)
-        result = detector.check_for_duplicates(date(2025, 1, 1), date(2025, 1, 31))
 
-        # Should allow generation since derivation failed
+        # `_process_fallback_invoices` logs the derivation failure through the
+        # shared "verenigingen.services" service logger (base_service.py).
+        # Asserting on that specific record - not just the return value -
+        # proves the except branch actually ran for THIS invoice, rather than
+        # the invoice having been silently excluded upstream.
+        service_logger = frappe.logger("verenigingen.services")
+        with self.assertLogs(service_logger, level="ERROR") as log_capture:
+            result = detector.check_for_duplicates(date(2025, 1, 1), date(2025, 1, 31))
+
+        self.assertTrue(
+            any(
+                "Error processing fallback coverage" in line and invoice.name in line
+                for line in log_capture.output
+            ),
+            f"Expected a derivation-error log line naming {invoice.name}, got: {log_capture.output}",
+        )
+
+        # The derivation error is caught and logged: check_for_duplicates still
+        # returns a result (it did not raise) and treats the un-derivable
+        # invoice as no overlap rather than a false-positive block.
         self.assertTrue(result.can_generate)
+        self.assertNotIn(invoice.name, result.reason)
 
     def test_multiple_exact_duplicates_listed(self):
         """Multiple exact duplicates are all listed in reason"""
