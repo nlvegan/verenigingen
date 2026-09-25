@@ -305,6 +305,32 @@ class TestRejectMembershipApplication(EnhancedTestCase):
         with self.assertRaises(frappe.exceptions.ValidationError):
             reject_membership_application("NONEXISTENT-MEMBER-REV-12345", reason="x")
 
+    def test_nonexistent_member_logs_a_valid_audit_event(self):
+        """#1417: _validate_member_for_review used to call log_security_event()
+        with event_type="invalid_member_access", which is not a valid API Audit
+        Log.event_type Select option. _store_audit_event's own `except Exception`
+        swallowed the resulting ValidationError and only wrote it to the Error
+        Log -- so the structured audit row was silently never stored; only the
+        reject_membership_application() ValidationError surfaced to the caller.
+        Assert the audit row actually lands, with no error logged.
+        """
+        member_name = "NONEXISTENT-MEMBER-AUDIT-1417"
+        with self.assertNoErrorLog():
+            with self.assertRaises(frappe.exceptions.ValidationError):
+                reject_membership_application(member_name, reason="x")
+
+        row = frappe.db.get_value(
+            "API Audit Log",
+            {"details": ["like", f"%{member_name}%"]},
+            ["event_type", "severity"],
+            as_dict=True,
+        )
+        self.assertIsNotNone(
+            row, "no API Audit Log row was stored for the nonexistent-member rejection attempt"
+        )
+        self.assertEqual(row.event_type, "unauthorized_access_attempt")
+        self.assertEqual(row.severity, "error")
+
 
 class TestGetUserChapterAccess(EnhancedTestCase):
     """get_user_chapter_access: admin vs member-without-board branches."""

@@ -43,7 +43,7 @@ def _validate_member_for_review(member_name, operation_label):
 
         if not frappe.db.exists("Member", member_name):
             log_security_event(
-                "invalid_member_access",
+                "unauthorized_access_attempt",
                 {"message": f"Attempted {operation_label} of non-existent member: {member_name}"},
                 severity="error",
             )
@@ -55,7 +55,7 @@ def _validate_member_for_review(member_name, operation_label):
         raise
     except Exception as e:
         log_security_event(
-            "input_validation_failure",
+            "validation_failed",
             {"message": f"Input validation failed for {operation_label}: {str(e)}"},
             severity="warning",
         )
