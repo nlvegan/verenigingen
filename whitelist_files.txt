@@ -254,8 +254,6 @@
 ./verenigingen/email/simplified_email_manager.py
 ./verenigingen/email/validation_utils.py
 ./verenigingen/events/migration_helper.py
-./verenigingen/fixes/correct_implementation_example.py
-./verenigingen/fixes/step1_fix_data_fetching.py
 ./verenigingen/fixtures/add_sepa_database_indexes.py
 ./verenigingen/hooks.py
 ./verenigingen/monitoring/zabbix_integration.py

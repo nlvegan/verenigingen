@@ -6,7 +6,6 @@
 		"**/dist",
 		"verenigingen/patches",
 		"verenigingen/fixtures",
-		"verenigingen/fixes",
 		"verenigingen/utils/migration"
 	],
 	"extraPaths": [
