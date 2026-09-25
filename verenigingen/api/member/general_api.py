@@ -97,7 +97,15 @@ def get_linked_donations(member: str | None = None):
     """
     Find linked donor record for a member to view donations.
 
-    Searches for a donor with matching email or name.
+    Matches the Donor via the authoritative ``Donor.member`` link field first
+    (set by MemberDonorIntegrationService.create_donor_from_member), then
+    falls back to an exact e-mail match, then an exact full_name match.
+
+    Each tier requires EXACTLY ONE match. A fuzzy/substring name match with
+    no ambiguity guard let a member's own free-text full_name (e.g. "Jan")
+    silently attach an unrelated donor's ("Jan de Vries") donations to the
+    wrong member; see #1356. None of the three signals below is a
+    wildcard/LIKE query, so there is nothing to escape.
 
     Args:
         member: Member name/ID
@@ -108,22 +116,34 @@ def get_linked_donations(member: str | None = None):
     if not member:
         return {"success": False, "message": "No member specified"}
 
-    # First try to find a donor with the same email as the member
     member_doc = frappe.get_doc("Member", member)
+
+    donor = _find_unambiguous_donor("member", member_doc.name)
+    if donor:
+        return {"success": True, "donor": donor}
+
     if member_doc.email:
-        donors = frappe.get_all("Donor", filters={"donor_email": member_doc.email}, fields=["name"])
+        donor = _find_unambiguous_donor("donor_email", member_doc.email)
+        if donor:
+            return {"success": True, "donor": donor}
 
-        if donors:
-            return {"success": True, "donor": donors[0].name}
-
-    # Then try to find by name
     if member_doc.full_name:
-        donors = frappe.get_all(
-            "Donor", filters={"donor_name": ["like", f"%{member_doc.full_name}%"]}, fields=["name"]
-        )
-
-        if donors:
-            return {"success": True, "donor": donors[0].name}
+        donor = _find_unambiguous_donor("donor_name", member_doc.full_name)
+        if donor:
+            return {"success": True, "donor": donor}
 
     # No donor found
     return {"success": False, "message": "No donor record found for this member"}
+
+
+def _find_unambiguous_donor(fieldname: str, value: str) -> str | None:
+    """Return the single Donor matching ``fieldname == value``, or None.
+
+    Returns None both when there is no match and when there is more than
+    one -- an ambiguous match must never be resolved by picking the first
+    result arbitrarily (see #1356).
+    """
+    donors = frappe.get_all("Donor", filters={fieldname: value}, fields=["name"])
+    if len(donors) == 1:
+        return donors[0].name
+    return None

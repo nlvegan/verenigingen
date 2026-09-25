@@ -278,6 +278,46 @@ class TestMemberUtilsEndpoints(VereningingenTestCase):
         self.assertTrue(result["success"])
         self.assertEqual(result["donor"], donor.name)
 
+    def test_get_linked_donations_exact_name_match(self):
+        """No e-mail match; an exact donor_name match still resolves (#1356)."""
+        member_doc = frappe.get_doc("Member", self.member.name)
+        donor = self.create_test_donor(donor_name=member_doc.full_name, donor_email=None)
+        result = mu.get_linked_donations(self.member.name)
+        self.assertTrue(result["success"])
+        self.assertEqual(result["donor"], donor.name)
+
+    def test_get_linked_donations_does_not_substring_match_a_strangers_donor(self):
+        """#1356: a stranger's donor whose name merely CONTAINS this member's
+        full_name as a substring must never be attached to this member -- the
+        old `LIKE f"%{full_name}%"` query with no ambiguity guard did exactly
+        that.
+        """
+        member_doc = frappe.get_doc("Member", self.member.name)
+        self.create_test_donor(
+            donor_name=f"{member_doc.full_name} (a completely unrelated donor)", donor_email=None
+        )
+        result = mu.get_linked_donations(self.member.name)
+        self.assertFalse(result["success"])
+
+    def test_get_linked_donations_ambiguous_name_refuses(self):
+        """Two donors sharing this member's exact full_name must refuse rather
+        than silently picking the first one (#1356)."""
+        member_doc = frappe.get_doc("Member", self.member.name)
+        self.create_test_donor(donor_name=member_doc.full_name, donor_email=None)
+        self.create_test_donor(donor_name=member_doc.full_name, donor_email=None)
+        result = mu.get_linked_donations(self.member.name)
+        self.assertFalse(result["success"])
+
+    def test_get_linked_donations_member_link_takes_priority(self):
+        """The authoritative Donor.member link resolves the donor even when
+        donor_name/donor_email do not match the member at all."""
+        donor = self.create_test_donor(
+            donor_name="Someone Else Entirely", donor_email="unrelated@test.invalid", member=self.member.name
+        )
+        result = mu.get_linked_donations(self.member.name)
+        self.assertTrue(result["success"])
+        self.assertEqual(result["donor"], donor.name)
+
     # ------------------------------------------------------------------ termination status
 
     def test_get_member_termination_status_none(self):
