@@ -723,6 +723,30 @@ class TestLedgerBearingCancelThenDeleteIsPurged(VereningingenTestCase):
     to ``purge_ledger_rows``/``_purge_ledger_rows``, or a direct delete of BOTH
     `GL Entry` and `Payment Ledger Entry` keyed on the same voucher) -- not by
     being hard to analyse.
+
+    Two known false-positive shapes, both deliberate:
+
+    - A purge routed through a DIFFERENTLY-NAMED wrapper (anything other than
+      ``purge_ledger_rows``/``_purge_ledger_rows``/``has_ledger_rows``, or a
+      direct two-table delete) is flagged even if it is, in fact, safe. This
+      is a fail-SAFE false positive, not a bug to silence with a broader name
+      list: the cost of occasionally re-reviewing a renamed wrapper is far
+      lower than the cost of a name-matching heuristic that stops working the
+      moment a helper is renamed. Route a new purge through the existing
+      helpers, or extend the recognised-name set here deliberately -- do not
+      work around a flag by renaming away from it.
+    - This class walks `APP_ROOT` (`verenigingen/`) only, not `REPO_ROOT` or
+      `scripts/` -- unlike the adjacent `TestTheSharedTestRegionHasOneOwner`,
+      which walks `REPO_ROOT` precisely because #406's sites were split across
+      both. That is a real gap here too: the same review that asked for this
+      invariant found one live offender under `scripts/` --
+      `scripts/debug/remove_period_closing_vouchers.py:25` -- filed as #1413,
+      deliberately NOT fixed in this same change. `scripts/` holds live-data
+      maintenance tools, not test fixtures; adding a GL/Payment Ledger Entry
+      purge there changes what the tool does to REAL ledgers, which is a
+      product decision this test-isolation invariant is not the place to make
+      unreviewed. Widening this scan to `scripts/` is future work gated on
+      that decision, not a checkbox to tick here.
     """
 
     #: Per-process cache: `get_controller` does its own site-scoped cache, but
@@ -733,13 +757,12 @@ class TestLedgerBearingCancelThenDeleteIsPurged(VereningingenTestCase):
     #: Sites that ARE this shape but are not fixed by this invariant's own
     #: commit -- each entry needs its OWN stated reason. Growing this (not just
     #: "non-empty") fails the test; see test_the_baseline_does_not_grow below.
-    BASELINE = {
-        "tests/backend/components/test_sepa_reconciliation.py": (
-            "already fixed on PR #1391 (open, unmerged, when this invariant was "
-            "written) -- duplicating that fix here would conflict with its diff; "
-            "drop this entry once #1391 merges"
-        ),
-    }
+    #: Empty on purpose: PR #1391 (which had the one entry this held --
+    #: tests/backend/components/test_sepa_reconciliation.py, "already fixed on
+    #: PR #1391" -- since it was open, unmerged, at the time this invariant was
+    #: written) has now merged, so that site purges correctly and needs no
+    #: exemption.
+    BASELINE = {}
 
     def _is_ledger_bearing(self, doctype):
         if doctype not in self._LEDGER_CACHE:
@@ -1064,7 +1087,7 @@ class TestLedgerBearingCancelThenDeleteIsPurged(VereningingenTestCase):
         the same shape as the order-dependence ratchet's `--fail-on-shrink`.
         """
         self.assertEqual(
-            1,
+            0,
             len(self.BASELINE),
             f"BASELINE grew to {len(self.BASELINE)} entries -- each one needs its own "
             "reviewed reason (see the class docstring), not a quiet addition:\n  "
