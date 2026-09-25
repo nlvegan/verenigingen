@@ -325,16 +325,29 @@ def initiate_installment_payment(plan, installment_number, method="mollie") -> O
     server-derived installment amount, and initiates the gateway payment,
     returning the redirect URL. Never marks anything Paid — that happens only on
     the confirmed webhook.
+
+    Ownership is resolved from a cheap, existence-independent lookup BEFORE
+    frappe.get_doc (#1358): frappe.get_doc raises frappe.DoesNotExistError for
+    an unknown plan id, which the bare `except Exception` below turned into a
+    DIFFERENT message ("Failed to start payment", plus a DoesNotExistError
+    entry in the OperationResult's own `errors` list) than the explicit
+    ownership refusal ("You can only pay your own payment plans") used for an
+    existing-but-foreign plan -- an existence oracle over Payment Plan ids for
+    any authenticated member (this endpoint has no admin/CRITICAL gate).
+    `member` is a mandatory field on Payment Plan (reqd=1), so
+    frappe.db.get_value returning None here means "no such plan", never "a
+    real plan with a blank member".
     """
     intent = None
     try:
         installment_number = int(installment_number)
-        plan_doc = frappe.get_doc("Payment Plan", plan)
 
-        # Ownership: the plan's member must map to the current user.
         member_name = get_current_user_member_name()
-        if not member_name or plan_doc.member != member_name:
+        plan_member = frappe.db.get_value("Payment Plan", plan, "member")
+        if not member_name or plan_member != member_name:
             return OperationResult.fail(message=_("You can only pay your own payment plans"))
+
+        plan_doc = frappe.get_doc("Payment Plan", plan)
 
         if plan_doc.status != "Active":
             return OperationResult.fail(message=_("This payment plan is not active"))

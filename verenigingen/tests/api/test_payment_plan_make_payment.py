@@ -90,6 +90,46 @@ class TestPaymentPlanMakePayment(VereningingenTestCase):
             result = initiate_installment_payment(plan=self.plan.name, installment_number=1)
         self.assertFalse(result["success"])
 
+    def test_unknown_and_foreign_plan_ids_are_indistinguishable(self):
+        """#1358: a nonexistent plan id and an existing-but-foreign one must
+        refuse identically -- same message, same (absent) errors/metadata, and
+        neither writes an Error Log row. Before the fix, frappe.get_doc raised
+        DoesNotExistError for the unknown id, caught by the bare `except
+        Exception` and turned into "Failed to start payment" (plus a
+        DoesNotExistError entry in `errors` and an Error Log write), while the
+        foreign-but-real plan got "You can only pay your own payment plans"
+        with no errors/metadata -- an existence oracle.
+        """
+        from verenigingen.api.payment_plan_management import initiate_installment_payment
+
+        other = self._make_member_with_user()
+        with self.as_user(other.email):
+            with self.assertNoErrorLog():
+                foreign_result = initiate_installment_payment(plan=self.plan.name, installment_number=1)
+            with self.assertNoErrorLog():
+                missing_result = initiate_installment_payment(
+                    plan="NONEXISTENT-PLAN-1358", installment_number=1
+                )
+
+        for result in (foreign_result, missing_result):
+            self.assertFalse(result["success"])
+
+        foreign_result.pop("timestamp", None)
+        missing_result.pop("timestamp", None)
+        self.assertEqual(
+            foreign_result,
+            missing_result,
+            "an out-of-scope existing plan and a nonexistent plan must refuse identically",
+        )
+        self.assertEqual(
+            foreign_result["error"]["message"],
+            "You can only pay your own payment plans",
+        )
+        # No stray "errors"/"meta" (DoesNotExistError, traceback, etc.) leaking
+        # through only on the missing-plan path.
+        self.assertNotIn("errors", foreign_result["error"])
+        self.assertNotIn("meta", foreign_result)
+
     def test_rejects_paid_installment(self):
         from verenigingen.api.payment_plan_management import initiate_installment_payment
 
