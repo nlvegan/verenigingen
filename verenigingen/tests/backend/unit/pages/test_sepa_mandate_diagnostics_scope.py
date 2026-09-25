@@ -38,7 +38,6 @@ import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.member_ownership_probe_mixin import MemberOwnershipProbeMixin
-from verenigingen.utils.constants import Roles
 from verenigingen.verenigingen_payments.page.sepa_mandate_diagnostics.sepa_mandate_diagnostics import (
     bulk_fix_mandate_issues,
     get_mandate_issues,
@@ -55,11 +54,13 @@ class TestGetMandateIssuesRoleScope(MemberOwnershipProbeMixin, EnhancedTestCase)
         user_email, _member = self._user_linked_to_own_member(
             "MandateVolunteerAttacker", "Verenigingen Member", "Verenigingen Volunteer"
         )
-        self.assertFalse(
-            set(frappe.get_roles(user_email)) & Roles.ADMIN_ROLES,
-            "test setup: volunteer-tier user must NOT hold an admin role",
-        )
-
+        # No pre-switch role-set assertion here: reading frappe.get_roles(user_email)
+        # while frappe.session.user is still Administrator resolves through the
+        # stale pre-set_user cache and is shard-order-fragile (cache-guard-validator,
+        # see 5caed9e8). The assertRaisesRegex below already proves a STRICTLY
+        # stronger fact than "no admin role" -- that exact denial message can only
+        # be raised when the caller holds NEITHER Roles.ADMIN_ROLES NOR
+        # Roles.CHAPTER_BOARD_MEMBER (_ensure_mandate_diagnostics_access's role set).
         with self.set_user(user_email):
             with self.assertRaisesRegex(frappe.PermissionError, MANDATE_DIAGNOSTICS_DENIAL_MESSAGE):
                 get_mandate_issues()
@@ -69,11 +70,8 @@ class TestGetMandateIssuesRoleScope(MemberOwnershipProbeMixin, EnhancedTestCase)
         user_email, _member = self._user_linked_to_own_member(
             "MandateAuditorAttacker", "Verenigingen Member", "Verenigingen Auditor"
         )
-        self.assertFalse(
-            set(frappe.get_roles(user_email)) & Roles.ADMIN_ROLES,
-            "test setup: auditor-tier user must NOT hold an admin role",
-        )
-
+        # See test_volunteer_role_refused's comment: no pre-switch role check --
+        # the post-switch assertRaisesRegex proves it more strongly.
         with self.set_user(user_email):
             with self.assertRaisesRegex(frappe.PermissionError, MANDATE_DIAGNOSTICS_DENIAL_MESSAGE):
                 get_mandate_issues()

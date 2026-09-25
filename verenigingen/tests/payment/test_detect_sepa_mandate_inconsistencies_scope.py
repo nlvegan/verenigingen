@@ -20,7 +20,6 @@ import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.member_ownership_probe_mixin import MemberOwnershipProbeMixin
-from verenigingen.utils.constants import Roles
 from verenigingen.verenigingen_payments.api import sepa_mandate_management as mgmt
 
 INCONSISTENCIES_DENIAL_MESSAGE = "not permitted to view SEPA mandate diagnostics"
@@ -30,9 +29,13 @@ class TestDetectSepaMandateInconsistenciesRoleScope(MemberOwnershipProbeMixin, E
     def test_chapter_board_member_refused(self):
         """No Page or Report grants this role access to this endpoint (unlike
         get_mandate_issues(), which the "SEPA Mandate Issues" report exempts) --
-        must be refused."""
+        must be refused. No pre-switch role-set assertion: reading
+        frappe.get_roles(user_email) while frappe.session.user is still
+        Administrator resolves through the stale pre-set_user cache and is
+        shard-order-fragile (cache-guard-validator, see 5caed9e8). The
+        assertRaisesRegex below already proves the caller holds none of
+        Roles.ADMIN_ROLES -- that is the only way this exact message is raised."""
         user_email, _member = self._board_member_linked_user("InconsistBoardAttacker")
-        self.assertFalse(set(frappe.get_roles(user_email)) & Roles.ADMIN_ROLES)
 
         with self.set_user(user_email):
             with self.assertRaisesRegex(frappe.PermissionError, INCONSISTENCIES_DENIAL_MESSAGE):

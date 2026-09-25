@@ -299,18 +299,25 @@ class TestGetMandateIssuesChapterScope(EnhancedTestCase):
         )
         chapter_e_doc.save()
 
-        self.assertIn(
-            "Verenigingen Chapter Board Member",
-            frappe.get_roles(board.user),
-            "test setup: chapter A's still-active seat must keep the role held",
-        )
-
         member_in_a = _make_sepa_issue_member(self, "ScopeSeatEndedA")
         self.add_member_to_test_chapter(member_in_a.name, chapter_a.name)
         member_in_e = _make_sepa_issue_member(self, "ScopeSeatEndedE")
         self.add_member_to_test_chapter(member_in_e.name, chapter_e.name)
 
         with self.set_user(board.user):
+            # Checked here, not before the switch: reading frappe.get_roles(board.user)
+            # while frappe.session.user was still Administrator would resolve through
+            # the stale pre-set_user cache and is shard-order-fragile
+            # (cache-guard-validator, see 5caed9e8). Post-switch, frappe.get_roles()
+            # (bare, current session) reads fresh -- and get_mandate_issues() below
+            # succeeding at all (rather than raising PermissionError) already proves
+            # the role was retained, so this is a documentation-value sanity check,
+            # not the only proof.
+            self.assertIn(
+                "Verenigingen Chapter Board Member",
+                frappe.get_roles(),
+                "test setup: chapter A's still-active seat must keep the role held",
+            )
             result = get_mandate_issues()
 
         member_ids = _no_mandate_member_ids(result)
