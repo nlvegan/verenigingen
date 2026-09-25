@@ -78,6 +78,7 @@ from verenigingen.tests.support.sepa_test_company import (
     get_eur_bank_account,
     get_eur_test_company,
 )
+from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 from verenigingen.verenigingen_payments.api import sepa_reconciliation as recon
 from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
     BankTransactionCreator,
@@ -128,6 +129,7 @@ class ReconCoverageBase(EnhancedTestCase):
                 if doc.docstatus == 1:
                     doc.cancel()
                 frappe.delete_doc("Payment Entry", pe, force=True, delete_permanently=True)
+                purge_ledger_rows("Payment Entry", pe)
             except Exception:
                 pass
         for bt in self._committed_bt:

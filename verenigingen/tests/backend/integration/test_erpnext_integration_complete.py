@@ -9,6 +9,7 @@ Tests for all ERPNext integration points including accounting, inventory, and pr
 
 import frappe
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 from frappe.utils import today, add_days, add_months, flt, nowdate
 from decimal import Decimal
 import json
@@ -677,6 +678,7 @@ class TestERPNextIntegrationComplete(EnhancedTestCase):
                         if doc_obj.docstatus == 1:
                             doc_obj.cancel()
                         frappe.delete_doc(doctype, doc, force=True)
+                        purge_ledger_rows(doctype, doc)
                     except:
                         pass
                         

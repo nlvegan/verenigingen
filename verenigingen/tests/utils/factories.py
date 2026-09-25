@@ -18,6 +18,7 @@ from verenigingen.tests.utils.cleanup_savepoint import (
     release_cleanup_savepoint,
     rollback_cleanup_attempt,
 )
+from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
@@ -443,6 +444,7 @@ class TestCleanupManager:
             ):
                 frappe.get_doc(item["doctype"], item["name"]).cancel()
             frappe.delete_doc(item["doctype"], item["name"], force=True)
+            purge_ledger_rows(item["doctype"], item["name"])
         except Exception as e:
             if savepoint_taken:
                 rollback_cleanup_attempt(savepoint, e)

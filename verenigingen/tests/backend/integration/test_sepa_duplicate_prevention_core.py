@@ -56,6 +56,7 @@ from verenigingen.api.sepa_duplicate_prevention import (
     verify_redis_capabilities,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 
 # =============================================================================
 # Processing Locks - real acquire/release semantics
@@ -402,6 +403,7 @@ class TestCheckBatchProcessingStatus(EnhancedTestCase):
                 if pe.docstatus == 1:
                     pe.cancel()
                 frappe.delete_doc("Payment Entry", self._linked_pe, force=True)
+                purge_ledger_rows("Payment Entry", self._linked_pe)
             except Exception:
                 pass
             frappe.db.commit()

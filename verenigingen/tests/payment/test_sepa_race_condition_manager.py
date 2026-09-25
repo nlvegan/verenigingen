@@ -39,6 +39,7 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
 from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.tests.support.non_resumable_errors import deadlock
+from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 from verenigingen.utils.error_handling import SEPAError
 from verenigingen.verenigingen_payments.utils.sepa_race_condition_manager import (
     SEPABatchRaceConditionManager,
@@ -681,6 +682,7 @@ class TestBatchCreationInnerLogic(EnhancedTestCase):
                 if getattr(doc, "docstatus", 0) == 1:
                     doc.cancel()
                 frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+                purge_ledger_rows(doctype, name)
             except Exception as exc:  # best effort; a leak must not fail the test
                 # get_harness_logger, NOT frappe.logger(): this message is the only
                 # record that a fixture row was left on the site, and a bare logger

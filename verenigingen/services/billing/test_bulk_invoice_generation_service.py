@@ -49,6 +49,7 @@ from verenigingen.services.billing.bulk_invoice_generation_service import (
     get_bulk_invoice_generation_service,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 
 
 class TestBulkInvoiceGenerationService(EnhancedTestCase):
@@ -78,6 +79,7 @@ class TestBulkInvoiceGenerationService(EnhancedTestCase):
                     if doc.docstatus == 1:
                         doc.cancel()
                     frappe.delete_doc("Sales Invoice", si, force=True, ignore_permissions=True)
+                    purge_ledger_rows("Sales Invoice", si)
                 except Exception:
                     pass
         for doctype, name in reversed(self._committed_docs):
@@ -499,6 +501,7 @@ class TestBulkInvoiceGenerationServiceGaps(EnhancedTestCase):
                     if doc.docstatus == 1:
                         doc.cancel()
                     frappe.delete_doc("Sales Invoice", si, force=True, ignore_permissions=True)
+                    purge_ledger_rows("Sales Invoice", si)
                 except Exception:
                     pass
         for doctype, name in reversed(self._committed_docs):

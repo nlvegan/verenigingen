@@ -42,6 +42,7 @@ from verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migra
     import_single_mutation,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 
 COMPANY = "TEST-EB-Dispatch-Company"
 ABBR = "EBDS"
@@ -278,6 +279,7 @@ class _DispatchBase(EnhancedTestCase):
             if doc.docstatus == 1:
                 doc.cancel()
             frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+            purge_ledger_rows(doctype, name)
             frappe.db.commit()
         except Exception:
             frappe.db.rollback()

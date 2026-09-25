@@ -38,6 +38,7 @@ from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
     start_full_rest_import,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 
 ABBR = "EBST"
 COMPANY = "TEST-EB-Start-Company"
@@ -817,6 +818,7 @@ class TestStartImportType0OpeningBalances(_StartImportBase):
             except Exception:
                 frappe.db.rollback()
             frappe.delete_doc("Journal Entry", je, force=True, ignore_permissions=True)
+            purge_ledger_rows("Journal Entry", je)
         frappe.db.commit()
 
     def _make_opening_balance_je(self):

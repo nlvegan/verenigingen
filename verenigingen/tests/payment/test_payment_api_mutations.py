@@ -15,6 +15,7 @@ from frappe.utils import nowdate
 import json
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 from verenigingen.e_boekhouden.utils.payment_processing import PaymentEntryHandler
 
 
@@ -409,6 +410,7 @@ class TestActualPaymentMutations(EnhancedTestCase):
         if pe.docstatus == 1:
             pe.cancel()
         frappe.delete_doc("Payment Entry", payment_name, force=True)
+        purge_ledger_rows("Payment Entry", payment_name)
         frappe.db.commit()
     
     def test_ledger_cache_performance(self):

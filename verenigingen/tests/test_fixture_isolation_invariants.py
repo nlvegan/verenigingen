@@ -691,3 +691,405 @@ _ensure_region("Test Region")
             "Region.insert() overwrites region_name with the scrubbed docname, so any "
             "get-or-create keyed on the title can never match",
         )
+
+
+class TestLedgerBearingCancelThenDeleteIsPurged(VereningingenTestCase):
+    """Cancelling a submitted ledger-bearing voucher and force-deleting it does NOT
+    remove its `GL Entry` / `Payment Ledger Entry` rows -- `delete_doc` only takes
+    those with the parent when `Accounts Settings.delete_linked_ledger_entries` is
+    on, and it defaults to 0 (measured). So a hand-rolled
+    ``if doc.docstatus == 1: doc.cancel()`` followed by
+    ``frappe.delete_doc(doctype, name, force=True)`` on a Sales Invoice / Payment
+    Entry / Journal Entry / Expense Claim strands ledger rows behind a `voucher_no`
+    that no longer exists, and the naming series then hands that name to the NEXT
+    voucher, which is born already carrying them (#328, #1343). #1343 fixed one
+    instance; #1387 found ~21 more of the same hand-rolled shape (never routed
+    through the shared drain, so #482's ledger carve-out does not reach them
+    either). This invariant gates the shape itself rather than the list of sites,
+    per #1387's own review comment.
+
+    "Ledger-bearing" is resolved dynamically (`AccountsController` subclass) rather
+    than a hardcoded doctype list, for the same reason `ledger_rows.py` is
+    data-driven: the set of things that post to the ledger grows with every
+    erpnext release, and a stale allowlist here would fail open -- silently
+    stopping the gate rather than silently stranding rows, but just as invisible.
+
+    A doctype that cannot be resolved to a literal (a variable populated from a
+    runtime list, e.g. ``for doctype, name in reversed(self._extra_cleanup_docs)``)
+    is treated as **possibly** ledger-bearing rather than skipped: the whole
+    point of these sites (#1387 items 9, 11, 20, 21) is that they clean up
+    whatever doctype a test registered, so "cannot prove which doctype" is not
+    "proven safe". A function is exempted only by demonstrating it purges (a call
+    to ``purge_ledger_rows``/``_purge_ledger_rows``, or a direct delete of BOTH
+    `GL Entry` and `Payment Ledger Entry` keyed on the same voucher) -- not by
+    being hard to analyse.
+
+    Two known false-positive shapes, both deliberate:
+
+    - A purge routed through a DIFFERENTLY-NAMED wrapper (anything other than
+      ``purge_ledger_rows``/``_purge_ledger_rows``/``has_ledger_rows``, or a
+      direct two-table delete) is flagged even if it is, in fact, safe. This
+      is a fail-SAFE false positive, not a bug to silence with a broader name
+      list: the cost of occasionally re-reviewing a renamed wrapper is far
+      lower than the cost of a name-matching heuristic that stops working the
+      moment a helper is renamed. Route a new purge through the existing
+      helpers, or extend the recognised-name set here deliberately -- do not
+      work around a flag by renaming away from it.
+    - This class walks `APP_ROOT` (`verenigingen/`) only, not `REPO_ROOT` or
+      `scripts/` -- unlike the adjacent `TestTheSharedTestRegionHasOneOwner`,
+      which walks `REPO_ROOT` precisely because #406's sites were split across
+      both. That is a real gap here too: the same review that asked for this
+      invariant found one live offender under `scripts/` --
+      `scripts/debug/remove_period_closing_vouchers.py:25` -- filed as #1413,
+      deliberately NOT fixed in this same change. `scripts/` holds live-data
+      maintenance tools, not test fixtures; adding a GL/Payment Ledger Entry
+      purge there changes what the tool does to REAL ledgers, which is a
+      product decision this test-isolation invariant is not the place to make
+      unreviewed. Widening this scan to `scripts/` is future work gated on
+      that decision, not a checkbox to tick here.
+    """
+
+    #: Per-process cache: `get_controller` does its own site-scoped cache, but
+    #: importing `AccountsController` and re-resolving a repeat literal (e.g.
+    #: "Sales Invoice", seen in a dozen files) on every call is wasted work.
+    _LEDGER_CACHE = {}
+
+    #: Sites that ARE this shape but are not fixed by this invariant's own
+    #: commit -- each entry needs its OWN stated reason. Growing this (not just
+    #: "non-empty") fails the test; see test_the_baseline_does_not_grow below.
+    #: Empty on purpose: PR #1391 (which had the one entry this held --
+    #: tests/backend/components/test_sepa_reconciliation.py, "already fixed on
+    #: PR #1391" -- since it was open, unmerged, at the time this invariant was
+    #: written) has now merged, so that site purges correctly and needs no
+    #: exemption.
+    BASELINE = {}
+
+    def _is_ledger_bearing(self, doctype):
+        if doctype not in self._LEDGER_CACHE:
+            try:
+                from erpnext.controllers.accounts_controller import AccountsController
+                from frappe.model.base_document import get_controller
+
+                self._LEDGER_CACHE[doctype] = issubclass(get_controller(doctype), AccountsController)
+            except Exception:
+                # An unresolvable doctype (renamed, app not installed, typo'd
+                # literal) cannot be ledger-bearing by construction -- there is
+                # no controller to post a GL Entry from.
+                self._LEDGER_CACHE[doctype] = False
+        return self._LEDGER_CACHE[doctype]
+
+    @staticmethod
+    def _delete_doc_force_calls(fn_node):
+        """(call_node, doctype_arg) for every `frappe.delete_doc(X, ..., force=True)`."""
+        found = []
+        for node in ast.walk(fn_node):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "delete_doc"
+                and node.args
+            ):
+                continue
+            forced = any(
+                kw.arg == "force" and isinstance(kw.value, ast.Constant) and kw.value.value is True
+                for kw in node.keywords
+            )
+            if forced:
+                found.append((node, node.args[0]))
+        return found
+
+    @staticmethod
+    def _has_cancel_evidence(fn_node):
+        """A real `.cancel()`, or the docstatus=2 bypass, anywhere in the function."""
+        for node in ast.walk(fn_node):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                if node.func.attr == "cancel":
+                    return True
+                if node.func.attr in ("set_value", "db_set"):
+                    literals = [a.value for a in node.args if isinstance(a, ast.Constant)]
+                    if "docstatus" in literals and 2 in literals:
+                        return True
+        return False
+
+    @staticmethod
+    def _attr_literal_doctypes(scope_node, attr):
+        """Doctype literals ever appended as the first element of a
+        ``self.<attr>.append((doctype, name))`` / ``cls.<attr>.append(...)`` tuple,
+        searched within `scope_node` (the enclosing class, so two unrelated
+        classes sharing an attribute name like ``self.created`` -- this file has
+        both -- do not bleed into each other).
+
+        Returns (candidates, fully_resolved). Not fully resolved when an append
+        call exists whose first element is not a literal (cannot rule out a
+        ledger doctype hiding behind a variable), or when there is no append
+        call at all to reason from.
+        """
+        candidates = set()
+        saw_append = False
+        fully_resolved = True
+        for node in ast.walk(scope_node):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "append"
+                and isinstance(node.func.value, ast.Attribute)
+                and node.func.value.attr == attr
+                and node.args
+            ):
+                continue
+            saw_append = True
+            arg = node.args[0]
+            if (
+                isinstance(arg, ast.Tuple)
+                and arg.elts
+                and isinstance(arg.elts[0], ast.Constant)
+                and isinstance(arg.elts[0].value, str)
+            ):
+                candidates.add(arg.elts[0].value)
+            else:
+                fully_resolved = False
+        return candidates, saw_append and fully_resolved
+
+    @staticmethod
+    def _literal_doctypes_for(scope_node, fn_node, arg_node):
+        """(candidate doctype literals, whether ANY were resolved) for one
+        `delete_doc` doctype argument -- a literal directly, a Name traced
+        through a same-named `for X in [...]:`, `if X in [...]:`, `X = "..."`
+        in the function, or (for a tuple-unpacking loop over
+        ``self.<attr>``/``cls.<attr>``) the literals appended to that attribute
+        anywhere in `scope_node`. Anything else (subscript, a Name bound only
+        via an unresolvable runtime list) resolves to nothing.
+        """
+        if isinstance(arg_node, ast.Constant) and isinstance(arg_node.value, str):
+            return {arg_node.value}, True
+        if not isinstance(arg_node, ast.Name):
+            return set(), False
+
+        var = arg_node.id
+        candidates = set()
+        resolved = False
+        for node in ast.walk(fn_node):
+            if (
+                isinstance(node, ast.For)
+                and isinstance(node.target, ast.Name)
+                and node.target.id == var
+                and isinstance(node.iter, (ast.List, ast.Tuple))
+                and all(isinstance(e, ast.Constant) and isinstance(e.value, str) for e in node.iter.elts)
+            ):
+                candidates |= {e.value for e in node.iter.elts}
+                resolved = True
+            elif (
+                isinstance(node, ast.Compare)
+                and isinstance(node.left, ast.Name)
+                and node.left.id == var
+                and len(node.ops) == 1
+                and isinstance(node.ops[0], ast.In)
+                and isinstance(node.comparators[0], (ast.List, ast.Tuple))
+                and all(
+                    isinstance(e, ast.Constant) and isinstance(e.value, str)
+                    for e in node.comparators[0].elts
+                )
+            ):
+                candidates |= {e.value for e in node.comparators[0].elts}
+                resolved = True
+            elif isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if (
+                        isinstance(target, ast.Name)
+                        and target.id == var
+                        and isinstance(node.value, ast.Constant)
+                        and isinstance(node.value.value, str)
+                    ):
+                        candidates.add(node.value.value)
+                        resolved = True
+            elif (
+                isinstance(node, ast.For)
+                and isinstance(node.target, ast.Tuple)
+                and node.target.elts
+                and isinstance(node.target.elts[0], ast.Name)
+                and node.target.elts[0].id == var
+            ):
+                it = node.iter
+                while (
+                    isinstance(it, ast.Call)
+                    and isinstance(it.func, ast.Name)
+                    and it.func.id in ("reversed", "list", "sorted")
+                    and it.args
+                ):
+                    it = it.args[0]
+                if isinstance(it, ast.Attribute):
+                    attr_candidates, attr_resolved = TestLedgerBearingCancelThenDeleteIsPurged._attr_literal_doctypes(
+                        scope_node, it.attr
+                    )
+                    if attr_resolved:
+                        candidates |= attr_candidates
+                        resolved = True
+        return candidates, resolved
+
+    @staticmethod
+    def _call_name(node):
+        """The dotted-or-bare name a Call's func resolves to, e.g. "purge_ledger_rows"
+        for both `purge_ledger_rows(...)` (bare, module-level import) and
+        `self._purge_ledger_rows(...)` / `ledger_rows.purge_ledger_rows(...)` (attribute).
+        """
+        func = node.func
+        if isinstance(func, ast.Attribute):
+            return func.attr
+        if isinstance(func, ast.Name):
+            return func.id
+        return None
+
+    @staticmethod
+    def _purges_ledger(fn_node):
+        """True when the function demonstrably handles the ledger rows a
+        cancel-then-delete would otherwise strand -- via the shared purge helper
+        (bare `purge_ledger_rows(...)` import or `self._purge_ledger_rows(...)` /
+        `ledger_rows.purge_ledger_rows(...)`), a direct delete of BOTH `GL Entry`
+        and `Payment Ledger Entry` (literal, or a loop over a literal tuple/list
+        naming both), a raw-SQL DELETE mentioning both tables, or the shared
+        drain's OTHER accepted strategy -- `ledger_rows.has_ledger_rows(...)`
+        gating the cancel itself, so a ledger-bearing voucher is never cancelled
+        and its unforced-by-`force=True` submitted-record guard makes the
+        subsequent `delete_doc` raise and the row survive uncancelled rather than
+        be force-deleted with its ledger rows stranded (`tests/utils/base.py::
+        _cleanup_tracked_docs`, reviewed and accepted for #482/PR #518).
+
+        A fallback that only ever reaches ONE of the two ledger tables (#1387
+        item 5: GL Entry only, and only on an `except` path) is NOT adequate --
+        it still strands the other.
+        """
+        ledger_names = {"GL Entry", "Payment Ledger Entry"}
+        deleted = set()
+        sql_texts = []
+        for node in ast.walk(fn_node):
+            if not isinstance(node, ast.Call):
+                continue
+            name = TestLedgerBearingCancelThenDeleteIsPurged._call_name(node)
+            if name in ("purge_ledger_rows", "_purge_ledger_rows", "has_ledger_rows"):
+                return True
+            if not isinstance(node.func, ast.Attribute):
+                continue
+            if node.func.attr == "delete" and node.args:
+                arg0 = node.args[0]
+                if isinstance(arg0, ast.Constant) and arg0.value in ledger_names:
+                    deleted.add(arg0.value)
+                elif isinstance(arg0, ast.Name):
+                    for sub in ast.walk(fn_node):
+                        if (
+                            isinstance(sub, ast.For)
+                            and isinstance(sub.target, ast.Name)
+                            and sub.target.id == arg0.id
+                            and isinstance(sub.iter, (ast.List, ast.Tuple))
+                        ):
+                            deleted |= {
+                                e.value
+                                for e in sub.iter.elts
+                                if isinstance(e, ast.Constant) and e.value in ledger_names
+                            }
+            elif node.func.attr == "sql":
+                sql_texts.extend(
+                    a.value for a in node.args if isinstance(a, ast.Constant) and isinstance(a.value, str)
+                )
+        if ledger_names.issubset(deleted):
+            return True
+        combined = " ".join(sql_texts)
+        return all(f"tab{n}" in combined for n in ledger_names)
+
+    @staticmethod
+    def _iter_candidate_sources():
+        """`_iter_test_sources()` only matches `test_*.py`, which misses a
+        hand-rolled cleanup HELPER module that is not itself a test file --
+        `tests/fixtures/enhanced_test_cleanup.py` (#1387 items 3-4) is exactly
+        that shape. Cast wider here: every `.py` under any `tests/` directory,
+        plus (unchanged) anything named `test_*.py` anywhere in the app, e.g.
+        `services/billing/test_*.py`.
+        """
+        seen = set()
+        for path, source in _iter_test_sources():
+            seen.add(path)
+            yield path, source
+        for dirpath, _dirnames, filenames in os.walk(APP_ROOT):
+            parts = dirpath.split(os.sep)
+            if "tests" not in parts:
+                continue
+            for fn in filenames:
+                if not fn.endswith(".py"):
+                    continue
+                path = os.path.join(dirpath, fn)
+                if path in seen:
+                    continue
+                try:
+                    with open(path, encoding="utf-8") as handle:
+                        yield path, handle.read()
+                except (OSError, UnicodeDecodeError):  # pragma: no cover
+                    continue
+
+    @staticmethod
+    def _parent_map(tree):
+        parents = {}
+        for node in ast.walk(tree):
+            for child in ast.iter_child_nodes(node):
+                parents[child] = node
+        return parents
+
+    @staticmethod
+    def _enclosing_class(fn_node, parents):
+        node = parents.get(fn_node)
+        while node is not None and not isinstance(node, ast.ClassDef):
+            node = parents.get(node)
+        return node
+
+    def _offenders(self):
+        offenders = {}
+        for path, source in self._iter_candidate_sources():
+            rel = _rel(path)
+            try:
+                tree = ast.parse(source)
+            except SyntaxError:  # pragma: no cover
+                continue
+            parents = self._parent_map(tree)
+            for fn in ast.walk(tree):
+                if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                calls = self._delete_doc_force_calls(fn)
+                if not calls or not self._has_cancel_evidence(fn) or self._purges_ledger(fn):
+                    continue
+                scope_node = self._enclosing_class(fn, parents) or tree
+                flagged, unresolved = set(), False
+                for _call, arg0 in calls:
+                    candidates, was_resolved = self._literal_doctypes_for(scope_node, fn, arg0)
+                    if not was_resolved:
+                        unresolved = True
+                        continue
+                    flagged |= {dt for dt in candidates if self._is_ledger_bearing(dt)}
+                if flagged or unresolved:
+                    label = ",".join(sorted(flagged)) if flagged else "<dynamic, unresolved doctype>"
+                    offenders.setdefault(rel, []).append(f"{rel}:{fn.lineno} {fn.name}() doctype={label}")
+            del tree, source, parents
+        return offenders
+
+    def test_no_new_cancel_then_delete_strands_ledger_rows(self):
+        offenders = self._offenders()
+        unexpected = {path: lines for path, lines in offenders.items() if path not in self.BASELINE}
+        self.assertEqual(
+            {},
+            unexpected,
+            "cancel-then-force-delete of a ledger-bearing voucher with no "
+            "GL Entry/Payment Ledger Entry purge (#1343/#1387):\n  "
+            + "\n  ".join(line for lines in unexpected.values() for line in lines),
+        )
+
+    def test_the_baseline_does_not_grow(self):
+        """The baseline is a temporary exemption, not a place to bury a new one.
+
+        Anything genuinely new belongs in `test_no_new_cancel_then_delete_strands_ledger_rows`
+        turning red, not in a wider BASELINE -- so growth here is itself a failure,
+        the same shape as the order-dependence ratchet's `--fail-on-shrink`.
+        """
+        self.assertEqual(
+            0,
+            len(self.BASELINE),
+            f"BASELINE grew to {len(self.BASELINE)} entries -- each one needs its own "
+            "reviewed reason (see the class docstring), not a quiet addition:\n  "
+            + "\n  ".join(sorted(self.BASELINE)),
+        )
