@@ -123,14 +123,29 @@ class TestDuesInvoiceWorkflow(VereningingenTestCase):
         member.save()
         return customer.name
 
-    def _make_dues_invoice(self, member, schedule):
-        """Submit a Sales Invoice linked to a member's dues schedule."""
+    def _make_dues_invoice(self, member, schedule, currency=None):
+        """Submit a Sales Invoice linked to a member's dues schedule.
+
+        Forces `currency` via `db_set` AFTER submit, not before: base.py's
+        `create_test_sales_invoice` resolves its company from the ambient
+        user default (or the first Company alphabetically) rather than a
+        pinned EUR company, so the invoice it hands back is not reliably EUR
+        (measured on test_site_2: it resolves `_Test Company`, default
+        currency INR). Real dues invoices are always EUR -- SEPA Direct Debit
+        is EUR-only (#1286) -- so every caller of this helper gets EUR unless
+        it asks for something else. Setting it *before* `submit()` would be
+        overwritten: `submit()` re-saves the in-memory doc, whose `currency`
+        attribute was never touched by an earlier `db_set`.
+        """
         self._ensure_customer(member)
         invoice = self.create_test_sales_invoice(member=member.name)
         # Link the invoice to the dues schedule (the display link the API reads)
         invoice.db_set("membership_dues_schedule_display", schedule.name)
         if invoice.docstatus == 0:
             invoice.submit()
+        frappe.db.set_value(
+            "Sales Invoice", invoice.name, "currency", currency or "EUR", update_modified=False
+        )
         invoice.reload()
         return invoice
 
@@ -310,6 +325,33 @@ class TestDuesInvoiceWorkflow(VereningingenTestCase):
         self.assertEqual(entry["mandate"]["iban"], mandate.iban)
         self.assertEqual(entry["mandate"]["mandate_id"], mandate.mandate_id)
 
+    def test_validate_sepa_eligibility_rejects_non_eur_invoice(self):
+        """SEPA Core direct debits are EUR-only (#1286) -- the same rule
+        `load_unpaid_invoices`/`_secure` enforce at the picker level (#1218,
+        b5f1d6cfe) and `create_sepa_batch_validated` enforces at batch-creation
+        time. A non-EUR invoice with an otherwise-valid mandate must NOT be
+        reported eligible.
+
+        Flips currency via a direct `db_set` on an already-submitted invoice
+        (matching the sibling fix's test pattern) rather than constructing the
+        invoice as non-EUR from the start, so ERPNext's exchange-rate/company-
+        currency validation on save/submit never enters the picture -- this
+        test is only about what `validate_sepa_eligibility` does with the
+        stored currency value.
+        """
+        member, schedule = self._make_member_with_schedule(dues_rate=22.0)
+        self.create_test_sepa_mandate(member=member.name)
+        invoice = self._make_dues_invoice(member, schedule, currency="USD")
+        self.assertEqual(invoice.currency, "USD")
+
+        data = self._ok(validate_sepa_eligibility(invoice_list=[invoice.name]))
+
+        self.assertEqual(data["summary"]["sepa_eligible"], 0)
+        self.assertEqual(len(data["eligible_invoices"]), 0)
+        self.assertEqual(len(data["ineligible_invoices"]), 1)
+        reason = data["ineligible_invoices"][0]["reason"]
+        self.assertIn("EUR", reason)
+
     def test_validate_sepa_eligibility_marks_invoice_without_mandate(self):
         """A dues invoice whose member has NO active mandate is ineligible."""
         member, schedule = self._make_member_with_schedule()
@@ -337,6 +379,12 @@ class TestDuesInvoiceWorkflow(VereningingenTestCase):
         self._ensure_customer(member)
         invoice = self.create_test_sales_invoice(member=member.name)
         invoice.submit()
+        # Isolate this test to the "no dues-schedule link" reason: the
+        # fixture's invoice currency depends on whichever Company resolves as
+        # the ambient/first-alphabetical default (measured on test_site_2:
+        # "_Test Company", INR) -- pin it to EUR so the new currency guard
+        # (#1286) never fires here instead.
+        frappe.db.set_value("Sales Invoice", invoice.name, "currency", "EUR", update_modified=False)
 
         result = validate_sepa_eligibility(invoice_list=[invoice.name])
         data = self._ok(result)

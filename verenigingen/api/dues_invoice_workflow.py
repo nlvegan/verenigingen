@@ -316,6 +316,23 @@ def validate_sepa_eligibility(invoice_list: List[str] = None) -> OperationResult
             try:
                 invoice = frappe.get_doc("Sales Invoice", invoice_name)
 
+                # SEPA Core Direct Debit is EUR-only -- the same rule
+                # `load_unpaid_invoices`/`_secure` enforce at the picker level
+                # (#1218, b5f1d6cfe) and `create_sepa_batch_validated` enforces
+                # at batch-creation time. Without this, a non-EUR invoice with
+                # an otherwise-valid mandate was reported eligible (#1286).
+                if invoice.currency and invoice.currency != "EUR":
+                    ineligible_invoices.append(
+                        {
+                            "invoice": invoice_name,
+                            "reason": _("SEPA Direct Debit requires EUR (invoice is in {0})").format(
+                                invoice.currency
+                            ),
+                            "customer": invoice.customer,
+                        }
+                    )
+                    continue
+
                 # Get member from membership dues schedule
                 if not invoice.membership_dues_schedule_display:
                     ineligible_invoices.append(
