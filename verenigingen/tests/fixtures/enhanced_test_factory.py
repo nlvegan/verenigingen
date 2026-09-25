@@ -3064,6 +3064,30 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             except frappe.DoesNotExistError:
                 pass
             except Exception as e:
+                # #1378: a tracked Customer/Address/Contact whose on_trash tries to
+                # remove its Address (frappe.contacts.address_and_contact.
+                # delete_contact_and_address) raises frappe.LinkExistsError when a
+                # still-live document Link-references that Address -- typically a
+                # Sales Invoice's customer_address, created by production code
+                # inside the test body and therefore captured-only, never tracked.
+                # THIS phase runs before _drain_captured_inserts ever touches that
+                # invoice, so the failure would record a state that is about to be
+                # corrected a few lines later in the SAME tearDown, not a genuine
+                # strand.
+                #
+                # Same deferral shape as #1306's Member case just above, generalized
+                # to the exception this row actually raised instead of a
+                # doctype-specific precheck: if this exact key is ALSO a captured
+                # insert, _drain_captured_inserts will retry it in REVERSE CREATION
+                # ORDER -- which removes the later-created referencing invoice
+                # before retrying this key -- and its own success or failure is what
+                # gets recorded. Measured (#1378): the retried delete succeeds and
+                # the row is verifiably gone from the database; recording a leak
+                # here reported a row that no longer exists a moment later. A
+                # LinkExistsError NOT also in captured_keys gets no such second
+                # chance and falls through to the ordinary leak report below.
+                if isinstance(e, frappe.LinkExistsError) and (doctype, name) in captured_keys:
+                    continue
                 delete_failures += 1
                 logger.warning(f"Drain delete failed for {doctype}/{name}: {e}")
                 self._record_leak(doctype, name, e)
