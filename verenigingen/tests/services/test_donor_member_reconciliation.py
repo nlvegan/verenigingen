@@ -49,8 +49,10 @@ class TestDonorMemberReconciliation(EnhancedTestCase):
             email=email or self._unique_email("member"),
         )
 
-    def _make_donor(self, email, donor_name="Recon Donor"):
-        return self.create_test_donor(donor_name=donor_name, donor_email=email, donor_type="Individual")
+    def _make_donor(self, email, donor_name="Recon Donor", **kwargs):
+        return self.create_test_donor(
+            donor_name=donor_name, donor_email=email, donor_type="Individual", **kwargs
+        )
 
     # ----------------------------------------------------------- get_donor_for_member
 
@@ -99,6 +101,29 @@ class TestDonorMemberReconciliation(EnhancedTestCase):
         member = self._make_member(email=self._unique_email("multi"))
         self._make_donor(member.email, donor_name="First Donor")
         self._make_donor(member.email, donor_name="Second Donor")
+        self.expectErrorLog("DONOR_001")
+        self.assertIsNone(get_donor_for_member(member))
+
+    def test_get_donor_for_member_member_link_disambiguates_shared_email(self):
+        """#1406 regression: the authoritative Donor.member link must be tried
+        BEFORE the (weaker) email tier. donor1 is genuinely this member's donor
+        (Donor.member == member.name); donor2 is an unrelated Donor that merely
+        shares the member's e-mail. The email tier alone would see two matches
+        and refuse (or, pre-#1384, pick one arbitrarily) even though donor1 is
+        unambiguously correct via the link - it must resolve to donor1 without
+        ever hitting that ambiguity."""
+        member = self._make_member(email=self._unique_email("linked"))
+        donor1 = self._make_donor(member.email, donor_name="Linked Donor", member=member.name)
+        self._make_donor(member.email, donor_name="Unrelated Same-Email Donor")
+        self.assertEqual(get_donor_for_member(member), donor1.name)
+
+    def test_get_donor_for_member_ambiguous_member_link_refuses(self):
+        """Two Donor rows both linked (Donor.member) to the same Member is a
+        genuine data anomaly - refuses rather than picking one arbitrarily,
+        and never falls through to try the e-mail tier instead (#1406)."""
+        member = self._make_member(email=self._unique_email("ambiglink"))
+        self._make_donor(self._unique_email("d1"), donor_name="Link A", member=member.name)
+        self._make_donor(self._unique_email("d2"), donor_name="Link B", member=member.name)
         self.expectErrorLog("DONOR_001")
         self.assertIsNone(get_donor_for_member(member))
 

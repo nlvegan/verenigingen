@@ -95,12 +95,14 @@ class MemberDonorIntegrationService(StatelessService):
             existing_check = donor_service.check_donor_exists(member_name)
             if existing_check.success and existing_check.data:
                 if existing_check.metadata.get("ambiguous"):
-                    # Multiple donors share this email - refuse creation without
-                    # reporting an arbitrarily-picked donor as "the" existing one.
+                    # Multiple donors match (Donor.member link or e-mail) -
+                    # refuse creation without reporting an arbitrarily-picked
+                    # donor as "the" existing one, and without disclosing the
+                    # other matching donors' names/ids (#1408).
                     return {
                         "success": False,
                         "message": _(
-                            "Multiple donor records share this member's e-mail address; "
+                            "Multiple donor records match this member; "
                             "resolve the duplicate before creating a new one"
                         ),
                         "donor_name": None,

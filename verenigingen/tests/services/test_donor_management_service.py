@@ -49,6 +49,9 @@ class TestDonorManagementService(EnhancedTestCase):
         if donor_name and frappe.db.exists("Donor", donor_name):
             self.track_doc("Donor", donor_name)
 
+    def _unique_donor_email(self):
+        return f"mgmt.donor.{frappe.generate_hash(length=8)}@example.com"
+
     # ----------------------------------------------------------- factory
 
     def test_factory_returns_service(self):
@@ -81,16 +84,73 @@ class TestDonorManagementService(EnhancedTestCase):
     def test_check_donor_exists_ambiguous_email_refuses(self):
         """Two Donor records sharing the member's email must not resolve to an
         arbitrary one (#1389) - the result flags ambiguity instead of naming
-        a specific donor."""
+        a specific donor, and (#1408) never discloses the OTHER matching
+        donors' names/ids - only that there is more than one, and how many."""
         member = self._make_member()
-        self.create_test_donor(donor_name="Ambig A", donor_email=member.email, donor_type="Individual")
-        self.create_test_donor(donor_name="Ambig B", donor_email=member.email, donor_type="Individual")
+        donor_a = self.create_test_donor(
+            donor_name="Ambig A", donor_email=member.email, donor_type="Individual"
+        )
+        donor_b = self.create_test_donor(
+            donor_name="Ambig B", donor_email=member.email, donor_type="Individual"
+        )
 
         result = self.service.check_donor_exists(member.name)
         self.assertTrue(result.success)
         self.assertTrue(result.metadata.get("ambiguous"))
+        self.assertEqual(result.metadata.get("ambiguous_count"), 2)
+        self.assertNotIn("matching_donors", result.metadata)
         self.assertIsNone(result.data["donor_name"])
         self.assertIsNone(result.data["donor_display_name"])
+        # Belt-and-braces: neither donor's name/id anywhere in the serialized
+        # response a whitelisted caller actually receives.
+        serialized = result.to_dict(scrub_sensitive=True)
+        blob = repr(serialized)
+        self.assertNotIn(donor_a.name, blob)
+        self.assertNotIn(donor_b.name, blob)
+
+    def test_check_donor_exists_member_link_disambiguates_shared_email(self):
+        """#1406 regression: the authoritative Donor.member link must be
+        tried BEFORE the (weaker) email tier. donor1 is genuinely this
+        member's donor; donor2 merely shares the member's e-mail. The email
+        tier alone would see two matches and refuse even though donor1 is
+        unambiguously correct via the link."""
+        member = self._make_member()
+        donor1 = self.create_test_donor(
+            donor_name="Linked Donor", donor_email=member.email, donor_type="Individual", member=member.name
+        )
+        self.create_test_donor(
+            donor_name="Unrelated Same-Email Donor", donor_email=member.email, donor_type="Individual"
+        )
+
+        result = self.service.check_donor_exists(member.name)
+        self.assertTrue(result.success)
+        self.assertFalse(result.metadata.get("ambiguous"))
+        self.assertEqual(result.data["donor_name"], donor1.name)
+
+    def test_check_donor_exists_ambiguous_member_link_refuses(self):
+        """Two Donor rows both linked (Donor.member) to the same Member is a
+        genuine data anomaly - refuses rather than picking one arbitrarily,
+        and never falls through to try the (also-ambiguous, here) e-mail
+        tier instead (#1406)."""
+        member = self._make_member()
+        self.create_test_donor(
+            donor_name="Link A",
+            donor_email=self._unique_donor_email(),
+            donor_type="Individual",
+            member=member.name,
+        )
+        self.create_test_donor(
+            donor_name="Link B",
+            donor_email=self._unique_donor_email(),
+            donor_type="Individual",
+            member=member.name,
+        )
+
+        result = self.service.check_donor_exists(member.name)
+        self.assertTrue(result.success)
+        self.assertTrue(result.metadata.get("ambiguous"))
+        self.assertEqual(result.metadata.get("ambiguous_count"), 2)
+        self.assertIsNone(result.data["donor_name"])
 
     # ----------------------------------------------------------- create_donor_from_member
 
@@ -134,10 +194,15 @@ class TestDonorManagementService(EnhancedTestCase):
         """Two existing Donors sharing the member's email: creation must refuse
         (not report an arbitrary one as 'the' existing donor, #1389) AND must
         not create a THIRD donor - refusing on ambiguity must never itself
-        cause a duplicate to be created."""
+        cause a duplicate to be created. Also (#1408) must not disclose the
+        other matching donors' names/ids in the failure metadata."""
         member = self._make_member()
-        self.create_test_donor(donor_name="Ambig A", donor_email=member.email, donor_type="Individual")
-        self.create_test_donor(donor_name="Ambig B", donor_email=member.email, donor_type="Individual")
+        donor_a = self.create_test_donor(
+            donor_name="Ambig A", donor_email=member.email, donor_type="Individual"
+        )
+        donor_b = self.create_test_donor(
+            donor_name="Ambig B", donor_email=member.email, donor_type="Individual"
+        )
 
         before_count = frappe.db.count("Donor", filters={"donor_email": member.email})
         result = self.service.create_donor_from_member(member.name)
@@ -146,8 +211,29 @@ class TestDonorManagementService(EnhancedTestCase):
         self.assertTrue(result.metadata.get("ambiguous"))
         # No arbitrary donor is reported as "the" existing one.
         self.assertNotIn("donor_name", result.metadata)
+        self.assertNotIn("matching_donors", result.metadata)
+        self.assertNotIn(donor_a.name, repr(result.metadata))
+        self.assertNotIn(donor_b.name, repr(result.metadata))
         # No new (third) donor was created.
         self.assertEqual(frappe.db.count("Donor", filters={"donor_email": member.email}), before_count)
+
+    def test_create_donor_from_member_member_link_disambiguates_shared_email(self):
+        """#1406 regression: create_donor_from_member's duplicate guard must
+        consult the Donor.member link before the (weaker) email tier, so it
+        reports the GENUINELY linked donor as "already exists" rather than
+        treating an unrelated same-email donor as making this ambiguous."""
+        member = self._make_member()
+        donor1 = self.create_test_donor(
+            donor_name="Linked Donor", donor_email=member.email, donor_type="Individual", member=member.name
+        )
+        self.create_test_donor(
+            donor_name="Unrelated Same-Email Donor", donor_email=member.email, donor_type="Individual"
+        )
+
+        result = self.service.create_donor_from_member(member.name)
+        self.assertFalse(result.success)
+        self.assertFalse(result.metadata.get("ambiguous"))
+        self.assertEqual(result.metadata.get("donor_name"), donor1.name)
 
     def test_create_donor_from_member_copies_address(self):
         member = self._make_member(address_line1="Keizersgracht 123", city="Amsterdam", postal_code="1015 CJ")
