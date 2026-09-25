@@ -284,6 +284,20 @@ class PontoPaymentRequest(Document):
         Create Payment Entry when payment is executed.
 
         Links the Payment Entry to this Ponto Payment Request.
+
+        Every guard below RAISES rather than logging-and-returning (#1323
+        review finding): each one runs inside the caller's
+        _atomic_status_transition() savepoint, and a plain ``return`` exits
+        that ``with`` block normally, releasing the savepoint -- so "Executed"
+        was committed with no Payment Entry and no error trail for exactly
+        the four misconfigurations this method already knew how to detect.
+        `frappe.logger().warning()` in particular writes to a rotating file
+        handler nothing in CI reads (see CLAUDE.md's "Known traps"), so this
+        was invisible even to a diligent operator.
+
+        The one exception is ``if self.payment_entry: return`` immediately
+        below -- that is a genuine idempotency no-op (already succeeded),
+        not a misconfiguration, and stays a silent return.
         """
         if self.payment_entry:
             return  # Already created
@@ -297,14 +311,24 @@ class PontoPaymentRequest(Document):
                 break
 
         if not bank_account:
-            frappe.logger().warning(f"No bank account mapped for Ponto account {self.ponto_account}")
-            return
+            frappe.throw(
+                _(
+                    "No bank account is mapped for Ponto account {0} in Ponto Settings. "
+                    "Configure a bank account mapping before this payment can be recorded."
+                ).format(self.ponto_account),
+                title=_("Ponto Account Not Mapped"),
+            )
 
         # Get company from bank account
         company = frappe.db.get_value("Bank Account", bank_account, "company")
         if not company:
-            frappe.logger().warning(f"No company found for bank account {bank_account}")
-            return
+            frappe.throw(
+                _(
+                    "Bank Account {0} (mapped to Ponto account {1}) has no Company set. "
+                    "Cannot create a Payment Entry without a company."
+                ).format(bank_account, self.ponto_account),
+                title=_("Bank Account Misconfigured"),
+            )
 
         # paid_from: the GL account behind the Ponto-mapped Bank Account this SEPA
         # payment is debited from. `bank_account` above is a reconciliation-only
@@ -312,8 +336,13 @@ class PontoPaymentRequest(Document):
         # a Link(Account) -- #1200.
         paid_from = frappe.db.get_value("Bank Account", bank_account, "account")
         if not paid_from:
-            frappe.logger().warning(f"Bank Account {bank_account} has no linked GL account")
-            return
+            frappe.throw(
+                _(
+                    "Bank Account {0} (mapped to Ponto account {1}) has no linked GL Account. "
+                    "Cannot create a Payment Entry without one."
+                ).format(bank_account, self.ponto_account),
+                title=_("Bank Account Misconfigured"),
+            )
 
         # Determine party type and party from reference
         party_type = None
@@ -338,11 +367,13 @@ class PontoPaymentRequest(Document):
         # ever posted correctly) -- refuse rather than guess, matching the
         # no-bank_account / no-company guards already above.
         if not (party_type and party):
-            frappe.logger().warning(
-                f"Ponto Payment Request {self.name} has no reference party (Supplier/Employee); "
-                "cannot resolve a paid_to account for the Payment Entry"
+            frappe.throw(
+                _(
+                    "Ponto Payment Request {0} has no reference Supplier or Employee, so no "
+                    "payable account can be resolved for the Payment Entry."
+                ).format(self.name),
+                title=_("No Reference Party"),
             )
-            return
 
         from erpnext.accounts.party import get_party_account
 

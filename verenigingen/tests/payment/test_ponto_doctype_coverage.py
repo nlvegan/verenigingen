@@ -348,12 +348,20 @@ class TestPontoPaymentRequest(EnhancedTestCase):
         self.assertEqual(req.creditor_iban, "DE89370400440532013000")
 
     def test_update_status_from_webhook(self):
-        """Webhook status update should change document status."""
+        """Webhook status update should change document status.
+
+        Target status is "Signed", not "Executed" -- #1323 made
+        create_payment_entry()'s misconfiguration guards raise instead of
+        silently returning, and this request has no Ponto Settings bank
+        account mapping at all (that path is covered directly by
+        test_ponto_payment_request_paid_after_pe.py). This test is only
+        about the generic status-changes-on-webhook mechanism.
+        """
         req = self._create_request()
         req.insert()
-        req.update_status_from_webhook("Executed")
+        req.update_status_from_webhook("Signed")
         req.reload()
-        self.assertEqual(req.status, "Executed")
+        self.assertEqual(req.status, "Signed")
 
     def test_on_cancel_sets_cancelled(self):
         """Cancel should set status to Cancelled."""

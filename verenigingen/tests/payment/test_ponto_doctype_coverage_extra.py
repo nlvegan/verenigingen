@@ -356,11 +356,14 @@ class TestPontoPaymentRequestExtra(EnhancedTestCase):
         self.assertEqual(req.payment_entry, "PE-EXISTING")
 
     def test_create_payment_entry_no_bank_account_guard(self):
-        """No mapped bank account -> create_payment_entry logs and returns."""
+        """No mapped bank account -> create_payment_entry RAISES (#1323 review:
+        a plain return here silently released the caller's atomic-transition
+        savepoint, committing "Executed" with no Payment Entry and no trail)."""
         req = self._create_request(ponto_account="acct-with-no-mapping")
         req.insert()
-        # No mapping for this account -> bank_account stays None -> early return
-        req.create_payment_entry()
+        # No mapping for this account -> bank_account stays None -> must raise
+        with self.assertRaises(frappe.ValidationError):
+            req.create_payment_entry()
         self.assertFalse(req.payment_entry)
 
     def _mapped_bank_account(self, ponto_account_id, bank_account):
@@ -471,7 +474,13 @@ class TestPontoPaymentRequestExtra(EnhancedTestCase):
 
     def test_create_payment_entry_no_party_guard(self):
         """No reference Supplier/Employee -> refuses rather than posting with a
-        guessed paid_to account (#1200 self-review: fail closed, not open)."""
+        guessed paid_to account (#1200 self-review: fail closed, not open).
+
+        "Fail closed" now means RAISE, not silently return (#1323 review): a
+        plain return here silently released the caller's atomic-transition
+        savepoint, committing "Executed" with no Payment Entry and no trail --
+        exactly the bug #1200's own comment says this guard exists to avoid.
+        """
         from verenigingen.tests.support.sepa_test_company import (
             get_eur_bank_account,
             get_eur_test_company,
@@ -485,7 +494,8 @@ class TestPontoPaymentRequestExtra(EnhancedTestCase):
             req = self._create_request(ponto_account="acct-no-party")
             req.insert()
             self.track_doc("Ponto Payment Request", req.name)
-            req.create_payment_entry()
+            with self.assertRaises(frappe.ValidationError):
+                req.create_payment_entry()
         finally:
             ctx.__exit__(None, None, None)
 
