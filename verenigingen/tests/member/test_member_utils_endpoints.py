@@ -316,12 +316,17 @@ class TestMemberUtilsEndpoints(VereningingenTestCase):
 
     def test_get_linked_donations_ambiguous_email_refuses(self):
         """Two donors sharing this member's exact e-mail must refuse rather
-        than silently picking the first one."""
+        than silently picking the first one. Asserts the ambiguity message
+        specifically -- e-mail is the last tier, so an ambiguous match and a
+        plain not-found both give success=False; a bare `assertFalse` would
+        stay green even if the ambiguity check on this tier were deleted,
+        since both paths fall through to a success=False result."""
         member_doc = frappe.get_doc("Member", self.member.name)
         self.create_test_donor(donor_email=member_doc.email)
         self.create_test_donor(donor_email=member_doc.email)
         result = mu.get_linked_donations(self.member.name)
         self.assertFalse(result["success"])
+        self.assertIn("Multiple donor records", result["message"])
 
     def test_get_linked_donations_member_link_takes_priority(self):
         """The authoritative Donor.member link resolves the donor even when
