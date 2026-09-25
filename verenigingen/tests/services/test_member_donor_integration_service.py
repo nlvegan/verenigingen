@@ -107,6 +107,21 @@ class TestMemberDonorIntegrationService(EnhancedTestCase):
         self.assertIn("already exists", result["message"].lower())
         self.assertEqual(result["donor_name"], existing.name)
 
+    def test_create_donor_ambiguous_email_refuses_without_duplicate(self):
+        """Two existing Donors sharing the member's email: this whitelisted
+        create path must refuse (not report an arbitrary one as "the"
+        existing donor, #1389) AND must not create a THIRD donor."""
+        member = self._make_member()
+        self.create_test_donor(donor_name="Ambig A", donor_email=member.email, donor_type="Individual")
+        self.create_test_donor(donor_name="Ambig B", donor_email=member.email, donor_type="Individual")
+
+        before_count = frappe.db.count("Donor", filters={"donor_email": member.email})
+        result = self.service.create_donor_from_member(member.name)
+
+        self.assertFalse(result["success"])
+        self.assertIsNone(result["donor_name"])
+        self.assertEqual(frappe.db.count("Donor", filters={"donor_email": member.email}), before_count)
+
     def test_create_donor_links_customer(self):
         member = self._make_member()
         self.assertTrue(member.customer, "factory should auto-create a customer")

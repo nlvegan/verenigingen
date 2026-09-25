@@ -78,6 +78,20 @@ class TestDonorManagementService(EnhancedTestCase):
         self.assertEqual(result.data["donor_name"], donor.name)
         self.assertEqual(result.data["donor_display_name"], donor.donor_name)
 
+    def test_check_donor_exists_ambiguous_email_refuses(self):
+        """Two Donor records sharing the member's email must not resolve to an
+        arbitrary one (#1389) - the result flags ambiguity instead of naming
+        a specific donor."""
+        member = self._make_member()
+        self.create_test_donor(donor_name="Ambig A", donor_email=member.email, donor_type="Individual")
+        self.create_test_donor(donor_name="Ambig B", donor_email=member.email, donor_type="Individual")
+
+        result = self.service.check_donor_exists(member.name)
+        self.assertTrue(result.success)
+        self.assertTrue(result.metadata.get("ambiguous"))
+        self.assertIsNone(result.data["donor_name"])
+        self.assertIsNone(result.data["donor_display_name"])
+
     # ----------------------------------------------------------- create_donor_from_member
 
     def test_create_donor_from_member_happy_path(self):
@@ -115,6 +129,25 @@ class TestDonorManagementService(EnhancedTestCase):
         self.assertIn("already exists", result.error_message.lower())
         # The existing donor name is surfaced in metadata.
         self.assertEqual(result.metadata.get("donor_name"), existing.name)
+
+    def test_create_donor_from_member_ambiguous_email_refuses_without_duplicate(self):
+        """Two existing Donors sharing the member's email: creation must refuse
+        (not report an arbitrary one as 'the' existing donor, #1389) AND must
+        not create a THIRD donor - refusing on ambiguity must never itself
+        cause a duplicate to be created."""
+        member = self._make_member()
+        self.create_test_donor(donor_name="Ambig A", donor_email=member.email, donor_type="Individual")
+        self.create_test_donor(donor_name="Ambig B", donor_email=member.email, donor_type="Individual")
+
+        before_count = frappe.db.count("Donor", filters={"donor_email": member.email})
+        result = self.service.create_donor_from_member(member.name)
+
+        self.assertFalse(result.success)
+        self.assertTrue(result.metadata.get("ambiguous"))
+        # No arbitrary donor is reported as "the" existing one.
+        self.assertNotIn("donor_name", result.metadata)
+        # No new (third) donor was created.
+        self.assertEqual(frappe.db.count("Donor", filters={"donor_email": member.email}), before_count)
 
     def test_create_donor_from_member_copies_address(self):
         member = self._make_member(address_line1="Keizersgracht 123", city="Amsterdam", postal_code="1015 CJ")

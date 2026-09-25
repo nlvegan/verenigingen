@@ -92,13 +92,15 @@ class TestDonorMemberReconciliation(EnhancedTestCase):
         member = self._make_member(email=self._unique_email("nomatch"))
         self.assertIsNone(get_donor_for_member(member))
 
-    def test_get_donor_for_member_multiple_matches_returns_most_recent(self):
-        """Duplicate-email donors -> most recently created is selected."""
+    def test_get_donor_for_member_multiple_matches_refuses(self):
+        """Duplicate-email donors -> refuses (returns None) instead of picking
+        one arbitrarily (#1384). An ambiguous match must never silently resolve
+        to a donor that might be the wrong one."""
         member = self._make_member(email=self._unique_email("multi"))
         self._make_donor(member.email, donor_name="First Donor")
-        second = self._make_donor(member.email, donor_name="Second Donor")
-        # Most recent (second) should be returned.
-        self.assertEqual(get_donor_for_member(member), second.name)
+        self._make_donor(member.email, donor_name="Second Donor")
+        self.expectErrorLog("DONOR_001")
+        self.assertIsNone(get_donor_for_member(member))
 
     # ----------------------------------------------------------- get_all_donors_for_email
 

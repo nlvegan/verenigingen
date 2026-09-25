@@ -84,7 +84,13 @@ class DonorManagementService(StatelessService):
 
         Returns:
             OperationResult[Optional[Dict[str, str]]]:
-                - If donor exists: Returns dict with {"donor_name": str, "donor_display_name": str}
+                - If exactly one donor exists: Returns dict with
+                  {"donor_name": str, "donor_display_name": str}
+                - If more than one donor shares the email (ambiguous): Returns a
+                  truthy dict with donor_name/donor_display_name set to None and
+                  metadata["ambiguous"] = True, so callers still refuse to create
+                  a duplicate but never report an arbitrarily-picked donor as
+                  "the" existing one (see #1389)
                 - If donor doesn't exist: Returns None
                 - On error: Returns failed OperationResult
 
@@ -107,16 +113,36 @@ class DonorManagementService(StatelessService):
 
             member = frappe.get_doc("Member", member_name)
 
-            # Lookup donor by email (primary method)
-            existing_donor = frappe.db.get_value(
-                "Donor", {"donor_email": member.email}, ["name", "donor_name"]
+            # Lookup donors by email (primary method). frappe.get_all (rather
+            # than frappe.db.get_value, which silently returns one arbitrary
+            # row on a multi-row match) lets an ambiguous match be detected
+            # instead of guessed at - see #1389.
+            donors = frappe.get_all(
+                "Donor",
+                filters={"donor_email": member.email},
+                fields=["name", "donor_name"],
+                order_by="creation desc",
             )
 
-            if existing_donor:
+            if len(donors) > 1:
+                donor_names = [d.name for d in donors]
+                self.logger.warning(
+                    f"Multiple donors ({len(donors)}) found for member {member_name} "
+                    f"with email {member.email}. Refusing to pick one arbitrarily. "
+                    f"Consider reconciling: {donor_names}"
+                )
+                return OperationResult.ok(
+                    {"donor_name": None, "donor_display_name": None},
+                    exists=True,
+                    ambiguous=True,
+                    matching_donors=donor_names,
+                )
+
+            if donors:
                 return OperationResult.ok(
                     {
-                        "donor_name": existing_donor[0],
-                        "donor_display_name": existing_donor[1],
+                        "donor_name": donors[0].name,
+                        "donor_display_name": donors[0].donor_name,
                     },
                     exists=True,
                 )
@@ -181,6 +207,19 @@ class DonorManagementService(StatelessService):
                 return existing_check.chain("Failed to check for existing donor")
 
             if existing_check.data:
+                if existing_check.metadata.get("ambiguous"):
+                    # Multiple donors share this email - refuse creation without
+                    # reporting an arbitrarily-picked donor as "the" existing one.
+                    return OperationResult.fail(
+                        _(
+                            "Multiple donor records share this member's e-mail address; "
+                            "resolve the duplicate before creating a new one"
+                        ),
+                        errors=["Ambiguous donor match"],
+                        ambiguous=True,
+                        matching_donors=existing_check.metadata.get("matching_donors"),
+                    )
+
                 # Donor already exists
                 return OperationResult.fail(
                     _("Donor record already exists for this member"),

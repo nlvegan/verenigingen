@@ -17,14 +17,15 @@ def get_donor_for_member(member_doc) -> Optional[str]:
     Priority:
     1. Explicit donor field on member (if set and valid)
     2. Single donor matching by email
-    3. Most recent donor if multiple matches (with warning logged)
+    3. None if multiple matches (ambiguous - refuses rather than guessing,
+       logging a warning + Error Log entry for admin review; see #1384)
     4. None if no matches
 
     Args:
         member_doc: Member document object (must have email field)
 
     Returns:
-        Donor name if found, None otherwise
+        Donor name if found, None otherwise (including on an ambiguous match)
     """
     # Check explicit link first (if the field exists)
     explicit_donor = getattr(member_doc, "donor", None)
@@ -53,11 +54,15 @@ def get_donor_for_member(member_doc) -> Optional[str]:
     elif len(donors) == 1:
         return donors[0].name
     else:
-        # Multiple donors found - log warning and return most recent
+        # Multiple donors found - refuse rather than picking one arbitrarily.
+        # An earlier version returned the most-recent donor here, which let an
+        # ambiguous match silently sync a possibly-wrong donor's records into
+        # member_doc.donation_history (see #1384). Callers treat None the same
+        # as "no donor" and skip the sync entirely.
         donor_names = [d.name for d in donors]
         frappe.logger("verenigingen.donor_mapping").warning(
             f"Multiple donors ({len(donors)}) found for member {member_doc.name} "
-            f"with email {member_doc.email}. Using most recent: {donors[0].name}. "
+            f"with email {member_doc.email}. Refusing to pick one arbitrarily. "
             f"Consider reconciling: {donor_names}"
         )
 
@@ -68,11 +73,10 @@ def get_donor_for_member(member_doc) -> Optional[str]:
             additional_info={
                 "email": member_doc.email,
                 "matching_donors": donor_names,
-                "selected_donor": donors[0].name,
             },
         )
 
-        return donors[0].name
+        return None
 
 
 def get_all_donors_for_email(email: str) -> List[dict]:

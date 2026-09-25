@@ -57,6 +57,27 @@ class TestMemberHistoryUpdateService(EnhancedTestCase):
         self.assertEqual(result.data["dues_payments"]["count"], 0)
         self.assertEqual(result.data["invoices"]["count"], 0)
 
+    def test_ambiguous_donor_email_refuses_sync_no_donor_touched(self):
+        """An ambiguous donor_email match (>1 Donor sharing the member's email)
+        must refuse the donation-history sync entirely (#1384) rather than
+        resolving to one candidate arbitrarily and rebuilding ITS donor_history
+        table. sync_donor_history must never be invoked in this case."""
+        from unittest.mock import patch
+
+        unique_email = f"ambig.history.{random_string(8).lower()}@example.com"
+        member = self.create_test_member(first_name="Ambig", last_name="History", email=unique_email)
+        # Two donors share the member's actual (possibly-suffixed) email.
+        self.create_test_donor(donor_email=member.email, donor_name="Ambig Donor A")
+        self.create_test_donor(donor_email=member.email, donor_name="Ambig Donor B")
+
+        self.expectErrorLog("DONOR_001")
+        with patch("verenigingen.utils.donation_history_manager.sync_donor_history") as mock_sync:
+            result = self.service.incremental_update_history_tables(member)
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.data["donations"]["count"], 0)
+        mock_sync.assert_not_called()
+
     def test_incremental_update_with_customer_includes_invoices(self):
         """Test incremental update with customer includes invoice history"""
         unique_email = f"customer.test.{random_string(8).lower()}@example.com"
