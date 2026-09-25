@@ -13,6 +13,7 @@ from frappe import _
 from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
 from verenigingen.services.infrastructure.base_service import StatefulService
 from verenigingen.services.infrastructure.service_config import get_service_config
+from verenigingen.utils.sql_like import escape_sql_like_wildcards
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
@@ -175,9 +176,13 @@ class CustomerHandlingService(StatefulService):
         if not full_name:
             return []
 
+        # full_name is free text (a Member's own name field), so a literal
+        # '%'/'_' must not act as a SQL LIKE wildcard (#1376, the #1153 class).
+        escaped_full_name = escape_sql_like_wildcards(full_name)
+
         return frappe.get_all(
             "Customer",
-            filters=[["customer_name", "like", f"%{full_name}%"]],
+            filters=[["customer_name", "like", f"%{escaped_full_name}%"]],
             fields=["name", "customer_name", "email_id", "mobile_no"],
             limit=limit,
         )
