@@ -10,6 +10,7 @@ This package organizes hooks by concern into focused submodules:
 - fixtures.py: Fixture definitions
 - portal.py: Portal configuration
 - lifecycle.py: Install/migrate hooks
+- whitelisted_methods.py: Overrides for whitelisted RPCs
 
 This structure makes the configuration easier to navigate, maintain,
 and test compared to a monolithic hooks.py file.
@@ -39,6 +40,7 @@ from verenigingen.hooks.lifecycle import (
 from verenigingen.hooks.permissions import has_permission, permission_query_conditions
 from verenigingen.hooks.portal import update_website_context
 from verenigingen.hooks.scheduler import scheduler_events
+from verenigingen.hooks.whitelisted_methods import override_whitelisted_methods
 
 # =============================================================================
 # APP METADATA
