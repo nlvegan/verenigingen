@@ -287,7 +287,7 @@ def can_use_bypass_validations(user: str = None) -> bool:
         return False
 
 
-# Text markers a duplicate-key failure carries in the formatted error string
+# Text marker a duplicate-key failure carries in the formatted error string
 # secure_document_operation() records on SecureOperationResult (see the
 # `except Exception` handler below: `result.add_error(f"Operation failed:
 # {str(e)}")`). That handler swallows EVERY exception it isn't explicitly told
@@ -299,10 +299,20 @@ def can_use_bypass_validations(user: str = None) -> bool:
 # found and fixed one call site at a time in bank_transaction_creator.py,
 # #1267). Since the original exception object never leaves this function, a
 # caller that needs to recover from the race must match on this formatted
-# text instead of isinstance -- empirically confirmed against both frappe.
-# UniqueValidationError's message and MariaDB's raw IntegrityError 1062 text
-# (2026-09-23, see #1267).
-DUPLICATE_KEY_ERROR_MARKERS = ("Duplicate entry", "UniqueValidationError", "DuplicateEntryError")
+# text instead of isinstance.
+#
+# Only "Duplicate entry" is actually load-bearing: both DuplicateEntryError
+# and UniqueValidationError are raised as `ExceptionClass(doctype, name,
+# inner_exc)`, so `str(e)` renders as the plain tuple repr
+# `('DocType', 'name', IntegrityError(1062, "Duplicate entry '...' for key
+# '...'"))` -- the exception CLASS NAME never appears in that text. The
+# MariaDB IntegrityError nested inside is where "Duplicate entry" comes from.
+# Confirmed 2026-09-25 by raising both exception types directly and reading
+# str(e): neither produced the literal substring "DuplicateEntryError" or
+# "UniqueValidationError". An earlier version of this tuple carried those two
+# strings as markers too, on the (wrong) assumption that they would appear;
+# they never matched anything and were pure dead weight.
+DUPLICATE_KEY_ERROR_MARKERS = ("Duplicate entry",)
 
 
 def is_duplicate_key_error(error_text: str) -> bool:
