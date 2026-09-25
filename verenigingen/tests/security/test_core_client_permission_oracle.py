@@ -69,6 +69,20 @@ class TestCoreClientPermissionOracleOverride(EnhancedTestCase):
         # A real Member neither outsider owns or is linked to.
         self.foreign_member = self.create_test_member()
 
+        # A real, ORDINARY existing User -- deliberately NOT Administrator/
+        # Guest (frappe.STANDARD_USERS). User's own has_permission hook
+        # (frappe/core/doctype/user/user.py:1281) denies unconditionally for
+        # STANDARD_USERS only; for everyone else it permits, and the REAL
+        # decision falls to the role-permission dict. Comparing "unknown"
+        # against Administrator specifically would exercise only the
+        # hook's STANDARD_USERS branch, which the 2nd review round found
+        # papered over the fact that a typical (non-standard) existing user
+        # was NOT reproduced correctly by the first version of this fix.
+        self.foreign_other_user = _make_bare_user(
+            f"core-oracle-other-{frappe.generate_hash()[:8]}@test.invalid"
+        )
+        self.track_doc("User", self.foreign_other_user)
+
         self.unknown_user_name = f"totally-fake-user-{frappe.generate_hash()[:10]}@test.invalid"
         self.unknown_todo_name = f"totally-fake-todo-{frappe.generate_hash()[:10]}"
         self.unknown_member_name = f"Totally-Fake-Member-{frappe.generate_hash()[:10]}"
@@ -186,14 +200,39 @@ class TestCoreClientPermissionOracleOverride(EnhancedTestCase):
         return forbidden
 
     def test_get_doc_permissions_user_doctype(self):
+        """Compared against a typical (non-standard) foreign user, not
+        Administrator -- see the setUp comment on self.foreign_other_user.
+        The role-permission dict shape varies by caller role (this is
+        exactly why a constant shape can't be claimed for User), so this
+        only asserts equality, not a specific hardcoded value -- and
+        confirms the comparison is actually exercising the role-dict branch
+        (not accidentally still the hook-denial {None: 0} shape) by
+        checking a role-permission key is present.
+        """
         for user in (self.bare_user, self.role_user):
             with self.subTest(user=user):
                 forbidden = self._assert_get_doc_permissions_unknown_matches_forbidden(
-                    user, "User", self.unknown_user_name, "Administrator"
+                    user, "User", self.unknown_user_name, self.foreign_other_user
                 )
-                # User and ToDo both ship a core has_permission hook, so a
-                # denial always takes the controller-hook shape.
-                self.assertEqual(forbidden, {"permissions": {None: 0}})
+                self.assertIn("select", forbidden["permissions"])
+
+    def test_get_doc_permissions_user_doctype_administrator_reference_is_atypical(self):
+        """Control, on CORE's own unmodified behaviour (Administrator exists,
+        so this never reaches this fix's substitution branch at all): shows
+        WHY self.foreign_other_user, not Administrator, is the right
+        comparison target for test_get_doc_permissions_user_doctype above.
+        Administrator is a frappe.STANDARD_USERS member, so User's
+        has_permission hook (frappe/core/doctype/user/user.py:1281) denies
+        it unconditionally regardless of the caller's role, giving the
+        controller-hook shape ({None: 0}) rather than the role-permission
+        dict a typical (non-standard) foreign user produces. Using this
+        atypical, hook-name-matched record as the "existing-forbidden"
+        reference is exactly what let the first version of this fix's tests
+        pass while the general User case stayed broken (2nd review round,
+        DEFECT 1)."""
+        with self.as_user(self.bare_user):
+            result = safe_get_doc_permissions(doctype="User", docname="Administrator")
+        self.assertEqual(result, {"permissions": {None: 0}})
 
     def test_get_doc_permissions_todo_doctype(self):
         for user in (self.bare_user, self.role_user):
@@ -297,8 +336,9 @@ class TestCoreClientPermissionOracleOverride(EnhancedTestCase):
         _server_messages/messages, alongside the substituted (and otherwise
         correct) has_permission/permissions value -- the oracle survived one
         layer up even though the return value and status code were already
-        fixed. The fix calls frappe.clear_last_message() in both except
-        branches; this test asserts the log is empty afterwards, directly."""
+        fixed. The fix captures len(frappe.message_log) before the call and
+        deletes everything past that point on the substituted-unknown exit;
+        this test asserts the log is empty afterwards, directly."""
         with self.as_user(self.bare_user):
             frappe.clear_messages()
             safe_has_permission(doctype="User", docname=self.unknown_user_name, perm_type="read")
@@ -307,6 +347,59 @@ class TestCoreClientPermissionOracleOverride(EnhancedTestCase):
             frappe.clear_messages()
             safe_get_doc_permissions(doctype="User", docname=self.unknown_user_name)
             self.assertEqual(frappe.get_message_log(), [])
+
+    def test_message_log_symmetric_between_existing_forbidden_and_unknown(self):
+        """DEFECT 2 (2nd review round): the message-log leak was not fully
+        closed -- residue survived on the EXISTS path too, not just the
+        unknown one, via a mechanism the test above cannot see (it only
+        calls the unknown branch).
+
+        frappe.permissions.has_permission, when a real `doc` is given and
+        the computed permission is falsy, builds an error MESSAGE by calling
+        has_permission(doc.doctype) again -- no doc this time -- purely to
+        decide whether to append "- doc.name" to it. That nested call is
+        wrapped by print_has_permission_check_logs (frappe/permissions.py:43)
+        with its OWN print_logs, defaulting to True regardless of what the
+        OUTER call passed (client.has_permission always calls with
+        print_logs=False, via throw=False). When the caller lacks
+        doctype-level read entirely, that nested call's decorator does an
+        unconditional msgprint(...), queuing "User X does not have doctype
+        access via role permission for document Y" into frappe.message_log
+        -- ONLY on the EXISTS path (the nested call only runs once
+        frappe.get_lazy_doc has already succeeded), so it survives
+        untouched by whatever the except branch does.
+
+        "Role" (System Manager only, no controller hook) isolates this: a
+        roleless/Volunteer caller has zero doctype-level access to Role
+        either way, so any message-log difference between existing and
+        unknown here is this side effect, not a get_doc_permissions shape
+        difference (DEFECT 1's fix does not apply to Role at all -- no
+        hook, and Role's role-permission dict is all-zero for both real and
+        synthetic docs regardless).
+        """
+        existing_role = "System Manager"
+        unknown_role = f"No Such Role {frappe.generate_hash()[:8]}"
+
+        for user in (self.bare_user, self.role_user):
+            with self.subTest(user=user), self.as_user(user):
+                frappe.clear_messages()
+                safe_has_permission(doctype="Role", docname=existing_role, perm_type="read")
+                existing_log = frappe.get_message_log()
+
+                frappe.clear_messages()
+                safe_has_permission(doctype="Role", docname=unknown_role, perm_type="read")
+                unknown_log = frappe.get_message_log()
+
+                self.assertEqual(existing_log, [], "existing-forbidden has_permission leaked a message")
+                self.assertEqual(unknown_log, [])
+
+                frappe.clear_messages()
+                safe_get_doc_permissions(doctype="Role", docname=existing_role)
+                self.assertEqual(frappe.get_message_log(), [])
+
+                frappe.clear_messages()
+                safe_get_doc_permissions(doctype="Role", docname=unknown_role)
+                self.assertEqual(frappe.get_message_log(), [])
 
     def test_session_login_roleless_user_unknown_matches_forbidden_over_real_request(self):
         """A caller authenticated by SESSION COOKIE (not a direct Python call,
@@ -400,7 +493,16 @@ class TestCoreClientPermissionOracleOverride(EnhancedTestCase):
                 "has_permission_unknown": call("frappe.client.has_permission", fake_1),
                 "has_permission_forbidden": call("frappe.client.has_permission", "Administrator"),
                 "get_doc_permissions_unknown": call("frappe.client.get_doc_permissions", fake_2),
-                "get_doc_permissions_forbidden": call("frappe.client.get_doc_permissions", "Administrator"),
+                # NOT Administrator here -- see the setUp comment on
+                # self.foreign_other_user and
+                # test_get_doc_permissions_user_doctype_administrator_reference_is_atypical:
+                # Administrator is a frappe.STANDARD_USERS member, so User's
+                # has_permission hook denies it unconditionally regardless of
+                # caller role, which would mask DEFECT 1 (2nd review round)
+                # the same way it did in the first version of this fix.
+                "get_doc_permissions_forbidden": call(
+                    "frappe.client.get_doc_permissions", {self.foreign_other_user!r}
+                ),
             }}))
             """
         )
@@ -424,3 +526,11 @@ class TestCoreClientPermissionOracleOverride(EnhancedTestCase):
                 self.assertEqual(json.loads(unknown["body"]), json.loads(forbidden["body"]))
                 self.assertNotIn("_server_messages", unknown["body"])
                 self.assertNotIn("messages", unknown["body"])
+
+        # Confirm this is actually exercising the role-permission-dict branch
+        # for get_doc_permissions (self.foreign_other_user is not a
+        # STANDARD_USERS name), not accidentally still the controller-hook
+        # {None: 0} shape DEFECT 1 (2nd review round) shipped for every User.
+        self.assertIn(
+            "select", json.loads(out["get_doc_permissions_forbidden"]["body"])["message"]["permissions"]
+        )
