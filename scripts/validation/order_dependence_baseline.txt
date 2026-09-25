@@ -147,7 +147,7 @@ COMMIT tests/fixtures/transaction_boundary_test_framework.py::2  # order-depende
 COMMIT tests/integration/services/test_coverage_calculator.py::19  # order-dependence
 COMMIT tests/integration/services/test_coverage_calculator_module.py::14  # order-dependence
 COMMIT tests/integration/services/test_cutoff_date_calculations.py::15  # order-dependence
-COMMIT tests/integration/services/test_duplicate_invoice_detector.py::6  # order-dependence
+COMMIT tests/integration/services/test_duplicate_invoice_detector.py::4  # order-dependence
 COMMIT tests/integration/services/test_eligibility_checker.py::22  # order-dependence
 COMMIT tests/integration/services/test_invoice_generator.py::18  # order-dependence
 COMMIT tests/integration/services/test_invoice_generator_branches.py::15  # order-dependence
