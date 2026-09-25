@@ -19,9 +19,10 @@ real-but-forbidden one -- two different outcomes (a 404 vs. a 200 with a
 value) for the identical "can I access this id" question, for ANY doctype and
 ANY docname, reachable by any authenticated user regardless of role. See
 issue #1411 (core-reachability finding) and #1401/#1394 for the app-level
-version of the same mechanism, and `verenigingen/api/team_management.py`'s
-`_require_team_permission` for the established fix shape this file follows
-(catch the raise, fold it into the same refusal a real forbidden record gets).
+version of the same mechanism. #1401 (fixed by PR #1416, `_require_team_permission`
+in `verenigingen/api/team_management.py`) is the established fix shape this
+file follows: catch the raise, fold it into the same refusal a real forbidden
+record gets.
 
 **Administrator is exempt from only half of this pair.**
 `frappe.permissions.has_permission` short-circuits to `True` for the literal
@@ -96,6 +97,16 @@ def has_permission(doctype: str, docname: str, perm_type: str = "read"):
     except frappe.DoesNotExistError:
         if user == "Administrator" or not frappe.db.exists("DocType", doctype):
             raise
+        # frappe.get_lazy_doc's load_from_db appends "<doctype> <docname> not
+        # found" to frappe.local.message_log via frappe.throw BEFORE raising
+        # (frappe/model/document.py). Catching the exception leaves that
+        # entry sitting in the log, which frappe.handler/frappe.api.v2 then
+        # serialise into the response as _server_messages/messages -- so an
+        # unknown docname's response body still carried the "not found" text
+        # even though the status code and the has_permission value were
+        # already fixed. Drop it before substituting, or the oracle survives
+        # one layer up.
+        frappe.clear_last_message()
         allowed = False
     return {"has_permission": allowed}
 
@@ -113,6 +124,10 @@ def get_doc_permissions(doctype: str, docname: str):
     except frappe.DoesNotExistError:
         if user == "Administrator" or not frappe.db.exists("DocType", doctype):
             raise
+        # See the matching comment in has_permission() above: the "not found"
+        # message is appended to frappe.local.message_log before the raise,
+        # and survives in the response unless dropped here too.
+        frappe.clear_last_message()
         return {"permissions": _forbidden_doc_permissions(doctype, user)}
     return {"permissions": frappe.permissions.get_doc_permissions(doc)}
 

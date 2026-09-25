@@ -24,6 +24,8 @@ with no meaningful role beyond the automatic "All", and a real
 this way.
 """
 
+import os
+
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -82,6 +84,20 @@ class TestCoreClientPermissionOracleOverride(EnhancedTestCase):
         ).insert(ignore_permissions=True)
         self.track_doc("ToDo", todo.name)
         return todo
+
+    def _create_test_login_password(self, email):
+        """Set a real password for `email` and commit it.
+
+        The commit is load-bearing, not decoration: the caller spawns a
+        SEPARATE process (a fresh DB connection) that logs in as this user
+        over a real WSGI request, and an uncommitted password change in this
+        test's own transaction would be invisible to it."""
+        from frappe.utils.password import update_password
+
+        password = f"Probe-{frappe.generate_hash()[:12]}!"
+        update_password(email, password)
+        frappe.db.commit()
+        return password
 
     # ---- dispatch wiring -----------------------------------------------
 
@@ -264,3 +280,143 @@ class TestCoreClientPermissionOracleOverride(EnhancedTestCase):
             result = safe_has_permission(doctype="Member", docname=own_member.name, perm_type="read")
 
         self.assertEqual(result, {"has_permission": True})
+
+    # ---- CHANGES-REQUIRED review round: message_log survives the catch ---
+
+    def test_unknown_docname_leaves_no_message_log_entry(self):
+        """frappe.get_lazy_doc's load_from_db appends "<doctype> <docname> not
+        found" to frappe.local.message_log via frappe.throw BEFORE it raises
+        (frappe/model/document.py) -- catching the exception does not undo
+        that append. Confirmed over a real WSGI round trip (see
+        test_session_login_roleless_user_unknown_matches_forbidden_over_real_request
+        below) that an uncleared entry here reaches the HTTP response as
+        _server_messages/messages, alongside the substituted (and otherwise
+        correct) has_permission/permissions value -- the oracle survived one
+        layer up even though the return value and status code were already
+        fixed. The fix calls frappe.clear_last_message() in both except
+        branches; this test asserts the log is empty afterwards, directly."""
+        with self.as_user(self.bare_user):
+            frappe.clear_messages()
+            safe_has_permission(doctype="User", docname=self.unknown_user_name, perm_type="read")
+            self.assertEqual(frappe.get_message_log(), [])
+
+            frappe.clear_messages()
+            safe_get_doc_permissions(doctype="User", docname=self.unknown_user_name)
+            self.assertEqual(frappe.get_message_log(), [])
+
+    def test_session_login_roleless_user_unknown_matches_forbidden_over_real_request(self):
+        """A caller authenticated by SESSION COOKIE (not a direct Python call,
+        and not token auth) reaches a mechanism none of the tests above do:
+        frappe/app.py's outer WSGI exception handler is decorated with
+        frappe.permissions.handle_does_not_exist_error, which intercepts an
+        ESCAPING frappe.DoesNotExistError and calls
+        frappe.permissions.check_doctype_permission(doctype) -- a DOCTYPE-level
+        (no-document) permission check that IGNORES sharing. When the caller
+        has no role-based permission on the doctype AT ALL (this test's
+        roleless user has none on "User"), that check raises
+        frappe.PermissionError, and handle_does_not_exist_error substitutes
+        THAT for the original DoesNotExistError -- masking "not found" behind
+        "no permission for the doctype" for whoever could never have read any
+        record of it anyway.
+
+        Measured over a real WSGI round trip (frappe.app.application via a
+        werkzeug test client, session-cookie login through POST /api/method/
+        login) against UNFIXED core code (no override registered): unknown
+        docname -> HTTP 403 PermissionError "User <x> does not have doctype
+        access via role permission for document User"; existing-but-forbidden
+        (Administrator) -> HTTP 200 {"has_permission": false}. Two different
+        outcomes for the identical question, via a THIRD mechanism (neither
+        DoesNotExistError-vs-value at the direct-call layer this file's other
+        tests exercise, nor the message_log leak the test above covers).
+
+        This fix's wrapper closes it as a side effect, not a separate branch:
+        it catches the DoesNotExistError INSIDE has_permission()/
+        get_doc_permissions() before it can ever escape to app.py's outer
+        exception handler, so handle_does_not_exist_error's masking logic
+        never runs at all for a caller who reaches this fix. Verified over the
+        same real WSGI round trip, on this branch: unknown and
+        existing-but-forbidden both return HTTP 200 with an identical body,
+        for both endpoints, with no _server_messages/messages leak.
+
+        Run as a SUBPROCESS rather than in-process: frappe.app.application
+        calls frappe.destroy()/frappe.init() per request, which would tear
+        down and reinitialise frappe.local out from under this already-running
+        EnhancedTestCase (its DB transaction and fixtures included). A
+        subprocess keeps that entirely outside this test's own frappe.local.
+        It inherits this process's PYTHONPATH, so it exercises whichever
+        verenigingen is actually importable -- the worktree when run with
+        PYTHONPATH set, the installed app otherwise -- exactly like every
+        other test in this file.
+        """
+        import json
+        import subprocess
+        import sys
+        import textwrap
+
+        from frappe.utils import get_bench_path
+
+        password = self._create_test_login_password(self.bare_user)
+
+        site = frappe.local.site
+        sites_dir = os.path.join(get_bench_path(), "sites")
+
+        script = textwrap.dedent(
+            f"""
+            import json, uuid
+            import frappe
+
+            frappe.init(site={site!r})
+            frappe.connect()
+            frappe.clear_cache()
+            frappe.destroy()
+
+            import frappe.app
+            from werkzeug.test import Client
+
+            client = Client(frappe.app.application)
+            headers = {{"X-Frappe-Site-Name": {site!r}}}
+            login = client.post(
+                "/api/method/login",
+                data={{"usr": {self.bare_user!r}, "pwd": {password!r}}},
+                headers=headers,
+            )
+            assert login.status_code == 200, login.get_data(as_text=True)
+            cookie_header = "; ".join(
+                c.split(";")[0] for c in login.headers.get_all("Set-Cookie")
+            )
+
+            def call(method, docname):
+                url = f"/api/method/{{method}}?doctype=User&docname={{docname}}&perm_type=read"
+                r = client.get(url, headers={{**headers, "Cookie": cookie_header}})
+                return {{"status": r.status_code, "body": r.get_data(as_text=True)}}
+
+            fake_1 = "totally-fake-user-" + uuid.uuid4().hex[:12]
+            fake_2 = "totally-fake-user-" + uuid.uuid4().hex[:12]
+            print(json.dumps({{
+                "has_permission_unknown": call("frappe.client.has_permission", fake_1),
+                "has_permission_forbidden": call("frappe.client.has_permission", "Administrator"),
+                "get_doc_permissions_unknown": call("frappe.client.get_doc_permissions", fake_2),
+                "get_doc_permissions_forbidden": call("frappe.client.get_doc_permissions", "Administrator"),
+            }}))
+            """
+        )
+
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=sites_dir,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + "\n" + result.stderr)
+        out = json.loads(result.stdout.strip().splitlines()[-1])
+
+        for endpoint in ("has_permission", "get_doc_permissions"):
+            unknown = out[f"{endpoint}_unknown"]
+            forbidden = out[f"{endpoint}_forbidden"]
+            with self.subTest(endpoint=endpoint):
+                self.assertEqual(unknown["status"], 200, unknown)
+                self.assertEqual(unknown["status"], forbidden["status"])
+                self.assertEqual(json.loads(unknown["body"]), json.loads(forbidden["body"]))
+                self.assertNotIn("_server_messages", unknown["body"])
+                self.assertNotIn("messages", unknown["body"])
