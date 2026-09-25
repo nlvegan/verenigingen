@@ -120,11 +120,43 @@ class TestTeamMembersPage(EnhancedTestCase):
             self._ctx_with_team(outsider, self.team.name)
 
     def test_invalid_team_raises(self):
-        with self.assertRaises(Exception):
+        with self.assertRaises(frappe.PermissionError):
             self._ctx_with_team(self.user_email, "Nonexistent-Team-XYZ")
+
+    def test_unknown_and_foreign_team_return_identical_refusal(self):
+        # #1386: an unknown team id and an existing-but-foreign one must be
+        # indistinguishable to the caller -- same exception type and message, on
+        # both paths. Before the fix, an unknown id raised DoesNotExistError
+        # ("Team not found") via validate_entity_exists() while a foreign id
+        # raised a differently-worded PermissionError later, once frappe.get_doc
+        # had already loaded the document -- an existence oracle over Team ids.
+        outsider = f"team-outsider2-{frappe.generate_hash()[:8]}@test.invalid"
+        self._make_member_with_user(outsider)
+
+        def _refusal(team_value):
+            with self.as_user(outsider):
+                ctx = frappe._dict()
+                original = frappe.form_dict
+                frappe.form_dict = frappe._dict({"team": team_value})
+                try:
+                    with self.assertRaises(frappe.PermissionError) as cm:
+                        team_members.get_context(ctx)
+                finally:
+                    frappe.form_dict = original
+            return str(cm.exception)
+
+        unknown_message = _refusal("Nonexistent-Team-XYZ")
+        foreign_message = _refusal(self.team.name)
+
+        self.assertEqual(
+            unknown_message,
+            foreign_message,
+            "unknown-team and foreign-team refusals must render the same message",
+        )
 
     # ---- _get_available_teams_for_user ---------------------------------
 
     def test_available_teams_for_member(self):
         teams = team_members._get_available_teams_for_user(self.user_email, self.member.name)
         self.assertTrue(any(t.name == self.team.name for t in teams))
+
