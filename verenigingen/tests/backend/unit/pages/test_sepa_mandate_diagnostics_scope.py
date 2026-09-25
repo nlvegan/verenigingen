@@ -12,24 +12,21 @@ function itself runs six unfiltered `frappe.db.sql` queries across the whole
 tabMember/tabSEPA Mandate tables and returns every match, including IBAN and
 bank_account_name, to any caller who clears the tier gate.
 
-Scope of this fix (see the PR/issue discussion for the part left OPEN):
+Scope of this fix, per the maintainer's decision on #1329
+(https://github.com/nlvegan/verenigingen/issues/1329#issuecomment-5830712514):
 
 - "Verenigingen Volunteer" and "Verenigingen Auditor" have NO legitimate front door to
   this data: neither the "SEPA Mandate Diagnostics" page (page roles: System Manager,
   Verenigingen Administrator only) nor the "SEPA Mandate Issues" report (report roles:
   System Manager, Verenigingen Administrator, Verenigingen Staff, Verenigingen Chapter
-  Board Member) grants them access. Blocking them is unambiguous and is what this fix
-  does.
-- "Verenigingen Chapter Board Member" DOES have a legitimate, currently-designed front
-  door: the "SEPA Mandate Issues" report explicitly lists it in `roles` (added
-  deliberately in 95d66ace7) and that report's get_data() calls this exact function.
-  Restricting get_mandate_issues() to Roles.ADMIN_ROLES only would break that report for
-  board members -- a real caller, not a hypothetical -- so this fix does NOT do that.
-  Chapter Board Member callers still see the SAME unscoped, app-wide data they could
-  already reach through the report; whether that should instead be scoped to the
-  caller's own chapter(s) is a separate, NOT-YET-DECIDED product question (the issue's
-  own "Not established" section says so) and is intentionally left open rather than
-  decided unilaterally here.
+  Board Member) grants them access. They are refused outright.
+- Staff (Roles.ADMIN_ROLES) keep the full, unscoped, app-wide list.
+- "Verenigingen Chapter Board Member" is allowed in, but scoped to members of the
+  chapter(s) the caller holds an ACTIVE board seat on -- see
+  test_sepa_mandate_diagnostics_chapter_scope.py for that behaviour in detail. This
+  file's own `test_chapter_board_member_still_allowed`/`test_staff_still_allowed` only
+  check that the two roles are not refused outright; the per-chapter content
+  assertions live in the sibling module above.
 
 Each attacker test below clears the @standard_api MEDIUM tier gate on its own merits
 (via a real Role Profile from ROLE_PROFILE_SECURITY_MAPPING) -- no tier-gate bypass is
@@ -82,9 +79,14 @@ class TestGetMandateIssuesRoleScope(MemberOwnershipProbeMixin, EnhancedTestCase)
                 get_mandate_issues()
 
     def test_chapter_board_member_still_allowed(self):
-        """Control: the real report caller (Chapter Board Member) must NOT be broken
-        by this fix -- see module docstring for why this is intentionally left
-        unscoped rather than refused."""
+        """Control: the real report caller (Chapter Board Member) must NOT be
+        refused outright by the role gate. This user is built by
+        _board_member_linked_user() -- a real Role Profile grant with NO actual
+        Chapter Board Member seat -- so the per-chapter scope in
+        _mandate_diagnostics_member_scope_sql() resolves to no chapters and the
+        call returns an EMPTY result rather than an error or the app-wide list;
+        see test_sepa_mandate_diagnostics_chapter_scope.py for the seated-board-
+        member content assertions."""
         user_email, _member = self._board_member_linked_user("MandateBoardAllowed")
 
         with self.set_user(user_email):
@@ -92,6 +94,7 @@ class TestGetMandateIssuesRoleScope(MemberOwnershipProbeMixin, EnhancedTestCase)
 
         self.assertIn("issues", result)
         self.assertIn("summary", result)
+        self.assertEqual(result["summary"]["unique_members"], 0)
 
     def test_staff_still_allowed(self):
         """Control: Roles.ADMIN_ROLES must still pass."""

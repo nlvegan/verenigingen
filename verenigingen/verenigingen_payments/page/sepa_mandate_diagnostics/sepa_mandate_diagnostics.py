@@ -9,25 +9,24 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.constants import Roles
-from verenigingen.utils.member_utils import validate_member_ownership
+from verenigingen.utils.member_utils import get_member_name_for_user, validate_member_ownership
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, standard_api
 
-# get_mandate_issues() runs six unfiltered queries across the whole tabMember /
-# tabSEPA Mandate tables and returns every match app-wide, including IBAN and
-# bank_account_name -- there is no per-caller scoping in the queries themselves.
+# get_mandate_issues() runs six queries across the whole tabMember / tabSEPA
+# Mandate tables -- app-wide by default, including IBAN and bank_account_name.
 # @standard_api(REPORTING) only enforces the generic MEDIUM tier, which several
 # non-admin, non-staff role profiles clear on their own (#1329): "Verenigingen
 # Volunteer" and "Verenigingen Auditor" have no legitimate front door to this data
 # anywhere in the app (neither this page's roles nor the "SEPA Mandate Issues"
 # report's roles list them) and are refused below.
 #
-# "Verenigingen Chapter Board Member" IS allowed here even though it is one of the
-# roles #1329 flagged: the "SEPA Mandate Issues" report explicitly grants that role
-# report access and calls this exact function, so refusing it would break that real,
-# currently-working caller. Whether board members should instead see only their own
-# chapter's data (rather than this same app-wide view) is a separate, NOT decided
-# product question -- see #1329's "Not established" section -- and is intentionally
-# left open rather than resolved unilaterally here.
+# "Verenigingen Chapter Board Member" IS allowed here: the "SEPA Mandate Issues"
+# report explicitly grants that role report access and calls this exact function.
+# Per the maintainer's #1329 decision, board members now see only members of the
+# chapter(s) they hold an ACTIVE board seat on -- see _mandate_diagnostics_member_scope_sql()
+# below, which reuses the exact chapter-resolution helpers
+# permissions.py's get_sepa_mandate_permission_query() uses, so this endpoint and
+# SEPA Mandate's own get_list() permission agree on what "my chapter's members" means.
 _MANDATE_DIAGNOSTICS_ROLES = Roles.ADMIN_ROLES | {Roles.CHAPTER_BOARD_MEMBER}
 
 
@@ -52,6 +51,39 @@ def _ensure_staff_only_diagnostics_access():
     _ensure_role_access(Roles.ADMIN_ROLES)
 
 
+def _mandate_diagnostics_member_scope_sql():
+    """SQL condition to AND onto each of get_mandate_issues()'s six Member-anchored
+    queries (alias ``m``), called only after _ensure_mandate_diagnostics_access()
+    has already confirmed the caller holds an allowed role.
+
+    - Roles.ADMIN_ROLES: "" (no restriction -- the full app-wide list).
+    - Verenigingen Chapter Board Member (the only other allowed role): scoped to
+      members of the chapter(s) the caller holds an ACTIVE board seat on. Reuses
+      permissions._get_board_chapters_for_member() -- the same helper
+      get_sepa_mandate_permission_query() uses for SEPA Mandate's own get_list()
+      permission -- rather than a second, possibly-divergent definition of "my
+      chapter's members". A caller with no active board seat (none held, or their
+      only seat is inactive/ended -- _get_board_chapters_for_member filters on
+      cbm.is_active = 1) resolves to no chapters, so this returns "AND 1=0": an
+      empty result, not an error and not the full list.
+    """
+    if set(frappe.get_roles()) & Roles.ADMIN_ROLES:
+        return ""
+
+    from verenigingen.permissions import _get_board_chapters_for_member
+
+    user_member = get_member_name_for_user(frappe.session.user)
+    board_chapters = _get_board_chapters_for_member(user_member) if user_member else []
+    if not board_chapters:
+        return "AND 1=0"
+
+    chapter_list = ",".join(frappe.db.escape(chapter) for chapter in board_chapters)
+    return f"""AND m.name IN (
+        SELECT cm.member FROM `tabChapter Member` cm
+        WHERE cm.parent IN ({chapter_list}) AND cm.status = 'Active'
+    )"""
+
+
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
 def get_mandate_issues():
@@ -62,6 +94,7 @@ def get_mandate_issues():
         dict: Issue categories with counts and affected members
     """
     _ensure_mandate_diagnostics_access()
+    scope_sql = _mandate_diagnostics_member_scope_sql()
 
     issues = {
         "sepa_selected_no_mandate": {
@@ -114,7 +147,7 @@ def get_mandate_issues():
 
     # CRITICAL: Members with SEPA payment method but no active mandate
     sepa_no_mandate = frappe.db.sql(
-        """
+        f"""
         SELECT
             m.name as member_id,
             m.full_name,
@@ -131,6 +164,7 @@ def get_mandate_issues():
         FROM `tabMember` m
         LEFT JOIN `tabSEPA Mandate` sm ON sm.member = m.name
         WHERE m.payment_method = 'SEPA Direct Debit'
+        {scope_sql}
         GROUP BY m.name, m.full_name, m.payment_method, m.iban, m.bank_account_name
         HAVING active_mandates = 0
         """,
@@ -141,7 +175,7 @@ def get_mandate_issues():
 
     # Missing child table entries
     missing_entries = frappe.db.sql(
-        """
+        f"""
         SELECT
             m.name as member_id,
             m.full_name,
@@ -151,6 +185,7 @@ def get_mandate_issues():
         INNER JOIN `tabSEPA Mandate` sm ON sm.member = m.name
         LEFT JOIN `tabMember SEPA Mandate Link` sml ON sml.parent = m.name AND sml.sepa_mandate = sm.name
         WHERE sml.name IS NULL
+        {scope_sql}
         GROUP BY m.name, m.full_name
         """,
         as_dict=True,
@@ -160,7 +195,7 @@ def get_mandate_issues():
 
     # Orphaned child table entries
     orphaned_entries = frappe.db.sql(
-        """
+        f"""
         SELECT
             sml.parent as member_id,
             m.full_name,
@@ -170,6 +205,7 @@ def get_mandate_issues():
         INNER JOIN `tabMember` m ON m.name = sml.parent
         LEFT JOIN `tabSEPA Mandate` sm ON sm.name = sml.sepa_mandate
         WHERE sm.name IS NULL
+        {scope_sql}
         GROUP BY sml.parent, m.full_name, sml.sepa_mandate, sml.mandate_reference
         """,
         as_dict=True,
@@ -179,7 +215,7 @@ def get_mandate_issues():
 
     # Outdated child table data
     outdated_data = frappe.db.sql(
-        """
+        f"""
         SELECT
             m.name as member_id,
             m.full_name,
@@ -191,10 +227,13 @@ def get_mandate_issues():
         FROM `tabMember` m
         INNER JOIN `tabSEPA Mandate` sm ON sm.member = m.name
         INNER JOIN `tabMember SEPA Mandate Link` sml ON sml.parent = m.name AND sml.sepa_mandate = sm.name
-        WHERE sml.status != sm.status
-           OR sml.mandate_reference != sm.mandate_id
-           OR sml.valid_from != sm.sign_date
-           OR sml.valid_until != sm.expiry_date
+        WHERE (
+               sml.status != sm.status
+            OR sml.mandate_reference != sm.mandate_id
+            OR sml.valid_from != sm.sign_date
+            OR sml.valid_until != sm.expiry_date
+        )
+        {scope_sql}
         """,
         as_dict=True,
     )
@@ -203,7 +242,7 @@ def get_mandate_issues():
 
     # Multiple current mandates
     multiple_current = frappe.db.sql(
-        """
+        f"""
         SELECT
             m.name as member_id,
             m.full_name,
@@ -212,6 +251,7 @@ def get_mandate_issues():
         FROM `tabMember` m
         INNER JOIN `tabMember SEPA Mandate Link` sml ON sml.parent = m.name
         WHERE sml.is_current = 1
+        {scope_sql}
         GROUP BY m.name, m.full_name
         HAVING current_count > 1
         """,
@@ -222,7 +262,7 @@ def get_mandate_issues():
 
     # Mandate/Member data mismatch - IBAN or account holder name differs
     data_mismatch = frappe.db.sql(
-        """
+        f"""
         SELECT
             m.name as member_id,
             m.full_name,
@@ -255,6 +295,7 @@ def get_mandate_issues():
                   AND m.bank_account_name != sm.account_holder_name
               )
           )
+        {scope_sql}
         """,
         as_dict=True,
     )
