@@ -54,6 +54,99 @@ def _no_mandate_member_ids(result):
     return {m["member_id"] for m in result["issues"]["sepa_selected_no_mandate"]["members"]}
 
 
+def _member_ids(result, category):
+    return {m["member_id"] for m in result["issues"][category]["members"]}
+
+
+def _make_missing_child_table_entry_member(test, first_name):
+    """Member has a SEPA mandate but no matching Member SEPA Mandate Link row ->
+    'missing_child_table_entries'. Same technique as
+    test_sepa_mandate_management.py's test_detects_missing_child_table_entry and
+    test_sepa_mandate_retry_report_coverage.py's
+    test_execute_missing_child_table_entries: the mandate's own after_insert
+    auto-creates the link, so it is deleted afterwards rather than never created."""
+    member = test.create_test_member(first_name=first_name)
+    test.create_test_sepa_mandate(member=member.name, status="Active")
+    frappe.db.delete("Member SEPA Mandate Link", {"parent": member.name})
+    return member
+
+
+def _make_orphaned_child_table_entry_member(test, first_name):
+    """Member has a Member SEPA Mandate Link row whose referenced SEPA Mandate no
+    longer exists -> 'orphaned_child_table_entries'. SEPAMandate.on_trash only
+    invalidates a cache (verenigingen_payments/doctype/sepa_mandate/sepa_mandate.py)
+    -- it does not clean up the child link -- so deleting the mandate directly
+    leaves the auto-created link dangling."""
+    member = test.create_test_member(first_name=first_name)
+    mandate = test.create_test_sepa_mandate(member=member.name, status="Active")
+    frappe.delete_doc("SEPA Mandate", mandate.name, force=True)
+    return member
+
+
+def _make_outdated_child_table_data_member(test, first_name):
+    """Mandate and its child link both exist, but the mandate's status is
+    changed directly (bypassing the sync in sepa_mandate_lifecycle_service that
+    a normal on_update would run) so the child link's copy goes stale ->
+    'outdated_child_table_data' (sml.status != sm.status)."""
+    member = test.create_test_member(first_name=first_name)
+    mandate = test.create_test_sepa_mandate(member=member.name, status="Active")
+    frappe.db.set_value("SEPA Mandate", mandate.name, "status", "Suspended", update_modified=False)
+    return member
+
+
+def _make_multiple_current_mandates_member(test, first_name):
+    """Two Member SEPA Mandate Link rows both flagged is_current=1 for the same
+    member -> 'multiple_current_mandates'. Same construction as
+    test_sepa_mandate_retry_report_coverage.py's
+    test_detects_multiple_current_mandates (#584: two Active mandates for
+    different purposes is legitimate; both flagged current is what this
+    diagnostic is about)."""
+    member = test.create_test_member(first_name=first_name)
+    m1 = test.create_test_sepa_mandate(member=member.name)
+    m2 = test.create_test_sepa_mandate(member=member.name, used_for_memberships=0, used_for_donations=1)
+    member.reload()
+    for mandate_ref in (m1, m2):
+        member.append(
+            "sepa_mandates",
+            {
+                "sepa_mandate": mandate_ref.name,
+                "sepa_mandate_doctype": "SEPA Mandate",
+                "mandate_reference": mandate_ref.mandate_id,
+                "is_current": 1,
+                "status": "Active",
+                "valid_from": frappe.utils.today(),
+            },
+        )
+    member.save()
+    return member
+
+
+def _make_data_mismatch_member(test, first_name):
+    """Active mandate whose IBAN differs from the member's own IBAN ->
+    'mandate_member_data_mismatch'. Same construction as
+    test_sepa_mandate_retry_report_coverage.py's
+    test_execute_mandate_member_data_mismatch_iban."""
+    member = test.create_test_member(first_name=first_name)
+    frappe.db.set_value(
+        "Member",
+        member.name,
+        {
+            "payment_method": "SEPA Direct Debit",
+            "iban": "NL02ABNA0123456789",
+            "bank_account_name": "Same Holder",
+        },
+        update_modified=False,
+    )
+    mandate = test.create_test_sepa_mandate(
+        member=member.name,
+        iban="NL13TEST0123456789",
+        status="Active",
+        account_holder_name="Same Holder",
+    )
+    frappe.db.set_value("SEPA Mandate", mandate.name, "is_active", 1, update_modified=False)
+    return member
+
+
 class TestGetMandateIssuesChapterScope(EnhancedTestCase):
     def test_board_member_sees_own_chapter_not_other_chapter(self):
         """Core scenario: a board member of chapter A sees chapter A's member and
@@ -223,3 +316,46 @@ class TestGetMandateIssuesChapterScope(EnhancedTestCase):
         member_ids = _no_mandate_member_ids(result)
         self.assertIn(member_in_a.name, member_ids)
         self.assertNotIn(member_in_e.name, member_ids)
+
+
+class TestGetMandateIssuesChapterScopeAllCategories(EnhancedTestCase):
+    """One leak test per remaining issue category (sepa_selected_no_mandate is
+    covered by TestGetMandateIssuesChapterScope above): for each, an in-chapter
+    member is visible and an out-of-chapter member does not leak. This is what
+    guards against a future category-specific query losing its {scope_sql}
+    interpolation -- the core cross-chapter test above only ever exercised
+    sepa_selected_no_mandate, so a regression in any of the other five queries
+    would have passed it silently."""
+
+    def _assert_scoped(self, category, make_member):
+        chapter_a = self.create_test_chapter()
+        chapter_b = self.create_test_chapter()
+        board = self.create_test_board_member(chapter_a.name)
+
+        member_in_a = make_member(self, f"Scope{category[:10]}A")
+        self.add_member_to_test_chapter(member_in_a.name, chapter_a.name)
+
+        member_in_b = make_member(self, f"Scope{category[:10]}B")
+        self.add_member_to_test_chapter(member_in_b.name, chapter_b.name)
+
+        with self.set_user(board.user):
+            result = get_mandate_issues()
+
+        member_ids = _member_ids(result, category)
+        self.assertIn(member_in_a.name, member_ids)
+        self.assertNotIn(member_in_b.name, member_ids)
+
+    def test_missing_child_table_entries_scoped(self):
+        self._assert_scoped("missing_child_table_entries", _make_missing_child_table_entry_member)
+
+    def test_orphaned_child_table_entries_scoped(self):
+        self._assert_scoped("orphaned_child_table_entries", _make_orphaned_child_table_entry_member)
+
+    def test_outdated_child_table_data_scoped(self):
+        self._assert_scoped("outdated_child_table_data", _make_outdated_child_table_data_member)
+
+    def test_multiple_current_mandates_scoped(self):
+        self._assert_scoped("multiple_current_mandates", _make_multiple_current_mandates_member)
+
+    def test_mandate_member_data_mismatch_scoped(self):
+        self._assert_scoped("mandate_member_data_mismatch", _make_data_mismatch_member)
