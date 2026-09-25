@@ -361,6 +361,35 @@ class TestUpdateStatusFromWebhookAtomicity(_PontoPaymentRequestFixtures, Enhance
         )
         self.assertFalse(frappe.db.get_value("Ponto Payment Request", req.name, "payment_entry"))
 
+    def test_real_success_creates_exactly_one_payment_entry(self):
+        """update_status_from_webhook() through a fully valid config, with
+        create_payment_entry() running for real (unmocked) -- only
+        refresh_status() had this end-to-end coverage before. Both methods
+        share the identical _atomic_status_transition() call, but nothing
+        else had exercised update_status_from_webhook()'s own success path
+        against a real, working bank account/company/Supplier."""
+        req = self._create_ponto_request(
+            self._create_supplier("WebhookRealPE"), status="Signed", track_priority=6
+        )
+
+        req.update_status_from_webhook("Executed")
+
+        req.reload()
+        self.assertEqual(req.status, "Executed")
+        self.assertTrue(req.payment_entry, "a successful webhook update must latch payment_entry")
+        self.factory.track_document("Payment Entry", req.payment_entry, priority=6)
+
+        pe = frappe.get_doc("Payment Entry", req.payment_entry)
+        self.assertEqual(pe.docstatus, 1)
+        self.assertEqual(pe.party, req.reference_name)
+
+        entries = frappe.get_all(
+            "Payment Entry",
+            filters={"reference_no": req.name, "docstatus": 1},
+            pluck="name",
+        )
+        self.assertEqual(len(entries), 1, f"the payment was posted more than once: {entries}")
+
 
 class TestRetryCreatesExactlyOnePaymentEntry(_PontoPaymentRequestFixtures, EnhancedTestCase):
     """A retry after a transient PE failure, once the cause is gone, must
