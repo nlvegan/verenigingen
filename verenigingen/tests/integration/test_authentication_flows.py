@@ -349,8 +349,15 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
             with self.assertRaises(frappe.ValidationError):
                 validate_member_ownership("")
 
-            # Should fail - non-existent member
-            with self.assertRaises(frappe.DoesNotExistError):
+            # Should fail - non-existent member. #1328: this used to raise
+            # frappe.DoesNotExistError, distinct from the frappe.PermissionError
+            # raised two lines above for an existing-but-foreign member -- an
+            # existence oracle over Member ids for a non-admin caller. Both
+            # branches now collapse to frappe.PermissionError; see
+            # test_member_utils.py's
+            # test_validate_member_ownership_unknown_and_foreign_ids_are_indistinguishable
+            # for the direct A/B proof.
+            with self.assertRaises(frappe.PermissionError):
                 validate_member_ownership("NONEXISTENT-MEMBER-001")
 
     def test_volunteer_authentication_integration(self):

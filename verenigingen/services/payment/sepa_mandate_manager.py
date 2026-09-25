@@ -1397,8 +1397,12 @@ def validate_mandate_creation_api(member: str, iban: str, mandate_id: str) -> Op
     Note:
         - Never throws exceptions for validation failures (returns failed
           OperationResult); an ownership violation still raises
-          frappe.PermissionError/DoesNotExistError, same as every other
-          validate_member_ownership() call site in the app
+          frappe.PermissionError (frappe.DoesNotExistError only if the
+          CALLER has no member record of their own -- #1328 collapsed the
+          "unknown member" and "foreign member" branches into a single
+          PermissionError so a non-admin caller cannot tell them apart),
+          same as every other validate_member_ownership() call site in
+          the app
         - Critical API with FINANCIAL operation classification
     """
     validate_member_ownership(member, allow_admin=True)
@@ -1437,8 +1441,12 @@ def create_mandate_api(
     Note:
         - Never throws exceptions for validation failures (returns failed
           OperationResult); an ownership violation still raises
-          frappe.PermissionError/DoesNotExistError, same as every other
-          validate_member_ownership() call site in the app
+          frappe.PermissionError (frappe.DoesNotExistError only if the
+          CALLER has no member record of their own -- #1328 collapsed the
+          "unknown member" and "foreign member" branches into a single
+          PermissionError so a non-admin caller cannot tell them apart),
+          same as every other validate_member_ownership() call site in
+          the app
         - Critical API with FINANCIAL operation classification
     """
     validate_member_ownership(member, allow_admin=True)
@@ -1470,8 +1478,12 @@ def deactivate_mandates_for_iban_change_api(member: str, new_iban: str) -> Opera
     Note:
         - Never throws exceptions for validation failures (returns failed
           OperationResult); an ownership violation still raises
-          frappe.PermissionError/DoesNotExistError, same as every other
-          validate_member_ownership() call site in the app
+          frappe.PermissionError (frappe.DoesNotExistError only if the
+          CALLER has no member record of their own -- #1328 collapsed the
+          "unknown member" and "foreign member" branches into a single
+          PermissionError so a non-admin caller cannot tell them apart),
+          same as every other validate_member_ownership() call site in
+          the app
         - Critical API with FINANCIAL operation classification
     """
     validate_member_ownership(member, allow_admin=True)

@@ -523,12 +523,55 @@ class TestMemberUtils(EnhancedTestCase):
                 validate_member_ownership(other_member.name)
 
     def test_validate_member_ownership_invalid_member(self):
-        """Test member ownership validation with invalid member ID"""
+        """Test member ownership validation with an unknown (non-existent)
+        member ID.
+
+        #1328: this used to raise frappe.DoesNotExistError here, distinct
+        from the frappe.PermissionError raised by
+        test_validate_member_ownership_failure() (above) for an
+        existing-but-foreign id -- the type difference let a non-admin
+        caller enumerate valid Member ids. Both branches now collapse to the
+        same frappe.PermissionError; see
+        test_validate_member_ownership_unknown_and_foreign_ids_are_indistinguishable
+        below for the direct A/B proof this test alone cannot give (it only
+        shows ONE branch's type, not that the two AGREE)."""
         with patch("frappe.session") as mock_session:
             mock_session.user = self.test_users["member_user"]
 
-            with self.assertRaises(frappe.DoesNotExistError):
+            with self.assertRaises(frappe.PermissionError):
                 validate_member_ownership("invalid-member-id")
+
+    def test_validate_member_ownership_unknown_and_foreign_ids_are_indistinguishable(self):
+        """#1328: validate_member_ownership() must not act as an existence
+        oracle. A non-admin caller passing an existing-but-foreign member_id
+        and one passing a wholly unknown member_id must get the identical
+        exception type AND message -- otherwise the two cases are
+        distinguishable and a caller can tell which member ids are real
+        without ever reading one they own."""
+        other_member = self.create_test_member(
+            first_name="Other2", last_name="Member", email="other2@test.com", birth_date="1985-01-01"
+        )
+
+        def _call(member_id):
+            try:
+                validate_member_ownership(member_id)
+            except Exception as e:
+                return type(e), str(e)
+            self.fail(f"validate_member_ownership({member_id!r}) did not raise")
+
+        with patch("frappe.session") as mock_session:
+            mock_session.user = self.test_users["member_user"]
+
+            foreign_result = _call(other_member.name)
+            unknown_result = _call("NONEXISTENT-MEMBER-ID-XYZ")
+
+        self.assertEqual(foreign_result, unknown_result)
+        # Control: the exception type must actually be frappe.PermissionError,
+        # not some unrelated pair of matching exceptions -- guards against a
+        # future change accidentally making BOTH branches something else
+        # (e.g. both silently swallowed) while still passing the equality
+        # check above.
+        self.assertEqual(foreign_result[0], frappe.PermissionError)
 
     def test_validate_member_ownership_no_current_member(self):
         """Test member ownership validation when current user has no member record"""

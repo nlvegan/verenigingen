@@ -151,6 +151,30 @@ class TestGetActiveMandatesApiOwnership(_MandateApiOwnershipMixin, EnhancedTestC
 
         self.assertEqual(result["count"], 1)
 
+    def test_unknown_member_indistinguishable_from_foreign_member(self):
+        """#1328: validate_member_ownership() (called at the top of this real
+        whitelisted, HIGH-tier endpoint) must not act as an existence oracle.
+        An attacker who clears the HIGH tier (a real "Verenigingen Chapter
+        Board Member", not System Manager/Administrator/Staff) must get the
+        identical exception type and message for an existing-but-foreign
+        member and for a wholly unknown one."""
+        attacker_user, _attacker_member = self._board_member_linked_user("MandateGetOracleAttacker")
+        victim = self.create_test_member(first_name="MandateGetOracleVictim")
+
+        def _call(member_id):
+            try:
+                get_active_mandates_api(member=member_id)
+            except Exception as e:
+                return type(e), str(e)
+            self.fail(f"get_active_mandates_api(member={member_id!r}) did not raise")
+
+        with self.set_user(attacker_user):
+            foreign_result = _call(victim.name)
+            unknown_result = _call("NONEXISTENT-MEMBER-ID-XYZ")
+
+        self.assertEqual(foreign_result, unknown_result)
+        self.assertEqual(foreign_result[0], frappe.PermissionError)
+
 
 class TestValidateMandateCreationApiOwnership(_MandateApiOwnershipMixin, EnhancedTestCase):
     """@critical_api -- see module docstring: no real non-admin Role Profile
@@ -190,6 +214,30 @@ class TestValidateMandateCreationApiOwnership(_MandateApiOwnershipMixin, Enhance
             )
 
         self.assertIn("success", result)
+
+    def test_unknown_member_indistinguishable_from_foreign_member(self):
+        """#1328: same A/B proof as TestGetActiveMandatesApiOwnership's sibling
+        test, isolated from the CRITICAL tier gate the same way
+        test_foreign_member_refused (above) is."""
+        attacker_user, _attacker_member = self._plain_member_linked_user("MandateValidateOracleAttacker")
+        victim = self.create_test_member(first_name="MandateValidateOracleVictim")
+
+        def _call(member_id):
+            try:
+                validate_mandate_creation_api(
+                    member=member_id, iban="NL91ABNA0417164300", mandate_id="OWN-TEST-ORACLE"
+                )
+            except Exception as e:
+                return type(e), str(e)
+            self.fail(f"validate_mandate_creation_api(member={member_id!r}) did not raise")
+
+        with self.set_user(attacker_user):
+            with self._bypass_tier_gate():
+                foreign_result = _call(victim.name)
+                unknown_result = _call("NONEXISTENT-MEMBER-ID-XYZ")
+
+        self.assertEqual(foreign_result, unknown_result)
+        self.assertEqual(foreign_result[0], frappe.PermissionError)
 
 
 class TestCreateMandateApiOwnership(_MandateApiOwnershipMixin, EnhancedTestCase):
@@ -232,6 +280,30 @@ class TestCreateMandateApiOwnership(_MandateApiOwnershipMixin, EnhancedTestCase)
             )
 
         self.assertTrue(result["success"], result)
+
+    def test_unknown_member_indistinguishable_from_foreign_member(self):
+        """#1328: same A/B proof as TestGetActiveMandatesApiOwnership's sibling
+        test, isolated from the CRITICAL tier gate the same way
+        test_foreign_member_refused (above) is."""
+        attacker_user, _attacker_member = self._plain_member_linked_user("MandateCreateOracleAttacker")
+        victim = self.create_test_member(first_name="MandateCreateOracleVictim")
+
+        def _call(member_id):
+            try:
+                create_mandate_api(
+                    member=member_id, iban="NL91ABNA0417164300", account_holder_name="Create Api Oracle"
+                )
+            except Exception as e:
+                return type(e), str(e)
+            self.fail(f"create_mandate_api(member={member_id!r}) did not raise")
+
+        with self.set_user(attacker_user):
+            with self._bypass_tier_gate():
+                foreign_result = _call(victim.name)
+                unknown_result = _call("NONEXISTENT-MEMBER-ID-XYZ")
+
+        self.assertEqual(foreign_result, unknown_result)
+        self.assertEqual(foreign_result[0], frappe.PermissionError)
 
 
 class TestDeactivateMandatesForIbanChangeApiOwnership(_MandateApiOwnershipMixin, EnhancedTestCase):
@@ -278,3 +350,26 @@ class TestDeactivateMandatesForIbanChangeApiOwnership(_MandateApiOwnershipMixin,
             )
 
         self.assertTrue(result["success"], result)
+
+    def test_unknown_member_indistinguishable_from_foreign_member(self):
+        """#1328: same A/B proof as TestGetActiveMandatesApiOwnership's sibling
+        test, isolated from the CRITICAL tier gate the same way
+        test_foreign_member_refused (above) is."""
+        attacker_user, _attacker_member = self._plain_member_linked_user("MandateDeactOracleAttacker")
+        victim = self.create_test_member(first_name="MandateDeactOracleVictim")
+        self._active_mandate(victim.name, "NL91ABNA0417164300")
+
+        def _call(member_id):
+            try:
+                deactivate_mandates_for_iban_change_api(member=member_id, new_iban="NL20INGB0001234567")
+            except Exception as e:
+                return type(e), str(e)
+            self.fail(f"deactivate_mandates_for_iban_change_api(member={member_id!r}) did not raise")
+
+        with self.set_user(attacker_user):
+            with self._bypass_tier_gate():
+                foreign_result = _call(victim.name)
+                unknown_result = _call("NONEXISTENT-MEMBER-ID-XYZ")
+
+        self.assertEqual(foreign_result, unknown_result)
+        self.assertEqual(foreign_result[0], frappe.PermissionError)

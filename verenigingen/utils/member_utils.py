@@ -307,12 +307,20 @@ def validate_member_ownership(member_id: str, error_message: str = None, allow_a
 
     Raises:
         frappe.DoesNotExistError: If current user has no member record
-        frappe.PermissionError: If user doesn't own the member record
+        frappe.PermissionError: If member_id is not the current user's own
+            member record -- whether member_id belongs to someone else or
+            does not exist at all. These two cases are deliberately
+            indistinguishable to a non-admin caller (#1328): current_member
+            is already confirmed to reference a real row (it came from a
+            lookup that only returns existing names), so a plain equality
+            comparison against member_id fully decides both existence and
+            ownership without a separate frappe.db.exists() query -- there is
+            no code path left where an unknown id and a foreign-but-existing
+            one produce different exceptions or messages.
         frappe.ValidationError: If member_id is invalid
 
     Security Notes:
-        - Validates both users have valid member records
-        - Prevents access to non-existent member IDs
+        - Denies access to a non-owned member_id, whether or not it exists
         - Logs security violations for audit purposes
     """
     # Validate inputs
@@ -328,14 +336,10 @@ def validate_member_ownership(member_id: str, error_message: str = None, allow_a
     if not current_member:
         frappe.throw(_("No member record found for your account"), frappe.DoesNotExistError)
 
-    # Validate target member exists
-    if not frappe.db.exists("Member", member_id):
-        frappe.logger().warning(
-            f"Security: User {frappe.session.user} attempted to access non-existent member {member_id}"
-        )
-        frappe.throw(_("The requested member record does not exist"), frappe.DoesNotExistError)
-
-    # Validate ownership
+    # Validate ownership. member_id may be unknown OR belong to another
+    # member -- both cases are denied identically (#1328): revealing a
+    # distinct "does not exist" for an unknown id let a non-admin caller
+    # enumerate valid Member ids by the exception type/message alone.
     if current_member != member_id:
         # Log potential security violation
         frappe.logger().warning(
