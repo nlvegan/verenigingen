@@ -107,22 +107,35 @@ class TestSessionVariableGuard(unittest.TestCase):
 
 class TestSessionVariableGuardSurvivesAPreexistingLeak(unittest.TestCase):
     """A leak that happens BEFORE the very first harness class ever runs in a
-    process must not get folded into the guard's cached state and then
-    actively RE-APPLIED by every later harness class.
+    process must not survive into that first class OR any later one.
 
     This app also has ~421 plain ``FrappeTestCase``-only classes, and other
     non-``EnhancedTestCase``/``VereningingenTestCase`` classes, that register
-    no guard at all. An earlier revision of the guard module snapshotted the
-    tracked variables' VALUES the first time any harness class asked for them
-    -- so if one of those non-harness classes ran first in a shard and leaked
-    a tracked variable, the "baseline" the guard cached was already the leaked
-    value, and every later harness class then dutifully restored EVERYONE
-    back to it. Measured against that revision (commit 35d9dc7ad): a plain
-    ``unittest.TestCase`` set ``lock_wait_timeout = 97531`` and left it; the
-    first ``EnhancedTestCase`` afterward saw 97531 (expected -- nothing has
-    run yet to fix it), and a SECOND ``EnhancedTestCase`` still saw 97531
-    after the first one's own cleanup ran -- the restore was defending the
-    leak instead of undoing it.
+    no guard at all. Two revisions of this module got this wrong, in two
+    different ways, both measured directly against their actual commits:
+
+    * Commit 35d9dc7ad snapshotted the tracked variables' VALUES the first
+      time any harness class asked for them -- so if a non-harness class ran
+      first in a shard and leaked a tracked variable, the "baseline" the guard
+      cached was already the leaked value, and every later harness class then
+      dutifully restored EVERYONE back to it. Measured: a plain
+      ``unittest.TestCase`` set ``lock_wait_timeout = 97531`` and left it; the
+      first ``EnhancedTestCase`` afterward saw 97531 (unsurprising -- nothing
+      had run yet to fix it), and a SECOND ``EnhancedTestCase`` still saw
+      97531 after the first one's own cleanup ran -- the restore was
+      defending the leak instead of undoing it.
+    * Commit cbad0ac1a fixed the cache-poisoning (switched to
+      ``SET ... = DEFAULT``, no cached value) but only reset at the END of a
+      class, via ``addClassCleanup``. That leaves the FIRST harness class
+      after a leak exposed: it still runs ITS OWN tests with the leaked value
+      in place, and only the class after it comes back clean. Measured: same
+      setup as above, the first ``EnhancedTestCase`` still saw 97531 (not the
+      true default) even though the guard was already active.
+
+    The fix (this commit) resets immediately, synchronously, inside
+    ``guard_session_variables`` itself -- not only via the registered
+    cleanup -- so EVERY harness class starts clean regardless of what ran
+    before it, including the very first one after a leak.
     """
 
     def setUp(self):
@@ -146,7 +159,7 @@ class TestSessionVariableGuardSurvivesAPreexistingLeak(unittest.TestCase):
             if name.startswith("_") and name.endswith("_cache"):
                 setattr(session_variable_guard, name, None)
 
-    def test_a_leak_before_the_first_harness_class_does_not_survive_as_the_restored_value(self):
+    def test_a_leak_before_the_first_harness_class_does_not_survive_into_it_or_later(self):
         class _NonHarnessLeak(unittest.TestCase):
             """A plain unittest.TestCase -- like one of this app's ~421
             FrappeTestCase-only (or otherwise non-EnhancedTestCase /
@@ -175,8 +188,10 @@ class TestSessionVariableGuardSurvivesAPreexistingLeak(unittest.TestCase):
         )
         self.assertEqual(
             seen.get("first"),
-            LEAK_VALUE,
-            "test setup did not actually leak the session variable before the first harness class",
+            self.original,
+            "the FIRST harness class after a non-harness leak still observed the leaked value "
+            f"({LEAK_VALUE!r}) instead of the server's true default -- the guard must reset "
+            "immediately in setUpClass, not only via an end-of-class cleanup",
         )
         self.assertEqual(
             seen.get("second"),
@@ -184,4 +199,54 @@ class TestSessionVariableGuardSurvivesAPreexistingLeak(unittest.TestCase):
             "a SECOND harness class still observed the value a NON-harness class leaked before "
             "the first harness class ever ran, instead of the server's true default -- the "
             "restore is defending the leak it should be undoing",
+        )
+
+
+class TestStartOfClassResetDoesNotClobberADeliberateSubclassSetting(unittest.TestCase):
+    """The immediate, start-of-class reset added above must not undo a
+    session variable a SUBCLASS sets deliberately in its own ``setUpClass``.
+
+    Verified by ordering, not assumed: ``guard_session_variables`` runs
+    synchronously inside ``EnhancedTestCase.setUpClass``, which a subclass
+    reaches via its own ``super().setUpClass()`` call. Anything the subclass
+    does AFTER that call runs strictly after the reset already completed --
+    Python's ``super()`` chain is synchronous, so there is no way for a
+    statement appearing later in the subclass's ``setUpClass`` to execute
+    before the reset inside the base class's ``setUpClass`` that it called
+    into. This test exercises that real chain rather than reasoning about it
+    in the abstract.
+    """
+
+    def setUp(self):
+        self.original = _current_lock_wait_timeout()
+        self.addCleanup(self._restore_original)
+
+    def _restore_original(self):
+        frappe.db.sql(f"SET SESSION lock_wait_timeout = {self.original}")
+
+    def test_a_deliberate_setting_after_super_setupclass_survives(self):
+        deliberate_value = "54321"
+        seen = {}
+
+        class _DeliberateSubclass(EnhancedTestCase):
+            @classmethod
+            def setUpClass(cls):
+                super().setUpClass()  # runs the start-of-class reset
+                frappe.db.sql(f"SET SESSION lock_wait_timeout = {deliberate_value}")
+
+            def test_observes_its_own_deliberate_value(self):
+                seen["value"] = _current_lock_wait_timeout()
+
+        result = _run_classes_in_one_process(_DeliberateSubclass)
+
+        self.assertEqual(
+            (result.errors, result.failures),
+            ([], []),
+            f"harness class setup/teardown itself failed: {result.errors or result.failures}",
+        )
+        self.assertEqual(
+            seen.get("value"),
+            deliberate_value,
+            "the start-of-class session-variable reset clobbered a value the subclass's OWN "
+            "setUpClass set deliberately after its own super().setUpClass() call",
         )

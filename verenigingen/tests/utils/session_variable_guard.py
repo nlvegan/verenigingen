@@ -74,12 +74,14 @@ Cost
 ----
 One name-existence query, once per PROCESS (module-level cache -- which
 variable names exist on this MariaDB server does not change during a run).
-One restore statement per test CLASS (~2972 harness classes app-wide as of
-#1353) in ``addClassCleanup``, so it also runs if the rest of ``setUpClass``
-raises after registering it -- same reasoning as ``own_settings_company``
-(``tests/support/verenigingen_settings.py``). The restore is unconditional --
+TWO reset statements per test CLASS (~2972 harness classes app-wide as of
+#1353): one issued immediately in ``setUpClass`` (so this class itself starts
+clean, regardless of what ran before it -- see "start AND end" below), and one
+via ``addClassCleanup`` (so it also runs if the rest of ``setUpClass`` raises
+after registering it -- same reasoning as ``own_settings_company``,
+``tests/support/verenigingen_settings.py``). Each reset is unconditional --
 always issued, never diffed against the current value first -- because a
-second query to check for drift would cost as much as the restore itself.
+second query to check for drift would cost as much as the reset itself.
 
 Deliberately per-CLASS, not per-test
 --------------------------------------
@@ -90,6 +92,19 @@ session variable for the duration of its OWN body (the
 ``tests/unit/test_base_history_manager_row_lock.py``) already restores it
 itself with its own ``addCleanup`` before its own class ends -- this guard is a
 backstop for the next unrestored leak, not a replacement for that.
+
+Reset at BOTH start and end of a class, not just one
+------------------------------------------------------
+A single end-of-class ``addClassCleanup`` leaves a gap: the FIRST harness
+class after a leak (whether the leak came from a harness class's own test
+body, or from one of the ~421 non-harness classes that register no guard at
+all) still runs its own tests with the leaked value in place -- only the class
+AFTER it would come back clean. That first class is exactly the #1350 victim
+position: the leak is observed by whichever class runs next, and in a shard
+that can be a harness class following a plain ``FrappeTestCase``. So
+``guard_session_variables`` resets immediately, synchronously, as well as
+registering the cleanup -- every harness class then starts clean regardless of
+what ran before it, not just the one after the one that noticed.
 """
 
 import frappe
@@ -120,20 +135,46 @@ _supported_variables_cache = None
 
 
 def guard_session_variables(test_class) -> None:
-    """Register a class-level reset of the tracked session variables to their
-    GLOBAL (server-default) value.
+    """Reset the tracked session variables to their GLOBAL (server-default)
+    value NOW, and register a class-level cleanup that resets them again.
 
     Call this from ``setUpClass``, after ``super().setUpClass()``. No-ops on
     any backend other than MariaDB (``frappe.db.db_type != "mariadb"``):
     ``SHOW SESSION VARIABLES`` / ``SET SESSION name = DEFAULT`` are
     MariaDB/MySQL syntax, and every test site in this bench is MariaDB, so
     this is cheap insurance rather than a real code path.
+
+    Both the immediate reset and the ``addClassCleanup`` are needed, not just
+    one:
+
+    * Without the IMMEDIATE reset, the first harness class after a leak
+      (harness or non-harness -- this app has ~421 ``FrappeTestCase``-only /
+      plain ``unittest.TestCase`` classes that register no guard at all)
+      still starts its own tests with the leaked value in place; only the
+      class AFTER it would come back clean. That first class is exactly the
+      #1350 victim position -- the leak is observed by whichever class runs
+      next, and in a shard that can be a harness class following a
+      non-harness one.
+    * Without the ``addClassCleanup``, a leak from one of THIS class's own
+      test methods sits there until the next harness class's immediate reset
+      runs -- which may never happen if the next class in the shard is a
+      non-harness one.
+
+    Because this runs synchronously inside ``setUpClass`` -- specifically
+    inside THIS module's ``super().setUpClass()`` chain, before a subclass's
+    own additional ``setUpClass`` code executes -- a subclass that sets one of
+    the tracked variables deliberately, AFTER its own ``super().setUpClass()``
+    call, is unaffected: that write happens strictly after this reset, not
+    before it. Verified with a real subclass, not assumed (see
+    ``TestStartOfClassResetDoesNotClobberADeliberateSubclassSetting`` in
+    ``test_session_variable_guard.py``).
     """
     if getattr(frappe.db, "db_type", None) != "mariadb":
         return
     supported = _supported_variables()
     if not supported:
         return
+    _reset_to_global_default(supported)
     test_class.addClassCleanup(_reset_to_global_default, supported)
 
 

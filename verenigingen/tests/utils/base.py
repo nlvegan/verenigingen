@@ -68,10 +68,11 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         super().setUpClass()
 
         # #1353: put tracked MariaDB session variables (max_statement_time,
-        # innodb_lock_wait_timeout, ...) back to their pre-harness values once
-        # this class's tests are done, regardless of who set them or whether
-        # they cleaned up -- a CI shard runs every class in one process, on one
-        # DB connection, and frappe.db.rollback() never touches session state.
+        # innodb_lock_wait_timeout, ...) back to their true (global) values
+        # both NOW and once this class's tests are done, regardless of who
+        # set them or whether they cleaned up -- a CI shard runs every class
+        # in one process, on one DB connection, and frappe.db.rollback()
+        # never touches session state.
         guard_session_variables(cls)
 
         cls._ensure_test_environment()
