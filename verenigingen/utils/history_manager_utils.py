@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 import frappe
 
 from verenigingen.utils.safe_error_logging import safe_log_error
-from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, is_statement_timeout
 
 
 class HistoryOperationResult:
@@ -250,6 +250,12 @@ def safe_child_table_update(
                     except NON_RESUMABLE_DB_ERRORS:
                         raise
                     except Exception as retry_error:
+                        # Same gap as the guard above, on the retry's own write: a
+                        # 1969 here is not NON_RESUMABLE_DB_ERRORS (see
+                        # transaction_errors.is_statement_timeout) and would
+                        # otherwise be folded into the ordinary failure below. #1352.
+                        if is_statement_timeout(retry_error):
+                            raise
                         frappe.logger().error(f"Retry after cleanup still failed: {str(retry_error)}")
                         return HistoryOperationResult(
                             success=False,
@@ -264,6 +270,13 @@ def safe_child_table_update(
         return HistoryOperationResult(success=False, message="Validation failed", errors=[error_msg])
 
     except Exception as e:
+        # Same gap the NON_RESUMABLE_DB_ERRORS guard above closes for 1213/1205: a
+        # MariaDB 1969 (statement-timeout kill) on the update_child_table() write is
+        # never wrapped into one of those typed exceptions (see
+        # transaction_errors.is_statement_timeout), so it reaches this catch-all
+        # instead and must not be folded into an ordinary failed result. #1352.
+        if is_statement_timeout(e):
+            raise
         error_msg = str(e)
         frappe.logger().error(
             f"Failed to update {child_table_name} for {doc.doctype} {doc.name}: {error_msg}"

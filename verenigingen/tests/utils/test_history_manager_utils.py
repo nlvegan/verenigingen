@@ -365,6 +365,45 @@ class TestHistoryManagerUtils(EnhancedTestCase):
         self.assertTrue(result.errors[0].startswith("Original:"))
         self.assertTrue(result.errors[1].startswith("After cleanup:"))
 
+    def test_auto_cleanup_retry_raising_statement_timeout_propagates(self):
+        """#1352. A MariaDB 1969 on the RETRY's own write (after a successful cleanup)
+        is exactly as non-resumable as a 1213/1205 there -- see the ``NON_RESUMABLE_DB_ERRORS``
+        guard immediately above this branch -- but is not one of those types, so it must
+        be recognised by error code instead or it falls into the ordinary
+        "Update failed even after cleanup" branch this test's sibling proves for ordinary
+        errors."""
+        from unittest.mock import patch
+
+        from frappe.model.document import Document
+
+        real_update = Document.update_child_table
+        state = {"calls": 0}
+
+        def flaky_then_timeout(self, fieldname, df=None):
+            state["calls"] += 1
+            if state["calls"] == 1:
+                raise frappe.LinkValidationError(
+                    f"Could not find Row #2: Chapter Membership History: {GHOST_CHAPTER}"
+                )
+            raise frappe.db.OperationalError(
+                1969, "Query execution was interrupted (max_statement_time exceeded)"
+            )
+
+        doc = self._fresh_member_doc()
+        self._append_history(doc, self.chapter.name, status="Active")  # good
+        self._append_history(doc, GHOST_CHAPTER, status="Active")  # broken link
+
+        with patch.object(Document, "update_child_table", flaky_then_timeout):
+            with self.assertRaises(Exception) as ctx:
+                safe_child_table_update(
+                    doc, CHILD_TABLE, "retry statement timeout", "Member:write", auto_cleanup=True
+                )
+        self.assertEqual(ctx.exception.args[0], 1969)
+        # Restore the real method's identity for any test that runs after this one in
+        # the same process -- patch.object already does this on exit, asserted here so
+        # a change to the fixture cannot silently leave the class patched.
+        self.assertIs(Document.update_child_table, real_update)
+
     # =============================================== get_child_table_doctype
 
     def test_get_child_table_doctype_from_existing_rows(self):
