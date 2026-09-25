@@ -228,12 +228,30 @@ class TestSEPAReconciliation(VereningingenTestCase):
         if frappe.db.exists("Direct Debit Batch", self.test_batch.name):
             frappe.delete_doc("Direct Debit Batch", self.test_batch.name, force=True)
 
-        # Cancel and delete test invoice
+        # Cancel and delete test invoice. This invoice is a self-contained
+        # fixture this test's own setUp created and submitted, with nothing
+        # else still referencing it by this point (the batch above is already
+        # gone) -- so a real `.cancel()` here would only write reversal GL /
+        # Payment Ledger Entry rows that `delete_doc` does NOT remove with the
+        # parent, turning one submitted invoice into FOUR orphaned ledger rows
+        # per test (measured: +36 GL Entry / +18 Payment Ledger Entry per run,
+        # #1343). `_cancel_if_submitted`'s ledger carve-out
+        # (tests/utils/base.py) exists to refuse exactly that trade for a
+        # voucher the harness doesn't own outright -- but this class creates
+        # and submits a fresh invoice in every test's setUp, so "leave it and
+        # report the leak" would strand 9 submitted invoices every run
+        # instead. Force docstatus to 2 directly (no on_cancel, no reversal
+        # entries) and purge the ledger rows the original submit posted, same
+        # as `_cleanup_customer_dependencies` already does for anonymous test
+        # vouchers it owns outright (tests/utils/base.py).
         if frappe.db.exists("Sales Invoice", self.test_invoice.name):
             self.test_invoice.reload()
             if self.test_invoice.docstatus == 1:
-                self.test_invoice.cancel()
+                frappe.db.set_value(
+                    "Sales Invoice", self.test_invoice.name, "docstatus", 2, update_modified=False
+                )
             frappe.delete_doc("Sales Invoice", self.test_invoice.name, force=True)
+            self._purge_ledger_rows("Sales Invoice", self.test_invoice.name)
 
         # #1307: this class now calls super().tearDown() below, which adds a
         # per-test rollback (`_rollback_once_before_draining`) on top of the
