@@ -194,10 +194,48 @@ verenigingen.utils.formatLoadedInvoicesAlert = function (loadedCount, totalEligi
 	};
 };
 
+/**
+ * Parse `check_donor_exists`'s OperationResult envelope into a UI-ready shape (#1400).
+ *
+ * `general_api.check_donor_exists` returns `DonorManagementService.check_donor_exists`'s
+ * `OperationResult`, and the whitelisted endpoint's `@standard_api` decorator serializes
+ * it via `to_dict(scrub_sensitive=True)` -- the NESTED schema (default `nested=True`),
+ * not the flat one. So `donor_name`/`donor_display_name` live under `data`, and
+ * `exists`/`ambiguous` live under `meta` -- never at the top level. Reading
+ * `message.exists`/`message.donor_name` directly (the previous member.js code) always
+ * read `undefined`, so the "existing donor" branch never fired.
+ *
+ * Also handles the ambiguous-match shape (more than one Donor record matches, see
+ * #1389): `meta.ambiguous === true` with `data.donor_name` set to `null`. That must
+ * never be treated as "exists" -- routing to a Donor form with a null/undefined name
+ * would either error or open the wrong record.
+ *
+ * @param {*} message - r.message from frappe.call to check_donor_exists
+ * @returns {{status: 'exists'|'ambiguous'|'none', donorName: string|null}}
+ *   status is 'none' for a failed OperationResult or any unrecognised shape --
+ *   fails closed to the "Create Donor Record" branch rather than the "View" one.
+ */
+verenigingen.utils.parseDonorExistsResponse = function (message) {
+	if (!message || typeof message !== 'object' || message.success !== true) {
+		return { status: 'none', donorName: null };
+	}
+	const meta = message.meta && typeof message.meta === 'object' ? message.meta : {};
+	const data = message.data && typeof message.data === 'object' ? message.data : {};
+
+	if (meta.ambiguous === true) {
+		return { status: 'ambiguous', donorName: null };
+	}
+	if (meta.exists === true && data.donor_name) {
+		return { status: 'exists', donorName: data.donor_name };
+	}
+	return { status: 'none', donorName: null };
+};
+
 // Also expose as global functions for backward compatibility with HTML templates
 // that may have inline scripts without access to frappe namespace at load time
 if (typeof window !== 'undefined') {
 	window.escapeHtml = verenigingen.utils.escapeHtml;
 	window.unwrapOperationResult = verenigingen.utils.unwrapOperationResult;
 	window.getErrorMessage = verenigingen.utils.getErrorMessage;
+	window.parseDonorExistsResponse = verenigingen.utils.parseDonorExistsResponse;
 }

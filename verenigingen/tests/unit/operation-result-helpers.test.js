@@ -306,5 +306,97 @@ describe('OperationResult helpers', () => {
 			expect(window.unwrapOperationResult).toBe(utils.unwrapOperationResult);
 			expect(window.getErrorMessage).toBe(utils.getErrorMessage);
 		});
+
+		test('exposes parseDonorExistsResponse on window', () => {
+			expect(window.parseDonorExistsResponse).toBe(utils.parseDonorExistsResponse);
+		});
+	});
+
+	describe('parseDonorExistsResponse (#1400)', () => {
+		// Real wire shapes, taken from `check_donor_exists`'s OperationResult.to_dict()
+		// output (empirically confirmed via real dispatch on test_site_2, not
+		// synthesised): donor_name/donor_display_name live under `data`,
+		// exists/ambiguous live under `meta` -- never at the top level.
+
+		test('no donor found: status "none", no donor name', () => {
+			const message = {
+				success: true,
+				timestamp: '2026-09-25 23:48:41.999885',
+				data: null,
+				meta: { exists: false }
+			};
+			expect(utils.parseDonorExistsResponse(message)).toEqual({ status: 'none', donorName: null });
+		});
+
+		test('donor exists: status "exists", donor name read from data (not top-level)', () => {
+			const message = {
+				success: true,
+				timestamp: '2026-09-25 23:48:53.208053',
+				data: { donor_name: 'DN-26-00057', donor_display_name: 'Probe Donor 1400' },
+				meta: { exists: true }
+			};
+			expect(utils.parseDonorExistsResponse(message)).toEqual({
+				status: 'exists',
+				donorName: 'DN-26-00057'
+			});
+		});
+
+		test('the previous (flat) reads are undefined against the real envelope -- proves the bug', () => {
+			const message = {
+				success: true,
+				data: { donor_name: 'DN-26-00057', donor_display_name: 'Probe Donor 1400' },
+				meta: { exists: true }
+			};
+			// This is exactly what the old member.js code read: r.message.exists /
+			// r.message.donor_name. Both are undefined, which is why the "existing
+			// donor" branch never fired.
+			expect(message.exists).toBeUndefined();
+			expect(message.donor_name).toBeUndefined();
+		});
+
+		test('ambiguous match (#1389): status "ambiguous", never a null/undefined donor name treated as real', () => {
+			const message = {
+				success: true,
+				data: { donor_name: null, donor_display_name: null },
+				meta: { exists: true, ambiguous: true, ambiguous_count: 2 }
+			};
+			expect(utils.parseDonorExistsResponse(message)).toEqual({ status: 'ambiguous', donorName: null });
+		});
+
+		test('failed OperationResult: fails closed to "none" (Create branch), not "exists"', () => {
+			const message = {
+				success: false,
+				error: { message: 'Failed to check donor existence: boom' }
+			};
+			expect(utils.parseDonorExistsResponse(message)).toEqual({ status: 'none', donorName: null });
+		});
+
+		test('member not found: still "none" (member_not_found is metadata, not exists)', () => {
+			const message = {
+				success: true,
+				data: null,
+				meta: { member_not_found: true }
+			};
+			expect(utils.parseDonorExistsResponse(message)).toEqual({ status: 'none', donorName: null });
+		});
+
+		test('missing/malformed message: "none", never throws', () => {
+			expect(utils.parseDonorExistsResponse(null)).toEqual({ status: 'none', donorName: null });
+			expect(utils.parseDonorExistsResponse(undefined)).toEqual({ status: 'none', donorName: null });
+			expect(utils.parseDonorExistsResponse('unexpected string')).toEqual({
+				status: 'none',
+				donorName: null
+			});
+			expect(utils.parseDonorExistsResponse({})).toEqual({ status: 'none', donorName: null });
+		});
+
+		test('exists=true but no meaningful donor_name in data: does not report "exists" with an empty name', () => {
+			const message = {
+				success: true,
+				data: { donor_name: '', donor_display_name: '' },
+				meta: { exists: true }
+			};
+			expect(utils.parseDonorExistsResponse(message)).toEqual({ status: 'none', donorName: null });
+		});
 	});
 });

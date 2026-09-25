@@ -85,6 +85,24 @@ if (!window.getErrorMessage) {
 		return String(msg || defaultMsg);
 	};
 }
+if (!window.parseDonorExistsResponse) {
+	// Fallback shim for check_donor_exists's nested OperationResult envelope (#1400).
+	// Normally set by operation-result-helpers.js; see that file for the full contract.
+	window.parseDonorExistsResponse = function (message) {
+		if (!message || typeof message !== 'object' || message.success !== true) {
+			return { status: 'none', donorName: null };
+		}
+		const meta = message.meta && typeof message.meta === 'object' ? message.meta : {};
+		const data = message.data && typeof message.data === 'object' ? message.data : {};
+		if (meta.ambiguous === true) {
+			return { status: 'ambiguous', donorName: null };
+		}
+		if (meta.exists === true && data.donor_name) {
+			return { status: 'exists', donorName: data.donor_name };
+		}
+		return { status: 'none', donorName: null };
+	};
+}
 
 // Import utility modules
 frappe.require([
@@ -176,6 +194,8 @@ function validate_link_fields(frm) {
 var unwrapOperationResult = window.unwrapOperationResult;
 // eslint-disable-next-line no-var
 var isOperationResultFailed = (msg) => msg && typeof msg === 'object' && msg.success === false;
+// eslint-disable-next-line no-var
+var parseDonorExistsResponse = window.parseDonorExistsResponse;
 
 /**
  * Main Member DocType Form Controller
@@ -1069,7 +1089,18 @@ function add_donor_creation_button(frm) {
 			member_name: frm.doc.name
 		},
 		callback(r) {
-			if (r.message && !r.message.exists) {
+			// check_donor_exists returns a nested OperationResult envelope
+			// (donor_name under data, exists/ambiguous under meta) -- see #1400.
+			const parsed = parseDonorExistsResponse(r.message);
+			if (parsed.status === 'exists') {
+				frm.add_custom_button(
+					__('Donor Record'),
+					() => {
+						frappe.set_route('Form', 'Donor', parsed.donorName);
+					},
+					__('View')
+				);
+			} else if (parsed.status === 'none') {
 				frm.add_custom_button(
 					__('Create Donor Record'),
 					() => {
@@ -1077,15 +1108,12 @@ function add_donor_creation_button(frm) {
 					},
 					__('Create')
 				);
-			} else if (r.message && r.message.exists) {
-				// Show view donor button instead
-				frm.add_custom_button(
-					__('Donor Record'),
-					() => {
-						frappe.set_route('Form', 'Donor', r.message.donor_name);
-					},
-					__('View')
-				);
+			} else if (parsed.status === 'ambiguous') {
+				// More than one Donor record matches this member (#1389) -- show
+				// neither button (routing to a Donor with a null name, or offering
+				// to create another duplicate, would both be wrong), but still tell
+				// staff why nothing appeared instead of leaving the section silent.
+				frm.dashboard.add_indicator(__('Multiple Donor Records Found — Reconcile Manually'), 'orange');
 			}
 		}
 	});
