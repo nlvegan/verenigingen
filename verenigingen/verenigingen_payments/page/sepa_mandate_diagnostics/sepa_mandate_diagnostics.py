@@ -8,8 +8,48 @@ Replaces blind nightly sync tasks with targeted problem detection and resolution
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import validate_member_ownership
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, standard_api
+
+# get_mandate_issues() runs six unfiltered queries across the whole tabMember /
+# tabSEPA Mandate tables and returns every match app-wide, including IBAN and
+# bank_account_name -- there is no per-caller scoping in the queries themselves.
+# @standard_api(REPORTING) only enforces the generic MEDIUM tier, which several
+# non-admin, non-staff role profiles clear on their own (#1329): "Verenigingen
+# Volunteer" and "Verenigingen Auditor" have no legitimate front door to this data
+# anywhere in the app (neither this page's roles nor the "SEPA Mandate Issues"
+# report's roles list them) and are refused below.
+#
+# "Verenigingen Chapter Board Member" IS allowed here even though it is one of the
+# roles #1329 flagged: the "SEPA Mandate Issues" report explicitly grants that role
+# report access and calls this exact function, so refusing it would break that real,
+# currently-working caller. Whether board members should instead see only their own
+# chapter's data (rather than this same app-wide view) is a separate, NOT decided
+# product question -- see #1329's "Not established" section -- and is intentionally
+# left open rather than resolved unilaterally here.
+_MANDATE_DIAGNOSTICS_ROLES = Roles.ADMIN_ROLES | {Roles.CHAPTER_BOARD_MEMBER}
+
+
+def _ensure_role_access(allowed_roles):
+    if not set(frappe.get_roles()) & allowed_roles:
+        frappe.throw(
+            _("You are not permitted to view SEPA mandate diagnostics"),
+            frappe.PermissionError,
+        )
+
+
+def _ensure_mandate_diagnostics_access():
+    _ensure_role_access(_MANDATE_DIAGNOSTICS_ROLES)
+
+
+def _ensure_staff_only_diagnostics_access():
+    """Stricter variant for sibling diagnostics endpoints that have NO legitimate
+    non-admin front door (no Page or Report grants a non-admin role access) -- unlike
+    get_mandate_issues() above, there is no caller to preserve here, so this is
+    Roles.ADMIN_ROLES only. Used by
+    sepa_mandate_management.detect_sepa_mandate_inconsistencies (#1329 sweep)."""
+    _ensure_role_access(Roles.ADMIN_ROLES)
 
 
 @frappe.whitelist()
@@ -21,6 +61,8 @@ def get_mandate_issues():
     Returns:
         dict: Issue categories with counts and affected members
     """
+    _ensure_mandate_diagnostics_access()
+
     issues = {
         "sepa_selected_no_mandate": {
             "title": _("SEPA Payment Method Without Mandate"),

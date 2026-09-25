@@ -13,6 +13,9 @@ from verenigingen.utils.security.api_security_framework import (
 )
 from verenigingen.utils.validation.iban_validator import derive_bic_from_iban
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+from verenigingen.verenigingen_payments.page.sepa_mandate_diagnostics.sepa_mandate_diagnostics import (
+    _ensure_staff_only_diagnostics_access,
+)
 
 
 @frappe.whitelist()
@@ -367,6 +370,13 @@ def detect_sepa_mandate_inconsistencies():
     Detect various inconsistencies in SEPA mandate data without fixing them.
     Useful for monitoring and alerting.
     """
+    # Placed BEFORE the try/except below (not inside it): the except clause is a
+    # broad `except Exception` that converts any error into a {"success": False}
+    # dict, which would silently swallow the PermissionError this raises and let a
+    # denied caller's request come back looking like a normal (if empty-ish)
+    # response instead of a hard refusal (#1329).
+    _ensure_staff_only_diagnostics_access()
+
     try:
         issues = {
             "missing_child_table_entries": [],
