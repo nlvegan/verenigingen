@@ -88,6 +88,18 @@ BASELINE = Path(__file__).resolve().parents[1] / "harness_logger_teardown_baseli
 # _PontoPaymentRequestFixtures.tearDownClass calls SingletonBackup.restore(), reaching
 # the SAME 4 already-known singleton_backup sites every other Ponto test class reaches.
 # One new route, zero new sites and no new level, so MRO_CALLS / MRO_ERRORS do not move.
+# UNCHANGED at 12 (#1379): two more test classes needed the SAME fixture
+# (before_submit() now validates PE-creation prerequisites -- bank account
+# mapping, company, GL account, reference party -- before the real Ponto API
+# call). Both mix in _PontoPaymentRequestFixtures (test_ponto_doctype_unit.py's
+# TestPontoPaymentRequestApi and test_ponto_payment_request_reference_before_submit.py's
+# TestPontoPaymentRequestPrerequisitesBeforeSubmit) rather than each declaring
+# its own tearDownClass -- the duplicate-helper validator (#1044) flags a
+# second copy of that fixture body as exactly the "fix goes to die in the
+# other copy" shape it exists to catch. Neither class DEFINES its own
+# tearDownClass, so this walk's real-defs-only AST resolution (see the module
+# docstring) finds no new textual site: both inherit the one route already
+# counted above. MRO_CALLS / MRO_ERRORS / MRO_TEARDOWNS all stay put.
 MRO_CALLS, MRO_ERRORS, MRO_TEARDOWNS = 23, 4, 12
 # 35, 7 -> 36, 8 (#392): this branch replaced a silent `except Exception: pass`
 # in test_rest_migration_payments.py's tearDown with a get_harness_logger

@@ -19,6 +19,11 @@ from frappe.tests.utils import FrappeTestCase
 
 from verenigingen.tests.fixtures.ponto_test_data_factory import TestIBAN
 from verenigingen.tests.fixtures.singleton_backup import SingletonBackup
+from verenigingen.tests.support.sepa_test_company import (
+    create_test_supplier,
+    get_eur_bank_account,
+    get_eur_test_company,
+)
 
 PAY_CLIENT_PATH = (
     "verenigingen.verenigingen_payments.ponto.clients.payment_client.get_payment_client"
@@ -33,6 +38,8 @@ class TestPontoPaymentInitiationService(FrappeTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        cls.company = get_eur_test_company()
+        cls.bank_account = get_eur_bank_account(cls.company)
         cls._singleton_backup = SingletonBackup("Ponto Settings")
         cls._singleton_backup.backup()
         cls._setup_settings()
@@ -44,6 +51,12 @@ class TestPontoPaymentInitiationService(FrappeTestCase):
 
     @classmethod
     def _setup_settings(cls):
+        """bank_account_mappings maps TEST_ACCOUNT_ID to a REAL, fully
+        configured Bank Account (company + GL account) -- #1379 hoisted
+        create_payment_entry()'s misconfiguration guards into before_submit(),
+        so create_sepa_payment(..., auto_submit=True) now needs a mapping that
+        satisfies them to reach the (mocked) API at all.
+        """
         settings = frappe.get_single("Ponto Settings")
         settings.ibanity_client_id = "test_client_id"
         settings.ibanity_client_secret = "test_client_secret"
@@ -53,12 +66,16 @@ class TestPontoPaymentInitiationService(FrappeTestCase):
         settings.set("bank_account_mappings", [])
         settings.append(
             "bank_account_mappings",
-            {"ponto_account_id": cls.TEST_ACCOUNT_ID, "enabled": 1},
+            {"ponto_account_id": cls.TEST_ACCOUNT_ID, "bank_account": cls.bank_account, "enabled": 1},
         )
         settings.flags.ignore_validate = True
         settings.save(ignore_permissions=True)
         settings.flags.ignore_validate = False
         frappe.db.commit()
+
+    def _delete_doc_of(self, doctype, name):
+        if frappe.db.exists(doctype, name):
+            frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
 
     def _mock_payment_client(self):
         """Return a (patcher, mock_client) for get_payment_client."""
@@ -207,6 +224,8 @@ class TestPontoPaymentInitiationService(FrappeTestCase):
             create_sepa_payment,
         )
 
+        supplier = create_test_supplier("Submit", prefix="_Test PPR-svc Supplier")
+        self.addCleanup(self._delete_doc_of, "Supplier", supplier.name)
         mock_client = self._mock_payment_client()
         with patch(PAY_CLIENT_PATH, return_value=mock_client):
             doc = create_sepa_payment(
@@ -215,6 +234,8 @@ class TestPontoPaymentInitiationService(FrappeTestCase):
                 creditor_name="Supplier BV",
                 creditor_iban=TestIBAN.ABN_AMRO_1,
                 remittance_info="Invoice 100",
+                reference_doctype="Supplier",
+                reference_name=supplier.name,
                 auto_submit=True,
             )
         self.addCleanup(self._delete_doc, doc.name)
@@ -234,6 +255,8 @@ class TestPontoPaymentInitiationService(FrappeTestCase):
             get_payment_authorization_url,
         )
 
+        supplier = create_test_supplier("AuthUrl", prefix="_Test PPR-svc Supplier")
+        self.addCleanup(self._delete_doc_of, "Supplier", supplier.name)
         mock_client = self._mock_payment_client()
         with patch(PAY_CLIENT_PATH, return_value=mock_client):
             doc = create_sepa_payment(
@@ -242,6 +265,8 @@ class TestPontoPaymentInitiationService(FrappeTestCase):
                 creditor_name="Supplier BV",
                 creditor_iban=TestIBAN.ABN_AMRO_1,
                 remittance_info="Invoice 101",
+                reference_doctype="Supplier",
+                reference_name=supplier.name,
                 auto_submit=True,
             )
         self.addCleanup(self._delete_doc, doc.name)

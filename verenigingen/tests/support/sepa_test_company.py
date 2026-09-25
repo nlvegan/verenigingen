@@ -443,3 +443,25 @@ def _make_gl_bank_account_(company: str) -> str:
         account.account_currency = "EUR"
         account.insert(ignore_permissions=True)
     return account.name
+
+
+def create_test_supplier(name_hint: str, prefix: str = "_Test Supplier") -> "frappe.Document":
+    """Insert and return a throwaway Supplier for payment/SEPA tests.
+
+    Per-test data, NOT shared master data -- callers own their own cleanup
+    registration (``EnhancedTestCase.track_doc()``, or plain
+    ``TestCase.addCleanup()`` where the caller has no harness), since the two
+    existing callers use different test-case bases and therefore different
+    cleanup mechanisms. This only builds the document, so that field
+    construction lives in exactly one place -- #1044's duplicate-helper
+    validator flags a second near-identical copy of it as the shape where a
+    fix lands once and the other copy silently keeps the bug.
+    """
+    return frappe.get_doc(
+        {
+            "doctype": "Supplier",
+            "supplier_name": f"{prefix} {name_hint} {frappe.generate_hash(length=6)}",
+            "supplier_group": "All Supplier Groups",
+            "supplier_type": "Company",
+        }
+    ).insert(ignore_permissions=True)
