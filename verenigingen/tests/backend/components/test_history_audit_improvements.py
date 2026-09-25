@@ -170,12 +170,13 @@ class TestDonorMemberReconciliation(FrappeTestCase):
         result = get_donor_for_member(MockMember())
         self.assertEqual(result, donor.name)
 
-    def test_get_donor_for_member_multiple_donors_returns_most_recent(self):
-        """Verify returns most recent donor when multiple exist"""
+    def test_get_donor_for_member_multiple_donors_refuses(self):
+        """Verify an ambiguous (multi-donor) match refuses rather than picking
+        one arbitrarily (#1384)."""
         from verenigingen.utils.donor_member_reconciliation import get_donor_for_member
 
         # Create multiple donors with same email
-        donor1 = frappe.get_doc(
+        frappe.get_doc(
             {
                 "doctype": "Donor",
                 "donor_name": "Test Donor First",
@@ -184,7 +185,7 @@ class TestDonorMemberReconciliation(FrappeTestCase):
             }
         ).insert()
 
-        donor2 = frappe.get_doc(
+        frappe.get_doc(
             {
                 "doctype": "Donor",
                 "donor_name": "Test Donor Second",
@@ -198,10 +199,13 @@ class TestDonorMemberReconciliation(FrappeTestCase):
             email = self.test_email
             donor = None
 
+        # NOTE: this class extends plain FrappeTestCase (no ErrorLogGuardMixin),
+        # so there is no expectErrorLog() here; the ambiguity warning + Error
+        # Log entry get_donor_for_member logs is expected and intentional.
         result = get_donor_for_member(MockMember())
 
-        # Should return the most recently created donor
-        self.assertEqual(result, donor2.name)
+        # An ambiguous match must refuse (None), not silently pick one.
+        self.assertIsNone(result)
 
     def test_get_all_donors_for_email_with_donation_counts(self):
         """Verify get_all_donors_for_email includes donation counts"""

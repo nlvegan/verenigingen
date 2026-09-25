@@ -42,6 +42,7 @@ import frappe
 from frappe import _
 
 from verenigingen.services.infrastructure.base_service import StatelessService
+from verenigingen.services.member.donor.donor_member_reconciliation import find_donors_by_field
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.secure_operations import secure_document_operation
 
@@ -77,14 +78,31 @@ class DonorManagementService(StatelessService):
         """
         Check if a donor record exists for a member.
 
-        Looks up donor by member's email address (primary method).
+        Looks up donor via two tiers, refusing (rather than guessing) on an
+        ambiguous match at either one:
+
+        1. The authoritative ``Donor.member`` link field (set by
+           MemberDonorIntegrationService.create_donor_from_member on
+           creation) - exactly one match wins; more than one refuses (#1406).
+        2. Only when tier 1 finds nothing: an exact ``donor_email`` match -
+           exactly one match wins; more than one refuses (#1389).
 
         Args:
             member_name: Name of the Member document
 
         Returns:
             OperationResult[Optional[Dict[str, str]]]:
-                - If donor exists: Returns dict with {"donor_name": str, "donor_display_name": str}
+                - If exactly one donor is found (either tier): Returns dict
+                  with {"donor_name": str, "donor_display_name": str}
+                - If a tier is ambiguous (>1 match): Returns a truthy dict
+                  with donor_name/donor_display_name set to None and
+                  metadata["ambiguous"] = True (plus an
+                  ``ambiguous_count`` - never the matching donors'
+                  names/ids, which would disclose other members' donor
+                  records to any caller of this whitelisted endpoint -
+                  see #1408), so callers still refuse to create a
+                  duplicate but never report an arbitrarily-picked donor as
+                  "the" existing one
                 - If donor doesn't exist: Returns None
                 - On error: Returns failed OperationResult
 
@@ -97,7 +115,6 @@ class DonorManagementService(StatelessService):
 
         Note:
             - Never throws exceptions (returns failed OperationResult)
-            - Email-based lookup is primary method
             - Returns success with None if member doesn't exist (not an error)
         """
         try:
@@ -106,18 +123,28 @@ class DonorManagementService(StatelessService):
                 return OperationResult.ok(None, member_not_found=True)
 
             member = frappe.get_doc("Member", member_name)
+            fields = ("name", "donor_name")
 
-            # Lookup donor by email (primary method)
-            existing_donor = frappe.db.get_value(
-                "Donor", {"donor_email": member.email}, ["name", "donor_name"]
-            )
-
-            if existing_donor:
+            # Tier 1: authoritative Donor.member link.
+            matches = find_donors_by_field("member", member.name, fields=fields)
+            if len(matches) > 1:
+                return self._ambiguous_donor_result(member_name, "member", member.name, matches)
+            if matches:
                 return OperationResult.ok(
-                    {
-                        "donor_name": existing_donor[0],
-                        "donor_display_name": existing_donor[1],
-                    },
+                    {"donor_name": matches[0].name, "donor_display_name": matches[0].donor_name},
+                    exists=True,
+                )
+
+            # Tier 2: exact email match (only signal left; skipped with no
+            # email). frappe.get_all (rather than frappe.db.get_value, which
+            # silently returns one arbitrary row on a multi-row match) lets
+            # an ambiguous match be detected instead of guessed at - #1389.
+            matches = find_donors_by_field("donor_email", member.email, fields=fields)
+            if len(matches) > 1:
+                return self._ambiguous_donor_result(member_name, "donor_email", member.email, matches)
+            if matches:
+                return OperationResult.ok(
+                    {"donor_name": matches[0].name, "donor_display_name": matches[0].donor_name},
                     exists=True,
                 )
 
@@ -129,6 +156,31 @@ class DonorManagementService(StatelessService):
             return OperationResult.fail(
                 f"Failed to check donor existence: {str(e)}", errors=[str(e)], member=member_name
             )
+
+    def _ambiguous_donor_result(
+        self, member_name: str, fieldname: str, value, matches: list
+    ) -> OperationResult[Dict[str, None]]:
+        """Log an ambiguous Donor match and return the truthy-but-unresolved result.
+
+        Deliberately does NOT put the matching donors' names/ids in the
+        returned metadata: this result crosses a whitelisted API boundary
+        (``check_donor_exists`` is ``@standard_api``, callable by any
+        authenticated user for any member), and ``OperationResult.to_dict``'s
+        ``scrub_sensitive`` pass only redacts secret-shaped keys - a list of
+        other members' donor names would sail straight through. See #1408.
+        """
+        donor_names = [d.name for d in matches]
+        self.logger.warning(
+            f"Multiple donors ({len(matches)}) found for member {member_name} "
+            f"matching {fieldname}={value!r}. Refusing to pick one arbitrarily. "
+            f"Consider reconciling: {donor_names}"
+        )
+        return OperationResult.ok(
+            {"donor_name": None, "donor_display_name": None},
+            exists=True,
+            ambiguous=True,
+            ambiguous_count=len(matches),
+        )
 
     def create_donor_from_member(self, member_name: str) -> OperationResult[str]:
         """
@@ -160,7 +212,8 @@ class DonorManagementService(StatelessService):
             >>>     print(f"Error: {result.error_message}")
 
         Business Rules:
-            - One donor per member (checked via email)
+            - One donor per member (checked via check_donor_exists's
+              Donor.member-link-then-email tiers)
             - Donor type always "Individual"
             - Category set to "Regular Donor"
             - Phone numbers formatted for Netherlands (+31)
@@ -181,6 +234,21 @@ class DonorManagementService(StatelessService):
                 return existing_check.chain("Failed to check for existing donor")
 
             if existing_check.data:
+                if existing_check.metadata.get("ambiguous"):
+                    # Multiple donors match (Donor.member link or e-mail) -
+                    # refuse creation without reporting an arbitrarily-picked
+                    # donor as "the" existing one, and without disclosing the
+                    # other matching donors' names/ids (#1408).
+                    return OperationResult.fail(
+                        _(
+                            "Multiple donor records match this member; "
+                            "resolve the duplicate before creating a new one"
+                        ),
+                        errors=["Ambiguous donor match"],
+                        ambiguous=True,
+                        ambiguous_count=existing_check.metadata.get("ambiguous_count"),
+                    )
+
                 # Donor already exists
                 return OperationResult.fail(
                     _("Donor record already exists for this member"),

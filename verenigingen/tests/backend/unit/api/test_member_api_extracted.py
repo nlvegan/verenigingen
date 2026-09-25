@@ -128,6 +128,16 @@ class TestGetLinkedDonationsAPI(unittest.TestCase):
     ONLY signal that ever fires there, with no way to disambiguate a
     common Dutch name shared by unrelated people (see the function's
     docstring / #1356).
+
+    #1406 note: the actual ``frappe.get_all`` query now runs inside
+    ``find_donors_by_field`` (services/member/donor/
+    donor_member_reconciliation.py), the single canonical Donor-resolution
+    helper shared with ``get_donor_for_member``/``check_donor_exists``, not
+    in this module. Patching ``verenigingen.api.member.general_api.frappe``
+    alone no longer intercepts it (that only replaces the ``frappe`` name
+    bound in *this* module's namespace, and ``get_doc`` is still called
+    here directly), so every test below ALSO patches that module's
+    ``frappe`` and asserts the ``get_all`` calls against it.
     """
 
     def setUp(self):
@@ -148,8 +158,9 @@ class TestGetLinkedDonationsAPI(unittest.TestCase):
 
         self.assertFalse(result["success"])
 
+    @patch("verenigingen.services.member.donor.donor_member_reconciliation.frappe")
     @patch("verenigingen.api.member.general_api.frappe")
-    def test_donor_found_by_member_link(self, mock_frappe):
+    def test_donor_found_by_member_link(self, mock_frappe, mock_recon_frappe):
         """Tier 1 (the authoritative Donor.member link) resolves the donor
         in a single call, without ever querying by e-mail."""
         mock_member = MagicMock()
@@ -159,18 +170,19 @@ class TestGetLinkedDonationsAPI(unittest.TestCase):
 
         mock_donor = MagicMock()
         mock_donor.name = "DONOR-001"
-        mock_frappe.get_all.return_value = [mock_donor]
+        mock_recon_frappe.get_all.return_value = [mock_donor]
 
         result = self.get_linked_donations(member="MEM-001")
 
         self.assertTrue(result["success"])
         self.assertEqual(result["donor"], "DONOR-001")
-        mock_frappe.get_all.assert_called_once_with(
+        mock_recon_frappe.get_all.assert_called_once_with(
             "Donor", filters={"member": "MEM-001"}, fields=["name"]
         )
 
+    @patch("verenigingen.services.member.donor.donor_member_reconciliation.frappe")
     @patch("verenigingen.api.member.general_api.frappe")
-    def test_donor_found_by_email_when_no_member_link(self, mock_frappe):
+    def test_donor_found_by_email_when_no_member_link(self, mock_frappe, mock_recon_frappe):
         """Tier 1 (member link) finds nothing; tier 2 (exact e-mail) resolves
         it. The side_effect distinguishes the two calls by their filters, so
         this can only pass if the e-mail tier actually ran."""
@@ -189,31 +201,33 @@ class TestGetLinkedDonationsAPI(unittest.TestCase):
                 return [mock_donor]
             raise AssertionError(f"unexpected Donor filter: {filters}")
 
-        mock_frappe.get_all.side_effect = get_all_side_effect
+        mock_recon_frappe.get_all.side_effect = get_all_side_effect
 
         result = self.get_linked_donations(member="MEM-001")
 
         self.assertTrue(result["success"])
         self.assertEqual(result["donor"], "DONOR-002")
-        self.assertEqual(mock_frappe.get_all.call_count, 2)
+        self.assertEqual(mock_recon_frappe.get_all.call_count, 2)
 
+    @patch("verenigingen.services.member.donor.donor_member_reconciliation.frappe")
     @patch("verenigingen.api.member.general_api.frappe")
-    def test_no_donor_found(self, mock_frappe):
+    def test_no_donor_found(self, mock_frappe, mock_recon_frappe):
         """Test when no donor is found by member link or e-mail"""
         mock_member = MagicMock()
         mock_member.name = "MEM-001"
         mock_member.email = "test@example.com"
         mock_frappe.get_doc.return_value = mock_member
 
-        mock_frappe.get_all.return_value = []
+        mock_recon_frappe.get_all.return_value = []
 
         result = self.get_linked_donations(member="MEM-001")
 
         self.assertFalse(result["success"])
         self.assertIn("No donor record found", result["message"])
 
+    @patch("verenigingen.services.member.donor.donor_member_reconciliation.frappe")
     @patch("verenigingen.api.member.general_api.frappe")
-    def test_member_without_email_resolves_via_member_link_only(self, mock_frappe):
+    def test_member_without_email_resolves_via_member_link_only(self, mock_frappe, mock_recon_frappe):
         """A member with no e-mail still resolves via the unconditional
         member-link tier, and the e-mail tier is never attempted (there is
         no e-mail to query by)."""
@@ -224,18 +238,19 @@ class TestGetLinkedDonationsAPI(unittest.TestCase):
 
         mock_donor = MagicMock()
         mock_donor.name = "DONOR-003"
-        mock_frappe.get_all.return_value = [mock_donor]
+        mock_recon_frappe.get_all.return_value = [mock_donor]
 
         result = self.get_linked_donations(member="MEM-001")
 
         self.assertTrue(result["success"])
         self.assertEqual(result["donor"], "DONOR-003")
-        mock_frappe.get_all.assert_called_once_with(
+        mock_recon_frappe.get_all.assert_called_once_with(
             "Donor", filters={"member": "MEM-001"}, fields=["name"]
         )
 
+    @patch("verenigingen.services.member.donor.donor_member_reconciliation.frappe")
     @patch("verenigingen.api.member.general_api.frappe")
-    def test_member_without_email_and_no_member_link_match(self, mock_frappe):
+    def test_member_without_email_and_no_member_link_match(self, mock_frappe, mock_recon_frappe):
         """No e-mail and no member-link match: no donor found, and the
         e-mail tier is never attempted."""
         mock_member = MagicMock()
@@ -243,17 +258,18 @@ class TestGetLinkedDonationsAPI(unittest.TestCase):
         mock_member.email = None
         mock_frappe.get_doc.return_value = mock_member
 
-        mock_frappe.get_all.return_value = []
+        mock_recon_frappe.get_all.return_value = []
 
         result = self.get_linked_donations(member="MEM-001")
 
         self.assertFalse(result["success"])
-        mock_frappe.get_all.assert_called_once_with(
+        mock_recon_frappe.get_all.assert_called_once_with(
             "Donor", filters={"member": "MEM-001"}, fields=["name"]
         )
 
+    @patch("verenigingen.services.member.donor.donor_member_reconciliation.frappe")
     @patch("verenigingen.api.member.general_api.frappe")
-    def test_ambiguous_member_link_refuses_without_trying_email(self, mock_frappe):
+    def test_ambiguous_member_link_refuses_without_trying_email(self, mock_frappe, mock_recon_frappe):
         """An ambiguous tier-1 (member link) match must refuse immediately
         and never fall through to tier 2, even though tier 2 would resolve
         to a single (unrelated) donor if it ran -- the #1356 review's
@@ -268,12 +284,12 @@ class TestGetLinkedDonationsAPI(unittest.TestCase):
                 return [MagicMock(), MagicMock()]
             raise AssertionError("must not query the e-mail tier after an ambiguous member-link match")
 
-        mock_frappe.get_all.side_effect = get_all_side_effect
+        mock_recon_frappe.get_all.side_effect = get_all_side_effect
 
         result = self.get_linked_donations(member="MEM-001")
 
         self.assertFalse(result["success"])
-        self.assertEqual(mock_frappe.get_all.call_count, 1)
+        self.assertEqual(mock_recon_frappe.get_all.call_count, 1)
 
 
 class TestSEPAAPIDeriveBicFromIban(unittest.TestCase):

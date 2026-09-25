@@ -10,23 +10,73 @@ import frappe
 from verenigingen.utils.error_codes import log_operation_error
 
 
+def find_donors_by_field(fieldname: str, value, fields=("name",)) -> List[dict]:
+    """Return ALL Donor rows with an EXACT match on ``fieldname == value``.
+
+    The single, canonical Donor-resolution query for the whole app: every
+    tiered lookup (``get_donor_for_member``, ``DonorManagementService.
+    check_donor_exists``, and ``api/member/general_api.get_linked_donations``)
+    calls this rather than issuing its own ``frappe.get_all``/``get_value``,
+    so there is exactly one place that decides what "an exact match" means.
+
+    An empty/falsy ``value`` returns ``[]`` without querying (there is nothing
+    to match). Callers MUST treat more than one row as an unresolvable
+    ambiguity and refuse rather than picking one arbitrarily (#1356/#1384/
+    #1389/#1392/#1406) -- an ambiguous match at one tier must never fall
+    through to try a weaker tier instead, since that can resolve via a
+    completely unrelated Donor (see #1392's review).
+    """
+    if not value:
+        return []
+    return frappe.get_all("Donor", filters={fieldname: value}, fields=list(fields))
+
+
+def _log_ambiguous_donor_match(member_doc, fieldname: str, value, donor_names: List[str]) -> None:
+    """Warn + Error Log (DONOR_001) an ambiguous Donor match for admin review."""
+    frappe.logger("verenigingen.donor_mapping").warning(
+        f"Multiple donors ({len(donor_names)}) found for member {member_doc.name} "
+        f"matching {fieldname}={value!r}. Refusing to pick one arbitrarily. "
+        f"Consider reconciling: {donor_names}"
+    )
+    log_operation_error(
+        "DONOR_001",
+        f"member {member_doc.name}",
+        additional_info={fieldname: value, "matching_donors": donor_names},
+    )
+
+
 def get_donor_for_member(member_doc) -> Optional[str]:
     """
     Get canonical donor for a member with proper handling of duplicates.
 
     Priority:
-    1. Explicit donor field on member (if set and valid)
-    2. Single donor matching by email
-    3. Most recent donor if multiple matches (with warning logged)
-    4. None if no matches
+    1. Explicit ``donor`` attribute on the member doc, if set and valid.
+       NOTE: the Member DocType has no persisted ``donor`` field, so this
+       tier only fires when a caller hands in a member-like object carrying
+       that attribute in-memory -- effectively dead in production, kept only
+       for backward compatibility with existing callers that rely on it.
+    2. The authoritative ``Donor.member`` link field (set by
+       MemberDonorIntegrationService.create_donor_from_member on creation) --
+       exactly one match wins; more than one refuses immediately (#1406).
+    3. Only when tier 2 finds nothing: an exact ``donor_email`` match --
+       exactly one match wins; more than one refuses (#1384). Skipped
+       entirely when the member has no email.
+    4. None if nothing resolves.
+
+    Each tier refuses (returns None, logging a warning + Error Log entry for
+    admin review) rather than falling through to a weaker tier on an
+    ambiguous match -- an ambiguous ``Donor.member`` link must never be
+    resolved via an unrelated donor that merely shares the member's e-mail
+    address, the same fallthrough bug #1392's review found and fixed in
+    ``get_linked_donations``.
 
     Args:
         member_doc: Member document object (must have email field)
 
     Returns:
-        Donor name if found, None otherwise
+        Donor name if found, None otherwise (including on any ambiguous tier)
     """
-    # Check explicit link first (if the field exists)
+    # Tier 1: explicit donor attribute (in-memory only; see docstring above)
     explicit_donor = getattr(member_doc, "donor", None)
     if explicit_donor:
         if frappe.db.exists("Donor", explicit_donor):
@@ -36,43 +86,23 @@ def get_donor_for_member(member_doc) -> Optional[str]:
                 f"Member {member_doc.name} has invalid donor link: {explicit_donor}"
             )
 
-    # No email means no lookup possible
+    # Tier 2: authoritative Donor.member link
+    matches = find_donors_by_field("member", member_doc.name)
+    if len(matches) > 1:
+        _log_ambiguous_donor_match(member_doc, "member", member_doc.name, [d.name for d in matches])
+        return None
+    if matches:
+        return matches[0].name
+
+    # Tier 3: exact email match (only signal left; skipped with no email)
     if not member_doc.email:
         return None
 
-    # Lookup by email with duplicate detection
-    donors = frappe.get_all(
-        "Donor",
-        filters={"donor_email": member_doc.email},
-        fields=["name", "creation"],
-        order_by="creation desc",
-    )
-
-    if len(donors) == 0:
+    matches = find_donors_by_field("donor_email", member_doc.email)
+    if len(matches) > 1:
+        _log_ambiguous_donor_match(member_doc, "donor_email", member_doc.email, [d.name for d in matches])
         return None
-    elif len(donors) == 1:
-        return donors[0].name
-    else:
-        # Multiple donors found - log warning and return most recent
-        donor_names = [d.name for d in donors]
-        frappe.logger("verenigingen.donor_mapping").warning(
-            f"Multiple donors ({len(donors)}) found for member {member_doc.name} "
-            f"with email {member_doc.email}. Using most recent: {donors[0].name}. "
-            f"Consider reconciling: {donor_names}"
-        )
-
-        # Log to error log for admin review
-        log_operation_error(
-            "DONOR_001",
-            f"member {member_doc.name}",
-            additional_info={
-                "email": member_doc.email,
-                "matching_donors": donor_names,
-                "selected_donor": donors[0].name,
-            },
-        )
-
-        return donors[0].name
+    return matches[0].name if matches else None
 
 
 def get_all_donors_for_email(email: str) -> List[dict]:

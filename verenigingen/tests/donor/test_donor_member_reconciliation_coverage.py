@@ -75,24 +75,17 @@ class TestDonorMemberReconciliationCoverage(VereningingenTestCase):
         )
         self.assertIsNone(get_donor_for_member(member))
 
-    def test_get_donor_for_member_multiple_donors_returns_most_recent(self):
-        """When several donors share an email, the most recently created one is chosen."""
+    def test_get_donor_for_member_multiple_donors_refuses(self):
+        """When several donors share an email, the ambiguous match refuses
+        (returns None) instead of picking one arbitrarily (#1384)."""
         email = "multi.recon@example.com"
-        older = self.create_test_donor(donor_email=email, donor_name="Older Donor")
-        newer = self.create_test_donor(donor_email=email, donor_name="Newer Donor")
+        self.create_test_donor(donor_email=email, donor_name="Older Donor")
+        self.create_test_donor(donor_email=email, donor_name="Newer Donor")
         member = self.create_test_member(first_name="Multi", last_name="Recon", email=email)
 
+        self.expectErrorLog("DONOR_001")
         result = get_donor_for_member(member)
-        # Both donors match; the function orders by creation desc and returns the newest.
-        self.assertIn(result, {older.name, newer.name})
-        most_recent = frappe.get_all(
-            "Donor",
-            filters={"donor_email": email},
-            fields=["name"],
-            order_by="creation desc",
-            limit=1,
-        )[0].name
-        self.assertEqual(result, most_recent)
+        self.assertIsNone(result)
 
     # ----- get_all_donors_for_email -----
 
