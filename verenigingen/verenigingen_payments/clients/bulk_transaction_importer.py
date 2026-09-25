@@ -11,6 +11,7 @@ from frappe import _
 from frappe.utils import formatdate, getdate
 
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.sql_like import escape_sql_like_wildcards
 from verenigingen.utils.validation.iban_validator import validate_iban
 
 from ..core.compliance.audit_trail import AuditEventType, AuditSeverity, ImmutableAuditTrail as AuditTrail
@@ -1014,10 +1015,12 @@ class BulkTransactionImporter(MollieBaseClient):
                     frappe.logger().info(f"Member matched by exact name: {member_by_name}")
                     return member_by_name
 
-                # Try partial match on full_name (fuzzy matching)
+                # Try partial match on full_name (fuzzy matching). consumer_name is
+                # Mollie-supplied, so a literal '%'/'_' must be escaped before it is
+                # used as a LIKE literal, or it acts as a wildcard (#1153/#1320).
                 members = frappe.get_all(
                     "Member",
-                    filters={"full_name": ["like", f"%{consumer_name}%"]},
+                    filters={"full_name": ["like", f"%{escape_sql_like_wildcards(consumer_name)}%"]},
                     fields=["name", "full_name"],
                     limit=5,
                 )
