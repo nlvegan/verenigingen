@@ -19,6 +19,7 @@ Status Flow:
                     -> Failed (if execution fails)
 """
 
+from contextlib import contextmanager
 from datetime import date
 from typing import Optional
 
@@ -28,6 +29,7 @@ from frappe.model.document import Document
 from frappe.utils import get_url
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 
 
 class PontoPaymentRequest(Document):
@@ -210,17 +212,21 @@ class PontoPaymentRequest(Document):
             new_status = status_map.get(payment.status.lower(), self.status)
 
             if new_status != self.status:
-                self.status = new_status
-                self.save()
+                # Status + Payment Entry are one atomic unit -- #1323 (#1288 class).
+                # See _atomic_status_transition() for why.
+                with self._atomic_status_transition():
+                    self.status = new_status
+                    self.save()
+
+                    # If executed, create Payment Entry
+                    if new_status == "Executed":
+                        self.create_payment_entry()
+
                 frappe.msgprint(
                     _("Status updated to {0}").format(new_status),
                     indicator="green",
                     alert=True,
                 )
-
-                # If executed, create Payment Entry
-                if new_status == "Executed":
-                    self.create_payment_entry()
 
             return {"status": new_status}
 
@@ -234,11 +240,64 @@ class PontoPaymentRequest(Document):
                 title=_("API Error"),
             )
 
+    @contextmanager
+    def _atomic_status_transition(self):
+        """
+        Scope a status mutation and any Payment Entry it triggers as one atomic
+        unit -- #1323, the #1288 class of defect. Both ``refresh_status()`` and
+        ``update_status_from_webhook()`` used to persist the new status (e.g.
+        "Executed") BEFORE calling ``create_payment_entry()``, which then
+        swallowed its own exception (log_error, no re-raise). Any PE failure
+        therefore left the request permanently stuck at "Executed" with no
+        Payment Entry and no automatic retry -- the status said the money had
+        moved when it had not.
+
+        A savepoint scopes the status mutation and the PE creation together: on
+        any failure both roll back to how the document was before this call,
+        and the exception propagates so the caller (the outer try/except in
+        refresh_status(), or the per-row savepoint in
+        webhook_handlers.handle_payment_request_closed()) sees the failure and
+        can retry. A retry re-enters the same "new_status != self.status" gate
+        both callers already use before this transition, and
+        create_payment_entry()'s own "already have self.payment_entry" guard
+        still applies -- so a retry cannot double-create a Payment Entry for a
+        prior COMMITTED success. The rollback here is what guarantees a failed
+        attempt never becomes one.
+        """
+        savepoint = f"ppr_status_pe_{frappe.generate_hash(length=10)}"
+        frappe.db.savepoint(savepoint)
+        try:
+            yield
+        except NON_RESUMABLE_DB_ERRORS:
+            # A 1213/1205 has already destroyed (1213) or half-applied (1205) the
+            # transaction server-side; ROLLBACK TO SAVEPOINT here would raise 1305
+            # and replace this error instead of propagating it.
+            raise
+        except Exception:
+            rollback_to_savepoint(savepoint)
+            raise
+        else:
+            frappe.db.release_savepoint(savepoint)
+
     def create_payment_entry(self):
         """
         Create Payment Entry when payment is executed.
 
         Links the Payment Entry to this Ponto Payment Request.
+
+        Every guard below RAISES rather than logging-and-returning (#1323
+        review finding): each one runs inside the caller's
+        _atomic_status_transition() savepoint, and a plain ``return`` exits
+        that ``with`` block normally, releasing the savepoint -- so "Executed"
+        was committed with no Payment Entry and no error trail for exactly
+        the four misconfigurations this method already knew how to detect.
+        `frappe.logger().warning()` in particular writes to a rotating file
+        handler nothing in CI reads (see CLAUDE.md's "Known traps"), so this
+        was invisible even to a diligent operator.
+
+        The one exception is ``if self.payment_entry: return`` immediately
+        below -- that is a genuine idempotency no-op (already succeeded),
+        not a misconfiguration, and stays a silent return.
         """
         if self.payment_entry:
             return  # Already created
@@ -252,14 +311,24 @@ class PontoPaymentRequest(Document):
                 break
 
         if not bank_account:
-            frappe.logger().warning(f"No bank account mapped for Ponto account {self.ponto_account}")
-            return
+            frappe.throw(
+                _(
+                    "No bank account is mapped for Ponto account {0} in Ponto Settings. "
+                    "Configure a bank account mapping before this payment can be recorded."
+                ).format(self.ponto_account),
+                title=_("Ponto Account Not Mapped"),
+            )
 
         # Get company from bank account
         company = frappe.db.get_value("Bank Account", bank_account, "company")
         if not company:
-            frappe.logger().warning(f"No company found for bank account {bank_account}")
-            return
+            frappe.throw(
+                _(
+                    "Bank Account {0} (mapped to Ponto account {1}) has no Company set. "
+                    "Cannot create a Payment Entry without a company."
+                ).format(bank_account, self.ponto_account),
+                title=_("Bank Account Misconfigured"),
+            )
 
         # paid_from: the GL account behind the Ponto-mapped Bank Account this SEPA
         # payment is debited from. `bank_account` above is a reconciliation-only
@@ -267,8 +336,13 @@ class PontoPaymentRequest(Document):
         # a Link(Account) -- #1200.
         paid_from = frappe.db.get_value("Bank Account", bank_account, "account")
         if not paid_from:
-            frappe.logger().warning(f"Bank Account {bank_account} has no linked GL account")
-            return
+            frappe.throw(
+                _(
+                    "Bank Account {0} (mapped to Ponto account {1}) has no linked GL Account. "
+                    "Cannot create a Payment Entry without one."
+                ).format(bank_account, self.ponto_account),
+                title=_("Bank Account Misconfigured"),
+            )
 
         # Determine party type and party from reference
         party_type = None
@@ -293,47 +367,47 @@ class PontoPaymentRequest(Document):
         # ever posted correctly) -- refuse rather than guess, matching the
         # no-bank_account / no-company guards already above.
         if not (party_type and party):
-            frappe.logger().warning(
-                f"Ponto Payment Request {self.name} has no reference party (Supplier/Employee); "
-                "cannot resolve a paid_to account for the Payment Entry"
+            frappe.throw(
+                _(
+                    "Ponto Payment Request {0} has no reference Supplier or Employee, so no "
+                    "payable account can be resolved for the Payment Entry."
+                ).format(self.name),
+                title=_("No Reference Party"),
             )
-            return
 
         from erpnext.accounts.party import get_party_account
 
         paid_to = get_party_account(party_type, party, company)
 
-        # Create Payment Entry
-        try:
-            pe = frappe.new_doc("Payment Entry")
-            pe.payment_type = "Pay"
-            pe.company = company
-            pe.party_type = party_type
-            pe.party = party
-            pe.paid_from = paid_from
-            pe.paid_to = paid_to
-            pe.mode_of_payment = "Bank Transfer"
-            pe.paid_from_account_currency = self.currency
-            pe.paid_to_account_currency = self.currency
-            pe.paid_amount = self.amount
-            pe.received_amount = self.amount
-            pe.reference_no = self.name
-            pe.reference_date = frappe.utils.today()
-            pe.bank_account = bank_account
+        # Create Payment Entry. Does NOT swallow its own exception (#1323, the
+        # #1288 class): a caller (refresh_status(), update_status_from_webhook())
+        # must see a failure here so its own savepoint (_atomic_status_transition)
+        # can roll back the status mutation it made just before this call --
+        # logging and returning silently left the request stuck "Executed" with
+        # no Payment Entry and no retry.
+        pe = frappe.new_doc("Payment Entry")
+        pe.payment_type = "Pay"
+        pe.company = company
+        pe.party_type = party_type
+        pe.party = party
+        pe.paid_from = paid_from
+        pe.paid_to = paid_to
+        pe.mode_of_payment = "Bank Transfer"
+        pe.paid_from_account_currency = self.currency
+        pe.paid_to_account_currency = self.currency
+        pe.paid_amount = self.amount
+        pe.received_amount = self.amount
+        pe.reference_no = self.name
+        pe.reference_date = frappe.utils.today()
+        pe.bank_account = bank_account
 
-            pe.insert()
-            pe.submit()
+        pe.insert()
+        pe.submit()
 
-            self.payment_entry = pe.name
-            self.save()
+        self.payment_entry = pe.name
+        self.save()
 
-            frappe.logger().info(f"Created Payment Entry {pe.name} for Ponto payment {self.name}")
-
-        except Exception as e:
-            frappe.log_error(
-                title=f"Failed to create Payment Entry for {self.name}",
-                message=str(e),
-            )
+        frappe.logger().info(f"Created Payment Entry {pe.name} for Ponto payment {self.name}")
 
     def update_status_from_webhook(self, new_status: str):
         """
@@ -343,12 +417,15 @@ class PontoPaymentRequest(Document):
             new_status: New status value
         """
         if new_status != self.status:
-            self.status = new_status
-            # Security: Webhook callback - status update from verified Ponto event
-            self.save(ignore_permissions=True)
+            # Status + Payment Entry are one atomic unit -- #1323 (#1288 class).
+            # See _atomic_status_transition() for why.
+            with self._atomic_status_transition():
+                self.status = new_status
+                # Security: Webhook callback - status update from verified Ponto event
+                self.save(ignore_permissions=True)
 
-            if new_status == "Executed":
-                self.create_payment_entry()
+                if new_status == "Executed":
+                    self.create_payment_entry()
 
             frappe.logger().info(
                 f"Ponto Payment Request {self.name} status updated to {new_status} via webhook"

@@ -84,7 +84,11 @@ BASELINE = Path(__file__).resolve().parents[1] / "harness_logger_teardown_baseli
 # comparison. Losing this specific line costs no diagnosis of a real failure,
 # only the "why didn't deferral happen" detail -- so MRO_ERRORS does NOT move,
 # only the call count, and RESIDUAL_BELOW_ERROR (23-4) moves 18 -> 19.
-MRO_CALLS, MRO_ERRORS, MRO_TEARDOWNS = 23, 4, 11
+# 11 -> 12 teardowns (#1323): test_ponto_payment_request_paid_after_pe.py's
+# _PontoPaymentRequestFixtures.tearDownClass calls SingletonBackup.restore(), reaching
+# the SAME 4 already-known singleton_backup sites every other Ponto test class reaches.
+# One new route, zero new sites and no new level, so MRO_CALLS / MRO_ERRORS do not move.
+MRO_CALLS, MRO_ERRORS, MRO_TEARDOWNS = 23, 4, 12
 # 35, 7 -> 36, 8 (#392): this branch replaced a silent `except Exception: pass`
 # in test_rest_migration_payments.py's tearDown with a get_harness_logger
 # `.error()` call, so name-mode gains one site and it is an ERROR one. The
