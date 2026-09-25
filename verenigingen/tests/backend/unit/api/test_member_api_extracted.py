@@ -114,7 +114,21 @@ class TestValidateMandateCreationAPI(unittest.TestCase):
 
 
 class TestGetLinkedDonationsAPI(unittest.TestCase):
-    """Test get_linked_donations() API function"""
+    """Test get_linked_donations() API function.
+
+    Each ``frappe.get_all`` call is asserted on the exact filters it was
+    made with (not just the final `result`), never a single blanket
+    ``return_value``/``side_effect`` shared across tiers. The #1356 review
+    found the previous version of these tests passed unchanged with the
+    wrong tier deleted, because a constant mock return value satisfies
+    whichever tier runs, regardless of which one the test claims to cover.
+
+    There is no name-based tier: on production data zero Donor records
+    have ``member`` or ``donor_email`` set, so a name match would be the
+    ONLY signal that ever fires there, with no way to disambiguate a
+    common Dutch name shared by unrelated people (see the function's
+    docstring / #1356).
+    """
 
     def setUp(self):
         super().setUp()
@@ -135,15 +149,14 @@ class TestGetLinkedDonationsAPI(unittest.TestCase):
         self.assertFalse(result["success"])
 
     @patch("verenigingen.api.member.general_api.frappe")
-    def test_donor_found_by_email(self, mock_frappe):
-        """Test finding donor by matching email"""
-        # Mock member document
+    def test_donor_found_by_member_link(self, mock_frappe):
+        """Tier 1 (the authoritative Donor.member link) resolves the donor
+        in a single call, without ever querying by e-mail."""
         mock_member = MagicMock()
+        mock_member.name = "MEM-001"
         mock_member.email = "test@example.com"
-        mock_member.full_name = "Test Member"
         mock_frappe.get_doc.return_value = mock_member
 
-        # Mock donor search - use MagicMock to support attribute access
         mock_donor = MagicMock()
         mock_donor.name = "DONOR-001"
         mock_frappe.get_all.return_value = [mock_donor]
@@ -152,39 +165,46 @@ class TestGetLinkedDonationsAPI(unittest.TestCase):
 
         self.assertTrue(result["success"])
         self.assertEqual(result["donor"], "DONOR-001")
+        mock_frappe.get_all.assert_called_once_with(
+            "Donor", filters={"member": "MEM-001"}, fields=["name"]
+        )
 
     @patch("verenigingen.api.member.general_api.frappe")
-    def test_donor_found_by_name(self, mock_frappe):
-        """Test finding donor by matching name when email doesn't match"""
-        # Mock member document
+    def test_donor_found_by_email_when_no_member_link(self, mock_frappe):
+        """Tier 1 (member link) finds nothing; tier 2 (exact e-mail) resolves
+        it. The side_effect distinguishes the two calls by their filters, so
+        this can only pass if the e-mail tier actually ran."""
         mock_member = MagicMock()
+        mock_member.name = "MEM-001"
         mock_member.email = "test@example.com"
-        mock_member.full_name = "Test Member"
         mock_frappe.get_doc.return_value = mock_member
 
-        # First call (by email) returns nothing, second call (by name) finds donor
         mock_donor = MagicMock()
         mock_donor.name = "DONOR-002"
-        mock_frappe.get_all.side_effect = [
-            [],  # No match by email
-            [mock_donor],  # Match by name
-        ]
+
+        def get_all_side_effect(doctype, filters=None, fields=None):
+            if filters == {"member": "MEM-001"}:
+                return []
+            if filters == {"donor_email": "test@example.com"}:
+                return [mock_donor]
+            raise AssertionError(f"unexpected Donor filter: {filters}")
+
+        mock_frappe.get_all.side_effect = get_all_side_effect
 
         result = self.get_linked_donations(member="MEM-001")
 
         self.assertTrue(result["success"])
         self.assertEqual(result["donor"], "DONOR-002")
+        self.assertEqual(mock_frappe.get_all.call_count, 2)
 
     @patch("verenigingen.api.member.general_api.frappe")
     def test_no_donor_found(self, mock_frappe):
-        """Test when no donor is found by email or name"""
-        # Mock member document
+        """Test when no donor is found by member link or e-mail"""
         mock_member = MagicMock()
+        mock_member.name = "MEM-001"
         mock_member.email = "test@example.com"
-        mock_member.full_name = "Test Member"
         mock_frappe.get_doc.return_value = mock_member
 
-        # No matches
         mock_frappe.get_all.return_value = []
 
         result = self.get_linked_donations(member="MEM-001")
@@ -193,15 +213,15 @@ class TestGetLinkedDonationsAPI(unittest.TestCase):
         self.assertIn("No donor record found", result["message"])
 
     @patch("verenigingen.api.member.general_api.frappe")
-    def test_member_without_email(self, mock_frappe):
-        """Test finding donor when member has no email"""
-        # Mock member document without email
+    def test_member_without_email_resolves_via_member_link_only(self, mock_frappe):
+        """A member with no e-mail still resolves via the unconditional
+        member-link tier, and the e-mail tier is never attempted (there is
+        no e-mail to query by)."""
         mock_member = MagicMock()
+        mock_member.name = "MEM-001"
         mock_member.email = None
-        mock_member.full_name = "Test Member"
         mock_frappe.get_doc.return_value = mock_member
 
-        # Match by name - use MagicMock to support attribute access
         mock_donor = MagicMock()
         mock_donor.name = "DONOR-003"
         mock_frappe.get_all.return_value = [mock_donor]
@@ -210,19 +230,50 @@ class TestGetLinkedDonationsAPI(unittest.TestCase):
 
         self.assertTrue(result["success"])
         self.assertEqual(result["donor"], "DONOR-003")
+        mock_frappe.get_all.assert_called_once_with(
+            "Donor", filters={"member": "MEM-001"}, fields=["name"]
+        )
 
     @patch("verenigingen.api.member.general_api.frappe")
-    def test_member_without_email_or_name(self, mock_frappe):
-        """Test when member has no email and no full_name"""
-        # Mock member document without email or name
+    def test_member_without_email_and_no_member_link_match(self, mock_frappe):
+        """No e-mail and no member-link match: no donor found, and the
+        e-mail tier is never attempted."""
         mock_member = MagicMock()
+        mock_member.name = "MEM-001"
         mock_member.email = None
-        mock_member.full_name = None
         mock_frappe.get_doc.return_value = mock_member
+
+        mock_frappe.get_all.return_value = []
 
         result = self.get_linked_donations(member="MEM-001")
 
         self.assertFalse(result["success"])
+        mock_frappe.get_all.assert_called_once_with(
+            "Donor", filters={"member": "MEM-001"}, fields=["name"]
+        )
+
+    @patch("verenigingen.api.member.general_api.frappe")
+    def test_ambiguous_member_link_refuses_without_trying_email(self, mock_frappe):
+        """An ambiguous tier-1 (member link) match must refuse immediately
+        and never fall through to tier 2, even though tier 2 would resolve
+        to a single (unrelated) donor if it ran -- the #1356 review's
+        finding that falling through leaked a stranger's donor."""
+        mock_member = MagicMock()
+        mock_member.name = "MEM-001"
+        mock_member.email = "test@example.com"
+        mock_frappe.get_doc.return_value = mock_member
+
+        def get_all_side_effect(doctype, filters=None, fields=None):
+            if filters == {"member": "MEM-001"}:
+                return [MagicMock(), MagicMock()]
+            raise AssertionError("must not query the e-mail tier after an ambiguous member-link match")
+
+        mock_frappe.get_all.side_effect = get_all_side_effect
+
+        result = self.get_linked_donations(member="MEM-001")
+
+        self.assertFalse(result["success"])
+        self.assertEqual(mock_frappe.get_all.call_count, 1)
 
 
 class TestSEPAAPIDeriveBicFromIban(unittest.TestCase):

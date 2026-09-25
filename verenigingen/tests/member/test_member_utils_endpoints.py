@@ -278,6 +278,66 @@ class TestMemberUtilsEndpoints(VereningingenTestCase):
         self.assertTrue(result["success"])
         self.assertEqual(result["donor"], donor.name)
 
+    def test_get_linked_donations_same_name_stranger_not_attached(self):
+        """#1356 review: there is no name-based tier at all, so a donor whose
+        donor_name EXACTLY equals this member's full_name -- a real
+        possibility for a common Dutch name -- must never be attached
+        without a link or matching e-mail to back it up."""
+        member_doc = frappe.get_doc("Member", self.member.name)
+        self.create_test_donor(donor_name=member_doc.full_name, donor_email=None)
+        result = mu.get_linked_donations(self.member.name)
+        self.assertFalse(result["success"])
+
+    def test_get_linked_donations_does_not_substring_match_a_strangers_donor(self):
+        """#1356: a stranger's donor whose name merely CONTAINS this member's
+        full_name as a substring must never be attached to this member -- the
+        old `LIKE f"%{full_name}%"` query with no ambiguity guard did exactly
+        that.
+        """
+        member_doc = frappe.get_doc("Member", self.member.name)
+        self.create_test_donor(
+            donor_name=f"{member_doc.full_name} (a completely unrelated donor)", donor_email=None
+        )
+        result = mu.get_linked_donations(self.member.name)
+        self.assertFalse(result["success"])
+
+    def test_get_linked_donations_ambiguous_member_link_never_falls_through_to_email(self):
+        """Regression for the #1356 review finding: an ambiguous match at the
+        (stronger) member-link tier must refuse immediately, not fall through
+        to the (weaker) e-mail tier. Without that guard, this scenario
+        resolved to the THIRD donor below -- an unrelated donor that merely
+        happens to share this member's e-mail address."""
+        member_doc = frappe.get_doc("Member", self.member.name)
+        self.create_test_donor(member=self.member.name, donor_email=None)
+        self.create_test_donor(member=self.member.name, donor_email=None)
+        self.create_test_donor(donor_email=member_doc.email)
+        result = mu.get_linked_donations(self.member.name)
+        self.assertFalse(result["success"])
+
+    def test_get_linked_donations_ambiguous_email_refuses(self):
+        """Two donors sharing this member's exact e-mail must refuse rather
+        than silently picking the first one. Asserts the ambiguity message
+        specifically -- e-mail is the last tier, so an ambiguous match and a
+        plain not-found both give success=False; a bare `assertFalse` would
+        stay green even if the ambiguity check on this tier were deleted,
+        since both paths fall through to a success=False result."""
+        member_doc = frappe.get_doc("Member", self.member.name)
+        self.create_test_donor(donor_email=member_doc.email)
+        self.create_test_donor(donor_email=member_doc.email)
+        result = mu.get_linked_donations(self.member.name)
+        self.assertFalse(result["success"])
+        self.assertIn("Multiple donor records", result["message"])
+
+    def test_get_linked_donations_member_link_takes_priority(self):
+        """The authoritative Donor.member link resolves the donor even when
+        donor_name/donor_email do not match the member at all."""
+        donor = self.create_test_donor(
+            donor_name="Someone Else Entirely", donor_email="unrelated@test.invalid", member=self.member.name
+        )
+        result = mu.get_linked_donations(self.member.name)
+        self.assertTrue(result["success"])
+        self.assertEqual(result["donor"], donor.name)
+
     # ------------------------------------------------------------------ termination status
 
     def test_get_member_termination_status_none(self):

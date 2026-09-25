@@ -319,26 +319,16 @@ def add_manual_payment_record(
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_linked_donations(member: str):
-    """Find linked donor record for a member to view donations"""
-    if not member:
-        return {"success": False, "message": "No member specified"}
+    """Find linked donor record for a member to view donations.
 
-    member_doc = frappe.get_doc("Member", member)
-    if member_doc.email:
-        donors = frappe.get_all("Donor", filters={"donor_email": member_doc.email}, fields=["name"])
+    Delegates to the canonical implementation in api/member/general_api.py
+    rather than duplicating the donor-matching logic -- see #1356, where the
+    two byte-identical copies of this function disagreed on nothing except
+    both being vulnerable the same way.
+    """
+    from verenigingen.api.member.general_api import get_linked_donations as _get_linked_donations
 
-        if donors:
-            return {"success": True, "donor": donors[0].name}
-
-    if member_doc.full_name:
-        donors = frappe.get_all(
-            "Donor", filters={"donor_name": ["like", f"%{member_doc.full_name}%"]}, fields=["name"]
-        )
-
-        if donors:
-            return {"success": True, "donor": donors[0].name}
-
-    return {"success": False, "message": "No donor record found for this member"}
+    return _get_linked_donations(member=member)
 
 
 # check_donor_exists moved to DonorManagementService
