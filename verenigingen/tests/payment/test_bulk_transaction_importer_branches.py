@@ -17,7 +17,8 @@ by exercising the previously-uncovered defensive and error branches:
       -None (skipped) and malformed-date exception branches.
     - _validate_duplicate_transaction: settlement-id and amount/date/reference
       duplicate criteria against real Bank Transactions.
-    - _find_member_by_payment_details: multiple fuzzy name matches (no auto-assign).
+    - _find_member_by_payment_details: multiple fuzzy name matches (no auto-assign);
+      unescaped-wildcard consumer_name false single match (#1320).
     - _save_import_record: fallback bank account, non-existent bank account,
       and malformed-results exception handler.
     - estimate_import_size: API-failure handler.
@@ -362,6 +363,34 @@ class TestFindMemberMultipleMatches(_BulkImporterSweepBase):
             frappe.db.set_value("Member", m.name, "full_name", f"{shared} {i}")
         # Two members LIKE '%Ambiguous Donor <uid>%' -> ambiguous -> no auto-assign.
         self.assertIsNone(self.imp._find_member_by_payment_details(consumer_name=shared))
+
+    def test_wildcard_consumer_name_does_not_falsely_match_unrelated_member(self):
+        """#1320: the ``full_name LIKE f"%{consumer_name}%"`` fuzzy-match fallback is
+        built from an unescaped Mollie-supplied ``consumer_name``. A literal '_' in
+        the consumer name is a LIKE single-character wildcard unless escaped (the
+        #1153/#1258/#1277 class). Unlike the ambiguous-names case above, a wildcard
+        can create exactly ONE spurious match that the ``len(members) > 1`` guard
+        never sees, so the wrong member is auto-assigned with confidence."""
+        # Real char at the position under test is 'X'; the Mollie-supplied consumer
+        # name below has a literal '_' there instead, which is NOT the same name but
+        # IS a LIKE wildcard match for it when unescaped.
+        wrong_member_name = f"Member WildXabc{self.uid}"
+        member = self.create_test_member(
+            first_name="Member",
+            last_name=f"WildXabc{self.uid}",
+            email=f"wild.xabc.{self.uid}@example.com",
+        )
+        frappe.db.set_value("Member", member.name, "full_name", wrong_member_name)
+
+        consumer_name = f"Wild_abc{self.uid}"
+        self.assertNotIn(consumer_name, wrong_member_name)  # sanity: not a literal substring
+
+        matched = self.imp._find_member_by_payment_details(consumer_name=consumer_name)
+        self.assertIsNone(
+            matched,
+            f"consumer name {consumer_name!r} is not a literal substring of any member's "
+            f"full_name; got {matched} (wrongly attached to {member.name})",
+        )
 
 
 class TestSaveImportRecordBranches(_BulkImporterSweepBase):
