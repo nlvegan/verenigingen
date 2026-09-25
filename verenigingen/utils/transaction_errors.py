@@ -42,6 +42,8 @@ A third condition belongs in this same "must propagate" family but cannot join t
   whether to retry or abort. #1352.
 """
 
+from contextlib import contextmanager
+
 import frappe
 
 NON_RESUMABLE_DB_ERRORS = (frappe.QueryDeadlockError, frappe.QueryTimeoutError)
@@ -180,6 +182,46 @@ def submit_atomically(doc):
     entry - it is a row that satisfies dedup guards while having posted nothing.
     """
     _atomically(doc.submit)
+
+
+@contextmanager
+def atomic_status_transition(savepoint_prefix: str):
+    """Scope an arbitrary block -- typically a status mutation plus a side effect
+    it triggers, such as Payment Entry creation -- as one savepoint-protected unit.
+
+    The context-manager sibling of ``_atomically``/``insert_and_submit_atomically``
+    below: those take callables to run in sequence (``doc.insert``, ``doc.submit``),
+    this wraps an arbitrary ``with`` block, which is what a caller needs when the
+    atomic unit spans more than one document (e.g. this doc's own ``self.save()``
+    plus a Payment Entry it creates as a side effect).
+
+    On any failure inside the block, rolls back to the savepoint taken at entry and
+    re-raises, so the caller sees the failure and any status mutation made inside
+    the block is undone -- rather than a status write (e.g. "Executed") committing
+    while the side effect it implies (e.g. a Payment Entry) silently did not happen.
+    On success, releases the savepoint.
+
+    Extracted from PontoPaymentRequest._atomic_status_transition() (#1323) when
+    PontoPaymentLink needed the identical mechanism (#1362) -- two per-doctype
+    copies of this exact body would have been the class of bug this file's other
+    helpers already exist to prevent. Callers keep their own doctype-specific
+    docstring explaining WHY the transition matters for them; only the savepoint
+    mechanics live here.
+    """
+    savepoint = f"{savepoint_prefix}_{frappe.generate_hash(length=10)}"
+    frappe.db.savepoint(savepoint)
+    try:
+        yield
+    except NON_RESUMABLE_DB_ERRORS:
+        # A 1213/1205 has already destroyed (1213) or half-applied (1205) the
+        # transaction server-side; ROLLBACK TO SAVEPOINT here would raise 1305 and
+        # replace this error instead of propagating it.
+        raise
+    except Exception:
+        rollback_to_savepoint(savepoint)
+        raise
+    else:
+        frappe.db.release_savepoint(savepoint)
 
 
 def _atomically(*operations):

@@ -39,17 +39,21 @@ def create_ponto_payment_entry(payment_link_doc, invoice_name: str) -> Optional[
         as no Ponto bank account, or an ERPNext validation failure) - #1362, the
         #1288/#1323 class. A caller (PontoPaymentLink.process_payment_received(),
         webhook_handlers._process_executed_payment()) must see this failure so a
-        surrounding transaction boundary (the request-level rollback around
-        refresh_status(), or the per-link savepoint in
-        webhook_handlers._update_payment_link_status()) can roll the "Executed"
-        status write back with it, rather than committing a status that says the
-        money was recorded when it was not. `frappe.PermissionError` is the one
-        exception NOT re-raised: it is how Guest is refused when this runs inline
-        from a webhook request (see process_payment_received()'s docstring and
-        test_guest_cannot_create_the_entry) - a real, already-expected no-op, not a
-        misconfiguration, because the async process_executed_payment_job is what
-        actually creates the entry for that path, running as the configured
-        webhook user.
+        surrounding transaction boundary (the `atomic_status_transition()` call
+        inside refresh_status()/update_status_from_webhook(), or the per-link
+        savepoint in webhook_handlers._update_payment_link_status()) can roll
+        the "Executed" status write back with it, rather than committing a
+        status that says the money was recorded
+        when it was not. `frappe.PermissionError` is NOT re-raised only when
+        `frappe.session.user == "Guest"`: that is the one already-expected refusal
+        (this running inline from a webhook request - see
+        process_payment_received()'s docstring and test_guest_cannot_create_the_entry),
+        because the async process_executed_payment_job is what actually creates the
+        entry for that path, running as the configured webhook user. A PermissionError
+        for any OTHER user (in particular that configured webhook user) IS a
+        misconfiguration and IS re-raised - #1362 review finding: an unscoped
+        PermissionError no-op made a misconfigured service account indistinguishable
+        from Guest's expected refusal.
     """
     from frappe.utils import flt, getdate, today
 
@@ -164,15 +168,34 @@ def create_ponto_payment_entry(payment_link_doc, invoice_name: str) -> Optional[
         return payment_entry.name
 
     except frappe.PermissionError:
-        # Legitimate no-op, not a misconfiguration: reached inline as Guest when this
-        # runs synchronously inside the webhook request (see
-        # PontoPaymentLink.process_payment_received()'s docstring). The real creation
-        # for that path happens via the async process_executed_payment_job, running as
-        # the configured webhook user. test_guest_cannot_create_the_entry pins this.
-        frappe.logger().warning(
-            f"Ponto Payment Entry creation refused by permissions for {payment_link_doc.name}"
+        if frappe.session.user == "Guest":
+            # Legitimate no-op, not a misconfiguration: reached inline as Guest when
+            # this runs synchronously inside the webhook request (see
+            # PontoPaymentLink.process_payment_received()'s docstring). The real
+            # creation for that path happens via the async
+            # process_executed_payment_job, running as the configured webhook user.
+            # test_guest_cannot_create_the_entry pins this.
+            frappe.logger().warning(
+                f"Ponto Payment Entry creation refused by permissions for {payment_link_doc.name} (Guest)"
+            )
+            return None
+        # Any OTHER user lacking permission - in particular the configured webhook
+        # user the async process_executed_payment_job runs as - is a genuine
+        # misconfiguration, not an expected no-op (#1362 review finding). Scoping
+        # the no-op to Guest specifically matters: without it, a webhook user whose
+        # role lost "create Payment Entry" would silently return None forever
+        # (Executed, no PE, no Error Log, only a warning-level log dropped at
+        # production log level - see CLAUDE.md's "Known traps"), indistinguishable
+        # from Guest's expected refusal.
+        frappe.logger().error(
+            f"Ponto Payment Entry creation refused by permissions for {payment_link_doc.name} "
+            f"(user: {frappe.session.user})"
         )
-        return None
+        frappe.log_error(
+            title=f"Ponto Payment Entry creation failed: {payment_link_doc.name}",
+            message=f"Permission denied for user {frappe.session.user}",
+        )
+        raise
     except Exception as e:
         # Everything else is a genuine failure (misconfiguration or an ERPNext
         # validation error) and must not be swallowed - #1362, the #1288/#1323 class.

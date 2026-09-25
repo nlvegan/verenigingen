@@ -596,3 +596,113 @@ class TestCreatePontoPaymentEntry(EnhancedTestCase):
         pe_name = create_ponto_payment_entry(link, invoice.name)
 
         self.assertIsNone(pe_name, "Guest must still be refused silently, not raise")
+
+    def _make_ponto_restricted_user(self):
+        """A fresh, non-Guest User carrying a Role with ZERO doctype permissions.
+
+        Named uniquely (not `_make_user_with_roles`/`_make_deskless_role_without_
+        perms`, which test_payment_entry_creation_service.py, test_bank_
+        transaction_reconciliation.py and test_authorization_coverage.py already
+        each carry their own near-identical copy of) so this single-use helper
+        does not grow that existing duplicate_helper_validator clone family.
+        `_make_` is one of the enforcer's allowed permission-bypass contexts.
+        """
+        role = frappe.new_doc("Role")
+        role.role_name = f"PontoNoPerm {frappe.generate_hash(length=8)}"
+        role.desk_access = 1
+        role.insert(ignore_permissions=True)
+        self.track_doc("Role", role.name)
+
+        user = frappe.new_doc("User")
+        user.email = f"ponto-restricted-{frappe.generate_hash(length=10)}@example.com"
+        user.first_name = "Ponto Restricted"
+        user.send_welcome_email = 0
+        user.enabled = 1
+        user.append("roles", {"role": role.name})
+        user.insert(ignore_permissions=True)
+        self.track_doc("User", user.name)
+        return user.name
+
+    def test_non_guest_permission_denied_raises_instead_of_silent_no_op(self):
+        """A non-Guest user lacking Payment Entry permission is a genuine
+        misconfiguration, not Guest's expected refusal (#1362 review finding 2).
+
+        Before this fix, `except frappe.PermissionError: return None` was NOT
+        scoped to Guest, so a misconfigured service account - in particular the
+        configured webhook user the async process_executed_payment_job runs
+        as - would silently return None forever: Executed, no PE, zero Error Log
+        rows, and only a warning-level log dropped at the production log level
+        (see CLAUDE.md's "Known traps"). Uses a REAL non-Guest user with zero
+        Payment Entry permissions, not a mock of the permission check itself.
+        """
+        member = self._member_with_customer(first_name="PontoRestrictedUser")
+        invoice = self._submitted_invoice(member.customer)
+        link = self._payment_link(member)
+
+        restricted_user = self._make_ponto_restricted_user()
+
+        self.expectErrorLog("Ponto Payment Entry creation failed")
+        self.addCleanup(frappe.set_user, "Administrator")
+        frappe.set_user(restricted_user)
+        with self.assertRaises(frappe.PermissionError):
+            create_ponto_payment_entry(link, invoice.name)
+
+        self.assertFalse(
+            frappe.db.exists("Payment Entry", {"reference_no": link.ponto_request_id}),
+            "a refused misconfiguration must leave no Payment Entry behind",
+        )
+
+    def test_refresh_status_rolls_back_even_when_the_caller_swallows(self):
+        """refresh_status()'s real production callers
+        (`templates.pages.ponto_api_debug.refresh_payment_link_status` and
+        `ponto.api.betaalverzoek_callback.payment_link_callback`, the customer-
+        facing redirect) both wrap the call in a bare `try/except Exception` that
+        logs and does NOT re-raise, so Frappe's request-level rollback never
+        fires for either of them (#1362 review finding 1). refresh_status() must
+        therefore protect itself with its own savepoint rather than depending on
+        a caller to propagate the failure.
+
+        Reproduced by calling refresh_status() inside that EXACT swallow shape
+        and proving the status does not end up "Executed" with no Payment Entry
+        regardless.
+        """
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        LINK_CLIENT = (
+            "verenigingen.verenigingen_payments.ponto.clients.betaalverzoek_client."
+            "get_betaalverzoek_client"
+        )
+
+        member = self._member_with_customer(first_name="PontoRefreshCallerSwallow")
+        invoice = self._submitted_invoice(member.customer)
+        link = self._payment_link(member)
+        link.sales_invoice = invoice.name
+        link.save()
+        frappe.db.set_value("Ponto Payment Link", link.name, "status", "Authorized")
+        link.reload()
+
+        fake_client = MagicMock()
+        fake_client.get_payment_request.return_value = SimpleNamespace(
+            status="executed", debtor_name=None, debtor_iban=None, debtor_bank=None
+        )
+
+        self.expectErrorLog(
+            "Ponto Payment Entry creation failed", "Ponto payment link status refresh failed"
+        )
+        with _no_ponto_bank_account_configured(self.company, self.ponto_account):
+            with patch(LINK_CLIENT, return_value=fake_client):
+                # The EXACT shape both real callers use: log, do NOT re-raise.
+                try:
+                    link.refresh_status()
+                except Exception:
+                    pass
+
+        link.reload()
+        self.assertNotEqual(
+            link.status,
+            "Executed",
+            "the caller swallowing the exception must not leave the link stuck "
+            "Executed with no Payment Entry",
+        )
+        self.assertFalse(link.payment_entry)
