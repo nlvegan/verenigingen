@@ -45,6 +45,9 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.member.test_member_approval_permissions import (
     _create_chapter_pending_applicant,
     _message_log_contents,
+    _operation_error_message,
+    _operation_errors,
+    _operation_succeeded,
 )
 
 
@@ -95,22 +98,6 @@ class TestBackgroundApprovalExistenceOracle(EnhancedTestCase):
     def _audit_log_count():
         return frappe.db.count("API Audit Log", {"event_type": "unauthorized_access_attempt"})
 
-    @staticmethod
-    def _success(result):
-        """approve_membership_application_background is wrapped by the security
-        decorators, which serialize its OperationResult return value via
-        ``to_dict()`` (nested schema) even for a direct Python call -- so the
-        caller sees a plain dict, not an OperationResult instance."""
-        return result["success"]
-
-    @staticmethod
-    def _result_message(result):
-        return result["error"]["message"]
-
-    @staticmethod
-    def _result_errors(result):
-        return result["error"]["errors"]
-
     def test_unknown_and_foreign_pending_refused_identically_for_scoped_board_member(self):
         """Existence channel: an unknown id and a foreign-but-Pending id must
         produce the identical failure for a scoped caller."""
@@ -134,16 +121,16 @@ class TestBackgroundApprovalExistenceOracle(EnhancedTestCase):
             foreign_log = frappe.get_message_log()
             after_foreign_audit = self._audit_log_count()
 
-        self.assertFalse(self._success(unknown_result))
-        self.assertFalse(self._success(foreign_result))
+        self.assertFalse(_operation_succeeded(unknown_result))
+        self.assertFalse(_operation_succeeded(foreign_result))
         self.assertEqual(
-            self._result_message(unknown_result),
-            self._result_message(foreign_result),
+            _operation_error_message(unknown_result),
+            _operation_error_message(foreign_result),
             "an unknown member_name must refuse with the identical top-level message as a foreign one",
         )
         self.assertEqual(
-            self._result_errors(unknown_result),
-            self._result_errors(foreign_result),
+            _operation_errors(unknown_result),
+            _operation_errors(foreign_result),
             "an unknown member_name must refuse with the identical error detail as a foreign one",
         )
         self.assertEqual(len(unknown_log), 1)
@@ -190,16 +177,16 @@ class TestBackgroundApprovalExistenceOracle(EnhancedTestCase):
             )
             non_pending_log = frappe.get_message_log()
 
-        self.assertFalse(self._success(unknown_result))
-        self.assertFalse(self._success(non_pending_result))
-        self.assertEqual(self._result_message(unknown_result), self._result_message(non_pending_result))
+        self.assertFalse(_operation_succeeded(unknown_result))
+        self.assertFalse(_operation_succeeded(non_pending_result))
+        self.assertEqual(_operation_error_message(unknown_result), _operation_error_message(non_pending_result))
         self.assertEqual(
-            self._result_errors(unknown_result),
-            self._result_errors(non_pending_result),
+            _operation_errors(unknown_result),
+            _operation_errors(non_pending_result),
             "a foreign, non-Pending member_name must not raise the status-specific message "
             "for a scoped caller -- that would still leak application_status",
         )
-        self.assertNotIn("current state", str(self._result_errors(non_pending_result)))
+        self.assertNotIn("current state", str(_operation_errors(non_pending_result)))
         self.assertEqual(len(unknown_log), 1)
         self.assertEqual(
             _message_log_contents(unknown_log),
@@ -227,7 +214,7 @@ class TestBackgroundApprovalExistenceOracle(EnhancedTestCase):
             )
 
         self.assertTrue(
-            self._success(result),
+            _operation_succeeded(result),
             f"Board member could not approve their own chapter's applicant: {result}",
         )
         own_applicant.reload()
@@ -245,10 +232,10 @@ class TestBackgroundApprovalExistenceOracle(EnhancedTestCase):
                 create_invoice=False,
             )
 
-        self.assertFalse(self._success(result))
+        self.assertFalse(_operation_succeeded(result))
         self.assertTrue(
-            any("Invalid member reference" in err for err in self._result_errors(result)),
-            f"expected 'Invalid member reference' in errors, got: {self._result_errors(result)}",
+            any("Invalid member reference" in err for err in _operation_errors(result)),
+            f"expected 'Invalid member reference' in errors, got: {_operation_errors(result)}",
         )
 
 
