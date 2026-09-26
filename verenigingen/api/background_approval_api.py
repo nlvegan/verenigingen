@@ -85,7 +85,7 @@ def approve_membership_application_background(
             # Validate member exists before proceeding
             if not frappe.db.exists("Member", member_name):
                 log_security_event(
-                    "invalid_member_access",
+                    "unauthorized_access_attempt",
                     {"message": f"Attempted approval of non-existent member: {member_name}"},
                     severity="error",
                 )
@@ -93,7 +93,7 @@ def approve_membership_application_background(
 
         except Exception as e:
             log_security_event(
-                "input_validation_failure",
+                "validation_failed",
                 {"message": f"Input validation failed for approval: {str(e)}"},
                 severity="warning",
             )

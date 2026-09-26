@@ -433,7 +433,7 @@ def check_duplicate_for_approval(member_name: str) -> OperationResult[Dict]:
         member_name = APIValidator.sanitize_text(str(member_name), max_length=255)
     except Exception as e:
         log_security_event(
-            "input_validation_failure",
+            "validation_failed",
             {"message": f"Input validation failed for duplicate check: {str(e)}"},
             severity="warning",
         )
@@ -444,7 +444,7 @@ def check_duplicate_for_approval(member_name: str) -> OperationResult[Dict]:
     # SECURITY FIX 2: Validate member exists
     if not frappe.db.exists("Member", member_name):
         log_security_event(
-            "invalid_member_access",
+            "unauthorized_access_attempt",
             {"message": f"Attempted duplicate check on non-existent member: {member_name}"},
             severity="warning",
         )
@@ -459,7 +459,7 @@ def check_duplicate_for_approval(member_name: str) -> OperationResult[Dict]:
     # SECURITY FIX 3: Permission validation
     if not frappe.has_permission("Member", "read", member_name):
         log_security_event(
-            "unauthorized_duplicate_check",
+            "permission_denied",
             {"message": f"User attempted duplicate check without permission: {member_name}"},
             severity="error",
         )
@@ -508,7 +508,7 @@ def check_duplicate_for_approval(member_name: str) -> OperationResult[Dict]:
 
     except frappe.DoesNotExistError:
         log_security_event(
-            "invalid_member_duplicate_check",
+            "unauthorized_access_attempt",
             {"message": f"Duplicate check on non-existent member: {member_name}"},
             severity="warning",
         )
@@ -522,7 +522,7 @@ def check_duplicate_for_approval(member_name: str) -> OperationResult[Dict]:
 
     except frappe.PermissionError:
         log_security_event(
-            "unauthorized_duplicate_check",
+            "permission_denied",
             {"message": f"Permission denied for duplicate check: {member_name}"},
             severity="error",
         )
