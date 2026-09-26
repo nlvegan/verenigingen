@@ -146,11 +146,15 @@ def get_application_stats():
         if not scoped_member_names:
             return stats
         # A board member's view is scoped to members currently linked to
-        # their chapter(s). A rejected application's Chapter Member row is
-        # deleted on rejection (remove_all_pending_chapter_memberships), so a
-        # rejected application becomes invisible to non-admin callers once
-        # rejected -- safe (nothing leaks) though less complete than admin's
-        # unrestricted view.
+        # their chapter(s). Two cases fall out of that and are both visible
+        # to admins only (safe -- nothing leaks -- though less complete than
+        # admin's unrestricted view):
+        #  - A rejected application's Chapter Member row is deleted on
+        #    rejection (remove_all_pending_chapter_memberships), so it becomes
+        #    invisible to non-admin callers once rejected.
+        #  - An applicant with NO Chapter Member row at all: reachable, since
+        #    _create_pending_chapter_membership_safe (application_helpers.py)
+        #    is fire-and-forget and can silently fail to create it.
         scope_filter["name"] = ["in", list(set(scoped_member_names))]
 
     pending_filters = {"application_status": "Pending", "status": "Pending", **scope_filter}
