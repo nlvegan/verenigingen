@@ -156,6 +156,28 @@ class TestSEPAXMLAdapter(FrappeTestCase):
         self.assertEqual(transaction.mandate.date_of_signature, date(2024, 1, 15))
         self.assertEqual(transaction.sequence_type, SEPASequenceType.RCUR)
 
+    def test_build_transaction_does_not_default_blank_currency_to_eur(self):
+        """#1464: `_build_transaction` used to build
+        `currency=invoice_item.currency or "EUR"`, silently treating a
+        blank/missing currency as EUR-safe instead of passing it through to
+        the generator's own `_validate_transaction` (currency != "EUR"),
+        which is the check meant to catch it."""
+        mock_invoice = MagicMock()
+        mock_invoice.invoice = "INV-2024-002"
+        mock_invoice.amount = 50.00
+        mock_invoice.currency = ""
+        mock_invoice.member_name = "Jan de Vries"
+        mock_invoice.iban = "NL91ABNA0417164300"
+        mock_invoice.bic = "ABNANL2A"
+        mock_invoice.mandate_reference = "MAND-002"
+        mock_invoice.mandate_sign_date = date(2024, 1, 15)
+        mock_invoice.member = "MEM-002"
+        mock_invoice.sequence_type = "RCUR"
+
+        transaction = self.adapter._build_transaction(mock_invoice, SEPASequenceType.RCUR)
+
+        self.assertEqual(transaction.currency, "", "a blank currency must not become 'EUR'")
+
     def test_build_transaction_uses_invoice_sequence_type(self):
         """Test that invoice-level sequence type overrides batch default"""
         mock_invoice = MagicMock()
@@ -496,6 +518,82 @@ class TestSEPAXMLAdapterXMLGeneration(FrappeTestCase):
         self.assertNotIn("NL00BANK0000000000", xml_string)
         # The bad row is recorded as skipped, not silently dropped.
         self.assertEqual(self.adapter._validation_summary.skipped_transactions, 1)
+
+    def test_blank_currency_invoice_fails_xml_generation(self):
+        """#1464: `_build_transaction` used to default a blank/missing
+        `invoice_item.currency` to "EUR" (`invoice_item.currency or "EUR"`),
+        which is fail-open on a money path -- the same class #1442 already
+        fixed for the guard-shaped occurrences, in a different shape (a silent
+        default instead of a truthy-check guard). With the default removed, a
+        blank currency reaches the generator's own `_validate_transaction`
+        (`currency != "EUR"`) as itself and the WHOLE batch generation must
+        refuse, naming the currency check rather than failing some other,
+        unrelated way (e.g. a bare AttributeError from a None `.encode()`)."""
+        mock_batch = MagicMock()
+        mock_batch.name = "BATCH-BLANKCUR-001"
+        mock_batch.batch_date = date.today()
+        mock_batch.batch_type = "CORE"
+        mock_batch.sequence_type = "RCUR"
+        mock_batch.entry_count = 1
+        mock_batch.total_amount = 50.00
+        blank_currency_invoice = self._mock_invoice("INV-BLANKCUR-001", "NL91ABNA0417164300")
+        blank_currency_invoice.currency = ""
+        mock_batch.invoices = [blank_currency_invoice]
+
+        mock_settings = {
+            "organization_name": "Test Vereniging",
+            "iban": "NL91ABNA0417164300",
+            "bic": "ABNANL2A",
+            "creditor_id": "NL12ZZZ123456789",
+        }
+        from verenigingen.verenigingen_payments.services.sepa_configuration_service import (
+            sepa_config_service,
+        )
+
+        with patch.object(sepa_config_service, "get_sepa_settings", return_value=mock_settings):
+            with self.assertRaises(frappe.exceptions.ValidationError) as ctx:
+                self.adapter.generate_xml_for_batch(
+                    batch_doc=mock_batch,
+                    message_id="MSG-BLANKCUR-001",
+                    payment_info_id="PMT-BLANKCUR-001",
+                )
+
+        self.assertIn("EUR currency is supported", str(ctx.exception))
+
+    def test_eur_invoice_still_generates_xml(self):
+        """Control for the fix above: a genuinely EUR invoice must still
+        generate a valid transaction (not itself refused by the currency
+        check)."""
+        mock_batch = MagicMock()
+        mock_batch.name = "BATCH-EURCUR-001"
+        mock_batch.batch_date = date.today()
+        mock_batch.batch_type = "CORE"
+        mock_batch.sequence_type = "RCUR"
+        mock_batch.entry_count = 1
+        mock_batch.total_amount = 50.00
+        mock_batch.invoices = [self._mock_invoice("INV-EURCUR-001", "NL91ABNA0417164300")]
+
+        mock_settings = {
+            "organization_name": "Test Vereniging",
+            "iban": "NL91ABNA0417164300",
+            "bic": "ABNANL2A",
+            "creditor_id": "NL12ZZZ123456789",
+        }
+        from verenigingen.verenigingen_payments.services.sepa_configuration_service import (
+            sepa_config_service,
+        )
+
+        with patch.object(sepa_config_service, "get_sepa_settings", return_value=mock_settings):
+            xml_string = self.adapter.generate_xml_for_batch(
+                batch_doc=mock_batch,
+                message_id="MSG-EURCUR-001",
+                payment_info_id="PMT-EURCUR-001",
+            )
+
+        root = ET.fromstring(xml_string)
+        txns = root.findall(".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}DrctDbtTxInf")
+        self.assertEqual(len(txns), 1)
+        self.assertIn('Ccy="EUR"', xml_string)
 
 
 class TestStrictModeRefusesUnresolvableMandateSignDates(FrappeTestCase):

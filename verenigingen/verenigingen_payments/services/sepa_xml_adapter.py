@@ -506,11 +506,15 @@ class SEPAXMLAdapter:
         else:
             end_to_end_id = f"INV-{invoice_id}"
 
-        # Build transaction
+        # Build transaction. No "or 'EUR'" fallback (#1464): a blank/missing
+        # currency must reach the generator's `_validate_transaction`
+        # (currency != "EUR") as itself, so it is refused rather than silently
+        # treated as EUR-safe -- the same fail-closed direction #1442 already
+        # established for the guard-shaped occurrences.
         return SEPATransaction(
             end_to_end_id=end_to_end_id,
             amount=Decimal(str(invoice_item.amount or 0)),
-            currency=invoice_item.currency or "EUR",
+            currency=invoice_item.currency,
             debtor=debtor,
             mandate=mandate,
             remittance_info=f"Invoice {invoice_item.invoice}",
