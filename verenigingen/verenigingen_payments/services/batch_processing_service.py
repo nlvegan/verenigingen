@@ -258,7 +258,13 @@ class BatchProcessingService:
                     BatchLoggingUtilities.add_to_document_batch_log(batch_doc, f"Validation: {error}")
 
                 if valid_count == 0:
-                    frappe.throw(_("No valid invoices found in batch"))
+                    # #1455: name every invoice and reason here too, not just the
+                    # aggregate count -- this throw fires before DirectDebitBatch.
+                    # validate_invoices() ever sees the result, so its own,
+                    # equally-detailed message for the mixed case never applies here.
+                    frappe.throw(
+                        _("No valid invoices found in batch: {0}").format("; ".join(validation_errors[:10]))
+                    )
 
             return {
                 "is_valid": len(validation_errors) == 0,

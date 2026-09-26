@@ -272,12 +272,18 @@ class TestBatchProcessingServiceValidation(_BatchPipelineBase):
         self.assertTrue(result["has_warnings"])
         self.assertTrue(any("not found" in e for e in result["errors"]))
 
-    def test_validate_invoices_writes_capped_detail_to_batch_log(self):
-        """#774 review round 2/3: validate_batch_invoices_optimized's aggregate
-        error count was already visible on batch_log; the per-invoice detail
-        (WHICH invoice, WHY) used to go only to frappe.logger().warning() --
-        dropped the same way every other skip in #774 was. This must reach
-        batch_log too.
+    def test_validate_invoices_names_the_invalid_invoice_in_the_refusal(self):
+        """#774 review round 2/3 established that the per-invoice detail (WHICH
+        invoice, WHY) must reach the operator, not just an aggregate count --
+        originally checked via `batch_log` because the batch used to save
+        anyway despite the bad row.
+
+        #1455 (maintainer-ruled Option A) changed what "reaching the operator"
+        means here: a batch with ANY invalid invoice is now refused at
+        `insert()` outright, so it never persists and `batch_log` is no longer
+        the durable, checkable signal (there is no saved document left to read
+        it from). The equivalent, now-observable signal is the raised
+        message itself, so this test asserts on that instead.
 
         This has to go through a REAL batch.insert(), not a call on an unsaved
         doc: Frappe's `_validate_links()` runs BEFORE `validate()`
@@ -290,7 +296,7 @@ class TestBatchProcessingServiceValidation(_BatchPipelineBase):
         """
         member = self._member_with_membership()
         mandate = self._sepa.create_test_sepa_mandate(member=member.name, status="Active")
-        _good_invoice, good_row = self._invoice_row(member, mandate, 25.0)
+        good_invoice, good_row = self._invoice_row(member, mandate, 25.0)
 
         member2 = self._member_with_membership("1994-04-04")
         mandate2 = self._sepa.create_test_sepa_mandate(member=member2.name, status="Active")
@@ -299,17 +305,24 @@ class TestBatchProcessingServiceValidation(_BatchPipelineBase):
         # validate_invoice_for_sepa rejects outstanding_amount <= 0.
         bad_invoice.db_set("outstanding_amount", 0)
 
-        batch = self._persisted_batch([good_row, bad_row])
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self._persisted_batch([good_row, bad_row])
 
+        message = str(ctx.exception)
         self.assertIn(
-            f"Invoice {bad_invoice.name}",
-            batch.batch_log or "",
-            "the specific invoice must reach batch_log, not just the aggregate count",
+            bad_invoice.name,
+            message,
+            "the specific invalid invoice must be named, not just an aggregate count",
         )
         self.assertIn(
             "Outstanding amount must be greater than zero",
-            batch.batch_log or "",
-            "the specific validation REASON must reach batch_log",
+            message,
+            "the specific validation REASON must be named",
+        )
+        self.assertNotIn(
+            good_invoice.name,
+            message,
+            "the valid invoice must not be listed as a reason the batch was refused",
         )
 
     def test_validate_invoices_all_invalid_throws_no_valid(self):

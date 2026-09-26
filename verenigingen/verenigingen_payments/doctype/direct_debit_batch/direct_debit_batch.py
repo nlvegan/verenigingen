@@ -189,14 +189,38 @@ class DirectDebitBatch(Document):
         )
 
     def validate_invoices(self):
-        """Validate that all invoices are valid for direct debit using performance optimization"""
+        """Validate that ALL invoices are valid for direct debit (#1455).
+
+        Maintainer ruling (Option A, recorded on #1455): a batch is refused at
+        save if ANY invoice fails SEPA validation, not just when every invoice
+        does. Before this, a batch with e.g. 49 valid EUR invoices and 1
+        invalid (non-EUR, blank currency, zero outstanding, ...) one passed
+        this guard because `validate_batch_invoices_optimized` only threw when
+        `valid_invoices == 0` -- the invalid row then stayed in
+        `batch_doc.invoices`, with the only signal a transient `msgprint` and
+        a `batch_log` entry nobody sees before the batch persists either way.
+        SEPA XML generation later aborts for the WHOLE batch on the first
+        invalid transaction, so the realistic failure was a stuck batch: 49
+        legitimate invoices blocked by one bad row nobody was told about here.
+        No silent exclusion of the bad row either -- the whole point is that
+        an operator has to see and fix it before anything is collected.
+
+        `validate_batch_invoices_optimized` itself still throws directly, with
+        a less detailed message, when EVERY invoice is invalid
+        (`valid_invoices == 0`); that call never returns in that case, so this
+        function only ever sees `is_valid is False` for the previously-missed
+        MIXED case (some valid, some invalid) and reports the specific
+        invoices and reasons for those.
+        """
         validation_result = batch_processing_service.validate_batch_invoices_optimized(self)
 
-        if not validation_result["is_valid"] and validation_result["valid_invoices"] == 0:
-            frappe.throw(_("No valid invoices found in batch"))
-
-        if validation_result.get("has_warnings"):
-            frappe.msgprint(_("Some invoice validation warnings were found. Check batch log for details."))
+        if not validation_result["is_valid"]:
+            frappe.throw(
+                _(
+                    "This batch contains {0} invalid invoice(s) and cannot be saved. "
+                    "Remove or fix them before saving: {1}"
+                ).format(len(validation_result["errors"]), "; ".join(validation_result["errors"]))
+            )
 
     def validate_sequence_types(self):
         """Validate SEPA sequence types for automated batch processing"""
