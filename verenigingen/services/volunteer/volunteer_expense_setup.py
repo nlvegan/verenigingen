@@ -119,7 +119,23 @@ def create_default_cost_center(company):
         parent_cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 1}, "name")
 
         if not parent_cost_center:
-            parent_cost_center = company  # Use company as parent
+            # Company has no group Cost Center at all (see #1359) -- fall back
+            # to the company's root, creating it if needed, instead of the
+            # literal company name. ERPNext autonames a Cost Center as
+            # "<cost_center_name> - <company abbr>", so a Cost Center literally
+            # named `company` never exists; using it as parent_cost_center
+            # raised frappe.LinkValidationError ("Could not find Parent Cost
+            # Center"), caught by this function's own `except Exception` and
+            # falls through to get_fallback_cost_center(company) below.
+            # ensure_root_cost_center() can itself return None (its own insert
+            # failed and its last-resort search found nothing); that is handled
+            # by the mandatory-field check on the insert() below, not here.
+            # See #1441/#1477.
+            from verenigingen.e_boekhouden.utils.eboekhouden_cost_center_fix import (
+                ensure_root_cost_center,
+            )
+
+            parent_cost_center = ensure_root_cost_center(company)
 
         cost_center_doc = frappe.get_doc(
             {
@@ -141,7 +157,7 @@ def create_default_cost_center(company):
 
         if not center_result.success:
             frappe.logger().error("Failed to create default cost center: %s", "; ".join(center_result.errors))
-            return get_fallback_cost_center()
+            return get_fallback_cost_center(company)
 
         # Return the ACTUAL name ERPNext assigned (with the company abbr), not a
         # reconstructed string.
@@ -155,7 +171,7 @@ def create_default_cost_center(company):
         frappe.log_error(
             message=f"Error creating default cost center: {str(e)}", title="Cost Center Creation Error"
         )
-        return get_fallback_cost_center()
+        return get_fallback_cost_center(company)
 
 
 def get_organization_cost_center(company=None):
@@ -175,29 +191,36 @@ def get_organization_cost_center(company=None):
     return create_default_cost_center(company)
 
 
-def get_fallback_cost_center():
-    """Get any available cost center as fallback"""
+def get_fallback_cost_center(company):
+    """Get a fallback Cost Center for `company`, as an absolute last resort.
+
+    Must NEVER return a Cost Center belonging to a DIFFERENT company: the
+    unscoped `{"is_group": 0}` lookup this used to run (any company, first
+    match) is exactly how a company whose own Cost Center creation failed
+    (see #1441/#1477) got silently attributed to a completely unrelated
+    company's books. Returns None -- not the bare literal "Main" this used
+    to fall back to, which never matches ERPNext's actual
+    "<cost_center_name> - <company abbr>" autoname and is the same
+    reconstruction bug this module's other functions already carry comments
+    about having fixed -- so a caller can tell "this company genuinely has
+    nothing" apart from a real answer, instead of receiving a name that
+    resolves to someone else's company or to nothing at all.
+    """
     try:
-        # Try to find any cost center
-        cost_center = frappe.db.get_value("Cost Center", {"is_group": 0}, "name")
+        cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
         if cost_center:
             return cost_center
 
-        # No non-group cost center existed above; try the standard "Main" one,
-        # resolved by field (its real name uses the company abbr, not the full
-        # company name — the same reconstruction bug this module previously had).
-        company = frappe.db.get_single_value("Global Defaults", "default_company")
-        if company:
-            main = frappe.db.get_value(
-                "Cost Center", {"cost_center_name": "Main", "company": company}, "name"
-            )
-            if main:
-                return main
+        # Resolved by field, not a reconstructed name string -- see the
+        # module docstring above for why.
+        main = frappe.db.get_value("Cost Center", {"cost_center_name": "Main", "company": company}, "name")
+        if main:
+            return main
 
     except Exception:
         pass
 
-    return "Main"  # Ultimate fallback
+    return None
 
 
 def get_or_create_expense_type(category):
