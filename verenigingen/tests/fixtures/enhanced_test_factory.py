@@ -580,7 +580,12 @@ class EnhancedTestDataFactory:
                         f"collision-resolution attempts."
                     )
                 collision_seq = self.get_next_sequence(f"collision_{clean_base}")
-                # Use even shorter format for collision resolution
+                # Use even shorter format for collision resolution. clean_base
+                # is capped at 10 chars here specifically so max_length (50
+                # for every caller today) never has to truncate into the
+                # "{seq}_{collision_seq}_{short_deterministic_id}" suffix --
+                # if it ever did, two different collision_seq draws could be
+                # truncated down to the same string, silently reopening #1415.
                 unique_name = (
                     f"TEST {clean_base[:10]} {seq:02d}_{collision_seq:02d}_{short_deterministic_id}"
                 )[:max_length]

@@ -74,7 +74,7 @@ class TestForceUniqueNameCollisionBranchRecheck(EnhancedTestCase):
         primary_name = f"TEST {clean_base} {seq:03d}_{short_deterministic_id}"
         # collision_seq == 1: first "collision_{clean_base}" call
         collision_name = f"TEST {clean_base[:10]} {seq:02d}_{1:02d}_{short_deterministic_id}"
-        return primary_name[:max_length], collision_name[:max_length]
+        return primary_name[:max_length], collision_name[:max_length], clean_base
 
     def test_collision_branch_candidate_is_rechecked_against_the_db(self):
         doctype = "Role"
@@ -86,7 +86,9 @@ class TestForceUniqueNameCollisionBranchRecheck(EnhancedTestCase):
             itertools.repeat(_PATCHED_GLOBAL_DRAW),
         ):
             factory = EnhancedTestDataFactory(seed=12345, use_faker=True)
-            primary_name, collision_name = self._predict_candidate_names(factory, base_name, doctype)
+            primary_name, collision_name, clean_base = self._predict_candidate_names(
+                factory, base_name, doctype
+            )
 
             # Plant BOTH candidates the method will construct: the primary one
             # (forcing entry into the collision-resolution branch) and the
@@ -95,11 +97,51 @@ class TestForceUniqueNameCollisionBranchRecheck(EnhancedTestCase):
             for planted_name in (primary_name, collision_name):
                 self._create_test_role(planted_name)
 
+            # Precondition, not decoration: this is what makes the collision
+            # branch fire at all. If _predict_candidate_names ever diverges
+            # from force_unique_name's own formula (e.g. the production hash
+            # inputs change), the planted rows would sit under names nothing
+            # asks about, the branch would never be exercised, and the final
+            # assertion below would pass trivially -- for the wrong reason.
+            # Assert loudly here instead of discovering that silently.
+            self.assertTrue(
+                frappe.db.exists(doctype, primary_name),
+                f"precondition failed: primary candidate {primary_name!r} "
+                f"was not planted under the name force_unique_name will "
+                f"independently compute",
+            )
+            self.assertTrue(
+                frappe.db.exists(doctype, collision_name),
+                f"precondition failed: collision candidate {collision_name!r} "
+                f"was not planted under the name force_unique_name will "
+                f"independently compute",
+            )
+
             returned_name = factory.force_unique_name(base_name, doctype=doctype)
 
         if returned_name not in (primary_name, collision_name):
             self.factory.track_document("Role", returned_name, priority=1)
 
+        # The collision-resolution branch must have actually been exercised
+        # TWICE: collision_seq=1 collides with the planted collision_name, so
+        # the loop must draw collision_seq=2 (the first name nothing planted)
+        # before it can return. A wrong fix that retries a fixed number of
+        # times WITHOUT rechecking each candidate against the DB would still
+        # land on some later collision_seq that this test never planted for,
+        # so it would ALSO produce a returned_name that "doesn't exist" --
+        # checking only the final name cannot tell the two mechanisms apart.
+        # Asserting the exact attempt count can.
+        self.assertEqual(
+            factory.sequence_counters.get(f"collision_{clean_base}"),
+            2,
+            "expected exactly 2 collision-resolution draws (collision_seq=1 "
+            "collides with the planted row, collision_seq=2 is the first "
+            "free one); a different count means the loop drew more (or "
+            "fewer) collision_seq values than rechecking would require -- "
+            "i.e. it isn't actually rechecking each candidate as it's built",
+        )
+        self.assertNotEqual(returned_name, primary_name)
+        self.assertNotEqual(returned_name, collision_name)
         self.assertFalse(
             frappe.db.exists(doctype, returned_name),
             f"force_unique_name returned a name that already exists in the "
