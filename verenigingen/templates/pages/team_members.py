@@ -51,23 +51,37 @@ def get_context(context: Dict[str, Any]) -> Dict[str, Any]:
     user_roles = frappe.get_roles(user)
     is_admin = any(role in user_roles for role in admin_roles)
 
-    is_team_member = False
-    if team_data:
-        # Check if user is a member of this team (only if they have a volunteer record)
-        if volunteer:
-            is_team_member = bool(
-                frappe.db.exists(
-                    "Team Member", {"parent": team_data.name, "volunteer": volunteer, "is_active": 1}
-                )
-            )
+    # Run the same fixed set of lookups whether or not the team exists, guarding only
+    # the .name/.chapter attribute access -- never the whole block. Gating the Chapter
+    # Member check on `team_data` (and `team_data.chapter`) made an unknown team id
+    # cheaper than a real-but-foreign one (3 SQL calls vs. 4), an existence oracle
+    # over Team ids even though the refusal message and exception type are identical
+    # (#1402, same class as #1341/#1367).
+    #
+    # The sentinel must be a value no real `parent` can ever hold, NOT None:
+    # {"parent": None} in an exists() filter compiles to `parent IS NULL`, and
+    # `parent` is nullable on both Team Member and Chapter Member, so an
+    # orphaned child row with a NULL parent would wrongly match on this path --
+    # for an unknown team id, OR for a real but CHAPTERLESS team, since
+    # `team_data.chapter` is None there too (#1426). A document name is never
+    # the empty string, and `or ""` also folds a real chapterless team's None
+    # into the same safe sentinel, so "" costs exactly one query either way
+    # without ever matching a real row.
+    team_name = (team_data.name if team_data else None) or ""
+    team_chapter = (team_data.chapter if team_data else None) or ""
 
-        # Also allow if member belongs to the same chapter as the team
-        if not is_team_member and team_data.chapter:
-            is_team_member = bool(
-                frappe.db.exists(
-                    "Chapter Member", {"parent": team_data.chapter, "member": member, "enabled": 1}
-                )
-            )
+    is_team_member = False
+    # Check if user is a member of this team (only if they have a volunteer record)
+    if volunteer:
+        is_team_member = bool(
+            frappe.db.exists("Team Member", {"parent": team_name, "volunteer": volunteer, "is_active": 1})
+        )
+
+    # Also allow if member belongs to the same chapter as the team
+    if not is_team_member:
+        is_team_member = bool(
+            frappe.db.exists("Chapter Member", {"parent": team_chapter, "member": member, "enabled": 1})
+        )
 
     # An unknown team id and a real-but-forbidden one must be indistinguishable to a
     # non-admin caller: same message, same exception type, and no frappe.get_doc (so
