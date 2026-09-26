@@ -409,3 +409,80 @@ class TestPeriodicDonationAgreementFormDonorResolution(EnhancedTestCase):
         second.reload()
         self.assertEqual(first.bsn_citizen_service_number, first_bsn_before)
         self.assertEqual(second.bsn_citizen_service_number, second_bsn_before)
+
+    def test_ambiguous_member_tier_never_falls_through_to_email_tier(self):
+        """Two Donors both linked to the user's Member (ambiguous at the
+        AUTHORITATIVE tier) plus a THIRD Donor that uniquely matches the
+        user's e-mail: the third Donor must NEVER be used. Member-tier
+        ambiguity must refuse immediately, not fall through to try the
+        (unambiguous) email tier instead -- the exact fallthrough bug
+        #1392's review found and fixed elsewhere in this family, and the
+        reason find_donors_by_field's own docstring says an ambiguous match
+        at one tier must never be resolved via a completely unrelated donor
+        found at a weaker one.
+        """
+        from verenigingen.tests.fixtures.dutch_validation_helpers import generate_valid_bsn
+        from verenigingen.verenigingen.web_form.periodic_donation_agreement_form.periodic_donation_agreement_form import (
+            process_agreement_form,
+        )
+
+        user_email = f"pda.membertier.ambiguous.{frappe.generate_hash(length=8)}@example.com"
+        self.create_test_user(user_email, roles=["Verenigingen Member"])
+        member = self.create_test_member(email=user_email, user=user_email)
+
+        self.create_test_donor(
+            donor_name="Member Tier A",
+            donor_email=f"unrelated-a.{frappe.generate_hash(length=6)}@example.com",
+            donor_type="Individual",
+            member=member.name,
+        )
+        self.create_test_donor(
+            donor_name="Member Tier B",
+            donor_email=f"unrelated-b.{frappe.generate_hash(length=6)}@example.com",
+            donor_type="Individual",
+            member=member.name,
+        )
+        # Uniquely matches the user's e-mail at the weaker email tier, and
+        # already satisfies every ANBI requirement -- if member-tier
+        # ambiguity ever fell through to the email tier, this donor would
+        # be picked AND the agreement would succeed against it.
+        third = self.create_test_donor(
+            donor_name="Email Tier Unique",
+            donor_email=user_email,
+            donor_type="Individual",
+            anbi_consent=1,
+            bsn_citizen_service_number=generate_valid_bsn(),
+        )
+        third_bsn_before = third.bsn_citizen_service_number
+
+        form_data = {
+            "agreement_type": "Private Written",
+            "start_date": frappe.utils.today(),
+            "annual_amount": 600,
+            "payment_frequency": "Monthly",
+            "payment_method": "Bank Transfer",
+            "accept_five_year_term": 1,
+            "accept_terms": 1,
+        }
+
+        message_log_before_len = len(frappe.local.message_log)
+        self.expectErrorLog("DONOR_001")
+        self.expectErrorLog("Agreement Form Error")
+        with self.assertErrorLog("DONOR_001"):
+            with self.as_user(user_email):
+                result = process_agreement_form(form_data)
+        new_messages = frappe.local.message_log[message_log_before_len:]
+
+        self.assertFalse(result.get("success"))
+        self.assertIn("contact the association", result.get("message", ""))
+
+        # The unique-email-match Donor's name must appear NOWHERE: not in
+        # the result, and not in message_log (frappe.throw() appends there
+        # before raising, so catching the exception is not enough on its
+        # own to prove nothing was disclosed).
+        self.assertNotIn(third.name, result.get("message", ""))
+        self.assertNotIn(third.name, str(new_messages))
+
+        self.assertFalse(frappe.db.exists("Periodic Donation Agreement", {"donor": third.name}))
+        third.reload()
+        self.assertEqual(third.bsn_citizen_service_number, third_bsn_before)
