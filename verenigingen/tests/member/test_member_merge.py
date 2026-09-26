@@ -480,14 +480,58 @@ class TestMemberMerge(FrappeTestCase):
         dict, so nothing escapes -- frappe/app.py's sync_database() would
         then COMMIT whatever is pending (POST is an "unsafe" HTTP method),
         durably persisting target.save() even with the second check in
-        place. The wrapper's own explicit frappe.db.rollback() (added
-        alongside the second check) is what actually makes "changes NEITHER
-        Member" hold for this real caller, not the second check alone.
+        place. The wrapper's own savepoint-scoped rollback (taken just
+        before calling execute_merge, rolled back to on any caught error)
+        is what actually makes "changes NEITHER Member" hold for this real
+        caller, not the second check alone.
 
         Simulated by making the FIRST _ensure_source_deletable call (real,
-        and passing -- nothing is blocked yet) create the blocking invoice
-        immediately afterward, standing in for another process doing so in
-        the real window between the two checks.
+        and passing -- nothing is blocked yet) create the blocking
+        reference immediately afterward, standing in for another process
+        doing so in the real window between the two checks.
+
+        The reference is created via _make_merge_test_invoice on THIS
+        test's own connection, uncommitted -- deliberately NOT a real
+        commit, and deliberately NOT a separate frappe.db.create_connection()
+        (both tried; see below for why each was wrong):
+
+        - A mid-test frappe.db.commit() on the shared connection was tried
+          first and reverted: it makes the submitted Sales Invoice's
+          enqueue_after_commit job dispatchable immediately, a live RQ
+          worker picks it up and locks the Member, and tearDown's own
+          delete then hits a 1205 that its `except Exception: pass`
+          silently swallows -- measured leaking Members, Sales Invoices
+          and Membership Dues Schedules across repeat runs on a bench with
+          live workers.
+        - A raw insert on a SEPARATE connection (committed independently,
+          avoiding that leak) was tried next and ALSO reverted: MariaDB's
+          default REPEATABLE READ isolation means the second
+          _ensure_source_deletable check -- a plain, non-locking read --
+          cannot see a row committed by a DIFFERENT connection after this
+          test's own transaction began. Measured directly: from a
+          connection that had already done an earlier read (matching this
+          transaction's own state by the time _ensure_source_deletable
+          runs), a second connection's committed INSERT was invisible to
+          `frappe.get_all(...)` but visible to `SELECT ... FOR UPDATE`
+          (the plain read returned [], the locking read returned the row)
+          -- and, more importantly, invisible even to a REAL, non-force
+          `frappe.delete_doc("Membership Dues Schedule", ...)`, which
+          SUCCEEDED and deleted a schedule a separately-committed Sales
+          Invoice was, at that moment, actually still referencing. This is
+          not a defect in this fix: it is a pre-existing property of
+          Member.on_trash's own #1306 guard (and of Frappe's
+          check_if_doc_is_linked generally), which uses the identical
+          plain-read mechanism -- closing it for real would mean making
+          _find_blocked_schedules's underlying frappe/model/delete_doc.py
+          calls locking reads, a materially larger, shared-code change
+          this fix does not make. What this test DOES correctly prove is
+          the scope #1325's second check actually has: a reference that
+          becomes visible to THIS transaction (this test's own write, read
+          back via ordinary same-transaction visibility -- no isolation
+          special-casing needed for that) between the two checks. A
+          genuinely external, concurrently-committed reference is a
+          separate, pre-existing, unresolved gap -- filed as its own
+          issue rather than silently left undocumented.
         """
         original_target_contact = frappe.db.get_value(
             "Member", self.target.name, "contact_number"
@@ -501,31 +545,12 @@ class TestMemberMerge(FrappeTestCase):
 
         real_ensure_source_deletable = MemberMergeService._ensure_source_deletable
         call_count = {"n": 0}
-        created_invoice = {}
-
-        def _create_racing_invoice_reference():
-            """Named `_create_*` so its frappe.db.commit() below is the
-            recognised, non-blocking COMMIT_EXEMPT kind (#825's convention),
-            not a plain COMMIT the order-dependence ratchet gates PR-over-PR
-            growth on. Justified regardless of that classification: this
-            commit simulates ANOTHER PROCESS's own already-durable write
-            (which in reality would be on a separate connection, unaffected
-            by anything OUR merge attempt later rolls back) -- without it,
-            the invoice (and the schedule, uncommitted since setUp) would
-            themselves be wiped out by the wrapper's frappe.db.rollback()
-            below, which cannot distinguish "the test's own fixture" from
-            "the merge's own writes"; both are just uncommitted rows on the
-            same connection.
-            """
-            invoice = self._make_merge_test_invoice(schedule.name)
-            frappe.db.commit()
-            return invoice
 
         def racing_ensure_source_deletable(service_self, source):
             call_count["n"] += 1
             if call_count["n"] == 1:
                 real_ensure_source_deletable(service_self, source)  # passes: nothing blocked yet
-                created_invoice["doc"] = _create_racing_invoice_reference()
+                self._make_merge_test_invoice(schedule.name)
             else:
                 real_ensure_source_deletable(service_self, source)  # must now catch the race
 
@@ -535,10 +560,6 @@ class TestMemberMerge(FrappeTestCase):
             result = member_merge_service_module.execute_merge(
                 self.source.name, self.target.name, json.dumps({"contact_number": "source"})
             )
-
-        # Register cleanup before any assertion, so a failure below still
-        # gets the invoice cleaned up.
-        self._extra_cleanup_docs.append(("Sales Invoice", created_invoice["doc"].name))
 
         self.assertFalse(result["success"], f"expected a failed merge, got: {result}")
 

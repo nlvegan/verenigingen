@@ -51,6 +51,11 @@ from verenigingen.repositories import DuesScheduleRepository
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.transaction_errors import (
+    NON_RESUMABLE_DB_ERRORS,
+    release_savepoint_if_present,
+    rollback_to_savepoint,
+)
 
 
 class MemberMergeService(StatelessService):
@@ -690,22 +695,47 @@ def execute_merge(
         # Parse field_selections if it's a JSON string
         if isinstance(field_selections, str):
             field_selections = json.loads(field_selections)
-
-        merge_result = service.execute_merge(source_name, target_name, field_selections)
-
-        return OperationResult.ok(
-            merge_result, message=f"Successfully merged {source_name} into {merge_result['merged_member']}"
-        ).to_dict()
-
     except json.JSONDecodeError as e:
         return OperationResult.fail(
             _("Invalid field selections format"), errors=[str(e)], source=source_name, target=target_name
         ).to_dict()
+
+    # #1325 TOCTOU: a savepoint scoped to THIS merge attempt, not a whole-
+    # transaction frappe.db.rollback() -- which would also discard anything
+    # unrelated already pending earlier on the same connection (a real
+    # request typically has nothing pending here, but a whole-transaction
+    # rollback is still a blunter instrument than it needs to be, and it is
+    # what let the wrapper's own rollback wipe a test's own uncommitted
+    # fixtures in an earlier version of this fix). Every branch below either
+    # rolls back to this savepoint (a caught failure) or releases it (the
+    # success path); "Never throws exceptions - all errors returned as
+    # OperationResult.fail()" (module docstring) means "a failure changes
+    # nothing", not just "a failure doesn't crash".
+    #
+    # rollback_to_savepoint tolerates a MISSING savepoint (MariaDB 1305)
+    # instead of raising and replacing the real error with it. Two things
+    # can make it missing by the time we get here: the pre-existing
+    # MemberAnonymizedInsteadOfDeleted path (#1306), whose own internal
+    # frappe.db.commit() clears the whole savepoint stack (any commit does;
+    # rollback_to_savepoint cannot undo an already-committed transaction
+    # either way), and a NON_RESUMABLE_DB_ERRORS condition (MariaDB 1213,
+    # which the server resolves by rolling the ENTIRE transaction back,
+    # savepoints included -- frappe/utils/transaction_errors.py's module
+    # docstring). Both land in the generic `except Exception` branch below
+    # and are handled by the same tolerant helper, not a separate branch --
+    # rollback_to_savepoint's 1305 handling does not depend on which
+    # exception triggered it.
+    savepoint = f"execute_merge_{frappe.generate_hash(length=10)}"
+    frappe.db.savepoint(savepoint)
+    try:
+        merge_result = service.execute_merge(source_name, target_name, field_selections)
     except frappe.DoesNotExistError as e:
+        rollback_to_savepoint(savepoint)
         return OperationResult.fail(
             _("Member not found"), errors=[str(e)], source=source_name, target=target_name
         ).to_dict()
     except frappe.PermissionError as e:
+        rollback_to_savepoint(savepoint)
         return OperationResult.fail(
             _("Insufficient permissions to merge members"),
             errors=[str(e)],
@@ -713,27 +743,21 @@ def execute_merge(
             target=target_name,
         ).to_dict()
     except frappe.ValidationError as e:
-        # #1325 TOCTOU: this is the ONLY branch that can be reached after
-        # execute_merge has already written (target.save(), etc.) -- e.g.
-        # the second _ensure_source_deletable check, or the pre-existing
-        # MemberAnonymizedInsteadOfDeleted (#1306). Frappe's own request
-        # layer only rolls back an UNCAUGHT exception (frappe/app.py's
-        # `except Exception: db.rollback()`); since this function catches
-        # ValidationError and returns a normal dict, the request looks
-        # SUCCESSFUL from the outside and frappe/app.py's sync_database()
-        # would otherwise COMMIT whatever is pending -- durably persisting
-        # target.save() despite this being a reported failure. Roll back
-        # explicitly so "Never throws exceptions - all errors returned as
-        # OperationResult.fail()" (module docstring) also means "a failure
-        # changes nothing", not just "a failure doesn't crash". Safe even
-        # when nothing is pending (e.g. the up-front check, before any
-        # write) and even after MemberAnonymizedInsteadOfDeleted's own
-        # commit (rollback cannot undo an already-committed transaction).
-        frappe.db.rollback()
+        # The ONLY branch reachable after execute_merge has already written
+        # (target.save(), etc.) via a normal (non-DB-error) code path -- the
+        # second _ensure_source_deletable check, or MemberAnonymizedInstead
+        # OfDeleted (#1306). Frappe's own request layer only rolls back an
+        # UNCAUGHT exception (frappe/app.py's `except Exception: db.rollback()`);
+        # since this function catches ValidationError and returns a normal
+        # dict, the request looks SUCCESSFUL from the outside and
+        # frappe/app.py's sync_database() would otherwise COMMIT whatever is
+        # pending -- durably persisting target.save() despite this being a
+        # reported failure.
+        rollback_to_savepoint(savepoint)
         return OperationResult.fail(str(e), errors=[str(e)], source=source_name, target=target_name).to_dict()
     except AttributeError as e:
         # Handle pre-existing bugs in service methods
-        frappe.db.rollback()
+        rollback_to_savepoint(savepoint)
         service.logger.error(f"AttributeError in member merge {source_name} → {target_name}: {str(e)}")
         return OperationResult.fail(
             _("An internal error occurred. Please contact support."),
@@ -741,12 +765,29 @@ def execute_merge(
             source=source_name,
             target=target_name,
         ).to_dict()
+    except NON_RESUMABLE_DB_ERRORS:
+        # #561: a 1213 deadlock (which also destroys the savepoint above,
+        # making rollback_to_savepoint's tolerance of a missing savepoint
+        # load-bearing here) or a 1205 lock-wait timeout leaves the
+        # transaction in a state this handler is not equipped to clean up
+        # after or meaningfully report as "the merge failed" -- propagate
+        # unconditionally rather than flattening it into the generic
+        # `except Exception` message below, which would hide that this was
+        # specifically a non-resumable DB condition. The caller owns the
+        # transaction boundary; this is the one exception class this
+        # otherwise "never throws" wrapper does not convert to a fail dict.
+        raise
     except Exception as e:
-        frappe.db.rollback()
+        rollback_to_savepoint(savepoint)
         service.logger.error(f"Unexpected error in member merge {source_name} → {target_name}: {str(e)}")
         return OperationResult.fail(
             _("An error occurred while merging members"),
             errors=[str(e)],
             source=source_name,
             target=target_name,
+        ).to_dict()
+    else:
+        release_savepoint_if_present(savepoint)
+        return OperationResult.ok(
+            merge_result, message=f"Successfully merged {source_name} into {merge_result['merged_member']}"
         ).to_dict()
