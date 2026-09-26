@@ -107,12 +107,39 @@ def create_ponto_payment_entry(payment_link_doc, invoice_name: str) -> Optional[
             )
             ponto_bank_account = None
         if not ponto_bank_account:
-            # Try to find a Ponto account
-            ponto_bank_account = frappe.db.get_value(
+            # Try to find a Ponto account. `frappe.db.get_value` with no `order_by`
+            # defaults to `creation DESC`, so with more than one non-group match this
+            # would silently pick whichever was created most recently, with no signal
+            # an operator could see (#1434). Refuse instead of guessing, and name the
+            # setting that resolves it - do NOT fall through to the company default
+            # below either, which would just be another arbitrary pick.
+            #
+            # `disabled: 0` excludes accounts that can never actually receive a
+            # posting: ERPNext refuses to create GL entries against a disabled
+            # Account at all (general_ledger.validate_disabled_accounts), so a
+            # disabled `%Ponto%` account - e.g. an old clearing account left
+            # behind after a re-configuration - is not a real candidate and must
+            # not force a refusal that blocks the one genuinely usable match.
+            ponto_accounts = frappe.get_all(
                 "Account",
-                {"company": company, "account_name": ["like", "%Ponto%"], "is_group": 0},
-                "name",
+                filters={
+                    "company": company,
+                    "account_name": ["like", "%Ponto%"],
+                    "is_group": 0,
+                    "disabled": 0,
+                },
+                pluck="name",
             )
+            if len(ponto_accounts) > 1:
+                frappe.throw(
+                    _(
+                        "Multiple Ponto bank accounts match '%Ponto%' for company {0}: {1}. "
+                        "Set Verenigingen Payments Settings.ponto_bank_account_parent to the "
+                        "correct one before this payment can be recorded."
+                    ).format(company, ", ".join(ponto_accounts)),
+                    title=_("Ambiguous Ponto Bank Account"),
+                )
+            ponto_bank_account = ponto_accounts[0] if ponto_accounts else None
         if not ponto_bank_account:
             ponto_bank_account = frappe.get_cached_value("Company", company, "default_bank_account")
 
