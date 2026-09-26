@@ -82,7 +82,7 @@ Each row is a fix that closed the obvious channel and was caught still leaking t
 | PR | First fix | Channel that still distinguished them | Caught by |
 |---|---|---|---|
 | #1436 r1 | catch `DoesNotExistError` and return the forbidden answer | `frappe.throw()` appends "X not found" to `message_log` **before** raising, so the text survives the catch and rides out in `_server_messages` | review |
-| #1416 r2 | `frappe.clear_last_message()` on the unknown path | on frappe 16.30 the **forbidden** path also queued "does not have doctype access", from a nested `has_permission(doc.doctype)` with `print_logs=True`. The fix: trim `message_log` back to its pre-call length on both paths | author, on a Volunteer (read-only) caller; a write-role caller never shows it |
+| #1416 r2 | `frappe.clear_last_message()` on the unknown path | on frappe 16.30 the **forbidden** path also queued "does not have doctype access", from a nested `has_permission(doc.doctype)` with `print_logs=True`. The fix: trim `message_log` back to its pre-call length on both paths | author, with a Volunteer (read) caller. It appears only when the caller holds no blanket doctype-level grant; per `15b605f60`'s message, a Team Lead (write) caller does not show it |
 | #1436 r2 | synthesize `get_doc_permissions`'s answer for an unknown name | a controller hook denies **per document**: User's hook refuses only Administrator/Guest, so an unknown email looked like Administrator and unlike every real user | coordinator probe |
 | #1436 r3 | build the synthetic answer from `frappe.new_doc(doctype)` | `new_doc` fills link fields from the **caller's own default User Permissions**, so an unknown name looked like an in-scope record | review (Cost Center scoped by Company) |
 | #1405 -> #1428 | #1405 removed the team page's raise-vs-False oracle | the query **count** still differed | #1405's review (filed #1402, fixed by #1428) |
@@ -180,7 +180,7 @@ Several tests passed for the wrong reason. Most were control tests with **nothin
 - **Put the "push in the foreground with timeout 900000" instruction in step 6 itself**, not just the preamble. Several authors missed it.
 - **hrms local change:** the uncommitted deletion of 19 `desktop_icon` / `workspace_sidebar` files is saved at `frappe-bench/upgrade-2026-09-25/hrms-local.patch`. It was not re-applied. Re-apply only if hiding those HR icons on veg11 is still wanted.
 - **Leaked fixed-ID test rows** may still sit on other test sites. Rows were cleaned on test_site_4 and test_site_5 only; #1438 tracks the cause.
-- **42 agent worktrees** remain under `/home/frappeuser/agent-worktrees/`. All their branches are merged except `issue-906` (#1201, open, predates this session). They are safe to remove with `git worktree remove`; they were left in place because removal was not requested.
+- **42 agent worktrees** remain under `/home/frappeuser/agent-worktrees/`. All their branches are merged except `issue-906` (#1201, open, predates this session) and `issue-1363` (PR #1409, closed as superseded by #1422). They are safe to remove with `git worktree remove`; they were left in place because removal was not requested.
 - **veg11** is on develop `f29a1bdac`, migrated (#1422's patch ran), and restarted. It serves the #1436 override: both hooks were verified to resolve to the app functions.
 
 ## Filed this session
@@ -191,7 +191,7 @@ Several tests passed for the wrong reason. Most were control tests with **nothin
 
 Highest value (open):
 - **#1411:** the `frappe.has_permission(doctype, ptype, name)` raise-vs-False oracle, swept app-wide. It is the app-level twin of the core oracle.
-- **#1440:** automated monthly SEPA collection (`get_sepa_invoices_with_mandates`) and two dd_batch candidate producers have no currency filter. A non-EUR row sticks the whole batch.
+- **#1440:** automated monthly SEPA collection (`get_sepa_invoices_with_mandates`) has no currency filter. Two dd_batch candidate producers (`dd_batch_optimizer.py:177`, `dd_batch_api.py:398`) are recorded in a **comment** on the issue, not its body. A non-EUR row sticks the whole batch.
 - **#1442:** two older SEPA currency guards fail OPEN on a blank currency. #1445 fixed the third.
 - **#1396:** four more Donor-by-email arbitrary picks, one of them guest-reachable. Unblocked by #1423.
 - **#1414:** approve/reject membership application share #1394's existence oracle. Unblocked by #1424.
