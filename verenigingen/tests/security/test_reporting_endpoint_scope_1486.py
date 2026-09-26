@@ -14,21 +14,10 @@ Four fixes:
   role list); System Manager / Verenigingen Administrator keep it.
 
   NOTE: the report's role list also names "Verenigingen Treasurer" and
-  "Verenigingen Auditor", but the checked-in role_profile.json fixtures for
-  BOTH of those role profiles grant a *different* role than their own name
-  ("Verenigingen Treasurer" -> no "Verenigingen Treasurer" role;
-  "Verenigingen Auditor" -> "Auditor", not "Verenigingen Auditor") --
-  confirmed live on test_site_6. So no *currently configured* Treasurer/Auditor
-  role-profile user can satisfy Report.is_permitted() today, and (since Desk
-  uses the same check to gate opening a Script Report) neither can they open
-  this report from Desk. That mismatch is pre-existing, orthogonal to #1486,
-  and does not change with this fix -- filed separately. The "admin keeps
-  access" control below therefore uses "Verenigingen Administrator" (which
-  DOES resolve to a real, matching role), and a second control demonstrates
-  the *mechanism* is correct by granting the literal "Verenigingen Auditor"
-  role directly (bypassing the Role Profile resync that would otherwise strip
-  it), proving the check would admit a real Auditor if that separate mismatch
-  is ever fixed.
+  "Verenigingen Auditor". Until #1504 those Role Profiles did not grant their
+  own literal role, so a profile-provisioned Auditor/Treasurer was refused
+  here (and from Desk). #1504 fixed the profiles, so the Auditor control
+  below provisions through the real Role Profile path.
 
 - get_sepa_notification_history (verenigingen_payments/utils/
   sepa_notification_manager.py): SEPA Notification Log is a raw SQL table
@@ -90,6 +79,7 @@ from frappe.utils import add_days, today
 from verenigingen.api.periodic_donation_operations import export_agreements
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.member_ownership_probe_mixin import MemberOwnershipProbeMixin
+from verenigingen.utils.constants import Roles
 from verenigingen.verenigingen.page.membership_analytics.predictive_analytics import analyze_churn_risk
 from verenigingen.verenigingen.report.chapter_dues_split.chapter_dues_split import (
     get_data as get_dues_split_data,
@@ -134,32 +124,13 @@ class TestExportAgreementsReportRoleScope(MemberOwnershipProbeMixin, EnhancedTes
             result = self._export()
         self.assertTrue(result["success"])
 
-    def _grant_literal_role_bypassing_profile_resync(self, user_email, role):
-        """Insert a bare Has Role row directly, bypassing User.save()'s
-        populate_role_profile_roles resync (which would strip a role that isn't
-        part of the user's assigned Role Profile's own role list -- see this
-        class's docstring on the Auditor role/profile mismatch)."""
-        frappe.get_doc(
-            {
-                "doctype": "Has Role",
-                "parent": user_email,
-                "parenttype": "User",
-                "parentfield": "roles",
-                "role": role,
-            }
-        ).insert(ignore_permissions=True)
-        frappe.clear_cache(user=user_email)
-
-    def test_mechanism_admits_a_real_holder_of_the_reports_own_role(self):
-        """Demonstrates the fix reuses the report's OWN role list rather than a
-        hardcoded subset: a user holding the literal "Verenigingen Auditor" role
-        (as the report itself lists) is admitted, even though -- per this
-        module's docstring -- no currently-configured Role Profile actually
-        grants that literal role."""
+    def test_auditor_role_profile_user_allowed(self):
+        """A user provisioned through the real "Verenigingen Auditor" Role
+        Profile holds the literal role the report lists (#1504), so the fix's
+        reuse of the report's own role list admits them."""
         user_email, _member = self._user_linked_to_own_member(
-            "ExportAgreementsAuditorMechanism", "Verenigingen Member", "Verenigingen Auditor"
+            "ExportAgreementsAuditor", "Verenigingen Member", "Verenigingen Auditor"
         )
-        self._grant_literal_role_bypassing_profile_resync(user_email, "Verenigingen Auditor")
         with self.set_user(user_email):
             # Precondition, read after the switch so it resolves through the
             # switched session rather than a pre-set_user cache (cache-guard).
@@ -225,6 +196,11 @@ class TestSepaNotificationHistoryStaffOnly(MemberOwnershipProbeMixin, EnhancedTe
     def test_staff_still_allowed(self):
         staff_user = self._staff_user("SepaNotifHistoryStaff", role="Verenigingen Staff")
         with self.set_user(staff_user):
+            # Diagnostic precondition (#1511): this user was once refused by the
+            # guard despite _staff_user's own role assertion passing. If that
+            # recurs, this line says whether the role was missing under set_user
+            # or the guard refused for another reason.
+            self.assertTrue(set(frappe.get_roles()) & Roles.ADMIN_ROLES, frappe.get_roles())
             result = self._get_history()
         # The refusal tests above are this assertion's control: they fail if a
         # refusal ever stops carrying the code, so this cannot pass vacuously.
