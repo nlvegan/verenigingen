@@ -834,7 +834,14 @@ def generate_enhanced_sepa_xml(batch_name: str) -> Dict[str, Any]:
                 {
                     "invoice": invoice_data.invoice,
                     "amount": invoice_data.amount,
-                    "currency": invoice_data.currency or "EUR",
+                    # No "or 'EUR'" fallback (#1464): a blank/missing currency
+                    # must reach _validate_transaction (currency != "EUR") as
+                    # itself, so it is refused rather than treated as EUR-safe.
+                    # The "currency" KEY is still always present here, so
+                    # create_sepa_transaction_from_invoice's own
+                    # `.get("currency", "EUR")` default (for callers that omit
+                    # the key entirely) never fires on this path.
+                    "currency": invoice_data.currency,
                     "member_name": invoice_data.member_name,
                     "iban": invoice_data.iban,
                     "bic": invoice_data.bic,

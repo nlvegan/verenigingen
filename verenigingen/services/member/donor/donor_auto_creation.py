@@ -315,21 +315,22 @@ def get_auto_creation_stats():
         auto_created_count = frappe.db.count("Donor", filters={"customer_sync_status": "Auto-Created"})
 
         # Get recent auto-creations
-        recent_creations = frappe.db.sql(
-            """
-            SELECT
-                name,
-                donor_name,
-                customer,
-                creation_trigger_amount,
-                created_from_payment,
-                creation
-            FROM `tabDonor`
-            WHERE customer_sync_status = 'Auto-Created'
-            ORDER BY creation DESC
-            LIMIT 10
-        """,
-            as_dict=True,
+        # Per-donor rows (name, trigger amount) go through Donor's own permission
+        # query, so a Chapter Board Member sees only their chapters' members' donors
+        # and a plain member only their own (#1365). The COUNT/SUM figures stay org-wide.
+        recent_creations = frappe.get_list(
+            "Donor",
+            filters={"customer_sync_status": "Auto-Created"},
+            fields=[
+                "name",
+                "donor_name",
+                "customer",
+                "creation_trigger_amount",
+                "created_from_payment",
+                "creation",
+            ],
+            order_by="creation desc",
+            limit=10,
         )
 
         # Get total amount from auto-created donors

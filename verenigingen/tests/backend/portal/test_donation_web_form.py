@@ -179,6 +179,81 @@ class TestDonationWebFormGuestAmbiguousDonor(EnhancedTestCase):
         self.assertFalse(second.phone, "ambiguous match must never write to an existing donor's phone")
 
 
+class TestDonationFormGetContextExistingDonorAmbiguity(EnhancedTestCase):
+    """#1449 (#1396 sibling): donation_form.py's get_existing_donor(), called
+    from get_context() for any logged-in user, used frappe.db.get_value with
+    a dict filter on donor_email — silently returning one arbitrary Donor's
+    name/phone/donor_type when more than one Donor shares the logged-in
+    user's e-mail, disclosed to that user as "your existing donor record".
+    Same anti-pattern and same fix shape as #1396's templates/pages/donate.py:
+    refuse (no context.existing_donor) on ambiguity, log DONOR_001, use the
+    shared find_donors_by_field helper. A single match is unaffected."""
+
+    def setUp(self):
+        self._original_user = frappe.session.user
+        super().setUp()
+
+    def tearDown(self):
+        if hasattr(self, "_original_user"):
+            frappe.set_user(self._original_user)
+        super().tearDown()
+
+    def test_ambiguous_donor_email_does_not_disclose_either_donor(self):
+        from verenigingen.verenigingen.web_form.donation_form.donation_form import get_context
+
+        email = f"donform-ambig-{frappe.generate_hash()[:8]}@example.com"
+        self.create_test_user(email, roles=["Verenigingen Member"])
+        first = self.create_test_donor(
+            donor_name="First Ambiguous", donor_email=email, donor_type="Individual"
+        )
+        second = self.create_test_donor(
+            donor_name="Second Ambiguous", donor_email=email, donor_type="Individual"
+        )
+
+        self.expectErrorLog("DONOR_001")
+        with self.assertErrorLog("DONOR_001"), self.as_user(email):
+            ctx = frappe._dict()
+            get_context(ctx)
+
+        # get_context always assigns context.existing_donor (unlike donate.py's
+        # page, which only assigns it on a match) — so the key is present, but
+        # its value must be None: neither donor's name/phone/type discloses.
+        self.assertIsNone(ctx.get("existing_donor"))
+
+    def test_single_match_still_prefills(self):
+        """Control: a single Donor match is NOT ambiguous and must still
+        prefill context.existing_donor, exactly as before this fix."""
+        from verenigingen.verenigingen.web_form.donation_form.donation_form import get_context
+
+        email = f"donform-single-{frappe.generate_hash()[:8]}@example.com"
+        self.create_test_user(email, roles=["Verenigingen Member"])
+        donor = self.create_test_donor(
+            donor_name="Only Donor", donor_email=email, donor_type="Individual"
+        )
+
+        with self.as_user(email):
+            ctx = frappe._dict()
+            get_context(ctx)
+
+        self.assertIn("existing_donor", ctx)
+        self.assertIsNotNone(ctx.existing_donor)
+        self.assertEqual(ctx.existing_donor["name"], donor.name)
+
+    def test_no_match_returns_none(self):
+        """Control: no Donor at all for this e-mail must still yield None,
+        not an ambiguity refusal."""
+        from verenigingen.verenigingen.web_form.donation_form.donation_form import get_context
+
+        email = f"donform-none-{frappe.generate_hash()[:8]}@example.com"
+        self.create_test_user(email, roles=["Verenigingen Member"])
+
+        with self.as_user(email):
+            ctx = frappe._dict()
+            get_context(ctx)
+
+        self.assertIsNone(ctx.get("existing_donor"))
+
+
 class TestDonationWebFormCampaignField(EnhancedTestCase):
     """create_donation() previously assigned a Campaign donation's reference to
     donation.campaign_reference — a field that does not exist on Donation

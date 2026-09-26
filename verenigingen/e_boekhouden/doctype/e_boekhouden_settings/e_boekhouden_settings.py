@@ -741,6 +741,17 @@ def create_single_cost_center(mapping, company):
             company_cost_center = frappe.db.get_value(
                 "Cost Center", {"company": company, "is_group": 1}, "name", order_by="creation asc"
             )
+            if not company_cost_center:
+                # Company has no group Cost Center at all (see #1359) -- fall
+                # back to the company's root, creating it if needed, instead
+                # of leaving parent_cost_center unset. This is not a root
+                # Cost Center itself, so an unset parent raises
+                # frappe.MandatoryError. See #1441.
+                from verenigingen.e_boekhouden.utils.eboekhouden_cost_center_fix import (
+                    ensure_root_cost_center,
+                )
+
+                company_cost_center = ensure_root_cost_center(company)
             if company_cost_center:
                 cost_center_doc.parent_cost_center = company_cost_center
 

@@ -59,10 +59,13 @@ class TestWebhookIntegrationComprehensive(EnhancedTestCase):
         # Create test donation. create_test_donation submits the donation
         # (docstatus=1) in test context, and payment_id is not allow_on_submit,
         # so set it via the factory kwarg BEFORE submit rather than saving after.
+        # Derived per-test, not a fixed literal: a fixed id collides with a
+        # leftover row from a previous run against the unique index on
+        # Donation.payment_id (#1468, same shape as #1438).
         self.test_donation = self.create_test_donation(
             donor_name="Integration Test Donor",
             amount=75.0,
-            payment_id="tr_donation_integration_123",
+            payment_id=f"tr_test_{frappe.generate_hash(length=10)}",
         )
 
         # Mock Mollie Settings

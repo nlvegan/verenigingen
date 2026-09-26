@@ -69,27 +69,27 @@ def approve_membership_application_background(
     """
     try:
         # Input sanitization and validation
+        # Sanitize member_name via the shared helper (#1453, same split as
+        # #1414/#1458 in membership_application_review.py). It never checks
+        # whether member_name refers to a real Member, so it is safe to run for
+        # every caller before the chapter-permission gate below.
+        from verenigingen.api.membership_application_review import (
+            _check_member_exists_for_review,
+            _sanitize_member_name_for_review,
+        )
         from verenigingen.utils.security.audit_logging import log_security_event
         from verenigingen.utils.validation.api_validators import APIValidator
 
+        member_name = _sanitize_member_name_for_review(member_name, "approval")
+
         try:
-            # Validate and sanitize all inputs
-            member_name = APIValidator.sanitize_text(str(member_name), max_length=255)
+            # Validate and sanitize the remaining inputs
             if membership_type:
                 membership_type = APIValidator.sanitize_text(str(membership_type), max_length=255)
             if chapter:
                 chapter = APIValidator.sanitize_text(str(chapter), max_length=255)
             if notes:
                 notes = APIValidator.sanitize_text(str(notes), max_length=2000, allow_html=False)
-
-            # Validate member exists before proceeding
-            if not frappe.db.exists("Member", member_name):
-                log_security_event(
-                    "unauthorized_access_attempt",
-                    {"message": f"Attempted approval of non-existent member: {member_name}"},
-                    severity="error",
-                )
-                frappe.throw(_("Invalid member reference"))
 
         except Exception as e:
             log_security_event(
@@ -99,16 +99,30 @@ def approve_membership_application_background(
             )
             frappe.throw(_("Invalid input data provided"))
 
-        member = frappe.get_doc("Member", member_name)
-
-        # Validate application can be approved
-        if member.application_status not in ["Pending"]:
-            frappe.throw(_("This application cannot be approved in its current state"))
-
-        # Check chapter-based permissions
+        # Check chapter-based permissions BEFORE any existence- or
+        # status-revealing check (#1453, matching #1414/#1458).
+        # validate_chapter_permission_or_throw already refuses an unknown
+        # member_name identically to an existing-but-foreign one for a caller
+        # scoped to specific chapters -- can_user_manage_application() finds
+        # zero Chapter Member rows either way. This ordering is what closes the
+        # existence oracle that let a non-staff Chapter Board Member enumerate
+        # real Member ids (and, via application_status below, learn a foreign
+        # member's status). Only a caller whose chapter access is "all"
+        # (staff/admin) reaches the existence and status checks, for whom
+        # neither reveals anything new.
         from verenigingen.services.chapter.chapter_security import validate_chapter_permission_or_throw
 
         validate_chapter_permission_or_throw(member_name, "approve")
+        _check_member_exists_for_review(member_name, "approval")
+
+        member = frappe.get_doc("Member", member_name)
+
+        # Validate application can be approved (after the permission and
+        # existence checks above -- #1453: this used to run before the
+        # permission check, letting a scoped caller distinguish a foreign
+        # member's Pending status from any other status).
+        if member.application_status not in ["Pending"]:
+            frappe.throw(_("This application cannot be approved in its current state"))
 
         # Resolve membership type using approval service helper
         from verenigingen.services.member.approval.member_approval_service import resolve_membership_type

@@ -29,6 +29,27 @@ class TestMollieRefundChargebackWebhookProcessing(EnhancedTestCase):
     def setUp(self):
         super().setUp()
 
+        # unittest SKIPS tearDown() -- and therefore the tracked/captured-insert
+        # drains and the per-method rollback it runs -- whenever setUp() itself
+        # raises below this point. Anything created before such a failure (e.g.
+        # the Donation created a few lines down, tracked but never committed)
+        # would otherwise sit UNCOMMITTED in the still-open transaction until
+        # some LATER test's setUp() calls ensure_mollie_reversal_accounts(),
+        # which commits unconditionally (it has to, to survive per-test
+        # rollback -- see its docstring) and inadvertently persists this test's
+        # leftovers along with it. That is how a single failing run left a
+        # submitted Donation behind, which then collided with every subsequent
+        # run (#1438). addCleanup -- the same idiom EnhancedTestCase.setUp
+        # already uses for _restore_throttle_user_limit and
+        # _uninstall_insert_capture, for the identical reason -- runs via
+        # doCleanups() regardless of whether setUp/the test/tearDown succeeded,
+        # so registering the drains here (before anything that can fail) closes
+        # that gap. Both drains are idempotent (each clears its own list before
+        # returning), so re-running them after an ordinary tearDown() has
+        # already drained everything is a harmless no-op.
+        self.addCleanup(self._drain_tracked_documents)
+        self.addCleanup(self._drain_captured_inserts)
+
         # Ensure the master data (Mollie bank account + "Mollie Refund" mode of payment)
         # required to build reversal Payment Entries exists for the test company.
         ensure_mollie_reversal_accounts()
@@ -40,8 +61,11 @@ class TestMollieRefundChargebackWebhookProcessing(EnhancedTestCase):
             first_name="Webhook", last_name="Test", email="webhook.test@example.com"
         )
 
-        # Prepare payment ID for donation
-        self.test_payment_id = "tr_webhook_test_12345"
+        # Prepare payment ID for donation. Derived per-test (not a fixed literal):
+        # a fixed id collides with a leftover row from a previous run against the
+        # unique indexes on Payment Entry.custom_mollie_idempotency_key and
+        # Donation.payment_id, and errors ALL tests in the module (#1438).
+        self.test_payment_id = f"tr_test_{frappe.generate_hash(length=10)}"
 
         # Create donation with payment_id set for lookup
         self.test_donation = self.create_test_donation(

@@ -306,7 +306,16 @@ class TestDuplicateInvoiceDetector(EnhancedTestCase):
                 "posting_date": "2025-01-05",  # Explicitly set posting_date again
             },
         )
-        frappe.db.commit()  # Commit to ensure persistence
+        # No commit needed: _check_fallback_overlaps reads via frappe.db.sql on
+        # this same connection, which always sees this transaction's own
+        # uncommitted writes. The commit this replaces bought nothing for that
+        # visibility and instead exposed a real leak: submitting the invoice
+        # below dispatches an enqueue_after_commit=True job that a live RQ
+        # worker on this dev box (CI has none) can pick up and take a FOR
+        # UPDATE lock on this Member row -- a lock only reachable because the
+        # commit made the row visible outside this transaction before
+        # teardown's own delete attempt, producing "being modified by another
+        # user" (#1390, mechanism identified in #1233/#1137).
         invoice.reload()
         invoice.submit()
 
@@ -457,7 +466,8 @@ class TestDuplicateInvoiceDetector(EnhancedTestCase):
                 "posting_date": "2025-01-05",
             },
         )
-        frappe.db.commit()
+        # Same reasoning as test_fallback_detection_for_missing_coverage above:
+        # no commit needed, same connection sees its own uncommitted writes.
         invoice.reload()
         invoice.submit()
 
