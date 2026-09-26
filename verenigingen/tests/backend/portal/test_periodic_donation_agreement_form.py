@@ -186,16 +186,16 @@ class TestPeriodicDonationAgreementFormDonorResolution(EnhancedTestCase):
     higher-severity blast radius because both are real writes.
 
     Now resolves via the shared, tiered Donor resolution: the authoritative
-    Donor.member link wins over a donor_email match (get_donor_for_member),
-    and falling back to a plain email match (donor_service.get_donor_by_email)
-    only when the user has no linked Member. An ambiguous match at either
-    tier refuses -- get_or_create_donor_for_user then falls through to its
-    existing create-a-new-unlinked-Donor branch (PROVISIONAL per the #1396
-    maintainer ruling, made for a public unauthenticated donation form; this
-    endpoint is a logged-in user creating a legal/tax agreement, a
-    higher-stakes case the maintainer had not yet separately ruled on when
-    this fix was written) rather than ever writing onto an arbitrarily
-    picked existing Donor.
+    Donor.member link wins over a donor_email match; falling back to a
+    plain email match only when the user has no linked Member. Maintainer
+    ruling (issue comment, 2026-09-26): on RESIDUAL ambiguity (2+ matches at
+    a tier, no unique member-linked Donor) the submission is REFUSED
+    outright -- no new Donor, no BSN write, no agreement -- deliberately
+    stricter than #1396's "create a new unlinked Donor" ruling for the
+    public, unauthenticated donation form, because this endpoint creates a
+    legal/tax agreement carrying a BSN. A genuine NO-MATCH (zero Donors at
+    any tier) is unaffected: it still creates a new Donor, exactly as
+    before.
     """
 
     def setUp(self):
@@ -266,12 +266,33 @@ class TestPeriodicDonationAgreementFormDonorResolution(EnhancedTestCase):
             "a single unambiguous match must be reused, not duplicated",
         )
 
-    def test_ambiguous_email_match_with_no_member_creates_new_donor(self):
+    def test_no_match_at_all_still_creates_new_donor(self):
+        """Control for the ambiguity-refusal tests below: a genuine NO-MATCH
+        (zero Donors anywhere, no Member either) is NOT an ambiguity and
+        must still create a new Donor exactly as before -- the maintainer
+        ruling narrows the refusal to residual ambiguity, it does not touch
+        the ordinary first-time-donor path."""
+        from verenigingen.verenigingen.web_form.periodic_donation_agreement_form.periodic_donation_agreement_form import (
+            get_or_create_donor_for_user,
+        )
+
+        user_email = f"pda.nomatch.{frappe.generate_hash(length=8)}@example.com"
+        self.create_test_user(user_email, roles=["Verenigingen Member"])
+
+        with self.assertNoErrorLog():
+            with self.as_user(user_email):
+                resolved = get_or_create_donor_for_user()
+
+        self.assertIsNotNone(resolved)
+        self.track_doc("Donor", resolved["name"])
+        self.assertEqual(frappe.db.get_value("Donor", resolved["name"], "donor_email"), user_email)
+
+    def test_ambiguous_email_match_with_no_member_refuses_and_creates_nothing(self):
         """Two Donors share the logged-in user's e-mail, neither linked to
         any Member, and the user has no Member either (exercises the
-        no-Member fallback tier directly). This is an unresolvable
-        ambiguity: must refuse -- fall through to creating a new, unlinked
-        Donor -- rather than picking one of the two arbitrarily."""
+        no-Member fallback tier directly). Maintainer ruling: this residual
+        ambiguity must REFUSE outright -- no new Donor, no BSN write, no
+        agreement -- not fall through to creating a new Donor."""
         from verenigingen.verenigingen.web_form.periodic_donation_agreement_form.periodic_donation_agreement_form import (
             get_or_create_donor_for_user,
         )
@@ -284,37 +305,47 @@ class TestPeriodicDonationAgreementFormDonorResolution(EnhancedTestCase):
         second = self.create_test_donor(
             donor_name="Second Ambiguous", donor_email=user_email, donor_type="Individual"
         )
+        donor_count_before = frappe.db.count("Donor", {"donor_email": user_email})
+        # create_test_donor defaults a valid BSN onto an "Individual" donor
+        # when none is given, so these are NOT empty to start with -- assert
+        # unchanged (before/after), not falsy.
+        first_bsn_before = first.bsn_citizen_service_number
+        second_bsn_before = second.bsn_citizen_service_number
 
         self.expectErrorLog("DONOR_001")
         with self.assertErrorLog("DONOR_001"):
             with self.as_user(user_email):
-                resolved = get_or_create_donor_for_user()
+                with self.assertRaises(frappe.ValidationError) as cm:
+                    get_or_create_donor_for_user()
 
-        self.assertIsNotNone(resolved)
-        self.track_doc("Donor", resolved["name"])
-        self.assertNotIn(
-            resolved["name"],
-            (first.name, second.name),
-            "an ambiguous match must never resolve to either existing Donor",
+        self.assertIn("contact the association", str(cm.exception))
+
+        # No new Donor was created for this ambiguous e-mail.
+        self.assertEqual(
+            frappe.db.count("Donor", {"donor_email": user_email}),
+            donor_count_before,
+            "refusing an ambiguous match must never create a new Donor",
         )
+        # Neither pre-existing ambiguous Donor was written to.
+        first.reload()
+        second.reload()
+        self.assertEqual(first.bsn_citizen_service_number, first_bsn_before)
+        self.assertEqual(second.bsn_citizen_service_number, second_bsn_before)
 
-    def test_process_agreement_form_ambiguous_donor_creates_new_donor_and_agreement(self):
+    def test_process_agreement_form_ambiguous_donor_refuses_with_no_side_effects(self):
         """Full endpoint, through the real @self_service_api decorator, as a
         real non-admin logged-in user (not Administrator): an ambiguous
         e-mail match (here via the user's linked Member's own e-mail tier,
-        see get_donor_for_member) must never leave the new Agreement
-        attached to either pre-existing Donor.
+        see get_donor_for_member) must refuse the submission -- no new
+        Donor, no BSN write, no agreement against either pre-existing
+        Donor.
 
         Both pre-existing ambiguous Donors are given anbi_consent=1 and a
         valid BSN so they ALREADY satisfy every requirement
-        create_agreement_from_form's validation checks (independent of
-        #1450: a brand-new Donor from the create-new-Donor fallback always
-        has anbi_consent=0, since ANBI consent has no write path anywhere
-        in this flow -- filed separately, see #1450's PR description) --
-        so if a regression picked one of them arbitrarily instead of
-        refusing, the submission would SUCCEED against it, giving this
-        test's "no Agreement for either" assertion something to catch
-        regardless of the new donor's own eventual outcome.
+        create_agreement_from_form's validation checks -- so if a
+        regression picked one of them arbitrarily instead of refusing, the
+        submission would SUCCEED against it, giving this test's assertions
+        something real to catch.
         """
         from verenigingen.tests.fixtures.dutch_validation_helpers import generate_valid_bsn
         from verenigingen.verenigingen.web_form.periodic_donation_agreement_form.periodic_donation_agreement_form import (
@@ -338,6 +369,9 @@ class TestPeriodicDonationAgreementFormDonorResolution(EnhancedTestCase):
             anbi_consent=1,
             bsn_citizen_service_number=generate_valid_bsn(),
         )
+        donor_count_before = frappe.db.count("Donor", {"donor_email": user_email})
+        first_bsn_before = first.bsn_citizen_service_number
+        second_bsn_before = second.bsn_citizen_service_number
 
         form_data = {
             "agreement_type": "Private Written",
@@ -355,26 +389,23 @@ class TestPeriodicDonationAgreementFormDonorResolution(EnhancedTestCase):
             with self.as_user(user_email):
                 result = process_agreement_form(form_data)
 
-        # The new, unlinked Donor the fallback branch creates has
-        # anbi_consent=0 (nothing in this flow sets ANBI consent), so
-        # create_agreement_from_form's ANBI validation rejects it -- a
-        # separate, pre-existing defect (default-claims-ANBI on every new
-        # agreement) independent of donor *resolution*, which is what this
-        # test targets. What matters here is WHICH donor was almost
-        # attached, not whether the agreement ultimately completed.
         self.assertFalse(result.get("success"))
-        self.assertIn("ANBI consent", result.get("message", ""))
+        self.assertIn("contact the association", result.get("message", ""))
 
-        new_donor_name = frappe.db.get_value(
-            "Donor",
-            {"donor_email": user_email, "name": ["not in", [first.name, second.name]]},
-            "name",
+        # No new Donor was created for this ambiguous e-mail.
+        self.assertEqual(
+            frappe.db.count("Donor", {"donor_email": user_email}),
+            donor_count_before,
+            "refusing an ambiguous match must never create a new Donor",
         )
-        self.assertIsNotNone(new_donor_name, "the ambiguity fallback must create a new Donor")
-        self.track_doc("Donor", new_donor_name)
 
-        # Neither pre-existing ambiguous Donor received an agreement -- had
-        # resolution picked one arbitrarily instead of refusing, this WOULD
-        # have succeeded (both already satisfy consent/BSN/duration).
+        # Neither pre-existing ambiguous Donor received an agreement or a
+        # BSN write -- had resolution picked one arbitrarily instead of
+        # refusing, the agreement WOULD have succeeded (both already
+        # satisfy consent/BSN/duration).
         self.assertFalse(frappe.db.exists("Periodic Donation Agreement", {"donor": first.name}))
         self.assertFalse(frappe.db.exists("Periodic Donation Agreement", {"donor": second.name}))
+        first.reload()
+        second.reload()
+        self.assertEqual(first.bsn_citizen_service_number, first_bsn_before)
+        self.assertEqual(second.bsn_citizen_service_number, second_bsn_before)
