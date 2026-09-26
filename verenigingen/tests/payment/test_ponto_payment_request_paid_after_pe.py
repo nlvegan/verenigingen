@@ -31,7 +31,11 @@ import frappe
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.ponto_test_data_factory import PaymentStatus, PontoTestDataFactory
 from verenigingen.tests.fixtures.singleton_backup import SingletonBackup, singleton_backup
-from verenigingen.tests.support.sepa_test_company import get_eur_bank_account, get_eur_test_company
+from verenigingen.tests.support.sepa_test_company import (
+    create_test_supplier,
+    get_eur_bank_account,
+    get_eur_test_company,
+)
 from verenigingen.verenigingen_payments.doctype.ponto_payment_request.ponto_payment_request import (
     PontoPaymentRequest,
 )
@@ -104,14 +108,7 @@ class _PontoPaymentRequestFixtures:
         frappe.set_user("Administrator")
 
     def _create_supplier(self, name_hint):
-        supplier = frappe.get_doc(
-            {
-                "doctype": "Supplier",
-                "supplier_name": f"_Test PPR Supplier {name_hint} {frappe.generate_hash(length=6)}",
-                "supplier_group": "All Supplier Groups",
-                "supplier_type": "Company",
-            }
-        ).insert(ignore_permissions=True)
+        supplier = create_test_supplier(name_hint, prefix="_Test PPR Supplier")
         self.track_doc("Supplier", supplier.name)
         return supplier
 

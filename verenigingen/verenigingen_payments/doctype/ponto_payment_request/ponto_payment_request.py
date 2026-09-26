@@ -43,7 +43,15 @@ class PontoPaymentRequest(Document):
         self.set_ponto_account_name()
 
     def before_submit(self):
-        """Create payment request in Ponto API before submit."""
+        """Validate Payment Entry prerequisites, then create the payment in Ponto.
+
+        The check runs BEFORE create_ponto_payment() calls the real Ponto API
+        and moves real money -- #1379. ``reference_doctype``/``reference_name``
+        are not ``allow_on_submit``, so once this document is submitted a
+        missing/unresolvable reference can never be corrected on it again: the
+        first (and only) safe point to refuse is here, before submission.
+        """
+        self._validate_payment_entry_prerequisites()
         self.create_ponto_payment()
 
     def on_cancel(self):
@@ -279,29 +287,36 @@ class PontoPaymentRequest(Document):
         else:
             frappe.db.release_savepoint(savepoint)
 
-    def create_payment_entry(self):
+    def _validate_payment_entry_prerequisites(self):
         """
-        Create Payment Entry when payment is executed.
+        Resolve, and RAISE on, everything create_payment_entry() needs to post a
+        real Payment Entry: the Bank Account the Ponto account is mapped to, its
+        Company, its linked GL Account, and a resolvable reference party.
 
-        Links the Payment Entry to this Ponto Payment Request.
+        Called from two places:
+
+        - before_submit(), so a misconfigured request is refused BEFORE
+          create_ponto_payment() calls the real Ponto API and moves real money
+          -- #1379. This is what makes the reference-party guard fixable: once
+          submitted, reference_doctype/reference_name cannot be edited (not
+          allow_on_submit), so that guard would otherwise only ever be reached
+          AFTER money has already moved, with no way left to correct it.
+        - create_payment_entry() itself, since Ponto Settings/Bank Account can
+          still change between submit and execution.
 
         Every guard below RAISES rather than logging-and-returning (#1323
-        review finding): each one runs inside the caller's
-        _atomic_status_transition() savepoint, and a plain ``return`` exits
-        that ``with`` block normally, releasing the savepoint -- so "Executed"
-        was committed with no Payment Entry and no error trail for exactly
-        the four misconfigurations this method already knew how to detect.
-        `frappe.logger().warning()` in particular writes to a rotating file
-        handler nothing in CI reads (see CLAUDE.md's "Known traps"), so this
-        was invisible even to a diligent operator.
+        review finding): from create_payment_entry(), each runs inside the
+        caller's _atomic_status_transition() savepoint, and a plain ``return``
+        exits that ``with`` block normally, releasing the savepoint -- so
+        "Executed" was committed with no Payment Entry and no error trail for
+        exactly the four misconfigurations this method already knew how to
+        detect. `frappe.logger().warning()` in particular writes to a rotating
+        file handler nothing in CI reads (see CLAUDE.md's "Known traps"), so
+        this was invisible even to a diligent operator.
 
-        The one exception is ``if self.payment_entry: return`` immediately
-        below -- that is a genuine idempotency no-op (already succeeded),
-        not a misconfiguration, and stays a silent return.
+        Returns:
+            (bank_account, company, paid_from, party_type, party)
         """
-        if self.payment_entry:
-            return  # Already created
-
         # Get company and bank account from Ponto settings
         settings = frappe.get_single("Ponto Settings")
         bank_account = None
@@ -357,15 +372,13 @@ class PontoPaymentRequest(Document):
                 party = self.reference_name
             # Could add more mappings as needed
 
-        # paid_to: for payment_type "Pay", ERPNext needs the PARTY's own
-        # Payable/Advance account here (Payment Entry.setup_party_account_field:
-        # for Pay, party_account = paid_to) -- #1200, the same missing-field shape
-        # as #906. Resolved with ERPNext's own get_party_account(), the same
-        # resolver its get_payment_entry() factory uses. Without a party there is
-        # no established account to post the other side of this SEPA payment to
-        # (this construction never set paid_from/paid_to at all before, so no case
-        # ever posted correctly) -- refuse rather than guess, matching the
-        # no-bank_account / no-company guards already above.
+        # paid_to (resolved by the caller): for payment_type "Pay", ERPNext needs
+        # the PARTY's own Payable/Advance account (Payment Entry.
+        # setup_party_account_field: for Pay, party_account = paid_to) -- #1200,
+        # the same missing-field shape as #906. Without a party there is no
+        # established account to post the other side of this SEPA payment to --
+        # refuse rather than guess, matching the no-bank_account / no-company
+        # guards above.
         if not (party_type and party):
             frappe.throw(
                 _(
@@ -374,6 +387,24 @@ class PontoPaymentRequest(Document):
                 ).format(self.name),
                 title=_("No Reference Party"),
             )
+
+        return bank_account, company, paid_from, party_type, party
+
+    def create_payment_entry(self):
+        """
+        Create Payment Entry when payment is executed.
+
+        Links the Payment Entry to this Ponto Payment Request.
+
+        ``if self.payment_entry: return`` immediately below is a genuine
+        idempotency no-op (already succeeded), not a misconfiguration, and
+        stays a silent return. Every other prerequisite is validated (and
+        raises on failure) in _validate_payment_entry_prerequisites().
+        """
+        if self.payment_entry:
+            return  # Already created
+
+        bank_account, company, paid_from, party_type, party = self._validate_payment_entry_prerequisites()
 
         from erpnext.accounts.party import get_party_account
 

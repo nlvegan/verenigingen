@@ -21,6 +21,9 @@ from unittest.mock import MagicMock, patch
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.payment.test_ponto_payment_request_paid_after_pe import (
+    _PontoPaymentRequestFixtures,
+)
 
 LINK_CLIENT = (
     "verenigingen.verenigingen_payments.ponto.clients.betaalverzoek_client.get_betaalverzoek_client"
@@ -152,12 +155,20 @@ class TestPontoPaymentLinkApi(EnhancedTestCase):
         self.assertIn("No email address provided", str(cm.exception))
 
 
-class TestPontoPaymentRequestApi(EnhancedTestCase):
-    """API-calling branches of Ponto Payment Request with the client stubbed."""
+class TestPontoPaymentRequestApi(_PontoPaymentRequestFixtures, EnhancedTestCase):
+    """API-calling branches of Ponto Payment Request with the client stubbed.
 
-    def setUp(self):
-        super().setUp()
-        frappe.set_user("Administrator")
+    Mixes in ``_PontoPaymentRequestFixtures`` (from
+    test_ponto_payment_request_paid_after_pe.py) rather than re-declaring its
+    own company/bank-account/Ponto-Settings-mapping/Supplier fixture: a mapped
+    bank account + reference is now required for submit() to reach the
+    (mocked) API at all -- #1379 hoisted create_payment_entry()'s four
+    misconfiguration guards into before_submit(), so a request missing any of
+    them is refused before create_ponto_payment() runs. The guards themselves
+    are covered directly by test_ponto_payment_request_reference_before_submit.py;
+    this class only needs a request that satisfies them so its API-boundary
+    tests keep testing the API boundary.
+    """
 
     def _create_request(self, **kwargs):
         doc = frappe.new_doc("Ponto Payment Request")
@@ -171,13 +182,23 @@ class TestPontoPaymentRequestApi(EnhancedTestCase):
         return doc
 
     def test_submit_creates_ponto_payment(self):
-        """before_submit calls the API and stores payment id + redirect link."""
+        """before_submit calls the API and stores payment id + redirect link.
+
+        Uses the class's mapped bank account and a fresh Supplier reference
+        so the #1379 before-submit guard is satisfied and the mocked client
+        is reached.
+        """
+        supplier = self._create_supplier("Submit")
         fake_client = MagicMock()
         fake_client.create_payment.return_value = SimpleNamespace(
             id="ponto-pay-456",
             redirect_link="https://myponto.example/sign/xyz",
         )
-        req = self._create_request()
+        req = self._create_request(
+            ponto_account=self.TEST_PONTO_ACCOUNT_ID,
+            reference_doctype="Supplier",
+            reference_name=supplier.name,
+        )
         req.insert()
         with patch(PAY_CLIENT, return_value=fake_client):
             req.submit()
@@ -188,14 +209,24 @@ class TestPontoPaymentRequestApi(EnhancedTestCase):
         fake_client.create_payment.assert_called_once()
 
     def test_create_ponto_payment_api_error_throws(self):
-        """API failure during creation surfaces as ValidationError."""
+        """API failure during creation surfaces as ValidationError.
+
+        Same mapped-account + reference setup as test_submit_creates_ponto_payment
+        so the API boundary (not the #1379 before-submit guard) is what raises.
+        """
+        supplier = self._create_supplier("ApiError")
         fake_client = MagicMock()
         fake_client.create_payment.side_effect = RuntimeError("ponto down")
-        req = self._create_request()
+        req = self._create_request(
+            ponto_account=self.TEST_PONTO_ACCOUNT_ID,
+            reference_doctype="Supplier",
+            reference_name=supplier.name,
+        )
         req.insert()
         with patch(PAY_CLIENT, return_value=fake_client):
             with self.assertRaises(frappe.ValidationError):
                 req.submit()
+        fake_client.create_payment.assert_called_once()
 
     def test_refresh_status_maps_signed(self):
         """refresh_status maps Ponto 'signed' to our 'Signed' status."""
