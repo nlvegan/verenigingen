@@ -34,10 +34,13 @@ Two things are tested:
 
 import re
 from pathlib import Path
+from unittest.mock import patch
 
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.non_resumable_errors import deadlock
+from verenigingen.verenigingen.doctype.chapter import chapter as chapter_module
 from verenigingen.verenigingen.doctype.chapter.chapter import Chapter
 
 CHAPTER_JS = Path(__file__).resolve().parents[2] / "verenigingen" / "doctype" / "chapter" / "chapter.js"
@@ -149,3 +152,76 @@ class TestChapterBoardHistoryButtonWhitelist(EnhancedTestCase):
         with self.as_user(outsider.name):
             with self.assertRaises(frappe.PermissionError):
                 target(chapter_name=chapter.name)
+
+
+class TestChapterBoardHistoryPermissionSwallow(EnhancedTestCase):
+    """Regression tests for #1296.
+
+    ``get_chapter_board_history``'s permission refusal (`can_user_view_chapter_
+    board_history()` -> `frappe.throw(...)`) used to be raised INSIDE the same
+    ``try`` whose ``except Exception`` logs the exception and returns ``[]`` --
+    so "denied" came back indistinguishable from "no history", plus a spurious
+    Error Log row on every refusal. Unlike
+    ``test_non_board_member_does_not_see_board_history`` above (whose outsider
+    is refused earlier, at the @high_security_api tier gate, before the
+    chapter-scoped check ever runs), the attacker here IS a real board member
+    -- of a DIFFERENT chapter -- so they clear that gate and the check actually
+    under test here is ``can_user_view_chapter_board_history`` itself.
+    """
+
+    def test_cross_chapter_board_member_gets_permission_error_not_silent_empty_list(self):
+        chapter_a = self.create_chapter()
+        chapter_b = self.create_chapter()
+        seat = self.create_test_board_member(chapter_a.name, permissions_level="Admin")
+        # Seed chapter B with its own board member so it has real history to withhold
+        # -- otherwise an empty result would be ambiguous with "nothing to withhold".
+        self.create_test_board_member(chapter_b.name, permissions_level="Admin")
+
+        with self.as_user(seat.user):
+            with self.assertNoErrorLog():
+                with self.assertRaises(frappe.PermissionError) as ctx:
+                    chapter_module.get_chapter_board_history(chapter_b.name)
+
+        self.assertIn(
+            "don't have permission to view board history",
+            str(ctx.exception),
+            f"expected the chapter-scoped refusal message, got: {ctx.exception}",
+        )
+
+    def test_unknown_chapter_answers_identically_to_a_forbidden_chapter(self):
+        """Chapter existence is not secret: the public `/chapter` website page
+        lists published chapters to guests (`www/chapter.py`), and
+        `get_permission_query_conditions` grants every non-board user
+        `published = 1` chapters in list views. So an unknown chapter name must
+        refuse exactly like a real chapter the caller has no board seat on --
+        not distinguishably (the "existence oracle" class fixed for #1394/
+        #1401). Both already resolve to the same branch here (the permission
+        check runs before `frappe.get_doc()`, and `_is_user_board_member_of_
+        chapter` returns False for a nonexistent parent exactly as it does for
+        a real one with no matching seat) -- this test pins that down so a
+        future refactor cannot silently split them.
+        """
+        chapter_a = self.create_chapter()
+        chapter_b = self.create_chapter()
+        seat = self.create_test_board_member(chapter_a.name, permissions_level="Admin")
+
+        with self.as_user(seat.user):
+            with self.assertRaises(frappe.PermissionError) as forbidden_ctx:
+                chapter_module.get_chapter_board_history(chapter_b.name)
+            with self.assertRaises(frappe.PermissionError) as unknown_ctx:
+                chapter_module.get_chapter_board_history("NONEXISTENT-CHAPTER-XYZ")
+
+        self.assertEqual(type(forbidden_ctx.exception), type(unknown_ctx.exception))
+        self.assertEqual(str(forbidden_ctx.exception), str(unknown_ctx.exception))
+
+    def test_deadlock_while_fetching_board_members_is_not_swallowed(self):
+        """A non-resumable DB error (1213) mid-fetch must reach the caller, not
+        be logged-and-swallowed into an empty list alongside the permission
+        refusal fix above."""
+        chapter = self.create_chapter()
+        seat = self.create_test_board_member(chapter.name, permissions_level="Admin")
+
+        with self.as_user(seat.user):
+            with patch.object(Chapter, "get_board_members", side_effect=deadlock()):
+                with self.assertRaises(frappe.QueryDeadlockError):
+                    chapter_module.get_chapter_board_history(chapter.name)

@@ -360,6 +360,55 @@ class TestChapterCoverage(EnhancedTestCase):
         with self.assertNoErrorLog():
             self.assertEqual(chapter_module.get_board_memberships(member.name), [])
 
+    def test_module_get_board_memberships_denies_unrelated_caller(self):
+        """#1296 sibling: get_board_memberships()'s own permission throw
+        (`can_user_view_member_board_info()`) is raised inside the same
+        ``try`` whose broad ``except Exception`` used to swallow it into an
+        empty list. A real board member (so they clear the @standard_api tier
+        gate) with no shared chapter with the target member must get a
+        frappe.PermissionError, not `[]`, and no Error Log row."""
+        target = self._make_member()
+        chapter = self._make_chapter()
+        seat = self.create_test_board_member(chapter.name, permissions_level="Admin")
+
+        with self.as_user(seat.user):
+            with self.assertNoErrorLog():
+                with self.assertRaises(frappe.PermissionError) as ctx:
+                    chapter_module.get_board_memberships(target.name)
+
+        self.assertIn("don't have permission", str(ctx.exception))
+
+    def test_module_get_board_memberships_deadlock_not_swallowed(self):
+        """A non-resumable DB error (1213) while reading board memberships must
+        reach the caller, not be logged-and-swallowed into [].
+
+        Only the endpoint's OWN ``Volunteer`` lookup is made to raise -- a bare
+        ``patch.object(frappe.db, "get_value", side_effect=deadlock())`` also
+        intercepts calls ``frappe.log_error()`` makes internally while handling
+        the exception, which would make this pass on the OLD, unfixed code too
+        (the deadlock escapes via log_error's own DB access, not via the
+        propagation this test means to prove) -- for the wrong reason."""
+        from unittest.mock import patch
+
+        from verenigingen.tests.support.non_resumable_errors import deadlock
+
+        member = self._make_member()
+        volunteer = self.create_test_volunteer(member_name=member.name)
+        role = self._make_role()
+        chapter = self._make_chapter()
+        chapter.add_board_member(volunteer=volunteer.name, role=role.name, from_date=today())
+
+        real_get_value = frappe.db.get_value
+
+        def _raise_only_for_volunteer_lookup(doctype, *args, **kwargs):
+            if doctype == "Volunteer":
+                raise deadlock()
+            return real_get_value(doctype, *args, **kwargs)
+
+        with patch.object(frappe.db, "get_value", side_effect=_raise_only_for_volunteer_lookup):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                chapter_module.get_board_memberships(member.name)
+
     def test_module_remove_from_board(self):
         """remove_from_board() deactivates the board member row."""
         member = self._make_member()
@@ -394,12 +443,13 @@ class TestChapterCoverage(EnhancedTestCase):
             history = chapter_module.get_chapter_board_history(chapter.name)
         self.assertTrue(any(h.get("volunteer") == volunteer.name for h in history))
 
-    def test_module_get_chapter_board_history_missing_name_returns_empty(self):
-        """get_chapter_board_history() with no name raises internally but the
-        broad except catches it, logs an Error Log, and returns []."""
-        self.expectErrorLog("board history")
-        result = chapter_module.get_chapter_board_history("")
-        self.assertEqual(result, [])
+    def test_module_get_chapter_board_history_missing_name_raises(self):
+        """get_chapter_board_history() with no name now propagates a real
+        ValidationError instead of being swallowed by the broad except into []
+        with a spurious Error Log row (#1296)."""
+        with self.assertNoErrorLog():
+            with self.assertRaises(frappe.ValidationError):
+                chapter_module.get_chapter_board_history("")
 
     def test_module_get_chapter_stats(self):
         """get_chapter_stats() returns the statistics dict for a real chapter."""

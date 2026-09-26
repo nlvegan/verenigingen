@@ -1056,6 +1056,15 @@ function show_board_history(frm) {
 	// (#1208). get_chapter_board_history() is the whitelisted, permission-gated
 	// (board member of this chapter, or admin) module-level twin that already
 	// exists for this exact purpose and returns the same shape.
+	//
+	// No custom `error` handler: get_chapter_board_history() used to swallow its
+	// own permission refusal into an empty list, so this call never failed and
+	// no error handler was ever exercised (#1296). Now that a refusal actually
+	// raises, frappe.call's default handling already shows the server's own
+	// message (the frappe.throw() text) via `_server_messages` -- a custom
+	// handler here previously read `r.message` off the raw jqXHR, which has no
+	// such property, and would have shown a second, confusing
+	// "Error loading board history: undefined" alongside the real one.
 	frappe.call({
 		method: 'verenigingen.verenigingen.doctype.chapter.chapter.get_chapter_board_history',
 		args: {
@@ -1065,9 +1074,6 @@ function show_board_history(frm) {
 			if (r.message) {
 				show_board_history_dialog(r.message);
 			}
-		},
-		error(r) {
-			frappe.msgprint(__('Error loading board history: {0}', [r.message]));
 		}
 	});
 }

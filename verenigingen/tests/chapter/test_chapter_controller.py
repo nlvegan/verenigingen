@@ -325,9 +325,10 @@ class TestChapterController(VereningingenTestCase):
         self.assertTrue(any(m["member"] == board_member.name for m in history))
 
     def test_endpoint_get_chapter_board_history_requires_name(self):
-        # "name is required" throw is swallowed by the broad ``except Exception``,
-        # leaving an empty list.
-        self.assertEqual(chapter_mod.get_chapter_board_history(""), [])
+        # The "name is required" throw now propagates instead of being
+        # swallowed by the broad ``except Exception`` (#1296).
+        with self.assertRaises(frappe.ValidationError):
+            chapter_mod.get_chapter_board_history("")
 
     def test_endpoint_get_chapter_board_history_unknown_raises(self):
         # Unknown chapter hits the ``except DoesNotExistError`` branch -> re-throw.
