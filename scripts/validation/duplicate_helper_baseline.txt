@@ -127,6 +127,7 @@ _create_own_address::2  # clone family, 1 near-identical pair(s)
 _create_party::2
 _create_payment_entry::4
 _create_payment_entry_for_dues::2
+_create_pending_applicant::2
 _create_pending_application::2
 _create_pending_member::3
 _create_permissions_test_donor::3  # clone family, 3 near-identical pair(s)
