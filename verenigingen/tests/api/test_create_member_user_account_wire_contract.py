@@ -27,10 +27,7 @@ call) so the JS fix's assumption is backed by a real dispatch, not by reading
 the decorator source and trusting it.
 """
 
-import time
-
 import frappe
-from frappe.utils import random_string
 
 from verenigingen.api.member.general_api import create_member_user_account
 from verenigingen.tests.utils.base import VereningingenTestCase
@@ -43,14 +40,11 @@ class TestCreateMemberUserAccountWireContract(VereningingenTestCase):
         # mocked by the base test case).
         frappe.set_user("Administrator")
 
-    def _make_wire_contract_member(self, label):
-        unique_email = f"{label}.{int(time.time())}.{random_string(6).lower()}@example.com"
-        return self.create_test_member(
-            first_name=label.capitalize(), last_name="WireContract", email=unique_email
-        )
-
     def test_success_envelope_nests_username_under_data_and_message_under_meta(self):
-        member = self._make_wire_contract_member("wirecontract-ok")
+        # create_test_member() (EnhancedTestDataFactory.create_member) generates
+        # a unique default email and last_name suffix when none is given -- no
+        # need for a bespoke uniquifying helper here.
+        member = self.create_test_member(first_name="Wirecontract", last_name="Ok")
 
         response = create_member_user_account(member.name, send_welcome_email=False)
 
@@ -65,7 +59,7 @@ class TestCreateMemberUserAccountWireContract(VereningingenTestCase):
         self.assertIn(response["meta"].get("action"), ["created_new", "linked_existing"])
 
     def test_failure_envelope_nests_the_message_under_error_not_a_bare_string(self):
-        member = self._make_wire_contract_member("wirecontract-dupe")
+        member = self.create_test_member(first_name="Wirecontract", last_name="Dupe")
 
         first = create_member_user_account(member.name, send_welcome_email=False)
         self.assertTrue(first["success"], f"precondition failed: first call did not succeed: {first}")
