@@ -607,6 +607,29 @@ def render_agreement_html(agreement_name: str) -> str:
     return frappe.render_template("verenigingen/templates/donation/periodic_donation_agreement.html", context)
 
 
+ANBI_PERIODIC_AGREEMENTS_REPORT = "ANBI Periodic Agreements"
+
+
+def _ensure_anbi_report_export_access():
+    """export_agreements wraps the ANBI Periodic Agreements report's get_data()
+    directly, bypassing the Report role check Desk enforces when opening the
+    report itself. @standard_api(REPORTING) alone only enforces the generic
+    MEDIUM tier, which "Verenigingen Volunteer" and "Verenigingen Chapter Board
+    Member" also clear -- neither is on the report's own role list (#1486,
+    maintainer decision 2026-09-26). Reuse Report.is_permitted() (via the
+    shared ensure_report_role_access(), also used by
+    report/chapter_dues_split/chapter_dues_split.py::get_data for the same
+    shape) so this export always matches whatever the report's own Report Role
+    list grants, rather than a second, possibly-diverging hardcoded list.
+    """
+    from verenigingen.utils.security.report_role_gate import ensure_report_role_access
+
+    ensure_report_role_access(
+        ANBI_PERIODIC_AGREEMENTS_REPORT,
+        _("You are not permitted to export this report"),
+    )
+
+
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
 def export_agreements(filters: dict | str) -> OperationResult[Dict[str, Any]]:
@@ -624,6 +647,8 @@ def export_agreements(filters: dict | str) -> OperationResult[Dict[str, Any]]:
         import io
 
         from frappe.utils.file_manager import save_file
+
+        _ensure_anbi_report_export_access()
 
         # Parse filters
         filters = json.loads(filters) if isinstance(filters, str) else filters

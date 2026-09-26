@@ -61,6 +61,9 @@ def get_columns(filters: Optional[Dict]) -> List[Dict]:
     ]
 
 
+CHAPTER_DUES_SPLIT_REPORT = "Chapter Dues Split"
+
+
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
 def get_data(filters: Optional[Dict]) -> List[Dict]:
@@ -73,6 +76,26 @@ def get_data(filters: Optional[Dict]) -> List[Dict]:
         3. Calculate split for each chapter using configured percentages
         4. Return rows with chapter totals and splits
     """
+    # get_data wraps this report's own logic directly, bypassing the Report
+    # role check Desk enforces when opening the report itself.
+    # @standard_api(REPORTING) alone only enforces the generic MEDIUM tier,
+    # which "Verenigingen Volunteer" and "Verenigingen Chapter Board Member"
+    # also clear -- neither is on this report's own role list (Verenigingen
+    # Financial Manager / Verenigingen Administrator / System Manager only),
+    # so today a Chapter Board Member sees every OTHER chapter's dues revenue
+    # and national/chapter split, not just their own (#1486). Reuse
+    # Report.is_permitted() (via the shared ensure_report_role_access(), also
+    # used by api/periodic_donation_operations.py::export_agreements for the
+    # same shape) so this endpoint always matches whatever the report's own
+    # Report Role list grants, rather than a second, possibly-diverging
+    # hardcoded list.
+    from verenigingen.utils.security.report_role_gate import ensure_report_role_access
+
+    ensure_report_role_access(
+        CHAPTER_DUES_SPLIT_REPORT,
+        _("You are not permitted to view this report"),
+    )
+
     # Set default date range to current fiscal year if not provided
     if not filters.get("from_date"):
         filters["from_date"] = get_first_day(today())
