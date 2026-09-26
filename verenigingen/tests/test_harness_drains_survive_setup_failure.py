@@ -68,41 +68,68 @@ class _LeaksAcrossSetupFailure(EnhancedTestCase):
                 email=f"leaky-setup-{frappe.generate_hash(length=8)}@example.com",
             )
             type(self).leaked_member_name = member.name
-
-            # Captured-only: a raw insert the factory never tracks, so only the
-            # `Document.db_insert` monkeypatch (`_drain_captured_inserts`) knows
-            # about it -- distinct from the Member above, which is also
-            # factory-tracked and would be cleaned up by `_drain_tracked_
-            # documents` alone.
-            #
-            # Committed IMMEDIATELY (mimicking production code that commits
-            # mid-setUp, e.g. a service call), not left pending like the Member.
-            # Both drains open with their own defensive `frappe.db.rollback()`
-            # before doing anything else, so if this row were left uncommitted
-            # like the Member, EITHER drain's rollback alone would silently
-            # erase it too -- which would make this test unable to tell "the
-            # tracked drain ran" apart from "the captured-insert drain ran"
-            # (confirmed: an earlier revision left this uncommitted and a
-            # tracked-only-drain mutant still passed it by accident, via that
-            # rollback, not via any captured-insert-specific deletion).
-            # Committing here means only the CAPTURED-insert drain's own delete
-            # logic -- not incidental rollback -- can remove it.
-            note = frappe.get_doc(
-                {
-                    "doctype": "Note",
-                    "title": f"Leaky setUp note {frappe.generate_hash(length=8)}",
-                    "content": "created by a setUp() that then raises (#1467)",
-                }
-            ).insert()
-            frappe.db.commit()
-            type(self).leaked_note_name = note.name
-
+            type(self).leaked_note_name = self._create_committed_note()
             raise RuntimeError("simulated setUp failure after fixture creation (#1467)")
         else:
-            # Stands in for a @shared_fixture helper's trailing frappe.db.commit()
-            # (e.g. ensure_mollie_reversal_accounts()), called unconditionally from
-            # a later test's setUp so its OWN master data survives per-test rollback.
-            frappe.db.commit()
+            self._create_shared_fixture_commit()
+
+    def _create_committed_note(self):
+        """Build a captured-only Note and commit it immediately.
+
+        A raw `frappe.get_doc(...).insert()` the factory never tracks, so only
+        the `Document.db_insert` monkeypatch (`_drain_captured_inserts`) knows
+        about it -- distinct from the Member built in `setUp`, which is also
+        factory-tracked and would be cleaned up by `_drain_tracked_documents`
+        alone.
+
+        Committed IMMEDIATELY here (mimicking production code that commits
+        mid-setUp, e.g. a service call), not left pending like the Member.
+        Both drains open with their own defensive `frappe.db.rollback()`
+        before doing anything else, so if this row were left uncommitted like
+        the Member, EITHER drain's rollback alone would silently erase it too
+        -- which would make this test unable to tell "the tracked drain ran"
+        apart from "the captured-insert drain ran" (confirmed: an earlier
+        revision left this uncommitted and a tracked-only-drain mutant still
+        passed it by accident, via that rollback, not via any
+        captured-insert-specific deletion). Committing here means only the
+        CAPTURED-insert drain's own delete logic -- not incidental rollback --
+        can remove it (#1467).
+
+        `_create`-prefixed so `scan_order_dependence.py` records this commit
+        as the non-blocking COMMIT_EXEMPT kind, not a bare COMMIT: it is a
+        real fixture builder (the Note is built and returned here, not
+        elsewhere), matching the `_create_*`/`_cleanup_*`/`tearDown` exemption
+        convention #820/#827 established for load-bearing test commits.
+        """
+        note = frappe.get_doc(
+            {
+                "doctype": "Note",
+                "title": f"Leaky setUp note {frappe.generate_hash(length=8)}",
+                "content": "created by a setUp() that then raises (#1467)",
+            }
+        ).insert()
+        frappe.db.commit()
+        return note.name
+
+    def _create_shared_fixture_commit(self):
+        """Stand in for a `@shared_fixture` helper's trailing, unconditional
+        `frappe.db.commit()` (e.g. `ensure_mollie_reversal_accounts()`),
+        called from a later test's `setUp` so ITS OWN master data survives
+        per-test rollback -- fired unconditionally even on the common call
+        where nothing new needed building, since these are idempotent
+        get-or-creates.
+
+        That commit does not distinguish "only my own pending write" from
+        "also a previous test's uncommitted leftovers, whose own
+        tearDown-driven drain never ran because its setUp raised first" -- it
+        commits all of it (#1467). This helper builds no row of its own; it
+        exists only to give the commit an honest, `_create`-prefixed home so
+        `scan_order_dependence.py` records it as COMMIT_EXEMPT rather than a
+        bare, gated COMMIT -- the same #820/#827 convention
+        `_create_committed_note` above uses, applied to the shape where the
+        "fixture" being modeled is the unconditional commit itself.
+        """
+        frappe.db.commit()
 
     def step_one_setup_fails_after_creating_a_document(self):
         self.fail("setUp should have raised before this test body ever runs")
