@@ -87,6 +87,32 @@ def _ensure_ponto_clearing_account(company):
     return account.name
 
 
+def _make_second_ponto_account(company, suffix="Backup"):
+    """A SECOND real Bank GL Account also matching the `%Ponto%` name lookup.
+
+    Created per-test (not at class scope like `_ensure_ponto_clearing_account`), so
+    the harness's captured-insert drain cleans it up at teardown without any special
+    handling. Created strictly after `cls.ponto_account` (class setup runs first), so
+    it is the row `creation DESC` would pick under the pre-#1434 code - the ambiguity
+    test below must catch a "pick newest" regression, not merely a "pick some row".
+    """
+    parent = frappe.db.get_value(
+        "Account", {"company": company, "account_type": "Bank", "is_group": 1}, "name"
+    ) or frappe.db.get_value("Account", {"company": company, "root_type": "Asset", "is_group": 1}, "name")
+    account = frappe.get_doc(
+        {
+            "doctype": "Account",
+            "account_name": f"Ponto Clearing {suffix}",
+            "company": company,
+            "parent_account": parent,
+            "account_type": "Bank",
+            "is_group": 0,
+            "account_currency": frappe.db.get_value("Company", company, "default_currency"),
+        }
+    ).insert(ignore_permissions=True)
+    return account.name
+
+
 class TestCreatePontoPaymentEntry(EnhancedTestCase):
     @classmethod
     def setUpClass(cls):
@@ -704,5 +730,123 @@ class TestCreatePontoPaymentEntry(EnhancedTestCase):
             "Executed",
             "the caller swallowing the exception must not leave the link stuck "
             "Executed with no Payment Entry",
+        )
+        self.assertFalse(link.payment_entry)
+
+    def _make_third_account_for_default_bank(self):
+        """A THIRD real, non-Ponto-named Account, set as `Company.default_bank_account`
+        for the ambiguity tests below. Its purpose is to make fallback #3 (the company
+        default) reachable and DISTINGUISHABLE from the correct behaviour: if the fix
+        ever silently fell through to it instead of refusing, these tests would see a
+        successful Payment Entry posted to THIS account rather than the raise they
+        assert on - proving the fallthrough is not just "no account configured".
+        """
+        parent = frappe.db.get_value(
+            "Account", {"company": self.company, "account_type": "Bank", "is_group": 1}, "name"
+        )
+        account = frappe.get_doc(
+            {
+                "doctype": "Account",
+                "account_name": f"Default Bank {frappe.generate_hash(length=6)}",
+                "company": self.company,
+                "parent_account": parent,
+                "account_type": "Bank",
+                "is_group": 0,
+                "account_currency": frappe.db.get_value("Company", self.company, "default_currency"),
+            }
+        ).insert(ignore_permissions=True)
+        return account.name
+
+    @contextmanager
+    def _company_default_bank_account_set_to_a_third_account(self):
+        """Sets `Company.default_bank_account` to a real, non-Ponto account for the
+        duration of the block, restoring the original value on exit. Mirrors
+        `_no_ponto_bank_account_configured`'s restore shape (no commit needed - same
+        connection, same transaction).
+        """
+        original = frappe.db.get_value("Company", self.company, "default_bank_account")
+        third_account = self._make_third_account_for_default_bank()
+        frappe.db.set_value("Company", self.company, "default_bank_account", third_account)
+        frappe.clear_document_cache("Company", self.company)
+        try:
+            yield third_account
+        finally:
+            frappe.db.set_value("Company", self.company, "default_bank_account", original)
+            frappe.clear_document_cache("Company", self.company)
+
+    def test_multiple_ponto_accounts_refuses_instead_of_picking_one(self):
+        """More than one non-group `%Ponto%` account must REFUSE, not silently pick
+        one (#1434). `frappe.db.get_value` with no `order_by` defaults to
+        `creation DESC`, so the pre-fix code silently picked whichever account was
+        created most recently, with no signal an operator could see.
+
+        `_make_second_ponto_account` is created strictly after `cls.ponto_account`, so it
+        is the row `creation DESC` would have picked - this test would stay green
+        under a "pick oldest"/`order_by` mutant too, since it asserts a raise
+        regardless of which account gets chosen, but it specifically defeats
+        "pick newest" because that mutant returns a value (no raise) here.
+
+        Company.default_bank_account is also set to a real THIRD account for the
+        duration of the test: the fix must not fall through to it either - that
+        would just be another arbitrary pick, and the priority order (setting,
+        then a single unambiguous match, then the company default) is preserved
+        only when ambiguity itself raises before the company-default branch runs.
+        """
+        member = self._member_with_customer(first_name="PontoAmbiguous")
+        invoice = self._submitted_invoice(member.customer)
+        link = self._payment_link(member)
+        second_account = _make_second_ponto_account(self.company)
+
+        with self._company_default_bank_account_set_to_a_third_account() as third_account:
+            self.expectErrorLog("Ponto Payment Entry creation failed")
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                create_ponto_payment_entry(link, invoice.name)
+
+        message = str(ctx.exception)
+        self.assertIn(self.ponto_account, message, "the refusal must name every candidate account")
+        self.assertIn(second_account, message, "the refusal must name every candidate account")
+        self.assertIn(
+            "ponto_bank_account_parent",
+            message,
+            "the refusal must point at the setting that resolves the ambiguity",
+        )
+        self.assertFalse(
+            frappe.db.exists(
+                "Payment Entry", {"reference_no": link.ponto_request_id, "paid_to": third_account}
+            ),
+            "ambiguity must not silently fall through to the company default account",
+        )
+        self.assertFalse(
+            frappe.db.exists("Payment Entry", {"reference_no": link.ponto_request_id}),
+            "an ambiguous match must leave no Payment Entry behind",
+        )
+
+    def test_ambiguity_rolls_back_status_not_stuck_executed(self):
+        """Same contract as `test_webhook_misconfiguration_rolls_back_status_not_stuck_executed`,
+        for the ambiguity refusal: the raise must propagate through
+        `_update_payment_link_status()`'s per-link savepoint so the status write
+        rolls back, rather than committing "Executed" with no Payment Entry and no
+        signal anything failed (#1434, the #1362 pattern applied to ambiguity).
+        """
+        from verenigingen.verenigingen_payments.ponto.api import webhook_handlers as wh
+
+        member = self._member_with_customer(first_name="PontoAmbiguousWH")
+        invoice = self._submitted_invoice(member.customer)
+        link = self._payment_link(member)
+        link.sales_invoice = invoice.name
+        link.save()
+        frappe.db.set_value("Ponto Payment Link", link.name, "status", "Authorized")
+        _make_second_ponto_account(self.company)
+
+        self.expectErrorLog("Ponto Payment Entry creation failed", "Payment link webhook status update failed")
+        result = wh._update_payment_link_status(request_id=link.ponto_request_id, new_status="executed")
+
+        self.assertEqual(result.get("failed_links"), [link.name], result)
+        link.reload()
+        self.assertEqual(
+            link.status,
+            "Authorized",
+            "an ambiguous account match must roll back the status write, not leave it "
+            "stuck at Executed with no Payment Entry",
         )
         self.assertFalse(link.payment_entry)
