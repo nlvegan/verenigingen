@@ -249,6 +249,12 @@ class SEPAMandateService:
                 AND si.outstanding_amount > 0
                 AND si.posting_date >= %(lookback_date)s
                 AND mds.payment_terms_template = 'SEPA Direct Debit'
+                -- SEPA Core Direct Debit is EUR-only (#1218, #1286). This is the
+                -- automated monthly collection path -- no operator reviews the
+                -- list before submission -- so a non-EUR invoice slipping through
+                -- here would be collected under a batch that hardcodes
+                -- `currency = "EUR"` (#1440).
+                AND si.currency = 'EUR'
                 AND sm.iban IS NOT NULL
                 AND sm.iban != ''
                 AND sm.mandate_id IS NOT NULL

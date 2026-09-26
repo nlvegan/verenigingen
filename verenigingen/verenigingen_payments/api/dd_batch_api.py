@@ -414,7 +414,11 @@ def get_eligible_invoices(filters: dict | None = None):
         filters = {}
 
     # Build query conditions
-    conditions = ["si.docstatus = 1", "si.outstanding_amount > 0"]
+    # SEPA Core Direct Debit is EUR-only (#1218, #1286). This query did not even
+    # select `si.currency`, let alone filter on it (#1440) -- the SEPA XML
+    # generator raises on a non-EUR transaction, but only after the invoice has
+    # already been offered to an operator and added to a batch.
+    conditions = ["si.docstatus = 1", "si.outstanding_amount > 0", "si.currency = 'EUR'"]
     values = []
 
     # Filter by due date
@@ -446,6 +450,7 @@ def get_eligible_invoices(filters: dict | None = None):
             si.due_date,
             si.outstanding_amount,
             si.grand_total,
+            si.currency,
             mem.name as member_id,
             mem.full_name as member_name,
             sm.mandate_id as mandate_reference,

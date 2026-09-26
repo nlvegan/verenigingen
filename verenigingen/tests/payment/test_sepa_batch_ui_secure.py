@@ -660,6 +660,32 @@ class TestCreateSepaBatchValidatedSecure(SecureBase):
         self.assertFalse(result["success"])
         self.assertIn("not in EUR", " ".join(result.get("errors", [])))
 
+    def test_blank_currency_invoice_is_rejected(self):
+        """#1442: the secure path's EUR guard was `invoice_doc.currency and
+        invoice_doc.currency != "EUR"`, which short-circuits to False on a
+        blank/None currency -- treating a blank value as EUR-safe instead of
+        failing closed. Blank it directly via `db_set`, matching how
+        `test_non_eur_invoice_is_rejected` flips it to USD."""
+        data = self._build_member_with_invoice(first_name="SecBlankCur")
+        frappe.db.set_value("Sales Invoice", data["invoice"].name, "currency", "", update_modified=False)
+        iban = data["mandate"].iban.replace(" ", "")
+        result = s.create_sepa_batch_validated_secure(
+            batch_date=str(_next_weekday(add_days(today(), 3))),
+            batch_type="CORE",
+            invoice_list=[
+                {
+                    "invoice": data["invoice"].name,
+                    "amount": float(data["invoice"].outstanding_amount),
+                    "iban": iban,
+                    "member_name": data["member"].full_name,
+                    "mandate_reference": data["mandate"].mandate_id,
+                    "currency": "EUR",
+                }
+            ],
+        )
+        self.assertFalse(result["success"])
+        self.assertIn("not in EUR", " ".join(result.get("errors", [])))
+
 
 class TestLoadUnpaidInvoicesSecureResolvesRealMembership(SecureBase):
     """#1239, twin half: the `_secure` loader must emit a Membership, not a schedule.

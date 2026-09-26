@@ -347,6 +347,70 @@ class TestDDBatchAPI(EnhancedTestCase):
         self.assertEqual(result["filters_applied"], {"amount_min": 1000})
         self.assertEqual(result["total_invoices"], len(result["invoices"]))
 
+    def test_get_eligible_invoices_excludes_non_eur_invoice(self):
+        """#1440: this query did not even SELECT `si.currency`, let alone filter
+        on it. A non-EUR invoice with an otherwise fully eligible
+        member/mandate/schedule must not be offered for direct debit batching."""
+        from frappe.utils import add_days
+
+        member, customer, membership, mandate = self._make_member_with_mandate(first_name="DDNonEur")
+        schedule = self.sepa_factory.create_test_membership_dues_schedule(
+            member=member.name, payment_terms_template="SEPA Direct Debit"
+        )
+        self._track_test_document("Membership Dues Schedule", schedule.name)
+        invoice = self.sepa_factory.create_test_sales_invoice(
+            customer=customer.name,
+            member=member.name,
+            membership=membership.name,
+            membership_dues_schedule_display=schedule.name,
+            status="Unpaid",
+            grand_total=75.0,
+            due_date=add_days(today(), -5),
+            submit=True,
+        )
+        self._track_test_document("Sales Invoice", invoice.name)
+        frappe.db.set_value("Sales Invoice", invoice.name, "currency", "USD", update_modified=False)
+
+        result = get_eligible_invoices()
+        self.assertTrue(result["success"])
+        match = [i for i in result["invoices"] if i["name"] == invoice.name]
+        self.assertEqual(match, [], "a non-EUR invoice must not be eligible for DD batching")
+
+    def test_get_eligible_invoices_includes_eur_invoice_on_non_eur_company(self):
+        """Positive control: a genuinely EUR invoice must still be eligible even
+        though its own company is NOT EUR (test_site_1's ambient `_Test Company`
+        is INR, resolved via THIS class's own `create_test_sales_invoice`
+        bridge rather than `sepa_factory`'s forced-EUR company). Pins the
+        fixture precondition that lets this test tell a correct
+        `si.currency = 'EUR'` fix apart from a plausible wrong one that instead
+        compares against the invoice's own company currency."""
+        from frappe.utils import add_days
+
+        member, customer, membership, mandate = self._make_member_with_mandate(first_name="DDEurNonEurCo")
+        schedule = self.sepa_factory.create_test_membership_dues_schedule(
+            member=member.name, payment_terms_template="SEPA Direct Debit"
+        )
+        self._track_test_document("Membership Dues Schedule", schedule.name)
+        invoice = self.create_test_sales_invoice(customer=customer.name, grand_total=75.0)
+        invoice.db_set("membership_dues_schedule_display", schedule.name)
+        frappe.db.set_value("Sales Invoice", invoice.name, "currency", "EUR", update_modified=False)
+        # get_eligible_invoices defaults due_date_limit to today(); match the
+        # sibling test's "already due" fixture shape.
+        frappe.db.set_value(
+            "Sales Invoice", invoice.name, "due_date", add_days(today(), -5), update_modified=False
+        )
+        invoice.reload()
+        self.assertNotEqual(
+            frappe.db.get_value("Company", invoice.company, "default_currency"),
+            "EUR",
+            "fixture precondition: the invoice's own company must not be EUR",
+        )
+
+        result = get_eligible_invoices()
+        self.assertTrue(result["success"])
+        match = [i for i in result["invoices"] if i["name"] == invoice.name]
+        self.assertEqual(len(match), 1)
+
     # --------------------------------------------------- apply_conflict_resolutions
 
     def test_apply_conflict_resolutions_exclude_entry_removes_row(self):

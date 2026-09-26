@@ -183,3 +183,110 @@ class TestSEPAMandateService(VereningingenTestCase):
         # These wrap the global service and must swallow any failure.
         invalidate_mandate_cache_for_member(self.member_name)
         invalidate_mandate_sequence_cache(self.mandate.name)
+
+
+class TestGetSepaInvoicesWithMandatesCurrencyFilter(VereningingenTestCase):
+    """#1440: `get_sepa_invoices_with_mandates` backs the AUTOMATED monthly SEPA
+    collection path (no operator reviews the list before submission), and its raw
+    SQL had no `si.currency = 'EUR'` filter -- invisible to the get_all/get_list
+    AST sweeps behind #567/#578 because it is a `frappe.db.sql` query. Builds a
+    genuinely eligible row (submitted Unpaid invoice, SEPA Direct Debit dues
+    schedule, Active mandate with `used_for_memberships=1`) the same way the real
+    monthly batch does.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.service = SEPAMandateService()
+
+    def _make_collectible_invoice(self, currency=None, dues_rate=22.0):
+        """Submit a Sales Invoice that satisfies every join/filter in
+        `get_sepa_invoices_with_mandates` except (optionally) currency.
+
+        Forces `currency` via `db_set` AFTER submit, matching the sibling
+        currency-guard tests in `test_dues_invoice_workflow.py` (#1286/#1442):
+        `create_test_sales_invoice` resolves its company from the ambient
+        default (test_site_1's `_Test Company`, currency INR), not a pinned
+        EUR company, so setting `currency` pre-submit would fight ERPNext's
+        own multi-currency validation. Setting it *after* submit via `db_set`
+        writes the value directly and is what every other guard test does.
+        """
+        member = self.create_test_member(
+            first_name="SepaColl",
+            last_name=f"Tester{frappe.generate_hash(length=4)}",
+            email=f"sepa.coll.{frappe.generate_hash(length=8).lower()}@example.com",
+        )
+        membership_type = self.create_test_membership_type(minimum_amount=0)
+        membership = self.create_test_membership(member=member.name, membership_type=membership_type.name)
+        if membership.docstatus == 0:
+            membership.flags.skip_dues_schedule_creation = True
+            membership.submit()
+
+        # create_test_membership may auto-create a schedule on submit; cancel any
+        # pre-existing Active one so ours below is the single Active one the
+        # query's `si.membership_dues_schedule_display` join resolves to.
+        for existing in frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member.name, "is_template": 0, "status": "Active"},
+            pluck="name",
+        ):
+            frappe.db.set_value("Membership Dues Schedule", existing, "status", "Cancelled")
+
+        schedule = self.create_test_dues_schedule(
+            member=member.name,
+            membership_type=membership_type.name,
+            dues_rate=dues_rate,
+            billing_frequency="Monthly",
+            payment_terms_template="SEPA Direct Debit",
+            schedule_name=f"Test-SMS-{frappe.generate_hash(length=10)}",
+        )
+        # scenario="normal" (the default) sets used_for_memberships=1, which the
+        # query's mandate JOIN requires (#597 purpose filter).
+        mandate = self.create_test_sepa_mandate(member=member.name)
+
+        member.reload()
+        if not member.customer:
+            customer = frappe.new_doc("Customer")
+            customer.customer_name = f"{member.first_name} {member.last_name}"
+            customer.customer_type = "Individual"
+            customer.member = member.name
+            customer.save()
+            self.track_doc("Customer", customer.name)
+            member.customer = customer.name
+            member.save()
+
+        invoice = self.create_test_sales_invoice(member=member.name)
+        invoice.db_set("membership_dues_schedule_display", schedule.name)
+        if invoice.docstatus == 0:
+            invoice.submit()
+        frappe.db.set_value(
+            "Sales Invoice", invoice.name, "currency", currency or "EUR", update_modified=False
+        )
+        invoice.reload()
+        return invoice
+
+    def test_includes_eur_invoice_on_a_non_eur_company(self):
+        """Positive control: a genuinely EUR invoice must still be collected even
+        though its own company is NOT EUR (test_site_1's ambient `_Test Company`
+        is INR). Pins the fixture precondition that makes this discriminate a
+        correct `si.currency = 'EUR'` fix from a plausible wrong one that instead
+        compares against the invoice's COMPANY currency (#1445 review history)."""
+        invoice = self._make_collectible_invoice(currency="EUR")
+        self.assertNotEqual(
+            frappe.db.get_value("Company", invoice.company, "default_currency"),
+            "EUR",
+            "fixture precondition: the invoice's own company must not be EUR, or "
+            "this test cannot tell 'compares invoice.currency' from 'compares "
+            "company currency'",
+        )
+        result = self.service.get_sepa_invoices_with_mandates(frappe.utils.today())
+        names = {row["name"] for row in result}
+        self.assertIn(invoice.name, names)
+
+    def test_excludes_non_eur_invoice(self):
+        """A non-EUR invoice with an otherwise fully eligible mandate/schedule must
+        NOT be offered to the automated monthly SEPA collection path (#1440)."""
+        invoice = self._make_collectible_invoice(currency="USD")
+        result = self.service.get_sepa_invoices_with_mandates(frappe.utils.today())
+        names = {row["name"] for row in result}
+        self.assertNotIn(invoice.name, names, "a non-EUR invoice must not be SEPA-collectible")

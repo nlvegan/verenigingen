@@ -707,10 +707,13 @@ def create_sepa_batch_validated_secure(**params):
 
             # SEPA Direct Debit is EUR-only. Reject non-EUR invoices rather than silently
             # batching them under the hardcoded EUR batch currency, which would otherwise
-            # mis-state the collected amount.
-            if invoice_doc.currency and invoice_doc.currency != "EUR":
+            # mis-state the collected amount. Fails closed on a blank/missing currency
+            # too (#1442): `invoice_doc.currency and ...` let a blank value fall through
+            # as if it were EUR-safe, the opposite of fail-closed on a money path.
+            if invoice_doc.currency != "EUR":
                 invoice_validation_errors.append(
-                    f"Invoice {invoice['invoice']} is not in EUR (currency: {invoice_doc.currency}); "
+                    f"Invoice {invoice['invoice']} is not in EUR "
+                    f"(currency: {invoice_doc.currency or 'not set'}); "
                     "SEPA Direct Debit only supports EUR"
                 )
                 continue

@@ -886,6 +886,36 @@ class TestCreateSepaBatchValidated(SepaBatchUITestBase):
         joined = " ".join(result.get("errors", []))
         self.assertIn("not in EUR", joined)
 
+    def test_blank_currency_invoice_is_rejected(self):
+        """#1442: the EUR guard was `invoice_doc.currency and invoice_doc.currency !=
+        "EUR"`, which short-circuits to False on a blank/None currency -- treating a
+        blank value as EUR-safe instead of failing closed. Sales Invoice.currency is
+        `reqd: 1` with no `ignore_mandatory` call site in this app, so this is not
+        reachable through the normal insert path; blank it directly via `db_set`,
+        matching how `test_non_eur_invoice_is_rejected` flips it to USD."""
+        data = self._build_member_with_invoice(first_name="BlankCur")
+        frappe.db.set_value("Sales Invoice", data["invoice"].name, "currency", "", update_modified=False)
+
+        iban = data["mandate"].iban.replace(" ", "")
+        params = {
+            "batch_date": str(_next_weekday(add_days(today(), 3))),
+            "batch_type": "CORE",
+            "invoice_list": [
+                {
+                    "invoice": data["invoice"].name,
+                    "amount": float(data["invoice"].outstanding_amount),
+                    "iban": iban,
+                    "member_name": data["member"].full_name,
+                    "mandate_reference": data["mandate"].mandate_id,
+                    "currency": "EUR",
+                }
+            ],
+        }
+        result = ui.create_sepa_batch_validated(**params)
+        self.assertFalse(result["success"])
+        joined = " ".join(result.get("errors", []))
+        self.assertIn("not in EUR", joined)
+
 
 class TestLoadUnpaidInvoicesResolvesRealMembership(SepaBatchUITestBase):
     """#1239: the `membership` key must hold a Membership name, not a dues-schedule name.
