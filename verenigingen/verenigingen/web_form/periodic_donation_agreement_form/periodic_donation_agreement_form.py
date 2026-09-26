@@ -19,6 +19,7 @@ from verenigingen.utils.security.api_security_framework import (
     self_service_api,
     utility_api,
 )
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 
 # Rate limiting configuration
 RATE_LIMIT_SUBMISSIONS_PER_HOUR = 5
@@ -280,18 +281,33 @@ def process_agreement_form(data):
         if form_data.get("bsn_for_agreement") and form_data.get("bsn_consent"):
             update_donor_bsn(donor, form_data.get("bsn_for_agreement"))
 
-        # Record ANBI consent BEFORE the agreement is created (#1461): an
-        # unconsented submission must never reach ANBIValidationService's
-        # strict donor-consent check, so consent has to be on record first,
-        # not discovered missing after the fact. When the checkbox is left
-        # unticked, create_agreement_from_form below builds a plain,
-        # non-ANBI pledge instead, so the ANBI path (and its consent
-        # requirement) is never reached at all.
-        if form_data.get("anbi_tax_consent"):
-            record_anbi_consent_for_donor(donor)
+        # Record ANBI consent BEFORE the agreement is created (#1461): the
+        # controller's strict donor-consent check runs INSIDE
+        # create_agreement_from_form's agreement.insert(), and needs consent
+        # already on the Donor -- so consent cannot be recorded afterwards.
+        # But agreement creation can still fail for an unrelated reason (no
+        # BSN on file, a bad payment method, etc.), and a failed submission
+        # must not leave the consent write behind as an orphaned side effect
+        # with no agreement to show for it (review finding, #1461). Both
+        # writes are wrapped in one savepoint so a failure here rolls back
+        # the consent write too, while still propagating the exception to
+        # the outer except below, which is what reports {"success": False}.
+        savepoint = "pda_anbi_consent_" + frappe.generate_hash(length=10)
+        frappe.db.savepoint(savepoint)
+        try:
+            if form_data.get("anbi_tax_consent"):
+                record_anbi_consent_for_donor(donor)
 
-        # Create agreement
-        agreement = create_agreement_from_form(donor, form_data)
+            # Create agreement
+            agreement = create_agreement_from_form(donor, form_data)
+        except NON_RESUMABLE_DB_ERRORS:
+            # A 1213/1205 has already discarded (or half-applied) the whole
+            # transaction, savepoints included -- rolling back to ours here
+            # would raise 1305 and replace this error instead of propagating it.
+            raise
+        except Exception:
+            rollback_to_savepoint(savepoint)
+            raise
 
         # Handle document upload
         if form_data.get("agreement_document"):

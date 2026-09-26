@@ -182,6 +182,60 @@ class TestPeriodicDonationAgreementFormAnbiConsent(EnhancedTestCase):
         self.assertIn("consent", str(cm.exception).lower())
         self.assertFalse(frappe.db.exists("Periodic Donation Agreement", {"donor": donor.name}))
 
+    def test_failed_agreement_creation_does_not_leave_orphaned_consent(self):
+        """REGRESSION (independent review of #1461, 2026-09-26):
+        record_anbi_consent_for_donor() runs BEFORE create_agreement_from_form
+        (the controller's strict consent check needs consent already on the
+        Donor, so it cannot run after). But if agreement creation
+        subsequently fails for an unrelated reason -- here, no BSN on file,
+        which validate_donor_tax_identifier requires for any ANBI claim --
+        the consent write must not survive as an orphaned side effect with
+        no agreement to show for it. Before the fix, process_agreement_form's
+        outer except returns {success: False} with no rollback, so the
+        consent write (and Donor.anbi_consent_date, auto-stamped by
+        Donor.validate()) stick around anyway.
+        """
+        from verenigingen.verenigingen.web_form.periodic_donation_agreement_form.periodic_donation_agreement_form import (
+            process_agreement_form,
+        )
+
+        user_email = f"pda.anbiconsent.orphan.{frappe.generate_hash(length=8)}@example.com"
+        self.create_test_user(user_email, roles=["Verenigingen Member"])
+        member = self.create_test_member(email=user_email, user=user_email)
+        donor = self.create_test_donor(
+            donor_name="Orphaned Consent Donor",
+            donor_type="Individual",
+            member=member.name,
+            bsn_citizen_service_number="",  # deliberately missing -- ANBI validation must fail on this
+        )
+        self.assertFalse(donor.anbi_consent, "fixture must start withOUT consent recorded")
+        consent_before = frappe.db.get_value("Donor", donor.name, "anbi_consent")
+        consent_date_before = frappe.db.get_value("Donor", donor.name, "anbi_consent_date")
+
+        form_data = self._pledge_form_data(
+            accept_five_year_term=1,
+            anbi_tax_consent=1,
+        )
+
+        self.expectErrorLog("Agreement Form Error")
+        with self.as_user(user_email):
+            result = process_agreement_form(form_data)
+
+        self.assertFalse(result.get("success"), f"expected failure (no BSN), got: {result}")
+        self.assertIn("BSN", result.get("message", ""))
+        self.assertFalse(frappe.db.exists("Periodic Donation Agreement", {"donor": donor.name}))
+
+        self.assertEqual(
+            frappe.db.get_value("Donor", donor.name, "anbi_consent"),
+            consent_before,
+            "a failed submission must not leave consent recorded on the donor",
+        )
+        self.assertEqual(
+            frappe.db.get_value("Donor", donor.name, "anbi_consent_date"),
+            consent_date_before,
+            "a failed submission must not leave an anbi_consent_date stamp either",
+        )
+
 
 class TestPeriodicDonationAgreementFormPaymentMethodMapping(EnhancedTestCase):
     """REGRESSION (#744): payment_method must be validated/mapped, not
