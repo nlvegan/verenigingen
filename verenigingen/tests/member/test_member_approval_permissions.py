@@ -54,6 +54,19 @@ def _create_chapter_pending_applicant(test_case, chapter_name, suffix, tag):
     return member
 
 
+def _message_log_contents(log):
+    """frappe.throw() appends a dict to message_log carrying a random,
+    per-call `__frappe_exc_id` -- unrelated to member_name or existence, so
+    comparing it would fail two calls that are otherwise identical. Strip it
+    before comparing content.
+
+    Module-level (duplicate-helper ratchet, like `_create_chapter_pending_applicant`
+    above): shared with test_background_approval_existence_oracle.py (#1453),
+    which compares the same message_log shape for a different endpoint.
+    """
+    return [{k: v for k, v in entry.items() if k != "__frappe_exc_id"} for entry in log]
+
+
 class TestMemberApprovalPermissions(EnhancedTestCase):
     """Regression: approve_membership_application must work for non-Admin actors."""
 
@@ -348,14 +361,6 @@ class TestApplicationReviewExistenceOracle(EnhancedTestCase):
         """
         return _create_chapter_pending_applicant(self, chapter_name, suffix, "Oracle")
 
-    @staticmethod
-    def _message_log_contents(log):
-        """frappe.throw() appends a dict to message_log carrying a random,
-        per-call `__frappe_exc_id` -- unrelated to member_name or existence,
-        so comparing it would fail two calls that are otherwise identical.
-        Strip it before comparing content."""
-        return [{k: v for k, v in entry.items() if k != "__frappe_exc_id"} for entry in log]
-
     def test_approve_refuses_unknown_and_foreign_identically_for_scoped_board_member(self):
         with self.as_user(self.board.user):
             frappe.clear_messages()
@@ -375,8 +380,8 @@ class TestApplicationReviewExistenceOracle(EnhancedTestCase):
         )
         self.assertEqual(len(unknown_log), 1)
         self.assertEqual(
-            self._message_log_contents(unknown_log),
-            self._message_log_contents(foreign_log),
+            _message_log_contents(unknown_log),
+            _message_log_contents(foreign_log),
         )
 
         self.foreign_applicant.reload()
@@ -405,8 +410,8 @@ class TestApplicationReviewExistenceOracle(EnhancedTestCase):
         )
         self.assertEqual(len(unknown_log), 1)
         self.assertEqual(
-            self._message_log_contents(unknown_log),
-            self._message_log_contents(foreign_log),
+            _message_log_contents(unknown_log),
+            _message_log_contents(foreign_log),
         )
 
         self.foreign_applicant.reload()
