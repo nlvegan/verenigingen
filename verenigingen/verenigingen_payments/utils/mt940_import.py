@@ -1302,8 +1302,10 @@ def create_bank_transaction_from_mt940(mt940_transaction, bank_account, company)
 def get_mt940_import_status():
     """Get status of recent MT940 imports"""
     try:
-        # Get recent bank transactions that might have been imported
-        recent_transactions = frappe.get_all(
+        # Get recent bank transactions that might have been imported. get_list, not
+        # get_all: amounts and bank descriptions (counterparty names, IBANs) reach only
+        # callers whose roles can read Bank Transaction (#1365).
+        recent_transactions = frappe.get_list(
             "Bank Transaction",
             filters={"modified": [">=", frappe.utils.add_days(today(), -7)]},
             fields=["name", "date", "bank_account", "deposit", "withdrawal", "description"],
