@@ -149,6 +149,21 @@ class ChapterFinanceService(StatelessService):
             # Find appropriate parent cost center
             parent_cost_center = self.get_appropriate_parent_cost_center(chapter_doc, company)
 
+            if not parent_cost_center:
+                # Company has no root or group Cost Center to attach to at all
+                # (e.g. a company whose defaults were never created, or were
+                # manually cleaned up -- see #1359). This chapter Cost Center
+                # is not a root itself (is_group=0 above), so ERPNext's
+                # blank-parent exception in CostCenter.validate_mandatory()
+                # does not apply to it and an unset parent_cost_center raises
+                # frappe.MandatoryError. Fall back to the company's root,
+                # creating it if needed. See #1441.
+                from verenigingen.e_boekhouden.utils.eboekhouden_cost_center_fix import (
+                    ensure_root_cost_center,
+                )
+
+                parent_cost_center = ensure_root_cost_center(company)
+
             if parent_cost_center:
                 cost_center_doc.parent_cost_center = parent_cost_center
 
