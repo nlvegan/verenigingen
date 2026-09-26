@@ -30,6 +30,7 @@ from types import SimpleNamespace
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.mollie_account_fixtures import provisioned_mollie_settings
 from verenigingen.verenigingen_payments.mollie.domain.payment_classification import PaymentType
 from verenigingen.verenigingen_payments.mollie.services.dues_payment_processor import (
     DuesPaymentProcessor,
@@ -68,6 +69,42 @@ def _bare_processor(classifier=None, bank_tx_creator=None):
     proc.classifier = classifier or PaymentClassifier()
     proc.bank_tx_creator = bank_tx_creator or _StubBankTxCreator()
     return proc
+
+
+def _make_mollie_named_account(company, suffix, disabled=0):
+    """A real Bank GL Account matching the `%Mollie%` company-mismatch fallback's
+    name lookup, in `company`.
+
+    Mirrors `_make_second_ponto_account` in
+    `verenigingen/tests/payment/test_ponto_payment_entry_creation.py` for the same
+    fallback shape one directory over (#1434 for Ponto, #1451 for Mollie). Not
+    `@shared_fixture`: each call makes a distinctly-suffixed account, so the
+    harness's captured-insert drain cleans it up at teardown like any other
+    per-test row.
+
+    `disabled=1` builds the scenario the issue describes (an old clearing account
+    left behind after a re-configuration, plus a new one): ERPNext refuses to post
+    accounting entries against a disabled Account at all
+    (`general_ledger.validate_disabled_accounts`), so a disabled `%Mollie%` account
+    was never a real posting target and must not force a refusal that blocks the
+    one real, enabled candidate.
+    """
+    parent = frappe.db.get_value(
+        "Account", {"company": company, "account_type": "Bank", "is_group": 1}, "name"
+    ) or frappe.db.get_value("Account", {"company": company, "root_type": "Asset", "is_group": 1}, "name")
+    account = frappe.get_doc(
+        {
+            "doctype": "Account",
+            "account_name": f"Mollie Clearing {suffix}",
+            "company": company,
+            "parent_account": parent,
+            "account_type": "Bank",
+            "is_group": 0,
+            "disabled": disabled,
+            "account_currency": frappe.db.get_value("Company", company, "default_currency"),
+        }
+    ).insert(ignore_permissions=True)
+    return account.name
 
 
 def _ensure_mollie_clearing_on_test_company():
@@ -352,3 +389,156 @@ class TestCreatePaymentEntryForDuesEndToEnd(EnhancedTestCase):
             self.member.name, payment, invoice_name=self.invoice_name
         )
         self.assertEqual(second, first)
+
+
+class TestCreatePaymentEntryForDuesCompanyMismatchAmbiguity(EnhancedTestCase):
+    """Tests for the #1451 company-mismatch fallback in `_create_payment_entry_for_dues`.
+
+    When `Mollie Settings.mollie_clearing_account` belongs to a DIFFERENT company
+    than the invoice being paid, the processor looks for a company-specific
+    `%Mollie%` account instead. `frappe.get_all`/`frappe.db.get_value` with no
+    `order_by` default to `creation DESC`, so with more than one match the
+    pre-#1451 code silently picked whichever account was created most recently,
+    with no signal an operator could see - the exact defect #1434 fixed for the
+    Ponto sibling one directory over.
+
+    `self.company` ("_Test Company 3") is the invoice's company - deliberately NOT
+    "_Test Company" or "TEST-Payment-Integration-Company": both already carry
+    several real, non-disabled `%Mollie%` accounts on this bench, planted by OTHER
+    Mollie tests' shared fixtures (`ensure_mollie_gl_accounts` resolves the
+    "booking company" to "_Test Company" here, and other tests provision directly
+    into the EUR company) - so neither is a clean sandbox for counting `%Mollie%`
+    matches. "_Test Company 3" is untouched by any of that and has a full chart of
+    accounts (Bank group, receivable, cost center) already. `self.other_company`
+    ("_Test Company 1") is a deliberately DIFFERENT company that
+    `mollie_clearing_account` is pointed at for every test in this class, via
+    `provisioned_mollie_settings`, to force the mismatch branch to run.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.proc = _bare_processor()
+        self.company = "_Test Company 3"
+        self.other_company = "_Test Company 1"
+        self.assertNotEqual(
+            self.company, self.other_company, "premise: the two companies must actually differ"
+        )
+        self.assertEqual(
+            frappe.get_all(
+                "Account",
+                filters={"company": self.company, "account_name": ["like", "%Mollie%"], "is_group": 0},
+                pluck="name",
+            ),
+            [],
+            "premise: self.company must start with no pre-existing '%Mollie%' accounts, or the "
+            "ambiguity/single-match counts below are meaningless",
+        )
+
+        self._mollie_settings_ctx = provisioned_mollie_settings(company=self.other_company)
+        provisioned = self._mollie_settings_ctx.__enter__()
+        self.addCleanup(self._mollie_settings_ctx.__exit__, None, None, None)
+        self.mismatched_clearing_account = provisioned["clearing_account"]
+        self.assertEqual(
+            frappe.db.get_value("Account", self.mismatched_clearing_account, "company"),
+            self.other_company,
+            "premise: the configured clearing account must belong to other_company, not self.company",
+        )
+
+        self.member = self.create_test_member(
+            first_name="MollieAmbig",
+            last_name="Member",
+            email=f"mollie.ambig.{frappe.generate_hash(length=6)}@example.com",
+        )
+        self.member.reload()
+        self.customer = self.member.customer
+        self.assertTrue(self.customer)
+
+        self.invoice_name = self.create_test_sales_invoice(
+            self.customer, company=self.company, grand_total=25.00
+        ).name
+
+    def _payment_for_invoice(self):
+        return _payment(amount={"value": "25.00", "currency": "EUR"})
+
+    def test_multiple_mollie_accounts_refuses_instead_of_picking_one(self):
+        """More than one non-group, enabled `%Mollie%` account in the invoice's
+        company must REFUSE, not silently pick one.
+
+        `second_account` is created strictly AFTER the first, so it is the row
+        `creation DESC` would have picked under the pre-#1451 code - this defeats
+        a "pick newest" mutant, not merely a "picks some row" one.
+        """
+        first_account = _make_mollie_named_account(self.company, "A")
+        second_account = _make_mollie_named_account(self.company, "B")
+
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self.proc._create_payment_entry_for_dues(
+                self.member.name, self._payment_for_invoice(), invoice_name=self.invoice_name
+            )
+
+        message = str(ctx.exception)
+        self.assertIn(first_account, message, "the refusal must name every candidate account")
+        self.assertIn(second_account, message, "the refusal must name every candidate account")
+        self.assertIn(
+            "mollie_clearing_account",
+            message,
+            "the refusal must point at the setting that resolves the ambiguity",
+        )
+        self.assertFalse(
+            frappe.db.exists("Payment Entry", {"reference_no": self._payment_for_invoice().id}),
+        )
+        self.assertFalse(
+            frappe.db.exists(
+                "Payment Entry",
+                {"party": self.customer, "paid_to": ["in", [first_account, second_account]]},
+            ),
+            "an ambiguous match must leave no Payment Entry behind, on either candidate account",
+        )
+        invoice = frappe.get_doc("Sales Invoice", self.invoice_name)
+        self.assertEqual(invoice.outstanding_amount, 25.00, "the invoice must remain unpaid")
+
+    def test_disabled_mollie_account_is_not_an_ambiguity_candidate(self):
+        """A DISABLED `%Mollie%` account must not count towards the ambiguity
+        check: it can never be a real posting target (ERPNext refuses GL entries
+        against disabled Accounts), so it must not force a refusal that blocks
+        the one real, enabled candidate.
+
+        The disabled account is created strictly AFTER the enabled one, so
+        `creation DESC` would prefer it if the filter were merely reordering
+        rather than excluding disabled rows.
+        """
+        enabled_account = _make_mollie_named_account(self.company, "Enabled")
+        disabled_account = _make_mollie_named_account(self.company, "Old Disabled", disabled=1)
+        self.assertEqual(
+            frappe.db.get_value("Account", disabled_account, "disabled"),
+            1,
+            "premise: the sibling account must actually be disabled",
+        )
+
+        pe_name = self.proc._create_payment_entry_for_dues(
+            self.member.name, self._payment_for_invoice(), invoice_name=self.invoice_name
+        )
+
+        self.assertIsNotNone(
+            pe_name, "a disabled sibling must not force a refusal when one enabled account exists"
+        )
+        pe = frappe.get_doc("Payment Entry", pe_name)
+        self.assertEqual(
+            pe.paid_to, enabled_account, "the entry must post to the enabled account, not the disabled one"
+        )
+
+    def test_single_compatible_account_is_used_without_ambiguity(self):
+        """Control: exactly one non-group, enabled `%Mollie%` account in the
+        invoice's company - the pre-existing, unambiguous fallback path - must be
+        used, unchanged, when there is nothing to disambiguate. This branch had
+        no test coverage at all before #1451.
+        """
+        only_account = _make_mollie_named_account(self.company, "Only")
+
+        pe_name = self.proc._create_payment_entry_for_dues(
+            self.member.name, self._payment_for_invoice(), invoice_name=self.invoice_name
+        )
+
+        self.assertIsNotNone(pe_name)
+        pe = frappe.get_doc("Payment Entry", pe_name)
+        self.assertEqual(pe.paid_to, only_account)
