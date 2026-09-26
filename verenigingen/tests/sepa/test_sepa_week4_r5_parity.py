@@ -123,7 +123,16 @@ class TestR5RecipientParity(EnhancedTestCase):
 
 
 class TestR5DbHelperParity(EnhancedTestCase):
-    """Tracking tables still created on init; audit rows via insert_audit_row."""
+    """Tracking tables exist by the time a manager is used; audit rows via insert_audit_row.
+
+    Table creation moved out of the managers' __init__ and into
+    sepa_ops_tables.ensure_sepa_ops_tables(), run from after_install/
+    after_migrate (see #1510) -- constructing a manager no longer creates
+    anything. The tables exist here because the test site was installed/
+    migrated with that hook, not because of manager construction; see
+    test_sepa_table_bootstrap.py for a test that exercises
+    ensure_sepa_ops_tables() itself by dropping and recreating the tables.
+    """
 
     def setUp(self):
         super().setUp()
@@ -135,8 +144,7 @@ class TestR5DbHelperParity(EnhancedTestCase):
         frappe.db.commit()
         super().tearDown()
 
-    def test_rollback_tables_created_on_init(self):
-        # _ensure_rollback_tables runs in __init__ (kept inline for parity).
+    def test_rollback_tables_exist_for_manager_use(self):
         SEPARollbackManager()
         for table in (
             "tabSEPA_Rollback_Operation",
@@ -144,16 +152,16 @@ class TestR5DbHelperParity(EnhancedTestCase):
             "tabSEPA_Rollback_Audit",
         ):
             exists = frappe.db.sql(f"SHOW TABLES LIKE '{table}'")  # noqa: S608
-            self.assertTrue(exists, f"{table} should exist after manager init")
+            self.assertTrue(exists, f"{table} should exist before manager use")
 
-    def test_notification_tables_created_on_init(self):
+    def test_notification_tables_exist_for_manager_use(self):
         SEPANotificationManager()
         for table in (
             "tabSEPA_Notification_Log",
             "tabSEPA_Notification_Preferences",
         ):
             exists = frappe.db.sql(f"SHOW TABLES LIKE '{table}'")  # noqa: S608
-            self.assertTrue(exists, f"{table} should exist after manager init")
+            self.assertTrue(exists, f"{table} should exist before manager use")
 
     def test_audit_entry_inserted_via_helper(self):
         # _create_audit_entry now delegates to insert_audit_row; the row persists.
