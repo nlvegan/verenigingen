@@ -123,108 +123,14 @@ class SEPARollbackManager:
     def __init__(self):
         self.operation_cache = {}
         self.audit_entries = []
-        self._ensure_rollback_tables()
-
-    def _ensure_rollback_tables(self):
-        """Ensure rollback tracking tables exist.
-
-        NOTE (R5 consolidation): intentionally NOT routed through the shared
-        ``ensure_table_exists`` helper. ``CREATE TABLE`` is DDL; when the manager
-        is instantiated while the caller (e.g. a test or a request) already holds
-        pending writes, Frappe raises ``ImplicitCommitError`` here. The original
-        code swallows that and leaves the pending transaction intact, whereas
-        ``ensure_table_exists`` calls ``frappe.db.rollback()`` on error -- which
-        discards those pending writes (observed: the batch created just before
-        ``initiate_batch_rollback`` becomes invisible to ``_get_batch_info``).
-        The swallow-without-rollback behavior is required for parity, so the
-        inline blocks stay.
-        """
-        try:
-            # Create rollback operations table
-            frappe.db.sql(
-                """
-                CREATE TABLE IF NOT EXISTS `tabSEPA_Rollback_Operation` (
-                    `name` varchar(255) NOT NULL PRIMARY KEY,
-                    `creation` datetime(6) DEFAULT NULL,
-                    `modified` datetime(6) DEFAULT NULL,
-                    `modified_by` varchar(255) DEFAULT NULL,
-                    `owner` varchar(255) DEFAULT NULL,
-                    `docstatus` int(1) NOT NULL DEFAULT 0,
-                    `operation_id` varchar(255) NOT NULL UNIQUE,
-                    `batch_name` varchar(255) NOT NULL,
-                    `reason` varchar(100) NOT NULL,
-                    `scope` varchar(100) NOT NULL,
-                    `initiated_by` varchar(255) NOT NULL,
-                    `initiated_at` datetime(6) NOT NULL,
-                    `affected_invoices` longtext DEFAULT NULL,
-                    `affected_members` longtext DEFAULT NULL,
-                    `total_amount` decimal(18,2) DEFAULT 0.00,
-                    `compensation_actions` longtext DEFAULT NULL,
-                    `status` varchar(50) DEFAULT 'pending',
-                    `completed_at` datetime(6) DEFAULT NULL,
-                    `error_log` longtext DEFAULT NULL,
-                    `metadata` longtext DEFAULT NULL,
-                    INDEX `idx_batch_name` (`batch_name`),
-                    INDEX `idx_initiated_at` (`initiated_at`),
-                    INDEX `idx_status` (`status`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            """
-            )  # db-begin-ok: idempotent-bootstrap
-
-            # Create compensation transactions table
-            frappe.db.sql(
-                """
-                CREATE TABLE IF NOT EXISTS `tabSEPA_Compensation_Transaction` (
-                    `name` varchar(255) NOT NULL PRIMARY KEY,
-                    `creation` datetime(6) DEFAULT NULL,
-                    `modified` datetime(6) DEFAULT NULL,
-                    `modified_by` varchar(255) DEFAULT NULL,
-                    `owner` varchar(255) DEFAULT NULL,
-                    `docstatus` int(1) NOT NULL DEFAULT 0,
-                    `transaction_id` varchar(255) NOT NULL UNIQUE,
-                    `operation_id` varchar(255) NOT NULL,
-                    `action_type` varchar(100) NOT NULL,
-                    `original_invoice` varchar(255) DEFAULT NULL,
-                    `original_amount` decimal(18,2) DEFAULT 0.00,
-                    `compensation_amount` decimal(18,2) DEFAULT 0.00,
-                    `reason` text DEFAULT NULL,
-                    `status` varchar(50) DEFAULT 'pending',
-                    `created_at` datetime(6) NOT NULL,
-                    `document_references` longtext DEFAULT NULL,
-                    `metadata` longtext DEFAULT NULL,
-                    INDEX `idx_operation_id` (`operation_id`),
-                    INDEX `idx_original_invoice` (`original_invoice`),
-                    INDEX `idx_created_at` (`created_at`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            """
-            )  # db-begin-ok: idempotent-bootstrap
-
-            # Create audit trail table
-            frappe.db.sql(
-                """
-                CREATE TABLE IF NOT EXISTS `tabSEPA_Rollback_Audit` (
-                    `name` varchar(255) NOT NULL PRIMARY KEY,
-                    `creation` datetime(6) DEFAULT NULL,
-                    `modified` datetime(6) DEFAULT NULL,
-                    `entry_id` varchar(255) NOT NULL UNIQUE,
-                    `operation_id` varchar(255) DEFAULT NULL,
-                    `timestamp` datetime(6) NOT NULL,
-                    `action` varchar(255) NOT NULL,
-                    `details` longtext DEFAULT NULL,
-                    `user` varchar(255) DEFAULT NULL,
-                    `system_info` longtext DEFAULT NULL,
-                    INDEX `idx_operation_id` (`operation_id`),
-                    INDEX `idx_timestamp` (`timestamp`),
-                    INDEX `idx_action` (`action`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            """
-            )  # db-begin-ok: idempotent-bootstrap
-
-            frappe.db.commit()
-
-        except Exception as e:
-            # Tables might already exist or creation failed - continue
-            frappe.logger().warning(f"Rollback table creation issue: {str(e)}")
+        # Table existence is guaranteed by
+        # verenigingen.verenigingen_payments.utils.shared.sepa_ops_tables
+        # .ensure_sepa_ops_tables(), called from after_install/after_migrate
+        # (see #1510). Creating them here, mid-request, raised
+        # ImplicitCommitError as soon as the caller had a pending write (e.g.
+        # the batch just created by the caller of initiate_batch_rollback),
+        # and that error was silently swallowed -- so on a fresh site the
+        # table was never created.
 
     @performance_monitor(threshold_ms=10000)
     def initiate_batch_rollback(
@@ -960,8 +866,9 @@ class SEPARollbackManager:
     def get_rollback_status(self, operation_id: str) -> Dict[str, Any]:
         """Get status of rollback operation"""
         try:
-            # SEPA_Rollback_Operation is a raw SQL tracking table (created in
-            # _ensure_rollback_tables), NOT a registered DocType. frappe.db.get_value
+            # SEPA_Rollback_Operation is a raw SQL tracking table (created by
+            # sepa_ops_tables.ensure_sepa_ops_tables()), NOT a registered
+            # DocType. frappe.db.get_value
             # would run meta-driven field validation and raise
             # "DocType SEPA_Rollback_Operation not found" as soon as a row matches,
             # so read it with raw parameterized SQL like the rest of this manager.

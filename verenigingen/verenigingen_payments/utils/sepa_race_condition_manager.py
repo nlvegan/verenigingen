@@ -25,7 +25,6 @@ from verenigingen.utils.performance_utils import performance_monitor
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen_payments.utils.shared.backoff import calculate_backoff_delay
-from verenigingen.verenigingen_payments.utils.shared.db_helpers import ensure_table_exists
 
 
 @dataclass
@@ -62,7 +61,13 @@ class SEPADistributedLock:
 
     def __init__(self):
         self.session_id = self._generate_session_id()
-        self._ensure_lock_table()
+        # Table existence is guaranteed by
+        # verenigingen.verenigingen_payments.utils.shared.sepa_ops_tables
+        # .ensure_sepa_ops_tables(), called from after_install/after_migrate
+        # (see #1510). Creating it here via ensure_table_exists() risked two
+        # separate failures: an ImplicitCommitError as soon as a caller had a
+        # pending write, and ensure_table_exists() rolling back on error --
+        # discarding that caller's pending writes entirely.
 
     def _generate_session_id(self) -> str:
         """Generate unique session ID for this lock instance"""
@@ -73,39 +78,6 @@ class SEPADistributedLock:
 
         session_data = f"{user}:{site}:{timestamp}:{random_part}"
         return hashlib.md5(session_data.encode(), usedforsecurity=False).hexdigest()[:16]
-
-    def _ensure_lock_table(self):
-        """Ensure distributed lock table exists.
-
-        The CREATE statement is idempotent (``IF NOT EXISTS``); the shared
-        ``ensure_table_exists`` helper runs it, commits, and swallows/logs any
-        benign race error -- the same behavior as the previous inline
-        existence-check + create + try/except.
-        """
-        ensure_table_exists(
-            """
-            CREATE TABLE IF NOT EXISTS `tabSEPA_Distributed_Lock` (
-                `name` varchar(255) NOT NULL PRIMARY KEY,
-                `creation` datetime(6) DEFAULT NULL,
-                `modified` datetime(6) DEFAULT NULL,
-                `modified_by` varchar(255) DEFAULT NULL,
-                `owner` varchar(255) DEFAULT NULL,
-                `docstatus` int(1) NOT NULL DEFAULT 0,
-                `lock_id` varchar(255) NOT NULL,
-                `resource` varchar(255) NOT NULL,
-                `lock_owner` varchar(255) NOT NULL,
-                `acquired_at` datetime(6) NOT NULL,
-                `expires_at` datetime(6) NOT NULL,
-                `lock_type` varchar(100) NOT NULL,
-                `metadata` longtext DEFAULT NULL,
-                `is_active` tinyint(1) DEFAULT 1,
-                INDEX `idx_resource_active` (`resource`, `is_active`),
-                INDEX `idx_expires_at` (`expires_at`),
-                INDEX `idx_lock_owner` (`lock_owner`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            """,
-            table_name="tabSEPA_Distributed_Lock",
-        )
 
     @contextmanager
     def acquire_lock(

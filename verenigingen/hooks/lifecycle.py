@@ -15,6 +15,11 @@ after_install = [
     "verenigingen.setup.execute_after_install",
     "verenigingen.setup.security_setup.setup_all_security",
     "verenigingen.setup.critical_operation_rules_setup.setup_critical_operation_rules",
+    # Raw-SQL SEPA operations tables (notification log/preferences, distributed
+    # lock, rollback tracking) -- see #1510. Not DocTypes, so nothing else
+    # creates them; a fresh site (every CI shard) never runs patches.txt or a
+    # bare `bench migrate`, but does run after_install via `install-app`.
+    "verenigingen.verenigingen_payments.utils.shared.sepa_ops_tables.ensure_sepa_ops_tables",
 ]
 
 # Run after database migrations complete
@@ -48,6 +53,10 @@ after_migrate = [
     # deterministic; it previously returned a deliberately-unused address, so this
     # would have minted a new user on every migrate.
     "verenigingen.setup.webhook_user_setup.setup_webhook_user",
+    # Raw-SQL SEPA operations tables -- see #1510 and the after_install entry
+    # above. Also here (idempotent, IF NOT EXISTS) so an existing site that
+    # was installed before this hook existed converges on the next migrate.
+    "verenigingen.verenigingen_payments.utils.shared.sepa_ops_tables.ensure_sepa_ops_tables",
 ]
 
 # Run before test suite executes
