@@ -1433,12 +1433,19 @@ function add_suspension_action_button(frm) {
 		callback(status_result) {
 			// Handle OperationResult format - check for failure
 			if (isOperationResultFailed(status_result.message)) {
-				// Check for access denied in error data
-				const errorData = status_result.message.data || {};
-				if (errorData.access_denied) {
+				// get_suspension_status_safe's PERMISSION_DENIED failure carries
+				// access_denied under meta.data, not a top-level "data" (nested
+				// OperationResult.to_dict() has no top-level "data" on failure at
+				// all -- see #1420). Verified empirically: {success: false,
+				// error: {message, code}, meta: {data: {access_denied: true, ...}}}.
+				const meta = status_result.message.meta || {};
+				if ((meta.data || {}).access_denied) {
 					return; // Silent fail for permission errors
 				}
-				console.warn('Suspension status check failed:', status_result.message.message);
+				console.warn(
+					'Suspension status check failed:',
+					getErrorMessage(status_result.message, 'Unknown error')
+				);
 				return;
 			}
 			const status = unwrapOperationResult(status_result.message);
@@ -1780,12 +1787,20 @@ function refresh_fee_change_history(frm) {
 			member_name: frm.doc.name
 		},
 		callback(r) {
-			if (r.message && r.message.success) {
+			// verenigingen.verenigingen.doctype.member.member.refresh_fee_change_history is
+			// decorated with @high_security_api, which serializes its OperationResult via
+			// to_dict(scrub_sensitive=True) -- the NESTED schema. history_count/reload_doc/
+			// dues_schedules_found live under r.message.data, never at the top level, even
+			// though r.message.success IS a real top-level key (#1420; same bug class as
+			// #1400). unwrapOperationResult(r.message) returns that data on success, or
+			// null on failure -- mirrors the sibling caller in payment-utils.js.
+			const data = unwrapOperationResult(r.message);
+			if (data) {
 				// Check if document reload is needed
-				if (r.message.reload_doc) {
+				if (data.reload_doc) {
 					frappe.show_alert(
 						{
-							message: `Dues schedule history refreshed: ${r.message.history_count} entries. Reloading document and refreshing financial history...`,
+							message: `Dues schedule history refreshed: ${data.history_count} entries. Reloading document and refreshing financial history...`,
 							indicator: 'green'
 						},
 						3
@@ -1800,7 +1815,7 @@ function refresh_fee_change_history(frm) {
 							callback(payment_r) {
 								frm.refresh_field('payment_history');
 
-								let message = `Dues schedule history refreshed: ${r.message.history_count} entries from ${r.message.dues_schedules_found} schedules`;
+								let message = `Dues schedule history refreshed: ${data.history_count} entries from ${data.dues_schedules_found} schedules`;
 								if (payment_r.message && payment_r.message.success) {
 									message += `. Financial history refreshed: ${payment_r.message.added_entries || 0} new payment entries added (atomic updates only).`;
 								} else if (payment_r.message) {
@@ -1830,7 +1845,7 @@ function refresh_fee_change_history(frm) {
 					callback(payment_r) {
 						frm.refresh_field('payment_history');
 
-						let message = `Dues schedule history refreshed: ${r.message.history_count} entries from ${r.message.dues_schedules_found} schedules`;
+						let message = `Dues schedule history refreshed: ${data.history_count} entries from ${data.dues_schedules_found} schedules`;
 						if (payment_r.message && payment_r.message.success) {
 							message += `. Financial history refreshed: ${payment_r.message.added_entries || 0} new payment entries added (atomic updates only).`;
 						} else if (payment_r.message) {
@@ -1849,7 +1864,7 @@ function refresh_fee_change_history(frm) {
 			} else {
 				frappe.show_alert(
 					{
-						message: r.message ? r.message.message : 'Failed to refresh dues schedule history',
+						message: getErrorMessage(r.message, 'Failed to refresh dues schedule history'),
 						indicator: 'red'
 					},
 					5
@@ -2135,7 +2150,7 @@ function show_suspension_dialog(frm) {
 										});
 									} else {
 										frappe.show_alert({
-											message: resp.message.message || __('Suspension failed'),
+											message: getErrorMessage(resp.message, __('Suspension failed')),
 											indicator: 'red'
 										});
 									}
@@ -2195,7 +2210,7 @@ function show_unsuspension_dialog(frm) {
 							});
 						} else {
 							frappe.show_alert({
-								message: r.message.message || __('Unsuspension failed'),
+								message: getErrorMessage(r.message, __('Unsuspension failed')),
 								indicator: 'red'
 							});
 						}
@@ -2221,11 +2236,14 @@ function display_suspension_status(frm) {
 		callback(r) {
 			// Handle OperationResult format - check for failure
 			if (isOperationResultFailed(r.message)) {
-				const errorData = r.message.data || {};
-				if (errorData.access_denied) {
+				// See add_suspension_action_button above: access_denied lives under
+				// meta.data on this endpoint's PERMISSION_DENIED failure, never at a
+				// top-level "data" (#1420).
+				const meta = r.message.meta || {};
+				if ((meta.data || {}).access_denied) {
 					return; // Silent fail for permission errors
 				}
-				console.warn('Suspension status display failed:', r.message.message);
+				console.warn('Suspension status display failed:', getErrorMessage(r.message, 'Unknown error'));
 				return;
 			}
 			const status = unwrapOperationResult(r.message);
