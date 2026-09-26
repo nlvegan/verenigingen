@@ -36,6 +36,7 @@ from verenigingen.utils.security.api_security_framework import (
     standard_api,
     utility_api,
 )
+from verenigingen.utils.security.permission_existence_guard import permission_allowed_without_oracle
 
 
 class AutomatedCampaignManager:
@@ -469,7 +470,7 @@ def create_automated_campaign(
         Dict with creation result
     """
     # Check permissions
-    if chapter_name and not frappe.has_permission("Chapter", "write", doc=chapter_name):
+    if chapter_name and not permission_allowed_without_oracle("Chapter", "write", chapter_name):
         frappe.throw(_("You don't have permission to create campaigns for this chapter"))
 
     if not chapter_name and not (
@@ -541,7 +542,7 @@ def trigger_campaign_test(campaign_id: str) -> Dict:
     campaign_doc = frappe.get_doc("Email Campaign", campaign_id)
 
     chapter = getattr(campaign_doc, "chapter", None)
-    if chapter and not frappe.has_permission("Chapter", "write", doc=chapter):
+    if chapter and not permission_allowed_without_oracle("Chapter", "write", chapter):
         frappe.throw(_("You don't have permission to test this campaign"))
 
     if not chapter and not (

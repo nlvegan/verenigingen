@@ -25,12 +25,14 @@ from functools import lru_cache
 from typing import Any, Dict, List, Optional
 
 import frappe
+from frappe import _
 from frappe.utils import cint, get_datetime, now_datetime
 
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     high_security_api,
 )
+from verenigingen.utils.security.permission_existence_guard import permission_allowed_without_oracle
 from verenigingen.utils.transaction_errors import rollback_to_savepoint
 
 
@@ -513,8 +515,17 @@ def get_member_dashboard(member_name: str):
     Note: this is not a member self-service endpoint. If member self-view is
     ever needed, switch to self_service_only=True rather than relying on the
     inner has_permission, since the HIGH auth gate fires first.
+
+    Uses permission_allowed_without_oracle (#1411) instead of a bare
+    frappe.has_permission(..., throw=True): with throw=True, an unknown
+    member_name still raises frappe.DoesNotExistError from the internal
+    document load before the throw-on-False branch is ever reached, so a
+    caller who clears the HIGH tier (any staff/board/treasurer/admin, not
+    just Administrator) could tell an unknown member id (404) apart from a
+    real-but-out-of-scope one (403 frappe.PermissionError).
     """
-    frappe.has_permission("Member", "read", member_name, throw=True)
+    if not permission_allowed_without_oracle("Member", "read", member_name):
+        frappe.throw(_("No permission for Member {0}").format(member_name), frappe.PermissionError)
     return member_optimizer.get_member_dashboard_cached(member_name)
 
 

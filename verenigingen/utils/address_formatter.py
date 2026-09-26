@@ -14,6 +14,7 @@ from verenigingen.utils.security.api_security_framework import (
     development_only_api,
     high_security_api,
 )
+from verenigingen.utils.security.permission_existence_guard import permission_allowed_without_oracle
 
 
 def format_address_for_country(address_doc):
@@ -191,9 +192,15 @@ def format_member_address(member_name: str):
 
     The permission checks run here, uncached, on every call; only the resulting
     payload is cached and shared (#785).
+
+    Uses permission_allowed_without_oracle (#1411) instead of a bare
+    frappe.has_permission(): a raw member_name/address name that does not exist
+    would otherwise raise frappe.DoesNotExistError past this whole function (a
+    different outcome, and once api_response_handler renders it a different
+    response, than the "Access denied" dict below for a real-but-forbidden id).
     """
     # CORRECTED SECURE VERSION: Check Member read permissions explicitly
-    if not frappe.has_permission("Member", "read", member_name):
+    if not permission_allowed_without_oracle("Member", "read", member_name):
         return {
             "has_address": False,
             "formatted_address": None,
@@ -206,7 +213,7 @@ def format_member_address(member_name: str):
         return {"has_address": False, "formatted_address": None, "message": "No address found for member"}
 
     # CORRECTED SECURE VERSION: Check Address read permissions explicitly
-    if not frappe.has_permission("Address", "read", member.primary_address):
+    if not permission_allowed_without_oracle("Address", "read", member.primary_address):
         return {
             "has_address": False,
             "formatted_address": None,
