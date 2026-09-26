@@ -33,6 +33,7 @@ import frappe
 from frappe.utils import now_datetime, getdate, random_string
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.cost_center_test_helpers import delete_all_cost_centers
 from verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings import (
     parse_groups_and_suggest_cost_centers,
     create_cost_centers_from_mappings,
@@ -967,6 +968,87 @@ class TestPerformanceAndScalability(TestCostCenterCreationComprehensive):
         for batch_id, success, count in results:
             self.assertTrue(success, f"Batch {batch_id} should succeed")
             self.assertEqual(count, 20, f"Batch {batch_id} should process 20 groups")
+
+
+class TestCreateSingleCostCenterZeroCostCenterFallback(TestCostCenterCreationComprehensive):
+    """#1441: when a company has no group Cost Center at all (e.g. its
+    defaults were never created, or were manually cleaned up -- see #1359),
+    create_single_cost_center() used to leave parent_cost_center completely
+    unset, and cost_center_doc.insert() raised frappe.MandatoryError (caught
+    by the function's own `except Exception`, returned as an unlogged
+    `{"success": False, ...}`). The fix falls back to
+    ensure_root_cost_center(company), which (post-#1359) can create that root
+    even when the company starts with zero Cost Centers.
+
+    self.test_company (from TestCostCenterCreationComprehensive.setUp) is a
+    fresh, per-test company -- deleting its Cost Centers here cannot strand
+    any fixture another test in the shard depends on.
+    """
+
+    def test_falls_back_to_root_cost_center_when_company_has_none(self):
+        delete_all_cost_centers(self.test_company.name)
+        self.assertEqual(frappe.db.count("Cost Center", {"company": self.test_company.name}), 0)
+
+        from frappe import _dict
+
+        mapping = _dict(
+            {
+                "group_code": "700",
+                "group_name": "Fallback Test Group",
+                "cost_center_name": "Fallback Test Cost Center",
+                "is_group": False,
+            }
+        )
+
+        result = create_single_cost_center(mapping, self.test_company.name)
+
+        self.assertTrue(result["success"], f"Creation should succeed: {result.get('error')}")
+        self.factory.track_document("Cost Center", result["cost_center_id"])
+
+        cc = frappe.get_doc("Cost Center", result["cost_center_id"])
+        root_name = frappe.db.get_value(
+            "Cost Center",
+            {"company": self.test_company.name, "is_group": 1, "parent_cost_center": ["in", ["", None]]},
+            "name",
+        )
+        self.assertTrue(root_name, "ensure_root_cost_center() should have created a root")
+        self.assertEqual(
+            cc.parent_cost_center, root_name, "New cost center's parent should be the company root"
+        )
+        self.assertEqual(
+            frappe.db.get_value("Cost Center", root_name, "cost_center_name"), self.test_company.name
+        )
+
+    def test_does_not_call_ensure_root_cost_center_when_group_exists(self):
+        """Opposite-harm control: ensure_root_cost_center() must NOT run when
+        the company already has a group Cost Center (the default root
+        Company.on_update() created) -- the zero-Cost-Center fallback must
+        never override an already-found parent."""
+        # self.test_company still has its default root + "Main" from
+        # Company.on_update(), untouched by this test.
+        self.assertTrue(
+            frappe.db.exists("Cost Center", {"company": self.test_company.name, "is_group": 1})
+        )
+
+        from frappe import _dict
+
+        mapping = _dict(
+            {
+                "group_code": "701",
+                "group_name": "Group Exists Test Group",
+                "cost_center_name": "Group Exists Test Cost Center",
+                "is_group": False,
+            }
+        )
+
+        with patch(
+            "verenigingen.e_boekhouden.utils.eboekhouden_cost_center_fix.ensure_root_cost_center"
+        ) as mock_ensure_root:
+            result = create_single_cost_center(mapping, self.test_company.name)
+
+        self.assertTrue(result["success"], f"Creation should succeed: {result.get('error')}")
+        self.factory.track_document("Cost Center", result["cost_center_id"])
+        mock_ensure_root.assert_not_called()
 
 
 if __name__ == "__main__":

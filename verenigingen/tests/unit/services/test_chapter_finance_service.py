@@ -215,6 +215,60 @@ class TestCreateChapterCostCenter(unittest.TestCase):
         )
 
     @patch("verenigingen.services.chapter.chapter_finance_service.frappe")
+    def test_falls_back_to_ensure_root_cost_center_when_no_parent_found(self, mock_frappe):
+        """#1441: when get_appropriate_parent_cost_center() finds nothing (a
+        company with zero Cost Centers), fall back to ensure_root_cost_center()
+        instead of inserting with parent_cost_center unset -- this Cost Center
+        is not a root itself, so an unset parent raises frappe.MandatoryError."""
+        chapter = _make_chapter()
+        mock_frappe.db.exists.return_value = False
+
+        mock_cc_doc = MagicMock()
+        mock_cc_doc.name = "Test-Chapter-001 - Chapter - TC"
+        mock_frappe.new_doc.return_value = mock_cc_doc
+
+        with patch.object(self.svc, "get_validated_company", return_value="TestCo"), \
+             patch.object(self.svc, "get_appropriate_parent_cost_center", return_value=None), \
+             patch(
+                 "verenigingen.e_boekhouden.utils.eboekhouden_cost_center_fix.ensure_root_cost_center",
+                 return_value="TestCo - TC",
+             ) as mock_ensure_root, \
+             patch(
+                 "verenigingen.utils.secure_operations.secure_document_operation",
+                 return_value=_make_secure_result(success=True),
+             ):
+            self.svc.create_chapter_cost_center(chapter)
+
+        mock_ensure_root.assert_called_once_with("TestCo")
+        self.assertEqual(mock_cc_doc.parent_cost_center, "TestCo - TC")
+
+    @patch("verenigingen.services.chapter.chapter_finance_service.frappe")
+    def test_does_not_call_ensure_root_cost_center_when_parent_found(self, mock_frappe):
+        """Control: ensure_root_cost_center() must NOT run when
+        get_appropriate_parent_cost_center() already found a real parent -- the
+        zero-Cost-Center fallback must never override a legitimate one."""
+        chapter = _make_chapter()
+        mock_frappe.db.exists.return_value = False
+
+        mock_cc_doc = MagicMock()
+        mock_cc_doc.name = "Test-Chapter-001 - Chapter - TC"
+        mock_frappe.new_doc.return_value = mock_cc_doc
+
+        with patch.object(self.svc, "get_validated_company", return_value="TestCo"), \
+             patch.object(self.svc, "get_appropriate_parent_cost_center", return_value="Root - TC"), \
+             patch(
+                 "verenigingen.e_boekhouden.utils.eboekhouden_cost_center_fix.ensure_root_cost_center",
+             ) as mock_ensure_root, \
+             patch(
+                 "verenigingen.utils.secure_operations.secure_document_operation",
+                 return_value=_make_secure_result(success=True),
+             ):
+            self.svc.create_chapter_cost_center(chapter)
+
+        mock_ensure_root.assert_not_called()
+        self.assertEqual(mock_cc_doc.parent_cost_center, "Root - TC")
+
+    @patch("verenigingen.services.chapter.chapter_finance_service.frappe")
     def test_links_concurrent_cc_on_insert_failure(self, mock_frappe):
         """When insert fails but a CC was created concurrently, should link it."""
         chapter = _make_chapter()

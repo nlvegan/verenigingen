@@ -20,7 +20,6 @@ Run with:
         --module verenigingen.tests.e_boekhouden.test_cost_center_fix
 """
 
-import hashlib
 import json
 import unittest
 from unittest.mock import patch
@@ -37,6 +36,10 @@ from verenigingen.e_boekhouden.utils.eboekhouden_cost_center_fix import (
     migrate_cost_centers_with_hierarchy,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, suspend_insert_capture
+from verenigingen.tests.utils.cost_center_test_helpers import (
+    create_isolated_test_company,
+    delete_all_cost_centers,
+)
 from verenigingen.tests.utils.secure_operation_race_helpers import duplicate_key_result
 from verenigingen.utils.secure_operations import SecureOperationResult
 
@@ -119,28 +122,6 @@ class _IsolatedCompanyTestBase(EnhancedTestCase):
     is undone together and there is nothing left with the captured name.
     """
 
-    def _create_isolated_company(self):
-        # Keyed on the test method itself (not a shared counter) so two test
-        # CLASSES running their own test methods can never generate the same
-        # company/abbr pair, regardless of execution order.
-        tag = hashlib.md5(f"{type(self).__name__}.{self._testMethodName}".encode()).hexdigest()[:6]
-        name = f"TEST EBkh RootCC Fix {tag}"
-        doc = frappe.new_doc("Company")
-        doc.company_name = name
-        doc.abbr = f"TR{tag}"
-        doc.default_currency = "EUR"
-        doc.country = "Netherlands"
-        doc.insert(ignore_permissions=True)
-        return name
-
-    def _delete_all_cost_centers(self, company):
-        # Leaves (is_group=0) before groups: a group with a live child cannot
-        # be deleted first.
-        for cc in frappe.get_all(
-            "Cost Center", filters={"company": company}, fields=["name"], order_by="is_group asc"
-        ):
-            frappe.delete_doc("Cost Center", cc.name, force=True, ignore_permissions=True)
-
     def _persist_root_cost_center(self, company):
         """Insert a root Cost Center for `company` the same way ensure_root_
         cost_center()'s create path does (post-#1359), bypassing the function
@@ -169,8 +150,8 @@ class TestEnsureRootCostCenterCreatePath(_IsolatedCompanyTestBase):
     """
 
     def test_create_path_reached_when_defaults_are_gone(self):
-        company = self._create_isolated_company()
-        self._delete_all_cost_centers(company)
+        company = create_isolated_test_company(self, "TEST EBkh RootCC Fix", "TR")
+        delete_all_cost_centers(company)
         self.assertEqual(frappe.db.count("Cost Center", {"company": company}), 0)
 
         root = ensure_root_cost_center(company)
@@ -183,8 +164,8 @@ class TestEnsureRootCostCenterCreatePath(_IsolatedCompanyTestBase):
     def test_create_path_does_not_log_an_error(self):
         # A successful create is not a failure path; no Error Log should record it.
         error_log_marker = frappe.utils.now_datetime()
-        company = self._create_isolated_company()
-        self._delete_all_cost_centers(company)
+        company = create_isolated_test_company(self, "TEST EBkh RootCC Fix", "TR")
+        delete_all_cost_centers(company)
 
         root = ensure_root_cost_center(company)
 
@@ -209,8 +190,8 @@ class TestEnsureRootCostCenterDuplicateRace(_IsolatedCompanyTestBase):
 
     def test_duplicate_race_returns_the_winners_root_instead_of_none(self):
         # The "concurrent creator" already won: its root row genuinely exists.
-        company = self._create_isolated_company()
-        self._delete_all_cost_centers(company)
+        company = create_isolated_test_company(self, "TEST EBkh RootCC Fix", "TR")
+        delete_all_cost_centers(company)
         winner_name = self._persist_root_cost_center(company)
 
         # Simulate the race window itself: ensure_root_cost_center()'s own
@@ -260,8 +241,8 @@ class TestEnsureRootCostCenterDuplicateRace(_IsolatedCompanyTestBase):
         # letting the pre-checks find it first.
         self.expectErrorLog("Cost Center Creation Failed")
         error_log_marker = frappe.utils.now_datetime()
-        company = self._create_isolated_company()
-        self._delete_all_cost_centers(company)
+        company = create_isolated_test_company(self, "TEST EBkh RootCC Fix", "TR")
+        delete_all_cost_centers(company)
         existing_name = self._persist_root_cost_center(company)
 
         real_get_value = frappe.db.get_value
