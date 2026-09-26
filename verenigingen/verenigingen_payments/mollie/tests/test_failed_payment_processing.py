@@ -34,11 +34,14 @@ class TestFailedPaymentProcessing(EnhancedTestCase):
         self.test_member.next_payment_date = "2024-02-15"
         self.test_member.save()
 
-        # Create real donation for testing with payment_id set before submission
+        # Create real donation for testing with payment_id set before submission.
+        # Derived per-test, not a fixed literal: a fixed id collides with a
+        # leftover row from a previous run against the unique index on
+        # Donation.payment_id (#1468, same shape as #1438).
         self.test_donation = self.create_test_donation(
             donor_name="Service Test Donor",
             amount=25.0,
-            payment_id="tr_service_test_payment",  # Set payment_id before submission
+            payment_id=f"tr_test_{frappe.generate_hash(length=10)}",  # Set payment_id before submission
         )
 
     def test_payment_amount_validation_function(self):
@@ -85,7 +88,7 @@ class TestFailedPaymentProcessing(EnhancedTestCase):
         # This should find our actual donation
         if found_donation:
             self.assertEqual(found_donation.name, self.test_donation.name)
-            self.assertEqual(found_donation.payment_id, "tr_service_test_payment")
+            self.assertEqual(found_donation.payment_id, self.test_donation.payment_id)
         else:
             self.fail(
                 f"Should have found donation {self.test_donation.name} with payment_id {self.test_donation.payment_id}"

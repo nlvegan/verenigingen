@@ -156,7 +156,9 @@ class TestPagePaymentSuccessCoverage(EnhancedTestCase):
         so non-transactional), and the INSERT was the largest single component
         of the existence-timing oracle #1105 fixed.
         """
-        donation = self._make_donation(payment_id="tr_real_id")
+        # Derived per-test: a fixed literal collides with a leftover row from a
+        # previous run against the unique index on Donation.payment_id (#1468).
+        donation = self._make_donation(payment_id=f"tr_test_{frappe.generate_hash(length=10)}")
         with self.assertNoErrorLog():
             is_valid, result = payment_success.validate_payment_document_access(
                 "Donation", donation.name, "tr_forged_id"
@@ -166,10 +168,11 @@ class TestPagePaymentSuccessCoverage(EnhancedTestCase):
 
     def test_validate_matching_payment_id_returns_doc(self):
         """A matching payment_id resolves to the real document object."""
-        donation = self._make_donation(payment_id="tr_exact")
+        payment_id = f"tr_test_{frappe.generate_hash(length=10)}"
+        donation = self._make_donation(payment_id=payment_id)
         with self.assertNoErrorLog():
             is_valid, result = payment_success.validate_payment_document_access(
-                "Donation", donation.name, "tr_exact"
+                "Donation", donation.name, payment_id
             )
         self.assertTrue(is_valid)
         self.assertEqual(result.name, donation.name)
@@ -413,10 +416,11 @@ class TestPagePaymentSuccessCoverage(EnhancedTestCase):
         way the result is a structured error dict (status is "Error"/"error",
         case-insensitive) and the call never raises.
         """
-        donation = self._make_donation(payment_id="tr_mollie")
+        payment_id = f"tr_test_{frappe.generate_hash(length=10)}"
+        donation = self._make_donation(payment_id=payment_id)
         donation.payment_method = "Mollie"  # in-memory attribute only
         self.expectErrorLog("Mollie Status Check", "Payment Status Check", "Payment Status")
-        result = payment_success.check_payment_status(donation, "tr_mollie")
+        result = payment_success.check_payment_status(donation, payment_id)
         self.assertEqual(str(result["status"]).lower(), "error")
         self.assertIn("message", result)
 

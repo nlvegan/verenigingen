@@ -421,8 +421,14 @@ class TestDonatePageMollie(EnhancedTestCase):
 
     def _make_unpaid_mollie_donation(self):
         donor = self.create_test_donor(donor_email=self._unique_email())
+        # Derived per-test, not a fixed literal: a fixed id collides with a
+        # leftover row from a previous run against the unique index on
+        # Donation.payment_id (#1468, same shape as #1438).
         donation = self.create_test_donation(
-            donor=donor.name, mode_of_payment="Bank Transfer", paid=0, payment_id="tr_return_test"
+            donor=donor.name,
+            mode_of_payment="Bank Transfer",
+            paid=0,
+            payment_id=f"tr_test_{frappe.generate_hash(length=10)}",
         )
         return donation
 
