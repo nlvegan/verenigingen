@@ -799,6 +799,203 @@ jobs:
     - name: Ratchet check (whole tree, strict)
       run: python scripts/validation/public_js_endpoint_resolver.py --strict
 
+  # #1372 (same class as #1042): harness_super_skip_validator.py (#1307/#1345) was
+  # `stages: [pre-push]` ONLY -- no workflow ran it, so `git push --no-verify`, a
+  # CI runner with no local git hooks, or a PR opened via the GitHub web editor all
+  # bypassed it silently. Baseline is empty today (0 entries): #1307 fixed every
+  # instance that existed at the time, so any new occurrence must fail immediately.
+  #
+  # This validator's --update-baseline has no growth protection of its own (unlike
+  # public_js_endpoint_resolver's --force gate above) AND its baseline lines are
+  # `file::class::method  # comment` -- a bare identifying key with no trailing
+  # `::<count>`, not the `<key>::<count>` shape baseline_shrink_gate.py requires.
+  # Confirmed empirically: pointing that shared gate at this baseline's shape
+  # fails every non-empty comparison with "Cannot parse ... refusing to guess
+  # whether this is growth or shrinkage" (it only ever passes on a byte-identical
+  # fast path). So the sync/growth logic below is a small, self-contained
+  # equivalent over the same set-of-lines shape, not the shared gate.
+  harness-super-skip-ratchet:
+    name: 🧬 Harness super() Skip Guard (ratchet)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        # Needed by the growth check below, which diffs against the base branch.
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    # Stdlib-only (ast, os, argparse, pathlib) by design: no bench, no site, no install.
+    - name: Unit-test the validator itself
+      run: python -m unittest discover -s scripts/validation/tests -p 'test_harness_super_skip_validator.py' -v
+
+    - name: Ratchet check (whole tree)
+      run: python scripts/validation/harness_super_skip_validator.py
+
+    # Self-heal a stale (over-large) committed baseline on pull_request -- nothing
+    # downstream is blocked by a baseline that lists more than the tree currently
+    # produces. Fail on push (nothing merged is blocked either, but this is the
+    # forcing function that keeps the committed file from silently drifting).
+    # A NEW finding not yet in the committed baseline always fails, on either
+    # trigger -- that is real, unfixed debt, not staleness.
+    - name: Baseline is in sync with the tree
+      env:
+        FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' }}
+      run: |
+        BASELINE=scripts/validation/harness_super_skip_baseline.txt
+        VALIDATOR=scripts/validation/harness_super_skip_validator.py
+        cp "$BASELINE" "$RUNNER_TEMP/committed.txt"
+        python "$VALIDATOR" --update-baseline "$BASELINE"
+        if diff -q "$RUNNER_TEMP/committed.txt" "$BASELINE" > /dev/null; then
+          echo "Baseline matches the tree."
+          exit 0
+        fi
+        grep -v -e '^#' -e '^$' "$RUNNER_TEMP/committed.txt" | sort -u > "$RUNNER_TEMP/old.txt"
+        grep -v -e '^#' -e '^$' "$BASELINE" | sort -u > "$RUNNER_TEMP/new.txt"
+        appeared=$(comm -13 "$RUNNER_TEMP/old.txt" "$RUNNER_TEMP/new.txt")
+        if [ -n "$appeared" ]; then
+          echo "::error file=$BASELINE::Baseline is out of sync with the tree -- unrecorded finding(s):"
+          echo "$appeared"
+          echo "Fix the violation(s), or commit the regenerated baseline deliberately (state before/after counts in the PR)."
+          exit 1
+        fi
+        if [ -n "$FAIL_ON_SHRINK" ]; then
+          echo "::error file=$BASELINE::Baseline is stale -- these finding(s) were fixed but the file was never regenerated:"
+          comm -23 "$RUNNER_TEMP/old.txt" "$RUNNER_TEMP/new.txt"
+          echo "Regenerate and commit:"
+          echo "    python $VALIDATOR --update-baseline $BASELINE"
+          exit 1
+        fi
+        echo "Baseline shrank (fixed finding(s)) -- self-healing without failing this PR."
+
+    # The step above cannot catch the abuse that actually defeats this gate: adding
+    # a NEW violation and ALSO committing it straight into the baseline in the same
+    # PR, so the committed file already matches what regenerating produces. Compare
+    # against the PR's BASE branch instead -- growth there can only be legitimate
+    # when the validator's own detection rules changed in this PR.
+    - name: Baseline did not grow
+      if: github.event_name == 'pull_request'
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      run: |
+        BASELINE=scripts/validation/harness_super_skip_baseline.txt
+        VALIDATOR=scripts/validation/harness_super_skip_validator.py
+        count() { grep -v -e '^#' -e '^$' | wc -l; }
+
+        if ! git cat-file -e "$BASE_SHA:$BASELINE" 2>/dev/null; then
+          echo "No baseline on the base branch yet -- nothing to compare."
+          exit 0
+        fi
+        if ! git diff --quiet "$BASE_SHA" HEAD -- "$VALIDATOR"; then
+          echo "Validator changed in this PR, so a different baseline count is expected."
+          echo "Review the added entries by hand -- they are new DETECTIONS, not new code."
+          exit 0
+        fi
+
+        before=$(git show "$BASE_SHA:$BASELINE" | count)
+        after=$(count < "$BASELINE")
+        echo "baseline entries: base=$before  head=$after"
+        if [ "$after" -gt "$before" ]; then
+          echo "::error file=$BASELINE::Baseline grew from $before to $after entries without a validator change."
+          echo "A new harness-super-skip violation was recorded into the baseline instead of fixed."
+          exit 1
+        fi
+        echo "Baseline did not grow."
+
+  # #1372, same mechanism as harness-super-skip-ratchet directly above (see its
+  # first comment block for why this uses hand-written sync/growth steps instead
+  # of baseline_shrink_gate.py): harness_factory_shadow_validator.py (#1344/#1347)
+  # was ALSO `stages: [pre-push]` ONLY. Baseline is empty today (0 entries):
+  # #1344/#1347 fixed every instance that existed at the time.
+  harness-factory-shadow-ratchet:
+    name: 🧬 Harness Factory Shadow Guard (ratchet)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        # Needed by the growth check below, which diffs against the base branch.
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    # Stdlib-only (ast, argparse, pathlib) by design: no bench, no site, no install.
+    - name: Unit-test the validator itself
+      run: python -m unittest discover -s scripts/validation/tests -p 'test_harness_factory_shadow_validator.py' -v
+
+    - name: Ratchet check (whole tree)
+      run: python scripts/validation/harness_factory_shadow_validator.py
+
+    - name: Baseline is in sync with the tree
+      env:
+        FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' }}
+      run: |
+        BASELINE=scripts/validation/harness_factory_shadow_baseline.txt
+        VALIDATOR=scripts/validation/harness_factory_shadow_validator.py
+        cp "$BASELINE" "$RUNNER_TEMP/committed.txt"
+        python "$VALIDATOR" --update-baseline "$BASELINE"
+        if diff -q "$RUNNER_TEMP/committed.txt" "$BASELINE" > /dev/null; then
+          echo "Baseline matches the tree."
+          exit 0
+        fi
+        grep -v -e '^#' -e '^$' "$RUNNER_TEMP/committed.txt" | sort -u > "$RUNNER_TEMP/old.txt"
+        grep -v -e '^#' -e '^$' "$BASELINE" | sort -u > "$RUNNER_TEMP/new.txt"
+        appeared=$(comm -13 "$RUNNER_TEMP/old.txt" "$RUNNER_TEMP/new.txt")
+        if [ -n "$appeared" ]; then
+          echo "::error file=$BASELINE::Baseline is out of sync with the tree -- unrecorded finding(s):"
+          echo "$appeared"
+          echo "Fix the violation(s), or commit the regenerated baseline deliberately (state before/after counts in the PR)."
+          exit 1
+        fi
+        if [ -n "$FAIL_ON_SHRINK" ]; then
+          echo "::error file=$BASELINE::Baseline is stale -- these finding(s) were fixed but the file was never regenerated:"
+          comm -23 "$RUNNER_TEMP/old.txt" "$RUNNER_TEMP/new.txt"
+          echo "Regenerate and commit:"
+          echo "    python $VALIDATOR --update-baseline $BASELINE"
+          exit 1
+        fi
+        echo "Baseline shrank (fixed finding(s)) -- self-healing without failing this PR."
+
+    - name: Baseline did not grow
+      if: github.event_name == 'pull_request'
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      run: |
+        BASELINE=scripts/validation/harness_factory_shadow_baseline.txt
+        VALIDATOR=scripts/validation/harness_factory_shadow_validator.py
+        count() { grep -v -e '^#' -e '^$' | wc -l; }
+
+        if ! git cat-file -e "$BASE_SHA:$BASELINE" 2>/dev/null; then
+          echo "No baseline on the base branch yet -- nothing to compare."
+          exit 0
+        fi
+        if ! git diff --quiet "$BASE_SHA" HEAD -- "$VALIDATOR"; then
+          echo "Validator changed in this PR, so a different baseline count is expected."
+          echo "Review the added entries by hand -- they are new DETECTIONS, not new code."
+          exit 0
+        fi
+
+        before=$(git show "$BASE_SHA:$BASELINE" | count)
+        after=$(count < "$BASELINE")
+        echo "baseline entries: base=$before  head=$after"
+        if [ "$after" -gt "$before" ]; then
+          echo "::error file=$BASELINE::Baseline grew from $before to $after entries without a validator change."
+          echo "A new harness-factory-shadow violation was recorded into the baseline instead of fixed."
+          exit 1
+        fi
+        echo "Baseline did not grow."
+
   # #1033: Critical Operation Rule.operation_name is matched against the BARE name
   # of the currently-executing function at rate-limit-check time (rate_limit_engine.py:96,
   # operation_key.split(".")[-1]) -- so a fixture row whose operation_name has no
