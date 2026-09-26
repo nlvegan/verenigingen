@@ -122,6 +122,63 @@ class TestDonationWebFormGuestSubmission(EnhancedTestCase):
         self.assertEqual(donation.docstatus, 0, "Donation must remain a draft, not be submitted")
 
 
+class TestDonationWebFormGuestAmbiguousDonor(EnhancedTestCase):
+    """#1396: get_or_create_donor's existing-donor lookup (donor_service.
+    get_donor_by_email) must refuse an ambiguous donor_email match rather
+    than pick one arbitrarily. This path is guest-reachable and, on a match,
+    WRITES the submitter's phone number onto whichever donor it picked
+    (donation_form.py:124-125) -- the highest-severity sibling in the #1396
+    family, since it is a write on an unauthenticated path. Refusing must
+    still let the donation succeed (a new Donor is created, matching the
+    existing "no donor found" branch) rather than refusing the donation."""
+
+    def setUp(self):
+        self._original_user = frappe.session.user
+        super().setUp()
+
+    def tearDown(self):
+        if hasattr(self, "_original_user"):
+            frappe.set_user(self._original_user)
+        super().tearDown()
+
+    def test_guest_ambiguous_email_does_not_write_to_either_existing_donor(self):
+        from verenigingen.verenigingen.web_form.donation_form.donation_form import get_or_create_donor
+
+        shared_email = f"ambiguous.{frappe.generate_hash(length=6)}@example.com"
+        first = self.create_test_donor(
+            donor_name="First Ambiguous", donor_email=shared_email, donor_type="Individual"
+        )
+        second = self.create_test_donor(
+            donor_name="Second Ambiguous", donor_email=shared_email, donor_type="Individual"
+        )
+        self.assertFalse(first.phone)
+        self.assertFalse(second.phone)
+
+        self.expectErrorLog("DONOR_001")
+        frappe.set_user("Guest")
+        data = make_donation_form_data(
+            label="Ambiguous Guest",
+            payment_key="mode_of_payment",
+            donor_email=shared_email,
+            donor_phone="+31612345678",
+        )
+        with self.assertErrorLog("DONOR_001"):
+            donor_name = get_or_create_donor(data)
+        frappe.set_user(self._original_user)
+
+        # The donation must still succeed: a new donor is created rather
+        # than the donation being refused.
+        self.assertIsNotNone(donor_name)
+        self.assertNotIn(donor_name, (first.name, second.name))
+        self.track_doc("Donor", donor_name)
+
+        # Neither pre-existing ambiguous donor was written to.
+        first.reload()
+        second.reload()
+        self.assertFalse(first.phone, "ambiguous match must never write to an existing donor's phone")
+        self.assertFalse(second.phone, "ambiguous match must never write to an existing donor's phone")
+
+
 class TestDonationWebFormCampaignField(EnhancedTestCase):
     """create_donation() previously assigned a Campaign donation's reference to
     donation.campaign_reference — a field that does not exist on Donation
