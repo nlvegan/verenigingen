@@ -780,6 +780,22 @@ def send_sepa_notification(notification_type: str, context: str, priority: str =
         return {"success": False, "error": f"Invalid parameter: {str(e)}"}
 
 
+def _ensure_staff_only_notification_history_access():
+    """get_sepa_notification_history has no legitimate non-admin front door: SEPA
+    Notification Log is a raw SQL table (created by sepa_ops_tables at install/migrate),
+    not a registered DocType, so there is no permission_query_conditions hook to
+    lean on and no member/chapter link to scope by (#1486). Same admin-only shape
+    as sepa_mandate_diagnostics._ensure_staff_only_diagnostics_access (#1329),
+    kept separate because that helper's message is specific to mandate
+    diagnostics and would be misleading here.
+    """
+    if not set(frappe.get_roles()) & Roles.ADMIN_ROLES:
+        frappe.throw(
+            _("You are not permitted to view SEPA notification history"),
+            frappe.PermissionError,
+        )
+
+
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
 @handle_api_error
@@ -794,6 +810,7 @@ def get_sepa_notification_history(days_back: int = 7, notification_type: str = N
     Returns:
         Notification history
     """
+    _ensure_staff_only_notification_history_access()
     manager = SEPANotificationManager()
     return manager.get_notification_history(days_back, notification_type)
 

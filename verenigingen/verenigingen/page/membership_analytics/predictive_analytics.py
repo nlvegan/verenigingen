@@ -12,6 +12,7 @@ from frappe.utils import add_days, add_months, getdate, now_datetime
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
@@ -191,6 +192,44 @@ def forecast_revenue(months_ahead=12):
     }
 
 
+def _churn_risk_member_scope_sql(member_ref):
+    """SQL condition (empty, or an AND clause) to AND onto analyze_churn_risk()'s
+    two Member-anchored queries. That function has no gating of its own beyond
+    the generic @standard_api(REPORTING) MEDIUM tier and returns member name +
+    payment-failure counts / days-inactive, app-wide (#1486) -- the #1329 shape.
+
+    - Roles.ADMIN_ROLES: "" (no restriction).
+    - Any other MEDIUM-tier caller ("Verenigingen Chapter Board Member",
+      "Verenigingen Volunteer", "Verenigingen Auditor"): scoped to members of the
+      chapter(s) the caller holds an ACTIVE board seat on, reusing
+      permissions._get_board_chapters_for_member() -- the same helper #1329's
+      get_mandate_issues fix reuses -- rather than a new definition of "my
+      chapter's members". A caller with no active board seat resolves to no
+      chapters, so this returns "AND 1=0": an empty result, not an error or the
+      full list.
+
+    Args:
+        member_ref: however the caller's query refers to the Member row's
+            `name` column (e.g. "m.name" or bare "name").
+    """
+    if set(frappe.get_roles()) & Roles.ADMIN_ROLES:
+        return ""
+
+    from verenigingen.permissions import _get_board_chapters_for_member
+    from verenigingen.utils.member_utils import get_member_name_for_user
+
+    user_member = get_member_name_for_user(frappe.session.user)
+    board_chapters = _get_board_chapters_for_member(user_member) if user_member else []
+    if not board_chapters:
+        return "AND 1=0"
+
+    chapter_list = ",".join(frappe.db.escape(chapter) for chapter in board_chapters)
+    return f"""AND {member_ref} IN (
+        SELECT cm.member FROM `tabChapter Member` cm
+        WHERE cm.parent IN ({chapter_list}) AND cm.status = 'Active'
+    )"""
+
+
 def analyze_churn_risk():
     """Identify members at risk of churning"""
 
@@ -209,9 +248,12 @@ def analyze_churn_risk():
         WHERE m.status = 'Active'
         AND si.status = 'Overdue'
         AND si.due_date < CURDATE()
+        {scope}
         GROUP BY m.name
         HAVING failed_payments > 0
-    """,
+    """.format(
+            scope=_churn_risk_member_scope_sql("m.name")
+        ),
         as_dict=True,
     )
 
@@ -237,8 +279,11 @@ def analyze_churn_risk():
         FROM `tabMember`
         WHERE status = 'Active'
         AND DATEDIFF(CURDATE(), modified) > 90
+        {scope}
         LIMIT 20
-    """,
+    """.format(
+            scope=_churn_risk_member_scope_sql("name")
+        ),
         as_dict=True,
     )
 
