@@ -204,3 +204,54 @@ class TestRefreshFeeChangeHistoryRealDB(EnhancedTestCase):
         result = self.service.refresh_fee_change_history("MEM-DOES-NOT-EXIST-XYZ")
         self.assertFalse(result.success)
         self.assertEqual(result.error_code, "HIST_006")
+
+
+class TestRefreshFeeChangeHistoryWireEnvelopeRealDB(EnhancedTestCase):
+    """Wire-level contract for financial_api.refresh_fee_change_history's response shape (#1420).
+
+    member.js's frappe.call receives exactly what this whitelisted endpoint returns after
+    @high_security_api's to_dict(scrub_sensitive=True) serialization -- the NESTED schema
+    (OperationResult.to_dict's default). This asserts the real dispatched shape so the JS
+    fix's assumption (data lives under response["data"]/response["error"], never at the
+    top level) is backed by a real dispatch through the decorator stack, not by reading
+    the decorator source and trusting it.
+    """
+
+    def test_reload_doc_and_history_count_are_nested_under_data(self):
+        from verenigingen.api.member.financial_api import (
+            refresh_fee_change_history as refresh_fee_change_history_endpoint,
+        )
+
+        membership_type = self.create_test_membership_type(amount=15.0)
+        member, schedule = self.create_test_member_with_schedule(
+            first_name="FeeWire",
+            last_name="Envelope",
+            membership_type_name=membership_type.name,
+            start_date=today(),
+        )
+
+        response = refresh_fee_change_history_endpoint(member_name=member.name)
+
+        self.assertTrue(response["success"])
+        self.assertNotIn("reload_doc", response, "reload_doc leaked to the envelope's top level")
+        self.assertNotIn("history_count", response, "history_count leaked to the envelope's top level")
+        self.assertIn("data", response)
+        self.assertTrue(
+            response["data"]["reload_doc"],
+            "a real dues-schedule change must ask the caller to reload -- if this goes "
+            "False, member.js's reload branch stops being exercised at all",
+        )
+        self.assertGreaterEqual(response["data"]["dues_schedules_found"], 1)
+
+    def test_failure_envelope_nests_the_message_under_error(self):
+        from verenigingen.api.member.financial_api import (
+            refresh_fee_change_history as refresh_fee_change_history_endpoint,
+        )
+
+        response = refresh_fee_change_history_endpoint(member_name="MEM-DOES-NOT-EXIST-XYZ")
+
+        self.assertFalse(response["success"])
+        self.assertNotIn("message", response, "failure text leaked to the envelope's top level")
+        self.assertIn("error", response)
+        self.assertIsInstance(response["error"], dict)
+        self.assertTrue(response["error"].get("message"))
