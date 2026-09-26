@@ -10,6 +10,7 @@ from frappe import _
 
 from verenigingen.utils.error_handling import handle_api_error
 from verenigingen.utils.security.api_security_framework import standard_api
+from verenigingen.utils.security.permission_existence_guard import permission_allowed_without_oracle
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
@@ -21,45 +22,20 @@ def _require_team_permission(team_name, ptype, message):
     raises DoesNotExistError for an unknown name while the same call returns plain
     False for a real-but-forbidden one (#1401) -- two different exceptions (and
     messages, once @handle_api_error renders them) for the identical "can I access
-    this id" question. Catching the raise and folding it into the same refusal as
-    "False" closes that without an extra existence lookup on the success path, and
-    without changing behaviour for the literal "Administrator" user: its
-    frappe.has_permission call returns True before touching the document at all
-    (frappe/permissions.py), so it never raises here regardless of team_name, and
-    a subsequent frappe.get_doc still surfaces the ordinary "not found" for a truly
-    unknown id -- exactly as before this fix.
-
-    The raise-vs-False difference is not only in the return value: frappe.throw()
-    (raised by the internal document load for an unknown name) APPENDS a "Team
-    <name> not found" entry to frappe.message_log before raising, and that queued
-    message survives catching the exception -- it would otherwise ride along in
-    _server_messages on an unknown id and not on a foreign one, reopening the
-    oracle in the response body even once the exception itself is masked (found
-    in review, sibling to #1430's frappe.client.has_permission finding).
-
-    A single frappe.clear_last_message() is not enough to equalise the two paths
-    either: for a real-but-forbidden team, frappe.has_permission's OWN internal
-    message composition (frappe/permissions.py's has_permission recomputes
-    has_permission(doctype) with no `doc`, to decide whether to name the
-    document in ITS diagnostic) makes an unrelated, unsuppressable recursive call
-    that defaults to print_logs=True regardless of what this call passed, so it
-    queues its OWN message ("User X does not have doctype access via role
-    permission...") on the False path whenever the caller's role holds no
-    blanket doctype-level grant -- measured for both a "Verenigingen Volunteer"
-    (read) and a "Team Lead" (write) caller. So instead of guessing which
-    messages to pop, both branches are trimmed back to the message_log length
-    captured before the call, discarding whatever frappe.has_permission queued
-    on EITHER path, before this function raises its own single message.
+    this id" question. permission_allowed_without_oracle (verenigingen.utils.
+    security.permission_existence_guard, extracted for #1411 so every other
+    caller-supplied-name site in the app shares this instead of its own copy)
+    catches the raise and folds it into the same refusal as False, trimming the
+    message_log entries either path can queue -- see that module's docstring for
+    why a bare frappe.clear_last_message() is not enough (frappe.has_permission's
+    own internal message composition can queue a message on the False path too,
+    whenever the caller's role holds no blanket doctype-level grant). Administrator
+    is unaffected: its frappe.has_permission call returns True before touching the
+    document at all (frappe/permissions.py), so it never raises here regardless of
+    team_name, and a subsequent frappe.get_doc still surfaces the ordinary "not
+    found" for a truly unknown id -- exactly as before this fix.
     """
-    log_len = len(frappe.message_log)
-    try:
-        allowed = frappe.has_permission("Team", ptype, team_name)
-    except frappe.DoesNotExistError:
-        allowed = False
-    finally:
-        del frappe.message_log[log_len:]
-
-    if not allowed:
+    if not permission_allowed_without_oracle("Team", ptype, team_name):
         frappe.throw(message)
 
 

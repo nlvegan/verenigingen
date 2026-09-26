@@ -21,6 +21,7 @@ from verenigingen.utils.security.api_security_framework import (
     standard_api,
     utility_api,
 )
+from verenigingen.utils.security.permission_existence_guard import permission_allowed_without_oracle
 
 
 class AdvancedSegmentationManager:
@@ -688,7 +689,7 @@ def get_segment_recipients(segment_id: str, chapter_name: str = None, preview_on
         Segment recipients
     """
     # Check permissions
-    if chapter_name and not frappe.has_permission("Chapter", "read", doc=chapter_name):
+    if chapter_name and not permission_allowed_without_oracle("Chapter", "read", chapter_name):
         frappe.throw(_("You don't have permission to view this chapter's segments"))
 
     manager = AdvancedSegmentationManager()
@@ -729,7 +730,7 @@ def create_segment_combination(
         segment_ids = json.loads(segment_ids) if isinstance(segment_ids, str) else segment_ids
 
         # Check permissions
-        if chapter_name and not frappe.has_permission("Chapter", "read", doc=chapter_name):
+        if chapter_name and not permission_allowed_without_oracle("Chapter", "read", chapter_name):
             frappe.throw(_("You don't have permission to view this chapter's segments"))
 
         manager = AdvancedSegmentationManager()
@@ -758,7 +759,7 @@ def analyze_segment_overlap(segment_ids: str, chapter_name: str = None) -> Dict:
         segment_ids = json.loads(segment_ids) if isinstance(segment_ids, str) else segment_ids
 
         # Check permissions
-        if chapter_name and not frappe.has_permission("Chapter", "read", doc=chapter_name):
+        if chapter_name and not permission_allowed_without_oracle("Chapter", "read", chapter_name):
             frappe.throw(_("You don't have permission to view this chapter's segments"))
 
         manager = AdvancedSegmentationManager()
@@ -775,7 +776,7 @@ def analyze_segment_overlap(segment_ids: str, chapter_name: str = None) -> Dict:
 def get_segment_suggestions(chapter_name: str = None) -> Dict:
     """Get segment suggestions for a chapter"""
     # Check permissions
-    if chapter_name and not frappe.has_permission("Chapter", "read", doc=chapter_name):
+    if chapter_name and not permission_allowed_without_oracle("Chapter", "read", chapter_name):
         frappe.throw(_("You don't have permission to view this chapter's data"))
 
     manager = AdvancedSegmentationManager()

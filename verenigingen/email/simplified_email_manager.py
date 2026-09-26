@@ -16,6 +16,7 @@ from frappe.query_builder import DocType
 
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+from verenigingen.utils.security.permission_existence_guard import permission_allowed_without_oracle
 from verenigingen.utils.validation_utilities import get_all_active_records
 from verenigingen.verenigingen.doctype.chapter.managers.communication_manager import CommunicationManager
 
@@ -314,7 +315,7 @@ def send_chapter_email(chapter_name: str, segment: str, subject: str, content: s
         Dict with success status and details
     """
     # Check permissions
-    if not frappe.has_permission("Chapter", "write", doc=chapter_name):
+    if not permission_allowed_without_oracle("Chapter", "write", chapter_name):
         frappe.throw(_("You don't have permission to send emails for this chapter"))
 
     # Initialize manager with chapter doc
@@ -340,7 +341,7 @@ def get_segment_recipient_count(chapter_name: str, segment: str) -> Dict:
         Dict with recipient count
     """
     # Check permissions
-    if not frappe.has_permission("Chapter", "read", doc=chapter_name):
+    if not permission_allowed_without_oracle("Chapter", "read", chapter_name):
         frappe.throw(_("You don't have permission to view this chapter"))
 
     # Initialize manager with chapter doc

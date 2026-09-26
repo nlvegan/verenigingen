@@ -15,6 +15,7 @@ from frappe import _
 
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+from verenigingen.utils.security.permission_existence_guard import permission_allowed_without_oracle
 
 
 class NewsletterTemplateManager:
@@ -552,7 +553,7 @@ def send_templated_email(
         Dict with send results
     """
     # Check permissions
-    if chapter_name and not frappe.has_permission("Chapter", "write", doc=chapter_name):
+    if chapter_name and not permission_allowed_without_oracle("Chapter", "write", chapter_name):
         frappe.throw(_("You don't have permission to send emails for this chapter"))
 
     try:
