@@ -222,6 +222,21 @@ class MemberMergeService(StatelessService):
         """
         warnings = []
 
+        # #1325: warn up front if the source has a Membership Dues Schedule
+        # that would refuse deletion (and so refuse the whole merge --
+        # _ensure_source_deletable, called from execute_merge) -- staff
+        # should see this BEFORE filling in field selections, not after
+        # clicking through the whole dialog only to have the merge refused.
+        blocked_schedules = self._find_blocked_dues_schedules(source.name)
+        if blocked_schedules:
+            schedule_list = ", ".join(blocked_schedules.keys())
+            warnings.append(
+                _(
+                    "Source member has a Membership Dues Schedule still referenced by "
+                    "another record ({0}). The merge will be REFUSED until this is resolved."
+                ).format(schedule_list)
+            )
+
         # Check for active memberships
         if source.current_membership_plan:
             warnings.append(
@@ -378,36 +393,60 @@ class MemberMergeService(StatelessService):
             "secondary_emails_saved": len(secondary_emails),
         }
 
-    def _ensure_source_deletable(self, source: Document) -> None:
+    def _find_blocked_dues_schedules(self, source_name: str) -> Dict[str, list]:
         """
-        Refuse the merge up front if deleting `source` would be refused.
+        Read-only: which of `source_name`'s Membership Dues Schedules would
+        Member.on_trash's handle_member_deletion (#1306) refuse to delete
+        right now?
 
         Reuses MemberCleanupService._find_blocked_schedules -- the SAME
-        read-only predicate Member.on_trash's handle_member_deletion (#1306)
-        consults before deciding to anonymize instead of delete -- so
-        "would this merge succeed" and "would a direct delete succeed" never
-        disagree. Queries ALL of the source's dues schedules regardless of
-        status, matching handle_member_deletion's own query exactly:
-        DuesScheduleRepository.get_schedules_for_members filters to
-        status="Active", which would miss a Cancelled-but-still-referenced
-        schedule that handle_member_deletion would still catch.
+        predicate handle_member_deletion consults before deciding to
+        anonymize instead of delete -- so "would this merge succeed" and
+        "would a direct delete succeed" never disagree. Queries ALL of the
+        source's dues schedules regardless of status, matching
+        handle_member_deletion's own query exactly: DuesScheduleRepository.
+        get_schedules_for_members filters to status="Active", which would
+        miss a Cancelled-but-still-referenced schedule that
+        handle_member_deletion would still catch.
 
-        Raises:
-            frappe.ValidationError: if any schedule is still referenced by
-                another document (e.g. a Sales Invoice), naming the schedule
-                and its references so the caller knows what to resolve first.
+        Called from three places, all needing the SAME up-to-date answer:
+        _ensure_source_deletable (throws), _check_merge_conflicts (a preview
+        warning, #1325 -- 58% of members on veg11 have an invoice-referenced
+        schedule and so can never be a merge source, which staff should see
+        before filling in the merge dialog, not after), and the second call
+        in _delete_source_member_and_dependencies (closes the TOCTOU window
+        between the first check and the actual delete).
+
+        Returns {schedule_name: [(reference_doctype, reference_docname), ...]}
+        for every blocked schedule; empty if none are blocked.
         """
         from verenigingen.services.member.lifecycle.member_cleanup_service import (
             get_member_cleanup_service,
         )
 
         schedule_names = frappe.get_all(
-            "Membership Dues Schedule", filters={"member": source.name}, pluck="name"
+            "Membership Dues Schedule", filters={"member": source_name}, pluck="name"
         )
         if not schedule_names:
-            return
+            return {}
 
-        blocked = get_member_cleanup_service()._find_blocked_schedules(source.name, schedule_names)
+        return get_member_cleanup_service()._find_blocked_schedules(source_name, schedule_names)
+
+    def _ensure_source_deletable(self, source: Document) -> None:
+        """
+        Refuse the merge if deleting `source` would be refused right now.
+
+        Called twice: once up front in execute_merge (before any write) and
+        once again immediately before the final Member delete in
+        _delete_source_member_and_dependencies (closing the window where a
+        blocking reference could appear in between -- see that call site).
+
+        Raises:
+            frappe.ValidationError: if any schedule is still referenced by
+                another document (e.g. a Sales Invoice), naming the schedule
+                and its references so the caller knows what to resolve first.
+        """
+        blocked = self._find_blocked_dues_schedules(source.name)
         if not blocked:
             return
 
@@ -513,6 +552,21 @@ class MemberMergeService(StatelessService):
                     frappe.delete_doc("Customer", source.customer, force=True, ignore_permissions=True)
             except Exception as e:
                 self.logger.error(f"Failed to delete Customer {source.customer}: {str(e)}")
+
+        # #1325 TOCTOU: re-check immediately before the delete. The first
+        # check (execute_merge, before target.save()) can be stale by the
+        # time we get here -- a Sales Invoice could reference one of
+        # source's schedules in the window between that check and this
+        # delete. Nothing commits between target.save() and this point
+        # (Pattern 4: execute_merge commits once, at the very end, after
+        # this method returns), so raising here still rolls back cleanly.
+        # Without this, frappe.delete_doc below would still trigger
+        # Member.on_trash -> handle_member_deletion -> the SAME guard, but
+        # THAT path anonymizes and calls its own frappe.db.commit() (#1306)
+        # before raising -- which would persist target.save() despite the
+        # eventual raise, reintroducing the exact partial-commit bug this
+        # issue fixed, just via a narrower window instead of every time.
+        self._ensure_source_deletable(source)
 
         # Finally, delete the Member itself
         # Note: This does NOT delete User, Employee, Volunteer records
@@ -659,9 +713,27 @@ def execute_merge(
             target=target_name,
         ).to_dict()
     except frappe.ValidationError as e:
+        # #1325 TOCTOU: this is the ONLY branch that can be reached after
+        # execute_merge has already written (target.save(), etc.) -- e.g.
+        # the second _ensure_source_deletable check, or the pre-existing
+        # MemberAnonymizedInsteadOfDeleted (#1306). Frappe's own request
+        # layer only rolls back an UNCAUGHT exception (frappe/app.py's
+        # `except Exception: db.rollback()`); since this function catches
+        # ValidationError and returns a normal dict, the request looks
+        # SUCCESSFUL from the outside and frappe/app.py's sync_database()
+        # would otherwise COMMIT whatever is pending -- durably persisting
+        # target.save() despite this being a reported failure. Roll back
+        # explicitly so "Never throws exceptions - all errors returned as
+        # OperationResult.fail()" (module docstring) also means "a failure
+        # changes nothing", not just "a failure doesn't crash". Safe even
+        # when nothing is pending (e.g. the up-front check, before any
+        # write) and even after MemberAnonymizedInsteadOfDeleted's own
+        # commit (rollback cannot undo an already-committed transaction).
+        frappe.db.rollback()
         return OperationResult.fail(str(e), errors=[str(e)], source=source_name, target=target_name).to_dict()
     except AttributeError as e:
         # Handle pre-existing bugs in service methods
+        frappe.db.rollback()
         service.logger.error(f"AttributeError in member merge {source_name} → {target_name}: {str(e)}")
         return OperationResult.fail(
             _("An internal error occurred. Please contact support."),
@@ -670,6 +742,7 @@ def execute_merge(
             target=target_name,
         ).to_dict()
     except Exception as e:
+        frappe.db.rollback()
         service.logger.error(f"Unexpected error in member merge {source_name} → {target_name}: {str(e)}")
         return OperationResult.fail(
             _("An error occurred while merging members"),
