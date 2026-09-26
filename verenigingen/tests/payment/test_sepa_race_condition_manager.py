@@ -466,6 +466,82 @@ class TestBatchCreationInnerLogic(EnhancedTestCase):
         self.assertFalse(result["valid"])
         self.assertTrue(any("Amount mismatch" in e for e in result["errors"]))
 
+    def test_validate_invoice_availability_rejects_non_eur_currency(self):
+        """#1463: this validation had no currency check at all, and the locking
+        query did not even SELECT si.currency -- there was nothing to check
+        against even if a comparison were added here. A non-EUR invoice must be
+        refused by name, not silently accepted into a batch that hardcodes
+        `currency = "EUR"` regardless of what it actually collects (#1440)."""
+        invoice, member, mandate = self._make_unpaid_invoice()
+        frappe.db.set_value("Sales Invoice", invoice.name, "currency", "USD", update_modified=False)
+        locked = self.manager._lock_invoices_for_processing([invoice.name])
+        self.assertEqual(locked[0]["currency"], "USD", "fixture precondition: the lock query must return it")
+        result = self.manager._validate_invoice_availability(
+            locked, self._batch_data(invoice, member, mandate)
+        )
+        self.assertFalse(result["valid"])
+        joined = " ".join(result["errors"])
+        self.assertIn(invoice.name, joined)
+        self.assertIn("not in EUR", joined)
+
+    def test_validate_invoice_availability_rejects_blank_currency(self):
+        """#1442's lesson, in this manager: `currency != "EUR"` (not
+        `currency and currency != "EUR"`), so a blank/None currency is refused
+        rather than falling through as EUR-safe. Sales Invoice.currency is
+        `reqd: 1` with no `ignore_mandatory` call site in this app, so this is
+        not reachable through the normal insert path; blank it directly via
+        db_set, matching how the non-EUR test above flips it to USD."""
+        invoice, member, mandate = self._make_unpaid_invoice()
+        frappe.db.set_value("Sales Invoice", invoice.name, "currency", "", update_modified=False)
+        locked = self.manager._lock_invoices_for_processing([invoice.name])
+        result = self.manager._validate_invoice_availability(
+            locked, self._batch_data(invoice, member, mandate)
+        )
+        self.assertFalse(result["valid"])
+        joined = " ".join(result["errors"])
+        self.assertIn(invoice.name, joined)
+        self.assertIn("not in EUR", joined)
+        # Must fail on the CURRENCY check specifically, not some later,
+        # unrelated failure -- #1464's blank-currency class is exactly a
+        # silent EUR default masking what should have been a refusal.
+        self.assertNotIn("Amount mismatch", joined)
+
+    def test_validate_invoice_availability_accepts_eur_invoice_on_non_eur_company(self):
+        """Positive control: a genuinely EUR invoice must still be accepted even
+        though its own company is NOT EUR (test_site_1's ambient `_Test Company`
+        is INR, resolved via EnhancedTestCase's OWN create_test_sales_invoice
+        bridge rather than SEPATestDataFactory's forced-EUR company). Pins the
+        fixture precondition that lets this test tell a correct
+        `si.currency == "EUR"` fix apart from a plausible wrong one that instead
+        compares against the invoice's COMPANY currency (#1445 review history;
+        PR #1469 established this pattern for the sibling producer functions)."""
+        member = self.create_test_member(first_name="RaceEurNonEurCo")
+        invoice = self.create_test_sales_invoice(customer=member.name, grand_total=25.0)
+        frappe.db.set_value("Sales Invoice", invoice.name, "currency", "EUR", update_modified=False)
+        invoice.reload()
+        self.assertNotEqual(
+            frappe.db.get_value("Company", invoice.company, "default_currency"),
+            "EUR",
+            "fixture precondition: the invoice's own company must not be EUR, or this "
+            "test cannot tell 'compares invoice.currency' from 'compares company currency'",
+        )
+
+        locked = self.manager._lock_invoices_for_processing([invoice.name])
+        result = self.manager._validate_invoice_availability(
+            locked,
+            {
+                "invoice_list": [
+                    {
+                        "invoice": invoice.name,
+                        "amount": float(invoice.outstanding_amount),
+                        "currency": "EUR",
+                    }
+                ]
+            },
+        )
+        self.assertTrue(result["valid"], f"unexpected errors: {result['errors']}")
+        self.assertEqual(result["validated_invoices"][0]["currency"], "EUR")
+
     def test_validate_invoice_availability_missing_invoice(self):
         # An invoice name that was never locked -> "not found or not locked".
         result = self.manager._validate_invoice_availability(
@@ -570,6 +646,77 @@ class TestBatchCreationInnerLogic(EnhancedTestCase):
         self.assertNotIn("member,", message)
         # And it must not be a raw MandatoryError from inside insert().
         self.assertNotIn("Value missing", message)
+
+    def test_append_invoice_rows_rejects_missing_currency(self):
+        """#1464's class, fourth instance: `_append_invoice_rows` used to build
+        `batch_invoice.currency = invoice_data.get("currency", "EUR")`, silently
+        treating a missing "currency" key as EUR-safe. It is masked on the live
+        `_execute_batch_creation_with_isolation` path because
+        `_validate_invoice_availability` now always sets `currency` on every
+        validated invoice -- but `_link_invoices_to_batch` (kept deliberately
+        for callers adding rows to an ALREADY-SAVED batch) calls
+        `_append_invoice_rows` directly with invoice_data dicts that
+        `_validate_invoice_availability` never touched.
+
+        Chosen behaviour: REFUSE at append time (raise, naming the invoice),
+        not carry the blank through to XML generation. Unlike the
+        adapter/generator fixes, this row is written directly onto a
+        `Direct Debit Batch Invoice` child table whose `currency` field is
+        `reqd: 1` -- carrying a blank value through would only surface as a
+        bare, un-named MandatoryError at `save()`, exactly the failure mode the
+        member/membership check three lines above this one in the same
+        function already exists to avoid. Refusing here matches that local
+        precedent instead of introducing a second failure style in one
+        function.
+        """
+        batch_doc = frappe.new_doc("Direct Debit Batch")
+        invoice_data = {
+            "invoice": "SINV-APPEND-NOCUR-001",
+            "member": "MEM-DUMMY",
+            "membership": "MEMB-DUMMY",
+            "amount": 25.0,
+            # No "currency" key at all.
+        }
+
+        with self.assertRaises(SEPAError) as ctx:
+            self.manager._append_invoice_rows(batch_doc, [invoice_data])
+
+        message = str(ctx.exception)
+        self.assertIn("SINV-APPEND-NOCUR-001", message)
+        self.assertIn("EUR", message)
+        self.assertEqual(len(batch_doc.invoices), 0, "no row must be appended once refused")
+
+    def test_append_invoice_rows_rejects_non_eur_currency(self):
+        batch_doc = frappe.new_doc("Direct Debit Batch")
+        invoice_data = {
+            "invoice": "SINV-APPEND-USD-001",
+            "member": "MEM-DUMMY",
+            "membership": "MEMB-DUMMY",
+            "amount": 25.0,
+            "currency": "USD",
+        }
+
+        with self.assertRaises(SEPAError) as ctx:
+            self.manager._append_invoice_rows(batch_doc, [invoice_data])
+
+        self.assertIn("SINV-APPEND-USD-001", str(ctx.exception))
+        self.assertEqual(len(batch_doc.invoices), 0)
+
+    def test_append_invoice_rows_accepts_eur_currency(self):
+        """Control: a EUR invoice_data dict must still append a real row."""
+        batch_doc = frappe.new_doc("Direct Debit Batch")
+        invoice_data = {
+            "invoice": "SINV-APPEND-EUR-001",
+            "member": "MEM-DUMMY",
+            "membership": "MEMB-DUMMY",
+            "amount": 25.0,
+            "currency": "EUR",
+        }
+
+        self.manager._append_invoice_rows(batch_doc, [invoice_data])
+
+        self.assertEqual(len(batch_doc.invoices), 1)
+        self.assertEqual(batch_doc.invoices[0].currency, "EUR")
 
     def test_missing_caller_membership_resolves_via_dues_schedule(self):
         """#1249: si.membership is populated on 0 of 1927 submitted unpaid

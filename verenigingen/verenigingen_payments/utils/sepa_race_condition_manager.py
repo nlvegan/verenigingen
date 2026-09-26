@@ -577,6 +577,7 @@ class SEPABatchRaceConditionManager:
                     si.status,
                     si.outstanding_amount,
                     si.docstatus,
+                    si.currency,
                     si.member,
                     si.membership,
                     -- Aliased explicitly: this is a Link to Membership Dues
@@ -668,6 +669,21 @@ class SEPABatchRaceConditionManager:
 
             db_invoice = invoice_lookup[invoice_name]
 
+            # Validate currency. SEPA Core Direct Debit is EUR-only (#1218, #1286,
+            # #1440). Compare the LOCKED invoice's own currency, not a caller-
+            # supplied value: this check exists precisely because callers cannot be
+            # trusted to have applied it themselves. `!= "EUR"` (not
+            # `currency and currency != "EUR"`) so a blank/None currency is refused
+            # rather than falling through as if it were EUR-safe (#1442's lesson).
+            invoice_currency = db_invoice.get("currency")
+            if invoice_currency != "EUR":
+                result["errors"].append(
+                    f"Invoice {invoice_name} is not in EUR "
+                    f"(currency: {invoice_currency or 'not set'}); "
+                    "SEPA Direct Debit only supports EUR"
+                )
+                continue
+
             # Validate invoice status
             if db_invoice["status"] not in ["Unpaid", "Overdue"]:
                 result["errors"].append(
@@ -686,8 +702,12 @@ class SEPABatchRaceConditionManager:
                 )
                 continue
 
-            # Invoice is valid
+            # Invoice is valid. Carry the AUTHORITATIVE, just-validated currency
+            # forward rather than trusting invoice_data's own (caller-supplied,
+            # possibly absent) "currency" key -- this is what lets
+            # _create_batch_document below drop its "or EUR" fallback (#1464).
             validated_invoice = {**invoice_data}
+            validated_invoice["currency"] = invoice_currency
             validated_invoice["db_record"] = db_invoice
             result["validated_invoices"].append(validated_invoice)
 
@@ -789,10 +809,15 @@ class SEPABatchRaceConditionManager:
             batch_data.get("batch_description", batch_data.get("description"))
             or f"SEPA Batch {batch_data['batch_date']}"
         )
-        batch_doc.currency = (
-            batch_data.get("currency")
-            or (validated_invoices[0].get("currency") if validated_invoices else None)
-            or "EUR"
+        # No "or 'EUR'" fallback (#1464): a blank currency here would previously
+        # default to EUR-safe rather than refuse. It is not reachable in practice
+        # once _validate_invoice_availability has run, since every validated
+        # invoice now carries its own already-checked-EUR currency (set there,
+        # not trusted from the caller) -- but a blank batch_data["currency"] with
+        # no validated invoices at all must still surface as a missing mandatory
+        # field rather than silently becoming EUR.
+        batch_doc.currency = batch_data.get("currency") or (
+            validated_invoices[0].get("currency") if validated_invoices else None
         )
         batch_doc.status = "Draft"
 
@@ -872,12 +897,30 @@ class SEPABatchRaceConditionManager:
                         "Invoice {0}: {1} missing. Supply it in invoice_list, or set it on the Sales Invoice."
                     ).format(invoice_data["invoice"], missing)
                 )
+            # Currency: same EUR-only invariant as _validate_invoice_availability
+            # (#1463/#1464), fourth instance of the class -- this method is also
+            # reached by _link_invoices_to_batch, which is kept for callers
+            # adding rows to an ALREADY-SAVED batch and therefore receives
+            # invoice_data dicts _validate_invoice_availability never touched, so
+            # nothing upstream guarantees "currency" is present or checked.
+            # Refuse here, named, rather than defaulting to "EUR" (the #1464
+            # shape) or letting a blank value fall through to a bare
+            # MandatoryError from Direct Debit Batch Invoice's `reqd: 1` at
+            # save() -- same reasoning as the member/membership check above.
+            invoice_currency = invoice_data.get("currency")
+            if invoice_currency != "EUR":
+                raise SEPAError(
+                    _(
+                        "Invoice {0}: currency is not EUR (currency: {1}); "
+                        "SEPA Direct Debit only supports EUR."
+                    ).format(invoice_data["invoice"], invoice_currency or "not set")
+                )
             batch_invoice = batch_doc.append("invoices", {})
             batch_invoice.invoice = invoice_data["invoice"]
             batch_invoice.member = member
             batch_invoice.membership = membership
             batch_invoice.amount = invoice_data["amount"]
-            batch_invoice.currency = invoice_data.get("currency", "EUR")
+            batch_invoice.currency = invoice_currency
             batch_invoice.member_name = invoice_data.get("member_name", "")
             batch_invoice.iban = invoice_data.get("iban", "")
             batch_invoice.bic = invoice_data.get("bic", "")

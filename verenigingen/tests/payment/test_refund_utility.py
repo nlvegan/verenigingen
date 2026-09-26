@@ -91,12 +91,15 @@ class TestRefundUtilityValidation(EnhancedTestCase):
         self.assertEqual(result["error_code"], "DESCRIPTION_TOO_LONG")
 
     def test_non_receive_payment_rejected(self):
-        # A "Pay" type payment cannot be refunded
+        # A "Pay" type payment cannot be refunded. Derived per-test, not a
+        # fixed literal: a fixed reference_no collides with a leftover row
+        # from a previous run against the unique index on
+        # Payment Entry.custom_mollie_idempotency_key (#1468, same shape as #1438).
         pe = self.create_test_payment_entry(
             payment_type="Pay",
             company=self._bank_company,
             paid_amount=50.0,
-            reference_no="tr_some_payment",
+            reference_no=f"tr_test_{frappe.generate_hash(length=8)}",
             party_type="Supplier",
             party=_make_supplier(self),
         )
@@ -111,15 +114,17 @@ class TestRefundUtilityValidation(EnhancedTestCase):
         self.assertEqual(result["error_code"], "NOT_MOLLIE_PAYMENT")
 
     def test_amount_exceeds_payment_rejected(self):
+        # Derived per-test -- see test_non_receive_payment_rejected above (#1468).
         pe = self.create_test_payment_entry(
-            payment_type="Receive", paid_amount=50.0, reference_no="tr_test_exceed"
+            payment_type="Receive", paid_amount=50.0, reference_no=f"tr_test_{frappe.generate_hash(length=8)}"
         )
         result = initiate_refund(payment_entry_name=pe.name, amount=999.0)
         self.assertEqual(result["error_code"], "AMOUNT_EXCEEDS_PAYMENT")
 
     def test_amount_below_minimum_rejected(self):
+        # Derived per-test -- see test_non_receive_payment_rejected above (#1468).
         pe = self.create_test_payment_entry(
-            payment_type="Receive", paid_amount=50.0, reference_no="tr_test_min"
+            payment_type="Receive", paid_amount=50.0, reference_no=f"tr_test_{frappe.generate_hash(length=8)}"
         )
         result = initiate_refund(payment_entry_name=pe.name, amount=0.0)
         # 0.0 is below MIN_REFUND_AMOUNT (0.01)
@@ -140,6 +145,21 @@ class TestRefundUtilityInitiation(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
+
+        # unittest SKIPS tearDown() -- and therefore the tracked/captured-insert
+        # drains it runs -- whenever setUp() raises below this point. Anything
+        # created before such a failure would otherwise sit uncommitted until
+        # a LATER test's setUp() calls ensure_mollie_reversal_accounts() again,
+        # which commits unconditionally (it has to, to survive per-test
+        # rollback) and would inadvertently persist this test's leftovers too
+        # -- the exact mechanism #1438 and #1467 found. addCleanup runs via
+        # doCleanups() regardless of setUp/test outcome, so registering the
+        # drains here (before the fragile create_test_payment_entry call below)
+        # closes that gap, the same way test_refund_chargeback_integration.py
+        # does it (#1474).
+        self.addCleanup(self._drain_tracked_documents)
+        self.addCleanup(self._drain_captured_inserts)
+
         ensure_mollie_reversal_accounts()
         self.payment_id = f"tr_init_{frappe.generate_hash(length=8)}"
         self.pe = self.create_test_payment_entry(
@@ -182,12 +202,13 @@ class TestRefundUtilityInitiation(EnhancedTestCase):
         self.assertEqual(result["message"], "Mollie rejected")
 
     def test_over_refund_blocked_by_existing_reversal(self):
-        # Create a submitted Pay-type reversal consuming 70 of the 100
+        # Create a submitted Pay-type reversal consuming 70 of the 100.
+        # Derived per-test -- see test_non_receive_payment_rejected above (#1468).
         self.create_test_payment_entry(
             payment_type="Pay",
             company=self._bank_company,
             paid_amount=70.0,
-            reference_no="re_existing_70",
+            reference_no=f"re_test_{frappe.generate_hash(length=8)}",
             party_type="Supplier",
             party=_make_supplier(self),
             custom_original_payment_id=self.payment_id,
@@ -222,11 +243,12 @@ class TestRefundUtilityInitiation(EnhancedTestCase):
         self.assertIn(10.0, called)
 
     def test_over_refund_logs_concurrent_refund_detected(self):
+        # Derived per-test -- see test_non_receive_payment_rejected above (#1468).
         self.create_test_payment_entry(
             payment_type="Pay",
             company=self._bank_company,
             paid_amount=70.0,
-            reference_no="re_existing_70b",
+            reference_no=f"re_test_{frappe.generate_hash(length=8)}",
             party_type="Supplier",
             party=_make_supplier(self),
             custom_original_payment_id=self.payment_id,
@@ -270,11 +292,12 @@ class TestPaymentRefundInfo(EnhancedTestCase):
         pe = self.create_test_payment_entry(
             payment_type="Receive", paid_amount=100.0, reference_no=payment_id
         )
+        # Derived per-test -- see test_non_receive_payment_rejected above (#1468).
         self.create_test_payment_entry(
             payment_type="Pay",
             company=self._bank_company,
             paid_amount=20.0,
-            reference_no="re_info_1",
+            reference_no=f"re_test_{frappe.generate_hash(length=8)}",
             party_type="Supplier",
             party=_make_supplier(self),
             custom_original_payment_id=payment_id,

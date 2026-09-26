@@ -952,7 +952,16 @@ class EnhancedTestDataFactory:
 
         # _exact_name / _exact_email control: force uniqueness unless caller opts out
         if "volunteer_name" in kwargs and not kwargs.pop("_exact_name", False):
-            kwargs["volunteer_name"] = self.force_unique_name(kwargs["volunteer_name"], "Volunteer")
+            # No doctype here (#1466): Volunteer.autoname is a series
+            # (format:Assoc-Vol-{YYYY}-{MM}-{###}) with no relationship to
+            # volunteer_name, an ordinary Data field with no `unique` flag.
+            # A doctype would make force_unique_name run
+            # frappe.db.exists("Volunteer", <this candidate>), which can
+            # never match a real Volunteer.name -- a dead check that only
+            # costs a query. The doctype's actual uniqueness constraint is
+            # one Volunteer per `member` (validate_unique_member_link), not
+            # per volunteer_name.
+            kwargs["volunteer_name"] = self.force_unique_name(kwargs["volunteer_name"])
         if "email" in kwargs and not kwargs.pop("_exact_email", False):
             seq = self.get_next_sequence("vol_email_unique")
             local = kwargs["email"].split("@")[0] if "@" in kwargs["email"] else "vol"

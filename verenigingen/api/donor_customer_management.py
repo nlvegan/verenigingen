@@ -221,55 +221,45 @@ def get_donor_sync_dashboard() -> OperationResult[Dict[str, Any]]:
         # Get sync status summary
         sync_summary = get_sync_status_summary()
 
-        # Get recent sync activities
-        recent_syncs = frappe.db.sql(
-            """
-            SELECT
-                name,
-                donor_name,
-                customer,
-                customer_sync_status,
-                last_customer_sync,
-                modified
-            FROM `tabDonor`
-            WHERE last_customer_sync IS NOT NULL
-            ORDER BY last_customer_sync DESC
-            LIMIT 10
-        """,
-            as_dict=True,
+        # Get recent sync activities. get_list, not raw SQL: donor_name/donor_email rows
+        # go through Donor's own permission query, so a Chapter Board Member sees only
+        # their chapters' members' donors and a plain member only their own (#1365). The
+        # summary counts above stay org-wide.
+        recent_syncs = frappe.get_list(
+            "Donor",
+            filters={"last_customer_sync": ["is", "set"]},
+            fields=[
+                "name",
+                "donor_name",
+                "customer",
+                "customer_sync_status",
+                "last_customer_sync",
+                "modified",
+            ],
+            order_by="last_customer_sync desc",
+            limit=10,
         )
 
         # Get donors needing sync
-        needs_sync = frappe.db.sql(
-            """
-            SELECT
-                name,
-                donor_name,
-                customer_sync_status,
-                modified
-            FROM `tabDonor`
-            WHERE (customer_sync_status IS NULL OR customer_sync_status != 'Synced')
-            AND customer IS NOT NULL
-            ORDER BY modified DESC
-            LIMIT 10
-        """,
-            as_dict=True,
+        needs_sync = frappe.get_list(
+            "Donor",
+            filters=[["customer", "is", "set"]],
+            or_filters=[
+                ["customer_sync_status", "is", "not set"],
+                ["customer_sync_status", "!=", "Synced"],
+            ],
+            fields=["name", "donor_name", "customer_sync_status", "modified"],
+            order_by="modified desc",
+            limit=10,
         )
 
         # Get donors without customers
-        no_customers = frappe.db.sql(
-            """
-            SELECT
-                name,
-                donor_name,
-                donor_email,
-                modified
-            FROM `tabDonor`
-            WHERE (customer IS NULL OR customer = '')
-            ORDER BY modified DESC
-            LIMIT 10
-        """,
-            as_dict=True,
+        no_customers = frappe.get_list(
+            "Donor",
+            filters={"customer": ["is", "not set"]},
+            fields=["name", "donor_name", "donor_email", "modified"],
+            order_by="modified desc",
+            limit=10,
         )
 
         data = {

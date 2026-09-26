@@ -231,12 +231,14 @@ class TestPaymentEntryFactoryIdempotency(EnhancedTestCase):
 
     def test_payment_entry_exists_returns_true_for_existing(self):
         """Test _payment_entry_exists returns True when PE exists."""
-        # Create a submitted Payment Entry
-        pe = self.create_test_payment_entry(
-            paid_amount=100.0, reference_no="tr_idempotency_test_001", submit=True
-        )
+        # Create a submitted Payment Entry. Derived per-test, not a fixed
+        # literal: a fixed reference_no collides with a leftover row from a
+        # previous run against the unique index on
+        # Payment Entry.custom_mollie_idempotency_key (#1468, same shape as #1438).
+        reference_no = f"tr_test_{frappe.generate_hash(length=10)}"
+        pe = self.create_test_payment_entry(paid_amount=100.0, reference_no=reference_no, submit=True)
 
-        result = self.pe_factory._payment_entry_exists("tr_idempotency_test_001")
+        result = self.pe_factory._payment_entry_exists(reference_no)
 
         self.assertTrue(result)
 
@@ -248,13 +250,13 @@ class TestPaymentEntryFactoryIdempotency(EnhancedTestCase):
 
     def test_payment_entry_exists_ignores_cancelled(self):
         """Test _payment_entry_exists ignores cancelled PEs (docstatus=2)."""
-        # Create and then cancel a Payment Entry
-        pe = self.create_test_payment_entry(
-            paid_amount=100.0, reference_no="tr_cancelled_test_001", submit=True
-        )
+        # Create and then cancel a Payment Entry. Derived per-test -- see
+        # test_payment_entry_exists_returns_true_for_existing above (#1468).
+        reference_no = f"tr_test_{frappe.generate_hash(length=10)}"
+        pe = self.create_test_payment_entry(paid_amount=100.0, reference_no=reference_no, submit=True)
         pe.cancel()
 
-        result = self.pe_factory._payment_entry_exists("tr_cancelled_test_001")
+        result = self.pe_factory._payment_entry_exists(reference_no)
 
         self.assertFalse(result)
 
@@ -331,9 +333,10 @@ class TestPaymentEntryFactoryIntegration(EnhancedTestCase):
         # Create a Payment Entry with a specific Decimal amount
         test_amount = Decimal("123.45")
 
+        # Derived per-test -- see TestPaymentEntryFactoryIdempotency above (#1468).
         pe = self.create_test_payment_entry(
             paid_amount=float(test_amount),  # Convert to float for test factory
-            reference_no="tr_decimal_roundtrip_test",
+            reference_no=f"tr_test_{frappe.generate_hash(length=10)}",
             submit=True,
         )
 

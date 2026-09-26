@@ -11,6 +11,7 @@ sequence determination rather than the lookup/validation/caching surface here.
 
 import frappe
 
+from verenigingen.tests.support.sepa_test_company import ensure_sepa_payment_terms_template
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.verenigingen_payments.utils.sepa_mandate_service import (
     SEPAMandateService,
@@ -198,6 +199,10 @@ class TestGetSepaInvoicesWithMandatesCurrencyFilter(VereningingenTestCase):
     def setUp(self):
         super().setUp()
         self.service = SEPAMandateService()
+        # On a fresh site nothing seeds this master (#1505); it is a shared,
+        # lazily-built get-or-create wrapped in suspend_insert_capture() by
+        # its own definition, so calling it here is safe under the drain.
+        ensure_sepa_payment_terms_template()
 
     def _make_collectible_invoice(self, currency=None, dues_rate=22.0):
         """Submit a Sales Invoice that satisfies every join/filter in
