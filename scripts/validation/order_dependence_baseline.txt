@@ -397,6 +397,7 @@ COMMIT_EXEMPT tests/payment/test_sepa_rollback_manager.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/repositories/test_dues_schedule_repository.py::3  # order-dep-exempt
 COMMIT_EXEMPT tests/resilience/test_error_recovery.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/security/test_cor_rate_limiting.py::6  # order-dep-exempt
+COMMIT_EXEMPT tests/security/test_core_client_permission_oracle.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/security/test_csrf_ratelimit_cache_coverage.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/security/test_link_sanitizer.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/security/test_permissions_coverage.py::1  # order-dep-exempt
