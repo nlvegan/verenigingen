@@ -61,6 +61,22 @@ class TestMollieRefundChargebackBusinessLogic(EnhancedTestCase):
     def setUp(self):
         super().setUp()
 
+        # unittest SKIPS tearDown() -- and therefore the tracked/captured-insert
+        # drains it runs -- whenever setUp() raises below this point. Anything
+        # created before such a failure (the Member, Donation and Payment Entry
+        # built a few lines down) would otherwise sit uncommitted until a LATER
+        # test's setUp() calls ensure_mollie_reversal_accounts() again, which
+        # commits unconditionally (it has to, to survive per-test rollback) and
+        # would inadvertently persist this test's leftovers too -- the exact
+        # mechanism #1438 and #1467 found. addCleanup runs via doCleanups()
+        # regardless of setUp/test outcome, so registering the drains here
+        # (before ensure_mollie_reversal_accounts() and everything built after
+        # it) closes that gap, the same way test_refund_chargeback_integration.py
+        # (#1474) and test_refund_utility.py's TestRefundUtilityInitiation (#1468)
+        # do it.
+        self.addCleanup(self._drain_tracked_documents)
+        self.addCleanup(self._drain_captured_inserts)
+
         # Ensure the master data (Mollie bank account + "Mollie Refund" mode of payment)
         # required to build reversal Payment Entries exists for the test company.
         ensure_mollie_reversal_accounts()
