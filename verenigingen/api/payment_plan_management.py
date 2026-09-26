@@ -251,7 +251,9 @@ def send_payment_plan_request_notification(payment_plan):
 
 @frappe.whitelist()
 @self_service_api(operation_type=OperationType.FINANCIAL, implicit_allowed=True)
-def calculate_payment_plan_preview(total_amount, installments, frequency) -> OperationResult[Dict[str, Any]]:
+def calculate_payment_plan_preview(
+    total_amount: float, installments: int, frequency: str
+) -> OperationResult[Dict[str, Any]]:
     """
     Calculate payment plan preview for display
     """
@@ -317,7 +319,9 @@ def get_next_payable_installment(plan_doc):
 
 @frappe.whitelist()
 @self_service_api(operation_type=OperationType.FINANCIAL, implicit_allowed=True)
-def initiate_installment_payment(plan, installment_number, method="mollie") -> OperationResult:
+def initiate_installment_payment(
+    plan: str, installment_number: int, method: str = "mollie"
+) -> OperationResult:
     """Start an online payment for one payment-plan installment.
 
     Validates the plan belongs to the current member and the installment is
