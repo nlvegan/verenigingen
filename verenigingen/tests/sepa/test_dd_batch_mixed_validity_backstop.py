@@ -122,6 +122,66 @@ class TestMinorityInvalidBatchStillRefused(_MixedValidityBase):
         self.assertNotIn(good_invoice_2.name, message)
 
 
+class TestInvalidInvoiceCountIsDistinctNotErrorLines(_MixedValidityBase):
+    """#1455 independent review: `validate_batch_invoices_optimized`'s
+    `errors` is a list of ERROR LINES (also capped at 10), not of invoices.
+    One invoice can fail more than one check (a zero `outstanding_amount`
+    fails BOTH the required-field check, since 0 is falsy, AND the
+    amount > 0 check), so counting `len(errors)` reported a single
+    doubly-invalid invoice as "2 invalid invoice(s)". Both the count and the
+    omitted-detail note must be computed over DISTINCT invoice names, from
+    the FULL (uncapped) error set -- not the capped `errors` list used for
+    the displayed detail.
+    """
+
+    def test_one_invoice_two_failures_reports_one_invalid_invoice(self):
+        _good_invoice, good_row = self._valid_row(25.0, "1990-01-01")
+        bad_invoice, bad_row = self._valid_row(30.0, "1997-08-08")
+        # One invoice, two independent failures: outstanding_amount=0 is
+        # falsy (fails the required-field check) AND fails the amount>0
+        # check -- two error lines, ONE invalid invoice.
+        bad_invoice.db_set("outstanding_amount", 0)
+
+        message = self._insert_and_expect_refusal([good_row, bad_row])
+
+        self.assertIn("1 invalid invoice(s)", message)
+        self.assertNotIn("2 invalid invoice(s)", message)
+        self.assertIn(bad_invoice.name, message)
+
+    def test_more_than_ten_invalid_invoices_reports_true_count_and_omission(self):
+        """11 invalid invoices, each with a SINGLE-error defect (an invoice
+        status SEPA doesn't collect from, with currency/amount left alone) --
+        so error-line count and invoice count coincide here, isolating the
+        >10 CAPPING concern from the multi-error-per-invoice concern the
+        sibling test covers. `errors` is capped at 10 error lines / 10
+        invoices, so the 11th invoice's detail is omitted. The message must
+        still say 11 invalid (mixed with 1 valid row, so this hits
+        DirectDebitBatch's "This batch contains N invalid invoice(s)"
+        message, not the all-invalid one), plus an explicit note that 1 more
+        isn't shown."""
+        _good_invoice, good_row = self._valid_row(25.0, "1990-01-01")
+        rows = [good_row]
+        bad_invoices = []
+        for i in range(11):
+            invoice, row = self._valid_row(10.0 + i, frappe.utils.add_days("1980-01-01", i))
+            # A status SEPA does not collect from -- the ONLY check this trips
+            # (currency stays EUR, amount stays positive).
+            invoice.db_set("status", "Paid")
+            bad_invoices.append(invoice)
+            rows.append(row)
+
+        message = self._insert_and_expect_refusal(rows)
+
+        self.assertIn("This batch contains 11 invalid invoice(s)", message)
+        self.assertIn("1 more invalid invoice(s) not shown", message)
+        # The 11th (omitted) invoice's own name need not appear in the capped
+        # detail -- that is the point of the omission note -- but the first
+        # ten's error lines must still be there.
+        for invoice in bad_invoices[:10]:
+            self.assertIn(invoice.name, message)
+        self.assertNotIn(bad_invoices[10].name, message)
+
+
 class TestAllValidBatchStillSaves(_MixedValidityBase):
     def test_all_valid_batch_saves_without_refusal(self):
         """The control: without it, a guard that refused EVERY batch would

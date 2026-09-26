@@ -215,11 +215,22 @@ class DirectDebitBatch(Document):
         validation_result = batch_processing_service.validate_batch_invoices_optimized(self)
 
         if not validation_result["is_valid"]:
+            # Count DISTINCT invalid invoices, not error lines: one invoice
+            # can fail more than one check, and `errors` is a list of error
+            # lines (also capped at 10) -- counting len(errors) reported a
+            # single doubly-invalid invoice as "2 invalid invoice(s)" (#1455
+            # review). `invalid_invoice_count`/`omitted_invoice_count` are
+            # computed by validate_batch_invoices_optimized over the FULL,
+            # uncapped error set.
+            detail = "; ".join(validation_result["errors"])
+            omitted = validation_result.get("omitted_invoice_count", 0)
+            if omitted:
+                detail += _(" (and {0} more invalid invoice(s) not shown)").format(omitted)
             frappe.throw(
                 _(
                     "This batch contains {0} invalid invoice(s) and cannot be saved. "
                     "Remove or fix them before saving: {1}"
-                ).format(len(validation_result["errors"]), "; ".join(validation_result["errors"]))
+                ).format(validation_result["invalid_invoice_count"], detail)
             )
 
     def validate_sequence_types(self):

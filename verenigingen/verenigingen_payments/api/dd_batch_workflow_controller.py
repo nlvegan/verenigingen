@@ -230,11 +230,26 @@ def approve_batch(batch_name: str, approval_notes=None):
 
         # validate_batch_for_approval() loads its own copy of the batch and db_set()s
         # risk_level/approval_notes, which bumps the DB `modified` timestamp. Reload
-        # our in-memory doc so the subsequent save() doesn't fail with a
-        # TimestampMismatchError ("has been modified after you have opened it").
+        # our in-memory doc so the note-append below starts from the freshest
+        # approval_notes rather than a stale in-memory copy.
         batch.reload()
 
-        # Add approval notes
+        # #1455 (maintainer ruling, Option A): approval is the point money is
+        # about to move, so refuse here if the batch now holds an invoice that
+        # is no longer valid for SEPA -- e.g. it was paid through another
+        # channel, or its currency changed -- after the batch was created or
+        # last saved. This must run UNCONDITIONALLY, not only when
+        # approval_notes is given: appending a note used to be the only path
+        # that re-ran controller validation (via save()), so approving with no
+        # notes silently skipped invoice validation altogether.
+        batch.validate_invoices()
+
+        # Add approval notes. db_set(), not save(): this is a pure metadata
+        # write (the note text), and invoice validity was already enforced
+        # immediately above -- a second full validate() cycle here would be
+        # redundant at best and, if a batch ever degrades between the two
+        # calls, would fail with a less specific error than the explicit
+        # check above already gives.
         if approval_notes:
             current_notes = batch.approval_notes or ""
             timestamp = now_datetime().strftime("%Y-%m-%d %H:%M:%S")
@@ -245,7 +260,7 @@ def approve_batch(batch_name: str, approval_notes=None):
             else:
                 batch.approval_notes = new_note
 
-            batch.save()
+            batch.db_set("approval_notes", batch.approval_notes)
 
         # Determine next state based on current workflow state
         current_state = batch.approval_status
@@ -299,7 +314,14 @@ def reject_batch(batch_name: str, rejection_reason):
         else:
             batch.approval_notes = rejection_note
 
-        batch.save()
+        # #1455 (maintainer ruling, Option A): rejecting -- and annotating --
+        # a batch is the remediation path an operator uses to get a batch that
+        # has gone bad (e.g. an invoice was paid through another channel after
+        # the batch was created) out of circulation, so it must ALWAYS
+        # succeed, even when the batch now holds an invalid invoice. db_set(),
+        # not save(): this is a pure metadata write and must not re-run
+        # validate_invoices(), which a save() here would.
+        batch.db_set("approval_notes", batch.approval_notes)
 
         # Persist the rejection so the document state actually transitions
         # (previously only the note was recorded; approval_status stayed Pending).
@@ -398,10 +420,22 @@ def trigger_sepa_generation(batch_name: str):
         if Roles.SYSTEM_MANAGER not in user_roles and Roles.FINANCIAL_MANAGER not in user_roles:
             frappe.throw(_("You don't have permission to generate SEPA files"))
 
+        # #1455 (maintainer ruling, Option A): SEPA generation is the point
+        # money is about to move, so refuse here -- with the same
+        # invoice-naming message validate_invoices() always gives -- if the
+        # batch now holds an invalid invoice (e.g. approved earlier, then an
+        # invoice was paid through another channel before generation ran).
+        # The XML generator below also refuses on an invalid transaction, but
+        # only with a less specific, whole-batch SEPA-XML error; this check
+        # gives the operator the same clear, invoice-naming message every
+        # other refusal in this class gives.
+        batch.validate_invoices()
+
         # Generate SEPA file using existing method
         sepa_file = batch.generate_sepa_xml()
 
-        # Add generation note
+        # Add generation note. db_set(), not save(): pure metadata write,
+        # invoice validity already enforced above.
         timestamp = now_datetime().strftime("%Y-%m-%d %H:%M:%S")
         generation_note = f"{timestamp} - {frappe.session.user}: SEPA file generated"
 
@@ -411,7 +445,7 @@ def trigger_sepa_generation(batch_name: str):
         else:
             batch.approval_notes = generation_note
 
-        batch.save()
+        batch.db_set("approval_notes", batch.approval_notes)
 
         return {"success": True, "sepa_file": sepa_file, "message": "SEPA file generated successfully"}
 

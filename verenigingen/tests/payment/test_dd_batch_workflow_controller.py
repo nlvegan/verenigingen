@@ -302,6 +302,145 @@ class TestDDBatchApprovalEndpoints(EnhancedTestCase):
         self.assertIn(batch.name, names)
 
 
+class TestWorkflowActionsOnInvoiceDegradedAfterCreation(EnhancedTestCase):
+    """#1455 independent-review finding: `validate_invoices()` now runs on
+    EVERY `save()`, and approve_batch/reject_batch/trigger_sepa_generation all
+    plain-`save()`d a batch to persist a note. So a batch whose invoice
+    degraded AFTER it was created and last saved -- e.g. a member paid the
+    same invoice through a different channel, dropping outstanding_amount to
+    0 -- could no longer be rejected or annotated: the note-append's own
+    `save()` re-ran `validate_invoices()` and refused, blocking the exact
+    remediation path an operator needs for a batch that has gone bad.
+
+    Required behaviour (ruling A applied at the point money would move):
+      - reject (and pure annotation) must ALWAYS succeed, even on a degraded
+        batch -- it takes the batch out of circulation.
+      - approve and SEPA generation must be REFUSED, naming the invalid
+        invoice, because money is about to move at those two points.
+      - editing the batch to remove the bad invoice and saving must succeed.
+
+    `create_test_direct_debit_batch` builds real EUR invoices/mandates and
+    `insert()`s (itself proof the batch was valid at creation); degrading one
+    invoice's `outstanding_amount` via `frappe.db.set_value` afterwards -- not
+    at row-append time -- is what reproduces "went bad after the batch was
+    saved" rather than "was invalid from the start" (already covered by
+    test_dd_batch_mixed_validity_backstop.py).
+
+    `apply_sepa_test_configuration()` is required for the generation test:
+    without it, `Verenigingen Settings.company` stays the ambient
+    `_Test Company`, whose leading underscore fails the SEPA initiating-party
+    character check BEFORE the generator ever reaches per-transaction
+    amount/currency validation -- masking the exact failure this test needs to
+    observe (see `sepa_test_configuration.py`'s module docstring, #528).
+    Applied in `setUp`, not just `setUpClass`: `EnhancedTestCase.tearDown()`
+    restores `Verenigingen Settings.company` to its pre-test value after every
+    test method (`_restore_verenigingen_settings`), so a class-level-only
+    application is silently undone before the second test in this class runs
+    -- exactly the caveat `sepa_test_configuration.py`'s own docstring names
+    for `EnhancedTestCase` callers.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from verenigingen.tests.support.sepa_test_configuration import apply_sepa_test_configuration
+
+        apply_sepa_test_configuration()
+
+    def _batch_with_one_degraded_invoice(self, **kwargs):
+        batch = self.create_test_direct_debit_batch(invoice_count=2, **kwargs)
+        bad_invoice = batch.invoices[0].invoice
+        # Simulate "paid through another channel": the batch row's own amount
+        # is frozen at creation time (verified: the SEPA XML adapter reads
+        # invoice_item.amount, never re-fetches the invoice), so only a write
+        # to the real Sales Invoice reproduces a batch that validate_invoices()
+        # -- which DOES re-query the invoice live -- now refuses.
+        frappe.db.set_value("Sales Invoice", bad_invoice, "outstanding_amount", 0)
+        return batch, bad_invoice
+
+    def test_reject_always_succeeds_on_a_degraded_batch(self):
+        batch, bad_invoice = self._batch_with_one_degraded_invoice()
+
+        result = ctrl.reject_batch(batch_name=batch.name, rejection_reason="Invoice paid elsewhere")
+
+        self.assertTrue(result["success"])
+        self.assertEqual(
+            frappe.db.get_value("Direct Debit Batch", batch.name, "approval_status"), "Rejected"
+        )
+        notes = frappe.db.get_value("Direct Debit Batch", batch.name, "approval_notes")
+        self.assertIn("Invoice paid elsewhere", notes)
+
+    def test_approve_without_notes_is_refused_on_a_degraded_batch(self):
+        """The discriminator: before the fix, calling approve_batch with NO
+        approval_notes never re-ran validate_invoices() at all (the note-append
+        save() was the only path that did), so a degraded batch was silently
+        approved -- exactly the money-moving failure ruling A exists to stop."""
+        batch, bad_invoice = self._batch_with_one_degraded_invoice()
+        batch.db_set("approval_status", "Pending Approval")
+        batch.db_set("risk_level", "Low")
+
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            ctrl.approve_batch(batch_name=batch.name)
+
+        self.assertIn(bad_invoice, str(ctx.exception))
+        self.assertNotEqual(
+            frappe.db.get_value("Direct Debit Batch", batch.name, "approval_status"), "Approved"
+        )
+
+    def test_approve_with_notes_is_refused_on_a_degraded_batch(self):
+        batch, bad_invoice = self._batch_with_one_degraded_invoice()
+        batch.db_set("approval_status", "Pending Approval")
+        batch.db_set("risk_level", "Low")
+
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            ctrl.approve_batch(batch_name=batch.name, approval_notes="Looks fine")
+
+        self.assertIn(bad_invoice, str(ctx.exception))
+        self.assertNotEqual(
+            frappe.db.get_value("Direct Debit Batch", batch.name, "approval_status"), "Approved"
+        )
+
+    def test_sepa_generation_is_refused_on_a_degraded_batch(self):
+        """Measured (by reverting the fix): without the explicit
+        validate_invoices() call before generate_sepa_xml(), the SEPA file
+        gets generated FIRST -- sepa_file_generated flips to 1 -- for the
+        STALE row amount (the XML adapter reads invoice_item.amount, never
+        the invoice's current state), and only the incidental note-append
+        save() afterwards happens to catch the degraded invoice, by which
+        point the file already exists. This asserts generation itself never
+        ran: sepa_file_generated must stay falsy."""
+        batch, bad_invoice = self._batch_with_one_degraded_invoice()
+        batch.db_set("approval_status", "Approved")
+
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            ctrl.trigger_sepa_generation(batch_name=batch.name)
+
+        self.assertIn(bad_invoice, str(ctx.exception))
+        self.assertFalse(frappe.db.get_value("Direct Debit Batch", batch.name, "sepa_file_generated"))
+
+    def test_editing_out_the_degraded_invoice_then_saving_succeeds(self):
+        """The remediation path: an operator opens the degraded draft batch,
+        removes the bad row, and saves -- validation then runs on the
+        remaining valid set and passes."""
+        batch, bad_invoice = self._batch_with_one_degraded_invoice()
+
+        # Premise: the batch as-is is refused.
+        batch.reload()
+        with self.assertRaises(frappe.ValidationError):
+            batch.save()
+
+        # A failed save() still bumps the in-memory `modified` timestamp
+        # (set_user_and_timestamp() runs before validate()), even though the
+        # DB row itself never changed -- reload to avoid a spurious
+        # TimestampMismatchError on the next save() below.
+        batch.reload()
+
+        batch.invoices = [row for row in batch.invoices if row.invoice != bad_invoice]
+        batch.save()
+
+        self.assertEqual(len(batch.invoices), 1)
+        self.assertNotIn(bad_invoice, [row.invoice for row in batch.invoices])
+
+
 class TestRequireSepaPermissionErrorPropagation(EnhancedTestCase):
     """Regression: @require_sepa_permission no longer masks endpoint-body errors.
 
