@@ -647,6 +647,77 @@ class TestBatchCreationInnerLogic(EnhancedTestCase):
         # And it must not be a raw MandatoryError from inside insert().
         self.assertNotIn("Value missing", message)
 
+    def test_append_invoice_rows_rejects_missing_currency(self):
+        """#1464's class, fourth instance: `_append_invoice_rows` used to build
+        `batch_invoice.currency = invoice_data.get("currency", "EUR")`, silently
+        treating a missing "currency" key as EUR-safe. It is masked on the live
+        `_execute_batch_creation_with_isolation` path because
+        `_validate_invoice_availability` now always sets `currency` on every
+        validated invoice -- but `_link_invoices_to_batch` (kept deliberately
+        for callers adding rows to an ALREADY-SAVED batch) calls
+        `_append_invoice_rows` directly with invoice_data dicts that
+        `_validate_invoice_availability` never touched.
+
+        Chosen behaviour: REFUSE at append time (raise, naming the invoice),
+        not carry the blank through to XML generation. Unlike the
+        adapter/generator fixes, this row is written directly onto a
+        `Direct Debit Batch Invoice` child table whose `currency` field is
+        `reqd: 1` -- carrying a blank value through would only surface as a
+        bare, un-named MandatoryError at `save()`, exactly the failure mode the
+        member/membership check three lines above this one in the same
+        function already exists to avoid. Refusing here matches that local
+        precedent instead of introducing a second failure style in one
+        function.
+        """
+        batch_doc = frappe.new_doc("Direct Debit Batch")
+        invoice_data = {
+            "invoice": "SINV-APPEND-NOCUR-001",
+            "member": "MEM-DUMMY",
+            "membership": "MEMB-DUMMY",
+            "amount": 25.0,
+            # No "currency" key at all.
+        }
+
+        with self.assertRaises(SEPAError) as ctx:
+            self.manager._append_invoice_rows(batch_doc, [invoice_data])
+
+        message = str(ctx.exception)
+        self.assertIn("SINV-APPEND-NOCUR-001", message)
+        self.assertIn("EUR", message)
+        self.assertEqual(len(batch_doc.invoices), 0, "no row must be appended once refused")
+
+    def test_append_invoice_rows_rejects_non_eur_currency(self):
+        batch_doc = frappe.new_doc("Direct Debit Batch")
+        invoice_data = {
+            "invoice": "SINV-APPEND-USD-001",
+            "member": "MEM-DUMMY",
+            "membership": "MEMB-DUMMY",
+            "amount": 25.0,
+            "currency": "USD",
+        }
+
+        with self.assertRaises(SEPAError) as ctx:
+            self.manager._append_invoice_rows(batch_doc, [invoice_data])
+
+        self.assertIn("SINV-APPEND-USD-001", str(ctx.exception))
+        self.assertEqual(len(batch_doc.invoices), 0)
+
+    def test_append_invoice_rows_accepts_eur_currency(self):
+        """Control: a EUR invoice_data dict must still append a real row."""
+        batch_doc = frappe.new_doc("Direct Debit Batch")
+        invoice_data = {
+            "invoice": "SINV-APPEND-EUR-001",
+            "member": "MEM-DUMMY",
+            "membership": "MEMB-DUMMY",
+            "amount": 25.0,
+            "currency": "EUR",
+        }
+
+        self.manager._append_invoice_rows(batch_doc, [invoice_data])
+
+        self.assertEqual(len(batch_doc.invoices), 1)
+        self.assertEqual(batch_doc.invoices[0].currency, "EUR")
+
     def test_missing_caller_membership_resolves_via_dues_schedule(self):
         """#1249: si.membership is populated on 0 of 1927 submitted unpaid
         invoices on veg11 (measured 2026-09-22, read-only production copy), so

@@ -897,12 +897,30 @@ class SEPABatchRaceConditionManager:
                         "Invoice {0}: {1} missing. Supply it in invoice_list, or set it on the Sales Invoice."
                     ).format(invoice_data["invoice"], missing)
                 )
+            # Currency: same EUR-only invariant as _validate_invoice_availability
+            # (#1463/#1464), fourth instance of the class -- this method is also
+            # reached by _link_invoices_to_batch, which is kept for callers
+            # adding rows to an ALREADY-SAVED batch and therefore receives
+            # invoice_data dicts _validate_invoice_availability never touched, so
+            # nothing upstream guarantees "currency" is present or checked.
+            # Refuse here, named, rather than defaulting to "EUR" (the #1464
+            # shape) or letting a blank value fall through to a bare
+            # MandatoryError from Direct Debit Batch Invoice's `reqd: 1` at
+            # save() -- same reasoning as the member/membership check above.
+            invoice_currency = invoice_data.get("currency")
+            if invoice_currency != "EUR":
+                raise SEPAError(
+                    _(
+                        "Invoice {0}: currency is not EUR (currency: {1}); "
+                        "SEPA Direct Debit only supports EUR."
+                    ).format(invoice_data["invoice"], invoice_currency or "not set")
+                )
             batch_invoice = batch_doc.append("invoices", {})
             batch_invoice.invoice = invoice_data["invoice"]
             batch_invoice.member = member
             batch_invoice.membership = membership
             batch_invoice.amount = invoice_data["amount"]
-            batch_invoice.currency = invoice_data.get("currency", "EUR")
+            batch_invoice.currency = invoice_currency
             batch_invoice.member_name = invoice_data.get("member_name", "")
             batch_invoice.iban = invoice_data.get("iban", "")
             batch_invoice.bic = invoice_data.get("bic", "")
