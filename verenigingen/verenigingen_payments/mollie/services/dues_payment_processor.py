@@ -1070,11 +1070,44 @@ class DuesPaymentProcessor:
         # Validate clearing account belongs to the same company
         clearing_account_company = frappe.db.get_value("Account", mollie_clearing_account, "company")
         if clearing_account_company and clearing_account_company != company:
-            # Try to find a compatible clearing account for this company
-            # Look for an account with "Mollie" in name for this company
-            compatible_account = frappe.db.get_value(
-                "Account", {"company": company, "account_name": ["like", "%Mollie%"], "is_group": 0}, "name"
+            # Try to find a compatible clearing account for this company. Look for
+            # an account with "Mollie" in the name for this company.
+            #
+            # `frappe.get_all` with no `order_by` defaults to `creation DESC`, so
+            # with more than one match the old code (`frappe.db.get_value`) silently
+            # picked whichever account was created most recently, with no signal an
+            # operator could see (#1451, the Mollie sibling of #1434's Ponto fix).
+            # Refuse instead of guessing, and name the setting that resolves it - do
+            # NOT fall through to the company default below either, which would
+            # just be another arbitrary pick.
+            #
+            # `disabled: 0` excludes accounts that can never actually receive a
+            # posting: ERPNext refuses to create GL entries against a disabled
+            # Account at all (general_ledger.validate_disabled_accounts), so a
+            # disabled `%Mollie%` account - e.g. an old clearing account left
+            # behind after a re-configuration - is not a real candidate and must
+            # not force a refusal that blocks the one genuinely usable match.
+            compatible_accounts = frappe.get_all(
+                "Account",
+                filters={
+                    "company": company,
+                    "account_name": ["like", "%Mollie%"],
+                    "is_group": 0,
+                    "disabled": 0,
+                },
+                pluck="name",
             )
+            if len(compatible_accounts) > 1:
+                frappe.throw(
+                    _(
+                        "Multiple Mollie clearing accounts match '%Mollie%' for company {0}: {1}. "
+                        "Mollie Settings.mollie_clearing_account is configured for a different "
+                        "company ({2}); point it at the correct account for {0} before this "
+                        "payment can be recorded."
+                    ).format(company, ", ".join(compatible_accounts), clearing_account_company),
+                    title=_("Ambiguous Mollie Clearing Account"),
+                )
+            compatible_account = compatible_accounts[0] if compatible_accounts else None
             if compatible_account:
                 frappe.logger().info(
                     f"Using company-specific clearing account {compatible_account} instead of {mollie_clearing_account}"
