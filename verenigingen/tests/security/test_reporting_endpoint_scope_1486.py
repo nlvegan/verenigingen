@@ -160,8 +160,10 @@ class TestExportAgreementsReportRoleScope(MemberOwnershipProbeMixin, EnhancedTes
             "ExportAgreementsAuditorMechanism", "Verenigingen Member", "Verenigingen Auditor"
         )
         self._grant_literal_role_bypassing_profile_resync(user_email, "Verenigingen Auditor")
-        self.assertIn("Verenigingen Auditor", frappe.get_roles(user_email))
         with self.set_user(user_email):
+            # Precondition, read after the switch so it resolves through the
+            # switched session rather than a pre-set_user cache (cache-guard).
+            self.assertIn("Verenigingen Auditor", frappe.get_roles())
             result = self._export()
         self.assertTrue(result["success"])
 
