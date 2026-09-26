@@ -38,18 +38,37 @@ def get_active_chapters():
 
 
 def get_existing_donor():
-    """Get existing donor record for logged-in user"""
+    """Get existing donor record for logged-in user.
+
+    More than one Donor sharing this e-mail is an unresolvable ambiguity --
+    refuse (return None) rather than disclosing one arbitrary duplicate's
+    name/phone/type as "your existing donor record" (#1449, same rule as
+    #1356/#1384/#1389/#1392/#1396/#1406).
+    """
     if frappe.session.user == "Guest":
         return None
 
-    donor = frappe.db.get_value(
-        "Donor",
-        {"donor_email": frappe.session.user},
-        ["name", "donor_name", "phone", "donor_type"],
-        as_dict=True,
-    )
+    from verenigingen.services.member.donor.donor_member_reconciliation import find_donors_by_field
+    from verenigingen.utils.error_codes import log_operation_error
 
-    return donor
+    matches = find_donors_by_field(
+        "donor_email", frappe.session.user, fields=("name", "donor_name", "phone", "donor_type")
+    )
+    if len(matches) > 1:
+        donor_names = [d.name for d in matches]
+        frappe.logger("verenigingen.donor_mapping").warning(
+            f"Multiple donors ({len(matches)}) found for donor_email={frappe.session.user!r}. "
+            f"Refusing to prefill an arbitrary one: {donor_names}"
+        )
+        log_operation_error(
+            "DONOR_001",
+            f"donor_email {frappe.session.user}",
+            additional_info={"donor_email": frappe.session.user, "matching_donors": donor_names},
+        )
+        return None
+    if matches:
+        return matches[0]
+    return None
 
 
 @frappe.whitelist(allow_guest=True)
