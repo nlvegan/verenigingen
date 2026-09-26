@@ -17,8 +17,41 @@ import unittest
 import frappe
 from frappe.utils import add_days, today
 
-from verenigingen.api.membership_application_review import approve_membership_application
+from verenigingen.api.membership_application_review import (
+    approve_membership_application,
+    reject_membership_application,
+)
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+
+def _create_chapter_pending_applicant(test_case, chapter_name, suffix, tag):
+    """A Pending applicant holding an ACTIVE Chapter Member row for `chapter_name`.
+
+    Shared by TestBoardMemberApprovalPermissions and
+    TestApplicationReviewExistenceOracle below (duplicate-helper ratchet: keep
+    this logic in ONE place rather than one copy per class). `tag` only varies
+    the generated name/email so fixtures from the two classes cannot collide.
+
+    can_user_manage_application() matches the caller's manageable chapters against
+    `tabChapter Member` rows with enabled=1 AND status='Active', so an applicant
+    without one is unreachable by any board member and the test would pass for the
+    wrong reason.
+    """
+    unique = f"{suffix}{test_case.uid[:6]}"
+    member = test_case.create_test_member(
+        first_name=f"Applicant{unique}",
+        last_name=f"{tag}{test_case.uid[6:]}",
+        email=f"applicant.{tag.lower()}.{unique}.{test_case.uid}@test.invalid",
+        birth_date=add_days(today(), -365 * 30),
+    )
+    test_case.add_member_to_test_chapter(member.name, chapter_name)
+    member.reload()
+    member.application_status = "Pending"
+    member.status = "Pending"
+    member.selected_membership_type = test_case.membership_type
+    member.save(ignore_permissions=True)
+    member.reload()
+    return member
 
 
 class TestMemberApprovalPermissions(EnhancedTestCase):
@@ -162,28 +195,8 @@ class TestBoardMemberApprovalPermissions(EnhancedTestCase):
         self.membership_type = "Test Board Approval Membership"
 
     def _create_pending_applicant(self, chapter_name, suffix):
-        """A Pending applicant holding an ACTIVE Chapter Member row for `chapter_name`.
-
-        can_user_manage_application() matches the caller's manageable chapters against
-        `tabChapter Member` rows with enabled=1 AND status='Active', so an applicant
-        without one is unreachable by any board member and the test would pass for the
-        wrong reason.
-        """
-        unique = f"{suffix}{self.uid[:6]}"
-        member = self.create_test_member(
-            first_name=f"Applicant{unique}",
-            last_name=f"Board{self.uid[6:]}",
-            email=f"applicant.board.{unique}.{self.uid}@test.invalid",
-            birth_date=add_days(today(), -365 * 30),
-        )
-        self.add_member_to_test_chapter(member.name, chapter_name)
-        member.reload()
-        member.application_status = "Pending"
-        member.status = "Pending"
-        member.selected_membership_type = self.membership_type
-        member.save(ignore_permissions=True)
-        member.reload()
-        return member
+        """See module-level `_create_chapter_pending_applicant`."""
+        return _create_chapter_pending_applicant(self, chapter_name, suffix, "Board")
 
     def test_board_member_can_approve_own_chapter_applicant(self):
         """A non-admin board member approves an applicant in their own chapter.
@@ -281,6 +294,143 @@ class TestBoardMemberApprovalPermissions(EnhancedTestCase):
         # `class ValidationError(Exception)` and `class PermissionError(Exception)` as
         # siblings, so given the enclosing assertRaises it could never fail.
         self.assertEqual(str(ctx.exception), "", "bare PermissionError carries no message")
+
+
+class TestApplicationReviewExistenceOracle(EnhancedTestCase):
+    """#1414: approve_membership_application / reject_membership_application share
+    #1394's existence-oracle shape on their own HIGH-tier population.
+
+    _validate_member_for_review used to run BEFORE validate_chapter_permission_or_throw,
+    so an unknown member_name raised a distinguishable ValidationError("Invalid member
+    reference") while an existing-but-foreign one raised PermissionError from the
+    chapter-permission check -- letting a non-staff Chapter Board Member (HIGH tier,
+    not just staff) enumerate real Member ids.
+
+    Coordinator ruling (#1414): a caller SCOPED to specific chapters (chapter access
+    not "all") must get an IDENTICAL refusal for an unknown id and a foreign one. A
+    caller whose chapter access covers every member ("all" -- staff/admin) may keep
+    the distinguishable "Invalid member reference", since existence reveals nothing
+    extra to them.
+    """
+
+    def setUp(self):
+        super().setUp()
+        if not frappe.db.exists("Membership Type", "Test Oracle Membership"):
+            mt = frappe.get_doc(
+                {
+                    "doctype": "Membership Type",
+                    "membership_type_name": "Test Oracle Membership",
+                    "minimum_amount": 15,
+                    "is_active": 1,
+                    "role_profile": "Verenigingen Member",
+                }
+            )
+            mt.insert(ignore_permissions=True)
+            self.factory.track_document("Membership Type", mt.name, priority=1)
+        else:
+            frappe.db.set_value(
+                "Membership Type", "Test Oracle Membership", "is_active", 1, update_modified=False
+            )
+        self.membership_type = "Test Oracle Membership"
+
+        own_chapter = self.ensure_test_chapter("TEST Oracle Board Own")
+        other_chapter = self.ensure_test_chapter("TEST Oracle Board Other")
+        self.board = self.create_test_board_member(own_chapter.name, permissions_level="Admin")
+        self.foreign_applicant = self._create_pending_applicant(other_chapter.name, "oracle")
+        self.unknown_member_name = f"NONEXISTENT-ORACLE-{frappe.generate_hash(length=10)}"
+
+    def _create_pending_applicant(self, chapter_name, suffix):
+        """See module-level `_create_chapter_pending_applicant`.
+
+        (own_chapter is deliberately NOT this member's chapter -- see
+        test_board_member_cannot_approve_other_chapter_applicant above for why that
+        matters to can_user_manage_application.)
+        """
+        return _create_chapter_pending_applicant(self, chapter_name, suffix, "Oracle")
+
+    @staticmethod
+    def _message_log_contents(log):
+        """frappe.throw() appends a dict to message_log carrying a random,
+        per-call `__frappe_exc_id` -- unrelated to member_name or existence,
+        so comparing it would fail two calls that are otherwise identical.
+        Strip it before comparing content."""
+        return [{k: v for k, v in entry.items() if k != "__frappe_exc_id"} for entry in log]
+
+    def test_approve_refuses_unknown_and_foreign_identically_for_scoped_board_member(self):
+        with self.as_user(self.board.user):
+            frappe.clear_messages()
+            with self.assertRaises(frappe.PermissionError) as unknown_ctx:
+                approve_membership_application(member_name=self.unknown_member_name)
+            unknown_log = frappe.get_message_log()
+
+            frappe.clear_messages()
+            with self.assertRaises(frappe.PermissionError) as foreign_ctx:
+                approve_membership_application(member_name=self.foreign_applicant.name)
+            foreign_log = frappe.get_message_log()
+
+        self.assertEqual(
+            str(unknown_ctx.exception),
+            str(foreign_ctx.exception),
+            "an unknown member_name must refuse with the identical message as a foreign one",
+        )
+        self.assertEqual(len(unknown_log), 1)
+        self.assertEqual(
+            self._message_log_contents(unknown_log),
+            self._message_log_contents(foreign_log),
+        )
+
+        self.foreign_applicant.reload()
+        self.assertEqual(
+            self.foreign_applicant.application_status,
+            "Pending",
+            "a denied approval must not have mutated application_status",
+        )
+
+    def test_reject_refuses_unknown_and_foreign_identically_for_scoped_board_member(self):
+        with self.as_user(self.board.user):
+            frappe.clear_messages()
+            with self.assertRaises(frappe.PermissionError) as unknown_ctx:
+                reject_membership_application(member_name=self.unknown_member_name, reason="test")
+            unknown_log = frappe.get_message_log()
+
+            frappe.clear_messages()
+            with self.assertRaises(frappe.PermissionError) as foreign_ctx:
+                reject_membership_application(member_name=self.foreign_applicant.name, reason="test")
+            foreign_log = frappe.get_message_log()
+
+        self.assertEqual(
+            str(unknown_ctx.exception),
+            str(foreign_ctx.exception),
+            "an unknown member_name must refuse with the identical message as a foreign one",
+        )
+        self.assertEqual(len(unknown_log), 1)
+        self.assertEqual(
+            self._message_log_contents(unknown_log),
+            self._message_log_contents(foreign_log),
+        )
+
+        self.foreign_applicant.reload()
+        self.assertEqual(
+            self.foreign_applicant.application_status,
+            "Pending",
+            "a denied rejection must not have mutated application_status",
+        )
+
+    def test_approve_unknown_member_still_distinguishable_for_all_chapter_access(self):
+        """A caller whose chapter access is "all" (Verenigingen Staff) may keep the
+        distinguishable "Invalid member reference" -- existence reveals nothing extra
+        to them (#1414 coordinator ruling). Regression guard: staff UX (a clear error
+        for a typo'd member_name) must survive this fix."""
+        with self.as_staff():
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                approve_membership_application(member_name=self.unknown_member_name)
+        self.assertIn("Invalid member reference", str(ctx.exception))
+
+    def test_reject_unknown_member_still_distinguishable_for_all_chapter_access(self):
+        with self.as_staff():
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                reject_membership_application(member_name=self.unknown_member_name, reason="test")
+        self.assertIn("Invalid member reference", str(ctx.exception))
 
 
 if __name__ == "__main__":

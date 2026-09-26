@@ -23,10 +23,15 @@ from verenigingen.utils.security.audit_logging import log_security_event
 from verenigingen.utils.validation.api_validators import APIValidator
 
 
-def _validate_member_for_review(member_name, operation_label):
-    """Validate member exists for review operations (approve/reject).
+def _sanitize_member_name_for_review(member_name, operation_label):
+    """Sanitize the raw member_name input for review operations (approve/reject).
 
-    Sanitizes the member_name input, checks existence, and logs security events.
+    Split out of the combined sanitize+exists-check that used to be
+    ``_validate_member_for_review`` (#1414) so a member_name can be sanitized
+    and used for the chapter-permission decision BEFORE any existence-revealing
+    check runs -- see ``_check_member_exists_for_review`` for why the ordering
+    matters. Sanitizing here first is safe for every caller: it never touches
+    whether member_name refers to a real Member.
 
     Args:
         member_name: Raw member name from API call
@@ -36,21 +41,10 @@ def _validate_member_for_review(member_name, operation_label):
         Sanitized member_name string.
 
     Raises:
-        frappe.ValidationError: On invalid member or sanitization failure.
+        frappe.ValidationError: On sanitization failure.
     """
     try:
-        member_name = APIValidator.sanitize_text(str(member_name), max_length=255)
-
-        if not frappe.db.exists("Member", member_name):
-            log_security_event(
-                "unauthorized_access_attempt",
-                {"message": f"Attempted {operation_label} of non-existent member: {member_name}"},
-                severity="error",
-            )
-            frappe.throw(_("Invalid member reference"))
-
-        return member_name
-
+        return APIValidator.sanitize_text(str(member_name), max_length=255)
     except frappe.ValidationError:
         raise
     except Exception as e:
@@ -60,6 +54,34 @@ def _validate_member_for_review(member_name, operation_label):
             severity="warning",
         )
         frappe.throw(_("Invalid input data provided"))
+
+
+def _check_member_exists_for_review(member_name, operation_label):
+    """Existence check carrying the friendly, existence-REVEALING "Invalid
+    member reference" message.
+
+    #1414: approve_membership_application/reject_membership_application must
+    call validate_chapter_permission_or_throw BEFORE this. That gate already
+    refuses an unknown member_name identically to an existing-but-foreign one
+    -- can_user_manage_application() finds zero `Chapter Member` rows either
+    way, so a caller SCOPED to specific chapters (chapter access != "all")
+    never reaches this function for an unknown id at all. Calling this only
+    after that gate means a distinguishable "doesn't exist" answer is given
+    only to a caller whose chapter access already covers every member
+    (staff/admin, get_user_manageable_chapters() == "all"), for whom
+    existence reveals nothing new. Reordering this ahead of the permission
+    check would restore the oracle this fix closes.
+
+    Raises:
+        frappe.ValidationError: If member_name does not refer to a real Member.
+    """
+    if not frappe.db.exists("Member", member_name):
+        log_security_event(
+            "unauthorized_access_attempt",
+            {"message": f"Attempted {operation_label} of non-existent member: {member_name}"},
+            severity="error",
+        )
+        frappe.throw(_("Invalid member reference"))
 
 
 def _throw_membership_deletion_blocked(membership):
@@ -477,15 +499,16 @@ def can_review_application(member_name: str) -> bool:
     enforced server-side by validate_chapter_permission_or_throw regardless of what
     the client renders, so a stale or bypassed check here cannot grant anything.
 
-    Deliberately does NOT call _validate_member_for_review (unlike
-    approve_membership_application/reject_membership_application below). That
-    helper's unscoped frappe.db.exists() throws a distinct "Invalid member
-    reference" for an unknown id, while can_user_manage_application() returns a
-    plain False for an existing-but-inaccessible one -- an existence oracle over
-    Member ids reachable by any MEDIUM-tier caller (Volunteer, Auditor, Chapter
-    Board Member, ...), not just staff (#1394). A read-only probe has no
-    legitimate reason to distinguish "doesn't exist" from "exists, not yours", so
-    both now fall through the identical code path to can_user_manage_application's
+    Deliberately does NOT call _check_member_exists_for_review (unlike
+    approve_membership_application/reject_membership_application below, and
+    unlike this same function before #1394). That check's unscoped
+    frappe.db.exists() throws a distinct "Invalid member reference" for an
+    unknown id, while can_user_manage_application() returns a plain False for
+    an existing-but-inaccessible one -- an existence oracle over Member ids
+    reachable by any MEDIUM-tier caller (Volunteer, Auditor, Chapter Board
+    Member, ...), not just staff (#1394). A read-only probe has no legitimate
+    reason to distinguish "doesn't exist" from "exists, not yours", so both
+    now fall through the identical code path to can_user_manage_application's
     own False -- never raising for either.
     """
     from verenigingen.services.chapter.chapter_security import can_user_manage_application
@@ -558,7 +581,7 @@ def approve_membership_application(
     This separation ensures proper security compliance and maintainable code.
     """
     # Input validation and sanitization
-    member_name = _validate_member_for_review(member_name, "approval")
+    member_name = _sanitize_member_name_for_review(member_name, "approval")
     sanitized = _sanitize_text_fields(
         {
             "membership_type": (membership_type, 255),
@@ -569,6 +592,19 @@ def approve_membership_application(
     membership_type = sanitized["membership_type"]
     chapter = sanitized["chapter"]
     notes = sanitized["notes"]
+
+    # Check chapter-based permissions BEFORE any existence-revealing check
+    # (#1414). validate_chapter_permission_or_throw already refuses an unknown
+    # member_name identically to an existing-but-foreign one for a caller
+    # scoped to specific chapters (can_user_manage_application finds zero
+    # Chapter Member rows either way) -- this ordering is what closes the
+    # existence oracle that let a non-staff Chapter Board Member enumerate
+    # real Member ids. Only a caller whose chapter access is "all" reaches the
+    # existence check below, and for them existence reveals nothing new.
+    from verenigingen.services.chapter.chapter_security import validate_chapter_permission_or_throw
+
+    validate_chapter_permission_or_throw(member_name, "approve")
+    _check_member_exists_for_review(member_name, "approval")
 
     # Serialize concurrent approvals of the SAME member with a per-member advisory
     # lock. Without it, concurrent approvals each pass the idempotency guard while
@@ -610,10 +646,9 @@ def _approve_membership_application_locked(
     if member.application_status not in ["Pending"]:
         frappe.throw(_("This application cannot be approved in its current state"))
 
-    # Check chapter-based permissions
-    from verenigingen.services.chapter.chapter_security import validate_chapter_permission_or_throw
-
-    validate_chapter_permission_or_throw(member_name, "approve")
+    # Chapter permission and existence were already checked in
+    # approve_membership_application, before the advisory lock (#1414) --
+    # do not re-check here.
 
     # Resolve and validate membership type
     membership_type = resolve_membership_type(member, membership_type)
@@ -703,7 +738,7 @@ def reject_membership_application(
 ):
     """Reject a membership application with enhanced template support and input validation"""
     # Input validation and sanitization
-    member_name = _validate_member_for_review(member_name, "rejection")
+    member_name = _sanitize_member_name_for_review(member_name, "rejection")
     sanitized = _sanitize_text_fields(
         {
             "reason": (reason, 1000, False),
@@ -716,6 +751,15 @@ def reject_membership_application(
     email_template = sanitized["email_template"]
     rejection_category = sanitized["rejection_category"]
     internal_notes = sanitized["internal_notes"]
+
+    # Check chapter-based permissions BEFORE any existence-revealing check
+    # (#1414) -- see approve_membership_application for why the ordering
+    # matters: this is what closes the existence oracle that let a non-staff
+    # Chapter Board Member enumerate real Member ids.
+    from verenigingen.services.chapter.chapter_security import validate_chapter_permission_or_throw
+
+    validate_chapter_permission_or_throw(member_name, "reject")
+    _check_member_exists_for_review(member_name, "rejection")
 
     # Validate email template if provided
     if email_template and not frappe.db.exists("Email Template", email_template):
@@ -730,11 +774,6 @@ def reject_membership_application(
     # rejecting an approved application.
     if member.application_status not in ["Pending", "Payment Failed", "Payment Cancelled"]:
         frappe.throw(_("This application cannot be rejected in its current state"))
-
-    # Check chapter-based permissions
-    from verenigingen.services.chapter.chapter_security import validate_chapter_permission_or_throw
-
-    validate_chapter_permission_or_throw(member_name, "reject")
 
     # Note: Frappe automatically manages transactions for @frappe.whitelist() functions
 
