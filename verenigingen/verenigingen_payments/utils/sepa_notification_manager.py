@@ -782,7 +782,7 @@ def send_sepa_notification(notification_type: str, context: str, priority: str =
 
 def _ensure_staff_only_notification_history_access():
     """get_sepa_notification_history has no legitimate non-admin front door: SEPA
-    Notification Log is a raw SQL table (see _ensure_notification_tables above),
+    Notification Log is a raw SQL table (created by sepa_ops_tables at install/migrate),
     not a registered DocType, so there is no permission_query_conditions hook to
     lean on and no member/chapter link to scope by (#1486). Same admin-only shape
     as sepa_mandate_diagnostics._ensure_staff_only_diagnostics_access (#1329),

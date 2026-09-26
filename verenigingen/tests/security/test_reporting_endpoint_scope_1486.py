@@ -21,8 +21,8 @@ Four fixes:
 
 - get_sepa_notification_history (verenigingen_payments/utils/
   sepa_notification_manager.py): SEPA Notification Log is a raw SQL table
-  (`tabSEPA_Notification_Log`, created ad hoc by
-  SEPANotificationManager._ensure_notification_tables), not a registered
+  (`tabSEPA_Notification_Log`, created at install/migrate by
+  sepa_ops_tables.ensure_sepa_ops_tables since #1510), not a registered
   DocType -- no permission_query_conditions hook to lean on and no
   member/chapter link to scope by. Admin-only guard, the same shape as
   sepa_mandate_diagnostics._ensure_staff_only_diagnostics_access (#1329), kept
@@ -142,12 +142,12 @@ class TestExportAgreementsReportRoleScope(MemberOwnershipProbeMixin, EnhancedTes
 class TestSepaNotificationHistoryStaffOnly(MemberOwnershipProbeMixin, EnhancedTestCase):
     """Assertions key on the guard's decision (the denial code), never on "success".
 
-    tabSEPA_Notification_Log is created ad hoc by SEPANotificationManager.__init__,
-    and that CREATE TABLE is swallowed as ImplicitCommitError once the transaction
-    holds a write -- which every test here does before the call. So on a site that
-    never had the table (every fresh CI shard) the query AFTER the guard returns
-    success=False too (#1510): a bare assertFalse(success) passes with the guard
-    deleted, and assertTrue(success) fails with the guard correct.
+    "success" conflates a refusal with ANY failure after the guard. Until #1510
+    that failure was real: tabSEPA_Notification_Log was created ad hoc in the
+    manager's constructor, the CREATE TABLE was swallowed once the transaction
+    held a write, and on a fresh CI site the query after the guard returned
+    success=False too. A bare assertFalse(success) then passed with the guard
+    deleted, and assertTrue(success) failed with the guard correct.
     """
 
     def _get_history(self):
