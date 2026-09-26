@@ -487,7 +487,7 @@ _persist_bank_gl_account::2
 _persist_company::9  # clone family, 9 near-identical pair(s)
 _persist_customer::3
 _persist_doc::2  # clone family, 1 near-identical pair(s)
-_persist_eur_company::20  # clone family, 75 near-identical pair(s)
+_persist_eur_company::20  # clone family, 64 near-identical pair(s)
 _persist_isolated_company::2  # clone family, 1 near-identical pair(s)
 _persist_ledger_mapping::5
 _persist_settings::3  # clone family, 1 near-identical pair(s)

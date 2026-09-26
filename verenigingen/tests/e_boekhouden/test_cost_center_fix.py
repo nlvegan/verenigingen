@@ -20,6 +20,7 @@ Run with:
         --module verenigingen.tests.e_boekhouden.test_cost_center_fix
 """
 
+import hashlib
 import json
 import unittest
 from unittest.mock import patch
@@ -35,7 +36,9 @@ from verenigingen.e_boekhouden.utils.eboekhouden_cost_center_fix import (
     fix_cost_center_groups,
     migrate_cost_centers_with_hierarchy,
 )
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, suspend_insert_capture
+from verenigingen.tests.utils.secure_operation_race_helpers import duplicate_key_result
+from verenigingen.utils.secure_operations import SecureOperationResult
 
 
 class _CostCenterTestBase(EnhancedTestCase):
@@ -53,12 +56,19 @@ class _CostCenterTestBase(EnhancedTestCase):
         name = "TEST EBkh CostCenter Co"
         if frappe.db.exists("Company", name):
             return name
-        doc = frappe.new_doc("Company")
-        doc.company_name = name
-        doc.abbr = "TECC"
-        doc.default_currency = "EUR"
-        doc.country = "Netherlands"
-        doc.insert(ignore_permissions=True)
+        # Shared, lazily-built fixture: Company.on_update() cascades into a
+        # default Cost Center hierarchy (root + "Main"), so this build must be
+        # exempted from the captured-insert drain the same way
+        # get_eur_test_company() is, or whichever test class runs first "owns"
+        # the row and its teardown deletes it out from under every later class
+        # in the shard (#328 shape).
+        with suspend_insert_capture():
+            doc = frappe.new_doc("Company")
+            doc.company_name = name
+            doc.abbr = "TECC"
+            doc.default_currency = "EUR"
+            doc.country = "Netherlands"
+            doc.insert(ignore_permissions=True)
         return name
 
     def _persist_cost_center(self, name, is_group=0, parent=None):
@@ -86,6 +96,211 @@ class TestEnsureRootCostCenter(_CostCenterTestBase):
     def test_root_is_group(self):
         root = ensure_root_cost_center(self.company)
         self.assertEqual(frappe.db.get_value("Cost Center", root, "is_group"), 1)
+
+
+class _IsolatedCompanyTestBase(EnhancedTestCase):
+    """A throwaway EUR company built FRESH inside each test method's own
+    transaction -- deliberately NOT `_CostCenterTestBase.company`.
+
+    That fixture is built once in setUpClass and its insert is committed, so
+    later deleting its default cost centers and reinserting a same-named root
+    collides with `_drain_captured_inserts`' own pre-delete `frappe.db.
+    rollback()`: that rollback resurrects the ORIGINAL committed root+"Main"
+    pair under the identical autoname (Cost Center autonames as
+    "{cost_center_name} - {abbr}", which is deterministic per company), and the
+    drain then correctly refuses to delete a root that -- once resurrected --
+    has a real child ("Cannot delete ... as it has child nodes"). Measured: this
+    produces a harmless but noisy TEST-LEAK warning on every test that deletes
+    and recreates the shared company's root.
+
+    Building the company here instead means the pre-drain rollback has nothing
+    pre-existing to resurrect: the company was never committed, so the whole
+    scenario (company, its auto-created defaults, this test's delete+recreate)
+    is undone together and there is nothing left with the captured name.
+    """
+
+    def _create_isolated_company(self):
+        # Keyed on the test method itself (not a shared counter) so two test
+        # CLASSES running their own test methods can never generate the same
+        # company/abbr pair, regardless of execution order.
+        tag = hashlib.md5(f"{type(self).__name__}.{self._testMethodName}".encode()).hexdigest()[:6]
+        name = f"TEST EBkh RootCC Fix {tag}"
+        doc = frappe.new_doc("Company")
+        doc.company_name = name
+        doc.abbr = f"TR{tag}"
+        doc.default_currency = "EUR"
+        doc.country = "Netherlands"
+        doc.insert(ignore_permissions=True)
+        return name
+
+    def _delete_all_cost_centers(self, company):
+        # Leaves (is_group=0) before groups: a group with a live child cannot
+        # be deleted first.
+        for cc in frappe.get_all(
+            "Cost Center", filters={"company": company}, fields=["name"], order_by="is_group asc"
+        ):
+            frappe.delete_doc("Cost Center", cc.name, force=True, ignore_permissions=True)
+
+    def _persist_root_cost_center(self, company):
+        """Insert a root Cost Center for `company` the same way ensure_root_
+        cost_center()'s create path does (post-#1359), bypassing the function
+        under test -- used to plant the row a "concurrent creator" already won
+        the race to insert."""
+        abbr = frappe.db.get_value("Company", company, "abbr")
+        doc = frappe.new_doc("Cost Center")
+        doc.cost_center_name = company
+        doc.company = company
+        doc.is_group = 1
+        doc.parent_cost_center = None
+        doc.flags.ignore_mandatory = True
+        doc.insert(ignore_permissions=True)
+        self.assertEqual(doc.name, f"{company} - {abbr}")
+        return doc.name
+
+
+class TestEnsureRootCostCenterCreatePath(_IsolatedCompanyTestBase):
+    """#1359: ensure_root_cost_center()'s create branch is only reached when a
+    company has NO cost center matching any of its three existing-root checks
+    (root by is_group+blank-parent, abbr-pattern name, cost_center_name==company).
+    In practice that only happens for a company whose default cost centers were
+    deleted after Company.on_update() auto-created them (manual cleanup, e.g.) --
+    so the test reproduces that state directly rather than asserting on the
+    auto-created row every other test in this module relies on.
+    """
+
+    def test_create_path_reached_when_defaults_are_gone(self):
+        company = self._create_isolated_company()
+        self._delete_all_cost_centers(company)
+        self.assertEqual(frappe.db.count("Cost Center", {"company": company}), 0)
+
+        root = ensure_root_cost_center(company)
+
+        self.assertTrue(root, "create branch must produce a usable root, not None")
+        self.assertEqual(frappe.db.get_value("Cost Center", root, "is_group"), 1)
+        self.assertIn(frappe.db.get_value("Cost Center", root, "parent_cost_center"), ("", None))
+        self.assertEqual(frappe.db.get_value("Cost Center", root, "cost_center_name"), company)
+
+    def test_create_path_does_not_log_an_error(self):
+        # A successful create is not a failure path; no Error Log should record it.
+        error_log_marker = frappe.utils.now_datetime()
+        company = self._create_isolated_company()
+        self._delete_all_cost_centers(company)
+
+        root = ensure_root_cost_center(company)
+
+        self.assertTrue(root)
+        self.assertFalse(
+            frappe.db.exists(
+                "Error Log",
+                {"method": "Cost Center Creation Failed", "creation": [">=", error_log_marker]},
+            )
+        )
+
+
+class TestEnsureRootCostCenterDuplicateRace(_IsolatedCompanyTestBase):
+    """secure_document_operation() swallows the DuplicateEntryError a concurrent
+    caller's race raises here and reports success=False instead of re-raising, so
+    the `except frappe.DuplicateEntryError` ensure_root_cost_center() relied on to
+    recognise "another process just created this" was unreachable -- and doubly
+    so before #1359, since the create attempt it wrapped always failed on
+    MandatoryError first (see TestEnsureRootCostCenterCreatePath). Now that the
+    create attempt can succeed, this race is live and must be recoverable.
+    """
+
+    def test_duplicate_race_returns_the_winners_root_instead_of_none(self):
+        # The "concurrent creator" already won: its root row genuinely exists.
+        company = self._create_isolated_company()
+        self._delete_all_cost_centers(company)
+        winner_name = self._persist_root_cost_center(company)
+
+        # Simulate the race window itself: ensure_root_cost_center()'s own
+        # pre-checks (is_group+blank-parent lookup, abbr-pattern `exists`,
+        # cost_center_name==company lookup) must all report NOTHING found --
+        # that is the window a real concurrent creator wins in -- even though
+        # `winner` already exists, since planting it up front (as above) would
+        # otherwise let the FIRST pre-check find it directly and never touch
+        # the create attempt / duplicate-key recovery this test targets. Only
+        # the RECOVERY lookup that runs AFTER the mocked failed insert may see
+        # it for real.
+        real_get_value = frappe.db.get_value
+        real_exists = frappe.db.exists
+        op_attempted = {"done": False}
+
+        def _fake_get_value(doctype, filters=None, *args, **kwargs):
+            if not op_attempted["done"] and doctype == "Cost Center" and isinstance(filters, dict):
+                return None
+            return real_get_value(doctype, filters, *args, **kwargs)
+
+        def _fake_exists(doctype, *args, **kwargs):
+            if not op_attempted["done"] and doctype == "Cost Center":
+                return False
+            return real_exists(doctype, *args, **kwargs)
+
+        def _duplicate_result(*args, **kwargs):
+            op_attempted["done"] = True
+            return duplicate_key_result("Cost Center", winner_name)
+
+        with patch.object(frappe.db, "get_value", side_effect=_fake_get_value):
+            with patch.object(frappe.db, "exists", side_effect=_fake_exists):
+                with patch.object(ccfix, "secure_document_operation", side_effect=_duplicate_result):
+                    result = ensure_root_cost_center(company)
+
+        self.assertEqual(result, winner_name)
+
+    def test_non_duplicate_failure_still_logs_and_returns_none(self):
+        # Control: a genuine (non-duplicate) failure must still be reported,
+        # and must NOT be papered over as "found the existing one" even when
+        # a row that WOULD match the recovery lookup genuinely exists. A
+        # fixture with no matching row at all cannot discriminate this: an
+        # `is_duplicate_key_error()` that always returned True would still
+        # find nothing and return None "by accident", passing identically to
+        # the real, correct code. So plant a real match the same way the race
+        # test does, and use the same fake-get_value/exists-until-the-
+        # operation-is-attempted harness to force the create attempt without
+        # letting the pre-checks find it first.
+        self.expectErrorLog("Cost Center Creation Failed")
+        error_log_marker = frappe.utils.now_datetime()
+        company = self._create_isolated_company()
+        self._delete_all_cost_centers(company)
+        existing_name = self._persist_root_cost_center(company)
+
+        real_get_value = frappe.db.get_value
+        real_exists = frappe.db.exists
+        op_attempted = {"done": False}
+
+        def _fake_get_value(doctype, filters=None, *args, **kwargs):
+            if not op_attempted["done"] and doctype == "Cost Center" and isinstance(filters, dict):
+                return None
+            return real_get_value(doctype, filters, *args, **kwargs)
+
+        def _fake_exists(doctype, *args, **kwargs):
+            if not op_attempted["done"] and doctype == "Cost Center":
+                return False
+            return real_exists(doctype, *args, **kwargs)
+
+        other_failure = SecureOperationResult(False, "test_root_cc_other_failure")
+        other_failure.add_error("Operation failed: PermissionError('No create permission for Cost Center')")
+
+        def _other_failure_result(*args, **kwargs):
+            op_attempted["done"] = True
+            return other_failure
+
+        with patch.object(frappe.db, "get_value", side_effect=_fake_get_value):
+            with patch.object(frappe.db, "exists", side_effect=_fake_exists):
+                with patch.object(ccfix, "secure_document_operation", side_effect=_other_failure_result):
+                    result = ensure_root_cost_center(company)
+
+        # A genuine non-duplicate failure must return None -- NOT
+        # `existing_name`, even though that row is right there waiting for a
+        # wrongly-lenient duplicate-key check to "recover" into.
+        self.assertIsNone(result)
+        self.assertNotEqual(result, existing_name)
+        self.assertTrue(
+            frappe.db.exists(
+                "Error Log",
+                {"method": "Cost Center Creation Failed", "creation": [">=", error_log_marker]},
+            )
+        )
 
 
 class TestCreateCostCenterSafe(_CostCenterTestBase):
