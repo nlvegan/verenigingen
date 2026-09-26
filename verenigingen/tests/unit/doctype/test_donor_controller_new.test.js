@@ -303,6 +303,108 @@ const customDonorTests = {
 				getControllerTest().testEvent('refresh');
 			}).not.toThrow();
 		});
+	},
+
+	// Ported from the deleted verenigingen/tests/unit/doctype/test_donor_controller.js
+	// (issue #1454). That file never actually exercised donor.js: its "passing" tests
+	// asserted on locally re-implemented helper functions with no connection to the
+	// controller, and the handful that did `require()` the real donor.js referenced
+	// button-scoped functions (validate_bsn_dialog, sync_donation_history,
+	// create_donation_agreement) that donor.js never exports, so they crashed before
+	// reaching their (also stale) assertions. These tests instead drive the real
+	// button callbacks the way `refresh` wires them up.
+	'Real donor.js Button Behavior': (getControllerTest) => {
+		beforeEach(() => {
+			global.frappe.ui.Dialog = jest.fn(function (opts) {
+				this._opts = opts;
+				this.show = jest.fn();
+				this.hide = jest.fn();
+				this.set_df_property = jest.fn();
+				this.get_value = jest.fn();
+				return this;
+			});
+			global.frappe.new_doc = jest.fn();
+		});
+
+		function getButtonCallback(label) {
+			const call = getControllerTest().mockForm.add_custom_button.mock.calls.find((c) => c[0] === label);
+			if (!call) {
+				throw new Error(`No "${label}" button was registered by refresh()`);
+			}
+			return call[1];
+		}
+
+		it('calls the donation-history sync backend method with the donor name', () => {
+			getControllerTest().testEvent('refresh');
+			global.frappe.call.mockClear();
+
+			getButtonCallback('Sync Donation History')();
+
+			expect(global.frappe.call).toHaveBeenCalledWith(
+				expect.objectContaining({
+					method: 'verenigingen.utils.donation_history_manager.sync_donor_history',
+					args: { donor_name: getControllerTest().mockForm.doc.name }
+				})
+			);
+		});
+
+		it('shows a red alert containing the backend error message when the sync reports failure', () => {
+			getControllerTest().testEvent('refresh');
+			global.frappe.call.mockImplementationOnce(({ callback }) =>
+				callback({ message: { success: false, error: 'boom' } })
+			);
+
+			getButtonCallback('Sync Donation History')();
+
+			expect(global.frappe.show_alert).toHaveBeenCalledWith(
+				expect.objectContaining({
+					message: expect.stringContaining('boom'),
+					indicator: 'red'
+				})
+			);
+		});
+
+		it('does not crash and falls back to "Unknown error" when the sync call returns no message', () => {
+			getControllerTest().testEvent('refresh');
+			// A backend method that returns None (no explicit `return`) surfaces here
+			// as `r.message` being undefined, not as a rejected/errored call.
+			global.frappe.call.mockImplementationOnce(({ callback }) => callback({}));
+
+			expect(() => {
+				getButtonCallback('Sync Donation History')();
+			}).not.toThrow();
+
+			expect(global.frappe.show_alert).toHaveBeenCalledWith(
+				expect.objectContaining({
+					message: expect.stringContaining('Unknown error'),
+					indicator: 'red'
+				})
+			);
+		});
+
+		it('opens a prefilled Periodic Donation Agreement instead of calling the backend directly', () => {
+			getControllerTest().testEvent('refresh');
+
+			getButtonCallback('Create Donation Agreement')();
+
+			expect(global.frappe.new_doc).toHaveBeenCalledWith('Periodic Donation Agreement', {
+				donor: getControllerTest().mockForm.doc.name,
+				donor_name: getControllerTest().mockForm.doc.donor_name
+			});
+		});
+
+		it('builds the Validate BSN dialog with a "bsn" field', () => {
+			getControllerTest().testEvent('refresh');
+
+			getButtonCallback('Validate BSN')();
+
+			expect(global.frappe.ui.Dialog).toHaveBeenCalledWith(
+				expect.objectContaining({
+					title: 'Validate BSN',
+					fields: expect.arrayContaining([expect.objectContaining({ fieldname: 'bsn' })])
+				})
+			);
+		});
 	}
 };
 

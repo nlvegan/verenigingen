@@ -204,7 +204,8 @@ function sync_donation_history(frm) {
 				frm.reload_doc();
 			} else {
 				frappe.show_alert({
-					message: __('Error syncing donation history: ') + (r.message.error || 'Unknown error'),
+					message:
+						__('Error syncing donation history: ') + ((r.message && r.message.error) || 'Unknown error'),
 					indicator: 'red'
 				});
 			}
