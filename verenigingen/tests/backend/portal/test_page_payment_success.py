@@ -98,7 +98,9 @@ class TestPagePaymentSuccess(EnhancedTestCase):
 
     def test_validate_payment_id_mismatch_is_rejected(self):
         """A wrong payment_id for an existing document is rejected (IDOR / reference forgery)."""
-        donation = self._make_donation(payment_id="tr_correct_id")
+        # Derived per-test: a fixed literal collides with a leftover row from a
+        # previous run against the unique index on Donation.payment_id (#1468).
+        donation = self._make_donation(payment_id=f"tr_test_{frappe.generate_hash(length=10)}")
         is_valid, result = payment_success.validate_payment_document_access(
             "Donation", donation.name, "tr_WRONG_id"
         )
@@ -107,9 +109,10 @@ class TestPagePaymentSuccess(EnhancedTestCase):
 
     def test_validate_payment_id_match_passes(self):
         """A matching payment_id resolves to the real document."""
-        donation = self._make_donation(payment_id="tr_match_me")
+        payment_id = f"tr_test_{frappe.generate_hash(length=10)}"
+        donation = self._make_donation(payment_id=payment_id)
         is_valid, result = payment_success.validate_payment_document_access(
-            "Donation", donation.name, "tr_match_me"
+            "Donation", donation.name, payment_id
         )
         self.assertTrue(is_valid)
         self.assertEqual(result.name, donation.name)
@@ -176,12 +179,15 @@ class TestPagePaymentSuccess(EnhancedTestCase):
         possible for this method - the real, reachable behaviour for the allowed
         doctypes on this site.
         """
-        donation = self._make_donation(paid=0, payment_id="tr_ctx_check")
+        # Derived per-test: a fixed literal collides with a leftover row from a
+        # previous run against the unique index on Donation.payment_id (#1468).
+        payment_id = f"tr_test_{frappe.generate_hash(length=10)}"
+        donation = self._make_donation(paid=0, payment_id=payment_id)
         frappe.local.form_dict = frappe._dict(
             {
                 "doctype": "Donation",
                 "docname": donation.name,
-                "payment_id": "tr_ctx_check",
+                "payment_id": payment_id,
             }
         )
         context = frappe._dict()
@@ -192,8 +198,9 @@ class TestPagePaymentSuccess(EnhancedTestCase):
 
     def test_check_payment_status_non_mollie_method(self):
         """check_payment_status returns 'unknown' for a document with no Mollie method."""
-        donation = self._make_donation(payment_id="tr_x")
-        result = payment_success.check_payment_status(donation, "tr_x")
+        payment_id = f"tr_test_{frappe.generate_hash(length=10)}"
+        donation = self._make_donation(payment_id=payment_id)
+        result = payment_success.check_payment_status(donation, payment_id)
         self.assertEqual(result["status"], "unknown")
 
     # ------------------------------------------------------------------
@@ -315,15 +322,18 @@ class TestPagePaymentSuccess(EnhancedTestCase):
         With no Mollie payment_method the status resolves to 'unknown', but the
         endpoint still reports success and never leaks beyond the validated doc.
         """
-        donation = self._make_donation(payment_id="tr_refresh", paid=0)
-        result = payment_success.refresh_payment_status("Donation", donation.name, "tr_refresh")
+        payment_id = f"tr_test_{frappe.generate_hash(length=10)}"
+        donation = self._make_donation(payment_id=payment_id, paid=0)
+        result = payment_success.refresh_payment_status("Donation", donation.name, payment_id)
         self.assertTrue(result["success"])
         self.assertEqual(result["status"], "unknown")
         self.assertEqual(result["is_paid"], 0)
 
     def test_refresh_status_payment_id_mismatch_rejected(self):
         """A wrong payment_id is rejected even for a real allowed document."""
-        donation = self._make_donation(payment_id="tr_real")
+        # Derived per-test: a fixed literal collides with a leftover row from a
+        # previous run against the unique index on Donation.payment_id (#1468).
+        donation = self._make_donation(payment_id=f"tr_test_{frappe.generate_hash(length=10)}")
         result = payment_success.refresh_payment_status("Donation", donation.name, "tr_forged")
         self.assertFalse(result["success"])
 
@@ -607,7 +617,9 @@ class TestPagePaymentSuccess(EnhancedTestCase):
         branch at all, so the invariant has to hold here too, not just on the
         no-credentials path above.
         """
-        donation = self._make_donation(payment_id="tr_real")
+        # Derived per-test: a fixed literal collides with a leftover row from a
+        # previous run against the unique index on Donation.payment_id (#1468).
+        donation = self._make_donation(payment_id=f"tr_test_{frappe.generate_hash(length=10)}")
         bad_token = "0" * 64
         missing = "Assoc-Dnt-2026-99999-nonexistent"
 
