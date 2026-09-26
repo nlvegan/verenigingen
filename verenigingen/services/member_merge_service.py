@@ -307,6 +307,15 @@ class MemberMergeService(StatelessService):
         source.check_permission("write")
         target.check_permission("write")
 
+        # #1325: refuse before any write if deleting the source would be
+        # refused and converted into an anonymization (#1306). Checking this
+        # up front -- before target.save() or any dependency delete -- means
+        # a blocked merge changes NEITHER Member: the earlier shape let
+        # target.save() and the anonymization's own frappe.db.commit() land
+        # on the same connection before the eventual raise, so a merge that
+        # was reported as a failure had already partially completed.
+        self._ensure_source_deletable(source)
+
         # Track changes for audit
         changes = []
         secondary_emails = []
@@ -368,6 +377,49 @@ class MemberMergeService(StatelessService):
             "changes_applied": len(changes),
             "secondary_emails_saved": len(secondary_emails),
         }
+
+    def _ensure_source_deletable(self, source: Document) -> None:
+        """
+        Refuse the merge up front if deleting `source` would be refused.
+
+        Reuses MemberCleanupService._find_blocked_schedules -- the SAME
+        read-only predicate Member.on_trash's handle_member_deletion (#1306)
+        consults before deciding to anonymize instead of delete -- so
+        "would this merge succeed" and "would a direct delete succeed" never
+        disagree. Queries ALL of the source's dues schedules regardless of
+        status, matching handle_member_deletion's own query exactly:
+        DuesScheduleRepository.get_schedules_for_members filters to
+        status="Active", which would miss a Cancelled-but-still-referenced
+        schedule that handle_member_deletion would still catch.
+
+        Raises:
+            frappe.ValidationError: if any schedule is still referenced by
+                another document (e.g. a Sales Invoice), naming the schedule
+                and its references so the caller knows what to resolve first.
+        """
+        from verenigingen.services.member.lifecycle.member_cleanup_service import (
+            get_member_cleanup_service,
+        )
+
+        schedule_names = frappe.get_all(
+            "Membership Dues Schedule", filters={"member": source.name}, pluck="name"
+        )
+        if not schedule_names:
+            return
+
+        blocked = get_member_cleanup_service()._find_blocked_schedules(source.name, schedule_names)
+        if not blocked:
+            return
+
+        refs_text = "; ".join(
+            f"{schedule} ({', '.join(f'{dt} {dn}' for dt, dn in refs)})" for schedule, refs in blocked.items()
+        )
+        frappe.throw(
+            _(
+                "Cannot merge: source member {0} has a Membership Dues Schedule still "
+                "referenced by another record ({1}). Resolve those references before merging."
+            ).format(source.name, refs_text)
+        )
 
     def _delete_source_member_and_dependencies(self, source: Document) -> None:
         """
