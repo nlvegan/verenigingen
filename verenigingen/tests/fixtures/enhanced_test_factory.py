@@ -382,6 +382,13 @@ class BusinessRuleError(Exception):
     pass
 
 
+# Bounded retry count for force_unique_name()'s collision-resolution loop
+# (#1415). Real production collisions are 0 or 1 per run; this is generous
+# headroom so a genuine pathological case (e.g. thousands of pre-existing
+# rows for the same clean_base) fails loudly instead of looping forever.
+_MAX_COLLISION_RESOLUTION_ATTEMPTS = 5
+
+
 class EnhancedTestDataFactory:
     """
     Enhanced test data factory that builds on Frappe's testing infrastructure
@@ -548,11 +555,35 @@ class EnhancedTestDataFactory:
             clean_base = clean_base[:-excess] if len(clean_base) > excess else clean_base[:5]
             unique_name = f"TEST {clean_base} {seq:03d}_{short_deterministic_id}"
 
-        # Final collision check if doctype provided
-        if doctype and frappe.db.exists(doctype, unique_name):
-            collision_seq = self.get_next_sequence(f"collision_{clean_base}")
-            # Use even shorter format for collision resolution
-            unique_name = f"TEST {clean_base[:10]} {seq:02d}_{collision_seq:02d}_{short_deterministic_id}"
+        # Final collision check if doctype provided. This must be a LOOP, not a
+        # single check: the collision-resolution branch below builds a NEW
+        # candidate name (keyed on collision_seq, which strictly increases per
+        # instance) but was previously returned unchecked. Two factory
+        # instances that both land here on their first attempt with the same
+        # clean_base/seq could -- rarely, via a coincidental hash match between
+        # their two different _global_unique_seq draws -- construct the
+        # IDENTICAL collision-resolved name and both return it, one of them
+        # colliding with the other's already-inserted row (#1415, a residual
+        # gap left by #1404's fix for the guaranteed-collision case). Looping
+        # on collision_seq (which never repeats within this instance) and
+        # rechecking existence each time removes the guesswork entirely,
+        # rather than merely lowering the odds.
+        if doctype:
+            attempts = 0
+            while frappe.db.exists(doctype, unique_name):
+                attempts += 1
+                if attempts > _MAX_COLLISION_RESOLUTION_ATTEMPTS:
+                    frappe.throw(
+                        f"force_unique_name could not find a name for doctype "
+                        f"'{doctype}' derived from base '{base_name}' that does "
+                        f"not already exist in the database, after {attempts - 1} "
+                        f"collision-resolution attempts."
+                    )
+                collision_seq = self.get_next_sequence(f"collision_{clean_base}")
+                # Use even shorter format for collision resolution
+                unique_name = (
+                    f"TEST {clean_base[:10]} {seq:02d}_{collision_seq:02d}_{short_deterministic_id}"
+                )[:max_length]
 
         return unique_name[:max_length]  # Final safety truncation
 
