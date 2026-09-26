@@ -5,12 +5,13 @@ Tests the member merge functionality including field-level selection,
 conflict detection, and data preservation.
 """
 
+import json
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from verenigingen.services.member.lifecycle.member_cleanup_service import (
-    MemberAnonymizedInsteadOfDeleted,
-)
+import verenigingen.services.member_merge_service as member_merge_service_module
 from verenigingen.services.member_merge_service import MemberMergeService
 from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 
@@ -114,6 +115,36 @@ class TestMemberMerge(FrappeTestCase):
         notes_field = fields_by_name.get("notes")
         self.assertIsNotNone(notes_field)
         self.assertTrue(notes_field["has_conflict"])
+
+    def test_preview_warns_when_source_has_blocked_schedule(self):
+        """#1325: staff must see the block in the merge PREVIEW, before
+        filling in field selections -- not only after clicking through
+        and having execute_merge refuse. On veg11, 431/748 (58%) of
+        members have an invoice-referenced dues schedule and so can never
+        be a merge source until this is resolved (maintainer ruling on
+        #1325: keep refuse-up-front; surface it in the preview instead).
+
+        Control (same test, before creating the schedule): the preview for
+        an unblocked source has no such warning -- a mutant that always
+        appends the warning would fail this half.
+        """
+        unblocked_preview = self.service.get_merge_preview(self.source.name, self.target.name)
+        self.assertFalse(
+            any("Membership Dues Schedule" in w for w in unblocked_preview["warnings"]),
+            "an unblocked source must not carry the blocked-schedule warning",
+        )
+
+        mt_name = self._make_merge_test_membership_type()
+        schedule = self._make_merge_test_dues_schedule(self.source.name, mt_name)
+        self._make_merge_test_invoice(schedule.name)
+
+        blocked_preview = self.service.get_merge_preview(self.source.name, self.target.name)
+        matching = [w for w in blocked_preview["warnings"] if schedule.name in w]
+        self.assertEqual(
+            len(matching),
+            1,
+            f"expected exactly one warning naming {schedule.name}, got: {blocked_preview['warnings']}",
+        )
 
     def test_merge_execution_with_source_preference(self):
         """Test merging with source data preferred for contact field."""
@@ -318,58 +349,241 @@ class TestMemberMerge(FrappeTestCase):
         self._extra_cleanup_docs.append(("Sales Invoice", invoice.name))
         return invoice
 
-    def test_merge_does_not_orphan_invoice_via_dangling_schedule(self):
-        """#1306: a schedule still referenced by a Sales Invoice via
-        membership_dues_schedule_display must survive a merge -- and now
-        the source Member survives too (anonymized in place), instead of
-        being force-deleted out from under the invoice as #1290 left it.
+    def test_merge_refuses_before_any_write_when_source_has_blocked_schedule(self):
+        """#1325 (follow-up to #1306): a schedule still referenced by a
+        Sales Invoice via membership_dues_schedule_display must refuse the
+        WHOLE merge before any write happens, not let it partially commit
+        and then report failure.
 
-        member_merge_service.py needed NO changes for this: its final
-        frappe.delete_doc("Member", source.name, force=True) call runs
-        Member.on_trash -> MemberCleanupService.handle_member_deletion, the
-        SAME choke point the direct-delete and data-retention-policy
-        callers go through, so the #1306 guard protects this caller too.
-        execute_merge does not catch the resulting exception, so it
-        propagates to the caller instead of returning {"success": True} --
-        a real, disclosed behaviour change from #1290's version of this
-        test, not a silent one.
+        #1306 made Member.on_trash's handle_member_deletion anonymize the
+        source instead of force-deleting it when this happens, raising
+        MemberAnonymizedInsteadOfDeleted. #1325 found that execute_merge let
+        target.save() -- and the anonymization's own frappe.db.commit() --
+        land on the same connection BEFORE that raise, so a merge reported
+        as "failed" had already changed both Members (this test used to
+        assert exactly that as the expected shape).
+
+        The fix (_ensure_source_deletable) pre-checks the SAME predicate
+        handle_member_deletion uses (MemberCleanupService.
+        _find_blocked_schedules) before any write, so a blocked merge now
+        raises plain frappe.ValidationError and changes NEITHER Member: no
+        target.save(), no source delete/anonymize attempt at all.
         """
+        original_target_contact = frappe.db.get_value(
+            "Member", self.target.name, "contact_number"
+        )
+        original_source_first_name = self.source.first_name
+
         mt_name = self._make_merge_test_membership_type()
         schedule = self._make_merge_test_dues_schedule(self.source.name, mt_name)
         invoice = self._make_merge_test_invoice(schedule.name)
 
-        with self.assertRaises(MemberAnonymizedInsteadOfDeleted):
+        with self.assertRaises(frappe.ValidationError):
             # contact_number: target has none, source does -- selecting it
-            # proves the merge's positive effect on target (already saved
-            # before the blocked source delete is attempted) survives even
-            # though execute_merge itself ends by raising.
+            # means a bug that reintroduces the old "save first, check
+            # later" order would show up here (target absorbing the value)
+            # exactly like it did before this fix.
             self.service.execute_merge(
                 self.source.name, self.target.name, {"contact_number": "source"}
             )
 
-        # The source Member is anonymized in place, not deleted -- the
-        # schedule's `member` link still resolves.
-        self.assertTrue(frappe.db.exists("Member", self.source.name))
-        self.assertEqual(frappe.db.get_value("Member", self.source.name, "first_name"), "Anonymous")
+        # The source Member is untouched -- NOT anonymized, because the
+        # anonymize branch (handle_member_deletion) never ran: the merge
+        # refused before attempting any delete.
+        self.assertEqual(
+            frappe.db.get_value("Member", self.source.name, "first_name"),
+            original_source_first_name,
+        )
 
+        # The target's field merge never happened -- target.save() was
+        # never reached.
+        self.assertEqual(
+            frappe.db.get_value("Member", self.target.name, "contact_number"),
+            original_target_contact,
+        )
+
+        # The schedule and its invoice reference are untouched -- no delete
+        # was ever attempted.
         self.assertTrue(
             frappe.db.exists("Membership Dues Schedule", schedule.name),
             "a schedule still referenced by a Sales Invoice must not be "
-            "force-deleted during merge -- doing so leaves the invoice with "
-            "a dangling membership_dues_schedule_display (#1250's shape)",
+            "touched by a merge that refuses up front (#1250's shape, "
+            "guarded a different way than #1306's anonymize branch)",
         )
         self.assertEqual(
             frappe.db.get_value("Sales Invoice", invoice.name, "membership_dues_schedule_display"),
             schedule.name,
         )
 
-        # The target's field merge still committed, despite the raise: the
-        # anonymization's own frappe.db.commit() (MemberCleanupService.
-        # _anonymize_member_instead_of_deleting) runs on the SAME connection
-        # as this test's own target.save(), which happened first.
-        self.assertEqual(
-            frappe.db.get_value("Member", self.target.name, "contact_number"), "+31612345678"
+    def test_merge_refuses_when_blocked_schedule_is_not_active(self):
+        """#1325: the pre-check must query ALL of the source's dues
+        schedules, not just status="Active" ones.
+
+        handle_member_deletion's own query (frappe.get_all(..., filters=
+        {"member": ...}) with NO status filter) is the ground truth for
+        "would a delete be refused" -- a Cancelled schedule still
+        referenced by a Sales Invoice is just as much a delete-blocker as
+        an Active one. DuesScheduleRepository.get_schedules_for_members
+        (used elsewhere in this file, e.g. _delete_source_member_and_
+        dependencies) filters to status="Active", which would silently
+        miss exactly this case if reused here -- this test exists so that
+        substitution is caught rather than shipped.
+        """
+        original_source_first_name = self.source.first_name
+
+        mt_name = self._make_merge_test_membership_type()
+        schedule = self._make_merge_test_dues_schedule(self.source.name, mt_name)
+        schedule.db_set("status", "Cancelled", update_modified=False)
+        invoice = self._make_merge_test_invoice(schedule.name)
+
+        with self.assertRaises(frappe.ValidationError):
+            self.service.execute_merge(self.source.name, self.target.name, {})
+
+        self.assertTrue(
+            frappe.db.exists("Membership Dues Schedule", schedule.name),
+            "a Cancelled-but-referenced schedule must still block the merge "
+            "up front, the same as an Active one",
         )
+
+        # Discriminator: a wrong fix that only queries Active schedules
+        # would find nothing blocked here, let the merge proceed, and only
+        # hit the SAME ValidationError later via handle_member_deletion's
+        # own anonymize branch during the real delete attempt -- which
+        # would also leave the schedule in place, satisfying the assertion
+        # above for the wrong reason. Anonymization is the tell: it only
+        # happens on that later path, never on the up-front refusal.
+        self.assertEqual(
+            frappe.db.get_value("Member", self.source.name, "first_name"),
+            original_source_first_name,
+            "the source must not be anonymized -- that would mean the "
+            "up-front check missed this schedule and the OLD (post-write) "
+            "anonymize branch caught it instead",
+        )
+
+    def test_merge_closes_toctou_window_before_final_delete(self):
+        """#1325 follow-up (maintainer ruling, refuse-up-front kept): the
+        up-front check in execute_merge can be stale by the time
+        _delete_source_member_and_dependencies reaches the final
+        frappe.delete_doc("Member", ...) -- a Sales Invoice could reference
+        one of source's schedules in that window. The second
+        _ensure_source_deletable call, immediately before that delete,
+        catches it there, BEFORE Member.on_trash's own anonymize-and-commit
+        branch (#1306) ever runs (that branch's internal frappe.db.commit()
+        would otherwise persist target.save() despite the eventual raise).
+
+        This alone is NOT enough, and this test goes through the
+        WHITELISTED wrapper (the real production entry point --
+        member_list.js calls this, not the class method directly) to prove
+        it. frappe/app.py only rolls back an exception that escapes
+        frappe.handler.handle() uncaught; the wrapper CATCHES
+        frappe.ValidationError and returns a normal OperationResult.fail()
+        dict, so nothing escapes -- frappe/app.py's sync_database() would
+        then COMMIT whatever is pending (POST is an "unsafe" HTTP method),
+        durably persisting target.save() even with the second check in
+        place. The wrapper's own savepoint-scoped rollback (taken just
+        before calling execute_merge, rolled back to on any caught error)
+        is what actually makes "changes NEITHER Member" hold for this real
+        caller, not the second check alone.
+
+        Simulated by making the FIRST _ensure_source_deletable call (real,
+        and passing -- nothing is blocked yet) create the blocking
+        reference immediately afterward, standing in for another process
+        doing so in the real window between the two checks.
+
+        The reference is created via _make_merge_test_invoice on THIS
+        test's own connection, uncommitted -- deliberately NOT a real
+        commit, and deliberately NOT a separate frappe.db.create_connection()
+        (both tried; see below for why each was wrong):
+
+        - A mid-test frappe.db.commit() on the shared connection was tried
+          first and reverted: it makes the submitted Sales Invoice's
+          enqueue_after_commit job dispatchable immediately, a live RQ
+          worker picks it up and locks the Member, and tearDown's own
+          delete then hits a 1205 that its `except Exception: pass`
+          silently swallows -- measured leaking Members, Sales Invoices
+          and Membership Dues Schedules across repeat runs on a bench with
+          live workers.
+        - A raw insert on a SEPARATE connection (committed independently,
+          avoiding that leak) was tried next and ALSO reverted: MariaDB's
+          default REPEATABLE READ isolation means the second
+          _ensure_source_deletable check -- a plain, non-locking read --
+          cannot see a row committed by a DIFFERENT connection after this
+          test's own transaction began. Measured directly: from a
+          connection that had already done an earlier read (matching this
+          transaction's own state by the time _ensure_source_deletable
+          runs), a second connection's committed INSERT was invisible to
+          `frappe.get_all(...)` but visible to `SELECT ... FOR UPDATE`
+          (the plain read returned [], the locking read returned the row)
+          -- and, more importantly, invisible even to a REAL, non-force
+          `frappe.delete_doc("Membership Dues Schedule", ...)`, which
+          SUCCEEDED and deleted a schedule a separately-committed Sales
+          Invoice was, at that moment, actually still referencing. This is
+          not a defect in this fix: it is a pre-existing property of
+          Member.on_trash's own #1306 guard (and of Frappe's
+          check_if_doc_is_linked generally), which uses the identical
+          plain-read mechanism -- closing it for real would mean making
+          _find_blocked_schedules's underlying frappe/model/delete_doc.py
+          calls locking reads, a materially larger, shared-code change
+          this fix does not make. What this test DOES correctly prove is
+          the scope #1325's second check actually has: a reference that
+          becomes visible to THIS transaction (this test's own write, read
+          back via ordinary same-transaction visibility -- no isolation
+          special-casing needed for that) between the two checks. A
+          genuinely external, concurrently-committed reference is a
+          separate, pre-existing, unresolved gap -- filed as its own
+          issue rather than silently left undocumented.
+        """
+        original_target_contact = frappe.db.get_value(
+            "Member", self.target.name, "contact_number"
+        )
+        original_source_first_name = self.source.first_name
+
+        mt_name = self._make_merge_test_membership_type()
+        schedule = self._make_merge_test_dues_schedule(self.source.name, mt_name)
+        # Deliberately no invoice yet: the first check must find nothing
+        # blocked, exactly like the real race.
+
+        real_ensure_source_deletable = MemberMergeService._ensure_source_deletable
+        call_count = {"n": 0}
+
+        def racing_ensure_source_deletable(service_self, source):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                real_ensure_source_deletable(service_self, source)  # passes: nothing blocked yet
+                self._make_merge_test_invoice(schedule.name)
+            else:
+                real_ensure_source_deletable(service_self, source)  # must now catch the race
+
+        with patch.object(
+            MemberMergeService, "_ensure_source_deletable", racing_ensure_source_deletable
+        ):
+            result = member_merge_service_module.execute_merge(
+                self.source.name, self.target.name, json.dumps({"contact_number": "source"})
+            )
+
+        self.assertFalse(result["success"], f"expected a failed merge, got: {result}")
+
+        # Neither Member changed: target.save() was rolled back by the
+        # wrapper's explicit frappe.db.rollback(), and the source was never
+        # anonymized (the second check raised before on_trash's own
+        # anonymize-and-commit branch could run). These are the primary,
+        # diagnostic assertions -- checked BEFORE the call-count sanity
+        # check below, so removing the second check reddens here first,
+        # showing the partial commit directly, not just a changed call count.
+        self.assertEqual(
+            frappe.db.get_value("Member", self.target.name, "contact_number"),
+            original_target_contact,
+            "target.save() must have been rolled back by the wrapper",
+        )
+        self.assertEqual(
+            frappe.db.get_value("Member", self.source.name, "first_name"),
+            original_source_first_name,
+            "the source must not be anonymized -- the race must be caught "
+            "by the SECOND check, not by Member.on_trash's own branch",
+        )
+        self.assertTrue(frappe.db.exists("Membership Dues Schedule", schedule.name))
+
+        self.assertEqual(call_count["n"], 2, "both checks must have run")
 
     def test_merge_still_deletes_unreferenced_schedule(self):
         """#1264 round 2: a REAL schedule (the source Member's own back-link
