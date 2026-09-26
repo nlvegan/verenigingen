@@ -169,8 +169,28 @@ class TestExportAgreementsReportRoleScope(MemberOwnershipProbeMixin, EnhancedTes
 
 
 class TestSepaNotificationHistoryStaffOnly(MemberOwnershipProbeMixin, EnhancedTestCase):
+    """Assertions key on the guard's decision (the denial code), never on "success".
+
+    tabSEPA_Notification_Log is created ad hoc by SEPANotificationManager.__init__,
+    and that CREATE TABLE is swallowed as ImplicitCommitError once the transaction
+    holds a write -- which every test here does before the call. So on a site that
+    never had the table (every fresh CI shard) the query AFTER the guard returns
+    success=False too (#1510): a bare assertFalse(success) passes with the guard
+    deleted, and assertTrue(success) fails with the guard correct.
+    """
+
     def _get_history(self):
         return _unwrap_operation_result(get_sepa_notification_history())
+
+    @staticmethod
+    def _denial_code(result):
+        # A refusal comes back through handle_api_error as {"error": {"code": ...}};
+        # the missing-table failure is the manager's own plain-string "error".
+        error = result.get("error")
+        return error.get("code") if isinstance(error, dict) else None
+
+    def _assert_refused(self, result):
+        self.assertEqual(self._denial_code(result), "PERMISSION_DENIED", result)
 
     def test_volunteer_refused(self):
         self.expectErrorLog("You are not permitted to view SEPA notification history")
@@ -179,7 +199,7 @@ class TestSepaNotificationHistoryStaffOnly(MemberOwnershipProbeMixin, EnhancedTe
         )
         with self.set_user(user_email):
             result = self._get_history()
-        self.assertFalse(result["success"])
+        self._assert_refused(result)
 
     def test_auditor_refused(self):
         self.expectErrorLog("You are not permitted to view SEPA notification history")
@@ -188,7 +208,7 @@ class TestSepaNotificationHistoryStaffOnly(MemberOwnershipProbeMixin, EnhancedTe
         )
         with self.set_user(user_email):
             result = self._get_history()
-        self.assertFalse(result["success"])
+        self._assert_refused(result)
 
     def test_chapter_board_member_refused(self):
         """Opposite from the mandate-diagnostics precedent: unlike SEPA Mandate,
@@ -200,13 +220,15 @@ class TestSepaNotificationHistoryStaffOnly(MemberOwnershipProbeMixin, EnhancedTe
         board = self.create_test_board_member(chapter.name)
         with self.set_user(board.user):
             result = self._get_history()
-        self.assertFalse(result["success"])
+        self._assert_refused(result)
 
     def test_staff_still_allowed(self):
         staff_user = self._staff_user("SepaNotifHistoryStaff", role="Verenigingen Staff")
         with self.set_user(staff_user):
             result = self._get_history()
-        self.assertTrue(result["success"])
+        # The refusal tests above are this assertion's control: they fail if a
+        # refusal ever stops carrying the code, so this cannot pass vacuously.
+        self.assertNotEqual(self._denial_code(result), "PERMISSION_DENIED", result)
 
 
 class TestChapterDuesSplitReportRoleScope(MemberOwnershipProbeMixin, EnhancedTestCase):
