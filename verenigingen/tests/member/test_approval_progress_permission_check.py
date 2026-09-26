@@ -177,9 +177,10 @@ class TestApprovalProgressPermissionCheck(EnhancedTestCase):
     def _measure_query_count(fn):
         """frappe's own assertQueryCount is a ceiling assertion (assertLessEqual)
         and does not expose the measured count, so it cannot compare two calls
-        against EACH OTHER. Capture the actual count the same way it does
-        (wrapping frappe.db.__class__.sql) instead of inventing a second
-        mechanism."""
+        against EACH OTHER. Capture the raw SQL the same way it does (wrapping
+        frappe.db.__class__.sql) instead of inventing a second mechanism.
+        Returns the list of queries (not just the count) so a mismatch can be
+        diffed rather than merely reported as two numbers."""
         queries = []
         orig_sql = frappe.db.__class__.sql
 
@@ -192,7 +193,7 @@ class TestApprovalProgressPermissionCheck(EnhancedTestCase):
             fn()
         finally:
             frappe.db.__class__.sql = orig_sql
-        return len(queries)
+        return queries
 
     def test_query_count_identical_for_unknown_and_foreign_member(self):
         """Query-count channel: validate_chapter_permission_or_throw runs the
@@ -207,25 +208,37 @@ class TestApprovalProgressPermissionCheck(EnhancedTestCase):
         frappe.log_error() call needs the first time it ever runs in this
         process (measured: 31 vs 8 with a same-branch warm-up omitted or
         using a DIFFERENT branch; 8 vs 8 once the warm-up call also takes the
-        refusal branch). So the warm-up call must be a REFUSAL too, not the
-        success path, or it silently fails to prime the cache the measured
-        calls depend on -- that is itself the kind of "looks fine, verify
-        empirically" trap this file's own module docstring warns about."""
+        refusal branch).
+
+        #1484 review round: an independent reviewer measured an intermittent
+        1-in-5 mismatch (unknown=8, foreign=9) with a warm-up on the foreign id
+        ONLY. 40/40 consecutive full-module runs here did not reproduce it
+        (see the commit message for the investigation), which points at
+        environment/timing state rather than an existence-dependent query --
+        but a warm-up keyed on only ONE of the two ids cannot rule out a cache
+        keyed on "has THIS SPECIFIC id been seen before", so warm up with BOTH
+        ids, in the same order they are measured, before measuring either.
+        This is the "measure each in a state reset the same way" option from
+        that review, applied literally rather than trusting the 40/40 result
+        alone to justify leaving the asymmetric warm-up in place."""
         with self.as_user(self.board.user):
+            get_approval_progress(member_name=self.unknown_member_name)  # warm-up, uncounted
             get_approval_progress(member_name=self.foreign_applicant.name)  # warm-up, uncounted
 
-            unknown_count = self._measure_query_count(
+            unknown_queries = self._measure_query_count(
                 lambda: get_approval_progress(member_name=self.unknown_member_name)
             )
-            foreign_count = self._measure_query_count(
+            foreign_queries = self._measure_query_count(
                 lambda: get_approval_progress(member_name=self.foreign_applicant.name)
             )
 
         self.assertEqual(
-            unknown_count,
-            foreign_count,
-            f"unknown id cost {unknown_count} queries, foreign id cost {foreign_count} -- "
-            "a difference here would itself be a distinguishing side-channel",
+            len(unknown_queries),
+            len(foreign_queries),
+            f"unknown id cost {len(unknown_queries)} queries, foreign id cost {len(foreign_queries)} -- "
+            "a difference here would itself be a distinguishing side-channel\n"
+            f"unknown queries: {unknown_queries}\n"
+            f"foreign queries: {foreign_queries}",
         )
 
 
