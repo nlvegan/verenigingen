@@ -142,6 +142,28 @@ def get_or_create_donor_for_user():
     }
 
 
+def record_anbi_consent_for_donor(donor_name):
+    """Record ANBI consent on the donor before an ANBI-eligible agreement is
+    created (#1461 maintainer ruling).
+
+    SECURITY JUSTIFICATION: ignore_permissions=True mirrors the Donor write
+    already used for donor creation in get_or_create_donor_for_user() above --
+    this is not a new bypass. donor_name is always derived from the
+    authenticated session (never form data), so this only ever touches the
+    caller's own donor record. The ordinary write-permission path (the one
+    update_donor_bsn's Donor write goes through) is unreachable for the
+    self-service Verenigingen Member role (#1462), so routing this through
+    that path instead would make every consent-ticked submission fail the
+    same way #1462 already does for BSN.
+
+    Donor.validate() stamps anbi_consent_date automatically the first time
+    anbi_consent is set, so it doesn't need to be set here too.
+    """
+    donor_doc = frappe.get_doc("Donor", donor_name)
+    donor_doc.anbi_consent = 1
+    donor_doc.save(ignore_permissions=True)
+
+
 def _resolve_donor_for_session_user():
     """Resolve the logged-in user's Donor, distinguishing a genuine
     no-match from an unresolvable ambiguity (#1450).
@@ -258,6 +280,16 @@ def process_agreement_form(data):
         if form_data.get("bsn_for_agreement") and form_data.get("bsn_consent"):
             update_donor_bsn(donor, form_data.get("bsn_for_agreement"))
 
+        # Record ANBI consent BEFORE the agreement is created (#1461): an
+        # unconsented submission must never reach ANBIValidationService's
+        # strict donor-consent check, so consent has to be on record first,
+        # not discovered missing after the fact. When the checkbox is left
+        # unticked, create_agreement_from_form below builds a plain,
+        # non-ANBI pledge instead, so the ANBI path (and its consent
+        # requirement) is never reached at all.
+        if form_data.get("anbi_tax_consent"):
+            record_anbi_consent_for_donor(donor)
+
         # Create agreement
         agreement = create_agreement_from_form(donor, form_data)
 
@@ -297,7 +329,6 @@ def validate_agreement_form_data(data):
         "annual_amount",
         "payment_frequency",
         "payment_method",
-        "accept_five_year_term",
         "accept_terms",
     ]
 
@@ -306,8 +337,14 @@ def validate_agreement_form_data(data):
             frappe.throw(_("Please fill all required fields"))
 
     # Validate terms acceptance
-    if not data.get("accept_five_year_term") or not data.get("accept_terms"):
+    if not data.get("accept_terms"):
         frappe.throw(_("Please accept all terms and conditions"))
+
+    # The 5-year commitment is only relevant to the ANBI path (#1461): a plain,
+    # non-ANBI pledge (anbi_tax_consent unticked) is not a 5-year agreement at
+    # all, so it must not be blocked on accepting a term that doesn't apply to it.
+    if data.get("anbi_tax_consent") and not data.get("accept_five_year_term"):
+        frappe.throw(_("Please accept the 5-year commitment to receive ANBI tax benefits"))
 
     # Reject an unrecognized payment_method here too (#744), before any
     # donor/agreement side effects run below in process_agreement_form --
@@ -368,6 +405,19 @@ def create_agreement_from_form(donor, form_data):
     agreement.payment_frequency = form_data.get("payment_frequency")
     agreement.payment_method = map_periodic_agreement_payment_method(form_data.get("payment_method"))
     agreement.status = "Draft"  # Will be activated after verification
+
+    # ANBI eligibility is decided by the form's own consent checkbox (#1461),
+    # never left at the doctype's schema default of 1: ticking it (consent was
+    # just recorded on the donor above, in process_agreement_form) creates a
+    # 5-year ANBI agreement; leaving it unticked creates a plain, non-ANBI
+    # pledge, so an unconsented submission never reaches the strict
+    # donor-consent validation in the controller at all.
+    if form_data.get("anbi_tax_consent"):
+        agreement.anbi_eligible = 1
+        agreement.agreement_duration_years = "5 Years (ANBI Minimum)"
+    else:
+        agreement.anbi_eligible = 0
+        agreement.agreement_duration_years = "1 Year (Pledge - No ANBI benefits)"
 
     # Auto-calculate end date and payment amount
     agreement.calculate_end_date()
