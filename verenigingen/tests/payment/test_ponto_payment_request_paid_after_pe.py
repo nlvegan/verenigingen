@@ -362,7 +362,7 @@ class TestUpdateStatusFromWebhookAtomicity(_PontoPaymentRequestFixtures, Enhance
         """update_status_from_webhook() through a fully valid config, with
         create_payment_entry() running for real (unmocked) -- only
         refresh_status() had this end-to-end coverage before. Both methods
-        share the identical _atomic_status_transition() call, but nothing
+        share the identical atomic_status_transition() call, but nothing
         else had exercised update_status_from_webhook()'s own success path
         against a real, working bank account/company/Supplier."""
         req = self._create_ponto_request(
@@ -440,7 +440,7 @@ class TestCreatePaymentEntryMisconfigurationGuards(_PontoPaymentRequestFixtures,
     not silently return -- an independent review of the first #1323 commit
     found that a plain `return` from any of these guards exits
     refresh_status()'s/update_status_from_webhook()'s
-    `with self._atomic_status_transition():` block NORMALLY, releasing the
+    `with atomic_status_transition(...):` block NORMALLY, releasing the
     savepoint and committing "Executed" with no Payment Entry and no error
     trail -- exactly the bug #1323 exists to fix, just from a different one
     of the method's early-exit branches. `frappe.logger().warning()` (what

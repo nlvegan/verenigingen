@@ -19,7 +19,6 @@ Status Flow:
                     -> Failed (if execution fails)
 """
 
-from contextlib import contextmanager
 from datetime import date
 from typing import Optional
 
@@ -29,7 +28,7 @@ from frappe.model.document import Document
 from frappe.utils import get_url
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
-from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
+from verenigingen.utils.transaction_errors import atomic_status_transition
 
 
 class PontoPaymentRequest(Document):
@@ -220,9 +219,22 @@ class PontoPaymentRequest(Document):
             new_status = status_map.get(payment.status.lower(), self.status)
 
             if new_status != self.status:
-                # Status + Payment Entry are one atomic unit -- #1323 (#1288 class).
-                # See _atomic_status_transition() for why.
-                with self._atomic_status_transition():
+                # Status + Payment Entry are one atomic unit -- #1323, the #1288
+                # class of defect. This used to persist the new status (e.g.
+                # "Executed") BEFORE calling create_payment_entry(), which then
+                # swallowed its own exception, leaving the request permanently
+                # stuck "Executed" with no Payment Entry and no automatic retry.
+                # atomic_status_transition() takes a savepoint here: on any
+                # failure both this status write and the Payment Entry attempt
+                # roll back together, and the exception propagates so the caller
+                # (the outer try/except below, or the per-row savepoint in
+                # webhook_handlers.handle_payment_request_closed()) sees the
+                # failure and can retry. A retry re-enters this same
+                # "new_status != self.status" gate, and create_payment_entry()'s
+                # own "already have self.payment_entry" guard still applies -- so
+                # a retry cannot double-create a Payment Entry for a prior
+                # COMMITTED success.
+                with atomic_status_transition("ppr_status_pe"):
                     self.status = new_status
                     self.save()
 
@@ -248,45 +260,6 @@ class PontoPaymentRequest(Document):
                 title=_("API Error"),
             )
 
-    @contextmanager
-    def _atomic_status_transition(self):
-        """
-        Scope a status mutation and any Payment Entry it triggers as one atomic
-        unit -- #1323, the #1288 class of defect. Both ``refresh_status()`` and
-        ``update_status_from_webhook()`` used to persist the new status (e.g.
-        "Executed") BEFORE calling ``create_payment_entry()``, which then
-        swallowed its own exception (log_error, no re-raise). Any PE failure
-        therefore left the request permanently stuck at "Executed" with no
-        Payment Entry and no automatic retry -- the status said the money had
-        moved when it had not.
-
-        A savepoint scopes the status mutation and the PE creation together: on
-        any failure both roll back to how the document was before this call,
-        and the exception propagates so the caller (the outer try/except in
-        refresh_status(), or the per-row savepoint in
-        webhook_handlers.handle_payment_request_closed()) sees the failure and
-        can retry. A retry re-enters the same "new_status != self.status" gate
-        both callers already use before this transition, and
-        create_payment_entry()'s own "already have self.payment_entry" guard
-        still applies -- so a retry cannot double-create a Payment Entry for a
-        prior COMMITTED success. The rollback here is what guarantees a failed
-        attempt never becomes one.
-        """
-        savepoint = f"ppr_status_pe_{frappe.generate_hash(length=10)}"
-        frappe.db.savepoint(savepoint)
-        try:
-            yield
-        except NON_RESUMABLE_DB_ERRORS:
-            # A 1213/1205 has already destroyed (1213) or half-applied (1205) the
-            # transaction server-side; ROLLBACK TO SAVEPOINT here would raise 1305
-            # and replace this error instead of propagating it.
-            raise
-        except Exception:
-            rollback_to_savepoint(savepoint)
-            raise
-        else:
-            frappe.db.release_savepoint(savepoint)
-
     def _validate_payment_entry_prerequisites(self):
         """
         Resolve, and RAISE on, everything create_payment_entry() needs to post a
@@ -305,14 +278,14 @@ class PontoPaymentRequest(Document):
           still change between submit and execution.
 
         Every guard below RAISES rather than logging-and-returning (#1323
-        review finding): from create_payment_entry(), each runs inside the
-        caller's _atomic_status_transition() savepoint, and a plain ``return``
-        exits that ``with`` block normally, releasing the savepoint -- so
-        "Executed" was committed with no Payment Entry and no error trail for
-        exactly the four misconfigurations this method already knew how to
-        detect. `frappe.logger().warning()` in particular writes to a rotating
-        file handler nothing in CI reads (see CLAUDE.md's "Known traps"), so
-        this was invisible even to a diligent operator.
+        review finding): each one runs inside the caller's
+        ``atomic_status_transition(...)`` savepoint (transaction_errors.py), and
+        a plain ``return`` exits that ``with`` block normally, releasing the
+        savepoint -- so "Executed" was committed with no Payment Entry and no
+        error trail for exactly the four misconfigurations this method already
+        knew how to detect. `frappe.logger().warning()` in particular writes to
+        a rotating file handler nothing in CI reads (see CLAUDE.md's "Known
+        traps"), so this was invisible even to a diligent operator.
 
         Returns:
             (bank_account, company, paid_from, party_type, party)
@@ -412,7 +385,7 @@ class PontoPaymentRequest(Document):
 
         # Create Payment Entry. Does NOT swallow its own exception (#1323, the
         # #1288 class): a caller (refresh_status(), update_status_from_webhook())
-        # must see a failure here so its own savepoint (_atomic_status_transition)
+        # must see a failure here so its own atomic_status_transition() savepoint
         # can roll back the status mutation it made just before this call --
         # logging and returning silently left the request stuck "Executed" with
         # no Payment Entry and no retry.
@@ -449,8 +422,9 @@ class PontoPaymentRequest(Document):
         """
         if new_status != self.status:
             # Status + Payment Entry are one atomic unit -- #1323 (#1288 class).
-            # See _atomic_status_transition() for why.
-            with self._atomic_status_transition():
+            # See refresh_status()'s identical `with atomic_status_transition(...)`
+            # block above for why.
+            with atomic_status_transition("ppr_status_pe"):
                 self.status = new_status
                 # Security: Webhook callback - status update from verified Ponto event
                 self.save(ignore_permissions=True)
