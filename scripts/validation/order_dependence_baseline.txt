@@ -257,6 +257,7 @@ COMMIT tests/support/test_sepa_test_configuration.py::3  # order-dependence
 COMMIT tests/support/verenigingen_settings.py::2  # order-dependence
 COMMIT tests/test_delete_audit_selftest.py::9  # order-dependence
 COMMIT tests/test_enhanced_test_factory_drain.py::5  # order-dependence
+COMMIT tests/test_harness_drains_survive_setup_failure.py::2  # order-dependence
 COMMIT tests/test_harness_leak_attribution.py::17  # order-dependence
 COMMIT tests/test_harness_settings_restoration.py::7  # order-dependence
 COMMIT tests/test_public_document_creator_setup.py::1  # order-dependence

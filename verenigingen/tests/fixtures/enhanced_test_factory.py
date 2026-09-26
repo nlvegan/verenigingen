@@ -2578,6 +2578,53 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # why this list exists (harness-fidelity trade-off, made assertable).
         self._normalized_whole_second_timestamps = []
         self._install_insert_capture()
+
+        # DRAIN-ON-SETUP-FAILURE (#1467): unittest's TestCase.run() skips
+        # tearDown() -- and therefore every explicit call inside it, including
+        # the two drains -- whenever setUp() itself raises, whether that happens
+        # later in THIS method or in a SUBCLASS's setUp() after its
+        # super().setUp() call returns here. Anything a partially-built setUp
+        # tracked or captured before failing then sits uncommitted only until
+        # some LATER test's setUp() calls a @shared_fixture helper that commits
+        # unconditionally (by design, so its own master data survives per-test
+        # rollback) -- which persists the earlier failure's leftovers right
+        # along with it. #1438 measured this leaving one submitted Donation
+        # behind, which then collided with every later run of that module.
+        # addCleanup callbacks run via doCleanups() regardless of setUp/test
+        # outcome, so registering the drains here closes the gap for every
+        # EnhancedTestCase subclass at once, rather than only the individual
+        # classes patched ad hoc for it (#1474, #1498).
+        #
+        # Order matters, TWICE over -- addCleanup runs LIFO (last registered,
+        # first executed), and both matter only on the setUp-failure-only path
+        # (doCleanups() always runs everything anyway on the success path, and
+        # each callback below is a no-op the second time -- see the idempotency
+        # note at the end of this comment):
+        #
+        # 1. Registered BEFORE `self.addCleanup(self._uninstall_insert_capture)`
+        #    below, so LIFO runs uninstall FIRST, then the drains -- the same
+        #    order tearDown() uses ("Stop capturing FIRST, so the drains below
+        #    ... are not captured"). Registering the drains AFTER uninstall
+        #    instead would leave the monkeypatch active while the drains run,
+        #    so a cancel-then-delete's own reversal GL/PLE rows (see
+        #    `_remove_drained_record`) would get freshly CAPTURED mid-drain,
+        #    after `_drain_captured_inserts` already cleared and iterated its
+        #    list -- stranding exactly the rows the ledger-purge machinery
+        #    exists to clean up, for the sole reason that capture was still on.
+        # 2. Registered CAPTURED-then-TRACKED so LIFO runs TRACKED-then-
+        #    CAPTURED, matching tearDown()'s own order below.
+        #    _drain_tracked_documents' Member-deferral logic (#1306) reads
+        #    self._captured_inserts to decide whether to defer a blocked Member
+        #    to the captured-insert drain instead; if captured drained (and
+        #    cleared its list) FIRST, that check would always see an empty list
+        #    and the deferral could never fire on the setUp-failure-only path.
+        #
+        # Both drains are idempotent (each clears its own list before
+        # returning), so re-running them here after an ordinary tearDown() has
+        # already drained everything -- which doCleanups() always does, on top
+        # of tearDown(), on the success path -- is a harmless no-op.
+        self.addCleanup(self._drain_captured_inserts)
+        self.addCleanup(self._drain_tracked_documents)
         self.addCleanup(self._uninstall_insert_capture)
 
     def _install_insert_capture(self):

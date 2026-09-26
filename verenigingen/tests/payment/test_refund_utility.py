@@ -146,19 +146,12 @@ class TestRefundUtilityInitiation(EnhancedTestCase):
     def setUp(self):
         super().setUp()
 
-        # unittest SKIPS tearDown() -- and therefore the tracked/captured-insert
-        # drains it runs -- whenever setUp() raises below this point. Anything
-        # created before such a failure would otherwise sit uncommitted until
-        # a LATER test's setUp() calls ensure_mollie_reversal_accounts() again,
-        # which commits unconditionally (it has to, to survive per-test
-        # rollback) and would inadvertently persist this test's leftovers too
-        # -- the exact mechanism #1438 and #1467 found. addCleanup runs via
-        # doCleanups() regardless of setUp/test outcome, so registering the
-        # drains here (before the fragile create_test_payment_entry call below)
-        # closes that gap, the same way test_refund_chargeback_integration.py
-        # does it (#1474).
-        self.addCleanup(self._drain_tracked_documents)
-        self.addCleanup(self._drain_captured_inserts)
+        # #1438 was fixed here with a per-class self.addCleanup(self._drain_*)
+        # pair (setUp raising below, before the fragile create_test_payment_entry
+        # call, used to leak past ensure_mollie_reversal_accounts()'s
+        # unconditional commit in a LATER test). #1467 made that the GENERAL
+        # EnhancedTestCase.setUp() behaviour, so the per-class registration here
+        # is now redundant and has been removed.
 
         ensure_mollie_reversal_accounts()
         self.payment_id = f"tr_init_{frappe.generate_hash(length=8)}"

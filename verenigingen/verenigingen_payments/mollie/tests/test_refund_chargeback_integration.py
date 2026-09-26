@@ -29,26 +29,13 @@ class TestMollieRefundChargebackWebhookProcessing(EnhancedTestCase):
     def setUp(self):
         super().setUp()
 
-        # unittest SKIPS tearDown() -- and therefore the tracked/captured-insert
-        # drains and the per-method rollback it runs -- whenever setUp() itself
-        # raises below this point. Anything created before such a failure (e.g.
-        # the Donation created a few lines down, tracked but never committed)
-        # would otherwise sit UNCOMMITTED in the still-open transaction until
-        # some LATER test's setUp() calls ensure_mollie_reversal_accounts(),
-        # which commits unconditionally (it has to, to survive per-test
-        # rollback -- see its docstring) and inadvertently persists this test's
-        # leftovers along with it. That is how a single failing run left a
-        # submitted Donation behind, which then collided with every subsequent
-        # run (#1438). addCleanup -- the same idiom EnhancedTestCase.setUp
-        # already uses for _restore_throttle_user_limit and
-        # _uninstall_insert_capture, for the identical reason -- runs via
-        # doCleanups() regardless of whether setUp/the test/tearDown succeeded,
-        # so registering the drains here (before anything that can fail) closes
-        # that gap. Both drains are idempotent (each clears its own list before
-        # returning), so re-running them after an ordinary tearDown() has
-        # already drained everything is a harmless no-op.
-        self.addCleanup(self._drain_tracked_documents)
-        self.addCleanup(self._drain_captured_inserts)
+        # #1438 was fixed here with a per-class self.addCleanup(self._drain_*)
+        # pair (the same leak this class's own setUp is exposed to: a Donation
+        # created a few lines down, tracked but never committed, surviving only
+        # until a LATER test's ensure_mollie_reversal_accounts() commits
+        # unconditionally and persists it too). #1467 made that the GENERAL
+        # EnhancedTestCase.setUp() behaviour, so the per-class registration here
+        # is now redundant and has been removed.
 
         # Ensure the master data (Mollie bank account + "Mollie Refund" mode of payment)
         # required to build reversal Payment Entries exists for the test company.
