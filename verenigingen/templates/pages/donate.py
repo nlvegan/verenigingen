@@ -167,10 +167,30 @@ def get_context(context):
             "last_name": user.last_name,
         }
 
-        # Check if user is already a donor
-        existing_donor = frappe.db.get_value("Donor", {"donor_email": user.email})
-        if existing_donor:
-            donor_doc = frappe.get_doc("Donor", existing_donor)
+        # Check if user is already a donor. More than one Donor sharing this
+        # e-mail is an unresolvable ambiguity -- refuse (do not prefill)
+        # rather than silently showing one arbitrary duplicate's name/phone
+        # as "your existing donor record" (#1396, same rule as #1356/#1384/
+        # #1389/#1392/#1406).
+        from verenigingen.services.member.donor.donor_member_reconciliation import find_donors_by_field
+        from verenigingen.utils.error_codes import log_operation_error
+
+        matches = find_donors_by_field("donor_email", user.email)
+        if len(matches) > 1:
+            frappe.logger("verenigingen.donor_mapping").warning(
+                f"Multiple donors ({len(matches)}) found for donor_email={user.email!r}. "
+                f"Refusing to prefill an arbitrary one: {[d.name for d in matches]}"
+            )
+            log_operation_error(
+                "DONOR_001",
+                f"donor_email {user.email}",
+                additional_info={
+                    "donor_email": user.email,
+                    "matching_donors": [d.name for d in matches],
+                },
+            )
+        elif matches:
+            donor_doc = frappe.get_doc("Donor", matches[0].name)
             context.existing_donor = {
                 "name": donor_doc.name,
                 "donor_name": donor_doc.donor_name,

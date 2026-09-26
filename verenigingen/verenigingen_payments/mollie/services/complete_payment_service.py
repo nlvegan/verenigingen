@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional, Union
 import frappe
 from frappe.query_builder import DocType
 
+from verenigingen.utils.error_codes import log_operation_error
 from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
 
 from ..core.client import MollieClient
@@ -734,6 +735,16 @@ class CompletePaymentService:
 
         Uses SELECT ... FOR UPDATE on the Donor row so concurrent requests for
         the same donor cannot create duplicate Mollie customers.
+
+        More than one Donor sharing this e-mail is an unresolvable
+        ambiguity: reading an existing mollie_customer_id off one of them,
+        or writing a newly-created one onto one of them, would be a
+        financially-relevant misattribution to a possibly-unrelated donor
+        - the same rule #1356/#1384/#1389/#1392/#1406 established for every
+        other Donor-by-email sibling (#1396). Falls back to
+        _create_mollie_customer_only (the same "no owner record" path
+        already used when zero Donors match) so the payment still succeeds
+        without touching either ambiguous Donor.
         """
         email = customer_data["email"]
 
@@ -742,6 +753,28 @@ class CompletePaymentService:
             "Donor", filters={"donor_email": email}, fields=["name", "mollie_customer_id"]
         )
         if not existing_donors:
+            return self._create_mollie_customer_only(customer_data)
+
+        if len(existing_donors) > 1:
+            # MAINTAINER DECISION (#1396): on ambiguity, create a fresh Mollie
+            # customer written to no Donor - deliberately NOT #1389's
+            # refuse-on-ambiguity. #1389 guards check_donor_exists, called only
+            # from an authenticated/internal duplicate-creation check, where
+            # refusing costs nothing. This resolves a public donation/subscription
+            # payment: refusing would fail that payment for a member of the
+            # public, so availability wins. Accepted cost: an extra Mollie
+            # customer object with no linked Donor, plus the DONOR_001 log below
+            # for admin review.
+            donor_names = [d["name"] for d in existing_donors]
+            frappe.logger("verenigingen.donor_mapping").warning(
+                f"Multiple donors ({len(existing_donors)}) found for donor_email={email!r}. "
+                f"Refusing to read/write an arbitrary one: {donor_names}"
+            )
+            log_operation_error(
+                "DONOR_001",
+                f"donor_email {email}",
+                additional_info={"donor_email": email, "matching_donors": donor_names},
+            )
             return self._create_mollie_customer_only(customer_data)
 
         donor_name = existing_donors[0]["name"]

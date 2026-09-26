@@ -283,6 +283,77 @@ class TestUpdateOwnerRecord(EnhancedTestCase):
         self.assertEqual(frappe.db.get_value("Donor", donor, "mollie_customer_id"), cid)
 
 
+class TestResolveCustomerByEmailAmbiguous(EnhancedTestCase):
+    """_resolve_customer_by_email — #1396: more than one Donor sharing the
+    given e-mail is an unresolvable ambiguity. Reading OR writing an
+    arbitrarily-picked one of them is a financially-relevant misattribution
+    (a subsequent charge or an existing mollie_customer_id read off the
+    wrong Donor) - the same rule #1356/#1384/#1389/#1392/#1406 established
+    for every other Donor-by-email sibling. The payment must still succeed:
+    on ambiguity this falls back to _create_mollie_customer_only, the same
+    "no owner record" path already used when zero Donors match."""
+
+    def _donor_with_mollie_customer_id(self, email, mollie_customer_id=None):
+        """Not a copy of the app's various `_make_donor` test helpers (a
+        clone-baselined family, #1396 self-review): this one additionally
+        sets mollie_customer_id, which none of those do."""
+        donor = self.create_test_donor(donor_email=email, donor_type="Individual")
+        if mollie_customer_id:
+            frappe.db.set_value("Donor", donor.name, "mollie_customer_id", mollie_customer_id)
+        return donor
+
+    def test_ambiguous_email_creates_customer_without_reading_or_writing_either_donor(self):
+        email = f"ambig.mollie.{frappe.generate_hash()[:8]}@example.com"
+        first = self._donor_with_mollie_customer_id(email, mollie_customer_id="cst_existing_first")
+        second = self._donor_with_mollie_customer_id(email)
+
+        get_customer_calls = []
+        create_customer_calls = []
+
+        def _get_customer(cid):
+            # Recorded, never asserted-not-called via a raise: a raise here
+            # would be swallowed by the (legitimate, for a real stale id)
+            # inner try/except in the unfixed code and could mask the bug
+            # instead of exposing it. The call-count assertion below is the
+            # real check.
+            get_customer_calls.append(cid)
+            return SimpleNamespace(id=cid)
+
+        def _create_customer(payload):
+            create_customer_calls.append(payload)
+            return SimpleNamespace(id="cst_new_from_ambiguous")
+
+        svc = _service_with_client(
+            SimpleNamespace(get_customer=_get_customer, create_customer=_create_customer)
+        )
+
+        self.expectErrorLog("DONOR_001")
+        with self.assertErrorLog("DONOR_001"):
+            result = svc._resolve_customer_by_email({"email": email, "name": "Ambiguous Payer"})
+
+        self.assertEqual(result, {"status": "created", "customer_id": "cst_new_from_ambiguous"})
+        self.assertEqual(get_customer_calls, [])
+        self.assertEqual(len(create_customer_calls), 1)
+
+        # Neither pre-existing ambiguous Donor was read from or written to.
+        first.reload()
+        second.reload()
+        self.assertEqual(first.mollie_customer_id, "cst_existing_first")
+        self.assertFalse(second.mollie_customer_id)
+
+    def test_single_match_still_resolves(self):
+        # Control for the test above: a single match is NOT ambiguous and
+        # must still use the existing donor's stored customer id.
+        email = f"single.mollie.{frappe.generate_hash()[:8]}@example.com"
+        self._donor_with_mollie_customer_id(email, mollie_customer_id="cst_existing_only")
+
+        svc = _service_with_client(
+            SimpleNamespace(get_customer=lambda cid: SimpleNamespace(id=cid))
+        )
+        result = svc._resolve_customer_by_email({"email": email, "name": "Solo Payer"})
+        self.assertEqual(result, {"status": "found", "customer_id": "cst_existing_only"})
+
+
 class TestFindUsableDirectdebitMandate(EnhancedTestCase):
     """_find_usable_directdebit_mandate — pure selection over a mandate list."""
 

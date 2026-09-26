@@ -28,10 +28,16 @@ def get_donor_by_email(email: str) -> Optional[Any]:
     This is the canonical way to lookup donors by email across the codebase.
     Replaces ad-hoc frappe.get_all() and frappe.db.get_value() calls.
 
-    Performance Considerations:
-    - Caching removed due to stale data risks with ANBI consent and contact updates
-    - Single indexed query by email is fast enough without caching complexity
-    - Query uses indexed donor_email field with DESC ordering for latest record
+    Uses ``find_donors_by_field`` (services/member/donor/
+    donor_member_reconciliation.py) -- the single canonical Donor-resolution
+    query shared by every other tiered lookup in the app. More than one
+    match is an unresolvable ambiguity: refuses (returns None) rather than
+    picking one arbitrarily, the same rule #1356/#1384/#1389/#1392/#1406
+    established for every other Donor-by-email sibling (#1396). Every
+    caller here already treats a None return as "no donor" and falls
+    through to its own create-new-donor (or create-Mollie-customer-only)
+    branch, so refusing never blocks a donation or a payment -- it only
+    stops a write from landing on the wrong record.
 
     Security:
     - No permission bypass - uses standard Frappe permission system
@@ -41,7 +47,8 @@ def get_donor_by_email(email: str) -> Optional[Any]:
         email: Email address to search for (case-sensitive)
 
     Returns:
-        Donor document if found, None otherwise
+        Donor document if found, None otherwise (including on an ambiguous
+        match -- see above)
 
     Example:
         >>> donor = get_donor_by_email("john@example.com")
@@ -51,10 +58,24 @@ def get_donor_by_email(email: str) -> Optional[Any]:
     if not email:
         return None
 
-    donors = frappe.get_all("Donor", filters={"donor_email": email}, order_by="creation desc", limit=1)
+    from verenigingen.services.member.donor.donor_member_reconciliation import find_donors_by_field
+    from verenigingen.utils.error_codes import log_operation_error
 
-    if donors:
-        return frappe.get_doc("Donor", donors[0]["name"])
+    matches = find_donors_by_field("donor_email", email)
+    if len(matches) > 1:
+        donor_names = [d.name for d in matches]
+        frappe.logger("verenigingen.donor_mapping").warning(
+            f"Multiple donors ({len(matches)}) found for donor_email={email!r}. "
+            f"Refusing to pick one arbitrarily: {donor_names}"
+        )
+        log_operation_error(
+            "DONOR_001",
+            f"donor_email {email}",
+            additional_info={"donor_email": email, "matching_donors": donor_names},
+        )
+        return None
+    if matches:
+        return frappe.get_doc("Donor", matches[0].name)
     return None
 
 

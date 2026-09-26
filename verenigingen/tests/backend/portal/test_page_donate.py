@@ -105,6 +105,37 @@ class TestPageDonate(EnhancedTestCase):
         self.assertIn("existing_donor", ctx)
         self.assertEqual(ctx.existing_donor["donor_email"], email)
 
+    def test_context_logged_in_ambiguous_donor_email_does_not_disclose(self):
+        """#1396: two Donor rows sharing the logged-in user's e-mail is an
+        unresolvable ambiguity - the page must refuse to guess (no
+        existing_donor in context) rather than silently showing one
+        arbitrary duplicate's name/phone as "your existing donor record"."""
+        from verenigingen.templates.pages.donate import get_context
+
+        email = f"donateambig-{frappe.generate_hash()[:8]}@example.com"
+        if not frappe.db.exists("User", email):
+            frappe.get_doc(
+                {
+                    "doctype": "User",
+                    "email": email,
+                    "first_name": "Donate",
+                    "last_name": "Ambiguous",
+                    "send_welcome_email": 0,
+                    "roles": [{"role": "Verenigingen Member"}],
+                }
+            ).insert()
+        self.create_test_donor(donor_name="First Ambiguous", donor_email=email)
+        self.create_test_donor(donor_name="Second Ambiguous", donor_email=email)
+
+        frappe.form_dict = frappe._dict()
+        self.expectErrorLog("DONOR_001")
+        with self.assertErrorLog("DONOR_001"), self.as_user(email):
+            ctx = frappe._dict()
+            get_context(ctx)
+
+        self.assertEqual(ctx.user_info["email"], email)
+        self.assertNotIn("existing_donor", ctx)
+
     def test_context_with_paid_donation_id_shows_success(self):
         from verenigingen.services.donation.public_donation_service import (
             generate_donation_return_token,

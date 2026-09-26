@@ -125,6 +125,15 @@ def get_or_create_donor(data):
             frappe.db.set_value("Donor", existing_donor_doc.name, "phone", validated_phone)
         return existing_donor_doc.name
 
+    # MAINTAINER DECISION (#1396): an ambiguous donor_email match (get_donor_by_email
+    # returning None because it refused rather than because nothing matched) falls
+    # through to here and creates a new, unlinked Donor - deliberately NOT #1389's
+    # refuse-on-ambiguity. #1389 guards check_donor_exists, called only from an
+    # authenticated/internal duplicate-creation check, where refusing costs nothing.
+    # This is a public, unauthenticated donation submission: refusing would mean
+    # telling a member of the public their donation failed, so availability wins.
+    # Accepted costs: the duplicate count grows, and a DONOR_001 Error Log is written
+    # per ambiguous submission for admin review.
     # Create new donor
     donor = frappe.new_doc("Donor")
     donor.donor_name = data.get("donor_name")

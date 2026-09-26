@@ -79,15 +79,33 @@ class TestDonorService(VereningingenTestCase):
         self.assertIsNone(get_donor_by_email(""))
         self.assertIsNone(get_donor_by_email(None))
 
-    def test_get_donor_by_email_returns_latest(self):
-        # Two donors share an email -> the most recently created is returned.
+    def test_get_donor_by_email_ambiguous_refuses(self):
+        # Two donors share an email -> refuses (returns None) rather than
+        # picking one arbitrarily (#1396, same rule as #1356/#1384/#1389).
+        #
+        # This test previously asserted the opposite: that the arbitrary pick
+        # ("most recently created") was correct behavior. That was the bug
+        # this issue reports, not a specification -- get_donor_by_email's own
+        # docstring called itself "canonical" while being the one sibling
+        # with no ambiguity detection at all (limit=1 in the query itself
+        # made more-than-one-match undetectable). See #1396 and the merged
+        # precedents for the rest of this family.
         email = f"dup.{frappe.generate_hash(length=6)}@example.com"
         self.create_test_donor(donor_name="First Dup", donor_email=email, donor_type="Individual")
-        second = self.create_test_donor(
-            donor_name="Second Dup", donor_email=email, donor_type="Individual"
-        )
+        self.create_test_donor(donor_name="Second Dup", donor_email=email, donor_type="Individual")
+        self.expectErrorLog("DONOR_001")
+        with self.assertErrorLog("DONOR_001"):
+            self.assertIsNone(get_donor_by_email(email))
+
+    def test_get_donor_by_email_single_match_still_resolves(self):
+        # Control for the test above: a single match is NOT ambiguous and
+        # must still resolve normally (guards against a fix that refuses
+        # everything rather than just >1 matches).
+        email = f"single.{frappe.generate_hash(length=6)}@example.com"
+        donor = self.create_test_donor(donor_name="Only One", donor_email=email, donor_type="Individual")
         found = get_donor_by_email(email)
-        self.assertEqual(found.name, second.name)
+        self.assertIsNotNone(found)
+        self.assertEqual(found.name, donor.name)
 
     # ----------------------------------------------------------- get_service factory
 
