@@ -1496,17 +1496,26 @@ function create_user_account_dialog(frm) {
 			callback(r) {
 				if (r.message) {
 					if (r.message.success) {
+						// create_member_user_account is decorated with @critical_api,
+						// which serializes its OperationResult via
+						// to_dict(scrub_sensitive=True) -- the NESTED schema. The
+						// success text lives under r.message.meta.message, never a
+						// top-level "message" (#1452, same bug class as #1420).
+						const meta = r.message.meta || {};
 						frappe.show_alert(
 							{
-								message: r.message.message,
+								message: meta.message || __('User account created successfully'),
 								indicator: 'green'
 							},
 							5
 						);
 						frm.refresh();
 					} else {
+						// On failure "error" is a structured object
+						// ({message, code, ...}), not a string -- reading it directly
+						// would render "[object Object]".
 						frappe.msgprint({
-							message: r.message.error || r.message.message,
+							message: getErrorMessage(r.message, __('Failed to create user account')),
 							indicator: 'red'
 						});
 					}
@@ -3141,7 +3150,14 @@ function show_manual_invoice_dialog(frm) {
 		},
 		callback(r) {
 			if (r.message && r.message.success) {
-				const info = r.message;
+				// get_member_invoice_info is decorated with @standard_api, which
+				// serializes its OperationResult via to_dict(scrub_sensitive=True) --
+				// the NESTED schema. has_customer/has_dues_schedule/member_name/etc
+				// live under r.message.data, never at the top level, even though
+				// r.message.success IS a real top-level key (#1452, same bug class
+				// as #1420). Reading r.message directly made `!info.has_customer`
+				// ALWAYS true, so the feature could never succeed.
+				const info = unwrapOperationResult(r.message);
 
 				if (!info.has_customer) {
 					frappe.msgprint({
@@ -3202,7 +3218,7 @@ function show_manual_invoice_dialog(frm) {
 			} else {
 				frappe.msgprint({
 					title: __('Error'),
-					message: r.message ? r.message.error : __('Failed to retrieve member information'),
+					message: getErrorMessage(r.message, __('Failed to retrieve member information')),
 					indicator: 'red'
 				});
 			}
@@ -3219,10 +3235,19 @@ function generate_manual_invoice_for_member(frm, _member_info) {
 		freeze: true,
 		freeze_message: __('Generating invoice...'),
 		callback(r) {
-			if (r.message && r.message.success) {
+			// generate_manual_invoice is decorated with @critical_api, which
+			// serializes its OperationResult via to_dict(scrub_sensitive=True) --
+			// the NESTED schema. invoice_name/amount/etc live under r.message.data
+			// and the success text lives under r.message.meta.message, never at the
+			// top level (#1452, same bug class as #1420). Reading r.message.message/
+			// r.message.invoice_name directly was always undefined, so the "view it
+			// now?" confirm navigated to "Sales Invoice/undefined".
+			const data = unwrapOperationResult(r.message);
+			if (data) {
+				const meta = (r.message && r.message.meta) || {};
 				frappe.show_alert(
 					{
-						message: r.message.message,
+						message: meta.message || __('Invoice generated successfully'),
 						indicator: 'green'
 					},
 					5
@@ -3231,10 +3256,10 @@ function generate_manual_invoice_for_member(frm, _member_info) {
 				// Ask if user wants to view the invoice
 				frappe.confirm(
 					__('Invoice {0} has been generated successfully. Would you like to view it now?', [
-						r.message.invoice_name
+						data.invoice_name
 					]),
 					() => {
-						frappe.set_route('Form', 'Sales Invoice', r.message.invoice_name);
+						frappe.set_route('Form', 'Sales Invoice', data.invoice_name);
 					}
 				);
 
@@ -3243,7 +3268,7 @@ function generate_manual_invoice_for_member(frm, _member_info) {
 			} else {
 				frappe.msgprint({
 					title: __('Invoice Generation Failed'),
-					message: r.message ? r.message.error : __('Unknown error occurred'),
+					message: getErrorMessage(r.message, __('Unknown error occurred')),
 					indicator: 'red'
 				});
 			}
