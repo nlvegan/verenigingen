@@ -119,7 +119,20 @@ def create_default_cost_center(company):
         parent_cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 1}, "name")
 
         if not parent_cost_center:
-            parent_cost_center = company  # Use company as parent
+            # Company has no group Cost Center at all (see #1359) -- fall back
+            # to the company's root, creating it if needed, instead of the
+            # literal company name. ERPNext autonames a Cost Center as
+            # "<cost_center_name> - <company abbr>", so a Cost Center literally
+            # named `company` never exists; using it as parent_cost_center
+            # raised frappe.LinkValidationError ("Could not find Parent Cost
+            # Center"), caught by this function's own `except Exception` and
+            # silently swallowed into get_fallback_cost_center() (which is not
+            # even scoped to this company). See #1441/#1477.
+            from verenigingen.e_boekhouden.utils.eboekhouden_cost_center_fix import (
+                ensure_root_cost_center,
+            )
+
+            parent_cost_center = ensure_root_cost_center(company)
 
         cost_center_doc = frappe.get_doc(
             {
