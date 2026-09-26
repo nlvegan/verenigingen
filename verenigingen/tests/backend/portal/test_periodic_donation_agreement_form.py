@@ -36,6 +36,207 @@ from verenigingen.tests.fixtures.dutch_validation_helpers import generate_valid_
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
+class TestPeriodicDonationAgreementFormAnbiConsent(EnhancedTestCase):
+    """#1461: the schema default `anbi_eligible: 1` made every new agreement
+    run the strict, consent-requiring ANBI validation path regardless of what
+    the submitter actually intended, and nothing in this form's pipeline ever
+    recorded ANBI consent on the Donor -- so every first-time donor's
+    submission failed with "Donor must provide ANBI consent...".
+
+    Maintainer ruling (issue comment, 2026-09-26): the controller stays
+    untouched (fail-closed `validate_donor_consent(strict=True)` is correct
+    and `test_anbi_validation_failure_system_disabled` keeps encoding the
+    current rule). The fix is in this web form: an explicit ANBI-consent
+    checkbox (`anbi_tax_consent` in form_data). Ticked -> record consent on
+    the Donor, then create a 5-year ANBI agreement. Unticked -> create a
+    plain, non-ANBI pledge (`anbi_eligible=0`), so an unconsented submission
+    never reaches the ANBI validation path at all.
+    """
+
+    def setUp(self):
+        self._original_user = frappe.session.user
+        super().setUp()
+
+    def tearDown(self):
+        if hasattr(self, "_original_user"):
+            frappe.set_user(self._original_user)
+        super().tearDown()
+
+    def _pledge_form_data(self, **overrides):
+        data = {
+            "agreement_type": "Private Written",
+            "start_date": frappe.utils.today(),
+            "annual_amount": 600,
+            "payment_frequency": "Monthly",
+            "payment_method": "Bank Transfer",
+            "accept_terms": 1,
+        }
+        data.update(overrides)
+        return data
+
+    def test_anbi_consent_ticked_records_consent_and_creates_anbi_agreement(self):
+        """An existing donor (already carrying a valid BSN from an earlier
+        interaction, but never asked for ANBI consent specifically) ticks the
+        new consent checkbox for their FIRST periodic donation agreement.
+        Before the fix this fails with the consent error even though the
+        checkbox exists nowhere yet to tick; after the fix it must succeed,
+        record consent on the Donor, and produce an ANBI-eligible agreement.
+        """
+        from verenigingen.verenigingen.web_form.periodic_donation_agreement_form.periodic_donation_agreement_form import (
+            process_agreement_form,
+        )
+
+        user_email = f"pda.anbiconsent.ticked.{frappe.generate_hash(length=8)}@example.com"
+        self.create_test_user(user_email, roles=["Verenigingen Member"])
+        member = self.create_test_member(email=user_email, user=user_email)
+        donor = self.create_test_donor(
+            donor_name="Anbi Consent Ticked Donor",
+            donor_type="Individual",
+            member=member.name,
+            bsn_citizen_service_number=generate_valid_bsn(),
+        )
+        self.assertFalse(donor.anbi_consent, "fixture must start withOUT consent recorded")
+
+        form_data = self._pledge_form_data(
+            accept_five_year_term=1,
+            anbi_tax_consent=1,
+        )
+
+        self.expectErrorLog("Agreement Form Audit")  # process_agreement_form's own success audit log
+        with self.as_user(user_email):
+            result = process_agreement_form(form_data)
+
+        self.assertTrue(result.get("success"), f"expected success, got: {result}")
+        self.track_doc("Periodic Donation Agreement", result["agreement"])
+
+        donor.reload()
+        self.assertTrue(donor.anbi_consent, "consent must be recorded on the donor")
+
+        agreement = frappe.get_doc("Periodic Donation Agreement", result["agreement"])
+        self.assertEqual(agreement.donor, donor.name)
+        self.assertTrue(agreement.anbi_eligible, "a consented submission must be ANBI-eligible")
+
+    def test_anbi_consent_unticked_creates_non_anbi_pledge_without_recording_consent(self):
+        """A genuinely first-time donor (no prior Donor record at all) submits
+        WITHOUT ticking ANBI consent. This must succeed as a plain pledge --
+        no BSN, no consent, no 5-year ANBI validation involved at all -- and
+        must NOT record any ANBI consent on the newly created Donor.
+        """
+        from verenigingen.verenigingen.web_form.periodic_donation_agreement_form.periodic_donation_agreement_form import (
+            process_agreement_form,
+        )
+
+        user_email = f"pda.anbiconsent.unticked.{frappe.generate_hash(length=8)}@example.com"
+        self.create_test_user(user_email, roles=["Verenigingen Member"])
+        self.create_test_member(email=user_email, user=user_email)
+
+        form_data = self._pledge_form_data()  # no anbi_tax_consent, no accept_five_year_term
+
+        self.expectErrorLog("Agreement Form Audit")  # process_agreement_form's own success audit log
+        with self.as_user(user_email):
+            result = process_agreement_form(form_data)
+
+        self.assertTrue(result.get("success"), f"expected success, got: {result}")
+        self.track_doc("Periodic Donation Agreement", result["agreement"])
+
+        agreement = frappe.get_doc("Periodic Donation Agreement", result["agreement"])
+        self.track_doc("Donor", agreement.donor)
+        self.assertFalse(agreement.anbi_eligible, "an unconsented submission must be a plain pledge")
+
+        donor = frappe.get_doc("Donor", agreement.donor)
+        self.assertFalse(donor.anbi_consent, "consent must NOT be recorded when the checkbox was unticked")
+
+    def test_explicit_anbi_claim_without_consent_is_still_refused_by_the_controller(self):
+        """CONTROL: the controller-level fail-closed rule is untouched by this
+        fix. An explicit anbi_eligible=1 claim against a donor who has never
+        consented must still be refused, exactly as
+        test_anbi_validation_failure_system_disabled (a sibling control)
+        keeps the system-disabled case refused. This is NOT reachable through
+        the web form's own branching (which only ever sets anbi_eligible=1
+        after recording consent) -- it exercises the controller directly, the
+        layer the maintainer ruling says must NOT change.
+        """
+        donor = self.create_test_donor(
+            donor_type="Individual",
+            bsn_citizen_service_number=generate_valid_bsn(),
+        )
+        self.assertFalse(donor.anbi_consent, "control fixture must have NO consent on record")
+
+        agreement = frappe.get_doc(
+            {
+                "doctype": "Periodic Donation Agreement",
+                "donor": donor.name,
+                "agreement_type": "Private Written",
+                "start_date": frappe.utils.today(),
+                "annual_amount": 600,
+                "payment_frequency": "Monthly",
+                "anbi_eligible": 1,
+                "agreement_duration_years": "5 Years (ANBI Minimum)",
+                "status": "Draft",
+            }
+        )
+
+        with self.assertRaises(frappe.ValidationError) as cm:
+            agreement.insert()
+
+        self.assertIn("consent", str(cm.exception).lower())
+        self.assertFalse(frappe.db.exists("Periodic Donation Agreement", {"donor": donor.name}))
+
+    def test_failed_agreement_creation_does_not_leave_orphaned_consent(self):
+        """REGRESSION (independent review of #1461, 2026-09-26):
+        record_anbi_consent_for_donor() runs BEFORE create_agreement_from_form
+        (the controller's strict consent check needs consent already on the
+        Donor, so it cannot run after). But if agreement creation
+        subsequently fails for an unrelated reason -- here, no BSN on file,
+        which validate_donor_tax_identifier requires for any ANBI claim --
+        the consent write must not survive as an orphaned side effect with
+        no agreement to show for it. Before the fix, process_agreement_form's
+        outer except returns {success: False} with no rollback, so the
+        consent write (and Donor.anbi_consent_date, auto-stamped by
+        Donor.validate()) stick around anyway.
+        """
+        from verenigingen.verenigingen.web_form.periodic_donation_agreement_form.periodic_donation_agreement_form import (
+            process_agreement_form,
+        )
+
+        user_email = f"pda.anbiconsent.orphan.{frappe.generate_hash(length=8)}@example.com"
+        self.create_test_user(user_email, roles=["Verenigingen Member"])
+        member = self.create_test_member(email=user_email, user=user_email)
+        donor = self.create_test_donor(
+            donor_name="Orphaned Consent Donor",
+            donor_type="Individual",
+            member=member.name,
+            bsn_citizen_service_number="",  # deliberately missing -- ANBI validation must fail on this
+        )
+        self.assertFalse(donor.anbi_consent, "fixture must start withOUT consent recorded")
+        consent_before = frappe.db.get_value("Donor", donor.name, "anbi_consent")
+        consent_date_before = frappe.db.get_value("Donor", donor.name, "anbi_consent_date")
+
+        form_data = self._pledge_form_data(
+            accept_five_year_term=1,
+            anbi_tax_consent=1,
+        )
+
+        self.expectErrorLog("Agreement Form Error")
+        with self.as_user(user_email):
+            result = process_agreement_form(form_data)
+
+        self.assertFalse(result.get("success"), f"expected failure (no BSN), got: {result}")
+        self.assertIn("BSN", result.get("message", ""))
+        self.assertFalse(frappe.db.exists("Periodic Donation Agreement", {"donor": donor.name}))
+
+        self.assertEqual(
+            frappe.db.get_value("Donor", donor.name, "anbi_consent"),
+            consent_before,
+            "a failed submission must not leave consent recorded on the donor",
+        )
+        self.assertEqual(
+            frappe.db.get_value("Donor", donor.name, "anbi_consent_date"),
+            consent_date_before,
+            "a failed submission must not leave an anbi_consent_date stamp either",
+        )
+
+
 class TestPeriodicDonationAgreementFormPaymentMethodMapping(EnhancedTestCase):
     """REGRESSION (#744): payment_method must be validated/mapped, not
     assigned unchecked into the agreement's 3-option Select."""

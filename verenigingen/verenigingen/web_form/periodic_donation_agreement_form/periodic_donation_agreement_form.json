@@ -20,7 +20,7 @@
   "list_columns": [],
   "login_required": 1,
   "max_attachment_size": 5,
-  "modified": "2025-01-06 16:00:00.000000",
+  "modified": "2026-09-26 18:00:00.000000",
   "modified_by": "Administrator",
   "module": "Verenigingen",
   "name": "periodic-donation-agreement-form",
@@ -271,6 +271,20 @@
     {
       "allow_read_on_all_link_options": 0,
       "default": "0",
+      "description": "I consent to a 5-year+ periodic donation agreement and to my ANBI tax-benefit consent being recorded on my donor profile. Leave unchecked for a shorter, non-ANBI donation pledge instead.",
+      "fieldname": "anbi_tax_consent",
+      "fieldtype": "Check",
+      "hidden": 0,
+      "label": "I Want ANBI Tax Benefits",
+      "max_length": 0,
+      "max_value": 0,
+      "read_only": 0,
+      "reqd": 0,
+      "show_in_filter": 0
+    },
+    {
+      "allow_read_on_all_link_options": 0,
+      "default": "0",
       "description": "I understand that this agreement is for a minimum period of 5 years to qualify for ANBI tax benefits",
       "fieldname": "accept_five_year_term",
       "fieldtype": "Check",
@@ -279,7 +293,7 @@
       "max_length": 0,
       "max_value": 0,
       "read_only": 0,
-      "reqd": 1,
+      "reqd": 0,
       "show_in_filter": 0
     },
     {
