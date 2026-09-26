@@ -533,6 +533,29 @@ class TestGenerateEnhancedSepaXMLIntegration(EnhancedTestCase):
         self.assertIn(f"E2E-{first_invoice}", e2e_ids)
         self.assertEqual(len(e2e_ids), 2)
 
+    def test_generate_enhanced_sepa_xml_blank_currency_row_fails(self):
+        """#1464: this function's transaction-building loop used to default a
+        blank/missing `invoice_data.currency` to "EUR"
+        (`invoice_data.currency or "EUR"`), which is fail-open on a money path.
+        `Direct Debit Batch Invoice.currency` is `reqd: 1` with no
+        `ignore_mandatory` call site on this path, so a blank value is not
+        reachable through the normal insert route; force it directly via
+        db_set on the already-inserted child row, matching how the race-
+        condition-manager tests flip Sales Invoice.currency the same way.
+        With the default removed, the blank value reaches
+        `_validate_transaction` (currency != "EUR") and generation must
+        refuse -- not silently emit a batch stamped EUR regardless of what it
+        actually collects.
+        """
+        batch = self.sepa.create_test_direct_debit_batch(invoice_count=1)
+        row_name = batch.invoices[0].name
+        frappe.db.set_value("Direct Debit Batch Invoice", row_name, "currency", "", update_modified=False)
+
+        result = generate_enhanced_sepa_xml(batch.name)
+
+        self.assertFalse(result["success"])
+        self.assertIn("EUR currency is supported", result["error"])
+
     def test_generate_enhanced_sepa_xml_missing_batch(self):
         # Nonexistent batch -> caught -> structured failure dict (not a raise).
         result = generate_enhanced_sepa_xml("DDB-DOES-NOT-EXIST-XYZ")
