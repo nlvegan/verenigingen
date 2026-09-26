@@ -294,6 +294,78 @@ class TestOptimizerIntegration(EnhancedTestCase):
         names = {row["invoice"] for row in eligible}
         self.assertNotIn(invoice.name, names, "terminated member's invoice must not be eligible")
 
+    # --- get_eligible_invoices_for_batching: currency filter (#1440) --------
+
+    def _make_eligible_invoice_on_ambient_company(self, prefix, currency):
+        """Same eligibility wiring as `_make_eligible_member_invoice`, but the
+        Sales Invoice is built via THIS class's own `create_test_sales_invoice`
+        (EnhancedTestCase's bridge, which resolves company via
+        `self._get_test_company()` -- test_site_1's `_Test Company`, currency
+        INR) rather than `self.sepa.create_test_sales_invoice`'s forced EUR
+        company. That gives a genuinely non-EUR company, so a test built here can
+        tell a correct `si.currency = 'EUR'` fix apart from a plausible wrong one
+        that instead compares against the invoice's own company currency.
+        `currency` is forced via `db_set` post-submit (matching the established
+        pattern in test_dues_invoice_workflow.py, #1286/#1442) rather than passed
+        at insert time, so ERPNext's own currency/company validation never enters
+        the picture -- this is only about what the eligibility SQL does with the
+        stored value.
+        """
+        member = self.sepa.create_test_member(first_name=prefix)
+        customer_name = member.customer
+        if not customer_name:
+            customer_name = self.sepa.create_test_customer(customer_name=f"Customer {member.full_name}").name
+            member.db_set("customer", customer_name)
+        frappe.db.set_value("Customer", customer_name, "member", member.name)
+        membership = self.sepa.create_test_membership(member=member.name)
+        schedule = self.sepa.create_test_membership_dues_schedule(
+            member=member.name, payment_terms_template="SEPA Direct Debit"
+        )
+        mandate = self.sepa.create_test_sepa_mandate(member=member.name)
+        frappe.db.set_value(
+            "Member",
+            member.name,
+            {"payment_method": "SEPA Direct Debit", "iban": mandate.iban},
+        )
+        invoice = self.create_test_sales_invoice(customer=customer_name, grand_total=25.0)
+        invoice.db_set("membership_dues_schedule_display", schedule.name)
+        frappe.db.set_value("Sales Invoice", invoice.name, "currency", currency, update_modified=False)
+        invoice.reload()
+        self._track_test_document("Sales Invoice", invoice.name)
+        self._track_test_document("Member", member.name)
+        self._track_test_document("Customer", customer_name)
+        self._track_test_document("Membership", membership.name)
+        self._track_test_document("Membership Dues Schedule", schedule.name)
+        self._track_test_document("SEPA Mandate", mandate.name)
+        return member, invoice
+
+    def test_eligible_invoices_excludes_non_eur_invoice(self):
+        """#1440: this query selects `si.currency` into the result set but never
+        filtered on it. A non-EUR invoice with an otherwise fully eligible
+        member/mandate/schedule must not be offered for batching -- the created
+        batch hardcodes `"currency": "EUR"` (create_dd_batch_document) regardless
+        of what the selected invoices actually carry."""
+        member, invoice = self._make_eligible_invoice_on_ambient_company("OptNonEur", currency="USD")
+        eligible = opt.get_eligible_invoices_for_batching()
+        names = {row["invoice"] for row in eligible}
+        self.assertNotIn(invoice.name, names, "a non-EUR invoice must not be eligible for batching")
+
+    def test_eligible_invoices_includes_eur_invoice_on_non_eur_company(self):
+        """Positive control: a genuinely EUR invoice must still be eligible even
+        though its own company is NOT EUR (test_site_1's ambient `_Test Company`
+        is INR). Pins the fixture precondition that lets this test tell a correct
+        `si.currency = 'EUR'` fix apart from a plausible wrong one that instead
+        compares against the invoice's company currency."""
+        member, invoice = self._make_eligible_invoice_on_ambient_company("OptEurNonEurCo", currency="EUR")
+        self.assertNotEqual(
+            frappe.db.get_value("Company", invoice.company, "default_currency"),
+            "EUR",
+            "fixture precondition: the invoice's own company must not be EUR",
+        )
+        eligible = opt.get_eligible_invoices_for_batching()
+        names = {row["invoice"] for row in eligible}
+        self.assertIn(invoice.name, names)
+
     # --- validate_member_eligibility_for_billing ----------------------------
 
     def test_validate_eligibility_true_for_active(self):

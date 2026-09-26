@@ -257,6 +257,12 @@ def get_eligible_invoices_for_batching():
             si.docstatus = 1
             AND si.status IN ('Unpaid', 'Overdue')
             AND si.outstanding_amount > 0
+            -- SEPA Core Direct Debit is EUR-only (#1218, #1286). This query
+            -- selects `si.currency` into the result set but never filtered on
+            -- it (#1440); `create_dd_batch_document` below hardcodes the
+            -- created batch to `"currency": "EUR"` regardless of what the
+            -- selected invoices actually carry.
+            AND si.currency = 'EUR'
             AND mem.payment_method = 'SEPA Direct Debit'
             AND mem.iban IS NOT NULL
             AND mem.iban != ''
