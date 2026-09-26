@@ -88,18 +88,30 @@ def get_or_create_donor_for_user():
     if frappe.session.user == "Guest":
         return None
 
-    # Check if donor exists
-    donor = frappe.db.get_value(
-        "Donor",
-        {"donor_email": frappe.session.user},
-        ["name", "donor_name", "phone", "donor_type", "anbi_consent"],
-        as_dict=True,
-    )
+    donor_name = _resolve_donor_name_for_session_user()
 
-    if donor:
-        return donor
+    if donor_name:
+        donor = frappe.db.get_value(
+            "Donor",
+            donor_name,
+            ["name", "donor_name", "phone", "donor_type", "anbi_consent"],
+            as_dict=True,
+        )
+        if donor:
+            return donor
 
-    # Create new donor from user
+    # No Donor resolved -- either none exists, or resolution refused an
+    # ambiguous match (already logged as DONOR_001 by whichever helper
+    # refused; see _resolve_donor_name_for_session_user). PROVISIONAL, per
+    # the #1396 maintainer ruling (https://github.com/nlvegan/verenigingen/
+    # issues/1396#issuecomment-5843801512): fall through and create a new,
+    # unlinked Donor rather than writing the submitter's BSN or a 5-year
+    # Periodic Donation Agreement onto an arbitrarily-picked existing Donor
+    # (#1450). That ruling was made for a public, unauthenticated donation
+    # form; this endpoint is a logged-in user creating a legal/tax
+    # agreement, a higher-stakes case the maintainer had not yet ruled on
+    # when this fix was written -- reconfirm before relying on this branch
+    # for that scenario.
     user = frappe.get_doc("User", frappe.session.user)
 
     donor_doc = frappe.new_doc("Donor")
@@ -118,6 +130,35 @@ def get_or_create_donor_for_user():
         "donor_type": donor_doc.donor_type,
         "anbi_consent": 0,
     }
+
+
+def _resolve_donor_name_for_session_user():
+    """Resolve the logged-in user's Donor via the shared, tiered Donor
+    resolution established across the #1356/#1384/#1389/#1392/#1406/#1423
+    family: the authoritative Donor.member link wins over a donor_email
+    match, and an ambiguous match at either tier refuses (returns None)
+    rather than picking one arbitrarily -- never falling through to a
+    weaker tier on that refusal (#1450, mirroring #1392's review).
+
+    Reuses get_donor_for_member for BOTH cases, including when the session
+    user has no linked Member at all: its Donor.member tier is a no-op on a
+    falsy member name (find_donors_by_field returns [] without querying), so
+    passing name=None falls straight through to its donor_email tier -- the
+    same refuse-on-ambiguity rule, applied to the session user's own
+    e-mail -- without duplicating that query here.
+
+    Returns:
+        Donor name (str) if resolved; None if no Donor matches, or if a
+        match was ambiguous (in which case get_donor_for_member has already
+        logged DONOR_001 for admin review).
+    """
+    from verenigingen.services.member.donor.donor_member_reconciliation import get_donor_for_member
+    from verenigingen.utils.member_utils import get_member_name_for_user
+
+    member_name = get_member_name_for_user(frappe.session.user)
+    member_email = frappe.db.get_value("Member", member_name, "email") if member_name else frappe.session.user
+
+    return get_donor_for_member(frappe._dict(name=member_name, email=member_email))
 
 
 @frappe.whitelist()
