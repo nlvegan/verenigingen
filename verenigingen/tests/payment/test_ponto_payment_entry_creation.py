@@ -87,7 +87,7 @@ def _ensure_ponto_clearing_account(company):
     return account.name
 
 
-def _make_second_ponto_account(company, suffix="Backup"):
+def _make_second_ponto_account(company, suffix="Backup", disabled=0):
     """A SECOND real Bank GL Account also matching the `%Ponto%` name lookup.
 
     Created per-test (not at class scope like `_ensure_ponto_clearing_account`), so
@@ -95,6 +95,14 @@ def _make_second_ponto_account(company, suffix="Backup"):
     handling. Created strictly after `cls.ponto_account` (class setup runs first), so
     it is the row `creation DESC` would pick under the pre-#1434 code - the ambiguity
     test below must catch a "pick newest" regression, not merely a "pick some row".
+
+    `disabled=1` builds the exact scenario the issue itself describes ("an old
+    clearing account plus a new one created during a re-configuration"): a
+    DISABLED account matching `%Ponto%` must not count as an ambiguity candidate,
+    since ERPNext refuses to post accounting entries against a disabled Account at
+    all (`general_ledger.validate_disabled_accounts`) - it was never a real
+    posting target, so it must not force a refusal that blocks the one real,
+    enabled candidate.
     """
     parent = frappe.db.get_value(
         "Account", {"company": company, "account_type": "Bank", "is_group": 1}, "name"
@@ -107,6 +115,7 @@ def _make_second_ponto_account(company, suffix="Backup"):
             "parent_account": parent,
             "account_type": "Bank",
             "is_group": 0,
+            "disabled": disabled,
             "account_currency": frappe.db.get_value("Company", company, "default_currency"),
         }
     ).insert(ignore_permissions=True)
@@ -819,6 +828,43 @@ class TestCreatePontoPaymentEntry(EnhancedTestCase):
         self.assertFalse(
             frappe.db.exists("Payment Entry", {"reference_no": link.ponto_request_id}),
             "an ambiguous match must leave no Payment Entry behind",
+        )
+
+    def test_disabled_ponto_account_is_not_an_ambiguity_candidate(self):
+        """A DISABLED `%Ponto%` account must not count towards the ambiguity check
+        (#1434 review finding): the issue's own scenario is "an old clearing
+        account plus a new one created during a re-configuration" - the old one
+        gets disabled, not deleted. ERPNext refuses to post accounting entries
+        against a disabled Account at all
+        (`general_ledger.validate_disabled_accounts`, confirmed empirically on
+        this bench: submitting a Journal Entry referencing a disabled Account
+        raises "Cannot create accounting entries against disabled accounts"), so
+        a disabled match was never a real posting target and must not force a
+        refusal that blocks the one real, enabled candidate.
+
+        The disabled account is created strictly AFTER `cls.ponto_account`, so
+        `creation DESC` would prefer IT over the enabled one if the filter were
+        missing - this defeats a mutant that merely reorders rather than
+        excluding disabled rows.
+        """
+        member = self._member_with_customer(first_name="PontoDisabledSibling")
+        invoice = self._submitted_invoice(member.customer)
+        link = self._payment_link(member)
+        disabled_account = _make_second_ponto_account(self.company, suffix="Old Disabled", disabled=1)
+        self.assertEqual(
+            frappe.db.get_value("Account", disabled_account, "disabled"),
+            1,
+            "premise: the sibling account must actually be disabled",
+        )
+
+        pe_name = create_ponto_payment_entry(link, invoice.name)
+
+        self.assertIsNotNone(
+            pe_name, "a disabled sibling must not force a refusal when one enabled account exists"
+        )
+        pe = frappe.get_doc("Payment Entry", pe_name)
+        self.assertEqual(
+            pe.paid_to, self.ponto_account, "the entry must post to the enabled account, not the disabled one"
         )
 
     def test_ambiguity_rolls_back_status_not_stuck_executed(self):

@@ -113,9 +113,21 @@ def create_ponto_payment_entry(payment_link_doc, invoice_name: str) -> Optional[
             # an operator could see (#1434). Refuse instead of guessing, and name the
             # setting that resolves it - do NOT fall through to the company default
             # below either, which would just be another arbitrary pick.
+            #
+            # `disabled: 0` excludes accounts that can never actually receive a
+            # posting: ERPNext refuses to create GL entries against a disabled
+            # Account at all (general_ledger.validate_disabled_accounts), so a
+            # disabled `%Ponto%` account - e.g. an old clearing account left
+            # behind after a re-configuration - is not a real candidate and must
+            # not force a refusal that blocks the one genuinely usable match.
             ponto_accounts = frappe.get_all(
                 "Account",
-                filters={"company": company, "account_name": ["like", "%Ponto%"], "is_group": 0},
+                filters={
+                    "company": company,
+                    "account_name": ["like", "%Ponto%"],
+                    "is_group": 0,
+                    "disabled": 0,
+                },
                 pluck="name",
             )
             if len(ponto_accounts) > 1:
