@@ -105,68 +105,13 @@ class SEPANotificationManager:
         self.templates = self._initialize_templates()
         self.rules = self._initialize_rules()
         self.delivery_log = []
-        self._ensure_notification_tables()
-
-    def _ensure_notification_tables(self):
-        """Ensure notification tracking tables exist.
-
-        NOTE (R5 consolidation): intentionally NOT routed through the shared
-        ``ensure_table_exists`` helper. ``CREATE TABLE`` is DDL; instantiating the
-        manager mid-transaction raises ``ImplicitCommitError`` here, and
-        ``ensure_table_exists`` rolls back on error (discarding the caller's
-        pending writes). The original swallow-without-rollback is required for
-        parity, so the inline blocks stay.
-        """
-        try:
-            # Notification log table
-            frappe.db.sql(
-                """
-                CREATE TABLE IF NOT EXISTS `tabSEPA_Notification_Log` (
-                    `name` varchar(255) NOT NULL PRIMARY KEY,
-                    `creation` datetime(6) DEFAULT NULL,
-                    `modified` datetime(6) DEFAULT NULL,
-                    `notification_id` varchar(255) NOT NULL UNIQUE,
-                    `notification_type` varchar(100) NOT NULL,
-                    `priority` varchar(50) NOT NULL,
-                    `channels` varchar(255) DEFAULT NULL,
-                    `recipients` longtext DEFAULT NULL,
-                    `subject` text DEFAULT NULL,
-                    `message` longtext DEFAULT NULL,
-                    `context` longtext DEFAULT NULL,
-                    `delivery_status` varchar(50) DEFAULT 'pending',
-                    `delivery_attempts` int DEFAULT 0,
-                    `last_attempt` datetime(6) DEFAULT NULL,
-                    `delivered_at` datetime(6) DEFAULT NULL,
-                    `error_message` text DEFAULT NULL,
-                    INDEX `idx_notification_type` (`notification_type`),
-                    INDEX `idx_delivery_status` (`delivery_status`),
-                    INDEX `idx_creation` (`creation`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            """
-            )  # db-begin-ok: idempotent-bootstrap
-
-            # Notification preferences table
-            frappe.db.sql(
-                """
-                CREATE TABLE IF NOT EXISTS `tabSEPA_Notification_Preferences` (
-                    `name` varchar(255) NOT NULL PRIMARY KEY,
-                    `creation` datetime(6) DEFAULT NULL,
-                    `modified` datetime(6) DEFAULT NULL,
-                    `user_email` varchar(255) NOT NULL,
-                    `notification_type` varchar(100) NOT NULL,
-                    `enabled` tinyint(1) DEFAULT 1,
-                    `channels` varchar(255) DEFAULT 'email',
-                    `minimum_priority` varchar(50) DEFAULT 'medium',
-                    UNIQUE KEY `unique_user_type` (`user_email`, `notification_type`),
-                    INDEX `idx_user_email` (`user_email`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            """
-            )  # db-begin-ok: idempotent-bootstrap
-
-            frappe.db.commit()
-
-        except Exception as e:
-            frappe.logger().warning(f"Notification table creation issue: {str(e)}")
+        # Table existence is guaranteed by
+        # verenigingen.verenigingen_payments.utils.shared.sepa_ops_tables
+        # .ensure_sepa_ops_tables(), called from after_install/after_migrate
+        # (see #1510). Creating them here, mid-request, raised
+        # ImplicitCommitError as soon as the caller had any pending write, and
+        # that error was silently swallowed -- so the table never got created
+        # on a fresh site.
 
     def _initialize_templates(self) -> Dict[str, NotificationTemplate]:
         """Initialize notification templates"""
