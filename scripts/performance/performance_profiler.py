@@ -189,15 +189,24 @@ def process_payment_batch_simulation(batch_size: int):
         filters={"docstatus": 1, "unallocated_amount": [">", 0.0], "party_type": "Customer"},
         pluck="party",
         distinct=True,
+        order_by="modified desc",
         limit=batch_size,
     )
 
+    # Each per-customer call is capped at the REMAINING budget, and the loop
+    # stops as soon as the batch is full -- with a flat `limit=batch_size` on
+    # every call instead, batch_size customers each contributing batch_size
+    # rows fetches up to batch_size^2 rows to produce batch_size (measured:
+    # 10k rows for a batch_size=100 run), in a script whose whole purpose is
+    # measuring batch cost.
     payments = []
     for customer in customers_with_unreconciled_payments:
+        remaining = batch_size - len(payments)
+        if remaining <= 0:
+            break
         payments.extend(
-            get_unreconciled_payments(customer=customer, minimum_amount=0.0, limit=batch_size)
+            get_unreconciled_payments(customer=customer, minimum_amount=0.0, limit=remaining)
         )
-    payments = payments[:batch_size]
 
     processed_count = 0
     
