@@ -288,6 +288,22 @@ def get_approval_progress(member_name: str) -> OperationResult[Dict[str, Any]]:
         OperationResult[Dict[str, Any]]: Background job status and progress information
     """
     try:
+        # #1484: this endpoint had no chapter-permission check at all, unlike
+        # approve_membership_application_background above (#1453/#1487) in the
+        # same file -- any MEDIUM-tier caller could request another chapter's
+        # approval job status for an arbitrary member_name. Reuse the same
+        # helper rather than inventing a second check.
+        #
+        # Unlike the approve/reject write paths, this is a read-only probe
+        # (matching can_review_application, #1394), so it deliberately does
+        # NOT also call an existence-revealing check: an unknown member_name
+        # and a foreign one both fail identically inside
+        # can_user_manage_application (zero Chapter Member rows either way),
+        # so a separate existence check would only add a second oracle.
+        from verenigingen.services.chapter.chapter_security import validate_chapter_permission_or_throw
+
+        validate_chapter_permission_or_throw(member_name, "view")
+
         from verenigingen.events.subscribers.approval_subscribers import get_approval_background_job_status
 
         status = get_approval_background_job_status(member_name)

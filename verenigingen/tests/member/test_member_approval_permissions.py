@@ -67,6 +67,31 @@ def _message_log_contents(log):
     return [{k: v for k, v in entry.items() if k != "__frappe_exc_id"} for entry in log]
 
 
+def _operation_succeeded(result):
+    """Whether an OperationResult-shaped dict reports success.
+
+    Several of these API endpoints (approve/reject/background-approval/
+    approval-progress) are wrapped by the security decorators, which serialize
+    the OperationResult return value via ``to_dict()`` (nested schema) even for
+    a direct Python call -- so the caller sees a plain dict, not an
+    OperationResult instance.
+
+    Module-level (duplicate-helper ratchet, like `_message_log_contents`
+    above): shared by test_background_approval_existence_oracle.py (#1453) and
+    test_approval_progress_permission_check.py (#1484), which each compare
+    this same result shape for a different endpoint in the same file.
+    """
+    return result["success"]
+
+
+def _operation_error_message(result):
+    return result["error"]["message"]
+
+
+def _operation_errors(result):
+    return result["error"]["errors"]
+
+
 class TestMemberApprovalPermissions(EnhancedTestCase):
     """Regression: approve_membership_application must work for non-Admin actors."""
 
