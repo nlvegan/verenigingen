@@ -1156,13 +1156,34 @@ def get_member_permission_query(user):
                 board_chapters = _get_board_chapters_for_member(user_member)
                 if board_chapters:
                     chapter_names = [frappe.db.escape(ch) for ch in board_chapters]
+                    # #1529: mirror has_member_permission -> _is_member_in_chapters(
+                    # include_pending=True) exactly, or the Desk list disagrees with the
+                    # doc-level check. Two changes from the pre-#1529 "cm.status = 'Active'"
+                    # shape, both taken from _is_member_in_chapters's docstring:
+                    # - `cm.enabled = 1`: a disabled row (left/transferred-out member,
+                    #   `remove_member(permanent=False)`) must not keep listing them for the
+                    #   SOURCE chapter's board, matching get_termination_permission_query and
+                    #   get_volunteer_permission_query, which already require it.
+                    # - `OR (cm.status = 'Pending' AND m.application_status = 'Pending')`:
+                    #   lists a board's own chapter's real applicant (Chapter Member row
+                    #   written Pending by application_helpers.create_pending_chapter_membership).
+                    #   The `m.application_status = 'Pending'` guard is required, not optional --
+                    #   without it this would also match an ALREADY-ACTIVE member's Pending row
+                    #   from requesting a second chapter (member_manager.request_to_join /
+                    #   Chapter.join_chapter), granting that chapter's board list access to a
+                    #   member who is not theirs to manage (the same escalation #1518's review
+                    #   found and fixed doc-level).
                     chapters_condition = f"""
                         (`tabMember`.name IN (
                             SELECT DISTINCT cm.member
                             FROM `tabChapter Member` cm
                             JOIN `tabMember` m ON m.name = cm.member
                             WHERE cm.parent IN ({','.join(chapter_names)})
-                              AND cm.status = 'Active'
+                              AND cm.enabled = 1
+                              AND (
+                                  cm.status = 'Active'
+                                  OR (cm.status = 'Pending' AND m.application_status = 'Pending')
+                              )
                               AND m.status NOT IN ('Quit', 'Banned', 'Deceased')
                         ))
                     """
@@ -1220,6 +1241,10 @@ def get_membership_permission_query(user):
                 board_chapters = _get_board_chapters_for_member(user_member)
                 if board_chapters:
                     chapter_names = [frappe.db.escape(ch) for ch in board_chapters]
+                    # #1529: same fix as get_member_permission_query above -- see its
+                    # comment for the reasoning (`enabled` check + Pending-application
+                    # widening, matching has_membership_permission's
+                    # _is_member_in_chapters(include_pending=True)).
                     conditions.append(
                         f"""
                         (`tabMembership`.member IN (
@@ -1227,7 +1252,11 @@ def get_membership_permission_query(user):
                             FROM `tabChapter Member` cm
                             JOIN `tabMember` m ON m.name = cm.member
                             WHERE cm.parent IN ({','.join(chapter_names)})
-                              AND cm.status = 'Active'
+                              AND cm.enabled = 1
+                              AND (
+                                  cm.status = 'Active'
+                                  OR (cm.status = 'Pending' AND m.application_status = 'Pending')
+                              )
                               AND m.status NOT IN ('Quit', 'Banned', 'Deceased')
                         ))
                         """
