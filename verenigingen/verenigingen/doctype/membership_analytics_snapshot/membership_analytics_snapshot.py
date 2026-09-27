@@ -119,7 +119,7 @@ def calculate_member_metrics(snapshot, period):
         "Membership Termination Request",
         filters={
             "termination_date": ["between", [period["start_date"], period["end_date"]]],
-            "status": "Completed",
+            "status": "Executed",
         },
     )
 

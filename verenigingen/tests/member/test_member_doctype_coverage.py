@@ -225,6 +225,96 @@ class TestMembershipAnalyticsSnapshot(EnhancedTestCase):
         self.assertIn("net_growth", snapshot)
         self.assertIn("retention_rate", snapshot)
 
+    def test_calculate_member_metrics_counts_real_termination_as_lost(self):
+        """#1540: lost_members filtered Membership Termination Request on
+        status="Completed", which is not a valid Select option
+        (Draft/Pending/Approved/Rejected/Executed/Cancelled) -- the same
+        #1530/#1532 bug shape, the third site of it found by that class
+        sweep. The real terminal value TerminationExecutionService.execute()
+        writes is "Executed", so lost_members (and everything computed from
+        it: net_growth, churn_rate, retention_rate) was always wrong.
+
+        Uses a Daily period (start_date == end_date == today) and a REAL
+        termination dated today, via TerminationExecutionService (not a
+        hand-set status -- #1530 was found precisely because an earlier fix
+        trusted a status string). Test members are created WITHOUT
+        member_since (stays NULL), so they can never satisfy new_members'
+        or members_at_start's date-range filters -- isolating this test to
+        lost_members/active_members and what is derived from them, without
+        needing to control ambient member_since data on a shared test site.
+
+        Every non-obvious expected value is DERIVED from the fixture
+        (mid.*, this test's own delta) rather than hardcoded, and
+        churn_rate/retention_rate are additionally checked for internal
+        formula consistency against the SAME snapshot's own lost_members/
+        active_members -- this guards against a clamp (e.g. max(0, ...))
+        silently masking a wrong numerator, which the current
+        active_members>0 guard does not trigger here since two real Active
+        members exist throughout.
+
+        Control: a Membership Termination Request left at status="Draft"
+        (never executed) must NOT move any of these four metrics -- this is
+        what distinguishes the "Executed"-only fix from the plausible wrong
+        fix of dropping the status filter entirely (any termination
+        request, regardless of status, would then count as lost)."""
+        from verenigingen.tests.support.termination_request import (
+            create_draft_termination_request,
+            execute_real_termination,
+        )
+        from verenigingen.verenigingen.doctype.membership_analytics_snapshot.membership_analytics_snapshot import (
+            calculate_member_metrics,
+            calculate_period,
+        )
+
+        snapshot_date = getdate(today())
+        period = calculate_period("Daily", snapshot_date)
+
+        def _make_member(tag):
+            return self.create_test_member(
+                first_name="SnapChurn",
+                last_name=tag,
+                email=f"snap.churn.{tag.lower()}.{frappe.generate_hash(length=8)}@example.com",
+            )
+
+        # keeps active_members >= 1 after the termination below removes one.
+        _make_member("Survivor")
+        terminated_member = _make_member("Terminated")
+        draft_member = _make_member("Draft")
+
+        before = frappe._dict()
+        calculate_member_metrics(before, period)
+
+        create_draft_termination_request(self, draft_member.name)
+        mid = frappe._dict()
+        calculate_member_metrics(mid, period)
+        self.assertEqual(mid.lost_members, before.lost_members, "a Draft request must not count as lost")
+        self.assertEqual(mid.net_growth, before.net_growth, "a Draft request must not affect net_growth")
+        self.assertEqual(mid.churn_rate, before.churn_rate, "a Draft request must not affect churn_rate")
+        self.assertEqual(
+            mid.retention_rate, before.retention_rate, "a Draft request must not affect retention_rate"
+        )
+
+        execute_real_termination(self, terminated_member.name, termination_date=today())
+        after = frappe._dict()
+        calculate_member_metrics(after, period)
+
+        # new_members is untouched (member_since is NULL for all three test
+        # members), so net_growth's only moving part is lost_members.
+        self.assertEqual(after.new_members, mid.new_members)
+        self.assertEqual(after.lost_members, mid.lost_members + 1)
+        self.assertEqual(after.active_members, mid.active_members - 1)
+        self.assertEqual(after.net_growth, mid.net_growth - 1)
+
+        # active_members > 0 throughout (the Survivor member), so the
+        # division guard never fires -- churn_rate/retention_rate must
+        # match their own formula against THIS snapshot's own counts, not
+        # be silently clamped.
+        self.assertGreater(after.active_members, 0)
+        self.assertAlmostEqual(after.churn_rate, (after.lost_members / after.active_members) * 100, places=6)
+        self.assertAlmostEqual(after.retention_rate, 100 - after.churn_rate, places=6)
+        self.assertGreater(after.churn_rate, mid.churn_rate)
+        self.assertLess(after.retention_rate, mid.retention_rate)
+
     # --- calculate_financial_metrics ---
     def test_calculate_financial_metrics(self):
         """Populates revenue fields on snapshot."""
