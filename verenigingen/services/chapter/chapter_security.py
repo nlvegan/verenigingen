@@ -112,13 +112,29 @@ def can_user_manage_application(member_name, user=None):
     # Requiring 'Active' here made a board member's OWN chapter's pending
     # applications invisible to them (#1518); 'Inactive' (a former member) is
     # deliberately still excluded.
+    #
+    # A Pending row is admitted ONLY when the Member itself is an unapproved
+    # application (m.application_status = 'Pending'). A Chapter Member row can
+    # ALSO be "Pending" for a completely different reason: an already-Active,
+    # already-approved member requesting an ADDITIONAL chapter
+    # (member_manager.py::request_to_join, reached via Chapter.join_chapter /
+    # ChapterMembershipManager.join_chapter). Admitting THAT row too would let
+    # the requested chapter's board manage -- and, via has_member_permission /
+    # has_membership_permission below, read and write -- the member's entire,
+    # unrelated, already-approved record with no expiry. Escalation found and
+    # reproduced in review of #1518's first fix round; fixed here by keying on
+    # the Member's OWN application_status, not the child row's status alone.
     member_chapters = frappe.db.sql(
         """
         SELECT DISTINCT cm.parent as chapter_name
         FROM `tabChapter Member` cm
+        JOIN `tabMember` m ON m.name = cm.member
         WHERE cm.member = %s
         AND cm.enabled = 1
-        AND cm.status IN ('Active', 'Pending')
+        AND (
+            cm.status = 'Active'
+            OR (cm.status = 'Pending' AND m.application_status = 'Pending')
+        )
     """,
         (member_name,),
         as_dict=True,

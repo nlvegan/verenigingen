@@ -314,40 +314,87 @@ def _is_member_in_chapters(member_name, chapter_names, include_pending=False):
     Args:
         member_name: Member document name to check
         chapter_names: List of chapter names to check against
-        include_pending: Also match a Chapter Member row with status='Pending'.
-            #1518: a membership application's Chapter Member row is written
-            with status="Pending" (application_helpers.create_pending_
-            chapter_membership) and only flips to "Active" on approval, so an
-            Active-only check here refuses a board member's write (e.g.
-            member.save() during approve/reject) on their own chapter's still-
-            pending applicant. Default False keeps every other caller of this
-            helper (donations, addresses, termination requests, volunteers)
-            exactly as strict as before -- those doctypes have no equivalent
-            "still pending, not yet mine to manage" case, so widening them
-            was not asked for and is not done here.
+        include_pending: Also match a Chapter Member row with status='Pending',
+            but ONLY when `member_name` is ITSELF an unapproved application
+            (Member.application_status == 'Pending'). #1518: a membership
+            application's Chapter Member row is written with status="Pending"
+            (application_helpers.create_pending_chapter_membership) and only
+            flips to "Active" on approval, so an Active-only check here
+            refused a board member's write (e.g. member.save() during
+            approve/reject) on their own chapter's still-pending applicant.
+
+            The extra application_status condition closes an escalation found
+            in review of #1518's first fix round: a Chapter Member row can ALSO
+            be "Pending" for an already-Active, already-approved member who
+            simply requested an ADDITIONAL chapter
+            (member_manager.py::request_to_join, reached via
+            Chapter.join_chapter / ChapterMembershipManager.join_chapter).
+            Matching on the child row's status alone -- with no reference to
+            whether member_name is an application at all -- let that
+            requested chapter's board read and write the member's entire,
+            unrelated record with no expiry. Reproduced on test_site_7:
+            an Active member M with a home chapter A requests to join chapter
+            B; chapter B's board then got has_permission("Member", "read"/
+            "write", doc=M) == True.
+
+            Default False keeps every other caller of this helper (donations,
+            addresses, termination requests, volunteers) exactly as strict as
+            before -- those doctypes have no equivalent "still pending, not
+            yet mine to manage" case, so widening them was not asked for and
+            is not done here.
 
     Returns:
-        True if member is an active (or pending, if requested) member in at
-        least one of the chapters
+        True if member is an active (or pending-application, if requested)
+        member in at least one of the chapters
     """
     if not member_name or not chapter_names:
         return False
 
-    statuses = ["Active", "Pending"] if include_pending else ["Active"]
-    result = frappe.db.sql(
-        """
-        SELECT 1
-        FROM `tabChapter Member`
-        WHERE member = %s
-          AND parent IN ({})
-          AND status IN ({})
-        LIMIT 1
-        """.format(
-            ",".join(["%s"] * len(chapter_names)),
-            ",".join(["%s"] * len(statuses)),
-        ),
-        [member_name] + list(chapter_names) + statuses,
-    )
+    # #1518 review, SIGNIFICANT 2: neither branch checked `enabled` before this
+    # fix, unlike chapter_security.py's equivalent SQL (which always has). A
+    # disabled (enabled=0) Chapter Member row -- someone the chapter itself
+    # has switched off, independent of `status` -- must not grant a board
+    # member document-level access any more than an Inactive one does. Added
+    # to both branches: it narrows every caller of this helper (Member,
+    # Membership, Donor, SEPA Mandate, Donation, Address, Membership
+    # Termination Request, Volunteer), not just the include_pending ones, but
+    # in the same direction chapter_security.py already enforces, so this
+    # brings the two gates back into agreement rather than diverging them
+    # further.
+    if include_pending:
+        result = frappe.db.sql(
+            """
+            SELECT 1
+            FROM `tabChapter Member` cm
+            JOIN `tabMember` m ON m.name = cm.member
+            WHERE cm.member = %s
+              AND cm.parent IN ({})
+              AND cm.enabled = 1
+              AND (
+                  cm.status = 'Active'
+                  OR (cm.status = 'Pending' AND m.application_status = 'Pending')
+              )
+            LIMIT 1
+            """.format(
+                ",".join(["%s"] * len(chapter_names)),
+            ),
+            [member_name] + list(chapter_names),
+        )
+    else:
+        result = frappe.db.sql(
+            """
+            SELECT 1
+            FROM `tabChapter Member`
+            WHERE member = %s
+              AND parent IN ({})
+              AND enabled = 1
+              AND status = 'Active'
+            LIMIT 1
+            """.format(
+                ",".join(["%s"] * len(chapter_names)),
+            ),
+            [member_name] + list(chapter_names),
+        )
     return bool(result)
 
 
