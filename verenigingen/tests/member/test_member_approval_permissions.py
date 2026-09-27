@@ -463,5 +463,477 @@ class TestApplicationReviewExistenceOracle(EnhancedTestCase):
         self.assertIn("Invalid member reference", str(ctx.exception))
 
 
+class TestBoardMemberRealShapePendingApplication(EnhancedTestCase):
+    """#1518: production writes an applicant's Chapter Member row with
+    status="Pending" (services/member/approval/application_helpers.py::
+    create_pending_chapter_membership, called from the application submission
+    flow), never "Active". chapter_security.can_user_manage_application's SQL
+    required cm.status = 'Active', so a Chapter Board Member saw ZERO of their
+    own chapter's real pending applications through get_pending_applications /
+    can_review_application, and was refused by approve/reject too (both call
+    the same function via validate_chapter_permission_or_throw).
+
+    Every other test in this module -- including this file's own
+    _create_chapter_pending_applicant -- uses add_member_to_test_chapter,
+    which fabricates an ACTIVE row specifically so the (buggy) gate matches.
+    None of them could ever see this bug. These use the real producer instead.
+
+    A second, independent path to the same harm: approve/reject both call
+    member.save(), which Frappe routes through has_member_permission ->
+    _is_member_in_chapters (permissions.py) for the write-permission check.
+    That helper carried the identical Active-only shape, so even after the
+    chapter_security gate is fixed, the actual save() would still 403.
+    """
+
+    def setUp(self):
+        super().setUp()
+        if not frappe.db.exists("Membership Type", "Test Real Shape Membership"):
+            mt = frappe.get_doc({
+                "doctype": "Membership Type",
+                "membership_type_name": "Test Real Shape Membership",
+                "minimum_amount": 15,
+                "is_active": 1,
+                "role_profile": "Verenigingen Member",
+            })
+            mt.insert(ignore_permissions=True)
+            self.factory.track_document("Membership Type", mt.name, priority=1)
+        else:
+            frappe.db.set_value(
+                "Membership Type", "Test Real Shape Membership", "is_active", 1, update_modified=False
+            )
+        self.membership_type = "Test Real Shape Membership"
+
+    def _create_real_shape_applicant(self, chapter_name, suffix):
+        """A Pending applicant holding the Chapter Member row PRODUCTION
+        actually writes: create_pending_chapter_membership(member, chapter_name),
+        status="Pending", enabled=1.
+        """
+        from verenigingen.services.member.approval.application_helpers import (
+            create_pending_chapter_membership,
+        )
+
+        unique = f"{suffix}{self.uid[:6]}"
+        member = self.create_test_member(
+            first_name=f"RealApplicant{unique}",
+            last_name=f"Shape{self.uid[6:]}",
+            email=f"real.applicant.{unique}.{self.uid}@test.invalid",
+            birth_date=add_days(today(), -365 * 30),
+        )
+        member.reload()
+        member.application_status = "Pending"
+        member.status = "Pending"
+        member.selected_membership_type = self.membership_type
+        member.save(ignore_permissions=True)
+        member.reload()
+
+        result = create_pending_chapter_membership(member, chapter_name)
+        self.assertIsNotNone(
+            result,
+            "create_pending_chapter_membership must actually create the row, or this "
+            "test would be exercising no row at all",
+        )
+        row_status = frappe.db.get_value(
+            "Chapter Member", {"parent": chapter_name, "member": member.name}, "status"
+        )
+        self.assertEqual(
+            row_status,
+            "Pending",
+            "premise check: production's own producer must write status='Pending'",
+        )
+        member.reload()
+        return member
+
+    def test_board_member_sees_real_shape_pending_application(self):
+        chapter = self.ensure_test_chapter("TEST Real Shape Own")
+        board = self.create_test_board_member(chapter.name, permissions_level="Admin")
+        applicant = self._create_real_shape_applicant(chapter.name, "own")
+
+        from verenigingen.api.membership_application_review import (
+            can_review_application,
+            get_pending_applications,
+        )
+
+        with self.as_user(board.user):
+            applications = get_pending_applications()
+            can_review = can_review_application(applicant.name)
+
+        application_names = [a["name"] for a in applications]
+        self.assertIn(
+            applicant.name,
+            application_names,
+            "board member must see their own chapter's REAL-shape pending application",
+        )
+        self.assertTrue(can_review, "can_review_application must agree with get_pending_applications")
+
+    def test_board_member_can_approve_real_shape_pending_application(self):
+        chapter = self.ensure_test_chapter("TEST Real Shape Approve")
+        board = self.create_test_board_member(chapter.name, permissions_level="Admin")
+        applicant = self._create_real_shape_applicant(chapter.name, "approve")
+
+        with self.as_user(board.user):
+            result = approve_membership_application(
+                member_name=applicant.name,
+                membership_type=self.membership_type,
+                create_invoice=False,
+                notes="Approved by board member against the real applicant shape",
+            )
+
+        self.assertTrue(
+            result.get("success"),
+            f"Board member could not approve their own chapter's REAL-shape applicant: "
+            f"{result.get('message') or result}",
+        )
+        applicant.reload()
+        self.assertEqual(applicant.application_status, "Approved")
+
+    def test_board_member_can_reject_real_shape_pending_application(self):
+        chapter = self.ensure_test_chapter("TEST Real Shape Reject")
+        board = self.create_test_board_member(chapter.name, permissions_level="Admin")
+        applicant = self._create_real_shape_applicant(chapter.name, "reject")
+
+        with self.as_user(board.user):
+            result = reject_membership_application(
+                member_name=applicant.name,
+                reason="Test rejection against real applicant shape",
+            )
+
+        self.assertTrue(
+            result.get("success"),
+            f"Board member could not reject their own chapter's REAL-shape applicant: "
+            f"{result.get('message') or result}",
+        )
+        applicant.reload()
+        self.assertEqual(applicant.application_status, "Rejected")
+
+    def test_board_member_cannot_see_or_act_on_other_chapters_real_shape_applicant(self):
+        """Cross-chapter control: widening the status filter must not widen
+        which CHAPTERS a board member may act on."""
+        own_chapter = self.ensure_test_chapter("TEST Real Shape Cross Own")
+        other_chapter = self.ensure_test_chapter("TEST Real Shape Cross Other")
+        board = self.create_test_board_member(own_chapter.name, permissions_level="Admin")
+        outsider = self._create_real_shape_applicant(other_chapter.name, "cross")
+
+        from verenigingen.api.membership_application_review import (
+            can_review_application,
+            get_pending_applications,
+        )
+
+        with self.as_user(board.user):
+            applications = get_pending_applications()
+            can_review = can_review_application(outsider.name)
+
+        application_names = [a["name"] for a in applications]
+        self.assertNotIn(outsider.name, application_names)
+        self.assertFalse(can_review)
+
+        with self.as_user(board.user):
+            with self.assertRaises(frappe.PermissionError):
+                approve_membership_application(
+                    member_name=outsider.name,
+                    membership_type=self.membership_type,
+                    create_invoice=False,
+                )
+        outsider.reload()
+        self.assertEqual(
+            outsider.application_status,
+            "Pending",
+            "a denied approval must not have mutated application_status",
+        )
+
+    def test_board_member_cannot_act_on_disabled_chapter_member_row(self):
+        """A disabled (enabled=0) Chapter Member row must not grant access,
+        even with the widened status filter."""
+        chapter = self.ensure_test_chapter("TEST Real Shape Disabled")
+        board = self.create_test_board_member(chapter.name, permissions_level="Admin")
+        applicant = self._create_real_shape_applicant(chapter.name, "disabled")
+
+        row_name = frappe.db.get_value(
+            "Chapter Member", {"parent": chapter.name, "member": applicant.name}, "name"
+        )
+        frappe.db.set_value("Chapter Member", row_name, "enabled", 0)
+
+        from verenigingen.api.membership_application_review import get_pending_applications
+
+        with self.as_user(board.user):
+            applications = get_pending_applications()
+
+        application_names = [a["name"] for a in applications]
+        self.assertNotIn(applicant.name, application_names)
+
+    def test_board_member_cannot_act_on_inactive_chapter_member_row(self):
+        """An Inactive Chapter Member row (a former member) must not grant
+        access -- the widened filter is Active OR Pending, never Inactive."""
+        chapter = self.ensure_test_chapter("TEST Real Shape Inactive")
+        board = self.create_test_board_member(chapter.name, permissions_level="Admin")
+        applicant = self._create_real_shape_applicant(chapter.name, "inactive")
+
+        row_name = frappe.db.get_value(
+            "Chapter Member", {"parent": chapter.name, "member": applicant.name}, "name"
+        )
+        frappe.db.set_value("Chapter Member", row_name, "status", "Inactive")
+
+        from verenigingen.api.membership_application_review import get_pending_applications
+
+        with self.as_user(board.user):
+            applications = get_pending_applications()
+
+        application_names = [a["name"] for a in applications]
+        self.assertNotIn(applicant.name, application_names)
+
+    def test_member_write_permission_denied_for_disabled_same_chapter_row(self):
+        """#1518 review, SIGNIFICANT 2: `_is_member_in_chapters`'s own status
+        filter (permissions.py, consumed by has_member_permission) was
+        untested -- every existing disabled/inactive control above drives
+        `get_pending_applications`, which goes through chapter_security.py's
+        SQL, never permissions.py's. Drive `has_member_permission` directly
+        (the write-permission gate `member.save()` triggers during approve/
+        reject) for a same-chapter, disabled (enabled=0) row, so a mutant that
+        drops `_is_member_in_chapters`'s status/enabled filter is caught here
+        even if chapter_security.py's own filter is untouched.
+        """
+        chapter = self.ensure_test_chapter("TEST Real Shape Perm Disabled")
+        board = self.create_test_board_member(chapter.name, permissions_level="Admin")
+        applicant = self._create_real_shape_applicant(chapter.name, "permdisabled")
+
+        row_name = frappe.db.get_value(
+            "Chapter Member", {"parent": chapter.name, "member": applicant.name}, "name"
+        )
+        frappe.db.set_value("Chapter Member", row_name, "enabled", 0)
+
+        with self.as_user(board.user):
+            self.assertFalse(
+                frappe.has_permission("Member", "write", doc=applicant.name),
+                "a disabled Chapter Member row must not grant Member write permission",
+            )
+            applicant_doc = frappe.get_doc("Member", applicant.name)
+            with self.assertRaises(frappe.PermissionError):
+                applicant_doc.save()
+
+    def test_member_write_permission_denied_for_inactive_same_chapter_row(self):
+        """Same as above, for a same-chapter row whose status is 'Inactive'
+        rather than disabled -- the two are independent axes on the child
+        table (enabled=0 vs status='Inactive') and #1518's review asked for
+        both to be covered against permissions.py's own filter directly.
+        """
+        chapter = self.ensure_test_chapter("TEST Real Shape Perm Inactive")
+        board = self.create_test_board_member(chapter.name, permissions_level="Admin")
+        applicant = self._create_real_shape_applicant(chapter.name, "perminactive")
+
+        row_name = frappe.db.get_value(
+            "Chapter Member", {"parent": chapter.name, "member": applicant.name}, "name"
+        )
+        frappe.db.set_value("Chapter Member", row_name, "status", "Inactive")
+
+        with self.as_user(board.user):
+            self.assertFalse(
+                frappe.has_permission("Member", "write", doc=applicant.name),
+                "an Inactive Chapter Member row must not grant Member write permission",
+            )
+            applicant_doc = frappe.get_doc("Member", applicant.name)
+            with self.assertRaises(frappe.PermissionError):
+                applicant_doc.save()
+
+
+class TestBoardMemberJoinChapterEscalation(EnhancedTestCase):
+    """#1518 review, CRITICAL 1: a SECOND, independent producer writes a
+    Chapter Member row with status="Pending", enabled=1 --
+    `member_manager.py::request_to_join`, reached via the real, whitelisted
+    `Chapter.join_chapter` / `ChapterMembershipManager.join_chapter` portal
+    endpoint an ALREADY-ACTIVE, already-approved member uses to request an
+    ADDITIONAL chapter.
+
+    The first #1518 fix round widened `can_user_manage_application` and
+    `_is_member_in_chapters` (has_member_permission / has_membership_permission)
+    to admit ANY Pending Chapter Member row, keyed only on the child row's own
+    status. That is indistinguishable from this second producer's row, so it
+    let the REQUESTED chapter's board read and write the member's entire,
+    unrelated, already-approved record -- with no expiry, since the row stays
+    Pending until a board member acts on the join request.
+
+    Fixed by keying Pending-row admission on the target Member's OWN
+    `application_status == "Pending"` (real applications have this; an
+    already-approved member requesting an extra chapter does not -- their
+    application_status stays "Approved").
+    """
+
+    def setUp(self):
+        super().setUp()
+        if not frappe.db.exists("Membership Type", "Test Escalation Membership"):
+            mt = frappe.get_doc({
+                "doctype": "Membership Type",
+                "membership_type_name": "Test Escalation Membership",
+                "minimum_amount": 15,
+                "is_active": 1,
+                "role_profile": "Verenigingen Member",
+            })
+            mt.insert(ignore_permissions=True)
+            self.factory.track_document("Membership Type", mt.name, priority=1)
+        else:
+            frappe.db.set_value(
+                "Membership Type", "Test Escalation Membership", "is_active", 1, update_modified=False
+            )
+        self.membership_type = "Test Escalation Membership"
+
+    def _create_active_approved_member(self, home_chapter_name, suffix):
+        """An already-Active, already-approved member with a home chapter --
+        the state a REAL join_chapter caller always has (join_chapter is only
+        reachable by an authenticated member with an existing Member record;
+        `Chapter Join Request.validate_member_exists` independently requires
+        `Member.status == "Active"` for its own, unrelated join flow, so an
+        Active/Approved member is not a contrived state).
+        """
+        unique = f"{suffix}{self.uid[:6]}"
+        member = self.create_test_member(
+            first_name=f"ActiveJoiner{unique}",
+            last_name=f"Escalation{self.uid[6:]}",
+            email=f"active.joiner.{unique}.{self.uid}@test.invalid",
+            birth_date=add_days(today(), -365 * 30),
+        )
+        member.reload()
+        member.application_status = "Approved"
+        member.status = "Active"
+        member.selected_membership_type = self.membership_type
+        member.save(ignore_permissions=True)
+        member.reload()
+        # Home chapter membership -- setup only, not under test here, so the
+        # ordinary fixture helper (an unambiguous Active row) is fine.
+        self.add_member_to_test_chapter(member.name, home_chapter_name)
+        return member
+
+    def _request_to_join_additional_chapter(self, member_name, chapter_name):
+        """The REAL producer of the escalation's Chapter Member row: the
+        whitelisted portal endpoint an already-Active member calls to request
+        an ADDITIONAL chapter, not a fixture standing in for it.
+        """
+        from verenigingen.verenigingen.doctype.chapter.chapter import join_chapter
+
+        result = join_chapter(
+            member_name=member_name, chapter_name=chapter_name, introduction="Escalation test"
+        )
+        self.assertTrue(
+            result.get("success"),
+            f"join_chapter must actually create the row, or this test exercises no row at all: {result}",
+        )
+        row = frappe.db.get_value(
+            "Chapter Member",
+            {"parent": chapter_name, "member": member_name},
+            ["status", "enabled"],
+            as_dict=True,
+        )
+        self.assertEqual(
+            (row.status, row.enabled),
+            ("Pending", 1),
+            "premise check: request_to_join must write the SAME Pending, enabled shape "
+            "as a real membership application, or this test is not exercising the escalation",
+        )
+
+    def test_join_chapter_pending_row_does_not_grant_access_to_active_member(self):
+        """Measured on test_site_1 (matching the reviewer's test_site_7
+        reproduction): an Active member M with home chapter A requests to
+        join chapter B. Chapter B's board must be refused read AND write on
+        M's Member record, and refused on every application-review surface --
+        M is not their applicant to manage, regardless of the Pending row.
+        """
+        chapter_a = self.ensure_test_chapter("TEST Escalation Home A")
+        chapter_b = self.ensure_test_chapter("TEST Escalation Requested B")
+        board_b = self.create_test_board_member(chapter_b.name, permissions_level="Admin")
+        member = self._create_active_approved_member(chapter_a.name, "esc")
+
+        self._request_to_join_additional_chapter(member.name, chapter_b.name)
+
+        from verenigingen.api.membership_application_review import (
+            approve_membership_application,
+            can_review_application,
+            get_pending_applications,
+            reject_membership_application,
+        )
+
+        with self.as_user(board_b.user):
+            self.assertFalse(
+                frappe.has_permission("Member", "read", doc=member.name),
+                "chapter B's board must not gain READ on an unrelated Active member "
+                "via that member's join-chapter request for chapter B",
+            )
+            self.assertFalse(
+                frappe.has_permission("Member", "write", doc=member.name),
+                "chapter B's board must not gain WRITE on an unrelated Active member "
+                "via that member's join-chapter request for chapter B",
+            )
+            self.assertFalse(
+                can_review_application(member.name),
+                "can_review_application must not treat a join-chapter request as "
+                "a manageable application",
+            )
+
+            applications = get_pending_applications()
+            application_names = [a["name"] for a in applications]
+            self.assertNotIn(
+                member.name,
+                application_names,
+                "an Active, already-approved member must never appear in the "
+                "pending-applications list",
+            )
+
+            with self.assertRaises(frappe.PermissionError):
+                approve_membership_application(
+                    member_name=member.name,
+                    membership_type=self.membership_type,
+                    create_invoice=False,
+                )
+            with self.assertRaises(frappe.PermissionError):
+                reject_membership_application(member_name=member.name, reason="should be refused")
+
+        member.reload()
+        self.assertEqual(
+            member.application_status,
+            "Approved",
+            "a refused approve/reject attempt must not have mutated the member's "
+            "application_status",
+        )
+        self.assertEqual(member.status, "Active")
+
+    def test_escalation_guard_keys_on_application_status_not_member_status(self):
+        """Regression guard for the specific field choice: `application_status`,
+        not `status`. In the ordinary flow above the two happen to agree
+        (Active member has status='Active', application_status='Approved'),
+        so simply swapping which field the fix reads would still pass THAT
+        test -- it needs a row where the fields diverge to actually
+        discriminate.
+
+        The diverging state constructed here -- `status='Pending'` while
+        `application_status` is NOT 'Pending' -- is NOT reachable through any
+        current production path: every writer of Member.status was grepped and
+        none produces this combination. It is set directly via
+        `frappe.db.set_value`, bypassing the controller entirely, purely to
+        make the two fields disagree. That is deliberate, not a claim about
+        real data: it is the only state that distinguishes a guard keyed on
+        `application_status` (correct: still refuses) from one keyed on
+        `status` (wrong: would treat this as manageable) -- mutation testing
+        confirms swapping the field in the query reddens only this test.
+        """
+        chapter_a = self.ensure_test_chapter("TEST Escalation Divergence A")
+        chapter_b = self.ensure_test_chapter("TEST Escalation Divergence B")
+        board_b = self.create_test_board_member(chapter_b.name, permissions_level="Admin")
+        member = self._create_active_approved_member(chapter_a.name, "divergence")
+
+        self._request_to_join_additional_chapter(member.name, chapter_b.name)
+
+        # Diverge the two fields via a raw db.set_value -- not reachable through
+        # any production writer (grepped) -- so status='Pending' while
+        # application_status stays 'Approved'.
+        frappe.db.set_value("Member", member.name, "status", "Pending", update_modified=False)
+        member.reload()
+        self.assertEqual(member.status, "Pending")
+        self.assertEqual(member.application_status, "Approved")
+
+        with self.as_user(board_b.user):
+            self.assertFalse(
+                frappe.has_permission("Member", "write", doc=member.name),
+                "member.status='Pending' must NOT substitute for "
+                "application_status='Pending' -- the member is still an "
+                "already-approved application, just with an unrelated status value",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

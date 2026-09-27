@@ -307,32 +307,94 @@ def _get_board_chapters_for_member(member_name):
         return []
 
 
-def _is_member_in_chapters(member_name, chapter_names):
-    """Check if a member has active membership in any of the given chapters.
+def _is_member_in_chapters(member_name, chapter_names, include_pending=False):
+    """Check if a member has active (or, with include_pending, pending)
+    membership in any of the given chapters.
 
     Args:
         member_name: Member document name to check
         chapter_names: List of chapter names to check against
+        include_pending: Also match a Chapter Member row with status='Pending',
+            but ONLY when `member_name` is ITSELF an unapproved application
+            (Member.application_status == 'Pending'). #1518: a membership
+            application's Chapter Member row is written with status="Pending"
+            (application_helpers.create_pending_chapter_membership) and only
+            flips to "Active" on approval, so an Active-only check here
+            refused a board member's write (e.g. member.save() during
+            approve/reject) on their own chapter's still-pending applicant.
+
+            The extra application_status condition closes an escalation found
+            in review of #1518's first fix round: a Chapter Member row can ALSO
+            be "Pending" for an already-Active, already-approved member who
+            simply requested an ADDITIONAL chapter
+            (member_manager.py::request_to_join, reached via
+            Chapter.join_chapter / ChapterMembershipManager.join_chapter).
+            Matching on the child row's status alone -- with no reference to
+            whether member_name is an application at all -- let that
+            requested chapter's board read and write the member's entire,
+            unrelated record with no expiry. Reproduced on test_site_7:
+            an Active member M with a home chapter A requests to join chapter
+            B; chapter B's board then got has_permission("Member", "read"/
+            "write", doc=M) == True.
+
+            Default False keeps every other caller of this helper (donations,
+            addresses, termination requests, volunteers) exactly as strict as
+            before -- those doctypes have no equivalent "still pending, not
+            yet mine to manage" case, so widening them was not asked for and
+            is not done here.
 
     Returns:
-        True if member is an active member in at least one of the chapters
+        True if member is an active (or pending-application, if requested)
+        member in at least one of the chapters
     """
     if not member_name or not chapter_names:
         return False
 
-    result = frappe.db.sql(
-        """
-        SELECT 1
-        FROM `tabChapter Member`
-        WHERE member = %s
-          AND parent IN ({})
-          AND status = 'Active'
-        LIMIT 1
-        """.format(
-            ",".join(["%s"] * len(chapter_names))
-        ),
-        [member_name] + list(chapter_names),
-    )
+    # #1518 review, SIGNIFICANT 2: neither branch checked `enabled` before this
+    # fix, unlike chapter_security.py's equivalent SQL (which always has). A
+    # disabled (enabled=0) Chapter Member row -- someone the chapter itself
+    # has switched off, independent of `status` -- must not grant a board
+    # member document-level access any more than an Inactive one does. Added
+    # to both branches: it narrows every caller of this helper (Member,
+    # Membership, Donor, SEPA Mandate, Donation, Address, Membership
+    # Termination Request, Volunteer), not just the include_pending ones, but
+    # in the same direction chapter_security.py already enforces, so this
+    # brings the two gates back into agreement rather than diverging them
+    # further.
+    if include_pending:
+        result = frappe.db.sql(
+            """
+            SELECT 1
+            FROM `tabChapter Member` cm
+            JOIN `tabMember` m ON m.name = cm.member
+            WHERE cm.member = %s
+              AND cm.parent IN ({})
+              AND cm.enabled = 1
+              AND (
+                  cm.status = 'Active'
+                  OR (cm.status = 'Pending' AND m.application_status = 'Pending')
+              )
+            LIMIT 1
+            """.format(
+                ",".join(["%s"] * len(chapter_names)),
+            ),
+            [member_name] + list(chapter_names),
+        )
+    else:
+        result = frappe.db.sql(
+            """
+            SELECT 1
+            FROM `tabChapter Member`
+            WHERE member = %s
+              AND parent IN ({})
+              AND enabled = 1
+              AND status = 'Active'
+            LIMIT 1
+            """.format(
+                ",".join(["%s"] * len(chapter_names)),
+            ),
+            [member_name] + list(chapter_names),
+        )
     return bool(result)
 
 
@@ -354,7 +416,7 @@ def _has_admin_access(user_roles, admin_role_set=None):
     return any(role in user_roles for role in admin_role_set)
 
 
-def _check_chapter_board_access(user, target_member_name):
+def _check_chapter_board_access(user, target_member_name, include_pending=False):
     """Check if user has chapter board access to the target member.
 
     Composite helper: resolves user → member → board chapters, then checks
@@ -363,6 +425,7 @@ def _check_chapter_board_access(user, target_member_name):
     Args:
         user: User email/ID
         target_member_name: Member name of the document being accessed
+        include_pending: See ``_is_member_in_chapters`` -- forwarded as-is.
 
     Returns:
         True if user is a board member of a chapter containing the target member,
@@ -378,7 +441,7 @@ def _check_chapter_board_access(user, target_member_name):
         frappe.logger().debug(f"User {user} is not an active board member in any chapter")
         return False
 
-    return _is_member_in_chapters(target_member_name, board_chapters)
+    return _is_member_in_chapters(target_member_name, board_chapters, include_pending=include_pending)
 
 
 def has_member_permission(doc, user=None, permission_type=None):
@@ -422,7 +485,13 @@ def has_member_permission(doc, user=None, permission_type=None):
             user_chapter_names = get_user_chapter_memberships_cached(user, get_cache_key())
 
             if user_chapter_names:
-                if _is_member_in_chapters(member_name, user_chapter_names):
+                # include_pending=True: Member is the doctype a membership
+                # application IS, and its Chapter Member row is "Pending" until
+                # approval (#1518) -- without this, has_member_permission
+                # (and therefore member.save() during approve/reject, which
+                # checks "write" permission) refuses a board member acting on
+                # their own chapter's still-pending applicant.
+                if _is_member_in_chapters(member_name, user_chapter_names, include_pending=True):
                     return True
 
                 # Fallback: check if user has a termination request for this member
@@ -571,7 +640,7 @@ def has_volunteer_permission(doc, user=None, permission_type=None):
     return False
 
 
-def _make_member_linked_permission(doctype, member_field="member"):
+def _make_member_linked_permission(doctype, member_field="member", include_pending=False):
     """Build the (has_permission, permission_query) pair for a doctype that links to
     Member via a direct ``member`` Link field and must be member-scoped.
 
@@ -588,6 +657,19 @@ def _make_member_linked_permission(doctype, member_field="member"):
     Args:
         doctype: The DocType name (e.g. "Donor", "SEPA Mandate").
         member_field: The Link-to-Member fieldname on the doctype (default "member").
+        include_pending: Forwarded to ``_check_chapter_board_access`` /
+            ``_is_member_in_chapters`` for the has_permission half only (the
+            permission_query half -- list views -- is untouched and stays
+            Active-only; see that function's own docstring). #1518: Membership
+            passes True because a board member's approve_membership_application
+            creates the applicant's Membership record BEFORE their Chapter
+            Member row is activated from "Pending" to "Active"
+            (activate_pending_chapter_memberships runs after
+            create_membership_on_approval), so an Active-only check here
+            refused the insert. Donor and SEPA Mandate keep the default: an
+            applicant does not get either created for them while still
+            Pending, so admitting Pending there was not asked for and is not
+            done.
 
     Returns:
         (has_permission, permission_query) — a has_permission(doc, user, permission_type)
@@ -665,7 +747,7 @@ def _make_member_linked_permission(doctype, member_field="member"):
         # Chapter board members can access records for members in their chapters
         if Roles.CHAPTER_BOARD_MEMBER in user_roles:
             try:
-                if _check_chapter_board_access(user, linked_member):
+                if _check_chapter_board_access(user, linked_member, include_pending=include_pending):
                     return True
             except Exception as e:
                 frappe.logger().error(f"Error checking chapter board {doctype} permission: {str(e)}")
@@ -772,7 +854,14 @@ has_sepa_mandate_permission, get_sepa_mandate_permission_query = _make_member_li
 #
 # Indexed rather than unpacked into `_`: this module does not import frappe's translation
 # function today, but binding `_` at module scope would silently shadow it if anyone does.
-has_membership_permission = _make_member_linked_permission("Membership")[0]
+#
+# include_pending=True (#1518): approve_membership_application creates this very
+# Membership record BEFORE activate_pending_chapter_memberships flips the applicant's
+# Chapter Member row from "Pending" to "Active", so an Active-only check here refused
+# the insert -- the board member had already cleared can_user_manage_application and
+# Member.save() by that point, and the create failed one step later on Membership
+# itself for the identical underlying reason.
+has_membership_permission = _make_member_linked_permission("Membership", include_pending=True)[0]
 
 
 def has_donation_permission(doc, user=None, permission_type=None):
