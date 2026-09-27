@@ -177,10 +177,28 @@ def profile_payment_reconciliation() -> Dict[str, Any]:
 def process_payment_batch_simulation(batch_size: int):
     """Simulate payment batch processing"""
     
-    # Get sample payment entries using standardized utility
+    # get_unreconciled_payments() early-returns [] unconditionally with no
+    # `customer` (verenigingen_payments/utils/payment_utils.py) -- a deliberate
+    # guard other callers rely on and test directly, so it stays as-is (#1539).
+    # Find customers who actually have unreconciled payments and query per
+    # customer instead, matching the function's own documented per-customer usage.
     from verenigingen.utils.payment_utils import get_unreconciled_payments
-    payments = get_unreconciled_payments(minimum_amount=0.0, limit=batch_size)
-    
+
+    customers_with_unreconciled_payments = frappe.get_all(
+        "Payment Entry",
+        filters={"docstatus": 1, "unallocated_amount": [">", 0.0], "party_type": "Customer"},
+        pluck="party",
+        distinct=True,
+        limit=batch_size,
+    )
+
+    payments = []
+    for customer in customers_with_unreconciled_payments:
+        payments.extend(
+            get_unreconciled_payments(customer=customer, minimum_amount=0.0, limit=batch_size)
+        )
+    payments = payments[:batch_size]
+
     processed_count = 0
     
     for payment in payments:
@@ -190,12 +208,9 @@ def process_payment_batch_simulation(batch_size: int):
             
             # Simulate related data lookups
             if payment_doc.party:
-                # Look up member information
-                # NOTE: current_chapter_display is an HTML-fieldtype field with no
-                # DB column (same shape as #1516) -- it can never appear in a
-                # frappe.get_all() fields list. It was discarded to `member` below
-                # without ever being read, so it is simply dropped rather than
-                # resolved via the Chapter Member child table. See #1528.
+                # Look up member information. current_chapter_display has no DB
+                # column (#1528, same shape as #1516); dropped since it was never
+                # read below anyway.
                 member = frappe.get_all("Member",
                     filters={"customer": payment_doc.party},
                     fields=["name", "full_name"],

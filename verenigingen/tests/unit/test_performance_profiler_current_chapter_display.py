@@ -1,83 +1,88 @@
 """
-Regression test for #1528.
+Regression test for #1528 and #1539.
 
 scripts/performance/performance_profiler.py::process_payment_batch_simulation()
-named Member.current_chapter_display -- an HTML-fieldtype field with no DB
-column -- in a frappe.get_all() fields list (same crash shape as #1516's four
-sites: MySQLdb.OperationalError 1054, unconditional). The call sat inside
-`except Exception: continue`, so the crash never surfaced; it just silently
-skipped that payment's simulated work, and the function under-reported how
-many payments it actually processed.
+had two independent defects that combined to make it a no-op:
 
-Reachability note (see #1528 and the follow-up filed for this): the function's
-only real caller in this file, `get_unreconciled_payments(minimum_amount=0.0,
-limit=batch_size)`, is called with no `customer` kwarg -- and
-`get_unreconciled_payments` unconditionally returns `[]` when `customer` is
-None (verenigingen/verenigingen_payments/utils/payment_utils.py). So this line
-never actually executes when the script is run as intended via `main()`;
-verified empirically on test_site_1. That is a separate, unrelated dead-code
-defect in this script, not the field-list bug -- this test exercises the
-crash site directly by monkeypatching the module-local `get_unreconciled_payments`
-import to hand back one real payment, bypassing that unrelated dead branch.
+1. (#1539) Its input call, `get_unreconciled_payments(minimum_amount=0.0,
+   limit=batch_size)`, was fed with no `customer` kwarg. That function
+   unconditionally returns `[]` when `customer` is None
+   (verenigingen_payments/utils/payment_utils.py) -- a deliberate guard other
+   callers rely on and test directly (test_payment_utils.py::test_error_handling
+   asserts `get_unreconciled_payments(customer=None) == []`), so it was fixed at
+   the CALL SITE instead: find customers who actually have unreconciled
+   payments and query per customer, matching the function's own documented
+   per-customer usage.
+2. (#1528) Once real payments do reach the loop, the Member lookup named
+   `current_chapter_display` -- an HTML-fieldtype field with no DB column,
+   same crash shape as #1516 -- in a frappe.get_all() fields list. The call
+   sat inside `except Exception: continue`, so the crash never surfaced; it
+   just silently skipped that payment's simulated work.
+
+This test seeds one real, submitted Payment Entry against a real Member's
+customer (no monkeypatch of get_unreconciled_payments -- it runs unmodified)
+and drives process_payment_batch_simulation() end to end, so it is red on
+unpatched develop for BOTH defects: #1539 alone means the Member lookup is
+never even reached (`our_lookups` stays empty), and #1528 alone (once #1539
+is fixed) means it's reached but crashes and gets swallowed (`processed`
+stays 0 despite a real, findable payment).
 """
 
 import frappe
 
-import verenigingen.utils.payment_utils as payment_utils_shim
 from scripts.performance import performance_profiler
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestPerformanceProfilerCurrentChapterDisplay(EnhancedTestCase):
+class TestPerformanceProfilerPaymentBatchSimulation(EnhancedTestCase):
     def setUp(self):
         super().setUp()
         self.member = self.create_test_member()
-        customer = self.factory.create_test_customer(customer_name=self.member.full_name)
-        frappe.db.set_value("Member", self.member.name, "customer", customer.name, update_modified=False)
-        self.payment_entry = self.create_test_payment_entry(party=customer.name)
+        self.customer = self.factory.create_test_customer(customer_name=self.member.full_name)
+        frappe.db.set_value(
+            "Member", self.member.name, "customer", self.customer.name, update_modified=False
+        )
+        # submit=True: unallocated_amount is only computed on submit, and
+        # get_unreconciled_payments() filters on unallocated_amount > 0.
+        self.payment_entry = self.create_test_payment_entry(party=self.customer.name, submit=True)
 
-    def test_member_lookup_does_not_crash_on_current_chapter_display(self):
-        """The Member lookup must not silently drop a payment it was handed.
-
-        Feeds process_payment_batch_simulation() exactly one payment whose
-        party matches a real Member's customer -- the branch that reaches the
-        buggy frappe.get_all() call -- and asserts it is actually counted as
-        processed, not swallowed by the try/except around it. Also spies on
-        frappe.get_all("Member", ...) directly: a "wrong fix" that quietly
-        wraps just that call in its own try/except (instead of removing the
-        bad field) would leave `processed == 1` too, since the outer flow
-        would still run to completion -- so the outcome check alone does not
-        discriminate against it. The captured fields list does.
-        """
-        fake_payment = frappe._dict(name=self.payment_entry.name)
-        original_get_unreconciled = payment_utils_shim.get_unreconciled_payments
-        payment_utils_shim.get_unreconciled_payments = lambda **kwargs: [fake_payment]
-
-        member_get_all_fields = []
+    def test_real_unreconciled_payment_is_found_and_processed_without_crashing(self):
+        member_lookups = []
         original_get_all = frappe.get_all
 
         def spying_get_all(doctype, *args, **kwargs):
+            # Forwards to the real frappe.get_all -- this is a spy, not a fake;
+            # it changes nothing about what the function under test observes.
             if doctype == "Member":
-                member_get_all_fields.append(kwargs.get("fields"))
+                member_lookups.append(kwargs)
             return original_get_all(doctype, *args, **kwargs)
 
         frappe.get_all = spying_get_all
         try:
-            processed = performance_profiler.process_payment_batch_simulation(batch_size=1)
+            processed = performance_profiler.process_payment_batch_simulation(batch_size=50)
         finally:
             frappe.get_all = original_get_all
-            payment_utils_shim.get_unreconciled_payments = original_get_unreconciled
 
-        self.assertEqual(
+        self.assertGreaterEqual(
             processed,
             1,
-            "process_payment_batch_simulation() silently skipped the one payment handed "
-            "to it -- the Member lookup crashed (current_chapter_display has no DB column) "
-            "and the surrounding try/except swallowed it without a trace.",
+            "process_payment_batch_simulation() did not count the one real unreconciled "
+            "Payment Entry the fixture seeded (#1539: the call site fed "
+            "get_unreconciled_payments() with no customer, which always returns []).",
         )
-        self.assertTrue(member_get_all_fields, "the Member lookup was never reached")
-        self.assertNotIn(
-            "current_chapter_display",
-            member_get_all_fields[0],
-            "current_chapter_display has no DB column and must not be requested from Member",
+
+        our_lookups = [
+            call for call in member_lookups if call.get("filters", {}).get("customer") == self.customer.name
+        ]
+        self.assertTrue(
+            our_lookups,
+            "the Member lookup was never reached for our seeded payment's customer -- the "
+            "payment was never found in the first place (#1539).",
         )
+        for call in member_lookups:
+            self.assertNotIn(
+                "current_chapter_display",
+                call.get("fields") or [],
+                "current_chapter_display has no DB column and must not be requested from "
+                "Member (#1528).",
+            )
