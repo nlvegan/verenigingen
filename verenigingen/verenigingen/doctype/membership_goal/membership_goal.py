@@ -61,13 +61,77 @@ class MembershipGoal(Document):
         else:
             return 0
 
+    def _chapter_member_names(self) -> list:
+        """Names of members attributed to self.chapter for growth counting:
+        a Chapter Member row exists with status="Active" (and currently
+        enabled) or status="Inactive" (terminated).
+
+        Member.current_chapter_display is an HTML-fieldtype field with no DB
+        column and cannot be queried (#1516: raises OperationalError). The
+        real, queryable per-member chapter relation is the Chapter Member
+        child table (parent=chapter, member=Member.name, status, enabled).
+        status is a closed 3-value Select: Pending / Active / Inactive.
+
+        Pending is excluded: it means the chapter never actually approved
+        this person (a chapter join/switch request still awaiting the
+        chapter board) -- the per-chapter analogue of the unscoped branch's
+        own Member.status != "Rejected" exclusion, a never-approved
+        applicant was never acquired. A member's own member_since is only
+        set at membership approval (api/membership_application_review.py::
+        _prepare_approval_fields), so an applicant whose overall
+        Member.status is still Pending is already excluded from the
+        unscoped population by member_since being unset; excluding a
+        chapter-level Pending row applies that same principle to a chapter
+        join/switch request filed by an already-active member.
+
+        Inactive is KEPT regardless of `enabled` (#1531): termination
+        DISABLES the row (enabled=0, status="Inactive") rather than
+        deleting it (termination_integration.py::
+        disable_chapter_memberships_safe), so excluding disabled rows
+        outright would silently drop every terminated member from BOTH
+        sides of member growth -- lost_members (they could never appear in
+        a "belongs here" list at all) and new_members (a member who joined
+        and left within the same window).
+
+        Active is EXCLUDED when `enabled=0` (#1533, maintainer ruling): a
+        chapter attributes each member to exactly ONE chapter, so a
+        transfer counts only for the destination -- the source drops the
+        member, neither new nor lost there. Chapter.member_manager.
+        remove_member(permanent=False) -- used by both a standalone
+        leave_chapter() (a member who leaves this chapter but stays in the
+        association) and the source side of
+        ChapterMembershipManager.transfer_member_between_chapters() --
+        disables the row WITHOUT touching status, leaving it
+        status="Active", enabled=0 indefinitely. That is a DIFFERENT
+        `enabled=0` shape than termination's (status flips to "Inactive"
+        there), and Chapter Member.status has no value that distinguishes
+        "left/transferred out" from "still a current member" other than via
+        `enabled` -- so an Active row must additionally require enabled=1,
+        while an Inactive row must not (it is always 0 there and checking
+        it would defeat the previous paragraph's fix). A voluntarily-left
+        member who joins no other chapter therefore ends up attributed
+        nowhere: not lost here (no Membership Termination Request was ever
+        created) and not new anywhere else (no destination chapter) --
+        consistent with the ruling's "association-level joins and
+        terminations, attributed to the chapter" framing, not a special
+        case requiring separate code.
+        """
+        rows = frappe.get_all(
+            "Chapter Member",
+            filters={"parent": self.chapter, "status": ["in", ["Active", "Inactive"]]},
+            fields=["member", "status", "enabled"],
+        )
+        return [row.member for row in rows if row.status == "Inactive" or row.enabled]
+
     def calculate_member_growth(self) -> int:
         """Calculate net member growth"""
         filters = {"member_since": ["between", [self.start_date, self.end_date]]}
 
         # Apply scope filters
+        chapter_member_names = None
         if not self.applies_to_all_chapters and self.chapter:
-            filters["current_chapter_display"] = self.chapter
+            chapter_member_names = self._chapter_member_names()
+            filters["name"] = ["in", chapter_member_names]
 
         # New members
         new_members = frappe.db.count("Member", filters=filters)
@@ -75,15 +139,12 @@ class MembershipGoal(Document):
         # Lost members (terminated)
         termination_filters = {
             "termination_date": ["between", [self.start_date, self.end_date]],
-            "status": "Completed",
+            "status": "Executed",
         }
 
-        if not self.applies_to_all_chapters and self.chapter:
+        if chapter_member_names is not None:
             # Get members who were in this chapter when terminated
-            termination_filters["member"] = [
-                "in",
-                frappe.get_all("Member", filters={"current_chapter_display": self.chapter}, pluck="name"),
-            ]
+            termination_filters["member"] = ["in", chapter_member_names]
 
         lost_members = frappe.db.count("Membership Termination Request", filters=termination_filters)
 
@@ -162,7 +223,7 @@ class MembershipGoal(Document):
             "Membership Termination Request",
             filters={
                 "termination_date": ["between", [self.start_date, self.end_date]],
-                "status": "Completed",
+                "status": "Executed",
             },
         )
 
@@ -177,7 +238,7 @@ class MembershipGoal(Document):
         }
 
         if not self.applies_to_all_chapters and self.chapter:
-            filters["current_chapter_display"] = self.chapter
+            filters["name"] = ["in", self._chapter_member_names()]
 
         return frappe.db.count("Member", filters=filters)
 
@@ -196,7 +257,7 @@ class MembershipGoal(Document):
             "Membership Termination Request",
             filters={
                 "termination_date": ["between", [self.start_date, self.end_date]],
-                "status": "Completed",
+                "status": "Executed",
             },
         )
 
