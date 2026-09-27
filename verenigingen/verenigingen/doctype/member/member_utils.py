@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import cint, now, now_datetime, today
+from frappe.utils import cint, getdate, now, now_datetime, today
 
 # Import security framework
 from verenigingen.utils.constants import Roles
@@ -666,6 +666,45 @@ def update_termination_status_display(doc, method=None):
 
     if executed_termination:
         term_data = executed_termination[0]
+        target_date = term_data.termination_date or term_data.execution_date
+
+        # #1544/#1548: a termination that predates the member's CURRENT
+        # membership must not keep forcing a terminal status onto a
+        # legitimately rejoined member. A real reapplication + approval
+        # resets member_since to the rejoin date, so once that has happened
+        # this termination belongs to a membership the member no longer
+        # holds. `<=` (not `<`) is the mirror of calculate_cohort_data's
+        # `>` boundary: a same-day rejoin can leave the old termination_date
+        # equal to the new member_since, and that coincidence must not
+        # re-terminate them either. A missing member_since (data gap) is
+        # NOT treated as supersession -- err on the side of still reflecting
+        # a real, executed termination rather than silently going Active.
+        superseded = (
+            member.member_since and target_date and getdate(target_date) <= getdate(member.member_since)
+        )
+
+        # While a (re)application is Pending, member_since has not been
+        # reset yet (that happens at approval) -- the boundary above alone
+        # cannot see the rejoin is in progress. Forcing a terminal status
+        # here would silently drop the applicant from
+        # get_pending_applications() (which filters status='Pending'),
+        # hiding a legitimate rejoin request from reviewers. Scoped to
+        # "there is already an Executed termination on file" (this branch),
+        # so it cannot mask a first-time application, which never has one.
+        reapplication_in_progress = member.application_status == "Pending"
+
+        if superseded or reapplication_in_progress:
+            # A stale member_end_date left by this same hook's earlier run
+            # (back when the termination still applied) is not just cosmetic:
+            # membership_analytics.py's retention queries treat
+            # `member_end_date IS NOT NULL AND member_end_date <= check_date`
+            # as "no longer a member" for periods after that date -- exactly
+            # #1544's bug class, through a different field. Only clear a
+            # value this hook itself would have written (this termination's
+            # own date), never a value set by something else.
+            if member.member_end_date and getdate(member.member_end_date) == getdate(target_date):
+                member.member_end_date = None
+            return
 
         # Map termination type to correct member status
         status_mapping = {
@@ -679,7 +718,6 @@ def update_termination_status_display(doc, method=None):
             member.status = target_status
 
         # Set member_end_date to the termination date
-        target_date = term_data.termination_date or term_data.execution_date
         if member.member_end_date != target_date:
             member.member_end_date = target_date
 

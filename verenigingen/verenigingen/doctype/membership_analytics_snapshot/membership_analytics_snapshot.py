@@ -327,7 +327,14 @@ def calculate_cohort_data(snapshot, period):
             for month_offset in range(1, min(months_back + 1, 13)):
                 check_date = add_months(cohort_month, month_offset)
 
-                # Count how many are still active
+                # Count how many are still active. A member who was terminated and
+                # later legitimately rejoined must NOT have that old termination held
+                # against them (maintainer ruling, #1544) -- only a termination that
+                # belongs to their CURRENT membership (i.e. happened after their
+                # current member_since, which a real reapplication + approval resets
+                # to the rejoin date) counts against retention. `>` rather than `>=`
+                # is deliberate: a same-day rejoin can leave termination_date equal to
+                # the new member_since, and that coincidence must not exclude them.
                 retained = frappe.db.sql(
                     """
                     SELECT COUNT(*)
@@ -337,8 +344,9 @@ def calculate_cohort_data(snapshot, period):
                     AND NOT EXISTS (
                         SELECT 1 FROM `tabMembership Termination Request` t
                         WHERE t.member = m.name
-                        AND t.status = 'Completed'
+                        AND t.status = 'Executed'
                         AND t.termination_date < %s
+                        AND t.termination_date > m.member_since
                     )
                 """,
                     (cohort_month.strftime("%Y-%m"), check_date),
