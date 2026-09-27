@@ -898,12 +898,18 @@ class TestBoardMemberJoinChapterEscalation(EnhancedTestCase):
         (Active member has status='Active', application_status='Approved'),
         so simply swapping which field the fix reads would still pass THAT
         test -- it needs a row where the fields diverge to actually
-        discriminate. Constructed here: an Active, already-approved member
-        whose `status` field has been independently reset to 'Pending' (e.g.
-        by an unrelated administrative action), while `application_status`
-        correctly still reads 'Approved'. A guard keyed on `member.status`
-        would wrongly treat this as manageable; keyed on `application_status`
-        it correctly does not.
+        discriminate.
+
+        The diverging state constructed here -- `status='Pending'` while
+        `application_status` is NOT 'Pending' -- is NOT reachable through any
+        current production path: every writer of Member.status was grepped and
+        none produces this combination. It is set directly via
+        `frappe.db.set_value`, bypassing the controller entirely, purely to
+        make the two fields disagree. That is deliberate, not a claim about
+        real data: it is the only state that distinguishes a guard keyed on
+        `application_status` (correct: still refuses) from one keyed on
+        `status` (wrong: would treat this as manageable) -- mutation testing
+        confirms swapping the field in the query reddens only this test.
         """
         chapter_a = self.ensure_test_chapter("TEST Escalation Divergence A")
         chapter_b = self.ensure_test_chapter("TEST Escalation Divergence B")
@@ -912,8 +918,9 @@ class TestBoardMemberJoinChapterEscalation(EnhancedTestCase):
 
         self._request_to_join_additional_chapter(member.name, chapter_b.name)
 
-        # Diverge the two fields: status flips to 'Pending' (e.g. some unrelated
-        # administrative reset), application_status is untouched and still 'Approved'.
+        # Diverge the two fields via a raw db.set_value -- not reachable through
+        # any production writer (grepped) -- so status='Pending' while
+        # application_status stays 'Approved'.
         frappe.db.set_value("Member", member.name, "status", "Pending", update_modified=False)
         member.reload()
         self.assertEqual(member.status, "Pending")
