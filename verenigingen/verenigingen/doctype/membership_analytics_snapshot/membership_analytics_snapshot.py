@@ -337,7 +337,7 @@ def calculate_cohort_data(snapshot, period):
                     AND NOT EXISTS (
                         SELECT 1 FROM `tabMembership Termination Request` t
                         WHERE t.member = m.name
-                        AND t.status = 'Executed'
+                        AND t.status = 'Completed'
                         AND t.termination_date < %s
                     )
                 """,
