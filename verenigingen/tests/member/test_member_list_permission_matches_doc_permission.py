@@ -4,9 +4,9 @@
 """
 #1529: the Desk list-view permission queries for Member and Membership
 (``get_member_permission_query`` / ``get_membership_permission_query``) must
-grant a Chapter Board Member exactly what the doc-level checks
-(``has_member_permission`` / ``has_membership_permission``, both reached
-through ``frappe.has_permission``) grant -- no more, no less.
+grant a Chapter Board Member what the doc-level checks (``has_member_permission``
+/ ``has_membership_permission``, both reached through ``frappe.has_permission``)
+grant, for the ``enabled`` / Pending-application mechanism this fix touches.
 
 Before this fix both queries matched ``Chapter Member.status = 'Active'``
 only, which was simultaneously:
@@ -24,10 +24,20 @@ only, which was simultaneously:
 
 Each test drives the underlying Chapter Member row through its REAL
 production writer (never ``db.set_value``) and asserts that the list-view
-result and the doc-level ``frappe.has_permission`` result AGREE, and that
-both equal the expected verdict. Where a writer creates a state that must
-NOT grant access, the test is a control: it plants the real row the wrong
-behaviour would need to find.
+result and the doc-level ``frappe.has_permission`` result AGREE on that
+mechanism, and that both equal the expected verdict. Where a writer creates
+a state that must NOT grant access, the test is a control: it plants the
+real row the wrong behaviour would need to find.
+
+NOT covered here: list and doc-level resolve the CALLING board user's own
+Member identity through two different lookups (``get_member_name_for_user``,
+which falls back to ``Member.email``, vs.
+``get_user_chapter_memberships_cached``, which joins on ``Member.user``
+only) -- a pre-existing asymmetry, unrelated to the enabled/Pending
+mechanism this fix addresses, tracked separately as #1546. Every board
+fixture in this file is built with both ``Member.user`` and email set
+consistently (``create_test_board_member``), so these tests cannot see
+that asymmetry either way.
 """
 
 import frappe
@@ -99,7 +109,7 @@ class TestChapterBoardListPermissionMatchesDocLevel(EnhancedTestCase):
     def _fresh_chapter(self, chapter_name):
         return frappe.get_doc("Chapter", chapter_name)
 
-    def _create_pending_applicant(self, suffix):
+    def _create_real_pending_applicant(self, suffix):
         """A real applicant: Member.status/application_status = Pending, ready to
         be handed to create_pending_chapter_membership. The
         ``save(ignore_permissions=True)`` mirrors
@@ -180,7 +190,7 @@ class TestChapterBoardListPermissionMatchesDocLevel(EnhancedTestCase):
         application_helpers.create_pending_chapter_membership, AND the target Member
         itself is application_status=Pending. Must be visible to its own chapter's
         board -- the positive case #1529/#1518 exist for."""
-        applicant = self._create_pending_applicant("Pending")
+        applicant = self._create_real_pending_applicant("Pending")
 
         created = create_pending_chapter_membership(applicant, self.chapter.name)
         self.assertIsNotNone(created, "fixture setup: create_pending_chapter_membership failed")
@@ -218,11 +228,87 @@ class TestChapterBoardListPermissionMatchesDocLevel(EnhancedTestCase):
             "Member", member.name, False, "already-active member's join request, requested chapter"
         )
 
+    def test_approve_member_request_converges_to_active_visible(self):
+        """member_manager.approve_member_request -- the chapter JOIN-REQUEST
+        approval path (verenigingen/api/chapter_dashboard_api.py's "pending
+        Chapter Member" branch, distinct from approve_membership_application's
+        Membership-APPLICATION path) -- flips the join request's Pending row to
+        Active without touching `enabled` (already 1 from request_to_join).
+
+        This is GREEN-ON-ARRIVAL coverage, not a regression guard: #1529's
+        review already found list and doc-level agree here (both see the
+        resulting enabled=1/Active row as a plain active chapter membership,
+        the same state test_positive_control_active_member_of_own_chapter
+        covers). The test pins that agreement so a future change to either
+        side cannot silently break it unnoticed."""
+        member = self._create_approved_active_member("Approver")
+        self.add_member_to_test_chapter(member.name, self.other_chapter.name)
+
+        chapter_doc = self._fresh_chapter(self.chapter.name)
+        join_result = chapter_doc.member_manager.request_to_join(member.name, notify=False)
+        self.assertTrue(join_result.get("success"), f"fixture setup: request_to_join failed: {join_result}")
+
+        chapter_doc = self._fresh_chapter(self.chapter.name)
+        approve_result = chapter_doc.member_manager.approve_member_request(
+            member.name, approved_by=self.board.user
+        )
+        self.assertTrue(
+            approve_result.get("success"),
+            f"fixture setup: approve_member_request failed: {approve_result}",
+        )
+
+        cm_row = frappe.db.get_value(
+            "Chapter Member",
+            {"member": member.name, "parent": self.chapter.name},
+            ["enabled", "status"],
+            as_dict=True,
+        )
+        self.assertEqual(
+            (cm_row.enabled, cm_row.status),
+            (1, "Active"),
+            "fixture setup: approve_member_request did not leave the expected enabled=1/Active row",
+        )
+
+        self._assert_visibility("Member", member.name, True, "join request approved, requested chapter")
+
+    def test_reject_member_request_deletes_row_not_visible(self):
+        """member_manager.reject_member_request DELETES the pending Chapter
+        Member row outright rather than changing its status or enabled flag.
+
+        GREEN-ON-ARRIVAL coverage, not a regression guard: with no row at all,
+        list and doc-level trivially agree there is nothing to see -- true both
+        before and after #1529's fix, since neither version of the query ever
+        matched a row that does not exist. Pinned here so a future change that
+        makes reject_member_request soft-delete (set a status) instead of
+        hard-deleting does not silently change this."""
+        member = self._create_approved_active_member("Rejecter")
+        self.add_member_to_test_chapter(member.name, self.other_chapter.name)
+
+        chapter_doc = self._fresh_chapter(self.chapter.name)
+        join_result = chapter_doc.member_manager.request_to_join(member.name, notify=False)
+        self.assertTrue(join_result.get("success"), f"fixture setup: request_to_join failed: {join_result}")
+
+        chapter_doc = self._fresh_chapter(self.chapter.name)
+        reject_result = chapter_doc.member_manager.reject_member_request(
+            member.name, reason="Not eligible", rejected_by=self.board.user
+        )
+        self.assertTrue(
+            reject_result.get("success"),
+            f"fixture setup: reject_member_request failed: {reject_result}",
+        )
+
+        self.assertFalse(
+            frappe.db.exists("Chapter Member", {"member": member.name, "parent": self.chapter.name}),
+            "fixture setup: reject_member_request did not delete the Chapter Member row",
+        )
+
+        self._assert_visibility("Member", member.name, False, "join request rejected, requested chapter")
+
     def test_approval_flips_pending_row_to_active_and_stays_visible(self):
         """approve_membership_application flips the Pending Chapter Member row to
         Active and creates the Membership record. Both must stay visible to the
         board that just approved (and now legitimately manages) this member."""
-        applicant = self._create_pending_applicant("Approved")
+        applicant = self._create_real_pending_applicant("Approved")
         create_pending_chapter_membership(applicant, self.chapter.name)
 
         result = approve_membership_application(
