@@ -191,9 +191,14 @@ def process_payment_batch_simulation(batch_size: int):
             # Simulate related data lookups
             if payment_doc.party:
                 # Look up member information
-                member = frappe.get_all("Member", 
+                # NOTE: current_chapter_display is an HTML-fieldtype field with no
+                # DB column (same shape as #1516) -- it can never appear in a
+                # frappe.get_all() fields list. It was discarded to `member` below
+                # without ever being read, so it is simply dropped rather than
+                # resolved via the Chapter Member child table. See #1528.
+                member = frappe.get_all("Member",
                     filters={"customer": payment_doc.party},
-                    fields=["name", "full_name", "current_chapter_display"],
+                    fields=["name", "full_name"],
                     limit=1
                 )
                 
