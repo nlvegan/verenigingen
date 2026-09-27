@@ -84,8 +84,11 @@ def get_organization_cost_center(
 
     except Exception as e:
         frappe.log_error(f"Error getting cost center: {str(e)}", "Cost Center Error")
-        # Return a default cost center as last resort
-        return get_fallback_cost_center()
+        # Return a default cost center as last resort, scoped to the
+        # configured company -- see #1477: an unscoped fallback can return a
+        # Cost Center belonging to a completely different company.
+        default_company = frappe.get_single("Verenigingen Settings").company
+        return get_fallback_cost_center(default_company)
 
 
 def _get_fallback_cost_center() -> str:

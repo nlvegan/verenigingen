@@ -28,6 +28,7 @@ from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
 from verenigingen.templates.pages.volunteer.expenses import (
     submit_expense,
 )
+from verenigingen.utils.cost_center_resolver import get_organization_cost_center_from_dict
 from verenigingen.utils.volunteer_expense_setup import (
     get_or_create_expense_type,
     get_organization_cost_center,
@@ -163,7 +164,19 @@ class TestERPNextExpenseIntegrationReal(EnhancedTestCase):
             "organization_type": "National"
         }
         
-        cost_center = get_organization_cost_center(national_expense_data)
+        # #1477 residual: this used to call the WRONG same-named function --
+        # verenigingen.utils.volunteer_expense_setup.get_organization_cost_center
+        # (imported above, company-based, single optional `company` arg) --
+        # with a dict positional argument instead of
+        # cost_center_resolver.get_organization_cost_center_from_dict(), the
+        # function this dict shape actually matches. That silently bound the
+        # whole dict as `company`, and frappe.db.get_value() choked on it
+        # ("Unknown column 'organization_type' in 'WHERE'") -- caught by
+        # create_default_cost_center()'s broad `except Exception` and masked
+        # by the very unscoped-fallback bug #1477 fixes (any company's Cost
+        # Center satisfied `assertIsInstance(str)` here). Call the real
+        # organization_type-based resolver instead.
+        cost_center = get_organization_cost_center_from_dict(national_expense_data)
         
         # Should return a valid cost center (real or fallback)
         self.assertIsInstance(cost_center, str)
@@ -188,7 +201,9 @@ class TestERPNextExpenseIntegrationReal(EnhancedTestCase):
             "chapter": test_chapter.name
         }
         
-        cost_center = get_organization_cost_center(chapter_expense_data)
+        # #1477 residual -- see the comment in
+        # test_get_organization_cost_center_national_real_database above.
+        cost_center = get_organization_cost_center_from_dict(chapter_expense_data)
         
         # Should return valid cost center from real chapter or fallback
         self.assertIsInstance(cost_center, str)
@@ -437,8 +452,11 @@ class TestERPNextExpenseIntegrationReal(EnhancedTestCase):
         # Uses real document queries to resolve cost centers
         
         try:
-            # Test default/fallback cost center logic  
-            default_cost_center = get_fallback_cost_center()
+            # Test default/fallback cost center logic
+            # get_fallback_cost_center() now requires an explicit company (#1477:
+            # an unscoped lookup could return a Cost Center belonging to a
+            # different company entirely).
+            default_cost_center = get_fallback_cost_center(self.test_company)
             
             if default_cost_center:
                 # Verify it's a real cost center in database

@@ -15,9 +15,15 @@ created via the canonical EnhancedTestCase factories. Expected values are
 derived from the data each test creates. No business-logic mocking.
 """
 
+from unittest.mock import patch
+
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.cost_center_test_helpers import (
+    create_isolated_test_company,
+    delete_all_cost_centers,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -941,3 +947,168 @@ class TestNativeExpenseHelpersDeep(_ExpenseFixtureMixin, EnhancedTestCase):
         self.assertNotIn("{error_count}", result["message"])
         # The interpolated counts should appear as their integer values.
         self.assertIn(str(result["updated"]), result["message"])
+
+
+# ---------------------------------------------------------------------------
+# 4. volunteer_expense_setup.create_default_cost_center: zero-Cost-Center
+#    fallback (#1441/#1477)
+# ---------------------------------------------------------------------------
+class TestCreateDefaultCostCenterZeroCostCenterFallback(EnhancedTestCase):
+    """#1477: this is the 5th Cost Center creator missed by #1441's sweep
+    (the sweep's single-line grep does not match this file's multi-line
+    ``frappe.get_doc({\"doctype\": \"Cost Center\", ...})`` literal).
+
+    When a company has no group Cost Center at all,
+    create_default_cost_center() used to fall back to the literal company
+    NAME string as parent_cost_center. ERPNext autonames a Cost Center as
+    "<cost_center_name> - <company abbr>", so a Cost Center literally named
+    `company` never exists, and the insert raised frappe.LinkValidationError
+    (caught by this function's own `except Exception`, silently swallowed
+    into get_fallback_cost_center()). The fix reuses ensure_root_cost_center(
+    company), the same fallback #1478 gave the other two creators for the
+    same precondition.
+
+    Residual found by independent review of 0d97950b4: get_fallback_cost_
+    center() itself ran an UNSCOPED `{"is_group": 0}` lookup across every
+    company, so when ensure_root_cost_center() also failed (its own insert
+    failing, e.g. a race or an ERPNext validation this module doesn't
+    control), the leaf insert's MandatoryError fell through to that unscoped
+    fallback and could return a completely unrelated company's Cost Center
+    (reproduced: 'Sub - _TC' returned for a company that has none at all).
+    get_fallback_cost_center() is now scoped by company and returns None
+    instead of guessing -- see test_get_fallback_cost_center_never_returns_
+    another_companys_cost_center and
+    test_never_returns_another_companys_cost_center_when_root_creation_fails.
+
+    self.company is a fresh, per-test Company -- deleting its Cost Centers
+    here cannot strand any fixture another test in the shard depends on.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.company = create_isolated_test_company(self, "REPRO Volunteer Expense CC", "RVCC")
+        self.addCleanup(frappe.delete_doc, "Company", self.company, force=True, ignore_permissions=True)
+
+    def test_falls_back_to_root_cost_center_when_company_has_none(self):
+        from verenigingen.services.volunteer.volunteer_expense_setup import (
+            create_default_cost_center,
+        )
+
+        delete_all_cost_centers(self.company)
+        self.assertEqual(frappe.db.count("Cost Center", {"company": self.company}), 0)
+
+        result = create_default_cost_center(self.company)
+        self.factory.track_document("Cost Center", result)
+
+        root_name = frappe.db.get_value(
+            "Cost Center",
+            {"company": self.company, "is_group": 1, "parent_cost_center": ["in", ["", None]]},
+            "name",
+        )
+        self.assertTrue(root_name, "ensure_root_cost_center() should have created a root")
+
+        cc = frappe.get_doc("Cost Center", result)
+        self.assertEqual(cc.company, self.company, "Fallback must not return another company's Cost Center")
+        self.assertEqual(
+            cc.parent_cost_center, root_name, "New cost center's parent should be the company root"
+        )
+
+    def test_does_not_call_ensure_root_cost_center_when_group_exists(self):
+        """Opposite-harm control: ensure_root_cost_center() must NOT run when
+        the company already has a group Cost Center (the default root
+        Company.on_update() created) -- the zero-Cost-Center fallback must
+        never override an already-found parent."""
+        self.assertTrue(frappe.db.exists("Cost Center", {"company": self.company, "is_group": 1}))
+
+        from verenigingen.services.volunteer.volunteer_expense_setup import (
+            create_default_cost_center,
+        )
+
+        with patch(
+            "verenigingen.e_boekhouden.utils.eboekhouden_cost_center_fix.ensure_root_cost_center"
+        ) as mock_ensure_root:
+            result = create_default_cost_center(self.company)
+
+        self.factory.track_document("Cost Center", result)
+        cc = frappe.get_doc("Cost Center", result)
+        self.assertEqual(cc.company, self.company)
+        mock_ensure_root.assert_not_called()
+
+    def test_get_fallback_cost_center_never_returns_another_companys_cost_center(self):
+        """#1477 residual: get_fallback_cost_center() used to run
+        `frappe.db.get_value("Cost Center", {"is_group": 0}, "name")` with NO
+        company filter at all -- any company, first match. Exercise it
+        directly (no mocking; this is a real failure path) for a company with
+        zero Cost Centers while a real, different company (the standard
+        _Test Company fixture) genuinely has some: it must return None, not
+        that other company's Cost Center."""
+        delete_all_cost_centers(self.company)
+        self.assertEqual(frappe.db.count("Cost Center", {"company": self.company}), 0)
+
+        other_company = "_Test Company"
+        self.assertTrue(
+            frappe.db.exists("Company", other_company), "Fixture requires the standard _Test Company"
+        )
+        self.assertTrue(
+            frappe.db.exists("Cost Center", {"company": other_company, "is_group": 0}),
+            "Fixture requires _Test Company to have a real leaf Cost Center to leak",
+        )
+
+        from verenigingen.services.volunteer.volunteer_expense_setup import (
+            get_fallback_cost_center,
+        )
+
+        result = get_fallback_cost_center(self.company)
+        self.assertIsNone(
+            result, f"Expected None for a company with zero Cost Centers, got {result!r} instead"
+        )
+
+    def test_never_returns_another_companys_cost_center_when_root_creation_fails(self):
+        """#1477 residual: ensure_root_cost_center() can itself return None
+        (its own insert failed and its last-resort duplicate-race search
+        found nothing -- see #1359/#1441). Before this fix, that fell through
+        to the unscoped get_fallback_cost_center(), which could return ANY
+        company's leaf Cost Center. Reviewer reproduced this: with
+        ensure_root_cost_center patched to return None,
+        create_default_cost_center() returned 'Sub - _TC' -- a _Test Company
+        Cost Center -- for a company that has none at all.
+        create_default_cost_center() must never return a Cost Center
+        belonging to a company other than the one it was asked to create one
+        for, on ANY path.
+
+        Mock justified: ensure_root_cost_center() failing (its own insert
+        failing after passing every one of its own preconditions) is an
+        infrastructure fault that cannot be reliably provoked through real
+        fixtures without duplicating #1359's own race-condition test suite.
+        Only the RETURN VALUE is faked -- create_default_cost_center()'s own
+        fallback-scoping logic under test still runs for real, against a
+        real, zero-Cost-Center company.
+        """
+        delete_all_cost_centers(self.company)
+        self.assertEqual(frappe.db.count("Cost Center", {"company": self.company}), 0)
+
+        other_company = "_Test Company"
+        self.assertTrue(
+            frappe.db.exists("Company", other_company), "Fixture requires the standard _Test Company"
+        )
+        self.assertTrue(frappe.db.exists("Cost Center", {"company": other_company, "is_group": 0}))
+
+        from verenigingen.services.volunteer.volunteer_expense_setup import (
+            create_default_cost_center,
+        )
+
+        with patch(
+            "verenigingen.e_boekhouden.utils.eboekhouden_cost_center_fix.ensure_root_cost_center",
+            return_value=None,
+        ):
+            result = create_default_cost_center(self.company)
+
+        if result:
+            self.factory.track_document("Cost Center", result)
+            self.assertEqual(
+                frappe.db.get_value("Cost Center", result, "company"),
+                self.company,
+                "create_default_cost_center() must never return another company's Cost Center",
+            )
+        else:
+            self.assertIsNone(result)
