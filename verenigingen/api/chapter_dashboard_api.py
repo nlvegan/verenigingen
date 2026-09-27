@@ -141,8 +141,8 @@ def quick_approve_member(member_name: str, chapter_name: str | None = None):
                           Must be a valid Member document name.
         chapter_name (str, optional): The chapter name for the approval.
                                      If not provided, will be determined from
-                                     the member's current chapter or pending
-                                     chapter membership records.
+                                     the member's pending chapter membership
+                                     record.
 
     Returns:
         dict: Approval result with success status and updated member information.
@@ -198,20 +198,35 @@ def quick_approve_member(member_name: str, chapter_name: str | None = None):
     if not user_chapters:
         raise PermissionError("You must be a board member to approve applications")
 
-    # Get member's chapter if not specified
+    # Get member's chapter if not specified. The chapter an approval is FOR is
+    # whichever chapter has a "Pending" Chapter Member row for this member --
+    # both the chapter-join-request flow and the membership-application flow
+    # write that row at submission (application_helpers.py::
+    # create_pending_chapter_membership). Member.current_chapter_display is an
+    # HTML-fieldtype field with no DB column (#1516): querying it here always
+    # raised OperationalError, before the access check below -- or the two
+    # frappe.throw()s #1360 flagged as a possible existence-oracle pair --
+    # were ever reached.
+    #
+    # WHY refuse identically for "no pending row anywhere" (nonexistent member,
+    # or one with none) and "pending in more than one chapter at once"
+    # (picking either would be a silent wrong-chapter approval): both now
+    # throw the exact same message as "resolved a chapter, but not one the
+    # caller manages" below. Distinguishing any of these would let a board
+    # member learn things about members outside their chapter -- the
+    # existence-oracle variant #1360 flagged, dormant only because this line
+    # always crashed first.
     if not chapter_name:
-        member_chapter = frappe.db.get_value("Member", member_name, "current_chapter_display")
-        if not member_chapter:
-            # Find from Chapter Member records
-            chapter_member = frappe.db.get_value(
-                "Chapter Member", {"member": member_name, "status": "Pending"}, "parent"
+        pending_chapters = set(
+            frappe.get_all(
+                "Chapter Member",
+                filters={"member": member_name, "status": "Pending"},
+                pluck="parent",
             )
-            if chapter_member:
-                chapter_name = chapter_member
-            else:
-                frappe.throw(_("Could not determine member's chapter"))
-        else:
-            chapter_name = member_chapter
+        )
+        if len(pending_chapters) != 1:
+            frappe.throw(_("You don't have access to this chapter"))
+        chapter_name = pending_chapters.pop()
 
     # Verify user has access to this chapter
     if not any(ch["chapter_name"] == chapter_name for ch in user_chapters):

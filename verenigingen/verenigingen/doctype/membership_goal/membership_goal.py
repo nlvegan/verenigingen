@@ -61,13 +61,32 @@ class MembershipGoal(Document):
         else:
             return 0
 
+    def _active_chapter_member_names(self) -> list:
+        """Names of members with an active Chapter Member row on self.chapter.
+
+        Member.current_chapter_display is an HTML-fieldtype field with no DB
+        column and cannot be queried (#1516: raises OperationalError). The
+        real, queryable per-member chapter relation is the Chapter Member
+        child table (parent=chapter, member=Member.name). Scoped to
+        enabled=1, status="Active" -- a goal tracks current membership
+        growth, not pending applications (those are counted, if at all, once
+        approved and Active).
+        """
+        return frappe.get_all(
+            "Chapter Member",
+            filters={"parent": self.chapter, "enabled": 1, "status": "Active"},
+            pluck="member",
+        )
+
     def calculate_member_growth(self) -> int:
         """Calculate net member growth"""
         filters = {"member_since": ["between", [self.start_date, self.end_date]]}
 
         # Apply scope filters
+        chapter_member_names = None
         if not self.applies_to_all_chapters and self.chapter:
-            filters["current_chapter_display"] = self.chapter
+            chapter_member_names = self._active_chapter_member_names()
+            filters["name"] = ["in", chapter_member_names]
 
         # New members
         new_members = frappe.db.count("Member", filters=filters)
@@ -78,12 +97,9 @@ class MembershipGoal(Document):
             "status": "Completed",
         }
 
-        if not self.applies_to_all_chapters and self.chapter:
+        if chapter_member_names is not None:
             # Get members who were in this chapter when terminated
-            termination_filters["member"] = [
-                "in",
-                frappe.get_all("Member", filters={"current_chapter_display": self.chapter}, pluck="name"),
-            ]
+            termination_filters["member"] = ["in", chapter_member_names]
 
         lost_members = frappe.db.count("Membership Termination Request", filters=termination_filters)
 
@@ -177,7 +193,7 @@ class MembershipGoal(Document):
         }
 
         if not self.applies_to_all_chapters and self.chapter:
-            filters["current_chapter_display"] = self.chapter
+            filters["name"] = ["in", self._active_chapter_member_names()]
 
         return frappe.db.count("Member", filters=filters)
 

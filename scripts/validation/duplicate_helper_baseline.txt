@@ -354,6 +354,7 @@ _make_failed_acr::2
 _make_forward_payment_entry::2
 _make_gateway::2
 _make_gl_account::2
+_make_goal::2
 _make_import::3
 _make_import_doc::6
 _make_import_doc_from_content::2  # clone family, 1 near-identical pair(s)

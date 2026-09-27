@@ -265,6 +265,113 @@ class TestChapterDashboardQuickApprove(_ChapterDashboardBase):
                 bm.chapter_role = "Chapter Head"
         chapter_doc.save()
 
+    def test_approve_without_chapter_name_infers_from_pending_row(self):
+        """#1516: no chapter_name -> the function used to read
+        Member.current_chapter_display, an HTML field with no DB column,
+        which raised OperationalError unconditionally. It must instead
+        resolve the chapter from the applicant's Pending Chapter Member row
+        (the same relation the explicit-chapter test above exercises) and
+        complete the approval."""
+        board_member, board_user, _vol = self._make_board_user(
+            chapter_role_name=f"CD Head NoChapter {self.uid}"
+        )
+        applicant = self._make_member()
+        self._add_chapter_member(applicant.name, status="Pending")
+        self._reseat_board_as_chapter_head(_vol.name)
+
+        with self._as_user(board_user.name):
+            self.expectErrorLog()
+            result = chapter_dashboard_api.quick_approve_member(applicant.name)
+
+        self.assertTrue(result.get("success"), msg=result)
+        status = frappe.db.get_value(
+            "Chapter Member", {"member": applicant.name, "parent": self.chapter.name}, "status"
+        )
+        self.assertEqual(status, "Active")
+
+    def test_approve_without_chapter_name_refuses_identically_regardless_of_reason(self):
+        """#1516/#1360: with the current_chapter_display crash removed, a board
+        member calling without chapter_name for (a) a nonexistent member, (b) a
+        real member pending in a chapter the caller doesn't manage, and (c) a
+        real member pending in TWO chapters at once (ambiguous -- picking
+        either one silently would be the "pick first chapter" wrong fix) must
+        all refuse with the EXACT same message/error_code/http_status/errors
+        shape. Distinguishing any of these would reopen the existence-oracle
+        variant #1360 flagged (dormant only because this line always crashed
+        first)."""
+        board_member, board_user, _vol = self._make_board_user()
+
+        other_chapter = self.factory.create_chapter(
+            chapter_name=f"CDOtherChapter-{self.uid}", region="Test Region CD2"
+        )
+
+        def _add_pending_row(chapter_name, member_name):
+            chapter_doc = frappe.get_doc("Chapter", chapter_name)
+            chapter_doc.append(
+                "members",
+                {
+                    "member": member_name,
+                    "status": "Pending",
+                    "enabled": 1,
+                    "chapter_join_date": frappe.utils.today(),
+                },
+            )
+            chapter_doc.save()
+
+        # Pending in a chapter the board_user does NOT manage.
+        foreign_member = self._make_member()
+        _add_pending_row(other_chapter.name, foreign_member.name)
+
+        # Pending in BOTH chapters at once -- ambiguous; must not be
+        # silently resolved to either one.
+        ambiguous_member = self._make_member()
+        _add_pending_row(self.chapter.name, ambiguous_member.name)
+        _add_pending_row(other_chapter.name, ambiguous_member.name)
+
+        unknown_member_name = f"NONEXISTENT-{self.uid}"
+
+        with self._as_user(board_user.name):
+            self.expectErrorLog()
+            unknown_result = chapter_dashboard_api.quick_approve_member(unknown_member_name)
+            self.expectErrorLog()
+            foreign_result = chapter_dashboard_api.quick_approve_member(foreign_member.name)
+            self.expectErrorLog()
+            ambiguous_result = chapter_dashboard_api.quick_approve_member(ambiguous_member.name)
+
+        for label, result in (
+            ("unknown", unknown_result),
+            ("foreign", foreign_result),
+            ("ambiguous", ambiguous_result),
+        ):
+            self.assertFalse(result.get("success"), msg=f"{label}: {result}")
+
+        # OperationResult.to_dict()'s nested (default) schema puts the failure
+        # detail under "error": {"message", "errors", "code", "http_status"}.
+        channels = ("message", "errors", "code", "http_status")
+        for channel in channels:
+            self.assertEqual(
+                unknown_result["error"].get(channel),
+                foreign_result["error"].get(channel),
+                msg=f"channel {channel!r} differs between unknown and foreign member: "
+                f"{unknown_result['error']} vs {foreign_result['error']}",
+            )
+            self.assertEqual(
+                unknown_result["error"].get(channel),
+                ambiguous_result["error"].get(channel),
+                msg=f"channel {channel!r} differs between unknown and ambiguous member: "
+                f"{unknown_result['error']} vs {ambiguous_result['error']}",
+            )
+
+        # The ambiguous member must NOT have been silently approved into
+        # either chapter -- refusal, not a pick-first guess.
+        for chapter_name in (self.chapter.name, other_chapter.name):
+            status = frappe.db.get_value(
+                "Chapter Member",
+                {"member": ambiguous_member.name, "parent": chapter_name},
+                "status",
+            )
+            self.assertEqual(status, "Pending")
+
 
 class TestChapterDashboardNumberCards(_ChapterDashboardBase):
     """Number-card REPORTING endpoints (read-only, @standard_api)."""
