@@ -40,6 +40,10 @@ import frappe
 from frappe.utils import add_months, getdate, today
 
 from verenigingen.tests.fixtures.test_data_factory import ensure_membership_type_exists
+from verenigingen.tests.support.termination_request import (
+    create_draft_termination_request,
+    execute_real_termination,
+)
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.verenigingen.doctype.membership_analytics_snapshot.membership_analytics_snapshot import (
     calculate_cohort_data,
@@ -80,33 +84,6 @@ class TestCohortRetentionRejoinTerminations(VereningingenTestCase):
         after_initial = after["initial"] if after else 0
         after_retained = after[f"month_{month_offset}"]["count"] if after else 0
         return after_initial - before_initial, after_retained - before_retained
-
-    def _real_voluntary_termination(self, member, termination_date):
-        """Drive a REAL Voluntary termination via TerminationExecutionService
-        (not a hand-set status), matching #1532/#1540's own discipline."""
-        from verenigingen.services.termination import TerminationExecutionService
-
-        request = frappe.get_doc(
-            {
-                "doctype": "Membership Termination Request",
-                "member": member.name,
-                "termination_type": "Voluntary",
-                "termination_reason": "Test: cohort retention rejoin (#1544)",
-                "termination_date": termination_date,
-                "requested_by": frappe.session.user,
-                "request_date": termination_date,
-                "status": "Approved",
-                "approved_by": frappe.session.user,
-                "approval_date": frappe.utils.now(),
-            }
-        )
-        request.insert()
-        request.submit()
-        self.track_doc("Membership Termination Request", request.name)
-        self.assertTrue(TerminationExecutionService().execute(request))
-        request.reload()
-        self.assertEqual(request.status, "Executed")
-        return request
 
     def _real_rejoin_and_approve(self, member, membership_type="Standard Member"):
         """Drive the REAL reapplication + approval flow for a Quit member:
@@ -184,7 +161,7 @@ class TestCohortRetentionRejoinTerminations(VereningingenTestCase):
         frappe.db.set_value("Member", member.name, "member_since", old_join_date, update_modified=False)
 
         termination_date = add_months(today(), -6)
-        self._real_voluntary_termination(member, termination_date)
+        execute_real_termination(self, member.name, termination_date)
         member.reload()
         self.assertEqual(member.status, "Quit", "Sanity: a real termination must flip status off Active")
 
@@ -264,7 +241,7 @@ class TestCohortRetentionRejoinTerminations(VereningingenTestCase):
         # Inside [member_since, check_date): 3 months after joining, well
         # before the 6-month check_date.
         termination_date = add_months(join_date, 3)
-        self._real_voluntary_termination(member, termination_date)
+        execute_real_termination(self, member.name, termination_date)
         member.reload()
         self.assertEqual(member.status, "Quit")
 
@@ -282,8 +259,14 @@ class TestCohortRetentionRejoinTerminations(VereningingenTestCase):
         INSIDE the [member_since, check_date) window (the same place a
         real Executed termination would need to be to exclude), so this
         actually exercises the subquery's status filter rather than being
-        vacuously true because the date falls outside the window."""
-        join_date = add_months(today(), -18)
+        vacuously true because the date falls outside the window. The shared
+        create_draft_termination_request() fixture (from
+        verenigingen.tests.support.termination_request) fixes
+        termination_date=today(), so member_since/check_date are placed
+        around it instead: 2 months before today (member_since) and 6 months
+        after the cohort month (check_date, comfortably past today
+        regardless of day-of-month rounding)."""
+        join_date = add_months(today(), -2)
         cohort_month = getdate(join_date).replace(day=1)
         cohort_month_str = cohort_month.strftime("%Y-%m")
         month_offset = 6
@@ -304,20 +287,7 @@ class TestCohortRetentionRejoinTerminations(VereningingenTestCase):
         )
         frappe.db.set_value("Member", member.name, "member_since", join_date, update_modified=False)
 
-        draft = frappe.get_doc(
-            {
-                "doctype": "Membership Termination Request",
-                "member": member.name,
-                "termination_type": "Voluntary",
-                "termination_reason": "Test: draft must not exclude (#1544)",
-                "termination_date": add_months(join_date, 3),
-                "requested_by": frappe.session.user,
-                "request_date": today(),
-            }
-        )
-        draft.insert()
-        self.track_doc("Membership Termination Request", draft.name)
-        self.assertEqual(draft.status, "Draft")
+        create_draft_termination_request(self, member.name)
 
         delta_initial, delta_retained = self._retained_delta(
             period_end_date, cohort_month_str, month_offset, before

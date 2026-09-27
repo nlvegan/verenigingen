@@ -688,10 +688,32 @@ def update_termination_status_display(doc, method=None):
         # cannot see the rejoin is in progress. Forcing a terminal status
         # here would silently drop the applicant from
         # get_pending_applications() (which filters status='Pending'),
-        # hiding a legitimate rejoin request from reviewers. Scoped to
-        # "there is already an Executed termination on file" (this branch),
-        # so it cannot mask a first-time application, which never has one.
-        reapplication_in_progress = member.application_status == "Pending"
+        # hiding a legitimate rejoin request from reviewers.
+        #
+        # `application_status == "Pending"` ALONE is not a safe signal: it is
+        # a Select field with NO default, so Frappe auto-fills its FIRST
+        # option -- "Pending" -- for every Member whose application_status
+        # was never explicitly written (CSV/Mijnrood imports, most test
+        # fixtures). That misfired here: an ordinary, unrelated save() on
+        # such a member (Active, or already Quit from a real, unrelated,
+        # never-superseded termination) would satisfy "Pending" purely by
+        # field-default coincidence and skip -- silently clearing a real
+        # member_end_date on a member who was never mid-reapplication at
+        # all. Reproduced and fixed after independent review (2nd round).
+        #
+        # The reliable, POSITIVE signal that this Pending status belongs to
+        # a reapplication that postdates THIS termination is application_date:
+        # update_member_from_reapplication() sets it to now() in the same
+        # save that sets status/application_status to Pending, before this
+        # termination could exist. `>=` (not `>`): application_date is a
+        # Datetime and target_date a Date, so a reapplication processed the
+        # same calendar day as the termination must still count -- the
+        # reapplication can never precede the termination it responds to.
+        reapplication_in_progress = (
+            member.application_status == "Pending"
+            and member.application_date
+            and getdate(member.application_date) >= getdate(target_date)
+        )
 
         if superseded or reapplication_in_progress:
             # A stale member_end_date left by this same hook's earlier run

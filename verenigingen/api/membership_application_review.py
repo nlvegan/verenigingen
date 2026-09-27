@@ -271,6 +271,33 @@ def _handle_idempotent_approval(member_name):
     return None
 
 
+def _refuse_if_terminated_after_application(member):
+    """Refuse approval when the member's most recent Executed termination
+    postdates this application's application_date -- see the call site for
+    why a silent approval would be wrong here."""
+    termination = frappe.db.get_value(
+        "Membership Termination Request",
+        {"member": member.name, "status": "Executed"},
+        ["name", "termination_date", "execution_date"],
+        order_by="execution_date desc",
+        as_dict=True,
+    )
+    if not termination or not member.application_date:
+        return
+
+    effective_date = termination.termination_date or termination.execution_date
+    if effective_date and getdate(effective_date) > getdate(member.application_date):
+        frappe.throw(
+            _(
+                "This member was terminated on {0}, after this application was submitted on {1}. "
+                "Please review this case manually before approving."
+            ).format(
+                frappe.utils.format_date(effective_date),
+                frappe.utils.format_date(member.application_date),
+            )
+        )
+
+
 def _prepare_approval_fields(member, membership_type, notes):
     """Build approval fields dict for create_membership_on_approval().
 
@@ -645,6 +672,21 @@ def _approve_membership_application_locked(
     # Validate application can be approved
     if member.application_status not in ["Pending"]:
         frappe.throw(_("This application cannot be approved in its current state"))
+
+    # #1544/#1548 follow-up: refuse rather than silently reactivate a member
+    # who was terminated WHILE this application was still Pending.
+    # validate_termination_request() does not block creating a termination
+    # against a Pending member, so this is reachable: approval always resets
+    # member_since to today, which (correctly, per #1544's own rule) makes
+    # that termination look superseded to member_utils.
+    # update_termination_status_display -- but it is NOT a genuine rejoin. A
+    # genuine rejoin's application_date is set to now() by
+    # update_member_from_reapplication, strictly AFTER the termination it
+    # responds to; here the application predates the termination, so this is
+    # the SAME still-open application, not a new one. Whether it should
+    # proceed with the member reactivated, left Quit, or something else is a
+    # product decision nobody has made -- refuse instead of guessing.
+    _refuse_if_terminated_after_application(member)
 
     # Chapter permission and existence were already checked in
     # approve_membership_application, before the advisory lock (#1414) --

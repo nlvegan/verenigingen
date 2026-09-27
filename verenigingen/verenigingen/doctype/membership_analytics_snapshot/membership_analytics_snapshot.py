@@ -335,6 +335,9 @@ def calculate_cohort_data(snapshot, period):
                 # to the rejoin date) counts against retention. `>` rather than `>=`
                 # is deliberate: a same-day rejoin can leave termination_date equal to
                 # the new member_since, and that coincidence must not exclude them.
+                # COALESCE(termination_date, execution_date): symmetric with the
+                # member_utils.update_termination_status_display hook's own
+                # `target_date = term_data.termination_date or term_data.execution_date`.
                 retained = frappe.db.sql(
                     """
                     SELECT COUNT(*)
@@ -345,8 +348,8 @@ def calculate_cohort_data(snapshot, period):
                         SELECT 1 FROM `tabMembership Termination Request` t
                         WHERE t.member = m.name
                         AND t.status = 'Executed'
-                        AND t.termination_date < %s
-                        AND t.termination_date > m.member_since
+                        AND COALESCE(t.termination_date, t.execution_date) < %s
+                        AND COALESCE(t.termination_date, t.execution_date) > m.member_since
                     )
                 """,
                     (cohort_month.strftime("%Y-%m"), check_date),

@@ -12,8 +12,9 @@ factory (no business-logic mocking) and run as Administrator.
 """
 
 import frappe
-from frappe.utils import add_days, add_months, getdate, today
+from frappe.utils import add_days, add_months, getdate, now_datetime, today
 
+from verenigingen.tests.support.termination_request import execute_real_termination
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.verenigingen.doctype.member import member_utils as mu
 
@@ -518,24 +519,77 @@ class TestMemberUtilsEndpoints(VereningingenTestCase):
         """While a reapplication is Pending (member_since not yet reset --
         that happens at approval), forcing a terminal status would drop the
         applicant from get_pending_applications() (status='Pending' filter),
-        hiding a legitimate rejoin from reviewers."""
+        hiding a legitimate rejoin from reviewers. application_date is set to
+        AFTER the termination -- exactly what update_member_from_reapplication
+        does -- which is the positive signal that distinguishes this from the
+        Select-default misfire covered below."""
         member_doc = frappe.get_doc("Member", self.member.name)
         member_doc.member_since = add_months(today(), -24)
         member_doc.application_status = "Approved"
         member_doc.status = "Active"
         member_doc.save()
-        self._insert_executed_termination(member_doc.name, add_months(today(), -12))
+        old_termination_date = add_months(today(), -12)
+        self._insert_executed_termination(member_doc.name, old_termination_date)
 
         member_doc.reload()
         # Reapplication in progress: status set to Pending, member_since NOT
-        # yet reset (matches update_member_from_reapplication's own order).
+        # yet reset (matches update_member_from_reapplication's own order),
+        # application_date set to now (also matches that function).
         member_doc.status = "Pending"
         member_doc.application_status = "Pending"
+        member_doc.application_date = now_datetime()
         mu.update_termination_status_display(member_doc)
         self.assertEqual(
             member_doc.status,
             "Pending",
             "A Pending reapplication must not be reverted to Quit before it is reviewed",
+        )
+
+    def test_update_termination_status_display_default_application_status_does_not_misfire(self):
+        """Regression (2nd independent review round, 2026-09-28): Member.
+        application_status is a Select with NO default, so Frappe auto-fills
+        its FIRST option, "Pending", for every member where it was never
+        explicitly written -- CSV/Mijnrood imports, and every test member made
+        by create_test_member() without passing application_status (as
+        self.member here is). That must not be misread as "a reapplication is
+        in progress": an ordinary, unrelated save on a member who was really
+        terminated long ago (and never rejoined) must not clear
+        member_end_date or leave status un-forced, just because
+        application_status happens to still read the Select default.
+
+        Drives a REAL termination via TerminationExecutionService (not a
+        hand-set status) -- matches the reviewer's own reproduction and
+        #1532/#1540's discipline."""
+        member_doc = frappe.get_doc("Member", self.member.name)
+        member_doc.member_since = add_days(today(), -1000)
+        # application_status deliberately left UNSET.
+        member_doc.status = "Active"
+        member_doc.save()
+        member_doc.reload()
+        self.assertEqual(
+            member_doc.application_status,
+            "Pending",
+            "precondition: an unwritten Select auto-fills its first option",
+        )
+
+        termination_date = add_days(today(), -400)
+        execute_real_termination(self, member_doc.name, termination_date)
+        member_doc.reload()
+        self.assertEqual(member_doc.status, "Quit")
+        self.assertEqual(getdate(member_doc.member_end_date), getdate(termination_date))
+
+        # An unrelated save (e.g. an admin editing an unrelated field) must
+        # NOT clear member_end_date or un-force status, just because
+        # application_status merely defaults to "Pending".
+        member_doc.notes = "Unrelated edit, not a reapplication"
+        member_doc.save()
+        member_doc.reload()
+        self.assertEqual(member_doc.status, "Quit")
+        self.assertEqual(
+            getdate(member_doc.member_end_date),
+            getdate(termination_date),
+            "member_end_date must survive an unrelated save on a member whose "
+            "application_status merely defaults to 'Pending'",
         )
 
     # ------------------------------------------------------------------ member id counter
