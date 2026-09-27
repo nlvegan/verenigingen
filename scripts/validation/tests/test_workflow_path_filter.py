@@ -72,6 +72,9 @@ _KNOWN_SCRIPTS_FILES_IMPORTED_UNDER_TESTS = {
     "scripts/migration/migrate_fee_overrides_to_dues_schedules.py",
     "scripts/validation/non_resumable_ast.py",
     "scripts/validation/savepoint_rollback_validator.py",
+    # #1528/#1539: added by
+    # verenigingen/tests/unit/test_performance_profiler_current_chapter_display.py
+    "scripts/performance/performance_profiler.py",
 }
 
 

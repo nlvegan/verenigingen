@@ -148,9 +148,14 @@ class TestPerformanceProfilerPaymentBatchSimulation(EnhancedTestCase):
         already collected.
 
         Customer A has 2 qualifying Payment Entries, customer B has 5,
-        batch_size=3, and discovery order is pinned explicitly (via a forced
-        `creation` timestamp on every row, not real-time ordering) so A is
-        always discovered before B:
+        batch_size=3, and discovery order is pinned by forcing each row's
+        `creation` timestamp into the FUTURE (A newest, B next) rather than
+        by requiring no ambient qualifying data to exist first. With
+        `order_by="creation desc"`, A and B always sort ahead of anything
+        carrying a real, present-day `creation` -- including setUp's own
+        fixture row and any leaked/ambient Payment Entries already on the
+        site -- so the batch of 3 always fills from A(2) + B(1) before
+        either the ambient data or the real-timestamped rows are reached:
           - correct code: A contributes all 2 (remaining budget 3), B is then
             asked for only the remaining 1 -> total 3.
           - a flat-limit mutant (limit=batch_size on every call, regardless
@@ -161,33 +166,23 @@ class TestPerformanceProfilerPaymentBatchSimulation(EnhancedTestCase):
         distinguish these: the first customer alone would fill the batch
         either way, which is why A supplies FEWER rows than the budget here.
         """
-        pre_existing = self._qualifying_customer_count()
-        self.assertEqual(
-            pre_existing,
-            1,
-            "expected only the fixture's own customer to qualify before seeding more -- "
-            "ambient data on this site would make the row-count assertion below unreliable.",
-        )
-
-        # Neutralise setUp's own qualifying row: force it to sort LAST (oldest)
-        # so it is never reached once A and B below fill the batch.
-        self._force_creation(self.payment_entry.name, "2000-01-01 00:00:00")
-
         batch_size = 3
 
-        # Customer B: 5 qualifying Payment Entries, forced older than A but
-        # newer than the neutralised setUp row above.
+        # Customer B: 5 qualifying Payment Entries, forced into the future
+        # but behind A (below) -- and ahead of anything with a real,
+        # present-day creation timestamp.
         customer_b = self.factory.create_test_customer()
         for _ in range(5):
             pe = self.create_test_payment_entry(party=customer_b.name, submit=True)
-            self._force_creation(pe.name, "2020-01-01 00:00:00")
+            self._force_creation(pe.name, "2099-01-01 00:00:00")
 
-        # Customer A: 2 qualifying Payment Entries, forced NEWEST -- discovered
-        # before B by an explicit, controlled timestamp, not timing luck.
+        # Customer A: 2 qualifying Payment Entries, forced further into the
+        # future than B -- discovered first regardless of ambient data or
+        # real-time ordering.
         customer_a = self.factory.create_test_customer()
         for _ in range(2):
             pe = self.create_test_payment_entry(party=customer_a.name, submit=True)
-            self._force_creation(pe.name, "2024-01-01 00:00:00")
+            self._force_creation(pe.name, "2099-01-02 00:00:00")
 
         per_customer_call_rows = []
         original_get_all = frappe.get_all
