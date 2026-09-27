@@ -19,7 +19,14 @@ from datetime import datetime, timedelta
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, cint, cstr, flt, get_datetime, now_datetime
+from frappe.utils import add_days, cint, cstr, flt, get_datetime, now_datetime, today
+
+# Member.status values that mean the membership has actually ended. "Terminated" is not
+# one of them -- it is not a valid option on the Member.status Select field, so a filter
+# on it never matches a real row and the churn metric was always 0. Same set used by
+# services/billing/billing_date_service.py, services/account/account_creation_service.py
+# and others across this app.
+CHURNED_MEMBER_STATUSES = ["Quit", "Banned", "Deceased"]
 
 
 class ZabbixIntegration:
@@ -79,6 +86,27 @@ def get_metrics_for_zabbix():
     return {"timestamp": now_datetime().isoformat(), "metrics": metrics}
 
 
+def _count_recent_member_terminations(days=30):
+    """Count members whose membership actually ended within the last ``days`` days.
+
+    Filters on ``member_end_date``, not ``modified``: ``modified`` changes on any later
+    edit to the Member document (an address correction, a nightly job), so it would
+    re-count an old leaver every time something touches their record, while a leaver who
+    is never touched again would drop out of the metric after 30 days regardless of when
+    they actually left. ``member_end_date`` is the field the real termination flow writes
+    (``update_member_status_safe`` / ``update_termination_status_display`` in
+    verenigingen/verenigingen/doctype/member/member_utils.py) and the field the existing
+    membership analytics reports already use to answer "when did this member leave".
+    """
+    return frappe.db.count(
+        "Member",
+        {
+            "status": ["in", CHURNED_MEMBER_STATUSES],
+            "member_end_date": [">=", add_days(today(), -days)],
+        },
+    )
+
+
 def get_business_metrics():
     """Get business-related metrics"""
     metrics = {}
@@ -90,10 +118,7 @@ def get_business_metrics():
     # Calculate member metrics
     total_members = metrics["frappe.members.total"]
     if total_members > 0:
-        # Churn rate calculation
-        terminated_last_month = frappe.db.count(
-            "Member", {"status": "Terminated", "modified": [">=", add_days(now_datetime(), -30)]}
-        )
+        terminated_last_month = _count_recent_member_terminations()
         metrics["frappe.member.churn_rate"] = round((terminated_last_month / total_members) * 100, 2)
     else:
         metrics["frappe.member.churn_rate"] = 0

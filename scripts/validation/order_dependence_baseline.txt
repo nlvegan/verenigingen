@@ -432,6 +432,7 @@ COMMIT_EXEMPT tests/test_harness_cleanup_tracked_docs_dangling_link.py::3  # ord
 COMMIT_EXEMPT tests/test_harness_drains_survive_setup_failure.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/test_harness_leak_attribution.py::16  # order-dep-exempt
 COMMIT_EXEMPT tests/test_public_document_creator_setup.py::1  # order-dep-exempt
+COMMIT_EXEMPT tests/unit/test_zabbix_churn_metric.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/utils/base.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/utils/factories.py::1  # order-dep-exempt
 COMMIT_EXEMPT verenigingen/doctype/api_audit_log/test_api_audit_log.py::1  # order-dep-exempt
