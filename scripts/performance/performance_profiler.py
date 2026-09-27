@@ -16,6 +16,16 @@ from typing import Dict, List, Any, Tuple
 from datetime import datetime
 import frappe
 
+# Shared with process_payment_batch_simulation()'s discovery query and with
+# its regression test (verenigingen/tests/unit/
+# test_performance_profiler_current_chapter_display.py) -- a single
+# definition so the two can never silently drift apart (#1528/#1539).
+UNRECONCILED_CUSTOMER_PAYMENT_FILTERS = {
+    "docstatus": 1,
+    "unallocated_amount": [">", 0.0],
+    "party_type": "Customer",
+}
+
 def profile_payment_operations() -> Dict[str, Any]:
     """
     Profile actual payment processing bottlenecks
@@ -176,7 +186,13 @@ def profile_payment_reconciliation() -> Dict[str, Any]:
 
 def process_payment_batch_simulation(batch_size: int):
     """Simulate payment batch processing"""
-    
+
+    if batch_size <= 0:
+        # frappe.get_all() treats a falsy `limit` (0, None, ...) as NO limit at
+        # all, so batch_size<=0 would otherwise make the discovery query below
+        # scan the whole Payment Entry table before the loop no-ops anyway.
+        return 0
+
     # get_unreconciled_payments() early-returns [] unconditionally with no
     # `customer` (verenigingen_payments/utils/payment_utils.py) -- a deliberate
     # guard other callers rely on and test directly, so it stays as-is (#1539).
@@ -186,10 +202,10 @@ def process_payment_batch_simulation(batch_size: int):
 
     customers_with_unreconciled_payments = frappe.get_all(
         "Payment Entry",
-        filters={"docstatus": 1, "unallocated_amount": [">", 0.0], "party_type": "Customer"},
+        filters=UNRECONCILED_CUSTOMER_PAYMENT_FILTERS,
         pluck="party",
         distinct=True,
-        order_by="modified desc",
+        order_by="creation desc",
         limit=batch_size,
     )
 

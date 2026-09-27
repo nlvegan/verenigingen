@@ -23,7 +23,13 @@ A third, review-found defect in the #1539 fix itself: the per-customer call
 was given a flat `limit=batch_size` and the discovery loop never stopped once
 the batch was full, so total rows fetched grew with the number of qualifying
 customers instead of the batch size (O(batch_size^2) in the worst case).
-`test_per_customer_query_cost_is_bounded_by_batch_size` guards that.
+`test_per_customer_query_cost_is_bounded_by_batch_size` guards that -- with a
+fixture where every customer supplies exactly `batch_size` rows, a flat-limit
+mutant that KEEPS an early break is indistinguishable from the fix (the first
+customer alone fills the batch either way), so the fixture below deliberately
+gives the first-discovered customer FEWER rows than the budget, forcing a
+second customer to be queried and exposing the flat-limit-vs-remaining-budget
+difference.
 
 A fourth, review-found defect in the FIRST test above: with a fixed
 `batch_size=50`, seeding enough newer qualifying Payment Entries on OTHER
@@ -33,18 +39,21 @@ under test. Fixed by sizing `batch_size` from a count of currently-qualifying
 customers (+1), taken immediately before the call, so the discovery query's
 own limit always covers every qualifying customer that exists at that moment
 -- regardless of how much ambient data exists or how it is ordered.
+
+A fifth, review-found defect: frappe.get_all() treats a falsy `limit` (0) as
+NO limit at all, so an unguarded `batch_size=0` would make the discovery
+query scan the entire Payment Entry table.
+`test_batch_size_zero_or_negative_skips_the_discovery_query_entirely` guards
+the early-return fix.
 """
 
 import frappe
 
-from scripts.performance import performance_profiler
+from scripts.performance.performance_profiler import (
+    UNRECONCILED_CUSTOMER_PAYMENT_FILTERS,
+    process_payment_batch_simulation,
+)
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-
-UNRECONCILED_CUSTOMER_PAYMENT_FILTERS = {
-    "docstatus": 1,
-    "unallocated_amount": [">", 0.0],
-    "party_type": "Customer",
-}
 
 
 class TestPerformanceProfilerPaymentBatchSimulation(EnhancedTestCase):
@@ -75,6 +84,16 @@ class TestPerformanceProfilerPaymentBatchSimulation(EnhancedTestCase):
             )
         )
 
+    def _force_creation(self, payment_entry_name, creation):
+        """Set a Payment Entry's `creation` timestamp directly, so the
+        discovery query's `order_by="creation desc"` sorts deterministically
+        -- not by timing luck between fixture rows created microseconds
+        apart in the same test.
+        """
+        frappe.db.set_value(
+            "Payment Entry", payment_entry_name, "creation", creation, update_modified=False
+        )
+
     def test_real_unreconciled_payment_is_found_and_processed_without_crashing(self):
         member_lookups = []
         original_get_all = frappe.get_all
@@ -94,7 +113,7 @@ class TestPerformanceProfilerPaymentBatchSimulation(EnhancedTestCase):
 
         frappe.get_all = spying_get_all
         try:
-            processed = performance_profiler.process_payment_batch_simulation(batch_size=batch_size)
+            processed = process_payment_batch_simulation(batch_size=batch_size)
         finally:
             frappe.get_all = original_get_all
 
@@ -128,12 +147,19 @@ class TestPerformanceProfilerPaymentBatchSimulation(EnhancedTestCase):
         flat `batch_size` rows per customer regardless of how many are
         already collected.
 
-        Seeds 3 customers with 3 unreconciled Payment Entries each (one of
-        them is the fixture's own customer from setUp, topped up to 3) and
-        drives a batch_size of 3 -- exactly enough to be filled by the FIRST
-        customer discovered alone. A flat per-customer limit with no early
-        exit fetches all 3 customers' rows (9 total) to produce a batch of 3;
-        the fix must fetch at most 3.
+        Customer A has 2 qualifying Payment Entries, customer B has 5,
+        batch_size=3, and discovery order is pinned explicitly (via a forced
+        `creation` timestamp on every row, not real-time ordering) so A is
+        always discovered before B:
+          - correct code: A contributes all 2 (remaining budget 3), B is then
+            asked for only the remaining 1 -> total 3.
+          - a flat-limit mutant (limit=batch_size on every call, regardless
+            of how much is already collected) asks B for 3 (its own flat
+            limit) on top of A's 2 -> total 5, even with an early-exit check
+            that would otherwise look identical to the fix.
+        A fixture giving every customer exactly `batch_size` rows cannot
+        distinguish these: the first customer alone would fill the batch
+        either way, which is why A supplies FEWER rows than the budget here.
         """
         pre_existing = self._qualifying_customer_count()
         self.assertEqual(
@@ -143,13 +169,25 @@ class TestPerformanceProfilerPaymentBatchSimulation(EnhancedTestCase):
             "ambient data on this site would make the row-count assertion below unreliable.",
         )
 
+        # Neutralise setUp's own qualifying row: force it to sort LAST (oldest)
+        # so it is never reached once A and B below fill the batch.
+        self._force_creation(self.payment_entry.name, "2000-01-01 00:00:00")
+
         batch_size = 3
+
+        # Customer B: 5 qualifying Payment Entries, forced older than A but
+        # newer than the neutralised setUp row above.
+        customer_b = self.factory.create_test_customer()
+        for _ in range(5):
+            pe = self.create_test_payment_entry(party=customer_b.name, submit=True)
+            self._force_creation(pe.name, "2020-01-01 00:00:00")
+
+        # Customer A: 2 qualifying Payment Entries, forced NEWEST -- discovered
+        # before B by an explicit, controlled timestamp, not timing luck.
+        customer_a = self.factory.create_test_customer()
         for _ in range(2):
-            self.create_test_payment_entry(party=self.customer.name, submit=True)
-        for _ in range(batch_size - 1):
-            other_customer = self.factory.create_test_customer()
-            for _ in range(3):
-                self.create_test_payment_entry(party=other_customer.name, submit=True)
+            pe = self.create_test_payment_entry(party=customer_a.name, submit=True)
+            self._force_creation(pe.name, "2024-01-01 00:00:00")
 
         per_customer_call_rows = []
         original_get_all = frappe.get_all
@@ -165,7 +203,7 @@ class TestPerformanceProfilerPaymentBatchSimulation(EnhancedTestCase):
 
         frappe.get_all = spying_get_all
         try:
-            performance_profiler.process_payment_batch_simulation(batch_size=batch_size)
+            process_payment_batch_simulation(batch_size=batch_size)
         finally:
             frappe.get_all = original_get_all
 
@@ -174,9 +212,40 @@ class TestPerformanceProfilerPaymentBatchSimulation(EnhancedTestCase):
             total_rows_fetched,
             batch_size,
             f"process_payment_batch_simulation(batch_size={batch_size}) fetched "
-            f"{total_rows_fetched} Payment Entry rows across {len(per_customer_call_rows)} "
-            f"per-customer quer{'y' if len(per_customer_call_rows) == 1 else 'ies'} to produce "
-            f"a batch of {batch_size} -- each per-customer call must be capped at the "
-            "remaining budget and the discovery loop must stop once the batch is full, or "
-            "cost grows with the number of qualifying customers instead of the batch size.",
+            f"{total_rows_fetched} Payment Entry rows across {per_customer_call_rows} "
+            f"per-customer queries -- expected at most {batch_size} (customer A's 2 rows "
+            "plus only 1 of customer B's 5, since A is discovered first and fills 2 of the "
+            "3-row budget). Each per-customer call must be capped at the REMAINING budget, "
+            "not a flat batch_size, or cost grows with the number of qualifying customers "
+            "instead of the batch size.",
         )
+
+    def test_batch_size_zero_or_negative_skips_the_discovery_query_entirely(self):
+        """frappe.get_all() treats a falsy `limit` (0) as NO limit at all, so
+        an unguarded batch_size<=0 would make the discovery query scan every
+        unreconciled Payment Entry on the site just to produce an empty
+        batch. It must return early, before the discovery query ever runs.
+        """
+        for batch_size in (0, -1):
+            discovery_calls = []
+            original_get_all = frappe.get_all
+
+            def spying_get_all(doctype, *args, **kwargs):
+                if doctype == "Payment Entry" and "pluck" in kwargs:
+                    discovery_calls.append(kwargs)
+                return original_get_all(doctype, *args, **kwargs)
+
+            frappe.get_all = spying_get_all
+            try:
+                processed = process_payment_batch_simulation(batch_size=batch_size)
+            finally:
+                frappe.get_all = original_get_all
+
+            self.assertEqual(processed, 0, f"batch_size={batch_size} must process nothing")
+            self.assertEqual(
+                discovery_calls,
+                [],
+                f"process_payment_batch_simulation(batch_size={batch_size}) ran the discovery "
+                "query anyway -- frappe.get_all() treats limit=0 as NO limit, so this would "
+                "scan the whole Payment Entry table before the loop no-ops on nothing to do.",
+            )
