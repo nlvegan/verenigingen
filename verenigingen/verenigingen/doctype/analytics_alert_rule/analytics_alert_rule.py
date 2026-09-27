@@ -310,7 +310,7 @@ class AnalyticsAlertRule(Document):
         active_members = frappe.db.count("Member", {"status": "Active"})
         terminated = frappe.db.count(
             "Membership Termination Request",
-            {"status": "Completed", "termination_date": [">=", add_to_date(now_datetime(), days=-days)]},
+            {"status": "Executed", "termination_date": [">=", add_to_date(now_datetime(), days=-days)]},
         )
 
         return (terminated / active_members * 100) if active_members > 0 else 0
