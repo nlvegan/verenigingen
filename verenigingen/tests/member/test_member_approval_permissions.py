@@ -463,5 +463,223 @@ class TestApplicationReviewExistenceOracle(EnhancedTestCase):
         self.assertIn("Invalid member reference", str(ctx.exception))
 
 
+class TestBoardMemberRealShapePendingApplication(EnhancedTestCase):
+    """#1518: production writes an applicant's Chapter Member row with
+    status="Pending" (services/member/approval/application_helpers.py::
+    create_pending_chapter_membership, called from the application submission
+    flow), never "Active". chapter_security.can_user_manage_application's SQL
+    required cm.status = 'Active', so a Chapter Board Member saw ZERO of their
+    own chapter's real pending applications through get_pending_applications /
+    can_review_application, and was refused by approve/reject too (both call
+    the same function via validate_chapter_permission_or_throw).
+
+    Every other test in this module -- including this file's own
+    _create_chapter_pending_applicant -- uses add_member_to_test_chapter,
+    which fabricates an ACTIVE row specifically so the (buggy) gate matches.
+    None of them could ever see this bug. These use the real producer instead.
+
+    A second, independent path to the same harm: approve/reject both call
+    member.save(), which Frappe routes through has_member_permission ->
+    _is_member_in_chapters (permissions.py) for the write-permission check.
+    That helper carried the identical Active-only shape, so even after the
+    chapter_security gate is fixed, the actual save() would still 403.
+    """
+
+    def setUp(self):
+        super().setUp()
+        if not frappe.db.exists("Membership Type", "Test Real Shape Membership"):
+            mt = frappe.get_doc({
+                "doctype": "Membership Type",
+                "membership_type_name": "Test Real Shape Membership",
+                "minimum_amount": 15,
+                "is_active": 1,
+                "role_profile": "Verenigingen Member",
+            })
+            mt.insert(ignore_permissions=True)
+            self.factory.track_document("Membership Type", mt.name, priority=1)
+        else:
+            frappe.db.set_value(
+                "Membership Type", "Test Real Shape Membership", "is_active", 1, update_modified=False
+            )
+        self.membership_type = "Test Real Shape Membership"
+
+    def _create_real_shape_applicant(self, chapter_name, suffix):
+        """A Pending applicant holding the Chapter Member row PRODUCTION
+        actually writes: create_pending_chapter_membership(member, chapter_name),
+        status="Pending", enabled=1.
+        """
+        from verenigingen.services.member.approval.application_helpers import (
+            create_pending_chapter_membership,
+        )
+
+        unique = f"{suffix}{self.uid[:6]}"
+        member = self.create_test_member(
+            first_name=f"RealApplicant{unique}",
+            last_name=f"Shape{self.uid[6:]}",
+            email=f"real.applicant.{unique}.{self.uid}@test.invalid",
+            birth_date=add_days(today(), -365 * 30),
+        )
+        member.reload()
+        member.application_status = "Pending"
+        member.status = "Pending"
+        member.selected_membership_type = self.membership_type
+        member.save(ignore_permissions=True)
+        member.reload()
+
+        result = create_pending_chapter_membership(member, chapter_name)
+        self.assertIsNotNone(
+            result,
+            "create_pending_chapter_membership must actually create the row, or this "
+            "test would be exercising no row at all",
+        )
+        row_status = frappe.db.get_value(
+            "Chapter Member", {"parent": chapter_name, "member": member.name}, "status"
+        )
+        self.assertEqual(
+            row_status,
+            "Pending",
+            "premise check: production's own producer must write status='Pending'",
+        )
+        member.reload()
+        return member
+
+    def test_board_member_sees_real_shape_pending_application(self):
+        chapter = self.ensure_test_chapter("TEST Real Shape Own")
+        board = self.create_test_board_member(chapter.name, permissions_level="Admin")
+        applicant = self._create_real_shape_applicant(chapter.name, "own")
+
+        from verenigingen.api.membership_application_review import (
+            can_review_application,
+            get_pending_applications,
+        )
+
+        with self.as_user(board.user):
+            applications = get_pending_applications()
+            can_review = can_review_application(applicant.name)
+
+        application_names = [a["name"] for a in applications]
+        self.assertIn(
+            applicant.name,
+            application_names,
+            "board member must see their own chapter's REAL-shape pending application",
+        )
+        self.assertTrue(can_review, "can_review_application must agree with get_pending_applications")
+
+    def test_board_member_can_approve_real_shape_pending_application(self):
+        chapter = self.ensure_test_chapter("TEST Real Shape Approve")
+        board = self.create_test_board_member(chapter.name, permissions_level="Admin")
+        applicant = self._create_real_shape_applicant(chapter.name, "approve")
+
+        with self.as_user(board.user):
+            result = approve_membership_application(
+                member_name=applicant.name,
+                membership_type=self.membership_type,
+                create_invoice=False,
+                notes="Approved by board member against the real applicant shape",
+            )
+
+        self.assertTrue(
+            result.get("success"),
+            f"Board member could not approve their own chapter's REAL-shape applicant: "
+            f"{result.get('message') or result}",
+        )
+        applicant.reload()
+        self.assertEqual(applicant.application_status, "Approved")
+
+    def test_board_member_can_reject_real_shape_pending_application(self):
+        chapter = self.ensure_test_chapter("TEST Real Shape Reject")
+        board = self.create_test_board_member(chapter.name, permissions_level="Admin")
+        applicant = self._create_real_shape_applicant(chapter.name, "reject")
+
+        with self.as_user(board.user):
+            result = reject_membership_application(
+                member_name=applicant.name,
+                reason="Test rejection against real applicant shape",
+            )
+
+        self.assertTrue(
+            result.get("success"),
+            f"Board member could not reject their own chapter's REAL-shape applicant: "
+            f"{result.get('message') or result}",
+        )
+        applicant.reload()
+        self.assertEqual(applicant.application_status, "Rejected")
+
+    def test_board_member_cannot_see_or_act_on_other_chapters_real_shape_applicant(self):
+        """Cross-chapter control: widening the status filter must not widen
+        which CHAPTERS a board member may act on."""
+        own_chapter = self.ensure_test_chapter("TEST Real Shape Cross Own")
+        other_chapter = self.ensure_test_chapter("TEST Real Shape Cross Other")
+        board = self.create_test_board_member(own_chapter.name, permissions_level="Admin")
+        outsider = self._create_real_shape_applicant(other_chapter.name, "cross")
+
+        from verenigingen.api.membership_application_review import (
+            can_review_application,
+            get_pending_applications,
+        )
+
+        with self.as_user(board.user):
+            applications = get_pending_applications()
+            can_review = can_review_application(outsider.name)
+
+        application_names = [a["name"] for a in applications]
+        self.assertNotIn(outsider.name, application_names)
+        self.assertFalse(can_review)
+
+        with self.as_user(board.user):
+            with self.assertRaises(frappe.PermissionError):
+                approve_membership_application(
+                    member_name=outsider.name,
+                    membership_type=self.membership_type,
+                    create_invoice=False,
+                )
+        outsider.reload()
+        self.assertEqual(
+            outsider.application_status,
+            "Pending",
+            "a denied approval must not have mutated application_status",
+        )
+
+    def test_board_member_cannot_act_on_disabled_chapter_member_row(self):
+        """A disabled (enabled=0) Chapter Member row must not grant access,
+        even with the widened status filter."""
+        chapter = self.ensure_test_chapter("TEST Real Shape Disabled")
+        board = self.create_test_board_member(chapter.name, permissions_level="Admin")
+        applicant = self._create_real_shape_applicant(chapter.name, "disabled")
+
+        row_name = frappe.db.get_value(
+            "Chapter Member", {"parent": chapter.name, "member": applicant.name}, "name"
+        )
+        frappe.db.set_value("Chapter Member", row_name, "enabled", 0)
+
+        from verenigingen.api.membership_application_review import get_pending_applications
+
+        with self.as_user(board.user):
+            applications = get_pending_applications()
+
+        application_names = [a["name"] for a in applications]
+        self.assertNotIn(applicant.name, application_names)
+
+    def test_board_member_cannot_act_on_inactive_chapter_member_row(self):
+        """An Inactive Chapter Member row (a former member) must not grant
+        access -- the widened filter is Active OR Pending, never Inactive."""
+        chapter = self.ensure_test_chapter("TEST Real Shape Inactive")
+        board = self.create_test_board_member(chapter.name, permissions_level="Admin")
+        applicant = self._create_real_shape_applicant(chapter.name, "inactive")
+
+        row_name = frappe.db.get_value(
+            "Chapter Member", {"parent": chapter.name, "member": applicant.name}, "name"
+        )
+        frappe.db.set_value("Chapter Member", row_name, "status", "Inactive")
+
+        from verenigingen.api.membership_application_review import get_pending_applications
+
+        with self.as_user(board.user):
+            applications = get_pending_applications()
+
+        application_names = [a["name"] for a in applications]
+        self.assertNotIn(applicant.name, application_names)
+
+
 if __name__ == "__main__":
     unittest.main()

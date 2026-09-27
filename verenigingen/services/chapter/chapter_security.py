@@ -105,14 +105,20 @@ def can_user_manage_application(member_name, user=None):
     if not manageable_chapters:
         return False
 
-    # Get the chapter(s) associated with this member's application
+    # Get the chapter(s) associated with this member's application. The real
+    # application flow (application_helpers.create_pending_chapter_membership)
+    # writes this row with status="Pending", not "Active" -- it is only
+    # activated later, on approval (activate_pending_chapter_memberships).
+    # Requiring 'Active' here made a board member's OWN chapter's pending
+    # applications invisible to them (#1518); 'Inactive' (a former member) is
+    # deliberately still excluded.
     member_chapters = frappe.db.sql(
         """
         SELECT DISTINCT cm.parent as chapter_name
         FROM `tabChapter Member` cm
         WHERE cm.member = %s
         AND cm.enabled = 1
-        AND cm.status = 'Active'
+        AND cm.status IN ('Active', 'Pending')
     """,
         (member_name,),
         as_dict=True,
