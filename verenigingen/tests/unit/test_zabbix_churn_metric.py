@@ -54,7 +54,7 @@ if _SCRIPTS_MONITORING not in sys.path:
 import zabbix_integration  # noqa: E402
 
 
-def _create_and_execute_termination(case, member_name, termination_type="Voluntary", termination_date=None, reason=None):
+def run_real_termination(case, member_name, termination_type="Voluntary", termination_date=None, reason=None):
     """Drive a member through the real termination execution flow.
 
     ``create_termination_request`` fixes termination_type="Voluntary" and
@@ -88,14 +88,12 @@ def _create_and_execute_termination(case, member_name, termination_type="Volunta
         request = frappe.get_doc(request_data)
         request.insert()
         case.track_doc("Membership Termination Request", request.name)
-        frappe.db.commit()
 
     TerminationExecutionService().execute_system_updates(request)
     # execute_system_updates() alone (unlike execute()) does not flip the request's own
     # status -- set it the way the real flow does, since _handle_existing_member's
     # reapplication gate keys on Membership Termination Request.status == "Executed".
     frappe.db.set_value("Membership Termination Request", request.name, "status", "Executed")
-    frappe.db.commit()
     return request
 
 
@@ -104,7 +102,7 @@ class TestZabbixChurnMetric(VereningingenTestCase):
         before = zabbix_integration._count_recent_member_terminations()
 
         member = self.create_test_member()
-        _create_and_execute_termination(self, member.name)
+        run_real_termination(self, member.name)
 
         after = zabbix_integration._count_recent_member_terminations()
         self.assertEqual(after, before + 1)
@@ -118,10 +116,10 @@ class TestZabbixChurnMetric(VereningingenTestCase):
         before = zabbix_integration._count_recent_member_terminations()
 
         deceased = self.create_test_member()
-        _create_and_execute_termination(self, deceased.name, termination_type="Deceased")
+        run_real_termination(self, deceased.name, termination_type="Deceased")
 
         banned = self.create_test_member()
-        _create_and_execute_termination(self, banned.name, termination_type="Expulsion")
+        run_real_termination(self, banned.name, termination_type="Expulsion")
 
         after = zabbix_integration._count_recent_member_terminations()
         self.assertEqual(after, before + 2)
@@ -152,7 +150,7 @@ class TestZabbixChurnMetric(VereningingenTestCase):
 
         member = self.create_test_member()
         old_date = add_days(today(), -60)
-        _create_and_execute_termination(self, member.name, termination_date=old_date)
+        run_real_termination(self, member.name, termination_date=old_date)
 
         # Unrelated edit -- bumps `modified` to "now" without changing when membership
         # actually ended.
@@ -165,6 +163,32 @@ class TestZabbixChurnMetric(VereningingenTestCase):
 
         member.reload()
         self.assertEqual(str(member.member_end_date), str(old_date))
+
+    def test_future_dated_termination_is_not_counted_yet(self):
+        """Control: a termination whose `termination_date` is still in the future must
+        not be counted as churn today.
+
+        Nothing gates executing a termination early with a future `termination_date`
+        (a grace-period checkbox, or simply a hand-set date), so `member_end_date` can
+        legitimately be set to a date that has not arrived yet. Without an upper bound
+        on the window (`member_end_date >= today - days` with no `<= today`), such a
+        member is counted as churn the moment the request executes, and stays counted
+        for the full 30-day window measured from that future date -- i.e. up to ~75
+        days after this call, long after "the last 30 days" stops describing anything
+        that actually happened.
+        """
+        before = zabbix_integration._count_recent_member_terminations()
+
+        member = self.create_test_member()
+        future_date = add_days(today(), 45)
+        run_real_termination(self, member.name, termination_date=future_date)
+
+        member.reload()
+        self.assertEqual(member.status, "Quit")
+        self.assertEqual(str(member.member_end_date), str(future_date))
+
+        after = zabbix_integration._count_recent_member_terminations()
+        self.assertEqual(after, before)
 
     def test_rejoined_member_is_not_counted(self):
         """A Quit member who reapplies and is reset to Pending must not stay counted.
@@ -190,7 +214,20 @@ class TestZabbixChurnMetric(VereningingenTestCase):
         What THIS test is actually establishing for #1541: once a member's status is
         genuinely reset away from the churned set, the churn metric must reflect that
         immediately, using the field it now keys on (`member_end_date`) which is left
-        untouched and still recent -- the status filter alone must be enough.
+        untouched and still recent -- the status filter alone must be enough. That is
+        also why this test is kept rather than dropped: it is the only one in this
+        module that would catch a dropped or OR'd-wrong status filter (e.g. one that
+        stopped excluding "Pending"), which mutation testing confirmed.
+
+        Plainly: the state this test exercises -- "Pending" status with a recent
+        `member_end_date` still on the row -- is, right now, reachable ONLY through the
+        #1548 workaround above, not through the real, unmodified reapplication path
+        (which currently leaves the member stuck on "Quit"). #1548 is being fixed as
+        part of the #1544 PR, per the maintainer's #1544 ruling that a legitimately
+        rejoined member must not be treated as still terminated -- the same principle
+        this test is checking on the churn-metric side. Once that lands, the workaround
+        above becomes redundant (the real call will supersede the stale request itself)
+        but should still pass unchanged.
         """
         from verenigingen.services.member.approval.application_helpers import (
             update_member_from_reapplication,
@@ -198,7 +235,7 @@ class TestZabbixChurnMetric(VereningingenTestCase):
         from verenigingen.utils.secure_operations import get_system_user_for_operation
 
         member = self.create_test_member()
-        request = _create_and_execute_termination(self, member.name, termination_type="Voluntary")
+        request = run_real_termination(self, member.name, termination_type="Voluntary")
 
         member.reload()
         self.assertEqual(member.status, "Quit")

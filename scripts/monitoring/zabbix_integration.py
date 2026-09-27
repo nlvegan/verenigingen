@@ -23,9 +23,11 @@ from frappe.utils import add_days, cint, cstr, flt, get_datetime, now_datetime, 
 
 # Member.status values that mean the membership has actually ended. "Terminated" is not
 # one of them -- it is not a valid option on the Member.status Select field, so a filter
-# on it never matches a real row and the churn metric was always 0. Same set used by
+# on it never matches a real row and the churn metric was always 0. Same core set used by
 # services/billing/billing_date_service.py, services/account/account_creation_service.py
-# and others across this app.
+# and others across this app (account_creation_service.py's own set also includes
+# "Rejected", which is not a churn event -- a rejected applicant never had a membership
+# to end).
 CHURNED_MEMBER_STATUSES = ["Quit", "Banned", "Deceased"]
 
 
@@ -97,12 +99,20 @@ def _count_recent_member_terminations(days=30):
     (``update_member_status_safe`` / ``update_termination_status_display`` in
     verenigingen/verenigingen/doctype/member/member_utils.py) and the field the existing
     membership analytics reports already use to answer "when did this member leave".
+
+    The window has an upper bound as well as a lower one. Nothing gates executing a
+    termination early with a future ``termination_date`` (a grace-period checkbox, or
+    simply a hand-set date), so ``member_end_date`` can legitimately be in the future at
+    the moment this runs. A lower-bound-only filter (``>= today - days``) would count
+    that member as churn immediately and keep counting them for a full ``days``-day
+    window measured from that future date, long after "the last N days" stops
+    describing anything that has actually happened.
     """
     return frappe.db.count(
         "Member",
         {
             "status": ["in", CHURNED_MEMBER_STATUSES],
-            "member_end_date": [">=", add_days(today(), -days)],
+            "member_end_date": ["between", [add_days(today(), -days), today()]],
         },
     )
 
