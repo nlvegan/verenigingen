@@ -61,20 +61,42 @@ class MembershipGoal(Document):
         else:
             return 0
 
-    def _active_chapter_member_names(self) -> list:
-        """Names of members with an active Chapter Member row on self.chapter.
+    def _chapter_member_names(self) -> list:
+        """Names of members who ever actually became members of self.chapter
+        (a Chapter Member row exists with status != "Pending").
 
         Member.current_chapter_display is an HTML-fieldtype field with no DB
         column and cannot be queried (#1516: raises OperationalError). The
         real, queryable per-member chapter relation is the Chapter Member
-        child table (parent=chapter, member=Member.name). Scoped to
-        enabled=1, status="Active" -- a goal tracks current membership
-        growth, not pending applications (those are counted, if at all, once
-        approved and Active).
+        child table (parent=chapter, member=Member.name, status).
+
+        Deliberately NOT scoped to enabled=1/status="Active" (#1531):
+        termination DISABLES the row (enabled=0, status="Inactive") rather
+        than deleting it (termination_integration.py::
+        disable_chapter_memberships_safe), so an Active-only list silently
+        excludes every terminated member from BOTH sides of member growth --
+        lost_members (they can never appear in a "currently active" list)
+        and new_members (a member who joined and left within the same
+        window). This list must equal the population the UNSCOPED branch
+        already counts (member_since in window, Member.status != "Rejected")
+        intersected with "belonged to this chapter" -- not a narrower,
+        activeness-filtered subset of it.
+
+        Pending IS excluded: it means the chapter never actually approved
+        this person (a chapter join/switch request still awaiting the
+        chapter board), the per-chapter analogue of the unscoped branch's
+        own Member.status != "Rejected" exclusion -- a never-approved
+        applicant was never acquired. A member's own member_since is only
+        set at membership approval (api/membership_application_review.py::
+        _prepare_approval_fields), so an applicant whose overall
+        Member.status is still Pending is already excluded from the
+        unscoped population by member_since being unset; excluding a
+        chapter-level Pending row applies that same principle to a chapter
+        join/switch request filed by an already-active member.
         """
         return frappe.get_all(
             "Chapter Member",
-            filters={"parent": self.chapter, "enabled": 1, "status": "Active"},
+            filters={"parent": self.chapter, "status": ["!=", "Pending"]},
             pluck="member",
         )
 
@@ -85,7 +107,7 @@ class MembershipGoal(Document):
         # Apply scope filters
         chapter_member_names = None
         if not self.applies_to_all_chapters and self.chapter:
-            chapter_member_names = self._active_chapter_member_names()
+            chapter_member_names = self._chapter_member_names()
             filters["name"] = ["in", chapter_member_names]
 
         # New members
@@ -94,7 +116,7 @@ class MembershipGoal(Document):
         # Lost members (terminated)
         termination_filters = {
             "termination_date": ["between", [self.start_date, self.end_date]],
-            "status": "Completed",
+            "status": "Executed",
         }
 
         if chapter_member_names is not None:
@@ -178,7 +200,7 @@ class MembershipGoal(Document):
             "Membership Termination Request",
             filters={
                 "termination_date": ["between", [self.start_date, self.end_date]],
-                "status": "Completed",
+                "status": "Executed",
             },
         )
 
@@ -193,7 +215,7 @@ class MembershipGoal(Document):
         }
 
         if not self.applies_to_all_chapters and self.chapter:
-            filters["name"] = ["in", self._active_chapter_member_names()]
+            filters["name"] = ["in", self._chapter_member_names()]
 
         return frappe.db.count("Member", filters=filters)
 
@@ -212,7 +234,7 @@ class MembershipGoal(Document):
             "Membership Termination Request",
             filters={
                 "termination_date": ["between", [self.start_date, self.end_date]],
-                "status": "Completed",
+                "status": "Executed",
             },
         )
 
