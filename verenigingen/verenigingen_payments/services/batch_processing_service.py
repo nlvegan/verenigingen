@@ -219,6 +219,14 @@ class BatchProcessingService:
             invoice_details = performance_optimizer.get_invoices_with_details_bulk(invoice_names)
 
             validation_errors = []
+            # Parallel to validation_errors (same length, same order): which
+            # invoice each error line belongs to. One invoice can fail more
+            # than one check (e.g. missing AND zero-amount), and
+            # validation_errors is a list of ERROR LINES, not of invoices --
+            # #1455 review: counting len(errors) reported a single doubly-
+            # invalid invoice as "2 invalid invoice(s)". This is what lets the
+            # count below be over DISTINCT invoices instead.
+            error_invoice_names = []
             valid_count = 0
 
             for invoice_item in batch_doc.invoices:
@@ -227,15 +235,16 @@ class BatchProcessingService:
 
                 if not invoice_data:
                     validation_errors.append(f"Invoice {invoice_name} not found")
+                    error_invoice_names.append(invoice_name)
                     continue
 
                 # Validate individual invoice
                 validation_result = InvoiceManagementUtilities.validate_invoice_for_sepa(invoice_data)
 
                 if not validation_result["is_valid"]:
-                    validation_errors.extend(
-                        [f"Invoice {invoice_name}: {error}" for error in validation_result["errors"]]
-                    )
+                    for error in validation_result["errors"]:
+                        validation_errors.append(f"Invoice {invoice_name}: {error}")
+                        error_invoice_names.append(invoice_name)
                 else:
                     valid_count += 1
 
@@ -254,17 +263,48 @@ class BatchProcessingService:
                 # skip in this issue was. Write the same capped detail to
                 # batch_log instead, so opening the batch shows both the count
                 # and the specific reasons.
-                for error in validation_errors[:10]:  # Same cap as `errors` below
+                capped_errors = validation_errors[:10]  # Same cap as `errors` below
+                for error in capped_errors:
                     BatchLoggingUtilities.add_to_document_batch_log(batch_doc, f"Validation: {error}")
 
+                # Distinct invoices over the FULL error set (not the capped
+                # detail): the count must not grow just because one invoice
+                # failed more than one check. "Shown" is over the SAME capped
+                # slice as capped_errors, so a caller can tell "N invalid" from
+                # "only M of them are named below" and report the gap.
+                invalid_invoice_names = list(dict.fromkeys(error_invoice_names))
+                invalid_invoice_count = len(invalid_invoice_names)
+                shown_invoice_names = dict.fromkeys(error_invoice_names[:10])
+                omitted_invoice_count = invalid_invoice_count - len(shown_invoice_names)
+
                 if valid_count == 0:
-                    frappe.throw(_("No valid invoices found in batch"))
+                    # #1455: name every invoice and reason here too, not just the
+                    # aggregate count -- this throw fires before DirectDebitBatch.
+                    # validate_invoices() ever sees the result, so its own,
+                    # equally-detailed message for the mixed case never applies here.
+                    detail = "; ".join(capped_errors)
+                    if omitted_invoice_count > 0:
+                        detail += _(" (and {0} more invalid invoice(s) not shown)").format(
+                            omitted_invoice_count
+                        )
+                    frappe.throw(
+                        _("No valid invoices found in batch ({0} invalid): {1}").format(
+                            invalid_invoice_count, detail
+                        )
+                    )
+
+            else:
+                invalid_invoice_count = 0
+                omitted_invoice_count = 0
+                capped_errors = []
 
             return {
                 "is_valid": len(validation_errors) == 0,
                 "total_invoices": len(batch_doc.invoices),
                 "valid_invoices": valid_count,
-                "errors": validation_errors[:10],  # Limit error details
+                "invalid_invoice_count": invalid_invoice_count,
+                "omitted_invoice_count": omitted_invoice_count,
+                "errors": capped_errors,  # Limit error details
                 "has_warnings": len(validation_errors) > 0,
             }
 
