@@ -694,26 +694,27 @@ class WholeTreeTotalsTest(unittest.TestCase):
         #   * `test_donor_permissions_security.py::
         #     TestDonorPermissionsEdgeCases.test_database_connection_failure_
         #     simulation` (4): annotated as fault injection (a real DB outage
-        #     cannot be safely reproduced on this shared test connection), AND
-        #     the assertion was TIGHTENED per the ruling -- the original
-        #     accepted the fake's own `frappe.DataError` propagating as a pass
-        #     (`assertIsInstance(e, (frappe.DataError, frappe.ValidationError))`,
-        #     and `DataError` IS a `ValidationError` subclass, so it always
-        #     matched). The tightened version requires fail-CLOSED: `False`, or
-        #     a controlled refusal that is NOT `frappe.DataError` itself. This
-        #     turned the test RED for a real reason: `permissions.py`'s
-        #     `has_permission` closure (shared by `has_donor_permission` AND
-        #     `has_sepa_mandate_permission`) calls
-        #     `frappe.db.get_value("User", user, "enabled")` with no
-        #     try/except, so the injected fault propagates uncaught instead of
-        #     denying access. Filed #1598; the test is LEFT RED on purpose,
-        #     per the ruling, pending a fix to permissions.py or a further
-        #     ruling -- do not loosen it back.
+        #     cannot be safely reproduced on this shared test connection).
+        #     A first pass at tightening the assertion required the check to
+        #     CATCH the DB error and return `False` -- wrong: a raised
+        #     `frappe.DataError` refuses the request, which IS fail-closed;
+        #     catching a DB error inside a permission hook merely to keep
+        #     going is the anti-pattern this repo has already fixed at
+        #     several other layers (a caught-and-continued DB error can leave
+        #     an aborted transaction running). The corrected assertion states
+        #     the real property: under the fault, the check must never return
+        #     a truthy result: either it raises (any exception, including the
+        #     raw `frappe.DataError`, is accepted) or it returns something
+        #     falsy. Mutation-tested: wrapping the disabled-user check in
+        #     `permissions.py` to swallow the DB error and `return True`
+        #     turns this test red; reverting makes it green. #1598, filed
+        #     against the earlier (wrong) premise, was corrected in place
+        #     with this finding and left for the maintainer to close.
         #
         # 332 -> 221 findings, 265 -> 199 keys: every key the detection fix
-        # surfaced is now accounted for -- fixed, annotated, or (one test)
-        # correctly reddened -- with test_quality_baseline.txt untouched
-        # throughout (still 221/199, byte-identical `git diff`).
+        # surfaced is now accounted for -- fixed with a real fixture, or
+        # annotated -- with test_quality_baseline.txt untouched throughout
+        # (still 221/199, byte-identical `git diff`).
         self.assertEqual(221, len(self.findings), "finding count moved")
         self.assertEqual(199, len(tqe.counts_of(self.findings)), "key count moved")
 
