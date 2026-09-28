@@ -92,9 +92,16 @@ class TestDonorSecurityCore(VereningingenTestCase):
         payload (force=True, since Member has no allow_rename). Every later
         call in the test reaches this row through the exact
         frappe.db.get_value("Member", {"user": ...}) / frappe.get_roles(...)
-        calls production uses; nothing about the lookup path itself is faked,
-        only the value -- which is genuinely attacker-influenced in the real
-        system too (a chapter board member can rename a Member they administer).
+        calls production uses; nothing about the lookup path itself is faked.
+
+        This is a defense-in-depth check of the query-construction/escaping
+        boundary with a real docname containing SQL metacharacters -- NOT a
+        live attack path. `frappe.rename_doc(force=True)` is a test-only way to
+        reach this docname shape: Member.allow_rename is unset,
+        validate_rename() throws without force=True or ignore_permissions=True,
+        the desk's update_document_title calls doc.rename(force=False), and
+        there are 0 non-test frappe.rename_doc calls on Member anywhere in the
+        app. No role can rename a Member through any UI or API path today.
 
         Trailing digit in the email's local part matches
         create_test_board_member's convention: the factory rewrites
