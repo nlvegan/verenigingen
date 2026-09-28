@@ -502,15 +502,14 @@ class TestRejectMembershipApplicationChapterCleanup(EnhancedTestCase):
 
         # The failure IS still recorded -- just to the Error Log, not the caller.
         # remove_pending_chapter_membership's own except-block calls
-        # frappe.log_error(f"...{str(e)}", "Chapter Removal Error") -- a swapped
-        # (title, message) call (the known #602-class trap), so the long dynamic
-        # string lands in `method` (truncated to 140 chars by ErrorLog.validate())
-        # and, because that overflow makes ErrorLog.validate() prepend the FULL
-        # method onto `error`, the real validation reason ends up in `error`
-        # regardless. Assert on `error`, empirically confirmed to hold it.
+        # frappe.log_error(title="Chapter Removal Error", message=f"...{str(e)}")
+        # (#1573 round 5 fixed this call's argument order -- it used to pass
+        # them positionally and swapped, the #602-class trap), so `method`
+        # holds the short literal title and the real validation reason lands
+        # in `error` (the message) directly.
         log_row = frappe.db.get_value(
             "Error Log",
-            {"error": ["like", "%cannot be greater than%"]},
+            {"method": ["like", "%Chapter Removal Error%"]},
             "error",
         )
         self.assertIn(

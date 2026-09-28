@@ -255,7 +255,6 @@ verenigingen/services/member/approval/application_helpers.py::create_pending_cha
 verenigingen/services/member/approval/application_helpers.py::determine_chapter_from_application::2
 verenigingen/services/member/approval/application_helpers.py::ensure_payment_modes_exist::1
 verenigingen/services/member/approval/application_helpers.py::map_payment_method::1
-verenigingen/services/member/approval/application_helpers.py::remove_pending_chapter_membership::1
 verenigingen/services/member/core/member_address_service.py::MemberAddressService.execute_address_field_update::1
 verenigingen/services/member/display/member_onload_service.py::MemberOnloadService._update_address_display::1
 verenigingen/services/member/display/member_onload_service.py::MemberOnloadService._update_chapter_display::1

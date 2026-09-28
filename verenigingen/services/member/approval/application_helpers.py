@@ -1728,6 +1728,31 @@ def remove_pending_chapter_membership(member, chapter_name=None, elevated=False)
                     f"permanently unremovable."
                 ),
             )
+
+            # Update history entry to Terminated -- same as the normal (non-
+            # orphan) removal path below. Keyed by the chapter_name STRING, not
+            # a live Chapter document (#1573 round 5), so it works here too:
+            # without this, the orphaned chapter's history entry stayed
+            # "Pending" forever even though the applicant was successfully
+            # rejected. Same non-fatal handling as the normal path -- a history
+            # write failure must not re-strand a row this branch just cleaned up.
+            try:
+                from verenigingen.utils.chapter_membership_history_manager import (
+                    ChapterMembershipHistoryManager,
+                )
+
+                ChapterMembershipHistoryManager.terminate_chapter_membership(
+                    member_id=member.name,
+                    chapter_name=chapter_name,
+                    assignment_type="Member",
+                    end_date=today(),
+                    reason="Membership application rejected",
+                )
+            except Exception as e:
+                frappe.logger().warning(
+                    f"Failed to update chapter membership history for {member.name} in {chapter_name}: {e}"
+                )
+
             return True
 
         # Get the chapter document
@@ -1798,8 +1823,8 @@ def remove_pending_chapter_membership(member, chapter_name=None, elevated=False)
 
     except Exception as e:
         frappe.log_error(
-            f"Error removing pending chapter membership for {member.name} from {chapter_name}: {str(e)}",
-            "Chapter Removal Error",
+            title="Chapter Removal Error",
+            message=f"Error removing pending chapter membership for {member.name} from {chapter_name}: {str(e)}",
         )
         return False
 
