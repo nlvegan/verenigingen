@@ -109,6 +109,24 @@ class MemberManager(BaseManager):
                     if not save_result.success:
                         frappe.throw(_("Unable to re-enable member. Please check permissions."))
 
+                    # Report what the branch above actually derived, not that it
+                    # merely ran (#1564). A Suspended/Quit/Deceased member's row
+                    # comes out of _derive_membership_status still enabled=0 --
+                    # that is not a re-enable, and claiming "success" here left
+                    # the member exactly as invisible to the board as before the
+                    # call while every caller (bulk_add_members, the
+                    # assign_member_to_chapter whitelisted API, its JS report
+                    # button) treated it as one.
+                    if not existing_member.enabled:
+                        return {
+                            "success": False,
+                            "message": _(
+                                "Member {0} was not re-enabled: their current status ({1}) keeps them"
+                                " disabled in this chapter"
+                            ).format(self._get_member_name(member_id), member_doc.status),
+                            "action": "not_reenabled",
+                        }
+
                     self.create_comment(
                         "Info", _("Re-enabled member {0}").format(self._get_member_name(member_id))
                     )
