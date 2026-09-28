@@ -154,7 +154,7 @@ COMMIT tests/integration/services/test_invoice_generator_branches.py::15  # orde
 COMMIT tests/integration/test_api_authentication_decorators_integration.py::1  # order-dependence
 COMMIT tests/integration/test_authentication_flows.py::1  # order-dependence
 COMMIT tests/integration/test_canonical_approval_chapter_activation.py::2  # order-dependence
-COMMIT tests/integration/test_chapter_membership_approval_integration.py::4  # order-dependence
+COMMIT tests/integration/test_chapter_membership_approval_integration.py::3  # order-dependence
 COMMIT tests/integration/test_employee_user_link_security.py::1  # order-dependence
 COMMIT tests/integration/test_membership_approval.py::2  # order-dependence
 COMMIT tests/integration/test_monitoring_system.py::3  # order-dependence

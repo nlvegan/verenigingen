@@ -1663,8 +1663,27 @@ def create_active_chapter_membership(member, chapter_name):
         return None
 
 
-def remove_pending_chapter_membership(member, chapter_name=None):
-    """Remove pending Chapter Member record when application is rejected"""
+def remove_pending_chapter_membership(member, chapter_name=None, elevated=False):
+    """Remove pending Chapter Member record when application is rejected
+
+    Args:
+        member: Member document (the applicant, already resolved by the caller).
+        chapter_name: Chapter to remove the applicant's own Pending row from. If
+            the Chapter no longer exists (an orphaned row), the row is deleted
+            directly and this still counts as removed -- see #1573 round 3.
+        elevated: When True, the underlying Chapter save runs as a
+            `system_operation` (see secure_operations.secure_document_operation) --
+            it skips the ACTOR's own Chapter:write DocPerm check but nothing else
+            (business-rule validation, the member-name/status scoping of which row
+            gets removed below, and this function's own chapter-existence check all
+            still apply). Only pass True from a caller that has ALREADY
+            independently authorized the acting user for this specific
+            application (#1573 maintainer ruling) -- this parameter widens WHO may
+            write, not WHAT may be written, and only for this one applicant's own
+            Pending row. Has no bearing on the orphaned-row path above, which
+            never goes through secure_document_operation at all (there is no
+            Chapter document to check permissions against).
+    """
     if not member:
         return False
 
@@ -1681,10 +1700,60 @@ def remove_pending_chapter_membership(member, chapter_name=None):
 
         # Check if chapter exists
         if not frappe.db.exists("Chapter", chapter_name):
-            frappe.logger().warning(
-                f"Chapter {chapter_name} does not exist, cannot remove pending membership"
+            # Orphaned row: the parent Chapter no longer exists (e.g. deleted
+            # directly, outside this member's own chapter-membership lifecycle).
+            # There is no document to save into consistency here -- a Chapter
+            # that doesn't exist can never be resaved -- so treating this as a
+            # retryable failure would mean nobody could EVER finish rejecting
+            # this applicant (#1573 round 3: the same "opposite harm" as round
+            # 1/2, reached through orphaned data instead of a permission gap).
+            # Delete the dangling row directly, scoped tightly to THIS member's
+            # OWN Pending row on THIS missing chapter -- never any other row --
+            # and count it as removed. Visible in the Error Log, not a failure.
+            frappe.db.delete(
+                "Chapter Member",
+                {
+                    "parenttype": "Chapter",
+                    "parent": chapter_name,
+                    "member": member.name,
+                    "status": "Pending",
+                },
             )
-            return False
+            frappe.log_error(
+                title="Orphaned pending chapter membership removed",
+                message=(
+                    f"Chapter {chapter_name} does not exist, but member {member.name} "
+                    f"held a Pending Chapter Member row pointing at it. Deleted the "
+                    f"orphaned row directly during cleanup rather than leaving it "
+                    f"permanently unremovable."
+                ),
+            )
+
+            # Update history entry to Terminated -- same as the normal (non-
+            # orphan) removal path below. Keyed by the chapter_name STRING, not
+            # a live Chapter document (#1573 round 5), so it works here too:
+            # without this, the orphaned chapter's history entry stayed
+            # "Pending" forever even though the applicant was successfully
+            # rejected. Same non-fatal handling as the normal path -- a history
+            # write failure must not re-strand a row this branch just cleaned up.
+            try:
+                from verenigingen.utils.chapter_membership_history_manager import (
+                    ChapterMembershipHistoryManager,
+                )
+
+                ChapterMembershipHistoryManager.terminate_chapter_membership(
+                    member_id=member.name,
+                    chapter_name=chapter_name,
+                    assignment_type="Member",
+                    end_date=today(),
+                    reason="Membership application rejected",
+                )
+            except Exception as e:
+                frappe.logger().warning(
+                    f"Failed to update chapter membership history for {member.name} in {chapter_name}: {e}"
+                )
+
+            return True
 
         # Get the chapter document
         chapter_doc = frappe.get_doc("Chapter", chapter_name)
@@ -1706,8 +1775,14 @@ def remove_pending_chapter_membership(member, chapter_name=None):
             remove_result = secure_document_operation(
                 operation="save",
                 doc=chapter_doc,
-                justification=f"Remove pending chapter member {member.name} from {chapter_name}",
+                justification=(
+                    f"Remove pending chapter member {member.name} from {chapter_name} "
+                    f"(reviewer pre-authorized for this application, #1573)"
+                    if elevated
+                    else f"Remove pending chapter member {member.name} from {chapter_name}"
+                ),
                 required_permissions=["Chapter:write"],
+                system_operation=elevated,
             )
 
             if not remove_result.success:
@@ -1748,13 +1823,13 @@ def remove_pending_chapter_membership(member, chapter_name=None):
 
     except Exception as e:
         frappe.log_error(
-            f"Error removing pending chapter membership for {member.name} from {chapter_name}: {str(e)}",
-            "Chapter Removal Error",
+            title="Chapter Removal Error",
+            message=f"Error removing pending chapter membership for {member.name} from {chapter_name}: {str(e)}",
         )
         return False
 
 
-def remove_all_pending_chapter_memberships(member):
+def remove_all_pending_chapter_memberships(member, elevated=False):
     """Find and remove ALL pending chapter memberships for a member.
 
     Queries the Chapter Member child table directly to find all chapters where
@@ -1762,9 +1837,29 @@ def remove_all_pending_chapter_memberships(member):
 
     Args:
         member: Member document
+        elevated: Passed through to remove_pending_chapter_membership -- see its
+            docstring. Only a caller that has ALREADY authorized the acting user
+            for THIS member's application should pass True (#1573 maintainer
+            ruling: reject_membership_application does, having just called
+            validate_chapter_permission_or_throw; nothing else in this codebase
+            calls this function).
 
     Returns:
         list: Chapter names where pending memberships were removed
+
+    Raises:
+        frappe.ValidationError: if any chapter's cleanup save still failed after
+            the elevation above (#1573) -- e.g. the chapter no longer exists, or
+            a genuine validation error inside Chapter.save(). The caller-facing
+            message is DELIBERATELY GENERIC and names no chapter (a permission-
+            scoped caller could otherwise use chapter names in the error to infer
+            which chapters the applicant is Pending in, including ones the caller
+            cannot otherwise see); the chapter names are still recorded in the
+            Error Log via remove_pending_chapter_membership's own logging and the
+            log_error call just below. Raising at all (rather than reporting
+            partial success) lets the caller's own transaction fail atomically --
+            reject_membership_application does not commit before this cleanup
+            runs.
     """
     if not member:
         return []
@@ -1778,8 +1873,27 @@ def remove_all_pending_chapter_memberships(member):
     )
 
     removed = []
+    failed = []
     for record in pending_chapters:
-        if remove_pending_chapter_membership(member, record.chapter):
+        if remove_pending_chapter_membership(member, record.chapter, elevated=elevated):
             removed.append(record.chapter)
+        else:
+            failed.append(record.chapter)
+
+    if failed:
+        frappe.log_error(
+            title="Pending chapter cleanup incomplete",
+            message=(
+                f"remove_all_pending_chapter_memberships for member {member.name}: "
+                f"failed to remove the Pending Chapter Member row from "
+                f"{', '.join(failed)} (removed: {', '.join(removed) or 'none'})"
+            ),
+        )
+        frappe.throw(
+            _(
+                "The application rejection could not be completed due to an "
+                "internal error. Please contact an administrator and try again."
+            )
+        )
 
     return removed

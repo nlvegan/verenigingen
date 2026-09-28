@@ -1098,15 +1098,40 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
 
     def test_rejection_partial_failure_still_removes_others(self):
         """
-        Test that if one chapter removal fails, remaining chapters are still processed.
+        Test that an orphaned Chapter Member row (parent Chapter deleted, child
+        row left behind) does not block cleanup: both it and a valid chapter's
+        Pending row are removed.
 
         Simulates partial failure by creating a pending Chapter Member record
         pointing to a non-existent chapter (orphaned data), alongside a valid one.
+
+        #1573 round 3: an orphaned row can never be fixed by resaving its
+        Chapter (there is no Chapter to save), so remove_all_pending_chapter_
+        memberships deletes it directly and counts it as removed rather than
+        treating it as a retryable failure -- the latter would mean this
+        applicant could never be rejected by anyone, ever (see the "not
+        removed" assertion below, which is the regression this test now also
+        guards).
+
+        #1573 round 5: the normal (non-orphan) removal path also flips the
+        member's chapter_membership_history entry for that chapter from
+        Pending to Quit via ChapterMembershipHistoryManager.terminate_chapter_
+        membership -- keyed by the chapter_name STRING, not a live Chapter
+        document, so it works for an orphan too. The orphan branch used to skip
+        it, leaving the orphaned chapter's history entry Pending indefinitely
+        even though the applicant themselves was successfully rejected. Seed a
+        matching Pending history entry for the orphaned chapter name (a real
+        orphan would already have one, written when the row was first created
+        while the chapter still existed) and assert it is no longer Pending
+        afterwards.
         """
         from verenigingen.utils.application_helpers import (
             create_pending_chapter_membership,
             remove_all_pending_chapter_memberships,
         )
+        from verenigingen.utils.chapter_membership_history_manager import ChapterMembershipHistoryManager
+
+        self.expectErrorLog("Orphaned pending chapter membership removed")
 
         # Create pending member with valid chapter membership
         member = self.create_test_member(
@@ -1134,20 +1159,52 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
         )
         frappe.db.commit()
 
-        # Should still remove the valid chapter even though fake one will fail
+        # Seed a matching Pending history entry for the orphaned chapter name --
+        # a real orphan would already have one, written when create_pending_
+        # chapter_membership originally created the row while the chapter still
+        # existed. ChapterMembershipHistoryManager works purely off the
+        # chapter_name string (no live Chapter document required), so this is a
+        # real write through the real manager, not a stub.
+        self.assertTrue(
+            ChapterMembershipHistoryManager.add_membership_history(
+                member_id=member.name,
+                chapter_name=fake_chapter_name,
+                assignment_type="Member",
+                start_date=today(),
+                status="Pending",
+            )
+        )
+
+        # Should still remove the valid chapter, AND the orphaned one.
         removed = remove_all_pending_chapter_memberships(member)
         self.assertIn(
             self.test_chapter.name,
             removed,
-            "Valid chapter should still be removed despite fake chapter failure",
+            "Valid chapter should still be removed despite the orphaned row",
         )
 
-        # Clean up orphaned row
-        frappe.db.sql(
-            "DELETE FROM `tabChapter Member` WHERE parent = %s AND member = %s",
-            (fake_chapter_name, member.name),
+        # The orphan row itself must be gone, not just skipped -- #1573 round 3.
+        # Deleting it directly (there is no Chapter left to save) is what lets
+        # this applicant's rejection ever complete at all.
+        self.assertFalse(
+            frappe.db.exists("Chapter Member", {"parent": fake_chapter_name, "member": member.name}),
+            "the orphaned Pending Chapter Member row must be deleted, not left behind",
         )
-        frappe.db.commit()
+
+        # #1573 round 5: the orphaned chapter's history entry must also be
+        # flipped away from Pending -- not left stranded just because the
+        # cleanup took the delete-the-orphan-row path instead of the normal
+        # save-the-chapter path.
+        member.reload()
+        history_row = next(
+            (h for h in member.chapter_membership_history if h.chapter_name == fake_chapter_name), None
+        )
+        self.assertIsNotNone(history_row, "the seeded history entry must still exist")
+        self.assertNotEqual(
+            history_row.status,
+            "Pending",
+            "the orphaned chapter's history entry must not stay Pending after rejection",
+        )
 
 
 def run_tests():
