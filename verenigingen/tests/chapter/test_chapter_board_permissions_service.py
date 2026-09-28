@@ -24,7 +24,7 @@ import unittest
 
 import frappe
 
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, suspend_insert_capture
 
 TARGET_ROLE = "Verenigingen Chapter Board Member"
 
@@ -36,16 +36,52 @@ def _board_perm_exists(doctype):
 class TestChapterBoardPermissionsService(EnhancedTestCase):
     """Cover reset + skip + idempotency branches of the permission service."""
 
-    def tearDown(self):
-        # Leave the canonical Chapter Board Member DocPerms in place for the rest
-        # of the suite regardless of which branch a test exercised.
+    def _cleanup_restore_canonical_board_perms(self):
+        """Restore + commit the canonical Chapter Board Member DocPerm rows.
+
+        Shared by every test/tearDown in this class that needs the restore --
+        #1579: this mutates real, site-wide DocType permissions that must
+        outlive whichever test calls it, not per-test throwaway data.
+        Membership Termination Request has no pre-existing duplicate-DocPerm
+        defect blocking its removal/recreation (Membership does -- that
+        defect is the ONLY reason Membership's row survived this bug by
+        accident), so a plain setup_chapter_board_permissions() call can
+        create a BRAND NEW DocPerm row. EnhancedTestCase's captured-insert
+        drain (running right after, inside tearDown) would otherwise
+        force-delete any row inserted during the calling test, silently
+        stripping board access on MTR for the rest of the shard.
+        suspend_insert_capture() is this repo's established fix for exactly
+        this shape (see enhanced_test_factory.py's shared-fixture guidance /
+        the `@shared_fixture` decorator it backs).
+        """
         from verenigingen.services.chapter.chapter_board_permissions import (
             setup_chapter_board_permissions,
         )
 
-        setup_chapter_board_permissions()
-        frappe.db.commit()
+        with suspend_insert_capture():
+            result = setup_chapter_board_permissions()
+            frappe.db.commit()
+        return result
+
+    def tearDown(self):
+        # Leave the canonical Chapter Board Member DocPerms in place for the
+        # rest of the suite regardless of which branch a test exercised.
+        self._cleanup_restore_canonical_board_perms()
         super().tearDown()
+
+        # Fail loud (#1579) instead of silently leaving the rest of the shard
+        # without board access: assert the canonical rows are still present
+        # AFTER the harness's own cleanup (the drains above) has run, for
+        # every DocType actually shipped on this site.
+        live_doctypes = ["Membership", "Membership Termination Request"]
+        if frappe.db.exists("DocType", "Volunteer Expense"):
+            live_doctypes.append("Volunteer Expense")
+        for live_doctype in live_doctypes:
+            self.assertTrue(
+                _board_perm_exists(live_doctype),
+                f"Chapter Board Member permission missing on {live_doctype} "
+                "after tearDown restore + harness cleanup",
+            )
 
     def test_volunteer_expense_permissions_skipped_when_archived(self):
         """Volunteer Expense was archived; the updater returns False, not a crash."""
@@ -69,9 +105,13 @@ class TestChapterBoardPermissionsService(EnhancedTestCase):
         if not frappe.db.exists("DocType", doctype):
             self.skipTest(f"{doctype} not present on this site")
 
-        self.assertTrue(update_membership_termination_request_permissions())
-        self.assertTrue(update_membership_termination_request_permissions())
-        frappe.db.commit()
+        # #1579: this can INSERT a brand new DocPerm row (if a prior test in
+        # the shard already stripped it) that must survive this test's own
+        # teardown -- see suspend_insert_capture()'s docstring.
+        with suspend_insert_capture():
+            self.assertTrue(update_membership_termination_request_permissions())
+            self.assertTrue(update_membership_termination_request_permissions())
+            frappe.db.commit()
 
         rows = frappe.get_all(
             "DocPerm", filters={"parent": doctype, "role": TARGET_ROLE}, fields=["name"]
@@ -84,11 +124,16 @@ class TestChapterBoardPermissionsService(EnhancedTestCase):
             update_membership_permissions,
         )
 
-        self.assertTrue(update_membership_permissions())
-        frappe.db.commit()
-        # Second call hits the early "already exist" return True branch.
-        self.assertTrue(update_membership_permissions())
-        frappe.db.commit()
+        # #1579: see suspend_insert_capture()'s docstring -- this DocPerm row
+        # must outlive this test, so a fresh insert here (if a prior test
+        # already stripped it) must not be claimed by the captured-insert
+        # drain.
+        with suspend_insert_capture():
+            self.assertTrue(update_membership_permissions())
+            frappe.db.commit()
+            # Second call hits the early "already exist" return True branch.
+            self.assertTrue(update_membership_permissions())
+            frappe.db.commit()
         rows = frappe.get_all(
             "DocPerm", filters={"parent": "Membership", "role": TARGET_ROLE}, fields=["name"]
         )
@@ -109,12 +154,10 @@ class TestChapterBoardPermissionsService(EnhancedTestCase):
         """
         from verenigingen.services.chapter.chapter_board_permissions import (
             reset_chapter_board_permissions,
-            setup_chapter_board_permissions,
         )
 
         # Ensure perms are present first.
-        setup_chapter_board_permissions()
-        frappe.db.commit()
+        self._cleanup_restore_canonical_board_perms()
         self.assertTrue(_board_perm_exists("Membership"))
         self.assertTrue(_board_perm_exists("Membership Termination Request"))
 
@@ -152,21 +195,91 @@ class TestChapterBoardPermissionsService(EnhancedTestCase):
             # which escapes FrappeTestCase rollback. Restore unconditionally — even if
             # an assertion above failed mid-way — so we never leave the shared site
             # without board perms for every subsequent test / board user.
-            setup_chapter_board_permissions()
-            frappe.db.commit()
+            self._cleanup_restore_canonical_board_perms()
         # Round-trip: the restore must have re-added the rows.
         self.assertTrue(_board_perm_exists("Membership"))
         self.assertTrue(_board_perm_exists("Membership Termination Request"))
 
+    def test_restored_termination_request_permission_survives_the_insert_drain(self):
+        """Regression for #1579.
+
+        PR #1575's CI shard 3 hit ``PermissionError: Insufficient Permission for
+        Membership Termination Request`` in an unrelated later test
+        (``test_board_identity_resolution_1546``). The suspected mechanism was
+        that ``setup_chapter_board_permissions()`` silently failed to restore the
+        permission (it is ``@critical_api``-wrapped and swallows exceptions into
+        ``{"success": False}``).
+
+        That was NOT what happened. Reproduced empirically on test_site_4
+        (developer_mode=0, matching CI): the restore SUCCEEDS -- no Error Log,
+        no ``success: False``. The actual mechanism is this harness's OWN
+        captured-insert drain (``EnhancedTestCase._drain_captured_inserts``,
+        called from ``tearDown``): ``reset_chapter_board_permissions()`` deletes
+        the DocPerm row, then ``setup_chapter_board_permissions()`` creates a
+        BRAND NEW child row (a fresh ``db_insert``, not an update, because the
+        old row is gone). That insert is captured like any other test-created
+        row and force-deleted again at teardown -- silently stripping board
+        access on MTR for the rest of the shard, even though the restore itself
+        never failed.
+
+        (Membership's own board-perm row happens to survive this exact bug by
+        accident: its DocType JSON ships two "Verenigingen Staff" permission
+        rows at permlevel 0, a pre-existing, unrelated defect that makes
+        validate_permissions() reject ANY save of the Membership DocType -- so
+        reset_chapter_board_permissions() can never actually remove Membership's
+        row in the first place, and it is therefore never re-inserted or
+        captured. MTR carries no such defect, so it round-trips cleanly and
+        gets caught by the drain. That Membership-side defect is reported
+        separately, not fixed here.)
+
+        This test drives the exact round-trip a real test in this class
+        performs, then calls the harness's OWN drain directly (the same method
+        ``tearDown`` calls) to prove the restored row survives it -- without
+        depending on cross-test ordering.
+        """
+        from verenigingen.services.chapter.chapter_board_permissions import (
+            reset_chapter_board_permissions,
+        )
+
+        doctype = "Membership Termination Request"
+        if not frappe.db.exists("DocType", doctype):
+            self.skipTest(f"{doctype} not present on this site")
+
+        self._cleanup_restore_canonical_board_perms()
+        self.assertTrue(_board_perm_exists(doctype), "fixture setup: perm not present before the test")
+
+        # No intermediate commit needed: the restore below runs in the same
+        # transaction and sees this delete via ordinary read-your-own-writes
+        # visibility, and it is the restore's INSERT -- not this delete --
+        # that the drain below is being tested against.
+        reset_chapter_board_permissions()
+        self.assertFalse(_board_perm_exists(doctype), "fixture setup: reset did not remove the row")
+
+        restore_result = self._cleanup_restore_canonical_board_perms()
+        self.assertTrue(
+            _board_perm_exists(doctype),
+            f"restore failed outright: {restore_result}",
+        )
+
+        # This is what a bare tearDown() does next, every time: drain whatever
+        # this test body inserted. Call it directly so the assertion below does
+        # not depend on which test runs after this one.
+        self._drain_captured_inserts()
+
+        self.assertTrue(
+            _board_perm_exists(doctype),
+            "the just-restored Chapter Board Member permission on "
+            f"{doctype} must survive the harness's own captured-insert drain "
+            "(suspend_insert_capture() must wrap the restore above)",
+        )
+
     def test_validate_permission_security_passes_after_setup(self):
         """Security validation: no delete/cancel/amend/submit granted to board role."""
         from verenigingen.services.chapter.chapter_board_permissions import (
-            setup_chapter_board_permissions,
             validate_permission_security,
         )
 
-        setup_chapter_board_permissions()
-        frappe.db.commit()
+        self._cleanup_restore_canonical_board_perms()
         is_valid, issues = validate_permission_security()
         self.assertTrue(is_valid, f"Security validation should pass: {issues}")
         self.assertEqual(issues, [])
