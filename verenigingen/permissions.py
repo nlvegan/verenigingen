@@ -788,12 +788,25 @@ def _make_member_linked_permission(doctype, member_field="member", include_pendi
                 board_chapters = _get_board_chapters_for_member(user_member)
                 if board_chapters:
                     chapter_names = [frappe.db.escape(ch) for ch in board_chapters]
+                    # #1543: the has_permission half of this factory reaches
+                    # _check_chapter_board_access -> _is_member_in_chapters(
+                    # include_pending=include_pending), which requires cm.enabled = 1
+                    # for every caller regardless of include_pending. This list query
+                    # matched cm.status = 'Active' unconditionally, so a member who left
+                    # (remove_member(permanent=False) leaves enabled=0, status='Active')
+                    # or was terminated (disable_chapter_memberships_safe leaves enabled=0,
+                    # status='Inactive') stayed listed here for the source chapter's board
+                    # even though has_permission already refused doc-level access (#1529's
+                    # sibling gap for Donor/SEPA Mandate). Neither doctype passes
+                    # include_pending=True, so -- unlike get_member_permission_query --
+                    # there is no Pending-application row to admit here.
                     conditions.append(
                         f"""
                     {table}.{member_field} IN (
                         SELECT cm.member
                         FROM `tabChapter Member` cm
                         WHERE cm.parent IN ({','.join(chapter_names)})
+                          AND cm.enabled = 1
                           AND cm.status = 'Active'
                     )
                 """
@@ -1089,6 +1102,12 @@ def get_address_permission_query(user):
         board_chapters = _get_board_chapters_for_member(member_name)
         if board_chapters:
             chapter_names = [frappe.db.escape(ch) for ch in board_chapters]
+            # #1543: has_address_permission's board branch goes through
+            # _check_chapter_board_access(user, address_member) with no
+            # include_pending, which requires cm.enabled = 1. This list query only
+            # checked cm.status = 'Active', so a departed or terminated member's
+            # address stayed listed for the source chapter's board after
+            # has_permission had already refused it doc-level (same #1529 shape).
             conditions.append(
                 f"""
                 `tabAddress`.name in (
@@ -1099,6 +1118,7 @@ def get_address_permission_query(user):
                         SELECT cm.member
                         FROM `tabChapter Member` cm
                         WHERE cm.parent IN ({','.join(chapter_names)})
+                          AND cm.enabled = 1
                           AND cm.status = 'Active'
                     )
                 )
@@ -1283,7 +1303,14 @@ def _employee_board_chapter_condition(user):
 
     Returns None when the user holds no active board seat. Shared by
     get_employee_permission_query and has_employee_permission so the list and
-    document halves cannot drift apart.
+    document halves cannot drift apart -- #1543: unlike Donor/SEPA Mandate/Address,
+    Employee's list and doc-level checks were WRONG TOGETHER (both call this one
+    helper), not divergent: neither required cm.enabled = 1, so a departed
+    (remove_member(permanent=False), enabled=0/status='Active') or terminated
+    (disable_chapter_memberships_safe, enabled=0/status='Inactive') member's linked
+    Employee record -- personal data: date of birth, personal email, phone,
+    address -- stayed reachable both in the source chapter's board list and by
+    opening it directly.
     """
     user_member = get_member_name_for_user(user)
     if not user_member:
@@ -1300,6 +1327,7 @@ def _employee_board_chapter_condition(user):
             FROM `tabMember` m
             JOIN `tabChapter Member` cm ON cm.member = m.name
             WHERE cm.parent IN ({','.join(chapter_names)})
+              AND cm.enabled = 1
               AND cm.status = 'Active'
               AND m.status NOT IN ('Quit', 'Banned', 'Deceased')
               AND m.employee IS NOT NULL
