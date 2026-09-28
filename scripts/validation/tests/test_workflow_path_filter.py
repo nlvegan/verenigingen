@@ -359,6 +359,19 @@ def _scripts_targets_from_syspath_hacks(
     `scripts/testing/runners/`, never created), the scan stays quiet,
     matching `_scripts_targets_from_spec_from_file_location`'s convention for
     a target that was never created.
+
+    Two known limits, neither reachable by anything currently under
+    `verenigingen/tests/` (tracked in #1570, filed rather than fixed here): a
+    hack in one scope (module level, or a `setUpClass`) whose real import
+    lives in a DIFFERENT function/method is a scope split this scan does not
+    bridge, and fails loud for the wrong reason rather than resolving --
+    `verenigingen/monitoring/zabbix_integration.py`'s own module-level insert
+    + `_import_monitoring_functions`-body import is this shape, were it ever
+    in scan scope. And `if TYPE_CHECKING:` / `if False:` bodies are flattened
+    as ordinary live code -- a hack sitting in one of those with nothing
+    resolving would also fail loud despite never running.
+    `verenigingen/tests/utils/barrel_init_ast.py` already carries the
+    precedent for excluding such bodies, for a different scanner.
     """
     found: set[str] = set()
 
