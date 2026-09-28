@@ -12,7 +12,7 @@ factory (no business-logic mocking) and run as Administrator.
 """
 
 import frappe
-from frappe.utils import add_days, add_months, getdate, now_datetime, today
+from frappe.utils import add_days, add_months, get_datetime, getdate, now_datetime, today
 
 from verenigingen.tests.support.termination_request import execute_real_termination
 from verenigingen.tests.utils.base import VereningingenTestCase
@@ -478,7 +478,9 @@ class TestMemberUtilsEndpoints(VereningingenTestCase):
         member_doc.reload()
         mu.update_termination_status_display(member_doc)
         self.assertEqual(member_doc.status, "Quit")
-        self.assertEqual(getdate(member_doc.member_end_date), getdate(old_termination_date))
+        # Raw member_end_date, not getdate(member_end_date) -- see the sibling
+        # misfire test's comment: getdate(None) returns today, not None.
+        self.assertEqual(member_doc.member_end_date, getdate(old_termination_date))
 
         # Real rejoin: member_since resets to AFTER the old termination.
         member_doc.member_since = today()
@@ -545,6 +547,39 @@ class TestMemberUtilsEndpoints(VereningingenTestCase):
             "A Pending reapplication must not be reverted to Quit before it is reviewed",
         )
 
+    def test_update_termination_status_display_same_day_reapplication_still_skips(self):
+        """Boundary: application_date on the SAME calendar day as the
+        termination's own effective date must still count as "the
+        reapplication postdates the termination". application_date is a
+        Datetime and the termination's date a Date, so a same-day
+        reapplication (processed hours after the termination, same calendar
+        day) has application_date > termination_date at the TIME level but
+        their DATE parts are equal -- getdate() truncates both to the date
+        part before comparing, so this collapses to an equality, not a
+        `>`. A reapplication can never actually precede the termination it
+        responds to, so this equality must still count: `>=` is required,
+        `>` would wrongly force Quit over the in-progress Pending status."""
+        member_doc = frappe.get_doc("Member", self.member.name)
+        member_doc.member_since = add_months(today(), -24)
+        member_doc.application_status = "Approved"
+        member_doc.status = "Active"
+        member_doc.save()
+        termination_date = add_months(today(), -12)
+        self._insert_executed_termination(member_doc.name, termination_date)
+
+        member_doc.reload()
+        member_doc.status = "Pending"
+        member_doc.application_status = "Pending"
+        # Same calendar day as termination_date, processed later that day.
+        member_doc.application_date = get_datetime(f"{termination_date} 23:59:59")
+        mu.update_termination_status_display(member_doc)
+        self.assertEqual(
+            member_doc.status,
+            "Pending",
+            "A same-day reapplication must still count as postdating the termination "
+            "(the `>=` boundary, not `>`)",
+        )
+
     def test_update_termination_status_display_default_application_status_does_not_misfire(self):
         """Regression (2nd independent review round, 2026-09-28): Member.
         application_status is a Select with NO default, so Frappe auto-fills
@@ -576,7 +611,13 @@ class TestMemberUtilsEndpoints(VereningingenTestCase):
         execute_real_termination(self, member_doc.name, termination_date)
         member_doc.reload()
         self.assertEqual(member_doc.status, "Quit")
-        self.assertEqual(getdate(member_doc.member_end_date), getdate(termination_date))
+        # Compare the RAW member_end_date, not getdate(member_end_date):
+        # frappe.utils.getdate(None) returns TODAY, not None, so wrapping the
+        # actual value in getdate() would silently turn "member_end_date was
+        # never set / got cleared" into a same-shaped date mismatch instead of
+        # an obvious None -- exactly what masked the real failure reason in
+        # this test's own history (independent review, round 2).
+        self.assertEqual(member_doc.member_end_date, getdate(termination_date))
 
         # An unrelated save (e.g. an admin editing an unrelated field) must
         # NOT clear member_end_date or un-force status, just because
@@ -586,7 +627,7 @@ class TestMemberUtilsEndpoints(VereningingenTestCase):
         member_doc.reload()
         self.assertEqual(member_doc.status, "Quit")
         self.assertEqual(
-            getdate(member_doc.member_end_date),
+            member_doc.member_end_date,
             getdate(termination_date),
             "member_end_date must survive an unrelated save on a member whose "
             "application_status merely defaults to 'Pending'",
