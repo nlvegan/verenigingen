@@ -134,6 +134,66 @@ class TestMemberManager(VereningingenTestCase):
         self.assertTrue(row.enabled)
         self.assertIsNone(row.leave_reason)
 
+    def test_add_member_reenable_restores_status_after_termination(self):
+        # #1547: reproduce through the REAL writers, not db.set_value. add_member
+        # (Active) -> disable_chapter_memberships_safe (the real termination
+        # writer used by MembershipTerminationRequest execution) -> add_member
+        # again (the re-add path, since the row now reads enabled=0).
+        from verenigingen.services.termination.termination_integration import (
+            disable_chapter_memberships_safe,
+        )
+
+        self.manager.add_member(self.member.name, notify=False)
+        self._reload_chapter()
+        row = self.manager._find_chapter_member(self.member.name)
+        self.assertTrue(row.enabled)
+        self.assertEqual(row.status, "Active")
+
+        # disable_chapter_memberships_safe disables EVERY enabled Chapter Member
+        # row for this member, not only self.chapter's -- member creation can
+        # seed a shared default-chapter membership alongside it -- so assert on
+        # self.chapter's own row rather than on a specific disabled_count.
+        disabled_count = disable_chapter_memberships_safe(self.member.name, today(), "termination test")
+        self.assertGreaterEqual(disabled_count, 1)
+        self._reload_chapter()
+        row = self.manager._find_chapter_member(self.member.name)
+        self.assertFalse(row.enabled)
+        self.assertEqual(row.status, "Inactive")
+
+        result = self.manager.add_member(self.member.name, enabled=True, notify=False)
+        self.assertTrue(result["success"])
+        self.assertEqual(result["action"], "re-enabled")
+
+        self._reload_chapter()
+        row = self.manager._find_chapter_member(self.member.name)
+        self.assertTrue(row.enabled)
+        # Before the fix this stayed 'Inactive': enabled=1 + status='Inactive'
+        # matches neither the list- nor doc-level "member is visible" condition,
+        # so the re-add silently produced an invisible member (#1547).
+        self.assertEqual(row.status, "Active")
+
+    def test_add_member_reenable_does_not_activate_non_active_member(self):
+        # Opposite harm (#1547): a member whose CURRENT Member.status is not
+        # Active must not come out of the re-enable branch as status='Active'.
+        # A Suspended member is already force-disabled on the FIRST add_member
+        # call (test_add_member_inactive_member_is_disabled_in_chapter), so a
+        # second add_member call takes the re-enable branch directly.
+        suspended = self._make_member(status="Suspended", first="ReenableSuspended")
+        self.manager.add_member(suspended.name, enabled=True, notify=False)
+        self._reload_chapter()
+        row = self.manager._find_chapter_member(suspended.name)
+        self.assertFalse(row.enabled)
+        self.assertEqual(row.status, "Inactive")
+
+        result = self.manager.add_member(suspended.name, enabled=True, notify=False)
+        self.assertTrue(result["success"])
+        self.assertEqual(result["action"], "re-enabled")
+
+        self._reload_chapter()
+        row = self.manager._find_chapter_member(suspended.name)
+        self.assertFalse(row.enabled)
+        self.assertEqual(row.status, "Inactive")
+
     # ------------------------------------------------------------------ request_to_join
 
     def test_request_to_join_creates_pending(self):
