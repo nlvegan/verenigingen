@@ -807,9 +807,30 @@ class TestQualityEnforcer:
                 # check, auth hook, signature verification) is not what's being
                 # faked.
                 r"patch\s*\(\s*['\"]frappe\.session(['\"\.])",
-                r"patch\s*\(\s*['\"]frappe\.local\.",
+                # Widened from a dot-only suffix (`frappe\.local\.`) to also
+                # match the bare object (`frappe.local = saved`, restoring the
+                # WHOLE thread-local context rather than one of its attributes)
+                # -- #1558's reassignment census found that shape in
+                # test_security_setup.py::TestCSRFValidation, mirroring the
+                # (['"\.]) group `frappe.session`/`frappe.request` already use
+                # below and above. No existing patch("frappe.local") call
+                # without a trailing attribute exists app-wide (grepped), so
+                # this cannot newly exempt anything already flagged.
+                r"patch\s*\(\s*['\"]frappe\.local(['\"\.])",
                 r"patch\s*\(\s*['\"]frappe\.request(['\"\.])",
                 r"patch\s*\(\s*['\"]frappe\.db\.",
+                # #1558 (maintainer ruling): `frappe.flags.*`/`frappe.conf.*` are
+                # Frappe runtime context in the same "plumbing" sense as
+                # session/local/request/db above -- toggling `in_test`,
+                # `in_background_job`, `in_scheduler` or `ignore_csrf` drives the
+                # boundary code through a scenario, it does not fake the
+                # boundary itself. Reassigning either (`frappe.flags.in_test =
+                # False`, `frappe.conf.ignore_csrf = 1`) still needs a real
+                # `# Mock justified:` comment naming why -- this only makes them
+                # ELIGIBLE for that exemption, the same as every other entry
+                # in this list.
+                r"patch\s*\(\s*['\"]frappe\.flags\.",
+                r"patch\s*\(\s*['\"]frappe\.conf\.",
                 r"patch\s*\(\s*['\"]frappe\.get_roles['\"]",
                 r"patch\s*\(\s*['\"]frappe\.get_doc['\"]",
                 r"patch\s*\(\s*['\"]frappe\.get_all['\"]",
