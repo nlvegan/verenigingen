@@ -186,8 +186,43 @@ class TestMemberManager(VereningingenTestCase):
         self.assertEqual(row.status, "Inactive")
 
         result = self.manager.add_member(suspended.name, enabled=True, notify=False)
-        self.assertTrue(result["success"])
-        self.assertEqual(result["action"], "re-enabled")
+        # #1564: the return value must report what actually happened, not an
+        # unconditional "re-enabled" claim. _derive_membership_status keeps this
+        # row disabled/Inactive because the member is Suspended, so the branch
+        # must say so rather than telling the caller it succeeded at
+        # re-enabling while the member stays exactly as invisible to the board
+        # as before the call.
+        self.assertFalse(result["success"])
+        self.assertEqual(result["action"], "not_reenabled")
+        self.assertIn(suspended.status, result["message"])
+
+        self._reload_chapter()
+        row = self.manager._find_chapter_member(suspended.name)
+        self.assertFalse(row.enabled)
+        self.assertEqual(row.status, "Inactive")
+
+    def test_assign_member_to_chapter_api_does_not_report_false_success(self):
+        # #1564 outcome sweep: the real production consumer of this return
+        # value is the whitelisted verenigingen.api.member_management.
+        # assign_member_to_chapter (called from members_without_chapter.js's
+        # "assign chapter" report button). It converts result.get("success")
+        # straight into an OperationResult.ok(..., message="Member {0} has
+        # been assigned to {1}") shown to the admin as a success toast.
+        # Before this fix, a Suspended member whose row was already disabled
+        # would report that false "assigned" success while staying invisible
+        # to the board. Drive the REAL re-enable branch through add_member
+        # first (not db.set_value), then hit the exact API endpoint.
+        from verenigingen.api.member_management import assign_member_to_chapter as api_assign
+
+        suspended = self._make_member(status="Suspended", first="ApiReenableSuspended")
+        self.manager.add_member(suspended.name, enabled=True, notify=False)
+        self._reload_chapter()
+        row = self.manager._find_chapter_member(suspended.name)
+        self.assertFalse(row.enabled)
+
+        result = api_assign(suspended.name, self.chapter.name)
+        self.assertFalse(result["success"])
+        self.assertIn(suspended.status, result["error"]["message"])
 
         self._reload_chapter()
         row = self.manager._find_chapter_member(suspended.name)
@@ -318,8 +353,13 @@ class TestMemberManager(VereningingenTestCase):
         applicant.save()
 
         result = self.manager.add_member(applicant.name, enabled=True, notify=False)
-        self.assertTrue(result["success"])
-        self.assertEqual(result["action"], "re-enabled")
+        # #1564: same as the Suspended control above -- the row derives
+        # disabled/Inactive here (member is now Suspended, the Pending
+        # carve-out no longer applies), so the return value must not claim
+        # "re-enabled" success.
+        self.assertFalse(result["success"])
+        self.assertEqual(result["action"], "not_reenabled")
+        self.assertIn(applicant.status, result["message"])
 
         self._reload_chapter()
         row = self.manager._find_chapter_member(applicant.name)
