@@ -63,8 +63,9 @@ def _strip_trailing_comment(item: str) -> str:
     not something #1560 set out to fix): a doubled single quote inside a
     single-quoted scalar (`'it''s'`, YAML's escape for a literal quote)
     resolves to `it`, not `it's`; a backslash-escaped double quote inside a
-    double-quoted scalar (`"a\"b"`) resolves to `a\`, not `a"b`; and a
-    flow-style item (`[a, b]`) is returned as the literal string `[a, b]`
+    double-quoted scalar (`"a\"b"`) resolves to the two characters `a` and a
+    trailing backslash, not `a"b`; and a flow-style item (`[a, b]`) is
+    returned as the literal string `[a, b]`
     rather than parsed as a nested list. No `paths:` entry in this repo's
     workflow files uses any of these shapes.
     """
