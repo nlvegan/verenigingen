@@ -332,6 +332,111 @@ class TestRejectMembershipApplication(EnhancedTestCase):
         self.assertEqual(row.severity, "error")
 
 
+class TestRejectMembershipApplicationChapterCleanupFailure(EnhancedTestCase):
+    """#1573: a real (unmocked) save failure inside the pending-chapter cleanup
+    must not be swallowed while reject_membership_application reports success.
+
+    Reproduction, with NO mocking of any kind: validate_chapter_permission_or_throw
+    (the entry gate) only requires the caller to manage ONE of the applicant's
+    Pending chapters (chapter_security.can_user_manage_application), but
+    remove_all_pending_chapter_memberships then tries to clean up EVERY chapter
+    where the applicant holds a Pending row. So an applicant holding Pending rows
+    in two chapters, reviewed by a board member seated on only ONE of them,
+    passes the entry gate and then hits a genuine row-level permission denial
+    (chapter_permission_service.has_chapter_permission scopes Chapter:write to a
+    board member's OWN chapter) when the cleanup tries to save the OTHER chapter.
+    That denial is exactly the `secure_document_operation` failure
+    remove_pending_chapter_membership (application_helpers.py:~1666) turns into
+    `frappe.throw()` and then swallows in its own `except Exception: ... return
+    False` -- previously lost without a trace once
+    remove_all_pending_chapter_memberships dropped the False and
+    reject_membership_application ignored the return value entirely.
+    """
+
+    def setUp(self):
+        super().setUp()
+        run = frappe.generate_hash(length=6)
+        self.own_chapter = self.ensure_test_chapter(f"TEST Cleanup Own {run}")
+        self.other_chapter = self.ensure_test_chapter(f"TEST Cleanup Other {run}")
+        self.board = self.create_test_board_member(self.own_chapter.name, permissions_level="Admin")
+
+    def _applicant_pending_in_both_chapters(self):
+        from verenigingen.services.member.approval.application_helpers import (
+            create_pending_chapter_membership,
+        )
+
+        unique = frappe.generate_hash(length=8)
+        member = self.create_test_member(
+            first_name="CleanupFail",
+            last_name=f"Applicant{unique[:6]}",
+            email=f"cleanupfail-{unique}@example.com",
+            birth_date=add_days(today(), -365 * 30),
+        )
+        member.db_set("application_status", "Pending", update_modified=False)
+        member.db_set("status", "Pending", update_modified=False)
+        member.reload()
+
+        for chapter_name in (self.own_chapter.name, self.other_chapter.name):
+            row = create_pending_chapter_membership(member, chapter_name)
+            self.assertIsNotNone(
+                row,
+                f"setup precondition failed: could not create a real Pending "
+                f"Chapter Member row in {chapter_name}",
+            )
+            self.assertEqual(
+                frappe.db.get_value(
+                    "Chapter Member", {"parent": chapter_name, "member": member.name}, "status"
+                ),
+                "Pending",
+            )
+        return member
+
+    def test_cleanup_failure_on_unmanaged_chapter_is_not_swallowed_as_success(self):
+        member = self._applicant_pending_in_both_chapters()
+
+        # remove_pending_chapter_membership logs its own Error Log entry for the
+        # underlying permission denial before returning False -- expected noise
+        # for THIS test, not the assertion. assertErrorLog below positively
+        # asserts the fix's own "cleanup incomplete" log entry instead.
+        self.expectErrorLog(
+            "Chapter Removal Error", "Secure Operation Failed", "Pending chapter cleanup incomplete"
+        )
+
+        commit_calls = []
+        original_commit = frappe.db.commit
+        frappe.db.commit = lambda *a, **kw: commit_calls.append(1)
+        try:
+            with self.assertErrorLog("Pending chapter cleanup incomplete"):
+                with self.as_user(self.board.user):
+                    with self.assertRaises(frappe.exceptions.ValidationError):
+                        reject_membership_application(member.name, reason="cleanup failure repro")
+        finally:
+            frappe.db.commit = original_commit
+
+        self.assertEqual(
+            commit_calls,
+            [],
+            "reject_membership_application must not commit before raising -- a real "
+            "request's automatic rollback-on-exception is only atomic if nothing was "
+            "committed first",
+        )
+
+        # The row this test is about: still Pending, on the chapter the board
+        # member does NOT manage. Before the fix, remove_all_pending_chapter_
+        # memberships silently dropped this failure and reject_membership_
+        # application reported {"success": True} anyway.
+        self.assertEqual(
+            frappe.db.get_value(
+                "Chapter Member",
+                {"parent": self.other_chapter.name, "member": member.name},
+                "status",
+            ),
+            "Pending",
+            "the unmanaged chapter's Pending row must still be there -- the cleanup "
+            "failure on it must not be silently swallowed",
+        )
+
+
 class TestGetUserChapterAccess(EnhancedTestCase):
     """get_user_chapter_access: admin vs member-without-board branches."""
 

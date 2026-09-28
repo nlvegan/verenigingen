@@ -1765,6 +1765,16 @@ def remove_all_pending_chapter_memberships(member):
 
     Returns:
         list: Chapter names where pending memberships were removed
+
+    Raises:
+        frappe.ValidationError: if any chapter's cleanup save failed (#1573).
+            remove_pending_chapter_membership already swallows the underlying
+            error into a `False` return (it logs an Error Log entry itself), so
+            without this check a partial cleanup was silently reported as
+            complete -- the caller (reject_membership_application) never
+            inspected the return value, and a Pending Chapter Member row could
+            survive a rejection that reported success. Raising here lets the
+            caller's own transaction fail atomically instead.
     """
     if not member:
         return []
@@ -1778,8 +1788,27 @@ def remove_all_pending_chapter_memberships(member):
     )
 
     removed = []
+    failed = []
     for record in pending_chapters:
         if remove_pending_chapter_membership(member, record.chapter):
             removed.append(record.chapter)
+        else:
+            failed.append(record.chapter)
+
+    if failed:
+        frappe.log_error(
+            title="Pending chapter cleanup incomplete",
+            message=(
+                f"remove_all_pending_chapter_memberships for member {member.name}: "
+                f"failed to remove the Pending Chapter Member row from "
+                f"{', '.join(failed)} (removed: {', '.join(removed) or 'none'})"
+            ),
+        )
+        frappe.throw(
+            _(
+                "Could not remove the pending chapter membership from {0}. "
+                "The application rejection was not completed; please retry."
+            ).format(", ".join(failed))
+        )
 
     return removed
