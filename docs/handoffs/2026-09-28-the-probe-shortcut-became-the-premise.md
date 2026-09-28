@@ -84,7 +84,7 @@ maintainer's #1544 ruling then settled the fix, because the hook breaks the same
 | #1541 round 1 | A helper was renamed to `_create_*` | The name-prefix exemption moved 2 bare commits out of the blocking order-dependence total. That was the whole difference between red and green. |
 | #1528 rounds 1-4 | The self-review ran the three habitual gates | `test_workflow_path_filter` was red from round 1 and nobody ran it. |
 
-**Suggested brief line (not yet in the kit):** a probe or test that sets a field directly
+**Brief line (added to the kit after this handoff, at the maintainer's request: author brief step 4 "Probe shortcuts", reviewer brief item 1, README rule 13):** a probe or test that sets a field directly
 (`db.set_value`, `db_set`, hand-assigned status) to stand in for a flow must say so. Any claim
 built on it is unverified until the real flow reproduces the state. A reviewer who finds a
 reachability claim resting on a direct write treats it as not established.
