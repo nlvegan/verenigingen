@@ -539,6 +539,60 @@ class TestRejectMembershipApplicationChapterCleanup(EnhancedTestCase):
             "the entry gate",
         )
 
+    def test_basic_level_board_member_is_refused_at_entry_gate_despite_member_write_access(self):
+        """(d) The DISCRIMINATING entry-gate control: unlike (c)'s outsider (whose
+        board seat was on an unrelated chapter, so Frappe's own Member doc-level
+        permission ALSO happened to deny them -- see that test's docstring), this
+        caller has a real, active board seat on the applicant's OWN chapter, just
+        at `permissions_level="Basic"` rather than Admin/Membership.
+
+        - `validate_chapter_permission_or_throw` -> `get_user_manageable_chapters`
+          only counts Admin/Membership seats (chapter_security.py), so this caller
+          is refused at the entry gate.
+        - But `member.save()`'s own permission check
+          (`permissions.has_member_permission` ->
+          `get_user_chapter_memberships_cached`, permissions.py:81-107) grants
+          WRITE to ANY active board seat on a chapter where the applicant holds a
+          row, with NO `permissions_level` filter at all.
+
+        So for THIS caller the entry gate is the ONLY thing refusing the reject --
+        if it were ever bypassed or removed, member.save() would let it through
+        and the elevated cleanup would run for a caller chapter_security itself
+        judged unauthorized. Confirmed by mutation (see report): RED (reject
+        SUCCEEDS) with the validate_chapter_permission_or_throw call removed,
+        GREEN with it restored.
+        """
+        member = self._applicant_pending_in_both_chapters_via_resubmit()
+        basic_board = self.create_test_board_member(self.own_chapter.name, permissions_level="Basic")
+
+        error_log_count_before = frappe.db.count("Error Log")
+
+        with self.as_user(basic_board.user):
+            with self.assertRaises(frappe.PermissionError):
+                reject_membership_application(
+                    member.name, reason="Basic-level board member should be refused"
+                )
+
+        member.reload()
+        self.assertEqual(
+            member.application_status,
+            "Pending",
+            "an entry-gate refusal must not have mutated application_status",
+        )
+        for chapter_name in (self.own_chapter.name, self.other_chapter.name):
+            self.assertEqual(
+                frappe.db.get_value(
+                    "Chapter Member", {"parent": chapter_name, "member": member.name}, "status"
+                ),
+                "Pending",
+                f"an entry-gate refusal must not touch the Pending row in {chapter_name}",
+            )
+        self.assertEqual(
+            frappe.db.count("Error Log"),
+            error_log_count_before,
+            "a Basic-level board member must be refused with no Error Log trace",
+        )
+
 
 class TestGetUserChapterAccess(EnhancedTestCase):
     """get_user_chapter_access: admin vs member-without-board branches."""
