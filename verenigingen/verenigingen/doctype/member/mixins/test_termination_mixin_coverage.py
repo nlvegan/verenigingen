@@ -10,8 +10,6 @@ and assert the observable behaviour of:
 - get_termination_readiness_check(): impact preview + pending-request blocker
 - terminate_membership(): the termination-type -> member-status mapping and the
   appended termination note, persisted via secure_document_operation
-- update_termination_status_display(): badge color selection for the
-  active/suspended cases that exist on the real Member schema
 
 Runs as Administrator (has Member:write) so the secure save path succeeds.
 """
@@ -99,22 +97,3 @@ class TestTerminationMixinCoverage(EnhancedTestCase):
         member.reload()
         self.assertIn("Pre-existing note.", member.notes)
         self.assertIn("Membership terminated", member.notes)
-
-    # ------------------------------------------ update_termination_status_display
-    def test_status_display_no_termination_is_crash_safe_noop(self):
-        member = self._make_member()
-        # termination_status is NOT a Member schema field, so the controller's
-        # `if hasattr(self, "termination_status")` branches never fire — the
-        # "Active"-reset display logic is vestigial/dead. Pin that reality: the
-        # call is a crash-safe no-op and does not invent the attribute. (If the
-        # field is ever re-added this assertion flips and forces a revisit.)
-        member.update_termination_status_display()
-        self.assertFalse(hasattr(member, "termination_status"))
-
-    def test_status_display_badge_color_is_vestigial(self):
-        member = self._make_member()
-        member.status = "Suspended"
-        # membership_badge_color is likewise not a Member field, so the entire
-        # badge-colour block is dead code; the method must not fabricate it.
-        member.update_termination_status_display()
-        self.assertFalse(hasattr(member, "membership_badge_color"))

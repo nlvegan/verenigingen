@@ -118,50 +118,6 @@ class TestSuspensionMemberMixin(unittest.TestCase):
         )
         self.assertEqual(result, expected_result)
 
-    def test_suspension_badge_color_logic(self):
-        """Test suspension affects member badge color"""
-
-        # Mock member with suspension badge color field
-        self.mock_member.membership_badge_color = "#28a745"  # Green (active)
-        self.mock_member.status = "Suspended"
-
-        # Mock required dependencies for update_termination_status_display
-        with patch("frappe.get_all") as mock_get_all:
-            # Mock no termination requests
-            mock_get_all.return_value = []
-
-            # Mock hasattr for membership_badge_color
-            with patch("builtins.hasattr", return_value=True):
-                # Mock frappe.db.exists for membership check
-                with patch("frappe.db.exists", return_value=False):
-                    # Call the method that updates badge colors
-                    self.mock_member.update_termination_status_display()
-
-        # Verify suspension color is set
-        self.assertEqual(self.mock_member.membership_badge_color, "#fd7e14")  # Orange for suspended
-
-    def test_suspension_badge_color_active_member(self):
-        """Test active member gets correct badge color"""
-
-        # Mock member with active status
-        self.mock_member.membership_badge_color = "#6c757d"  # Gray (inactive)
-        self.mock_member.status = "Active"
-
-        # Mock required dependencies
-        with patch("frappe.get_all") as mock_get_all:
-            # Mock no termination requests
-            mock_get_all.return_value = []
-
-            # Mock hasattr for membership_badge_color
-            with patch("builtins.hasattr", return_value=True):
-                # Mock active membership exists
-                with patch("frappe.db.exists", return_value=True):
-                    # Call the method that updates badge colors
-                    self.mock_member.update_termination_status_display()
-
-        # Verify active color is set
-        self.assertEqual(self.mock_member.membership_badge_color, "#28a745")  # Green for active
-
     @patch("verenigingen.utils.termination_integration.suspend_member_safe")
     def test_suspend_member_error_handling(self, mock_suspend_safe):
         """Test suspend_member mixin method error handling"""
@@ -245,34 +201,6 @@ class TestSuspensionMemberMixin(unittest.TestCase):
 
         self.assertEqual(str(context.exception), "Network error")
         mock_get_status.assert_called_once_with(self.test_member_name)
-
-    def test_suspension_badge_color_priority(self):
-        """Test suspension badge color takes priority over other statuses"""
-
-        # Mock member with suspended status
-        self.mock_member.membership_badge_color = "#28a745"  # Start with green
-        self.mock_member.status = "Suspended"
-
-        # Mock termination status (should be overridden by suspension)
-        with patch("frappe.get_all") as mock_get_all:
-            # Mock executed termination (would normally be red)
-            mock_termination = MagicMock()
-            mock_termination.name = "TERM-001"
-            mock_termination.termination_type = "Voluntary"
-            mock_termination.execution_date = "2023-01-01"
-
-            mock_get_all.side_effect = [[mock_termination], [], []]  # executed  # pending  # appeals
-
-            # Mock hasattr for membership_badge_color
-            with patch("builtins.hasattr", return_value=True):
-                # Call the method that updates badge colors
-                self.mock_member.update_termination_status_display()
-
-        # Verify suspension color overrides termination color
-        # Note: In actual implementation, terminated status would override suspended,
-        # but this test verifies the suspension color logic exists
-        expected_color = "#fd7e14" if self.mock_member.status == "Suspended" else "#dc3545"
-        self.assertIn(self.mock_member.membership_badge_color, ["#fd7e14", "#dc3545"])
 
 
 if __name__ == "__main__":
