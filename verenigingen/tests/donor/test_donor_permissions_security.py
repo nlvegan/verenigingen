@@ -23,6 +23,7 @@ from frappe.utils import random_string
 from verenigingen.permissions import get_donor_permission_query, has_donor_permission
 from verenigingen.tests.fixtures.enhanced_test_factory import MockRolesContext
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.donor_security_fixtures import create_member_named
 
 
 class TestDonorPermissionsSecurity(VereningingenTestCase):
@@ -102,49 +103,37 @@ class TestDonorPermissionsSecurity(VereningingenTestCase):
 
         for payload in injection_payloads:
             with self.subTest(payload=payload):
-                # Mock scenario where member name contains injection payload
-                original_get_value = frappe.db.get_value
+                # A real Member whose docname IS the payload, linked to a real
+                # user holding the Verenigingen Member role -- see
+                # create_member_named. Without that role,
+                # get_donor_permission_query short-circuits to "1=0" before
+                # ever reaching the member lookup.
+                user_email = create_member_named(self, payload)
 
-                def mock_get_value(doctype, filters, fieldname=None):
-                    if doctype == "Member" and filters == {"user": self.test_member_user}:
-                        return payload  # Return malicious payload as member name
-                    return original_get_value(doctype, filters, fieldname)
+                query = get_donor_permission_query(user_email)
 
-                frappe.db.get_value = mock_get_value
+                # Verify the query is properly escaped
+                self.assertIsNotNone(query)
+                self.assertIn("tabDonor", query)
 
-                try:
-                    # Get permission query - should safely escape the malicious input.
-                    # The member-filter branch only runs for a user with the
-                    # Verenigingen Member role, so force that role; otherwise the
-                    # query short-circuits to "1=0" and never escapes the payload.
-                    with MockRolesContext(["Verenigingen Member"]):
-                        query = get_donor_permission_query(self.test_member_user)
-
-                    # Verify the query is properly escaped
-                    self.assertIsNotNone(query)
-                    self.assertIn("tabDonor", query)
-
-                    # The injection payload should be escaped and not executable.
-                    # frappe.db.escape() wraps the value in quotes and escapes the
-                    # payload's own leading single quote (as \' on the MariaDB driver,
-                    # or '' by doubling). That escaped quote is the security property:
-                    # the payload cannot break out of its SQL string literal, so the
-                    # dangerous keywords it contains are inert text, not executable SQL.
-                    self.assertIn("'", query)  # Should contain escaped quotes
-                    self.assertTrue(
-                        "\\'" in query or "''" in query,
-                        f"Injection payload's quote must be escaped in query: {query}",
-                    )
-                    # The raw payload's leading bare quote must not appear unescaped
-                    # (i.e. not preceded by a backslash and not doubled).
-                    self.assertNotIn(
-                        "= '; DROP",
-                        query,
-                        f"Payload quote appears unescaped in query: {query}",
-                    )
-
-                finally:
-                    frappe.db.get_value = original_get_value
+                # The injection payload should be escaped and not executable.
+                # frappe.db.escape() wraps the value in quotes and escapes the
+                # payload's own leading single quote (as \' on the MariaDB driver,
+                # or '' by doubling). That escaped quote is the security property:
+                # the payload cannot break out of its SQL string literal, so the
+                # dangerous keywords it contains are inert text, not executable SQL.
+                self.assertIn("'", query)  # Should contain escaped quotes
+                self.assertTrue(
+                    "\\'" in query or "''" in query,
+                    f"Injection payload's quote must be escaped in query: {query}",
+                )
+                # The raw payload's leading bare quote must not appear unescaped
+                # (i.e. not preceded by a backslash and not doubled).
+                self.assertNotIn(
+                    "= '; DROP",
+                    query,
+                    f"Payload quote appears unescaped in query: {query}",
+                )
 
     def test_sql_injection_prevention_address_permission_query(self):
         """Test SQL injection prevention in address permission queries"""
@@ -158,37 +147,25 @@ class TestDonorPermissionsSecurity(VereningingenTestCase):
 
         for payload in injection_payloads:
             with self.subTest(payload=payload):
-                # Mock member name with injection payload
-                original_get_value = frappe.db.get_value
+                # A real Member whose docname IS the payload -- see
+                # create_member_named. get_address_permission_query() looks up
+                # the member unconditionally (unlike the donor/SEPA factory, it
+                # is not role-gated), so the default role is enough here.
+                user_email = create_member_named(self, payload)
 
-                def mock_get_value(doctype, filters, fieldname=None):
-                    if doctype == "Member":
-                        return payload
-                    return original_get_value(doctype, filters, fieldname)
+                query = get_address_permission_query(user_email)
 
-                frappe.db.get_value = mock_get_value
-
-                try:
-                    # get_address_permission_query() looks up the member unconditionally
-                    # (unlike the donor/SEPA factory, it is not role-gated), so
-                    # mock_get_value's payload always flows into the condition here -
-                    # assert the escaped result directly rather than guarding on it.
-                    query = get_address_permission_query(self.test_member_user)
-
-                    self.assertIn("tabAddress", query)
-                    self.assertIn("'", query, "Should contain escaped quotes")
-                    self.assertTrue(
-                        "\\'" in query or "''" in query,
-                        f"Injection payload's quote must be escaped in query: {query}",
-                    )
-                    self.assertNotIn(
-                        "= '; DROP",
-                        query,
-                        f"Payload quote appears unescaped in query: {query}",
-                    )
-
-                finally:
-                    frappe.db.get_value = original_get_value
+                self.assertIn("tabAddress", query)
+                self.assertIn("'", query, "Should contain escaped quotes")
+                self.assertTrue(
+                    "\\'" in query or "''" in query,
+                    f"Injection payload's quote must be escaped in query: {query}",
+                )
+                self.assertNotIn(
+                    "= '; DROP",
+                    query,
+                    f"Payload quote appears unescaped in query: {query}",
+                )
 
     def test_permission_bypass_attempt_with_document_manipulation(self):
         """Test attempts to bypass permissions by manipulating document objects"""
@@ -499,9 +476,30 @@ class TestDonorPermissionsEdgeCases(VereningingenTestCase):
         )
 
     def test_database_connection_failure_simulation(self):
-        """Test behavior when database operations fail"""
+        """A database failure inside the permission check must fail CLOSED.
 
-        # Mock database failure
+        Fault injection, not a security-boundary fake: frappe.db.get_value/
+        exists are forced to raise, simulating a real infrastructure outage,
+        to verify has_donor_permission's OWN resilience -- not to fake the
+        ownership check's answer. A real DB outage cannot be safely
+        reproduced on this shared test connection without corrupting the
+        rest of the run, so fault injection is the only way to drive this
+        exception path.
+
+        Fail-closed means EITHER a plain `False`, OR a controlled refusal
+        (PermissionError/ValidationError) -- never letting the raw
+        infrastructure error (frappe.DataError) escape past the permission
+        boundary uncaught. The original version of this test accepted
+        frappe.DataError itself as a passing outcome, which meant it passed
+        whatever has_donor_permission actually did with the failure.
+
+        KNOWN RED (#1598, left red on purpose, maintainer decision pending):
+        permissions.py's has_permission closure calls
+        `frappe.db.get_value("User", user, "enabled")` with no try/except, so
+        this fault propagates straight out uncaught instead of failing
+        closed. Do NOT loosen this assertion to make it pass again -- fix
+        permissions.py, or get a ruling that this test's expectation is wrong.
+        """
         original_get_value = frappe.db.get_value
         original_exists = frappe.db.exists
 
@@ -511,21 +509,30 @@ class TestDonorPermissionsEdgeCases(VereningingenTestCase):
         def failing_exists(*args, **kwargs):
             raise frappe.DataError("Simulated database failure")
 
-        frappe.db.get_value = failing_get_value
-        frappe.db.exists = failing_exists
+        frappe.db.get_value = failing_get_value  # Mock justified: Infrastructure - fault injection
+        frappe.db.exists = failing_exists  # Mock justified: Infrastructure - fault injection
 
         try:
-            # Should handle database failures gracefully
-            result = has_donor_permission("any-donor", "edgecase@example.com")
-            self.assertFalse(result, "Should deny access when database fails")
-
-        except Exception as e:
-            # Should either return False or raise a controlled exception
-            self.assertIsInstance(e, (frappe.DataError, frappe.ValidationError))
-
+            try:
+                result = has_donor_permission("any-donor", "edgecase@example.com")
+            except frappe.DataError:
+                # frappe.DataError IS-A ValidationError (exceptions.py), so it
+                # must be excluded from the "controlled refusal" branch below
+                # by name, not merely by base class -- this is the exact raw
+                # fault injected above, not a deliberate permission decision.
+                # Letting it through here is the bug this test used to have.
+                raise
+            except (frappe.PermissionError, frappe.ValidationError):
+                # A genuinely controlled refusal (NOT the raw fault above) is
+                # fail-closed too.
+                return
+            self.assertFalse(
+                result,
+                "Should deny access when the database fails, not silently allow it",
+            )
         finally:
-            frappe.db.get_value = original_get_value
-            frappe.db.exists = original_exists
+            frappe.db.get_value = original_get_value  # Mock justified: Infrastructure - restore
+            frappe.db.exists = original_exists  # Mock justified: Infrastructure - restore
 
     def _create_permissions_test_donor(self, **kwargs):
         """Helper method to create test donor with proper cleanup tracking"""

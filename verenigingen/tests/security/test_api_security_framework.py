@@ -714,26 +714,29 @@ class TestScopedRateLimiting(VereningingenTestCase):
         """Test detection of interactive HTTP context"""
         from verenigingen.utils.security.types import ExecutionContext
 
-        # Simulate HTTP request context
-        frappe.local.request = MagicMock()
+        # No real HTTP request/job/scheduler context exists in a unit test
+        # process; _detect_execution_context() reads exactly these flags to
+        # pick a branch, so setting them directly drives it into INTERACTIVE.
+        frappe.local.request = MagicMock()  # Mock justified: Infrastructure - simulated HTTP request
         frappe.local.request.method = "GET"  # Need method attr for detection
-        frappe.flags.in_background_job = False
-        frappe.flags.in_scheduler = False
+        frappe.flags.in_background_job = False  # Mock justified: Infrastructure - context flag
+        frappe.flags.in_scheduler = False  # Mock justified: Infrastructure - context flag
         # Temporarily disable in_test flag to test INTERACTIVE detection
         original_in_test = frappe.flags.in_test
-        frappe.flags.in_test = False
+        frappe.flags.in_test = False  # Mock justified: Infrastructure - context flag
 
         try:
             context = self.framework._detect_execution_context()
             self.assertEqual(context, ExecutionContext.INTERACTIVE)
         finally:
-            frappe.flags.in_test = original_in_test
+            frappe.flags.in_test = original_in_test  # Mock justified: Infrastructure - restore
 
     def test_context_detection_background_job(self):
         """Test detection of background job context"""
         from verenigingen.utils.security.types import ExecutionContext
 
-        # Simulate background job context
+        # Mock justified: Infrastructure - simulate background-job context by
+        # setting the same flags _detect_execution_context() reads.
         frappe.flags.in_background_job = True
         frappe.flags.in_scheduler = False
 
@@ -744,7 +747,8 @@ class TestScopedRateLimiting(VereningingenTestCase):
         """Test detection of scheduled task context"""
         from verenigingen.utils.security.types import ExecutionContext
 
-        # Simulate scheduler context
+        # Mock justified: Infrastructure - simulate scheduler context by
+        # setting the same flags _detect_execution_context() reads.
         frappe.flags.in_background_job = False
         frappe.flags.in_scheduler = True
 
@@ -755,10 +759,11 @@ class TestScopedRateLimiting(VereningingenTestCase):
         """Test detection of CLI context"""
         from verenigingen.utils.security.types import ExecutionContext
 
-        # Simulate CLI context (no request, no flags)
-        frappe.local.request = None
-        frappe.flags.in_background_job = False
-        frappe.flags.in_scheduler = False
+        # Simulate CLI context (no request, no flags) by setting the same
+        # state _detect_execution_context() reads.
+        frappe.local.request = None  # Mock justified: Infrastructure - context state
+        frappe.flags.in_background_job = False  # Mock justified: Infrastructure - context flag
+        frappe.flags.in_scheduler = False  # Mock justified: Infrastructure - context flag
 
         context = self.framework._detect_execution_context()
         self.assertEqual(context, ExecutionContext.CLI)
@@ -781,7 +786,7 @@ class TestScopedRateLimiting(VereningingenTestCase):
         cor.insert(ignore_if_duplicate=True)
         frappe.db.commit()
 
-        # Set background job flag
+        # Mock justified: Infrastructure - simulate background-job context
         frappe.flags.in_background_job = True
 
         # Should be able to make more than 5 calls (interactive limit)
@@ -896,8 +901,12 @@ class TestScopedRateLimiting(VereningingenTestCase):
 
             # Mock context detection to return BACKGROUND_JOB and bypass in_test check
             with patch.object(self.framework, '_detect_execution_context', return_value=ExecutionContext.BACKGROUND_JOB):
+                # Rate limiting is unconditionally skipped when
+                # frappe.flags.in_test is True (see the class docstring
+                # above), so this test must disable it to actually exercise
+                # the LOW-security bypass path under test.
                 original_in_test = frappe.flags.in_test
-                frappe.flags.in_test = False
+                frappe.flags.in_test = False  # Mock justified: Infrastructure - context flag
 
                 try:
                     profile = self.framework.get_security_profile(SecurityLevel.LOW)
@@ -908,7 +917,7 @@ class TestScopedRateLimiting(VereningingenTestCase):
                         result = self.framework.validate_rate_limits(profile, "test_low_security_no_batch_limits")
                         self.assertTrue(result, f"Call {i+1} should succeed - rate limiting should be skipped for LOW security")
                 finally:
-                    frappe.flags.in_test = original_in_test
+                    frappe.flags.in_test = original_in_test  # Mock justified: Infrastructure - restore
         finally:
             frappe.delete_doc("Critical Operation Rule", "test_low_security_no_batch_limits", force=True, ignore_permissions=True)
 
@@ -1014,14 +1023,17 @@ class TestScopedRateLimiting(VereningingenTestCase):
 
         profile = self.framework.get_security_profile(SecurityLevel.HIGH)
 
+        # Simulate interactive vs background-job context by setting the same
+        # flags/request _detect_execution_context() reads, to prove the two
+        # contexts use separate cache keys.
         # Make 5 calls in interactive context
-        frappe.local.request = MagicMock()
-        frappe.flags.in_background_job = False
+        frappe.local.request = MagicMock()  # Mock justified: Infrastructure - simulated request
+        frappe.flags.in_background_job = False  # Mock justified: Infrastructure - context flag
         for i in range(5):
             self.framework.validate_rate_limits(profile, "test_cache_separation")
 
         # Switch to background job context
-        frappe.flags.in_background_job = True
+        frappe.flags.in_background_job = True  # Mock justified: Infrastructure - context flag
 
         # Should be able to make 10 more calls (separate cache key)
         for i in range(10):
@@ -1115,40 +1127,36 @@ class TestSecurityAuditFixes(VereningingenTestCase):
             # Remove if exists
             frappe.allowed_http_methods_for_whitelisted_func.pop(mutation_endpoint, None)
 
-        # Mock frappe.whitelisted to include our function
-        original_whitelisted = getattr(frappe, "whitelisted", set())
-        if isinstance(original_whitelisted, set):
-            frappe.whitelisted = original_whitelisted | {mutation_endpoint}
-        else:
-            frappe.whitelisted = list(original_whitelisted) + [mutation_endpoint]
+        # #1558: no need to fake membership in frappe.whitelisted. The adapter's
+        # own is_inner_whitelisted() (frappe_whitelist_adapter.py) is an OR:
+        # `func in frappe.whitelisted or getattr(func, "__func_is_whitelisted__",
+        # False) or ...` -- the __func_is_whitelisted__ attribute set two lines
+        # above already satisfies it regardless of frappe.whitelisted's real
+        # membership, so reassigning that registry here tested nothing. Confirmed
+        # by running this test with the reassignment removed: unchanged (still
+        # green), same command, same site.
+        decorated = api_security_framework(
+            security_level=SecurityLevel.HIGH,
+            operation_type=OperationType.MEMBER_DATA
+        )(mutation_endpoint)
 
-        try:
-            # Apply the security decorator
-            decorated = api_security_framework(
-                security_level=SecurityLevel.HIGH,
-                operation_type=OperationType.MEMBER_DATA
-            )(mutation_endpoint)
+        # Check what HTTP methods were registered for the wrapper
+        if hasattr(frappe, "allowed_http_methods_for_whitelisted_func"):
+            http_methods_dict = frappe.allowed_http_methods_for_whitelisted_func
+            registered_methods = http_methods_dict.get(decorated)
 
-            # Check what HTTP methods were registered for the wrapper
-            if hasattr(frappe, "allowed_http_methods_for_whitelisted_func"):
-                http_methods_dict = frappe.allowed_http_methods_for_whitelisted_func
-                registered_methods = http_methods_dict.get(decorated)
-
-                if registered_methods is not None:
-                    # Should be POST only, NOT GET+POST
-                    self.assertEqual(
-                        registered_methods,
-                        ["POST"],
-                        f"HTTP methods should default to POST only, got: {registered_methods}"
-                    )
-                    self.assertNotIn(
-                        "GET",
-                        registered_methods,
-                        "GET should NOT be in default HTTP methods for security"
-                    )
-        finally:
-            # Restore original whitelisted
-            frappe.whitelisted = original_whitelisted
+            if registered_methods is not None:
+                # Should be POST only, NOT GET+POST
+                self.assertEqual(
+                    registered_methods,
+                    ["POST"],
+                    f"HTTP methods should default to POST only, got: {registered_methods}"
+                )
+                self.assertNotIn(
+                    "GET",
+                    registered_methods,
+                    "GET should NOT be in default HTTP methods for security"
+                )
 
     def test_explicit_http_methods_preserved(self):
         """Test that explicitly defined HTTP methods are preserved by decorator"""
@@ -1162,13 +1170,11 @@ class TestSecurityAuditFixes(VereningingenTestCase):
         if hasattr(frappe, "allowed_http_methods_for_whitelisted_func"):
             frappe.allowed_http_methods_for_whitelisted_func[read_endpoint] = ["GET"]
 
-        # Mock frappe.whitelisted
-        original_whitelisted = getattr(frappe, "whitelisted", set())
-        if isinstance(original_whitelisted, set):
-            frappe.whitelisted = original_whitelisted | {read_endpoint}
-        else:
-            frappe.whitelisted = list(original_whitelisted) + [read_endpoint]
-
+        # #1558: no need to fake membership in frappe.whitelisted -- see the
+        # identical note in test_http_method_default_is_post_only above.
+        # get_allowed_http_methods() finds ["GET"] via
+        # allowed_http_methods_for_whitelisted_func (registered two lines
+        # above) before is_inner_whitelisted() is even consulted.
         try:
             # Apply the security decorator
             decorated = api_security_framework(
@@ -1188,8 +1194,6 @@ class TestSecurityAuditFixes(VereningingenTestCase):
                         f"Explicit HTTP methods should be preserved, got: {registered_methods}"
                     )
         finally:
-            # Restore original whitelisted
-            frappe.whitelisted = original_whitelisted
             # Clean up
             if hasattr(frappe, "allowed_http_methods_for_whitelisted_func"):
                 frappe.allowed_http_methods_for_whitelisted_func.pop(read_endpoint, None)
