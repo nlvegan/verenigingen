@@ -94,7 +94,7 @@ COMMIT tests/chapter/test_chapter_board_lifecycle_notifications.py::1  # order-d
 COMMIT tests/chapter/test_chapter_board_permissions.py::1  # order-dependence
 COMMIT tests/chapter/test_chapter_board_permissions_comprehensive.py::1  # order-dependence
 COMMIT tests/chapter/test_chapter_board_permissions_fixed.py::1  # order-dependence
-COMMIT tests/chapter/test_chapter_board_permissions_service.py::7  # order-dependence
+COMMIT tests/chapter/test_chapter_board_permissions_service.py::4  # order-dependence
 COMMIT tests/chapter/test_chapter_permissions.py::1  # order-dependence
 COMMIT tests/chapter/test_chapter_utils.py::15  # order-dependence
 COMMIT tests/chapter/test_role_profile_managers.py::1  # order-dependence
