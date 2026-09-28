@@ -66,10 +66,26 @@ class MemberManager(BaseManager):
                     # only ever restored `enabled`, leaving `enabled=1,
                     # status='Inactive'`, a combination invisible to the board on
                     # every list and doc-level channel.
-                    member_doc = frappe.get_doc("Member", member_id)
-                    existing_member.enabled, existing_member.status = self._derive_membership_status(
-                        member_doc, enabled
-                    )
+                    #
+                    # EXCEPT a row whose status is currently 'Pending': that is an
+                    # application-time placeholder (real submission always writes
+                    # it enabled=1 -- see create_pending_chapter_membership -- so
+                    # reaching HERE with enabled=0 means an application in progress
+                    # is being re-touched, e.g. via assign_member_to_chapter during
+                    # approve_membership_application, which runs BEFORE the
+                    # applicant's Member.status is flipped to Active). Deriving from
+                    # member_doc.status there reads the PRE-approval status and
+                    # stamps 'Inactive' over 'Pending', stranding the row before
+                    # _activate_pending_chapter_memberships ever runs to flip it to
+                    # Active once approval completes (#1547 follow-up regression).
+                    # Leave 'Pending' rows for that dedicated step to resolve.
+                    if existing_member.status == "Pending":
+                        existing_member.enabled = 1
+                    else:
+                        member_doc = frappe.get_doc("Member", member_id)
+                        existing_member.enabled, existing_member.status = self._derive_membership_status(
+                            member_doc, enabled
+                        )
                     existing_member.leave_reason = None
 
                     # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation

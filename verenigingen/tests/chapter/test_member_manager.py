@@ -194,6 +194,93 @@ class TestMemberManager(VereningingenTestCase):
         self.assertFalse(row.enabled)
         self.assertEqual(row.status, "Inactive")
 
+    def test_add_member_reenable_preserves_pending_row_for_approval_to_activate(self):
+        # #1547 follow-up (round 2, found by CI): approve_membership_application
+        # calls ChapterMembershipManager.assign_member_to_chapter ->
+        # MemberManager.add_member BEFORE flipping the applicant's Member.status
+        # from Pending to Active (assign_member_to_chapter runs at
+        # membership_application_review.py:700; the status flip happens inside
+        # create_membership_on_approval, called afterwards at line ~728; the
+        # actual Pending->Active flip for the CHAPTER row happens later still,
+        # at _activate_pending_chapter_memberships, line 738). Round 1's
+        # unconditional derive-from-member_doc.status in the re-enable branch
+        # read the PRE-approval 'Pending' status and stamped 'Inactive' over a
+        # row _activate_pending_chapter_memberships depends on finding as
+        # 'Pending' -- stranding it before that later, real activation step
+        # ever ran. Reproduce the exact real-writer ordering the approval flow
+        # uses, not a db.set_value shortcut for either transition:
+        #   add_member (creates the disabled row) -> assign_member_to_chapter
+        #   (the real re-enable writer, member still Pending) ->
+        #   Member.status flip (real .save(), mirroring create_membership_on_
+        #   approval) -> activate_pending_chapter_membership (the real,
+        #   later activation writer).
+        from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
+        from verenigingen.services.member.approval.application_helpers import (
+            activate_pending_chapter_membership,
+        )
+
+        applicant = self._make_member(status="Pending", first="ApprovalOrdering")
+
+        # add_member's own new-row branch (member.status != "Active") creates
+        # the row enabled=0, status='Inactive' -- a real writer, no shortcut.
+        self.manager.add_member(applicant.name, notify=False)
+        self._reload_chapter()
+        row = self.manager._find_chapter_member(applicant.name)
+        self.assertFalse(row.enabled)
+        self.assertEqual(row.status, "Inactive")
+
+        # PROBE SHORTCUT: the real application-submission writer
+        # (create_pending_chapter_membership) creates a Chapter Member row
+        # enabled=1/status='Pending' directly, never via add_member's new-row
+        # branch above -- there is no real writer that reaches
+        # enabled=0/status='Pending' on its own. This one direct field write
+        # stands in for "the real application form, driven separately,"
+        # exactly as verenigingen/tests/integration/test_membership_approval.py
+        # documents at its own Stage 1 (its own comment: "The factory instead
+        # creates the row as 'Inactive', so mirror the application-form state
+        # here"). Only `status` is forced; `enabled` is left at the real
+        # writer's 0, which is what actually drives add_member into the
+        # RE-ENABLE branch under test below.
+        frappe.db.sql(
+            "UPDATE `tabChapter Member` SET status='Pending' WHERE member=%s",
+            (applicant.name,),
+        )
+        self._reload_chapter()
+        row = self.manager._find_chapter_member(applicant.name)
+        self.assertEqual(row.status, "Pending")
+
+        # Real writer #2: the exact call approve_membership_application makes
+        # (via assign_member_to_chapter) BEFORE the applicant's Member.status
+        # is flipped to Active. applicant.status is still "Pending" here.
+        self.assertEqual(frappe.db.get_value("Member", applicant.name, "status"), "Pending")
+        result = ChapterMembershipManager.assign_member_to_chapter(
+            member_id=applicant.name, chapter_name=self.chapter.name
+        )
+        self.assertTrue(result.get("success"))
+        self.assertEqual(result.get("action"), "re-enabled")
+
+        self._reload_chapter()
+        row = self.manager._find_chapter_member(applicant.name)
+        self.assertTrue(row.enabled)
+        # This is the follow-up regression: round 1 alone stamped 'Inactive'
+        # here, before the real activation step ever got a chance to run.
+        self.assertEqual(row.status, "Pending")
+
+        # Real writer #3: the Member.status flip create_membership_on_approval
+        # performs (a real .save(), not db_set/db.set_value).
+        applicant.reload()
+        applicant.status = "Active"
+        applicant.save()
+
+        # Real writer #4: the exact call _activate_pending_chapter_memberships
+        # makes, now that the applicant is actually Active.
+        activate_pending_chapter_membership(applicant, self.chapter.name)
+
+        self._reload_chapter()
+        row = self.manager._find_chapter_member(applicant.name)
+        self.assertTrue(row.enabled)
+        self.assertEqual(row.status, "Active")
+
     # ------------------------------------------------------------------ request_to_join
 
     def test_request_to_join_creates_pending(self):

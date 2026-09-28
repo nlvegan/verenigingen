@@ -1082,12 +1082,20 @@ class BoardManager(BaseManager):
                         # uses (#1547) -- restoring only `enabled` left a member
                         # re-seated after termination at `enabled=1,
                         # status='Inactive'`, invisible to the board.
-                        from .member_manager import MemberManager
+                        #
+                        # EXCEPT a 'Pending' row (mid-application; see the matching
+                        # guard and comment in MemberManager.add_member) -- leave it
+                        # for _activate_pending_chapter_memberships to resolve once
+                        # the applicant's Member.status is actually Active.
+                        if member.status == "Pending":
+                            member.enabled = 1
+                        else:
+                            from .member_manager import MemberManager
 
-                        member_doc = frappe.get_doc("Member", member_id)
-                        member.enabled, member.status = MemberManager._derive_membership_status(
-                            member_doc, True
-                        )
+                            member_doc = frappe.get_doc("Member", member_id)
+                            member.enabled, member.status = MemberManager._derive_membership_status(
+                                member_doc, True
+                            )
                         member.leave_reason = None
                         self.log_action("Re-enabled existing chapter member", {"member_id": member_id})
                     else:
