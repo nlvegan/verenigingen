@@ -34,8 +34,11 @@ class TestChapterDashboardPage(VereningingenTestCase):
         self.chapter = self.create_test_chapter()
 
         # Board member: Member -> Volunteer -> Chapter Board Member.
-        # The dashboard resolves the member by Member.email == frappe.session.user,
-        # so the board user's email must equal the Member.email.
+        # #1546 maintainer ruling: board identity is Member.user ONLY (no
+        # Member.email fallback) -- so the Member row must carry an explicit
+        # `user` link to the board user, not merely a matching email. This
+        # used to rely on email alone, which get_user_board_chapters no
+        # longer accepts for board resolution.
         self.board_email = f"board.{frappe.generate_hash(length=8)}@example.com"
         self.board_user = self.create_test_user(
             self.board_email, roles=["Verenigingen Chapter Board Member"]
@@ -46,7 +49,7 @@ class TestChapterDashboardPage(VereningingenTestCase):
 
         grant_matching_role_profiles(self.board_email, "Verenigingen Chapter Board Member")
         self.board_member = self.create_test_member(
-            chapter=self.chapter.name, email=self.board_email
+            chapter=self.chapter.name, email=self.board_email, user=self.board_email
         )
         # Give the volunteer the same email as the board user: the Chapter Board
         # Member row's email is populated from the Volunteer (not the value passed
@@ -402,7 +405,9 @@ class TestChapterDashboardPage(VereningingenTestCase):
         second_email = f"board2.{frappe.generate_hash(length=8)}@example.com"
         second_user = self.create_test_user(second_email, roles=["Verenigingen Chapter Board Member"])
         grant_matching_role_profiles(second_email, "Verenigingen Chapter Board Member")
-        second_member = self.create_test_member(chapter=self.chapter.name, email=second_email)
+        second_member = self.create_test_member(
+            chapter=self.chapter.name, email=second_email, user=second_email
+        )
         second_volunteer = self.create_test_volunteer(member=second_member.name, email=second_email)
         self.chapter.reload()
         self.add_board_member_to_chapter(

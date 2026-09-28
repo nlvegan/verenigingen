@@ -24,6 +24,16 @@ branch only; its list query was ALREADY strict before this fix).
 Claim's list+doc pair) is exercised directly rather than via a full Expense
 Claim/Expense Approver scenario.
 
+ROUND 2 (independent review): also covers standalone board-decision
+functions outside the doctype list/doc pairs -- can_terminate_member /
+can_access_termination_functions (via their whitelisted API wrappers,
+C1), can_view_financial_info / check_member_payment_access (called
+directly; no production caller was found for either, C2),
+assign_chapter_board_role / update_all_chapter_board_roles (the role
+GRANT/REMOVAL decision itself, S1), and get_user_board_chapters's board
+resolution for the chapter dashboard API (S2, tested via a real
+whitelisted endpoint).
+
 NOT end-to-end tested: Donation. Empirically confirmed (test_site_2) that
 Donation's base DocPerm grants read to System Manager / Verenigingen
 Administrator / Verenigingen Webhook User ONLY -- neither "Verenigingen
@@ -409,3 +419,179 @@ class TestBoardIdentityResolution1546(EnhancedTestCase):
         self._assert_board_access(
             "Member", other_member.name, False, "linked board user, OTHER chapter's member"
         )
+
+    # ---- C1: can_terminate_member / can_access_termination_functions, via their ---
+    # ---- whitelisted API wrappers. Both are entirely board-access decisions (no ---
+    # ---- own-record branch). Reachability for a plain board user (not just an -----
+    # ---- admin) was confirmed empirically before writing these: the security-tier
+    # ---- decorator (@high_security_api(operation_type=OperationType.ADMIN)) does
+    # ---- not block a "Verenigingen Chapter Board Member" role-profile caller here.
+
+    def test_can_terminate_member_api_follows_identity_rule(self):
+        from verenigingen.permissions import can_terminate_member_api
+
+        self._unlink_board_user()
+        with self.as_user(self.board.user):
+            self.assertFalse(
+                can_terminate_member_api(self.target.name),
+                "unlinked board user must not be able to terminate a chapter peer",
+            )
+
+        self._relink_board_user()
+        with self.as_user(self.board.user):
+            self.assertTrue(
+                can_terminate_member_api(self.target.name),
+                "linked board user must be able to terminate a chapter peer",
+            )
+
+    def test_can_access_termination_functions_api_follows_identity_rule(self):
+        from verenigingen.permissions import can_access_termination_functions_api
+
+        self._unlink_board_user()
+        with self.as_user(self.board.user):
+            self.assertFalse(
+                can_access_termination_functions_api(),
+                "unlinked board user must not have general termination access",
+            )
+
+        self._relink_board_user()
+        with self.as_user(self.board.user):
+            self.assertTrue(
+                can_access_termination_functions_api(),
+                "linked board user must have general termination access",
+            )
+
+    # ---- C2: can_view_financial_info / check_member_payment_access. No production --
+    # ---- caller was found for either (grep across api/, templates/, services/); ------
+    # ---- called directly here rather than through a whitelisted entry point. Both --
+    # ---- have an own-record short-circuit (target_member.user == user /
+    # ---- member.user == user) that does not use the switched variable at all, so
+    # ---- it is unaffected by this fix -- not separately tested here because it is
+    # ---- untouched code, same as #1546's other own-record branches.
+
+    def test_can_view_financial_info_board_branch_follows_identity_rule(self):
+        from verenigingen.permissions import can_view_financial_info
+
+        self._unlink_board_user()
+        self.assertFalse(
+            can_view_financial_info("Member", self.target.name, user=self.board.user),
+            "unlinked board user must not view a chapter peer's financial info",
+        )
+
+        self._relink_board_user()
+        self.assertTrue(
+            can_view_financial_info("Member", self.target.name, user=self.board.user),
+            "linked board user must view a chapter peer's financial info",
+        )
+
+    def test_check_member_payment_access_board_branch_follows_identity_rule(self):
+        from verenigingen.permissions import check_member_payment_access
+
+        self._unlink_board_user()
+        self.assertFalse(
+            check_member_payment_access(self.target.name, user=self.board.user),
+            "unlinked board user must not access a chapter peer's payment info",
+        )
+
+        self._relink_board_user()
+        self.assertTrue(
+            check_member_payment_access(self.target.name, user=self.board.user),
+            "linked board user must access a chapter peer's payment info",
+        )
+
+    # ---- S1: assign_chapter_board_role (grant/remove) and ---------------------------
+    # ---- update_all_chapter_board_roles (maintenance sweep). Both drive the REAL ---
+    # ---- functions under test directly (that IS the production entry point -- ------
+    # ---- assign_chapter_board_role is not itself whitelisted; it runs from hooks). --
+
+    def _clear_board_role(self, user_email):
+        frappe.db.delete("Has Role", {"parent": user_email, "role": "Verenigingen Chapter Board Member"})
+
+    def _has_board_role(self, user_email):
+        return bool(
+            frappe.db.exists("Has Role", {"parent": user_email, "role": "Verenigingen Chapter Board Member"})
+        )
+
+    def test_assign_chapter_board_role_grants_for_linked_board_member(self):
+        from verenigingen.permissions import assign_chapter_board_role
+
+        self._clear_board_role(self.board.user)
+        self.assertFalse(self._has_board_role(self.board.user), "fixture setup: role already present")
+
+        self.assertTrue(assign_chapter_board_role(self.board.user))
+        self.assertTrue(
+            self._has_board_role(self.board.user), "linked board member must be granted the role"
+        )
+
+    def test_assign_chapter_board_role_does_not_grant_for_unlinked_email_match(self):
+        """PROBE SHORTCUT: Member.user cleared via db_set (see module docstring)."""
+        from verenigingen.permissions import assign_chapter_board_role
+
+        self._clear_board_role(self.board.user)
+        self._unlink_board_user()
+
+        assign_chapter_board_role(self.board.user)
+        self.assertFalse(
+            self._has_board_role(self.board.user),
+            "an email-only match must not be granted the Chapter Board Member role",
+        )
+
+    def test_update_all_chapter_board_roles_removes_role_for_unlinked_email_match_holder(self):
+        """S1: a user who currently holds the role ONLY through an email match
+        loses it on the next maintenance run -- the intended effect of the
+        ruling, not a side effect. PROBE SHORTCUT: Member.user cleared via
+        db_set after the role was granted through the real function, to
+        reproduce a role granted before the account link broke (or was never
+        completed) rather than replaying that history step by step."""
+        from verenigingen.permissions import assign_chapter_board_role, update_all_chapter_board_roles
+
+        self._clear_board_role(self.board.user)
+        self.assertTrue(assign_chapter_board_role(self.board.user))
+        self.assertTrue(self._has_board_role(self.board.user), "fixture setup: role not granted")
+
+        self._unlink_board_user()
+        update_all_chapter_board_roles()
+
+        self.assertFalse(
+            self._has_board_role(self.board.user),
+            "a role held only via an email match must be removed by the maintenance sweep",
+        )
+
+    def test_update_all_chapter_board_roles_keeps_role_for_linked_board_member(self):
+        """Control for the above: a correctly-linked, still-active board member
+        must keep the role across the same maintenance sweep."""
+        from verenigingen.permissions import assign_chapter_board_role, update_all_chapter_board_roles
+
+        self._clear_board_role(self.board.user)
+        self.assertTrue(assign_chapter_board_role(self.board.user))
+
+        update_all_chapter_board_roles()
+
+        self.assertTrue(
+            self._has_board_role(self.board.user),
+            "a correctly-linked, active board member must keep the role",
+        )
+
+    # ---- S2: get_user_board_chapters's board resolution, tested via a real --------
+    # ---- whitelisted chapter-dashboard endpoint (get_chapter_member_emails). -------
+
+    def test_chapter_dashboard_api_get_chapter_member_emails_follows_identity_rule(self):
+        """get_chapter_member_emails is wrapped in @handle_api_error, which
+        catches frappe.PermissionError and returns OperationResult.fail(...)
+        rather than letting it propagate -- so the refusal channel to check
+        is the returned result's `.success`, not a raised exception."""
+        from verenigingen.api.chapter_dashboard_api import get_chapter_member_emails
+
+        self._unlink_board_user()
+        with self.as_user(self.board.user):
+            result = get_chapter_member_emails(self.chapter.name)
+        success = result["success"] if isinstance(result, dict) else getattr(result, "success", True)
+        self.assertFalse(
+            success,
+            f"unlinked board user must not be able to read chapter member emails, got {result!r}",
+        )
+
+        self._relink_board_user()
+        with self.as_user(self.board.user):
+            emails = get_chapter_member_emails(self.chapter.name)
+        self.assertIsInstance(emails, list, "linked board user must be able to read chapter member emails")

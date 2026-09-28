@@ -129,10 +129,11 @@ def get_member_name_for_board_access(user_email: str) -> Optional[str]:
     unrelated Member inherit that Member's board seat (measured on veg11:
     126 Members with `user` unset or mismatched while `email` matches an
     existing User account). The same rationale was already applied to the
-    chapter-approval path by get_user_board_chapters(strict_user_link=True)
-    (services/chapter/chapter_permission_service.py). Maintainer ruling on
-    #1546: board identity is Member.user only, full stop, for every board
-    permission check.
+    chapter-approval path by get_user_board_chapters
+    (services/chapter/chapter_permission_service.py, which now resolves
+    strictly unconditionally -- it previously took a `strict_user_link` flag
+    for exactly this). Maintainer ruling on #1546: board identity is
+    Member.user only, full stop, for every board permission check.
 
     Returns:
         Member name/ID if `user_email` is linked via Member.user, None
