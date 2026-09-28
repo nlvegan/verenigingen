@@ -596,8 +596,60 @@ class WholeTreeTotalsTest(unittest.TestCase):
         # fix newly measures but did not create -- see the baseline file's own
         # header on why a detection-rule change is the one legitimate reason it
         # grows.
-        self.assertEqual(221, len(self.findings), "finding count moved")
-        self.assertEqual(199, len(tqe.counts_of(self.findings)), "key count moved")
+        #
+        # 221 -> 332 findings, 199 -> 265 keys (#1558): `_check_all_mocks_blocked`
+        # (Tier 3 / security tests -- policy "ALL mocks blocked") is a SEPARATE,
+        # text/`patch(`-window-based mechanism that never called
+        # `_matching_ast_targets`, so it stayed blind to a manual
+        # `frappe.db.get_value = mock` reassignment even after #1542 closed the
+        # same gap for the database/business-workflow/never-mock checks. It now
+        # also walks `_reassign_targets(content)`, applying the SAME
+        # infrastructure-allowlist-plus-justification policy to a reassignment
+        # target by wrapping it exactly as those patterns already expect to see
+        # one (``patch("<target>")``), rather than maintaining a second copy of
+        # the allowlist.
+        #
+        # 67 keys moved (66 brand new + 1 pre-existing key whose count grew: see
+        # below), 0 removed, 111 new findings, across 17 Tier-3 files -- NONE
+        # baselined or fixed by this change; each is debt that was always there
+        # and could not be measured. Per file (keys / new findings):
+        # tests/backend/security/test_security_comprehensive.py (1/2),
+        # tests/backend/security/test_sepa_security_validation.py (2/4, one key
+        # of which already had a baseline patch()-based MOCK finding and grew),
+        # tests/chapter/test_chapter_board_permissions_comprehensive.py (2/3),
+        # tests/donor/test_donor_permissions_security.py (3/8 -- the file named
+        # in the issue: `frappe.db.get_value`/`frappe.db.exists` reassigned with
+        # no `# Mock justified:` comment, install AND restore each counted, same
+        # as #1542's own precedent for the database-mock checks),
+        # tests/member/test_approval_progress_permission_check.py (1/2),
+        # tests/security/test_admin_tools_security.py (3/3),
+        # tests/security/test_api_security_framework.py (9/25 -- the largest
+        # single file, mostly `frappe.local.request = MagicMock()` /
+        # `frappe.flags.in_*` toggles simulating execution context),
+        # tests/security/test_api_security_framework_coverage.py (4/4),
+        # tests/security/test_auth_hooks_critical_security.py (2/3),
+        # tests/security/test_auth_hooks_security.py (3/3),
+        # tests/security/test_authorization_coverage.py (4/5),
+        # tests/security/test_client_ip_coverage.py (4/4),
+        # tests/security/test_cor_rate_limiting.py (7/14),
+        # tests/security/test_csrf_ratelimit_cache_coverage.py (5/7),
+        # tests/security/test_integrated_security_payment_system.py (1/1),
+        # tests/security/test_security_modules.py (1/1),
+        # tests/security/test_security_setup.py (14/20 -- the most keys in one
+        # file, mostly `frappe.session.user = ...` in setUp/tearDown), and
+        # verenigingen_payments/ing_checkout/tests/test_webhook_security.py (1/2).
+        #
+        # Each was spot-read, not merely counted: every sampled site is a genuine
+        # `frappe.*` reassignment (`frappe.session.user = "..."`,
+        # `frappe.local.request = MagicMock()`, `frappe.flags.in_test = False`,
+        # `frappe.db.get_value = lambda ...`), matching the SAME policy a
+        # `patch(...)` call at that target would already be held to in this
+        # file -- this is a visibility fix, not a stricter rule. Reported to the
+        # coordinator for a maintainer ruling (as #1542's 9 keys were: "BASELINE
+        # 5, FIX 4"); NOT baselined into test_quality_baseline.txt and NOT
+        # rewritten here.
+        self.assertEqual(332, len(self.findings), "finding count moved")
+        self.assertEqual(265, len(tqe.counts_of(self.findings)), "key count moved")
 
     def test_findings_are_keyed_to_a_named_scope(self):
         """A key of '<module>' is legitimate but should stay rare; a flood of them
@@ -955,6 +1007,118 @@ class BusinessWorkflowMockTierTest(unittest.TestCase):
         self.assertNotIn(
             "BUSINESS WORKFLOW MOCK", _kinds(self.SRC, "test_thing_unit.py")
         )
+
+
+# --------------------------------------------------------------------------
+# #1558: Tier 3's `_check_all_mocks_blocked` is a separate, text/`patch(`-
+# window-based mechanism that never went through `_matching_ast_targets`, so
+# #1542's `_reassign_targets()` fix -- which closed the manual-monkeypatch
+# blind spot for the database/business-workflow/never-mock checks -- left this
+# ONE Tier-3 mechanism still blind to a manual `frappe.db.get_value = mock`.
+# --------------------------------------------------------------------------
+
+
+class SecurityTierManualMonkeypatchTest(unittest.TestCase):
+    """A Tier-3 (security) file must not be able to evade `_check_all_mocks_blocked`
+    merely by writing a manual monkeypatch instead of a `patch(...)` call -- that
+    was exactly #1542's gap, and this was the one check its fix did not reach.
+    """
+
+    def test_a_manual_reassignment_of_the_auth_boundary_is_blocked(self):
+        """`frappe.db.get_value` is the exact boundary Tier 3 exists to protect
+        (a permission_query closure calling it to check ownership). Measured live
+        on `verenigingen/tests/donor/test_donor_permissions_security.py`, which
+        does exactly this with no `patch(...)` in sight."""
+        src = (
+            "class TestThing:\n"
+            "    def test_it(self):\n"
+            "        original = frappe.db.get_value\n"
+            "        frappe.db.get_value = lambda *a, **k: 'payload'\n"
+            "        try:\n"
+            "            pass\n"
+            "        finally:\n"
+            "            frappe.db.get_value = original\n"
+        )
+        # Both the install (line 4) and the restore (line 8) are independent
+        # reassignments of the same target -- exactly how a `patch()` call's
+        # install/restore would each be counted if written as two separate
+        # statements. Not a double-count bug: see _reassign_targets's own tests.
+        self.assertEqual(["MOCK", "MOCK"], _kinds(src, "test_thing_security.py"))
+
+    def test_a_reassignment_no_patch_call_involved_is_still_blocked(self):
+        """The exact shape #1558 reports: no `patch(` anywhere on the page, so
+        the OLD text-scan (`mock_pattern` search for `patch\\s*\\(`) finds
+        nothing at all -- confirming this is not merely a stricter version of
+        the same scan, but a genuinely separate detection path."""
+        src = (
+            "class TestThing:\n"
+            "    def test_it(self):\n"
+            "        frappe.has_permission = lambda *a, **k: True\n"
+        )
+        self.assertEqual(["MOCK"], _kinds(src, "test_permission_thing.py"))
+
+    def test_infrastructure_target_without_justification_is_still_blocked(self):
+        """`frappe.local.request = ...` matches the SAME infrastructure
+        allowlist a `patch("frappe.local.request")` call would -- but without a
+        `# Mock justified:` comment it is blocked exactly as that call would be.
+        Measured live: this is the majority shape across
+        `verenigingen/tests/security/*.py` (e.g. `frappe.local.request =
+        MagicMock()` in `test_api_security_framework.py`), with no
+        justification comment anywhere near it."""
+        src = (
+            "class TestThing:\n"
+            "    def test_it(self):\n"
+            "        frappe.local.request = MagicMock()\n"
+        )
+        self.assertEqual(["MOCK"], _kinds(src, "test_thing_security.py"))
+
+    def test_infrastructure_target_with_justification_is_allowed(self):
+        """The same target, this time annotated -- mirrors how a justified
+        `patch("frappe.local.request")` call is allowed."""
+        src = (
+            "class TestThing:\n"
+            "    def test_it(self):\n"
+            "        # Mock justified: simulate an inbound HTTP request\n"
+            "        frappe.local.request = MagicMock()\n"
+        )
+        self.assertEqual([], _kinds(src, "test_thing_security.py"))
+
+    def test_a_non_infrastructure_target_is_blocked_even_with_a_comment(self):
+        """A comment cannot rescue a mock of the boundary itself -- only
+        infrastructure/plumbing targets are eligible for the justification
+        exemption at all, exactly as for a `patch(...)` call."""
+        src = (
+            "class TestThing:\n"
+            "    def test_it(self):\n"
+            "        # Mock justified: needed for the test\n"
+            "        frappe.has_permission = lambda *a, **k: True\n"
+        )
+        self.assertEqual(["MOCK"], _kinds(src, "test_thing_security.py"))
+
+    def test_self_attribute_assignment_is_not_a_finding(self):
+        """`self.frappe.get_value = spy` chains end in a policed-looking suffix
+        but root at `self`, not the real `frappe` module -- the same control
+        `_reassign_targets` itself is already tested against, checked here for
+        the Tier-3 composition specifically (a wrong-fix mutant that dropped
+        the root check inside `_reassign_targets` would flag this)."""
+        src = (
+            "class TestThing:\n"
+            "    def test_it(self):\n"
+            "        self.frappe.db.get_value = lambda *a, **k: None\n"
+        )
+        self.assertEqual([], _kinds(src, "test_thing_security.py"))
+
+    def test_not_flagged_by_this_mechanism_outside_tier_3(self):
+        """`_check_all_mocks_blocked` only runs for Tier 3; an Integration-tier
+        file gets the weaker Tier-2 policy (already covered by
+        ManualMonkeypatchDetectionTest), not this one's blanket ban."""
+        src = (
+            "class TestThing:\n"
+            "    def test_it(self):\n"
+            "        frappe.has_permission = lambda *a, **k: True\n"
+        )
+        self.assertNotIn("MOCK", _kinds(src, "test_thing.py"))
+
 
 if __name__ == "__main__":
     unittest.main()
