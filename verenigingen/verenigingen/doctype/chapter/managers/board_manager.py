@@ -1083,16 +1083,20 @@ class BoardManager(BaseManager):
                         # re-seated after termination at `enabled=1,
                         # status='Inactive'`, invisible to the board.
                         #
-                        # EXCEPT a 'Pending' row (mid-application; see the matching
-                        # guard and comment in MemberManager.add_member) -- leave it
-                        # for _activate_pending_chapter_memberships to resolve once
-                        # the applicant's Member.status is actually Active.
-                        if member.status == "Pending":
+                        # EXCEPT a 'Pending' row for a member STILL mid-application
+                        # (member_doc.status is 'Pending' or 'Active'; see the
+                        # matching guard and comment in MemberManager.add_member)
+                        # -- leave it for _activate_pending_chapter_memberships to
+                        # resolve once the applicant's Member.status is actually
+                        # Active. A Pending row for a member who has since moved
+                        # to some OTHER status (Suspended, Quit, ...) is not
+                        # "mid-approval" any more and must derive normally.
+                        from .member_manager import MemberManager
+
+                        member_doc = frappe.get_doc("Member", member_id)
+                        if member.status == "Pending" and member_doc.status in ("Pending", "Active"):
                             member.enabled = 1
                         else:
-                            from .member_manager import MemberManager
-
-                            member_doc = frappe.get_doc("Member", member_id)
                             member.enabled, member.status = MemberManager._derive_membership_status(
                                 member_doc, True
                             )

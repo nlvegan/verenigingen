@@ -67,22 +67,32 @@ class MemberManager(BaseManager):
                     # status='Inactive'`, a combination invisible to the board on
                     # every list and doc-level channel.
                     #
-                    # EXCEPT a row whose status is currently 'Pending': that is an
-                    # application-time placeholder (real submission always writes
-                    # it enabled=1 -- see create_pending_chapter_membership -- so
-                    # reaching HERE with enabled=0 means an application in progress
-                    # is being re-touched, e.g. via assign_member_to_chapter during
+                    # EXCEPT a row whose status is currently 'Pending' AND whose
+                    # member is STILL mid-application (member_doc.status is
+                    # 'Pending' or 'Active'): that is an application-time
+                    # placeholder (real submission always writes it enabled=1 --
+                    # see create_pending_chapter_membership -- so reaching HERE
+                    # with enabled=0 means an application in progress is being
+                    # re-touched, e.g. via assign_member_to_chapter during
                     # approve_membership_application, which runs BEFORE the
-                    # applicant's Member.status is flipped to Active). Deriving from
-                    # member_doc.status there reads the PRE-approval status and
-                    # stamps 'Inactive' over 'Pending', stranding the row before
+                    # applicant's Member.status is flipped to Active, or via
+                    # remove_member(permanent=False) disabling a Pending row that
+                    # is then re-added). Deriving from member_doc.status there
+                    # reads the PRE-approval status and stamps 'Inactive' over
+                    # 'Pending', stranding the row before
                     # _activate_pending_chapter_memberships ever runs to flip it to
                     # Active once approval completes (#1547 follow-up regression).
-                    # Leave 'Pending' rows for that dedicated step to resolve.
-                    if existing_member.status == "Pending":
+                    # Leave 'Pending' rows for that dedicated step to resolve --
+                    # UNLESS the member has since moved to some other status
+                    # (Suspended, Quit, ...), in which case this is not really
+                    # "mid-approval" any more and must derive normally, or a
+                    # Suspended member with a stale Pending row would be silently
+                    # restored to enabled=1 (found in review; #1547's own
+                    # opposite-harm guarantee must hold for Pending rows too).
+                    member_doc = frappe.get_doc("Member", member_id)
+                    if existing_member.status == "Pending" and member_doc.status in ("Pending", "Active"):
                         existing_member.enabled = 1
                     else:
-                        member_doc = frappe.get_doc("Member", member_id)
                         existing_member.enabled, existing_member.status = self._derive_membership_status(
                             member_doc, enabled
                         )

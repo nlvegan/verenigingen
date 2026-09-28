@@ -340,6 +340,76 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
         # chapter_join_date/leave_reason); the member linkage is verified above.
         self.assertEqual(chapter_member.member, member.name)
 
+    def test_approval_activates_chapter_row_after_applicant_left_pre_approval(self):
+        """#1547 round-3 control, driven through the real production API.
+
+        An applicant submits (real writer: create_pending_chapter_membership,
+        enabled=1/status='Pending'), leaves the chapter before their
+        application is approved (real writer: MemberManager.remove_member
+        (permanent=False), the writer behind the whitelisted leave_chapter
+        endpoint at chapter.py:1165 -- this only ever sets enabled=0 and never
+        touches status, leaving enabled=0/status='Pending'), and is then
+        re-assigned to the SAME chapter during approval. The board must end up
+        seeing an Active, enabled chapter row -- approve_membership_application
+        must not leave the applicant's chapter membership silently disabled
+        just because their Pending row happened to be disabled beforehand.
+        """
+        unique_id = int(time.time() * 1000) % 10000 + 400
+        member = self.create_test_member(
+            first_name="LeftChapter",
+            last_name="TestApproval",
+            email=f"left.chapter.approval.{unique_id}@example.com",
+            status="Pending",
+            application_status="Pending",
+            selected_membership_type=self.membership_type.name,
+            birth_date=add_days(today(), -365 * 25),
+        )
+        if member.status != "Pending" or member.application_status != "Pending":
+            member.db_set("status", "Pending", update_modified=False)
+            member.db_set("application_status", "Pending", update_modified=False)
+            member.reload()
+
+        from verenigingen.services.member.approval.application_helpers import (
+            create_pending_chapter_membership,
+        )
+
+        # Real writer: application-submission chapter assignment.
+        create_pending_chapter_membership(member, self.chapter.name)
+        chapter = frappe.get_doc("Chapter", self.chapter.name)
+        row = next(m for m in chapter.members if m.member == member.name)
+        self.assertTrue(row.enabled)
+        self.assertEqual(row.status, "Pending")
+
+        # Real writer: the applicant leaves the chapter before approval.
+        leave_result = chapter.member_manager.remove_member(member.name, permanent=False, notify=False)
+        self.assertTrue(leave_result["success"])
+        chapter.reload()
+        row = next(m for m in chapter.members if m.member == member.name)
+        self.assertFalse(row.enabled)
+        self.assertEqual(row.status, "Pending")
+
+        # Real production path: approve, re-assigning the SAME chapter.
+        with self.as_user(self.admin_user.email):
+            with patch('frappe.sendmail'):
+                result = approve_membership_application(
+                    member_name=member.name,
+                    membership_type=self.membership_type.name,
+                    chapter=self.chapter.name,
+                    notes="Round-3 control: leave-then-reapprove",
+                    create_invoice=False,
+                )
+
+        self.assertTrue(result.get("success"))
+
+        member.reload()
+        self.assertEqual(member.status, "Active")
+        self.assertEqual(member.application_status, "Approved")
+
+        chapter.reload()
+        row = next(m for m in chapter.members if m.member == member.name)
+        self.assertTrue(row.enabled)
+        self.assertEqual(row.status, "Active")
+
     def test_approval_workflow_validation_errors(self):
         """Test that approval workflow properly validates business rules"""
         
