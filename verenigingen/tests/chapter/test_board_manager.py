@@ -121,6 +121,215 @@ class TestBoardManager(VereningingenTestCase):
         seated = next(b for b in self.chapter.board_members if b.volunteer == volunteer.name)
         self.assertEqual(str(seated.from_date), "2024-02-01")
 
+    def test_add_board_member_reenable_restores_status_after_termination(self):
+        # #1547 class sweep: BoardManager._add_to_chapter_members has the exact
+        # same re-enable shape as MemberManager.add_member (enabled restored,
+        # status left untouched). Reproduce through the REAL writers: seat a
+        # board member (which also chapter-member-adds them) -> disable the
+        # chapter membership with the real termination writer -> seat the SAME
+        # member on the board again, which re-enables the existing chapter
+        # membership row instead of appending a new one.
+        from verenigingen.services.termination.termination_integration import (
+            disable_chapter_memberships_safe,
+        )
+
+        member, volunteer = self._make_volunteer(first="BoardReenable")
+        role_name = self._make_role()
+        self.manager.add_board_member(volunteer.name, role_name, notify=False)
+        self._reload_chapter()
+        row = self.chapter.member_manager._find_chapter_member(member.name)
+        self.assertTrue(row.enabled)
+        self.assertEqual(row.status, "Active")
+
+        # disable_chapter_memberships_safe disables EVERY enabled Chapter Member
+        # row for this member, not only self.chapter's -- member creation can
+        # seed a shared default-chapter membership alongside it -- so assert on
+        # self.chapter's own row rather than on a specific disabled_count.
+        disabled_count = disable_chapter_memberships_safe(member.name, today(), "termination test")
+        self.assertGreaterEqual(disabled_count, 1)
+        self._reload_chapter()
+        row = self.chapter.member_manager._find_chapter_member(member.name)
+        self.assertFalse(row.enabled)
+        self.assertEqual(row.status, "Inactive")
+
+        # Remove and re-add the board seat so _add_to_chapter_members runs again
+        # against the disabled row (the manager already found `member` in
+        # `self.chapter.members`, so add_board_member's re-seat is enough).
+        role_name_2 = self._make_role()
+        self.manager.add_board_member(volunteer.name, role_name_2, notify=False)
+
+        self._reload_chapter()
+        row = self.chapter.member_manager._find_chapter_member(member.name)
+        self.assertTrue(row.enabled)
+        # Before the fix this stayed 'Inactive': enabled=1 + status='Inactive'
+        # is invisible on every list- and doc-level "is this member visible"
+        # channel (#1547).
+        self.assertEqual(row.status, "Active")
+
+    def test_add_board_member_reenable_does_not_activate_non_active_member(self):
+        # Opposite harm (#1547): seating a board member whose linked Member is
+        # NOT Active must not flip their chapter membership row to
+        # status='Active' just because the board seat is being re-added.
+        #
+        # NOTE: _add_to_chapter_members' NEW-ROW branch (unlike add_member's)
+        # hardcodes enabled=1/status='Active' without checking member.status at
+        # all -- a distinct, out-of-scope defect (see report) -- so seating a
+        # Suspended member the FIRST time does not yet produce a disabled row.
+        # Disable it with the real termination writer instead, so the row is
+        # actually disabled going into the RE-ENABLE branch under test here.
+        from verenigingen.services.termination.termination_integration import (
+            disable_chapter_memberships_safe,
+        )
+
+        suspended_member = self.create_test_member(
+            first_name="BoardSuspended",
+            last_name="ReenableSuspended",
+            email=f"boardmgr.suspended.{frappe.generate_hash(length=6)}@test.invalid",
+            status="Suspended",
+        )
+        volunteer = self.create_test_volunteer(member=suspended_member)
+        role_name = self._make_role()
+
+        self.manager.add_board_member(volunteer.name, role_name, notify=False)
+        self._reload_chapter()
+        disable_chapter_memberships_safe(suspended_member.name, today(), "termination test")
+        self._reload_chapter()
+        row = self.chapter.member_manager._find_chapter_member(suspended_member.name)
+        self.assertIsNotNone(row)
+        self.assertFalse(row.enabled)
+        self.assertEqual(row.status, "Inactive")
+
+        # Re-add the board seat under a second role: _add_to_chapter_members
+        # finds the existing (disabled) row and takes the re-enable branch.
+        role_name_2 = self._make_role()
+        self.manager.add_board_member(volunteer.name, role_name_2, notify=False)
+
+        self._reload_chapter()
+        row = self.chapter.member_manager._find_chapter_member(suspended_member.name)
+        self.assertFalse(row.enabled)
+        self.assertEqual(row.status, "Inactive")
+
+    def test_add_board_member_reenable_preserves_pending_row_for_approval_to_activate(self):
+        # #1547 round 4: BoardManager._add_to_chapter_members had ZERO coverage
+        # for the round-2/round-3 Pending-carve-out defect and fix -- ported here
+        # from MemberManager's test_add_member_reenable_preserves_pending_row_
+        # for_approval_to_activate, same real-writer sequence, seated through
+        # add_board_member instead of add_member directly.
+        #
+        # An applicant submits and gets a Pending Chapter Member row (real
+        # writer: create_pending_chapter_membership, enabled=1/status='Pending'),
+        # then leaves the chapter before being seated on the board (real writer:
+        # remove_member(permanent=False), which only ever sets enabled=0 and
+        # never touches status, leaving enabled=0/status='Pending'). Seating
+        # them on the board while still Pending must re-enable the row WITHOUT
+        # clobbering 'Pending' to 'Inactive' -- that would strand the row before
+        # _activate_pending_chapter_memberships (or, here, a direct
+        # activate_pending_chapter_membership call standing in for approval)
+        # ever gets to flip it to Active.
+        from verenigingen.services.member.approval.application_helpers import (
+            activate_pending_chapter_membership,
+            create_pending_chapter_membership,
+        )
+
+        member = self.create_test_member(
+            first_name="BoardPendingReenable",
+            last_name="ApprovalOrdering",
+            email=f"boardmgr.pendingreenable.{frappe.generate_hash(length=6)}@test.invalid",
+            status="Pending",
+        )
+        volunteer = self.create_test_volunteer(member=member.name)
+        role_name = self._make_role()
+
+        # Real writer #1: application-submission chapter assignment.
+        create_pending_chapter_membership(member, self.chapter.name)
+        self._reload_chapter()
+        row = self.chapter.member_manager._find_chapter_member(member.name)
+        self.assertTrue(row.enabled)
+        self.assertEqual(row.status, "Pending")
+
+        # Real writer #2: the applicant leaves the chapter before being seated
+        # on the board (e.g. via the whitelisted leave_chapter endpoint).
+        result = self.chapter.member_manager.remove_member(member.name, permanent=False, notify=False)
+        self.assertTrue(result["success"])
+        self._reload_chapter()
+        row = self.chapter.member_manager._find_chapter_member(member.name)
+        self.assertFalse(row.enabled)
+        self.assertEqual(row.status, "Pending")
+
+        # Real writer #3: seat the board member. member.status is still
+        # "Pending" here -- _add_to_chapter_members' re-enable branch must
+        # restore enabled without clobbering status.
+        self.assertEqual(frappe.db.get_value("Member", member.name, "status"), "Pending")
+        self.manager.add_board_member(volunteer.name, role_name, notify=False)
+
+        self._reload_chapter()
+        row = self.chapter.member_manager._find_chapter_member(member.name)
+        self.assertTrue(row.enabled)
+        self.assertEqual(row.status, "Pending")
+
+        # Real writer #4: the Member.status flip approval performs (a real
+        # .save(), not db_set/db.set_value).
+        member.reload()
+        member.status = "Active"
+        member.save()
+
+        # Real writer #5: the real activation step approval calls once the
+        # applicant is actually Active.
+        activate_pending_chapter_membership(member, self.chapter.name)
+
+        self._reload_chapter()
+        row = self.chapter.member_manager._find_chapter_member(member.name)
+        self.assertTrue(row.enabled)
+        self.assertEqual(row.status, "Active")
+
+    def test_add_board_member_reenable_pending_row_for_now_suspended_member_stays_disabled(self):
+        # Opposite-harm control for the same round-4 coverage gap: a Pending
+        # row belonging to a member who has since moved to Suspended is no
+        # longer "mid-approval" -- seating them on the board must derive
+        # normally and stay disabled/Inactive, not be silently restored to
+        # enabled=1 just because the row still says 'Pending'.
+        from verenigingen.services.member.approval.application_helpers import (
+            create_pending_chapter_membership,
+        )
+
+        member = self.create_test_member(
+            first_name="BoardPendingSuspended",
+            last_name="ReenablePendingSuspended",
+            email=f"boardmgr.pendingsuspended.{frappe.generate_hash(length=6)}@test.invalid",
+            status="Pending",
+        )
+        volunteer = self.create_test_volunteer(member=member.name)
+        role_name = self._make_role()
+
+        create_pending_chapter_membership(member, self.chapter.name)
+        self._reload_chapter()
+        row = self.chapter.member_manager._find_chapter_member(member.name)
+        self.assertTrue(row.enabled)
+        self.assertEqual(row.status, "Pending")
+
+        result = self.chapter.member_manager.remove_member(member.name, permanent=False, notify=False)
+        self.assertTrue(result["success"])
+        self._reload_chapter()
+        row = self.chapter.member_manager._find_chapter_member(member.name)
+        self.assertFalse(row.enabled)
+        self.assertEqual(row.status, "Pending")
+
+        # Real writer: the applicant is Suspended (an ordinary status change
+        # the ORM permits, matching how this was reproduced in review).
+        member.reload()
+        member.status = "Suspended"
+        member.save()
+
+        self.manager.add_board_member(volunteer.name, role_name, notify=False)
+
+        self._reload_chapter()
+        row = self.chapter.member_manager._find_chapter_member(member.name)
+        # Before this guard, a Suspended member with a stale Pending row was
+        # silently restored to enabled=1 just because the row still read
+        # 'Pending' -- exactly the shape #1547 exists to prevent.
+        self.assertFalse(row.enabled)
+        self.assertEqual(row.status, "Inactive")
+
     # =============================================== unique-role assignment
 
     def test_unique_role_deactivates_previous_holder(self):

@@ -59,8 +59,43 @@ class MemberManager(BaseManager):
             existing_member = self._find_chapter_member(member_id)
             if existing_member:
                 if not existing_member.enabled and enabled:
-                    # Re-enable disabled member
-                    existing_member.enabled = 1
+                    # Re-enable disabled member. Derive `enabled`/`status` from the
+                    # member's CURRENT status, exactly as the new-row branch below
+                    # does (#1547) -- otherwise a member terminated after their
+                    # first add stays `status='Inactive'` forever: re-adding them
+                    # only ever restored `enabled`, leaving `enabled=1,
+                    # status='Inactive'`, a combination invisible to the board on
+                    # every list and doc-level channel.
+                    #
+                    # EXCEPT a row whose status is currently 'Pending' AND whose
+                    # member is STILL mid-application (member_doc.status is
+                    # 'Pending' or 'Active'): that is an application-time
+                    # placeholder (real submission always writes it enabled=1 --
+                    # see create_pending_chapter_membership -- so reaching HERE
+                    # with enabled=0 means an application in progress is being
+                    # re-touched, e.g. via assign_member_to_chapter during
+                    # approve_membership_application, which runs BEFORE the
+                    # applicant's Member.status is flipped to Active, or via
+                    # remove_member(permanent=False) disabling a Pending row that
+                    # is then re-added). Deriving from member_doc.status there
+                    # reads the PRE-approval status and stamps 'Inactive' over
+                    # 'Pending', stranding the row before
+                    # _activate_pending_chapter_memberships ever runs to flip it to
+                    # Active once approval completes (#1547 follow-up regression).
+                    # Leave 'Pending' rows for that dedicated step to resolve --
+                    # UNLESS the member has since moved to some other status
+                    # (Suspended, Quit, ...), in which case this is not really
+                    # "mid-approval" any more and must derive normally, or a
+                    # Suspended member with a stale Pending row would be silently
+                    # restored to enabled=1 (found in review; #1547's own
+                    # opposite-harm guarantee must hold for Pending rows too).
+                    member_doc = frappe.get_doc("Member", member_id)
+                    if existing_member.status == "Pending" and member_doc.status in ("Pending", "Active"):
+                        existing_member.enabled = 1
+                    else:
+                        existing_member.enabled, existing_member.status = self._derive_membership_status(
+                            member_doc, enabled
+                        )
                     existing_member.leave_reason = None
 
                     # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
@@ -98,9 +133,7 @@ class MemberManager(BaseManager):
 
             # Determine enabled and status based on member's actual status
             # Members who are Terminated, Deceased, or Suspended should be disabled in chapter
-            is_active_member = member_doc.status == "Active"
-            chapter_enabled = enabled if is_active_member else 0
-            chapter_status = "Active" if is_active_member else "Inactive"
+            chapter_enabled, chapter_status = self._derive_membership_status(member_doc, enabled)
 
             # Add to members table
             new_member = self.chapter_doc.append(
@@ -1082,6 +1115,23 @@ class MemberManager(BaseManager):
             frappe.logger().info(
                 f"Removed {len(members_to_remove)} stale member reference(s) from chapter {self.chapter_name}"
             )
+
+    @staticmethod
+    def _derive_membership_status(member_doc, enabled: bool):
+        """Derive the (enabled, status) pair a Chapter Member row should carry from
+        the Member's CURRENT `status`, regardless of whether the row is being
+        created or re-enabled (#1547). A member who is not Active in Frappe
+        (Terminated/Quit/Deceased/Suspended/...) must not read `status='Active'`
+        in the chapter, and must not read `enabled=1` either -- both channels
+        agree, on every code path that writes them.
+
+        Shared by BoardManager._add_to_chapter_members, which reaches the same
+        re-enable shape when seating a board member as a chapter member.
+        """
+        is_active_member = member_doc.status == "Active"
+        chapter_enabled = enabled if is_active_member else 0
+        chapter_status = "Active" if is_active_member else "Inactive"
+        return chapter_enabled, chapter_status
 
     def _find_chapter_member(self, member_id: str):
         """Find chapter member by ID"""

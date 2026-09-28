@@ -1077,8 +1077,29 @@ class BoardManager(BaseManager):
             for member in self.chapter_doc.members or []:
                 if member.member == member_id:
                     if not member.enabled:
-                        # Re-enable if disabled
-                        member.enabled = 1
+                        # Re-enable if disabled. Derive `enabled`/`status` from the
+                        # member's CURRENT status via the same helper add_member
+                        # uses (#1547) -- restoring only `enabled` left a member
+                        # re-seated after termination at `enabled=1,
+                        # status='Inactive'`, invisible to the board.
+                        #
+                        # EXCEPT a 'Pending' row for a member STILL mid-application
+                        # (member_doc.status is 'Pending' or 'Active'; see the
+                        # matching guard and comment in MemberManager.add_member)
+                        # -- leave it for _activate_pending_chapter_memberships to
+                        # resolve once the applicant's Member.status is actually
+                        # Active. A Pending row for a member who has since moved
+                        # to some OTHER status (Suspended, Quit, ...) is not
+                        # "mid-approval" any more and must derive normally.
+                        from .member_manager import MemberManager
+
+                        member_doc = frappe.get_doc("Member", member_id)
+                        if member.status == "Pending" and member_doc.status in ("Pending", "Active"):
+                            member.enabled = 1
+                        else:
+                            member.enabled, member.status = MemberManager._derive_membership_status(
+                                member_doc, True
+                            )
                         member.leave_reason = None
                         self.log_action("Re-enabled existing chapter member", {"member_id": member_id})
                     else:
