@@ -204,6 +204,69 @@ class TestCohortRetentionRejoinTerminations(VereningingenTestCase):
             "termination must not exclude them (maintainer ruling, #1544)",
         )
 
+    def test_stale_member_end_date_overwritten_by_other_writer_is_still_cleared_on_rejoin(self):
+        """#1554: member_end_date can be overwritten AFTER the hook's own
+        write by a path that bypasses before_save entirely --
+        `frappe.db.set_value` never triggers document hooks (this app's own
+        documented Frappe transaction model). `mollie_debug_service.
+        _sync_single_member_end_date` does exactly this:
+        `frappe.db.set_value("Member", member.name, "member_end_date",
+        canceled_date, update_modified=False)`. #1548's guard only cleared a
+        value EQUAL to the current termination's own date, so a later raw
+        overwrite to a DIFFERENT date (plausible -- a Mollie subscription's
+        cancellation date need not match the formal termination_date) was
+        never revisited on a later rejoin, reproducing #1544's bug class
+        through a third writer.
+
+        Reproduces the overwrite with the writer's OWN exact write op (not a
+        hand-rolled shortcut -- this literally is the one line that function
+        executes; the Mollie SDK call above it in production is irrelevant
+        to what is under test here, which is the before_save hook's
+        behaviour given that DB state). Status transitions (termination,
+        rejoin, approval) are all driven through the real flows."""
+        member = self.create_test_member(
+            first_name="Overwritten",
+            last_name="EndDate",
+            email=f"overwritten.enddate.{frappe.generate_hash(length=6)}@test.invalid",
+            birth_date="1990-01-01",
+            status="Active",
+            application_status="Approved",
+            selected_membership_type="Standard Member",
+        )
+        old_join_date = add_months(today(), -30)
+        frappe.db.set_value("Member", member.name, "member_since", old_join_date, update_modified=False)
+
+        termination_date = add_months(today(), -6)
+        execute_real_termination(self, member.name, termination_date)
+        member.reload()
+        self.assertEqual(member.status, "Quit")
+        self.assertEqual(
+            member.member_end_date,
+            getdate(termination_date),
+            "Sanity: the hook's own write matches the termination's own date before the overwrite",
+        )
+
+        # The writer's own raw overwrite -- a DIFFERENT date than the formal
+        # termination's own (e.g. the Mollie subscription's actual
+        # cancellation date). Bypasses before_save entirely, same as the
+        # real writer.
+        mollie_canceled_date = add_months(today(), -5)
+        self.assertNotEqual(mollie_canceled_date, termination_date, "precondition: dates must differ")
+        frappe.db.set_value(
+            "Member", member.name, "member_end_date", mollie_canceled_date, update_modified=False
+        )
+        member.reload()
+        self.assertEqual(member.member_end_date, getdate(mollie_canceled_date))
+
+        member = self._real_rejoin_and_approve(member)
+        self.assertEqual(getdate(member.member_since), getdate(today()))
+        self.assertEqual(member.status, "Active")
+        self.assertIsNone(
+            member.member_end_date,
+            "A member_end_date overwritten to a date that no longer matches the "
+            "termination's own must still be cleared on a real rejoin (#1554)",
+        )
+
     def test_terminated_member_never_rejoined_is_excluded(self):
         """Control: a member who was terminated and never rejoined must stay
         excluded from retention. Note (verification discipline): today's

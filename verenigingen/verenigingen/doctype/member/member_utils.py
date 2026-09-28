@@ -655,6 +655,45 @@ def update_termination_status_display(doc, method=None):
                 member.status = member._termination_final_status
         return  # Skip database query and other logic
 
+    # #1554: member_end_date can be written by a path that never creates an
+    # executed Membership Termination Request at all -- a raw
+    # `frappe.db.set_value` (e.g. mollie_debug_service.
+    # _sync_single_member_end_date, syncing a Mollie subscription's
+    # cancellation date) bypasses before_save entirely and does not depend
+    # on one existing, and even when a request DOES exist, that raw write
+    # can leave member_end_date at a date that no longer matches the
+    # request's own (the below `== target_date` guard would then miss it).
+    # The `if executed_termination:` block below only ever reasons about a
+    # value tied to a specific request, so neither case was ever revisited
+    # on a later rejoin -- reproducing #1544's bug class through this field.
+    #
+    # member_since being later than member_end_date is NOT by itself
+    # evidence of a rejoin (round 2, independent review): CSV/data-import
+    # writers can move member_since forward -- or populate it for the first
+    # time -- on a member who never rejoined at all, and
+    # member_end_date_reconstruction.apply_suggestion() writes
+    # member_end_date on a member who is (by its own precondition) status
+    # "Quit", not Active. A status-blind version of this check reproduced a
+    # REAL veg11 row this way (Quit, member_since after member_end_date,
+    # zero termination requests) and silently erased that member's end
+    # date on an unrelated save -- making a genuinely terminated member
+    # read as retained by membership_analytics.py -- and separately erased
+    # apply_suggestion's own write in the same save that made it. The real
+    # rejoin/approval flow is what sets status to "Active"
+    # (services/member/approval/application_helpers.py::
+    # update_member_from_reapplication -> api/membership_application_review.py::
+    # approve_membership_application), so require that as the positive
+    # signal, mirroring #1548's own supersession reasoning one level up.
+    # Member.status options: Pending, Active, Rejected, Expired, Suspended,
+    # Banned, Deceased, Quit -- only "Active" is a currently-held membership.
+    if (
+        member.status == "Active"
+        and member.member_end_date
+        and member.member_since
+        and getdate(member.member_end_date) <= getdate(member.member_since)
+    ):
+        member.member_end_date = None
+
     # Get most recent executed termination
     executed_termination = frappe.get_all(
         "Membership Termination Request",
