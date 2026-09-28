@@ -46,6 +46,25 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+def _strip_trailing_comment(item: str) -> str:
+    """Drop a YAML inline `# comment` from a raw `- <item>` list entry.
+
+    Matches `yaml.safe_load`'s own behaviour (checked empirically against
+    PyYAML -- see `TestExtractTriggerPathsAgainstRealYAML` in
+    test_workflow_path_filter.py -- not inferred from the spec): inside a
+    quoted scalar, `#` is ordinary text and a comment can only begin once the
+    closing quote is reached (no preceding whitespace required there); in an
+    unquoted scalar, `#` only starts a comment when preceded by whitespace,
+    otherwise it is part of the scalar's own text (e.g. `path.py#tag`).
+    """
+    if item and item[0] in "'\"":
+        quote = item[0]
+        closing = item.find(quote, 1)
+        return item if closing == -1 else item[: closing + 1]
+    match = re.search(r"\s#", item)
+    return item[: match.start()].rstrip() if match else item
+
+
 def extract_trigger_paths(workflow_text: str, trigger: str) -> list[str]:
     """Return the `paths:` list under `on.<trigger>` in a workflow file.
 
@@ -92,7 +111,7 @@ def extract_trigger_paths(workflow_text: str, trigger: str) -> list[str]:
 
         if in_paths:
             if stripped.startswith("- "):
-                item = stripped[2:].strip()
+                item = _strip_trailing_comment(stripped[2:].strip())
                 if item and item[0] in "'\"" and item[-1] == item[0]:
                     item = item[1:-1]
                 collected.append(item)
