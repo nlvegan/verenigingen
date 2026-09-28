@@ -533,6 +533,128 @@ class TestExtractTriggerPaths(unittest.TestCase):
             ["verenigingen/**/*.py", "scripts/migration/**/*.py"],
         )
 
+    def test_trailing_comment_on_a_quoted_item_is_stripped(self):
+        """#1560: `- 'path'  # why` must resolve to `path`, not the whole
+        remaining line (quotes, spaces and comment included)."""
+        text = (
+            "on:\n"
+            "  push:\n"
+            "    paths:\n"
+            "      - 'scripts/validation/some_file.py'  # explains why this entry exists\n"
+        )
+        self.assertEqual(
+            wpf.extract_trigger_paths(text, "push"),
+            ["scripts/validation/some_file.py"],
+        )
+
+    def test_trailing_comment_on_a_double_quoted_item_is_stripped(self):
+        text = (
+            "on:\n"
+            "  push:\n"
+            "    paths:\n"
+            '      - "scripts/validation/some_file.py"  # why\n'
+        )
+        self.assertEqual(
+            wpf.extract_trigger_paths(text, "push"),
+            ["scripts/validation/some_file.py"],
+        )
+
+    def test_trailing_comment_on_an_unquoted_item_is_stripped(self):
+        text = "on:\n  push:\n    paths:\n      - scripts/x.py  # why\n"
+        self.assertEqual(wpf.extract_trigger_paths(text, "push"), ["scripts/x.py"])
+
+    def test_hash_inside_quotes_is_not_treated_as_a_comment_marker(self):
+        """A literal `#` inside the quoted path itself is part of the value,
+        even though a real (separate) trailing comment follows it -- both
+        must be handled without the inner `#` being mistaken for the start
+        of the comment."""
+        text = (
+            "on:\n"
+            "  push:\n"
+            "    paths:\n"
+            "      - 'scripts/some#file.py'  # comment too\n"
+        )
+        self.assertEqual(wpf.extract_trigger_paths(text, "push"), ["scripts/some#file.py"])
+
+    def test_unquoted_hash_without_preceding_space_is_part_of_the_scalar(self):
+        """YAML only starts a comment when `#` is preceded by whitespace (or
+        is the first character); glued to the preceding text it is ordinary
+        scalar content, not a comment marker -- verified against
+        `yaml.safe_load` in TestExtractTriggerPathsAgainstRealYAML below."""
+        text = "on:\n  push:\n    paths:\n      - scripts/x.py#notcomment\n"
+        self.assertEqual(
+            wpf.extract_trigger_paths(text, "push"), ["scripts/x.py#notcomment"]
+        )
+
+    def test_hash_immediately_after_closing_quote_is_still_a_comment(self):
+        """No space needed between a closing quote and `#` for YAML to treat
+        it as a comment -- measured with `yaml.safe_load`, not assumed."""
+        text = "on:\n  push:\n    paths:\n      - 'scripts/x.py'#notcomment\n"
+        self.assertEqual(wpf.extract_trigger_paths(text, "push"), ["scripts/x.py"])
+
+
+class TestExtractTriggerPathsAgainstRealYAML(unittest.TestCase):
+    """Cross-check against PyYAML itself rather than a reading of the YAML
+    spec. Skipped where PyYAML is unavailable -- the Code Validation job that
+    runs this test file installs nothing beyond `pathlib` (see the module
+    docstring for why the scanner itself must stay stdlib-only) -- but PyYAML
+    is present in this bench's env, so this is real cross-validation
+    wherever it runs, not a no-op."""
+
+    def _assert_matches_yaml(self, item_line: str):
+        try:
+            import yaml
+        except ImportError:
+            self.skipTest("PyYAML not installed in this environment")
+        text = f"on:\n  push:\n    paths:\n      {item_line}\n"
+        expected = yaml.safe_load(text)[True]["push"]["paths"]
+        self.assertEqual(wpf.extract_trigger_paths(text, "push"), expected)
+
+    def test_single_quoted_trailing_comment(self):
+        self._assert_matches_yaml("- 'scripts/x.py'  # why")
+
+    def test_double_quoted_trailing_comment(self):
+        self._assert_matches_yaml('- "scripts/x.py"  # why')
+
+    def test_unquoted_trailing_comment(self):
+        self._assert_matches_yaml("- scripts/x.py  # why")
+
+    def test_hash_inside_single_quotes(self):
+        self._assert_matches_yaml("- 'scripts/some#file.py'  # comment too")
+
+    def test_hash_inside_double_quotes(self):
+        self._assert_matches_yaml('- "scripts/some#file.py"  # comment too')
+
+    def test_hash_no_preceding_space_unquoted(self):
+        self._assert_matches_yaml("- scripts/x.py#notcomment")
+
+    def test_hash_no_preceding_space_after_quote(self):
+        self._assert_matches_yaml("- 'scripts/x.py'#notcomment")
+
+    def test_real_workflow_files_paths_match_yaml(self):
+        """Scan every real `.github/workflows/*.yml`'s `on.push`/
+        `on.pull_request` `paths:` and compare the scanner's output against
+        `yaml.safe_load`, catching any divergence the specific cases above
+        did not anticipate. `on:` parses as the boolean key `True` in
+        PyYAML, not the string `"on"` -- measured, see this class's
+        docstring."""
+        try:
+            import yaml
+        except ImportError:
+            self.skipTest("PyYAML not installed in this environment")
+        workflows_dir = wpf.REPO_ROOT / ".github" / "workflows"
+        for wf_path in sorted(workflows_dir.glob("*.yml")):
+            text = wf_path.read_text()
+            data = yaml.safe_load(text)
+            on = data.get(True) if isinstance(data, dict) else None
+            if not isinstance(on, dict):
+                continue
+            for trigger in ("push", "pull_request"):
+                trig = on.get(trigger)
+                expected = trig.get("paths", []) if isinstance(trig, dict) else []
+                with self.subTest(file=wf_path.name, trigger=trigger):
+                    self.assertEqual(wpf.extract_trigger_paths(text, trigger), expected)
+
 
 class TestSysPathHackAndImportlibDetection(unittest.TestCase):
     """#1550: unit-level coverage for the two new shapes `_scripts_files_imported_by`

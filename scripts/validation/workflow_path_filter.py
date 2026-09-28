@@ -46,6 +46,37 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+def _strip_trailing_comment(item: str) -> str:
+    """Drop a YAML inline `# comment` from a raw `- <item>` list entry.
+
+    Matches `yaml.safe_load`'s own behaviour (checked empirically against
+    PyYAML -- see `TestExtractTriggerPathsAgainstRealYAML` in
+    test_workflow_path_filter.py -- not inferred from the spec): inside a
+    quoted scalar, `#` is ordinary text and a comment can only begin once the
+    closing quote is reached (no preceding whitespace required there); in an
+    unquoted scalar, `#` only starts a comment when preceded by whitespace,
+    otherwise it is part of the scalar's own text (e.g. `path.py#tag`).
+
+    This only locates the comment boundary -- it does NOT model YAML's
+    quoted-scalar escaping, and neither does the dequote step that runs
+    after it. Measured divergences from `yaml.safe_load` (pre-existing,
+    not something #1560 set out to fix): a doubled single quote inside a
+    single-quoted scalar (`'it''s'`, YAML's escape for a literal quote)
+    resolves to `it`, not `it's`; a backslash-escaped double quote inside a
+    double-quoted scalar (`"a\"b"`) resolves to the two characters `a` and a
+    trailing backslash, not `a"b`; and a flow-style item (`[a, b]`) is
+    returned as the literal string `[a, b]`
+    rather than parsed as a nested list. No `paths:` entry in this repo's
+    workflow files uses any of these shapes.
+    """
+    if item and item[0] in "'\"":
+        quote = item[0]
+        closing = item.find(quote, 1)
+        return item if closing == -1 else item[: closing + 1]
+    match = re.search(r"\s#", item)
+    return item[: match.start()].rstrip() if match else item
+
+
 def extract_trigger_paths(workflow_text: str, trigger: str) -> list[str]:
     """Return the `paths:` list under `on.<trigger>` in a workflow file.
 
@@ -92,7 +123,7 @@ def extract_trigger_paths(workflow_text: str, trigger: str) -> list[str]:
 
         if in_paths:
             if stripped.startswith("- "):
-                item = stripped[2:].strip()
+                item = _strip_trailing_comment(stripped[2:].strip())
                 if item and item[0] in "'\"" and item[-1] == item[0]:
                     item = item[1:-1]
                 collected.append(item)
