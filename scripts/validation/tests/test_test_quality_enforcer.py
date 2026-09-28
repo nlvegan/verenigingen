@@ -537,8 +537,67 @@ class WholeTreeTotalsTest(unittest.TestCase):
         # `tests/utils/test_api_classifier.py` (1 PERMISSION BYPASS) and
         # `tests/utils/test_email_mocking.py` (1 PERMISSION BYPASS, keyed to
         # `<module>`). The other 37 newly-scanned files are clean.
-        self.assertEqual(213, len(self.findings), "finding count moved")
-        self.assertEqual(194, len(tqe.counts_of(self.findings)), "key count moved")
+        #
+        # 213 -> 229 findings, 194 -> 203 keys (#1542): `_patch_targets` only ever
+        # saw a call to `unittest.mock.patch`/`patch.object`; a manual monkeypatch
+        # (`frappe.get_all = spy`, restored with `frappe.get_all = original`) is an
+        # ast.Assign, not a call, so the whole idiom was invisible to every rule
+        # built on it. `_reassign_targets` closes this for attribute chains rooted
+        # at the literal name `frappe` (matching the base every pattern list here
+        # already keys on), applying the SAME database-mock / business-logic-mock
+        # policy a `patch()` call would get. 9 keys added, 0 removed, 0 grown --
+        # all 16 new findings are DATABASE MOCK, split across the setup line and
+        # (where present) its `finally:`-block restore line, in 7 files:
+        # `tests/doctype/test_procurios_membership_import_row_atomicity.py` (1),
+        # `tests/donor/test_donor_security_core.py` (3 keys, 2 each -- setup +
+        # restore of `frappe.db.get_value`), `tests/integration/
+        # test_query_optimization_suite.py` (2, `frappe.db.sql`), `tests/member/
+        # test_member_performance_optimization.py` (1, a deliberate
+        # self-assignment `frappe.db.sql = frappe.db.sql` used to simulate a
+        # polluted fixture state -- still a reassignment of a database-mock
+        # target by the same rule a `patch()` call would be held to),
+        # `tests/test_delete_audit_selftest.py` (2), `tests/test_harness.py` (2,
+        # `frappe.get_doc` / `frappe.get_all`, no restore at all) and
+        # `verenigingen_payments/mollie/tests/test_mollie_payment_orchestrator_sweep.py`
+        # (2). None of this is new debt -- it is debt that was always there and
+        # could not be measured; each site was read and confirmed to be a genuine
+        # `frappe.*` reassignment, not a false positive.
+        #
+        # 229 -> 221 findings, 203 -> 199 keys (#1542 review, maintainer ruling
+        # "BASELINE 5, FIX 4"): of the 9 keys #1542 newly exposed, 4 were FIXED in
+        # the same PR rather than baselined -- rewritten onto real fixtures/rows
+        # instead of a mock, per this repo's own "Database mocks BLOCKED -- use
+        # real operations" policy, with a red/green mutation proving each rewrite
+        # still catches the defect it claims to:
+        #   * `tests/donor/test_donor_security_core.py`'s 3 keys
+        #     (test_sql_injection_prevention_core, test_escape_function_validation,
+        #     test_address_permission_sql_injection) now create a REAL Member via
+        #     the Enhanced Test Factory, `frappe.rename_doc()`'d onto the injection
+        #     payload (Member's docname is unrestricted beyond `<`/`>`), linked to a
+        #     real User holding the Verenigingen Member role -- no
+        #     frappe.db.get_value/frappe.get_roles fake at all. Reverting
+        #     `frappe.db.escape()` to a raw f-string in permissions.py reddens all
+        #     3 (mutation-tested); the address test's original loose
+        #     "contains an escaped-looking quote" assertion did NOT redden under
+        #     that mutation (the payload's own leading quote made the naive,
+        #     unescaped `''` coincidentally look like a correctly-doubled escape),
+        #     so it was tightened to assert the exact escaped token and assert the
+        #     naive token's absence.
+        #   * `verenigingen_payments/mollie/tests/test_mollie_payment_orchestrator_sweep.py`
+        #     ::TestProcessOrphanedPaymentCustomerLinked (moved onto
+        #     EnhancedTestCase) now uses a fresh, real `payment_id` that genuinely
+        #     has no matching Bank Transaction row, instead of faking
+        #     frappe.db.get_value to return None -- plus a decoy real Bank
+        #     Transaction under a different reference_number, so the test also
+        #     proves the idempotency lookup is a FILTERED query. Dropping that
+        #     filter in mollie_payment_orchestrator.py (mutation) makes the decoy
+        #     get matched and reddens the test.
+        # The other 5 keys are baselined as pre-existing debt this PR's detection
+        # fix newly measures but did not create -- see the baseline file's own
+        # header on why a detection-rule change is the one legitimate reason it
+        # grows.
+        self.assertEqual(221, len(self.findings), "finding count moved")
+        self.assertEqual(199, len(tqe.counts_of(self.findings)), "key count moved")
 
     def test_findings_are_keyed_to_a_named_scope(self):
         """A key of '<module>' is legitimate but should stay rare; a flood of them
@@ -740,6 +799,134 @@ class StructuralMockDetectionTest(unittest.TestCase):
             "    pass\n"
         )
         self.assertEqual(["DATABASE MOCK"], _kinds(src))
+
+
+# --------------------------------------------------------------------------
+# #1542: manual monkeypatch reassignment (`module.attr = x`), not a patch() call
+# --------------------------------------------------------------------------
+
+
+class ManualMonkeypatchDetectionTest(unittest.TestCase):
+    """`frappe.get_all = spy` is an ast.Assign, not a call to unittest.mock.patch,
+    so it was structurally invisible to every rule built on `_patch_targets` --
+    the database-mock and business-logic-mock bans included. `_reassign_targets`
+    closes this for the same base `_patch_targets` already keys its own targets
+    on (`frappe`), so the two mechanisms enforce one policy rather than two.
+    """
+
+    def test_a_manual_monkeypatch_of_a_database_target_is_detected(self):
+        """The concrete shape from #1542: install a spy, restore it in `finally`."""
+        src = (
+            "class TestThing:\n"
+            "    def test_it(self):\n"
+            "        original_get_all = frappe.get_all\n"
+            "        def spying_get_all(doctype, *a, **k):\n"
+            "            return original_get_all(doctype, *a, **k)\n"
+            "        frappe.get_all = spying_get_all\n"
+            "        try:\n"
+            "            pass\n"
+            "        finally:\n"
+            "            frappe.get_all = original_get_all\n"
+        )
+        self.assertIn("DATABASE MOCK", _kinds(src, "test_thing.py"))
+
+    def test_a_manual_monkeypatch_of_frappe_db_is_detected(self):
+        src = (
+            "class TestThing:\n"
+            "    def test_it(self):\n"
+            "        frappe.db.get_value = lambda *a, **k: None\n"
+        )
+        self.assertIn("DATABASE MOCK", _kinds(src, "test_thing.py"))
+
+    def test_not_flagged_in_a_unit_test(self):
+        """Tier 1 (unit) may mock the database, same as a `patch()` call would be."""
+        src = (
+            "class TestThing:\n"
+            "    def test_it(self):\n"
+            "        frappe.get_all = lambda *a, **k: []\n"
+        )
+        self.assertNotIn("DATABASE MOCK", _kinds(src, "test_thing_unit.py"))
+
+    def test_a_business_logic_reassignment_is_prohibited_in_any_tier(self):
+        """`never_mock_targets` (validate_/business_rule/process_) applies to
+        reassignment exactly as it applies to a `patch()` call -- even in a unit
+        test, where database mocks are otherwise allowed."""
+        src = (
+            "class TestThing:\n"
+            "    def test_it(self):\n"
+            "        frappe.get_doc_process_hook = lambda *a, **k: None\n"
+        )
+        self.assertIn(
+            "BUSINESS LOGIC MOCK PROHIBITED", _kinds(src, "test_thing_unit.py")
+        )
+
+    def test_self_attribute_assignment_is_not_a_finding(self):
+        """`self.x = y` is ordinary Python, not a monkeypatch of a module."""
+        src = (
+            "class TestThing:\n"
+            "    def test_it(self):\n"
+            "        self.get_all = []\n"
+        )
+        self.assertEqual([], _kinds(src, "test_thing.py"))
+
+    def test_a_document_field_assignment_is_not_a_finding(self):
+        """`doc.field = v` -- a local object, not the `frappe` module."""
+        src = (
+            "class TestThing:\n"
+            "    def test_it(self):\n"
+            "        doc.get_all = 'Active'\n"
+        )
+        self.assertEqual([], _kinds(src, "test_thing.py"))
+
+    def test_a_local_objects_attribute_is_not_a_finding(self):
+        """Any other local object's attribute -- restricting to the `frappe` root
+        is what keeps this rule from degenerating into 'every attribute
+        assignment', which would flood every test file with false positives."""
+        src = (
+            "class TestThing:\n"
+            "    def test_it(self):\n"
+            "        local_obj.get_all = 3\n"
+            "        some_module.db.exists = 4\n"
+        )
+        self.assertEqual([], _kinds(src, "test_thing.py"))
+
+    def test_an_attribute_chain_merely_ending_in_frappe_is_not_a_finding(self):
+        """The one case that actually needs the ROOT check, not just the suffix
+        anchor: `self.frappe.get_all = spy` ends in a substring that matches the
+        (?:^|\\.)frappe\\.get_all$ pattern used elsewhere in this file, but its
+        root is `self`, not the real `frappe` module -- a fixture that happens
+        to store something under an attribute literally named `frappe` must not
+        be flagged. Proven by a wrong-fix mutant in the PR's self-review: dropping
+        the root check (matching the suffix pattern against ANY attribute chain)
+        flags this line, which is exactly what this test exists to catch."""
+        src = (
+            "class TestThing:\n"
+            "    def test_it(self):\n"
+            "        self.frappe.get_all = lambda *a, **k: []\n"
+        )
+        self.assertEqual([], _kinds(src, "test_thing.py"))
+
+    def test_a_plain_local_variable_rebind_is_not_a_finding(self):
+        """Rebinding a locally-imported NAME (`get_all = fake`) is a Name target,
+        not an Attribute -- out of scope here, same as `_patch_targets` never
+        resolves a variable-built patch target (see test_the_known_gaps_are_still_gaps)."""
+        src = (
+            "class TestThing:\n"
+            "    def test_it(self):\n"
+            "        get_all = lambda *a, **k: []\n"
+        )
+        self.assertEqual([], _kinds(src, "test_thing.py"))
+
+    def test_an_unrelated_frappe_attribute_is_not_a_finding(self):
+        """`frappe.flags.foo = True` is a real, common, non-mock test idiom --
+        rooting the check at `frappe` must not flood every such site."""
+        src = (
+            "class TestThing:\n"
+            "    def test_it(self):\n"
+            "        frappe.flags.in_test = True\n"
+            "        frappe.local.form_dict = {}\n"
+        )
+        self.assertEqual([], _kinds(src, "test_thing.py"))
 
 
 class BusinessWorkflowMockTierTest(unittest.TestCase):

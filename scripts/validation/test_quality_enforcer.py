@@ -226,13 +226,16 @@ def _target_of(node) -> str:
 
 
 def _patch_targets(content: str) -> List[Tuple[int, str]]:
-    """Every statically-resolvable mock target, as (line of the call, target).
+    """Every statically-resolvable unittest.mock.patch(...) target, as (line, target).
 
-    This is the ONLY way mock targets are found. The rules used to be line
-    regexes anchored on `patch(` immediately followed by a quote, which missed a
-    Black-wrapped decorator, `patch.object`, and an f-string target. Measured
-    before that changed: 225 mocks in the app named a prohibited target, the line
-    regexes saw 167, and the hook nominally responsible for blocking them --
+    This is the ONLY way a `patch(...)`/`patch.object(...)` CALL's mock target is
+    found. A manual monkeypatch (`frappe.get_all = spy`) is not a call at all --
+    see `_reassign_targets` for that shape, combined with this one in
+    `_matching_ast_targets`. The rules used to be line regexes anchored on
+    `patch(` immediately followed by a quote, which missed a Black-wrapped
+    decorator, `patch.object`, and an f-string target. Measured before that
+    changed: 225 mocks in the app named a prohibited target, the line regexes
+    saw 167, and the hook nominally responsible for blocking them --
     scripts/validation/archived/block_inappropriate_mocks.py, since deleted --
     reported 1.
 
@@ -302,6 +305,59 @@ def _patch_targets(content: str) -> List[Tuple[int, str]]:
 
         if target:
             out.append((node.lineno, target))
+
+    return out
+
+
+def _dotted_name(node) -> str:
+    """Resolve a Name/Attribute chain to its dotted string, or "" if it isn't one.
+
+    `frappe.db.exists` (an ast.Attribute of an ast.Attribute of an ast.Name)
+    resolves to "frappe.db.exists"; a Subscript, Call result, or anything else
+    that isn't a plain dotted chain resolves to "".
+    """
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        base = _dotted_name(node.value)
+        return f"{base}.{node.attr}" if base else ""
+    return ""
+
+
+def _reassign_targets(content: str) -> List[Tuple[int, str]]:
+    """Every direct `frappe.<...> = <value>` reassignment, as (line, dotted target).
+
+    #1542: a manual monkeypatch (`frappe.get_all = spy`, restored later with
+    `frappe.get_all = original`) is an ast.Assign, not a call to
+    unittest.mock.patch, so `_patch_targets` alone never sees it -- the whole
+    idiom was structurally invisible to every rule built on it, including the
+    database-mock and business-logic-mock bans.
+
+    Restricted to attribute chains rooted at the literal name `frappe` -- the
+    same base every pattern list in this file already keys its targets on --
+    so `self.x = y`, `doc.field = v`, a local variable, or any other object's
+    attribute is never a match; only a bare `import frappe as alias` (rare; one
+    call site app-wide, grepped) escapes this. A tuple/multi-target assignment
+    (`a = b = frappe.get_all`) reassigns `frappe.get_all`'s *value* to `a`/`b`,
+    not the other way around, so only `ast.Attribute` targets are considered --
+    an `ast.Name` target is a local binding, never a monkeypatch of `frappe`
+    itself.
+    """
+    out: List[Tuple[int, str]] = []
+    try:
+        tree = ast.parse(content)
+    except (SyntaxError, ValueError):
+        return out
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if not isinstance(target, ast.Attribute):
+                continue
+            dotted = _dotted_name(target)
+            if dotted and dotted.split(".", 1)[0] == "frappe":
+                out.append((node.lineno, dotted))
 
     return out
 
@@ -651,13 +707,18 @@ class TestQualityEnforcer:
     def _matching_ast_targets(self, content, target_patterns):
         """Mock targets matching `target_patterns`, found structurally.
 
-        The single source of mock findings. See _patch_targets for what is and is
-        not statically resolvable, and why keeping a second line-regex detector
-        alongside this was itself a defect.
+        The single source of mock findings: every `patch(...)`/`patch.object(...)`
+        call target (`_patch_targets`) AND every manual `frappe.<...> = value`
+        reassignment (`_reassign_targets`, #1542) -- the same policy applies to
+        both, since a manual monkeypatch mocks exactly as much as a `patch()` call
+        does. See `_patch_targets` for what is and is not statically resolvable,
+        and why keeping a second line-regex detector alongside this was itself a
+        defect.
         """
+        all_targets = _patch_targets(content) + _reassign_targets(content)
         return [
             (lineno, target)
-            for lineno, target in _patch_targets(content)
+            for lineno, target in all_targets
             if any(re.search(pat, target) for pat in target_patterns)
         ]
     def _check_database_mocks(self, file_path: str, content: str) -> bool:
