@@ -334,6 +334,30 @@ class TestMemberEndDateReconstructionReport(VereningingenTestCase):
         self.assertTrue(result["success"])
         self.assertEqual(str(frappe.db.get_value("Member", member.name, "member_end_date")), suggested)
 
+    def test_apply_suggestion_survives_when_member_since_is_on_or_after_suggested_date(self):
+        """#1554 round 2 (independent review): apply_suggestion() sets
+        member_end_date on a Quit member (its own precondition) via
+        member.save(), which runs the Member before_save hook
+        (member_utils.update_termination_status_display) on the SAME save.
+        A status-blind version of #1554's fix (clearing whenever
+        member_end_date <= member_since, on ANY status) erased the value
+        apply_suggestion had JUST written, in that same save, whenever
+        member_since happened to be on or after the suggested date -- a
+        self-defeating write. Reproduced here for real by setting
+        member_since explicitly: _quit_member's own fixture leaves it NULL,
+        which is why the sibling test_apply_suggestion_sets_end_date does
+        not, by itself, catch this."""
+        member = self._quit_member(with_customer=True)
+        frappe.db.set_value("Member", member.name, "member_since", "2025-01-01", update_modified=False)
+        suggested = "2024-12-31"  # BEFORE member_since
+        result = report.apply_suggestion(member.name, suggested)
+        self.assertTrue(result["success"])
+        self.assertEqual(
+            str(frappe.db.get_value("Member", member.name, "member_end_date")),
+            suggested,
+            "apply_suggestion's own write must survive the same save (#1554 round 2)",
+        )
+
     def test_apply_suggestion_rejects_non_quit_member(self):
         member = self.create_test_member(
             chapter=False,

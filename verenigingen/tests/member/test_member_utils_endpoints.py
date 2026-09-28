@@ -633,6 +633,166 @@ class TestMemberUtilsEndpoints(VereningingenTestCase):
             "application_status merely defaults to 'Pending'",
         )
 
+    def test_update_termination_status_display_clears_member_end_date_with_no_termination_request(self):
+        """#1554: member_end_date can be written by a path that never creates
+        a Membership Termination Request at all -- a raw `frappe.db.set_value`
+        (e.g. `mollie_debug_service._sync_single_member_end_date`) does not
+        depend on one existing. #1548's clearing logic sits entirely inside
+        `if executed_termination:`, so a member with NO termination request
+        of any kind never reached it, regardless of rejoin -- the stale value
+        stayed forever. member_since advancing past a stale member_end_date
+        must clear it on its own, independent of whether any termination
+        request backs that value.
+
+        Calls the hook directly (`mu.update_termination_status_display`),
+        matching every sibling test in this section -- the hook is a pure
+        function of doc state, not itself gated on request context. The
+        `frappe.db.set_value` write below stands in for the Mollie writer's
+        own bypass of before_save (see #1554); it is that writer's exact
+        mechanism, not a hand-rolled shortcut."""
+        member_doc = frappe.get_doc("Member", self.member.name)
+        member_doc.member_since = add_months(today(), -6)
+        member_doc.application_status = "Approved"
+        member_doc.status = "Active"
+        member_doc.save()
+
+        # The writer's own raw overwrite -- no Membership Termination
+        # Request exists for this member at all.
+        stale_end_date = add_months(today(), -3)
+        frappe.db.set_value(
+            "Member", member_doc.name, "member_end_date", stale_end_date, update_modified=False
+        )
+        member_doc.reload()
+        self.assertEqual(member_doc.member_end_date, getdate(stale_end_date))
+        self.assertEqual(
+            frappe.db.count("Membership Termination Request", {"member": member_doc.name}),
+            0,
+            "precondition: no termination request exists for this scenario",
+        )
+
+        # Real rejoin: member_since resets to AFTER the stale end date.
+        member_doc.member_since = today()
+        member_doc.status = "Active"
+        mu.update_termination_status_display(member_doc)
+        self.assertIsNone(
+            member_doc.member_end_date,
+            "A stale member_end_date with no termination request behind it must "
+            "still be cleared once member_since advances past it (#1554)",
+        )
+
+    def test_update_termination_status_display_quit_member_survives_unrelated_save_when_member_since_is_later(
+        self,
+    ):
+        """#1554 round 2 (independent review): reproduces a REAL veg11 row
+        (Assoc-Member-2026-01-33238: status Quit, member_since AFTER
+        member_end_date, zero Membership Termination Requests) that a
+        status-blind version of the #1554 fix (member_end_date <=
+        member_since, on ANY status) silently wiped on an unrelated save --
+        making a genuinely terminated member read as retained by
+        membership_analytics.py (its queries treat a NULL member_end_date as
+        "still a member"). member_since being later than member_end_date is
+        NOT evidence of a rejoin by itself: an import writer can move
+        member_since (or populate it for the first time) without the member
+        ever rejoining -- see the member_since writer table in the PR
+        description. Only `status == "Active"` (what the real
+        rejoin/approval flow actually sets) is the positive signal.
+
+        Hand-sets status="Quit" directly (a probe shortcut, disclosed): it
+        stands in for the production row's OWN observed shape (read-only
+        SELECT against veg11), not a hypothetical -- the point under test is
+        the hook's behaviour given that DB state, regardless of which
+        writer produced it."""
+        member_doc = frappe.get_doc("Member", self.member.name)
+        member_doc.status = "Quit"
+        member_doc.member_end_date = add_months(today(), -6)
+        member_doc.member_since = add_months(today(), -2)  # AFTER the end date
+        member_doc.save()
+        self.assertEqual(
+            frappe.db.count("Membership Termination Request", {"member": member_doc.name}),
+            0,
+            "precondition: no termination request exists for this scenario (matches the veg11 row)",
+        )
+
+        # An unrelated save must not touch member_end_date.
+        member_doc.reload()
+        member_doc.notes = "Unrelated edit, not a rejoin"
+        member_doc.save()
+        member_doc.reload()
+        self.assertEqual(
+            member_doc.member_end_date,
+            getdate(add_months(today(), -6)),
+            "A Quit member's own end date must survive regardless of member_since "
+            "ordering -- member_since alone is not evidence of a rejoin (#1554 round 2)",
+        )
+
+    def test_update_termination_status_display_active_member_non_stale_end_date_survives(self):
+        """Control (#1554 round 2): an Active member whose member_end_date is
+        AFTER member_since (i.e. NOT stale -- e.g. a Mollie subscription
+        cancellation recorded mid-membership, before any formal termination
+        has actually been executed) must survive an unrelated save.
+        Distinguishes the real fix's date comparison from a plausible wrong
+        fix that clears whenever `status == "Active"` alone, ignoring
+        whether the date is actually stale."""
+        member_doc = frappe.get_doc("Member", self.member.name)
+        member_doc.status = "Active"
+        member_doc.member_since = add_months(today(), -12)
+        member_doc.member_end_date = add_months(today(), -1)  # AFTER member_since
+        member_doc.save()
+
+        member_doc.reload()
+        member_doc.notes = "Unrelated edit"
+        member_doc.save()
+        member_doc.reload()
+        self.assertEqual(
+            member_doc.member_end_date,
+            getdate(add_months(today(), -1)),
+            "An Active member's own, non-stale member_end_date must survive (#1554 round 2 control)",
+        )
+
+    def test_update_termination_status_display_quit_member_survives_when_member_since_populated_for_first_time_past_end_date(
+        self,
+    ):
+        """#1554 round 2: a member_since IMPORT writer can populate
+        member_since for the FIRST TIME (it was previously NULL) on a
+        member who already carries a member_end_date, landing the new
+        member_since after that end date -- without the member ever
+        rejoining. services/csv_import/member_import_service.py's
+        `_set_member_since_date` does exactly this in its `else` branch
+        (`member_doc.member_since = new_member_since`, used when
+        `member_doc.member_since` was falsy) whenever the CSV membership
+        type maps to a non-Active status (e.g. "opgezegd" -> Quit, per
+        MemberImportService.STATUS_MAP) -- status is set from the SAME row
+        in the SAME update_member_fields() call, so this scenario keeps the
+        member Quit throughout, matching the real writer's own behaviour.
+
+        Reproduced here as a direct field write (disclosed) standing in for
+        that writer's mechanism -- invoking the full CSV import service
+        would additionally require its lookup-strategy and membership/dues
+        scaffolding, which is orthogonal to what is under test here (the
+        hook's response to this DB state). Status is never hand-set to
+        anything the writer itself would not also set for this row shape."""
+        member_doc = frappe.get_doc("Member", self.member.name)
+        member_doc.status = "Quit"
+        member_doc.member_since = None
+        member_doc.member_end_date = add_months(today(), -6)
+        member_doc.save()
+        member_doc.reload()
+        self.assertIsNone(member_doc.member_since, "precondition: member_since starts NULL")
+
+        # The import writer's mechanism: member_since populated for the
+        # first time, landing AFTER the existing member_end_date. Status
+        # stays "Quit" -- same call, same row, no rejoin involved.
+        member_doc.member_since = add_months(today(), -2)
+        member_doc.status = "Quit"
+        member_doc.save()
+        member_doc.reload()
+        self.assertEqual(
+            member_doc.member_end_date,
+            getdate(add_months(today(), -6)),
+            "A still-Quit member's end date must survive an import writer populating "
+            "member_since for the first time past it (#1554 round 2)",
+        )
+
     # ------------------------------------------------------------------ member id counter
 
     def test_get_next_member_id_preview_shape(self):
