@@ -16,6 +16,16 @@ from typing import Dict, List, Any, Tuple
 from datetime import datetime
 import frappe
 
+# Shared with process_payment_batch_simulation()'s discovery query and with
+# its regression test (verenigingen/tests/unit/
+# test_performance_profiler_current_chapter_display.py) -- a single
+# definition so the two can never silently drift apart (#1528/#1539).
+UNRECONCILED_CUSTOMER_PAYMENT_FILTERS = {
+    "docstatus": 1,
+    "unallocated_amount": [">", 0.0],
+    "party_type": "Customer",
+}
+
 def profile_payment_operations() -> Dict[str, Any]:
     """
     Profile actual payment processing bottlenecks
@@ -176,11 +186,44 @@ def profile_payment_reconciliation() -> Dict[str, Any]:
 
 def process_payment_batch_simulation(batch_size: int):
     """Simulate payment batch processing"""
-    
-    # Get sample payment entries using standardized utility
+
+    if batch_size <= 0:
+        # frappe.get_all() treats a falsy `limit` (0, None, ...) as NO limit at
+        # all, so batch_size<=0 would otherwise make the discovery query below
+        # scan the whole Payment Entry table before the loop no-ops anyway.
+        return 0
+
+    # get_unreconciled_payments() early-returns [] unconditionally with no
+    # `customer` (verenigingen_payments/utils/payment_utils.py) -- a deliberate
+    # guard other callers rely on and test directly, so it stays as-is (#1539).
+    # Find customers who actually have unreconciled payments and query per
+    # customer instead, matching the function's own documented per-customer usage.
     from verenigingen.utils.payment_utils import get_unreconciled_payments
-    payments = get_unreconciled_payments(minimum_amount=0.0, limit=batch_size)
-    
+
+    customers_with_unreconciled_payments = frappe.get_all(
+        "Payment Entry",
+        filters=UNRECONCILED_CUSTOMER_PAYMENT_FILTERS,
+        pluck="party",
+        distinct=True,
+        order_by="creation desc",
+        limit=batch_size,
+    )
+
+    # Each per-customer call is capped at the REMAINING budget, and the loop
+    # stops as soon as the batch is full -- with a flat `limit=batch_size` on
+    # every call instead, batch_size customers each contributing batch_size
+    # rows fetches up to batch_size^2 rows to produce batch_size (measured:
+    # 10k rows for a batch_size=100 run), in a script whose whole purpose is
+    # measuring batch cost.
+    payments = []
+    for customer in customers_with_unreconciled_payments:
+        remaining = batch_size - len(payments)
+        if remaining <= 0:
+            break
+        payments.extend(
+            get_unreconciled_payments(customer=customer, minimum_amount=0.0, limit=remaining)
+        )
+
     processed_count = 0
     
     for payment in payments:
@@ -190,10 +233,12 @@ def process_payment_batch_simulation(batch_size: int):
             
             # Simulate related data lookups
             if payment_doc.party:
-                # Look up member information
-                member = frappe.get_all("Member", 
+                # Look up member information. current_chapter_display has no DB
+                # column (#1528, same shape as #1516); dropped since it was never
+                # read below anyway.
+                member = frappe.get_all("Member",
                     filters={"customer": payment_doc.party},
-                    fields=["name", "full_name", "current_chapter_display"],
+                    fields=["name", "full_name"],
                     limit=1
                 )
                 
