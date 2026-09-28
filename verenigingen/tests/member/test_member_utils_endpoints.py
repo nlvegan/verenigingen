@@ -749,7 +749,7 @@ class TestMemberUtilsEndpoints(VereningingenTestCase):
             "An Active member's own, non-stale member_end_date must survive (#1554 round 2 control)",
         )
 
-    def test_update_termination_status_display_clears_when_member_since_populated_for_first_time_past_end_date(
+    def test_update_termination_status_display_quit_member_survives_when_member_since_populated_for_first_time_past_end_date(
         self,
     ):
         """#1554 round 2: a member_since IMPORT writer can populate
