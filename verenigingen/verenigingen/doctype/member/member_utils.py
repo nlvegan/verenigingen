@@ -666,13 +666,29 @@ def update_termination_status_display(doc, method=None):
     # The `if executed_termination:` block below only ever reasons about a
     # value tied to a specific request, so neither case was ever revisited
     # on a later rejoin -- reproducing #1544's bug class through this field.
-    # Regardless of source, a member_end_date at or before the member's
-    # CURRENT member_since necessarily belongs to a membership period this
-    # member no longer holds (#1544's ruling: only the CURRENT membership's
-    # own termination counts), so clear it here, unconditionally, before
-    # reasoning about any specific termination request below.
+    #
+    # member_since being later than member_end_date is NOT by itself
+    # evidence of a rejoin (round 2, independent review): CSV/data-import
+    # writers can move member_since forward -- or populate it for the first
+    # time -- on a member who never rejoined at all, and
+    # member_end_date_reconstruction.apply_suggestion() writes
+    # member_end_date on a member who is (by its own precondition) status
+    # "Quit", not Active. A status-blind version of this check reproduced a
+    # REAL veg11 row this way (Quit, member_since after member_end_date,
+    # zero termination requests) and silently erased that member's end
+    # date on an unrelated save -- making a genuinely terminated member
+    # read as retained by membership_analytics.py -- and separately erased
+    # apply_suggestion's own write in the same save that made it. The real
+    # rejoin/approval flow is what sets status to "Active"
+    # (services/member/approval/application_helpers.py::
+    # update_member_from_reapplication -> api/membership_application_review.py::
+    # approve_membership_application), so require that as the positive
+    # signal, mirroring #1548's own supersession reasoning one level up.
+    # Member.status options: Pending, Active, Rejected, Expired, Suspended,
+    # Banned, Deceased, Quit -- only "Active" is a currently-held membership.
     if (
-        member.member_end_date
+        member.status == "Active"
+        and member.member_end_date
         and member.member_since
         and getdate(member.member_end_date) <= getdate(member.member_since)
     ):
