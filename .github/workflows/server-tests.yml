@@ -50,6 +50,12 @@ on:
       # after a sys.path.insert, so it cannot catch this one and add it automatically --
       # listed here by hand instead.
       - 'scripts/monitoring/zabbix_integration.py'
+      # #1528/#1539: verenigingen/tests/unit/
+      # test_performance_profiler_current_chapter_display.py imports this file
+      # directly. Same rationale as #1189 above -- a single specific file, not
+      # `scripts/performance/**/*.py` (4 of its 5 files are not imported by
+      # anything under verenigingen/tests/).
+      - 'scripts/performance/performance_profiler.py'
       - 'pyproject.toml'
       - '.github/workflows/server-tests.yml'
       - '.github/workflows/_base-server-tests.yml'
@@ -71,6 +77,8 @@ on:
       - 'scripts/validation/savepoint_rollback_validator.py'
       # See the matching push.paths comment above -- same rationale, #1541.
       - 'scripts/monitoring/zabbix_integration.py'
+      # See the matching push.paths comment above -- same rationale, #1528/#1539.
+      - 'scripts/performance/performance_profiler.py'
       - 'pyproject.toml'
       - '.github/workflows/server-tests.yml'
       - '.github/workflows/_base-server-tests.yml'

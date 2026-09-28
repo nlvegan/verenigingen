@@ -612,7 +612,7 @@ def calculate_current_churn_rate():
     active_members = frappe.db.count("Member", {"status": "Active"})
     terminated_last_year = frappe.db.count(
         "Membership Termination Request",
-        {"status": "Completed", "termination_date": [">=", add_months(getdate(), -12)]},
+        {"status": "Executed", "termination_date": [">=", add_months(getdate(), -12)]},
     )
 
     return (terminated_last_year / active_members * 100) if active_members > 0 else 0

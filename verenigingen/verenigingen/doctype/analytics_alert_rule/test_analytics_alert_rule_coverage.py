@@ -24,9 +24,13 @@ writes go through real secure_document_operation as Administrator.
 """
 
 import frappe
-from frappe.utils import flt
+from frappe.utils import flt, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.termination_request import (
+    create_draft_termination_request,
+    execute_real_termination,
+)
 
 
 class TestAnalyticsAlertRuleCoverage(EnhancedTestCase):
@@ -176,6 +180,45 @@ class TestAnalyticsAlertRuleCoverage(EnhancedTestCase):
         rate = rule.calculate_churn_rate()
         self.assertIsInstance(rate, (int, float))
         self.assertGreaterEqual(rate, 0)
+
+    def test_calculate_churn_rate_increases_after_real_termination(self):
+        """#1532: calculate_churn_rate() filtered Membership Termination
+        Request on status="Completed", which is not a valid Select option
+        (Draft/Pending/Approved/Rejected/Executed/Cancelled) -- the real
+        terminal value TerminationExecutionService.execute() writes is
+        "Executed" -- so `terminated` was always 0 and churn_rate always
+        read 0%, silently. Compares BEFORE vs AFTER a REAL termination
+        (TerminationExecutionService, not a hand-set status -- #1530 was
+        found precisely because an earlier fix trusted a status string)
+        rather than an absolute value: churn_rate is a GLOBAL count, so an
+        absolute expected value would be fragile against whatever else
+        exists on the site. One real Executed termination, within the
+        rule's own check_frequency window, both increases the numerator
+        (terminated) and decreases the denominator (active_members, since
+        the terminated member's status is no longer "Active"), so
+        churn_rate strictly increases.
+
+        Control: a Membership Termination Request left at status="Draft"
+        (never executed) must NOT count -- this is what distinguishes the
+        "Executed"-only fix from the plausible wrong fix of dropping the
+        status filter entirely (any termination request, regardless of
+        status, would then count as churn)."""
+        rule = self._make_rule(metric="Churn Rate", threshold_value=50, check_frequency="Monthly")
+        # keeps active_members >= 1 after the termination below removes one.
+        self._make_survivor_member()
+        terminated_member = self._make_survivor_member()
+        draft_member = self._make_survivor_member()
+
+        before = rule.calculate_churn_rate()
+
+        create_draft_termination_request(self, draft_member.name)
+        mid = rule.calculate_churn_rate()
+        self.assertEqual(mid, before, "a Draft (never executed) request must not count as churn")
+
+        execute_real_termination(self, terminated_member.name, termination_date=today())
+        after = rule.calculate_churn_rate()
+
+        self.assertGreater(after, mid)
 
     def test_calculate_payment_failure_rate_is_percentage(self):
         rule = self._make_rule(metric="Payment Failure Rate", threshold_value=50)
@@ -331,3 +374,11 @@ class TestAnalyticsAlertRuleCoverage(EnhancedTestCase):
         log.insert()
         self.track_doc("Analytics Alert Log", log.name)
         return log
+
+    def _make_survivor_member(self):
+        member = self.create_test_member(
+            first_name="AARChurn",
+            last_name="Member",
+            email=f"aar.churn.{frappe.generate_hash(length=8)}@example.com",
+        )
+        return member
