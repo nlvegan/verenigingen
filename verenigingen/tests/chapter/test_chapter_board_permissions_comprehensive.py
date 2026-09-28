@@ -63,7 +63,7 @@ class ChapterBoardTestFactory:
                 frappe.set_user("Administrator")
                 company.insert()
             finally:
-                frappe.session.user = original_user
+                frappe.set_user(original_user)
             self.test_case.track_doc("Company", company.name)
         return company_name
 
@@ -380,7 +380,7 @@ class ChapterBoardTestFactory:
                 frappe.set_user("Administrator")
                 user.insert()
             finally:
-                frappe.session.user = original_user
+                frappe.set_user(original_user)
             self.test_case.track_doc("User", user.name)
 
         # Assign roles if provided
@@ -394,7 +394,7 @@ class ChapterBoardTestFactory:
                 frappe.set_user("Administrator")
                 user.save()
             finally:
-                frappe.session.user = original_user
+                frappe.set_user(original_user)
 
         return user
 
