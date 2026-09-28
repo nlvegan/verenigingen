@@ -80,6 +80,7 @@ verenigingen/tests/chapter/test_chapter_utils.py::TestChapterUtilsAccess.test_bo
 verenigingen/tests/chapter/test_chapter_utils.py::TestChapterUtilsAccess.test_database_error_propagates_instead_of_denying_access::DATABASE MOCK::1
 verenigingen/tests/chapter/test_team_role_integration.py::TestTeamRoleIntegration.test_team_leader_system_role_assignment::PERMISSION BYPASS::1
 verenigingen/tests/chapter/test_team_role_profile_sync.py::TestSyncTeamLeadRole.test_removes_role_when_no_longer_leading::PERMISSION BYPASS::1
+verenigingen/tests/doctype/test_procurios_membership_import_row_atomicity.py::_break_membership_tag_write::DATABASE MOCK::1
 verenigingen/tests/e_boekhouden/test_cleanup_utils_sweep.py::TestCleanupSmallBatch.test_deletes_seeded_sales_invoice::DATABASE MOCK::1
 verenigingen/tests/e_boekhouden/test_cleanup_utils_sweep.py::TestDeleteAllPaymentEntriesSuccess.test_deletes_enumerated_pes_and_cascades_bank_transactions::DATABASE MOCK::1
 verenigingen/tests/e_boekhouden/test_cleanup_utils_sweep.py::TestNuclearCleanup.test_orchestration_deletes_tagged_docs_and_provisional_parties::DATABASE MOCK::1
@@ -92,7 +93,9 @@ verenigingen/tests/events/test_expense_hook_defers.py::TestExpenseHookDefers.tes
 verenigingen/tests/events/test_expense_hook_defers.py::TestExpenseHookDefers.test_update_after_submit_handler_enqueues_add::DATABASE MOCK::1
 verenigingen/tests/financial/test_nuke_financial_data_safeguards.py::_destruction_proof_db::DATABASE MOCK::1
 verenigingen/tests/integration/test_payment_processing_api_integration.py::TestPaymentProcessingAPIIntegration._enable_notifications::PERMISSION BYPASS::2
+verenigingen/tests/integration/test_query_optimization_suite.py::query_counter::DATABASE MOCK::2
 verenigingen/tests/member/test_member_merge.py::TestMemberMerge.test_merge_conflict_warnings::PERMISSION BYPASS::2
+verenigingen/tests/member/test_member_performance_optimization.py::TestMemberPerformanceOptimization.test_query_counter_survives_an_instance_level_sql_attribute::DATABASE MOCK::1
 verenigingen/tests/member/test_membership_type_change.py::TestMembershipTypeChange.create_membership_type::PERMISSION BYPASS::2
 verenigingen/tests/membership/test_membership_dues_integration.py::TestMemberPaidYtdFailsLoudly.test_raises_when_both_paths_fail::DATABASE MOCK::1
 verenigingen/tests/membership/test_membership_dues_integration.py::TestMemberPaidYtdFailsLoudly.test_sql_failure_alone_still_degrades_to_the_python_fallback::DATABASE MOCK::1
@@ -166,6 +169,8 @@ verenigingen/tests/services/event_application/test_member_sync_service.py::TestA
 verenigingen/tests/services/test_mollie_sync_service.py::TestSyncMollieData.test_defaults_to_active_when_status_missing::BUSINESS LOGIC MOCK PROHIBITED::1
 verenigingen/tests/services/test_mollie_sync_service.py::TestSyncMollieData.test_honors_canceled_status_from_mollie_data::BUSINESS LOGIC MOCK PROHIBITED::1
 verenigingen/tests/services/test_mollie_sync_service.py::TestSyncMollieData.test_no_subscription_status_change_without_subscription_id::BUSINESS LOGIC MOCK PROHIBITED::1
+verenigingen/tests/test_delete_audit_selftest.py::DeleteAuditControl.test_5_negative_a_failed_pre_delete_read_is_unverifiable::DATABASE MOCK::2
+verenigingen/tests/test_harness.py::TestEnvironment._setup_frappe_mocks::DATABASE MOCK::2
 verenigingen/tests/test_harness.py::test_business_workflows::BUSINESS LOGIC MOCK PROHIBITED::1
 verenigingen/tests/unit/utils/test_security_utilities.py::TestSecureDocumentOperationAuthorization.test_authorized_user_can_use_bypass_validations::BUSINESS LOGIC MOCK PROHIBITED::1
 verenigingen/tests/unit/utils/test_security_utilities.py::TestSecureDocumentOperationAuthorization.test_unauthorized_user_cannot_request_escalation::BUSINESS LOGIC MOCK PROHIBITED::1

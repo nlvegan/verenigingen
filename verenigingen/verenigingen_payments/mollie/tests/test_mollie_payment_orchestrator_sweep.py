@@ -32,6 +32,7 @@ import frappe
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.support.sepa_test_company import (
     ensure_membership_dues_item,
+    get_eur_bank_account,
     get_eur_test_company,
 )
 from verenigingen.verenigingen_payments.services.mollie_payment_orchestrator import (
@@ -367,18 +368,46 @@ class TestCreateOrphanPaymentEntryErrorPath(unittest.TestCase):
 # ===========================================================================
 # process_orphaned_payment  (customer-linked success branch)
 # ===========================================================================
-class TestProcessOrphanedPaymentCustomerLinked(unittest.TestCase):
+class TestProcessOrphanedPaymentCustomerLinked(EnhancedTestCase):
+    """#1542 review: this used to fake frappe.db.get_value to simulate "no
+    existing Bank Transaction for this payment_id". process_orphaned_payment's
+    idempotency check is a real `frappe.db.get_value("Bank Transaction",
+    {"reference_number": payment_id}, "name")` query -- against a real test
+    site, a freshly-generated payment_id genuinely has no matching row, so the
+    correct behaviour is reachable with no fake at all. A decoy real Bank
+    Transaction under a DIFFERENT reference_number is planted first, so the
+    test also proves the lookup is a FILTERED query and not merely "the table
+    happens to be empty": an over-broad query (e.g. one that ignores the
+    filter and returns any row) would pick up the decoy and flip the result to
+    "already_processed", which the assertions below would catch.
+    """
+
     def test_creates_bt_linked_to_resolved_customer(self):
+        company = get_eur_test_company()
+        bank_account = get_eur_bank_account(company)
+        account = frappe.get_cached_value("Bank Account", bank_account, "account")
+        currency = frappe.get_cached_value("Account", account, "account_currency") if account else None
+
+        decoy = frappe.new_doc("Bank Transaction")
+        decoy.date = frappe.utils.today()
+        decoy.deposit = 10.0
+        decoy.bank_account = bank_account
+        if currency:
+            decoy.currency = currency
+        decoy.reference_number = f"tr_decoy_{frappe.generate_hash()[:10]}"
+        decoy.insert()
+        self.track_doc("Bank Transaction", decoy.name)
+
+        # A fresh payment_id: no Bank Transaction in the real DB carries this
+        # reference_number, so the idempotency check's "not found" branch is
+        # reached for real, not simulated.
+        payment_id = f"tr_sweep_{frappe.generate_hash()[:10]}"
+
         bt = _FakeBTCreator(bt_name="BT-LINKED")
         orch = _bare_orchestrator(bt=bt)
-        # Boundary: no existing BT; customer resolved from Mollie data.
-        original = frappe.db.get_value
-        frappe.db.get_value = lambda *a, **k: None
         orch._find_or_create_customer_from_mollie = lambda cid, payment, result: "CUST-RESOLVED"
-        try:
-            out = orch.process_orphaned_payment("tr_1", payment=_paid_payment(customer_id="cst_9"))
-        finally:
-            frappe.db.get_value = original
+
+        out = orch.process_orphaned_payment(payment_id, payment=_paid_payment(customer_id="cst_9"))
 
         self.assertEqual(out.status, "success")
         self.assertEqual(out.bank_transaction, "BT-LINKED")

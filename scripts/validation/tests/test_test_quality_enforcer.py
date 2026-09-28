@@ -562,8 +562,42 @@ class WholeTreeTotalsTest(unittest.TestCase):
         # (2). None of this is new debt -- it is debt that was always there and
         # could not be measured; each site was read and confirmed to be a genuine
         # `frappe.*` reassignment, not a false positive.
-        self.assertEqual(229, len(self.findings), "finding count moved")
-        self.assertEqual(203, len(tqe.counts_of(self.findings)), "key count moved")
+        #
+        # 229 -> 221 findings, 203 -> 199 keys (#1542 review, maintainer ruling
+        # "BASELINE 5, FIX 4"): of the 9 keys #1542 newly exposed, 4 were FIXED in
+        # the same PR rather than baselined -- rewritten onto real fixtures/rows
+        # instead of a mock, per this repo's own "Database mocks BLOCKED -- use
+        # real operations" policy, with a red/green mutation proving each rewrite
+        # still catches the defect it claims to:
+        #   * `tests/donor/test_donor_security_core.py`'s 3 keys
+        #     (test_sql_injection_prevention_core, test_escape_function_validation,
+        #     test_address_permission_sql_injection) now create a REAL Member via
+        #     the Enhanced Test Factory, `frappe.rename_doc()`'d onto the injection
+        #     payload (Member's docname is unrestricted beyond `<`/`>`), linked to a
+        #     real User holding the Verenigingen Member role -- no
+        #     frappe.db.get_value/frappe.get_roles fake at all. Reverting
+        #     `frappe.db.escape()` to a raw f-string in permissions.py reddens all
+        #     3 (mutation-tested); the address test's original loose
+        #     "contains an escaped-looking quote" assertion did NOT redden under
+        #     that mutation (the payload's own leading quote made the naive,
+        #     unescaped `''` coincidentally look like a correctly-doubled escape),
+        #     so it was tightened to assert the exact escaped token and assert the
+        #     naive token's absence.
+        #   * `verenigingen_payments/mollie/tests/test_mollie_payment_orchestrator_sweep.py`
+        #     ::TestProcessOrphanedPaymentCustomerLinked (moved onto
+        #     EnhancedTestCase) now uses a fresh, real `payment_id` that genuinely
+        #     has no matching Bank Transaction row, instead of faking
+        #     frappe.db.get_value to return None -- plus a decoy real Bank
+        #     Transaction under a different reference_number, so the test also
+        #     proves the idempotency lookup is a FILTERED query. Dropping that
+        #     filter in mollie_payment_orchestrator.py (mutation) makes the decoy
+        #     get matched and reddens the test.
+        # The other 5 keys are baselined as pre-existing debt this PR's detection
+        # fix newly measures but did not create -- see the baseline file's own
+        # header on why a detection-rule change is the one legitimate reason it
+        # grows.
+        self.assertEqual(221, len(self.findings), "finding count moved")
+        self.assertEqual(199, len(tqe.counts_of(self.findings)), "key count moved")
 
     def test_findings_are_keyed_to_a_named_scope(self):
         """A key of '<module>' is legitimate but should stay rare; a flood of them

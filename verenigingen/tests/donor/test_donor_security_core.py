@@ -80,6 +80,52 @@ class TestDonorSecurityCore(VereningingenTestCase):
         self.track_doc("Donor", donor.name)
         return donor
 
+    def _create_member_named(self, payload, roles=("Verenigingen Member",)):
+        """Create a REAL User + Member, then rename the Member onto `payload`.
+
+        #1542 review: these SQL-injection tests used to fake
+        frappe.db.get_value()/frappe.get_roles() to simulate "a member record
+        whose docname is the attacker's payload". A Member docname is not
+        actually restricted to that shape -- validate_name() only forbids
+        `<`/`>` (frappe/model/naming.py) -- so the scenario is reproducible for
+        real: create an ordinary Member, then frappe.rename_doc() it onto the
+        payload (force=True, since Member has no allow_rename). Every later
+        call in the test reaches this row through the exact
+        frappe.db.get_value("Member", {"user": ...}) / frappe.get_roles(...)
+        calls production uses; nothing about the lookup path itself is faked,
+        only the value -- which is genuinely attacker-influenced in the real
+        system too (a chapter board member can rename a Member they administer).
+
+        Trailing digit in the email's local part matches
+        create_test_board_member's convention: the factory rewrites
+        Member.email unless the local part's last 5 characters contain one,
+        which would otherwise silently decouple Member.email from Member.user.
+        """
+        run = f"{frappe.generate_hash(length=8)}0"
+        email = f"security_core_{run}@example.com"
+        user = frappe.get_doc(
+            {
+                "doctype": "User",
+                "email": email,
+                "first_name": "Security",
+                "send_welcome_email": 0,
+                "enabled": 1,
+                "roles": [{"role": role} for role in roles],
+            }
+        )
+        user.insert(ignore_permissions=True)
+        self.track_doc("User", user.name)
+
+        member = self.factory.create_test_member(
+            first_name="Security", last_name=f"Core{run[:6]}", email=email, birth_date="1990-01-01"
+        )
+        member.db_set("user", email)
+
+        frappe.rename_doc("Member", member.name, payload, force=True)
+        self.track_doc("Member", payload)
+
+        return email
+
     def test_sql_injection_prevention_core(self):
         """Test SQL injection prevention in permission query generation"""
 
@@ -88,45 +134,26 @@ class TestDonorSecurityCore(VereningingenTestCase):
 
         for payload in injection_payloads:
             with self.subTest(payload=payload):
-                # get_member_name_for_user() (called from get_donor_permission_query)
-                # is only reached for a user holding the Verenigingen Member /
-                # Chapter Board Member role - self.member_user_email has no real
-                # User account, so without mock_roles the code short-circuits to
-                # "1=0" before ever calling frappe.db.get_value("Member", ...) and
-                # this patch would never fire. Grant the role so the malicious
-                # "member name" actually flows into the generated query.
-                original_get_value = frappe.db.get_value
-                original_get_roles = frappe.get_roles
+                # A real Member whose docname IS the payload, linked to a real
+                # user holding the Verenigingen Member role -- see
+                # _create_member_named. Without that role,
+                # get_donor_permission_query short-circuits to "1=0" before
+                # ever reaching the member lookup.
+                user_email = self._create_member_named(payload)
 
-                def dangerous_get_value(doctype, filters, fieldname=None):
-                    if doctype == "Member" and isinstance(filters, dict) and "user" in filters:
-                        return payload  # Simulate a corrupted member docname
-                    return original_get_value(doctype, filters, fieldname)
+                result = get_donor_permission_query(user_email)
 
-                def member_role_get_roles(user=None, with_standard=True):
-                    return ["Verenigingen Member", "All"]
+                # frappe.db.escape() must wrap the malicious payload as a single
+                # quoted string literal (quotes backslash-escaped) - not leave
+                # it interpolated raw, which would let it break out of the
+                # literal and execute as SQL.
+                expected = f"(`tabDonor`.member = {frappe.db.escape(payload)})"
+                self.assertEqual(result, expected)
 
-                frappe.db.get_value = dangerous_get_value
-                frappe.get_roles = member_role_get_roles
-
-                try:
-                    result = get_donor_permission_query(self.member_user_email)
-
-                    # frappe.db.escape() must wrap the malicious payload as a single
-                    # quoted string literal (quotes backslash-escaped) - not leave
-                    # it interpolated raw, which would let it break out of the
-                    # literal and execute as SQL.
-                    expected = f"(`tabDonor`.member = {frappe.db.escape(payload)})"
-                    self.assertEqual(result, expected)
-
-                    # Executing the generated condition must not raise/execute the
-                    # injected statement - it should behave as a literal comparison.
-                    count = frappe.db.sql(f"SELECT COUNT(*) FROM `tabDonor` WHERE {result}")[0][0]
-                    self.assertEqual(count, 0, "Escaped payload should not match any real donor row")
-
-                finally:
-                    frappe.db.get_value = original_get_value
-                    frappe.get_roles = original_get_roles
+                # Executing the generated condition must not raise/execute the
+                # injected statement - it should behave as a literal comparison.
+                count = frappe.db.sql(f"SELECT COUNT(*) FROM `tabDonor` WHERE {result}")[0][0]
+                self.assertEqual(count, 0, "Escaped payload should not match any real donor row")
 
     def test_admin_access_validation(self):
         """Test admin role access validation"""
@@ -262,44 +289,35 @@ class TestDonorSecurityCore(VereningingenTestCase):
 
         injection_payload = "'; DROP TABLE tabAddress; --"
 
-        # Mock member name with injection payload
-        original_get_value = frappe.db.get_value
+        # A real Member whose docname IS the payload -- see _create_member_named.
+        # get_address_permission_query() looks up the member unconditionally
+        # (unlike the donor/SEPA factory, it is not role-gated), so the malicious
+        # docname reaches the query regardless of which role the user holds.
+        user_email = self._create_member_named(injection_payload)
 
-        def malicious_get_value(doctype, filters, fieldname=None):
-            if doctype == "Member":
-                return injection_payload
-            return original_get_value(doctype, filters, fieldname)
+        query = get_address_permission_query(user_email)
 
-        frappe.db.get_value = malicious_get_value
+        # Should handle malicious input safely
+        self.assertIsNotNone(query)
+        self.assertNotEqual(query, "1=0", "member_name was set, so a condition must be built")
 
-        try:
-            query = get_address_permission_query(self.member_user_email)
-
-            # Should handle malicious input safely
-            self.assertIsNotNone(query)
-
-            # If not restrictive "1=0", should be properly escaped.
-            # The payload's own text ("DROP TABLE ...") legitimately appears inside
-            # an escaped SQL string literal — that is harmless. The security
-            # property is that the injection cannot BREAK OUT of that literal, i.e.
-            # the payload's leading single quote is escaped (as \' or '') by
-            # frappe.db.escape and never appears as a bare, unescaped quote that
-            # would terminate the literal early. Assert the escaped form is present.
-            if query != "1=0":
-                self.assertIn("'", query, "Should contain escaped quotes")
-                # The injection payload begins with a single quote intended to
-                # terminate the SQL string literal early. frappe.db.escape neutralises
-                # it by emitting the payload wrapped in quotes with the internal quote
-                # escaped as \' (MariaDB driver) or doubled as ''. Assert that the
-                # payload's quote appears only in escaped form — i.e. the escaped
-                # token is present in the query.
-                self.assertTrue(
-                    "\\'; DROP TABLE tabAddress; --" in query or "''; DROP TABLE tabAddress; --" in query,
-                    f"Injection payload's quote must be escaped (got {query!r})",
-                )
-
-        finally:
-            frappe.db.get_value = original_get_value
+        # The payload's own text ("DROP TABLE ...") legitimately appears inside
+        # an escaped SQL string literal — that is harmless. The security
+        # property is that the injection cannot BREAK OUT of that literal.
+        #
+        # A loose "contains an escaped-looking quote" check is NOT discriminating
+        # here: this payload's own leading character is a bare quote, so a naive
+        # `f"'{member_name}'"` (no escaping at all) coincidentally produces the
+        # same "''" run a correctly-doubled escape would -- '' + payload's own
+        # leading ' + rest. Assert the EXACT escaped token from the real
+        # `link_name = {escaped_member_name}` fragment instead, and assert the
+        # naive/unescaped token is absent.
+        correct_token = f"link_name = {frappe.db.escape(injection_payload)}"
+        naive_unescaped_token = f"link_name = '{injection_payload}'"
+        self.assertIn(correct_token, query, f"Escaped token missing from query: {query!r}")
+        self.assertNotIn(
+            naive_unescaped_token, query, f"Payload reached the query unescaped: {query!r}"
+        )
 
     def test_document_vs_string_consistency(self):
         """Test consistent behavior between document objects and string IDs"""
@@ -335,28 +353,14 @@ class TestDonorSecurityCore(VereningingenTestCase):
             f"Internal quote should be escaped (got {escaped!r})",
         )
 
-        # Test the escape is actually used in permission query. Without the
-        # Verenigingen Member role, get_donor_permission_query never reaches the
-        # member lookup (it short-circuits to "1=0" first) - grant the role so
-        # the dangerous value returned below actually flows into the query.
-        original_get_value = frappe.db.get_value
-        original_get_roles = frappe.get_roles
+        # Test the escape is actually used in permission query. A real Member
+        # whose docname IS dangerous_input, linked to a real user holding the
+        # Verenigingen Member role -- see _create_member_named. Without that
+        # role, get_donor_permission_query never reaches the member lookup (it
+        # short-circuits to "1=0" first).
+        user_email = self._create_member_named(dangerous_input)
 
-        def return_dangerous(*args, **kwargs):
-            return dangerous_input
-
-        def member_role_get_roles(user=None, with_standard=True):
-            return ["Verenigingen Member", "All"]
-
-        frappe.db.get_value = return_dangerous
-        frappe.get_roles = member_role_get_roles
-
-        try:
-            query = get_donor_permission_query(self.member_user_email)
-            # The dangerous value must reach the query only via frappe.db.escape()
-            # (quoted, internal quote backslash-escaped) - never interpolated raw.
-            self.assertEqual(query, f"(`tabDonor`.member = {frappe.db.escape(dangerous_input)})")
-
-        finally:
-            frappe.db.get_value = original_get_value
-            frappe.get_roles = original_get_roles
+        query = get_donor_permission_query(user_email)
+        # The dangerous value must reach the query only via frappe.db.escape()
+        # (quoted, internal quote backslash-escaped) - never interpolated raw.
+        self.assertEqual(query, f"(`tabDonor`.member = {frappe.db.escape(dangerous_input)})")
