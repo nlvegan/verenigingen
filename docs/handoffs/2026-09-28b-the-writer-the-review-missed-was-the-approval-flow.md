@@ -22,7 +22,10 @@ The maintainer asked for three things: merge the four open handoff PRs (#1448, #
 
 - **Handoff PRs not merged.** #1448, #1527, #1538 and #1556 were refused twice by the permission
   classifier ("Merge Without Review"), once at the start and once after the maintainer's closing
-  "merge them". The refusal also covered the develop fast-forward at the start. They are still
+  "merge them". The refusal also covered the develop fast-forward at the start. The second
+  refusal was not in the ledger at first, because the ledger append in the same batch was refused
+  too. It was recorded afterwards, and GitHub shows no activity on the four PRs because the command
+  never ran. They are still
   open and still docs-only and green. `automerge.sh` fast-forwarded the main tree to develop
   after each session merge, so the develop sync happened that way.
 - **README coordinator rule 8** now says: "Concurrency cap: 2 running agents (user, 2026-09-28)".
