@@ -216,9 +216,11 @@ def _churn_risk_member_scope_sql(member_ref):
         return ""
 
     from verenigingen.permissions import _get_board_chapters_for_member
-    from verenigingen.utils.member_utils import get_member_name_for_user
+    from verenigingen.utils.member_utils import get_member_name_for_board_access
 
-    user_member = get_member_name_for_user(frappe.session.user)
+    # #1546: resolved strictly (Member.user only) -- this is a board-access
+    # decision (which chapter's members the caller's board seat scopes them to).
+    user_member = get_member_name_for_board_access(frappe.session.user)
     board_chapters = _get_board_chapters_for_member(user_member) if user_member else []
     if not board_chapters:
         return "AND 1=0"

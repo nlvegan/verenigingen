@@ -9,7 +9,7 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.constants import Roles
-from verenigingen.utils.member_utils import get_member_name_for_user, validate_member_ownership
+from verenigingen.utils.member_utils import get_member_name_for_board_access, validate_member_ownership
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, standard_api
 
 # get_mandate_issues() runs six queries across the whole tabMember / tabSEPA
@@ -72,7 +72,10 @@ def _mandate_diagnostics_member_scope_sql():
 
     from verenigingen.permissions import _get_board_chapters_for_member
 
-    user_member = get_member_name_for_user(frappe.session.user)
+    # #1546: resolved strictly (Member.user only) -- this is a board-access
+    # decision (which chapter's members the caller's board seat scopes them
+    # to), matching get_sepa_mandate_permission_query()'s own resolution.
+    user_member = get_member_name_for_board_access(frappe.session.user)
     board_chapters = _get_board_chapters_for_member(user_member) if user_member else []
     if not board_chapters:
         return "AND 1=0"

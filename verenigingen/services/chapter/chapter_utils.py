@@ -30,7 +30,11 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.constants import Roles
-from verenigingen.utils.member_utils import get_member_name_for_user, get_volunteer_for_member
+from verenigingen.utils.member_utils import (
+    get_member_name_for_board_access,
+    get_member_name_for_user,
+    get_volunteer_for_member,
+)
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 
@@ -72,9 +76,9 @@ def get_user_accessible_chapters(
         unsafe after a deadlock (1213), which kills the transaction and makes any
         further query on it meaningless.
 
-        This is the same bug class as `get_member_name_for_user` (which this
-        function calls) one layer up; both now propagate. The error is logged to
-        disk first, because a deadlock rolls back frappe.log_error()'s Error Log
+        This is the same bug class as `get_member_name_for_board_access` (which
+        this function calls) one layer up; both now propagate. The error is
+        logged to disk first, because a deadlock rolls back frappe.log_error()'s Error Log
         row and would leave no trace.
 
         The narrower excepts INSIDE this function are deliberately kept: a single
@@ -108,8 +112,12 @@ def get_user_accessible_chapters(
         if any(role in user_roles for role in admin_roles):
             return None  # None means no filter - see all chapters
 
-        # Get user's member record
-        member_name = get_member_name_for_user(user_email)
+        # Get user's member record. #1546 maintainer ruling: this is a board-
+        # access authorization primitive (Expense Claim access and every
+        # chapter-scoped report filter on its result), so identity is
+        # resolved strictly (Member.user only) -- never
+        # get_member_name_for_user's Member.email fallback.
+        member_name = get_member_name_for_board_access(user_email)
         if not member_name:
             frappe.logger().debug(f"No member record found for user {user_email}")
             return []  # No access if not a member

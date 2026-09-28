@@ -326,14 +326,19 @@ def has_chapter_approval_permission(chapter_name: str = None, user: str = None):
     # This previously filtered Chapter Board Member on a `member` field, which that
     # doctype does not have - its columns are volunteer, volunteer_name, email,
     # chapter_role, from_date, to_date, is_active, notes - so the query could never
-    # answer the question it was asked. It also resolved the Member by email alone,
-    # which disagrees with permissions.assign_chapter_board_role() (the lookup that
-    # decides who IS a board member) and with get_user_board_chapters()/
-    # get_user_board_role(). Board membership hangs off the VOLUNTEER, so resolve
-    # user -> member -> volunteer -> board row, the way the rest of the app does.
-    from verenigingen.utils.member_utils import get_member_name_for_user
+    # answer the question it was asked. Board membership hangs off the VOLUNTEER,
+    # so resolve user -> member -> volunteer -> board row, the way the rest of the
+    # app does.
+    #
+    # #1546 maintainer ruling: the member is resolved strictly (Member.user link
+    # ONLY, no Member.email fallback) -- this whitelisted endpoint gates approving/
+    # rejecting Chapter Join Requests, a board-access decision like any other, and
+    # matches permissions.assign_chapter_board_role() (the lookup that decides who
+    # IS a board member) and get_user_board_chapters()/get_user_board_role(), both
+    # of which are strict for the same reason.
+    from verenigingen.utils.member_utils import get_member_name_for_board_access
 
-    member = get_member_name_for_user(user)
+    member = get_member_name_for_board_access(user)
     volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name") if member else None
     if not volunteer:
         return False

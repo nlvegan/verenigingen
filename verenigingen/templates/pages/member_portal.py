@@ -575,12 +575,13 @@ def is_user_board_member():
     if any(role in frappe.get_roles() for role in Roles.ADMIN_PAIR):
         return True
 
-    # Find member record for current user. Member.user first, then Member.email -
-    # resolving by email alone misses a member whose login user differs from their
-    # contact address, which is a false denial in a permission check.
-    from verenigingen.utils.member_utils import get_member_name_for_user
+    # Find member record for current user, resolved strictly (Member.user link
+    # ONLY). #1546 maintainer ruling: board identity is Member.user only, full
+    # stop, for every board permission check -- this decides whether the member
+    # portal shows board-only features, which is exactly that.
+    from verenigingen.utils.member_utils import get_member_name_for_board_access
 
-    member = get_member_name_for_user(user_email)
+    member = get_member_name_for_board_access(user_email)
     if not member:
         return False
 
