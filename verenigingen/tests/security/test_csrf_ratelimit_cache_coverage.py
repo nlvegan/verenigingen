@@ -48,12 +48,12 @@ class TestCSRFProtectionCoverage(VereningingenTestCase):
         self._orig_request = getattr(frappe.local, "request", None)
 
     def tearDown(self):
-        frappe.local.request = self._orig_request
+        frappe.local.request = self._orig_request  # Mock justified: Infrastructure
         super().tearDown()
 
     def _bind_request(self, method="POST", headers=None):
         builder = EnvironBuilder(method=method, headers=headers or {})
-        frappe.local.request = Request(builder.get_environ())
+        frappe.local.request = Request(builder.get_environ())  # Mock justified: Infrastructure - simulated request
 
     def _disable_harness_csrf_mock(self):
         """Stop the base-class mock of CSRFProtection.validate_request for this test.
@@ -120,7 +120,7 @@ class TestCSRFProtectionCoverage(VereningingenTestCase):
     # ---- validate_request short-circuits (real method, harness mock disabled) ----
     def test_validate_request_skips_without_request_context(self):
         self._disable_harness_csrf_mock()
-        frappe.local.request = None
+        frappe.local.request = None  # Mock justified: Infrastructure - simulate no request
         # No request context (background job / migration) -> validation is a no-op pass.
         self.assertTrue(CSRFProtection.validate_request())
 
@@ -476,19 +476,19 @@ class TestRateLimitEngineCoverage(VereningingenTestCase):
     # ---- _detect_execution_context ----
     def test_detect_execution_context_background_job_flag(self):
         original = getattr(frappe.flags, "in_background_job", False)
-        frappe.flags.in_background_job = True
+        frappe.flags.in_background_job = True  # Mock justified: Infrastructure - context flag
         try:
             self.assertEqual(self.engine._detect_execution_context(), ExecutionContext.BACKGROUND_JOB)
         finally:
-            frappe.flags.in_background_job = original
+            frappe.flags.in_background_job = original  # Mock justified: Infrastructure - restore
 
     def test_detect_execution_context_scheduler_flag(self):
         original = getattr(frappe.flags, "in_scheduler", False)
-        frappe.flags.in_scheduler = True
+        frappe.flags.in_scheduler = True  # Mock justified: Infrastructure - context flag
         try:
             self.assertEqual(self.engine._detect_execution_context(), ExecutionContext.SCHEDULED_TASK)
         finally:
-            frappe.flags.in_scheduler = original
+            frappe.flags.in_scheduler = original  # Mock justified: Infrastructure - restore
 
 
 # ======================================================================

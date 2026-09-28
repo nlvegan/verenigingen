@@ -46,6 +46,8 @@ class TestSecurityComprehensive(VereningingenTestCase):
         # Bypass Frappe's throttle_user_creation() rate limiter (only the
         # in_import flag bypasses it) so repeated test runs don't trip "Throttled".
         original_in_import = frappe.flags.in_import
+        # Mock justified: Infrastructure - the ONLY way to bypass Frappe's
+        # throttle_user_creation() rate limiter, per the comment above.
         frappe.flags.in_import = True
         try:
             if frappe.db.exists("User", email):
@@ -66,7 +68,7 @@ class TestSecurityComprehensive(VereningingenTestCase):
             user.save(ignore_permissions=True)
             return user.name
         finally:
-            frappe.flags.in_import = original_in_import
+            frappe.flags.in_import = original_in_import  # Mock justified: Infrastructure - restore
             frappe.set_user(original_user)
 
     def setUp(self):

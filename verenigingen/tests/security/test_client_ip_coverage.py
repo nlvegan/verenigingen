@@ -38,7 +38,7 @@ class TestClientIPCoverage(VereningingenTestCase):
 
     def tearDown(self):
         # Restore the original request so we don't leak our fabricated requests.
-        frappe.local.request = self._orig_request
+        frappe.local.request = self._orig_request  # Mock justified: Infrastructure
         super().tearDown()
 
     # ------------------------------------------------------------------
@@ -51,7 +51,7 @@ class TestClientIPCoverage(VereningingenTestCase):
             headers=headers or {},
         )
         request = Request(builder.get_environ())
-        frappe.local.request = request
+        frappe.local.request = request  # Mock justified: Infrastructure - simulated request
         return request
 
     # ------------------------------------------------------------------
@@ -134,7 +134,7 @@ class TestClientIPCoverage(VereningingenTestCase):
     # get_client_ip - off-request / sentinel paths
     # ------------------------------------------------------------------
     def test_no_request_returns_test_environment(self):
-        frappe.local.request = None
+        frappe.local.request = None  # Mock justified: Infrastructure - simulate no request
         self.assertEqual(get_client_ip(), "test_environment")
 
     def test_remote_addr_unknown_returns_unknown(self):
@@ -206,7 +206,7 @@ class TestClientIPCoverage(VereningingenTestCase):
     # get_client_ip_with_info
     # ------------------------------------------------------------------
     def test_get_client_ip_with_info_no_request(self):
-        frappe.local.request = None
+        frappe.local.request = None  # Mock justified: Infrastructure - simulate no request
         info = get_client_ip_with_info()
         self.assertEqual(info["client_ip"], "test_environment")
         self.assertFalse(info["is_proxied"])

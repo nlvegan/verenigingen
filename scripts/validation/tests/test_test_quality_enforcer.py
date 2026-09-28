@@ -676,16 +676,9 @@ class WholeTreeTotalsTest(unittest.TestCase):
         #     request, a config toggle) -- the same exemption a `patch(...)` call
         #     at that target already had.
         #
-        # 2 keys / 6 findings were NOT fixed and are NOT baselined -- reported to
-        # the coordinator as genuinely unfixable without a fake:
-        #   * `test_donor_permissions_security.py::
-        #     TestDonorPermissionsEdgeCases.test_database_connection_failure_
-        #     simulation` (4): needs `frappe.db.get_value`/`frappe.db.exists` to
-        #     raise for real to test the permission check's exception path;
-        #     `DocumentExistenceValidator.check_document_exists()` calls
-        #     `frappe.db.exists()` with no try/except, so reproducing this without
-        #     mocking would mean a REAL database outage inside a shared-connection
-        #     test harness -- unsafe to the rest of the run.
+        # The remaining 2 keys / 6 findings got a second maintainer ruling
+        # (round 2 review): annotate both rather than baseline or force a
+        # rewrite that would fake the thing under test.
         #   * `test_approval_progress_permission_check.py::..._measure_query_count`
         #     (2): wraps `frappe.db.__class__.sql` to capture the raw query LIST
         #     so two branches (unknown vs. foreign member id) can be diffed
@@ -695,18 +688,34 @@ class WholeTreeTotalsTest(unittest.TestCase):
         #     (`assertLessEqual`), not the query list, so it cannot do this
         #     comparison; `frappe.recorder`'s own `Recorder._patch_sql()` also
         #     monkeypatches `frappe.db.sql` for the same structural reason --
-        #     there is no other interception point.
+        #     there is no other interception point. `frappe.db.` is already on
+        #     `infrastructure_for_security`, so a `# Mock justified:` comment
+        #     naming this closes it cleanly.
+        #   * `test_donor_permissions_security.py::
+        #     TestDonorPermissionsEdgeCases.test_database_connection_failure_
+        #     simulation` (4): annotated as fault injection (a real DB outage
+        #     cannot be safely reproduced on this shared test connection), AND
+        #     the assertion was TIGHTENED per the ruling -- the original
+        #     accepted the fake's own `frappe.DataError` propagating as a pass
+        #     (`assertIsInstance(e, (frappe.DataError, frappe.ValidationError))`,
+        #     and `DataError` IS a `ValidationError` subclass, so it always
+        #     matched). The tightened version requires fail-CLOSED: `False`, or
+        #     a controlled refusal that is NOT `frappe.DataError` itself. This
+        #     turned the test RED for a real reason: `permissions.py`'s
+        #     `has_permission` closure (shared by `has_donor_permission` AND
+        #     `has_sepa_mandate_permission`) calls
+        #     `frappe.db.get_value("User", user, "enabled")` with no
+        #     try/except, so the injected fault propagates uncaught instead of
+        #     denying access. Filed #1598; the test is LEFT RED on purpose,
+        #     per the ruling, pending a fix to permissions.py or a further
+        #     ruling -- do not loosen it back.
         #
-        # This commit is the FIRST of four landing the above (allowlist widening
-        # + its own tests only); the numbers below track THIS commit's tree,
-        # not the round's end state -- 332 -> 331 findings, 265 -> 264 keys, all
-        # from the widened `frappe\.local(['"\.])` group now matching a bare
-        # `frappe.local = saved` next to a pre-existing (untouched-by-this-PR)
-        # justification comment. The fixture-rewrite, set_user-swap and
-        # annotation commits that follow carry these down to the final 227/201
-        # quoted above; see each commit's own message for its slice.
-        self.assertEqual(331, len(self.findings), "finding count moved")
-        self.assertEqual(264, len(tqe.counts_of(self.findings)), "key count moved")
+        # 332 -> 221 findings, 265 -> 199 keys: every key the detection fix
+        # surfaced is now accounted for -- fixed, annotated, or (one test)
+        # correctly reddened -- with test_quality_baseline.txt untouched
+        # throughout (still 221/199, byte-identical `git diff`).
+        self.assertEqual(221, len(self.findings), "finding count moved")
+        self.assertEqual(199, len(tqe.counts_of(self.findings)), "key count moved")
 
     def test_findings_are_keyed_to_a_named_scope(self):
         """A key of '<module>' is legitimate but should stay rare; a flood of them

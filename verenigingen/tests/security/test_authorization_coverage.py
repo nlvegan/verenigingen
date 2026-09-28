@@ -460,11 +460,11 @@ class TestContextualRestrictionsFailClosed(AuthorizationTestBase):
         frappe.local.request)."""
         self.manager.allowed_ips = ["203.0.113.5"]
         original_request = getattr(frappe.local, "request", None)
-        frappe.local.request = None
+        frappe.local.request = None  # Mock justified: Infrastructure - simulate non-HTTP context
         try:
             self.assertTrue(self.manager._check_ip_restrictions())
         finally:
-            frappe.local.request = original_request
+            frappe.local.request = original_request  # Mock justified: Infrastructure - restore
 
     def _bind_request_ip(self, remote_addr):
         """Bind a real (non-mock) request whose environ drives the actual
@@ -473,7 +473,7 @@ class TestContextualRestrictionsFailClosed(AuthorizationTestBase):
         integration rather than stubbing the resolver."""
         from types import SimpleNamespace
 
-        frappe.local.request = SimpleNamespace(method="POST", environ={"REMOTE_ADDR": remote_addr})
+        frappe.local.request = SimpleNamespace(method="POST", environ={"REMOTE_ADDR": remote_addr})  # Mock justified: Infrastructure - simulated request
 
     def test_ip_restriction_denies_http_request_with_undeterminable_ip(self):
         """An HTTP request under an active allowlist whose source IP cannot be
@@ -485,7 +485,7 @@ class TestContextualRestrictionsFailClosed(AuthorizationTestBase):
             self._bind_request_ip("")
             self.assertFalse(self.manager._check_ip_restrictions())
         finally:
-            frappe.local.request = original_request
+            frappe.local.request = original_request  # Mock justified: Infrastructure - restore
 
     def test_ip_restriction_allows_matching_and_denies_foreign_ip(self):
         self.manager.allowed_ips = ["203.0.113.5"]
@@ -496,7 +496,7 @@ class TestContextualRestrictionsFailClosed(AuthorizationTestBase):
             self._bind_request_ip("198.51.100.9")
             self.assertFalse(self.manager._check_ip_restrictions())
         finally:
-            frappe.local.request = original_request
+            frappe.local.request = original_request  # Mock justified: Infrastructure - restore
 
     def test_business_hours_off_when_disabled(self):
         self.manager.business_hours = {"enabled": False}

@@ -199,7 +199,7 @@ class TestSEPASecurityValidation(EnhancedTestCase):
         
         # Temporarily disable test mode to allow notification processing
         original_in_test = frappe.flags.in_test
-        frappe.flags.in_test = False
+        frappe.flags.in_test = False  # Mock justified: Infrastructure - disable test-mode short-circuit
         
         try:
             # The notification path sends via the unified email service
@@ -235,14 +235,14 @@ class TestSEPASecurityValidation(EnhancedTestCase):
 
         finally:
             # Restore test mode
-            frappe.flags.in_test = original_in_test
+            frappe.flags.in_test = original_in_test  # Mock justified: Infrastructure - restore
 
     def test_batch_notifications_security_isolation(self):
         """Test that batch notifications don't bypass security for individual items"""
         
         # Temporarily disable test mode to allow notification processing
         original_in_test = frappe.flags.in_test
-        frappe.flags.in_test = False
+        frappe.flags.in_test = False  # Mock justified: Infrastructure - disable test-mode short-circuit
         
         try:
             # Create multiple test members
@@ -317,7 +317,7 @@ class TestSEPASecurityValidation(EnhancedTestCase):
         
         finally:
             # Restore test mode
-            frappe.flags.in_test = original_in_test
+            frappe.flags.in_test = original_in_test  # Mock justified: Infrastructure - restore
 
 
 def run_security_tests():

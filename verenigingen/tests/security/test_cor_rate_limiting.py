@@ -71,14 +71,14 @@ def mock_http_request():
         mock_request = MagicMock()
         mock_request.method = "POST"
         mock_request.environ = {"REMOTE_ADDR": "127.0.0.1"}
-        frappe.local.request = mock_request
+        frappe.local.request = mock_request  # Mock justified: Infrastructure - simulated request
         yield
     finally:
         if original_request is None:
             if hasattr(frappe.local, "request"):
                 delattr(frappe.local, "request")
         else:
-            frappe.local.request = original_request
+            frappe.local.request = original_request  # Mock justified: Infrastructure - restore
 
 
 class TestCORRateLimitingEnforcement(EnhancedTestCase):
@@ -179,7 +179,7 @@ class TestCORRateLimitingEnforcement(EnhancedTestCase):
         with self.set_user("Administrator"):
             original_in_test = getattr(frappe.flags, "in_test", False)
             try:
-                frappe.flags.in_test = False
+                frappe.flags.in_test = False  # Mock justified: Infrastructure - context flag
 
                 # Mock HTTP request to force INTERACTIVE context
                 with mock_http_request():
@@ -202,7 +202,7 @@ class TestCORRateLimitingEnforcement(EnhancedTestCase):
                     self.assertEqual(result.max_calls, 3)
 
             finally:
-                frappe.flags.in_test = original_in_test
+                frappe.flags.in_test = original_in_test  # Mock justified: Infrastructure - restore
 
     def test_cor_rate_limit_counter_in_redis(self):
         """Verify that rate limit counters are stored correctly in Redis"""
@@ -219,7 +219,7 @@ class TestCORRateLimitingEnforcement(EnhancedTestCase):
 
             original_in_test = getattr(frappe.flags, "in_test", False)
             try:
-                frappe.flags.in_test = False
+                frappe.flags.in_test = False  # Mock justified: Infrastructure - context flag
 
                 # Mock HTTP request to force INTERACTIVE context
                 with mock_http_request():
@@ -236,7 +236,7 @@ class TestCORRateLimitingEnforcement(EnhancedTestCase):
                     self.assertEqual(current, 3, "Redis counter should be 3 after 3 calls")
 
             finally:
-                frappe.flags.in_test = original_in_test
+                frappe.flags.in_test = original_in_test  # Mock justified: Infrastructure - restore
 
     def test_cor_not_found_raises_error(self):
         """Verify that missing COR configuration raises an error"""
@@ -247,7 +247,7 @@ class TestCORRateLimitingEnforcement(EnhancedTestCase):
             fallback_was_enabled = False
 
             try:
-                frappe.flags.in_test = False
+                frappe.flags.in_test = False  # Mock justified: Infrastructure - context flag
 
                 # Temporarily disable the _generic_api_fallback COR
                 fallback_cor = frappe.db.get_value(
@@ -276,7 +276,7 @@ class TestCORRateLimitingEnforcement(EnhancedTestCase):
                     self.assertIn("No rate limiting configuration found", str(context.exception))
 
             finally:
-                frappe.flags.in_test = original_in_test
+                frappe.flags.in_test = original_in_test  # Mock justified: Infrastructure - restore
                 # Restore the _generic_api_fallback COR
                 if fallback_cor and fallback_was_enabled:
                     frappe.db.set_value(
@@ -302,7 +302,7 @@ class TestCORRateLimitingEnforcement(EnhancedTestCase):
             fallback_was_enabled = False
 
             try:
-                frappe.flags.in_test = False
+                frappe.flags.in_test = False  # Mock justified: Infrastructure - context flag
 
                 # Disable the generic fallback so the fail-closed branch is the
                 # only thing that could stop us.
@@ -335,7 +335,7 @@ class TestCORRateLimitingEnforcement(EnhancedTestCase):
                             setattr(frappe.flags, flag, original_flag)
 
             finally:
-                frappe.flags.in_test = original_in_test
+                frappe.flags.in_test = original_in_test  # Mock justified: Infrastructure - restore
                 if fallback_cor and fallback_was_enabled:
                     frappe.db.set_value("Critical Operation Rule", fallback_cor, "enabled", 1)
                     frappe.db.commit()
@@ -447,7 +447,7 @@ class TestCORRateLimitingScopes(EnhancedTestCase):
 
         original_in_test = getattr(frappe.flags, "in_test", False)
         try:
-            frappe.flags.in_test = False
+            frappe.flags.in_test = False  # Mock justified: Infrastructure - context flag
 
             # Mock HTTP request to force INTERACTIVE context
             with mock_http_request():
@@ -482,7 +482,7 @@ class TestCORRateLimitingScopes(EnhancedTestCase):
                     self.assertEqual(r5.current_count, 5)
 
         finally:
-            frappe.flags.in_test = original_in_test
+            frappe.flags.in_test = original_in_test  # Mock justified: Infrastructure - restore
 
 
 class TestRateLimitKeyNamespacing(EnhancedTestCase):
@@ -524,7 +524,7 @@ def _guest_request_from_ip(ip: str):
         mock_request = MagicMock()
         mock_request.method = "GET"
         mock_request.environ = {"REMOTE_ADDR": ip}
-        frappe.local.request = mock_request
+        frappe.local.request = mock_request  # Mock justified: Infrastructure - simulated request
         frappe.set_user("Guest")
         yield
     finally:
@@ -533,7 +533,7 @@ def _guest_request_from_ip(ip: str):
             if hasattr(frappe.local, "request"):
                 delattr(frappe.local, "request")
         else:
-            frappe.local.request = original_request
+            frappe.local.request = original_request  # Mock justified: Infrastructure - restore
 
 
 class TestRetryPaymentRateLimitScope(EnhancedTestCase):
