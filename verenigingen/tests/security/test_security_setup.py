@@ -38,7 +38,7 @@ class TestSecurityRateLimit(VereningingenTestCase):
     def setUp(self):
         super().setUp()
         self.original_user = frappe.session.user
-        frappe.session.user = "test_user@example.com"
+        frappe.set_user("test_user@example.com")
         # Clear cache from prior runs. The first test in the class
         # otherwise inherits keys whose 10-60s TTL may not have expired
         # (only tearDown was clearing — there's no tearDown before the
@@ -48,7 +48,7 @@ class TestSecurityRateLimit(VereningingenTestCase):
         frappe.cache.delete_keys("security_rate_limit:")
 
     def tearDown(self):
-        frappe.session.user = self.original_user
+        frappe.set_user(self.original_user)
         frappe.cache.delete_keys("security_rate_limit:")
         super().tearDown()
     
@@ -103,13 +103,13 @@ class TestSecurityRateLimit(VereningingenTestCase):
             return "success"
         
         # User 1 hits limit
-        frappe.session.user = "user1@example.com"
+        frappe.set_user("user1@example.com")
         test_function()
         with self.assertRaises(frappe.RateLimitExceededError):
             test_function()
-        
+
         # User 2 should still be able to call
-        frappe.session.user = "user2@example.com"
+        frappe.set_user("user2@example.com")
         result = test_function()
         self.assertEqual(result, "success")
     
@@ -165,7 +165,11 @@ class TestSecurityRateLimit(VereningingenTestCase):
 
         def worker():
             frappe.init(site=site, force=True)
-            frappe.local.session = frappe._dict(user=test_user)
+            # frappe.init() gives this fresh thread its own frappe.local, but
+            # does not itself set up a session dict; frappe.set_user() assumes
+            # local.session already exists (it does local.session.user = ...),
+            # so bootstrapping it directly is required here, once per worker.
+            frappe.local.session = frappe._dict(user=test_user)  # Mock justified: Infrastructure
             try:
                 # 15s (not 5s): frappe.init(force=True) × 40 workers on
                 # a slow CI shard can serialise long enough to time the
@@ -279,13 +283,18 @@ class TestCSRFValidation(VereningingenTestCase):
     def tearDown(self):
         frappe.conf.clear()
         frappe.conf.update(self.original_conf)
+        # Mock justified: Infrastructure - restore the whole thread-local
+        # context saved in setUp (validate_csrf_token reads frappe.local
+        # directly, so tests here mutate more of it than conf alone).
         frappe.local = self.original_local
         super().tearDown()
-    
+
     def test_csrf_disabled_skips_validation(self):
         """Test that CSRF validation is skipped when disabled"""
+        # Mock justified: Infrastructure - toggle the real config flag
+        # validate_csrf_token reads, to drive it down the disabled branch.
         frappe.conf.ignore_csrf = 1
-        
+
         # Should not raise exception
         try:
             validate_csrf_token()
@@ -306,16 +315,20 @@ class TestCSRFValidation(VereningingenTestCase):
     
     def test_csrf_validation_with_valid_token(self):
         """Test CSRF validation with valid token"""
+        # Mock justified: Infrastructure - toggle the real config flag
+        # validate_csrf_token reads.
         frappe.conf.ignore_csrf = 0
         test_token = "valid-csrf-token"
-        
+
         # Test CSRF validation when disabled - should pass regardless
         original_form_dict = frappe.local.form_dict
-        
+
         try:
-            # Set up token in request
+            # Mock justified: Infrastructure - no real HTTP request exists in
+            # a unit test; validate_csrf_token reads the token from
+            # frappe.local.form_dict, so this is how the test supplies one.
             frappe.local.form_dict = {"csrf_token": test_token}
-            
+
             # Should not raise exception when CSRF is enabled with valid token
             # Note: This tests the config behavior, not mocked validation
             try:
@@ -325,29 +338,34 @@ class TestCSRFValidation(VereningingenTestCase):
                 # Skip this specific validation as it requires valid session setup
                 self.skipTest("CSRF validation requires valid session setup")
         finally:
+            # Mock justified: Infrastructure - restore the dict saved above
             frappe.local.form_dict = original_form_dict
-    
+
     def test_csrf_validation_with_invalid_token(self):
         """Test CSRF validation with invalid token"""
+        # Mock justified: Infrastructure - toggle the real config flag
+        # validate_csrf_token reads.
         frappe.conf.ignore_csrf = 0
         test_token = "invalid-csrf-token"
-        
+
         # Test real CSRF validation with invalid token
         original_form_dict = frappe.local.form_dict
-        
+
         try:
-            # Set up invalid token in request
+            # Mock justified: Infrastructure - no real HTTP request exists in
+            # a unit test; supply the (invalid) token the same way as above.
             frappe.local.form_dict = {"csrf_token": test_token}
-            
+
             # Test real security validation - should fail for invalid tokens
             with self.assertRaises((frappe.CSRFTokenError, frappe.ValidationError, Exception)) as context:
                 validate_csrf_token()
-                
+
             # Verify error message contains security information
             if hasattr(context.exception, 'args') and context.exception.args:
                 error_msg = str(context.exception)
                 self.assertTrue(len(error_msg) > 0)  # Should have meaningful error
         finally:
+            # Mock justified: Infrastructure - restore the dict saved above
             frappe.local.form_dict = original_form_dict
 
 
@@ -573,14 +591,14 @@ class TestSecurityStatus(VereningingenTestCase):
 
 class TestSecurityAudit(VereningingenTestCase):
     """Test security audit logging"""
-    
+
     def setUp(self):
         super().setUp()
         self.original_user = frappe.session.user
-        frappe.session.user = "test_user@example.com"
-    
+        frappe.set_user("test_user@example.com")
+
     def tearDown(self):
-        frappe.session.user = self.original_user
+        frappe.set_user(self.original_user)
         super().tearDown()
     
     def test_log_security_audit_success(self):
@@ -615,7 +633,7 @@ class TestSecurityAPIEndpoints(VereningingenTestCase):
     def setUp(self):
         super().setUp()
         self.original_user = frappe.session.user
-        frappe.session.user = "admin@example.com"
+        frappe.set_user("admin@example.com")
         # `enable_csrf_protection` is wrapped with `@security_rate_limit`;
         # without clearing the prior run's cache the first invocation of
         # the API tests trips the rate limit before reaching the
@@ -623,7 +641,7 @@ class TestSecurityAPIEndpoints(VereningingenTestCase):
         frappe.cache.delete_keys("security_rate_limit:")
 
     def tearDown(self):
-        frappe.session.user = self.original_user
+        frappe.set_user(self.original_user)
         frappe.cache.delete_keys("security_rate_limit:")
         super().tearDown()
 
@@ -843,15 +861,15 @@ class TestSecurityEdgeCases(VereningingenTestCase):
     def test_security_audit_with_none_user(self):
         """Test audit logging with None user"""
         original_user = frappe.session.user
-        frappe.session.user = None
-        
+        frappe.set_user(None)
+
         try:
             # Should handle None user gracefully
             log_security_audit("Test Action", {"key": "value"})
         except Exception as e:
             self.fail(f"Audit logging with None user should not fail: {e}")
         finally:
-            frappe.session.user = original_user
+            frappe.set_user(original_user)
 
 
 def run_tests():

@@ -769,6 +769,20 @@ class TestQualityEnforcer:
         clients, IP/secret retrievers, cache) so the test can drive the
         boundary code with controlled inputs — provided the mock carries a
         ``# Mock justified:`` comment within 3 lines, mirroring Tier 2.
+
+        Unlike every other check in this file, this one is text/window-based
+        (it scans for ``patch(``) rather than going through
+        `_matching_ast_targets`, so #1542's `_reassign_targets()` -- a manual
+        `frappe.db.get_value = mock` reassignment, invisible to `_patch_targets`
+        because it is an `ast.Assign`, not a call -- stayed invisible here even
+        after that fix closed the same gap for the database/business-workflow/
+        never-mock checks (#1558). Below, `_reassign_targets(content)` is
+        walked as a second pass applying the SAME infrastructure-allowlist-
+        plus-justification policy, by wrapping each resolved target the way
+        the patterns already expect to see one (``patch("<target>")``) rather
+        than maintaining a second copy of the allowlist that could drift from
+        the one below -- the exact multi-detector-to-reconcile hazard
+        `_patch_targets`'s own docstring names for #793.
         """
         valid = True
         lines = content.split("\n")
@@ -793,9 +807,41 @@ class TestQualityEnforcer:
                 # check, auth hook, signature verification) is not what's being
                 # faked.
                 r"patch\s*\(\s*['\"]frappe\.session(['\"\.])",
-                r"patch\s*\(\s*['\"]frappe\.local\.",
+                # Widened from a dot-only suffix (`frappe\.local\.`) to also
+                # match the bare object (`frappe.local = saved`, restoring the
+                # WHOLE thread-local context rather than one of its attributes)
+                # -- #1558's reassignment census found that shape in
+                # test_security_setup.py::TestCSRFValidation, mirroring the
+                # (['"\.]) group `frappe.session`/`frappe.request` already use
+                # below and above. No existing patch("frappe.local") call
+                # without a trailing attribute exists app-wide (grepped), so
+                # this cannot newly exempt anything already flagged.
+                r"patch\s*\(\s*['\"]frappe\.local(['\"\.])",
                 r"patch\s*\(\s*['\"]frappe\.request(['\"\.])",
                 r"patch\s*\(\s*['\"]frappe\.db\.",
+                # #1558 (maintainer ruling): specific `frappe.flags.*`/
+                # `frappe.conf.*` NAMES are Frappe runtime context in the same
+                # "plumbing" sense as session/local/request/db above --
+                # toggling `in_test`, `in_background_job`, `in_scheduler`,
+                # `in_import` or `bulk_invoice_generation` drives the boundary
+                # code through a scenario, it does not fake the boundary
+                # itself. Reassigning any of these still needs a real
+                # `# Mock justified:` comment naming why -- this only makes
+                # them ELIGIBLE for that exemption, the same as every other
+                # entry in this list.
+                #
+                # ENUMERATED, not a bare `frappe\.flags\.` prefix: round-2
+                # review of #1558 found that a bare prefix would ALSO exempt
+                # `frappe.flags.ignore_permissions = True` -- a real framework
+                # permission bypass (e.g.
+                # frappe/email/doctype/email_group/email_group.py:132) -- with
+                # nothing more than a comment. The list below is exactly the
+                # set `_reassign_targets()` found annotated across this PR's
+                # own files (grepped, not guessed); a name not on it is NOT
+                # exempt no matter what it's called, and must be added here
+                # deliberately (with its own review) before it can be.
+                r"patch\s*\(\s*['\"]frappe\.flags\.(in_test|in_background_job|in_scheduler|in_import|bulk_invoice_generation)['\"]",
+                r"patch\s*\(\s*['\"]frappe\.conf\.(ignore_csrf)['\"]",
                 r"patch\s*\(\s*['\"]frappe\.get_roles['\"]",
                 r"patch\s*\(\s*['\"]frappe\.get_doc['\"]",
                 r"patch\s*\(\s*['\"]frappe\.get_all['\"]",
@@ -837,6 +883,17 @@ class TestQualityEnforcer:
             ]
         )
 
+        def _justified_within_3_lines(at_line: int) -> bool:
+            """A ``# Mock justified:``-style comment within 3 lines either side."""
+            start = max(0, at_line - 4)
+            end = min(len(lines), at_line + 3)
+            return any(
+                "# Mock justified:" in lines[i]
+                or "# External service" in lines[i]
+                or "# Infrastructure" in lines[i]
+                for i in range(start, end)
+            )
+
         for line_num, line in enumerate(lines, 1):
             if not self._search(mock_pattern, line, line_num):
                 continue
@@ -857,20 +914,7 @@ class TestQualityEnforcer:
             is_infrastructure = any(
                 re.search(p, scan_window, re.IGNORECASE) for p in infrastructure_for_security
             )
-            justification_found = False
-            if is_infrastructure:
-                start = max(0, line_num - 4)
-                end = min(len(lines), line_num + 3)
-                for i in range(start, end):
-                    if i < len(lines) and (
-                        "# Mock justified:" in lines[i]
-                        or "# External service" in lines[i]
-                        or "# Infrastructure" in lines[i]
-                    ):
-                        justification_found = True
-                        break
-
-            if is_infrastructure and justification_found:
+            if is_infrastructure and _justified_within_3_lines(line_num):
                 continue
 
             self._record(
@@ -878,6 +922,32 @@ class TestQualityEnforcer:
                 line_num,
                 "MOCK",
                 f"{file_path}:{line_num}: MOCK in security test: {line.strip()}\n"
+                f"  -> Security tests must not mock the auth/permission boundary itself\n"
+                f"  -> Infrastructure mocks (HTTP, IP, secret retrieval) are allowed\n"
+                f"     when annotated with # Mock justified: <reason>\n"
+                f"  -> See docs/test_remediation_plan/TESTING_STANDARDS.md (Tier 3)",
+            )
+            valid = False
+
+        # #1558: the manual-monkeypatch shape #1542 already resolves for the
+        # other checks. No multi-line stitching is needed -- `_reassign_targets`
+        # already resolved the full dotted target from the AST, not from raw
+        # text -- so the target is wrapped exactly as the patterns above expect
+        # to see one and run through the SAME infrastructure-allowlist check.
+        for line_num, target in _reassign_targets(content):
+            synthetic_target = f'patch("{target}")'
+            is_infrastructure = any(
+                re.search(p, synthetic_target, re.IGNORECASE) for p in infrastructure_for_security
+            )
+            if is_infrastructure and _justified_within_3_lines(line_num):
+                continue
+
+            source_line = lines[line_num - 1] if 0 <= line_num - 1 < len(lines) else target
+            self._record(
+                file_path,
+                line_num,
+                "MOCK",
+                f"{file_path}:{line_num}: MOCK in security test: {source_line.strip()}\n"
                 f"  -> Security tests must not mock the auth/permission boundary itself\n"
                 f"  -> Infrastructure mocks (HTTP, IP, secret retrieval) are allowed\n"
                 f"     when annotated with # Mock justified: <reason>\n"

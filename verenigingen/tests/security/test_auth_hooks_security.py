@@ -321,7 +321,7 @@ class TestAuthHooksSecurity(EnhancedTestCase):
 
         req = _Req()
         req.path = path
-        frappe.local.request = req
+        frappe.local.request = req  # Mock justified: Infrastructure - simulated request path
         return previous
 
     def test_before_request_with_none_user(self):
@@ -336,7 +336,7 @@ class TestAuthHooksSecurity(EnhancedTestCase):
         except Exception as e:
             self.fail(f"enforce_member_portal_access should handle Guest user: {e}")
         finally:
-            frappe.local.request = previous
+            frappe.local.request = previous  # Mock justified: Infrastructure - restore
 
     def test_before_request_database_failure(self):
         """The portal-access hook must swallow database failures, not crash the request."""
@@ -351,7 +351,7 @@ class TestAuthHooksSecurity(EnhancedTestCase):
             except Exception as e:
                 self.fail(f"enforce_member_portal_access should handle database errors: {e}")
             finally:
-                frappe.local.request = previous
+                frappe.local.request = previous  # Mock justified: Infrastructure - restore
 
     # ===== API SECURITY TESTS =====
 

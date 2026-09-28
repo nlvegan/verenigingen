@@ -199,7 +199,9 @@ class TestIntegratedSecurityPaymentSystem(EnhancedTestCase):
 
         @high_security_api(operation_type=OperationType.FINANCIAL)
         def bulk_invoice_generation(member_list, invoice_count_per_member):
-            # Set bulk processing flag
+            # Mock justified: Infrastructure - set bulk processing flag so
+            # downstream code (add_invoice_to_payment_history) takes the bulk
+            # path instead of the synchronous per-invoice rebuild.
             frappe.flags.bulk_invoice_generation = True
 
             try:

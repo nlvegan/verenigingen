@@ -144,7 +144,7 @@ class TestIPRestrictionsCoverage(VereningingenTestCase):
         self._orig_allowlist = frappe.conf.get("critical_api_ip_allowlist")
 
     def tearDown(self):
-        frappe.local.request = self._orig_request
+        frappe.local.request = self._orig_request  # Mock justified: Infrastructure
         # Restore conf override.
         if self._orig_allowlist is None:
             frappe.conf.pop("critical_api_ip_allowlist", None)
@@ -153,12 +153,13 @@ class TestIPRestrictionsCoverage(VereningingenTestCase):
         super().tearDown()
 
     def _bind_request(self, remote_addr):
+        # Mock justified: Infrastructure - simulated request
         frappe.local.request = Request(
             EnvironBuilder(environ_base={"REMOTE_ADDR": remote_addr}).get_environ()
         )
 
     def test_no_request_passes(self):
-        frappe.local.request = None
+        frappe.local.request = None  # Mock justified: Infrastructure - simulate no request
         self.assertTrue(self.framework.validate_ip_restrictions(self.profile))
 
     def test_non_ip_restricted_profile_passes(self):
@@ -196,7 +197,7 @@ class TestIPRestrictionsCoverage(VereningingenTestCase):
         # Bind a request but strip REMOTE_ADDR so get_client_ip resolves to "unknown".
         request = Request(EnvironBuilder(environ_base={"REMOTE_ADDR": "10.0.0.1"}).get_environ())
         request.environ["REMOTE_ADDR"] = ""  # -> get_client_ip returns "unknown"
-        frappe.local.request = request
+        frappe.local.request = request  # Mock justified: Infrastructure - simulated request
         with self.assertRaises(VPermissionError):
             self.framework.validate_ip_restrictions(self.profile)
 

@@ -188,11 +188,16 @@ class TestApprovalProgressPermissionCheck(EnhancedTestCase):
             queries.append(args[0])
             return orig_sql(*args, **kwargs)
 
-        frappe.db.__class__.sql = _counting_sql
+        # Query capture, not a fake: every call is forwarded to the real
+        # frappe.db.__class__.sql, using the same mechanism frappe's own
+        # assertQueryCount/recorder use internally; this test needs the raw
+        # query LIST (not just a count) to diff unknown-vs-foreign ids
+        # against each other.
+        frappe.db.__class__.sql = _counting_sql  # Mock justified: Infrastructure
         try:
             fn()
         finally:
-            frappe.db.__class__.sql = orig_sql
+            frappe.db.__class__.sql = orig_sql  # Mock justified: Infrastructure - restore
         return queries
 
     def test_query_count_identical_for_unknown_and_foreign_member(self):

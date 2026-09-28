@@ -141,10 +141,10 @@ class TestFrappeWhitelistAdapter(FrappeTestCase):
 
         mock_func.__func_is_whitelisted__ = True
 
-        # Ensure frappe.whitelisted exists
-        if not hasattr(frappe, "whitelisted"):
-            frappe.whitelisted = set()
-
+        # #1558: no reassignment needed. frappe/__init__.py:423 sets
+        # `whitelisted: set[Callable] = set()` unconditionally at module load,
+        # so `hasattr(frappe, "whitelisted")` is always True in a real process
+        # -- this guard's body could never run.
         self.assertTrue(
             adapter.is_inner_whitelisted(mock_func),
             "Should detect whitelisted via attribute",

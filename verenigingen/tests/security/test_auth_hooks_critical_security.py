@@ -23,7 +23,7 @@ class TestAuthHooksCriticalSecurity(VereningingenTestCase):
 
     def tearDown(self):
         """Clean up after tests"""
-        frappe.session.user = self.original_user
+        frappe.set_user(self.original_user)
         super().tearDown()
 
     @contextmanager
@@ -32,14 +32,16 @@ class TestAuthHooksCriticalSecurity(VereningingenTestCase):
 
         frappe.session is a frappe._dict, so its attributes cannot be patched
         via mock.patch (mock.get_original looks in __dict__, not the dict
-        items). Assign directly and restore instead.
+        items). Use frappe.set_user() directly and restore the same way -- it
+        also resets local.cache/role_permissions/user_perms, which a bare
+        assignment would leave stale between values.
         """
         previous = frappe.session.user
-        frappe.session.user = value
+        frappe.set_user(value)
         try:
             yield value
         finally:
-            frappe.session.user = previous
+            frappe.set_user(previous)
 
     # ===== CRITICAL SESSION VALIDATION TESTS =====
 

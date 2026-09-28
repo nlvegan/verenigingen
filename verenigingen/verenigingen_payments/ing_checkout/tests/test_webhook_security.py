@@ -344,9 +344,9 @@ class TestGetRequestIP(FrappeTestCase):
         # Clear any existing request
         if hasattr(frappe, "request"):
             old_request = frappe.request
-            frappe.request = None
+            frappe.request = None  # Mock justified: Infrastructure - simulate no request
             result = get_request_ip()
-            frappe.request = old_request
+            frappe.request = old_request  # Mock justified: Infrastructure - restore
         else:
             result = get_request_ip()
         self.assertIsNone(result)

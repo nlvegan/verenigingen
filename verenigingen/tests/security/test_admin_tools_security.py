@@ -58,7 +58,7 @@ class TestAdminToolsSecurity(VereningingenTestCase):
         
     def tearDown(self):
         """Clean up after tests"""
-        frappe.session.user = self.original_user
+        frappe.set_user(self.original_user)
         super().tearDown()
     
     def test_allowed_methods_whitelist(self):
@@ -421,7 +421,7 @@ class TestAdminToolsContext(VereningingenTestCase):
         ]
         
         for user, roles in allowed_scenarios:
-            frappe.session.user = user
+            frappe.set_user(user)
             mock_roles.return_value = roles
             
             # Create a context object that behaves like Frappe's page context
@@ -474,7 +474,7 @@ class TestRCEPrevention(VereningingenTestCase):
         
     def tearDown(self):
         """Clean up after tests"""
-        frappe.session.user = self.original_user
+        frappe.set_user(self.original_user)
         super().tearDown()
     
     # Mock justified: Infrastructure - external dependency, not the boundary under test
@@ -550,7 +550,7 @@ class TestAdminToolsIntegration(VereningingenTestCase):
         
     def tearDown(self):
         """Clean up after tests"""
-        frappe.session.user = self.original_user
+        frappe.set_user(self.original_user)
         super().tearDown()
     
     def test_successful_execution_flow(self):
