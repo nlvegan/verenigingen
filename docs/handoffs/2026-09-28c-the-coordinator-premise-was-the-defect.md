@@ -100,6 +100,8 @@ and classify findings before proposing a baseline. Recorded in memory.
 | 3 | Orphan rows deleted with a scoped `frappe.db.delete`; the abort kept for a real save failure on an existing chapter | The orphan branch skipped `terminate_chapter_membership`, so the history entry stayed Pending. A chapter that fails `validate()` blocks rejects there (0 such chapters on veg11) → #1599 |
 | 4 | History call mirrored from the normal path; the swapped `log_error` fixed (baseline 927→926) | Coordinator-checked. Merged. |
 
+Round labels follow the ledger, which counts the entry-gate test (b0eb6ae52) as 2b. The author's own commit subjects count it separately, so the last commit, ad2cd5e3a, calls itself "round 5". No round is missing. The `log_error` figure counts sites, the sum of the baseline's `::N` fields (927→926), not lines.
+
 ## Coordinator-checked deltas (not sent for another review round)
 
 - #1560 `59148a5ba`, `04f02919c`: docstring only; `ast.parse` is clean.
@@ -175,9 +177,11 @@ and classify findings before proposing a baseline. Recorded in memory.
   - gunicorn runs `--preload`, so the web and worker processes are still serving the pre-session
     code even though the tree is at `3135fd6be`.
   - No migrate is needed: the session's merges touch no DocType JSON, hooks, patches or fixtures.
-    The production files changed are `api/membership_application_review.py`,
+    The app files changed outside tests are `api/membership_application_review.py`,
     `services/billing/dues_schedule_permission_service.py`,
     `services/member/approval/application_helpers.py` and `chapter/managers/member_manager.py`.
+    The validation tooling `scripts/validation/workflow_path_filter.py` and
+    `scripts/validation/test_quality_enforcer.py` also changed; neither is loaded by veg11.
 - **Automerge:** finished with "ALL APPROVED PRs MERGED"; `approved_prs.txt` is empty.
 - **Agents:** none running.
 - **Worktrees:** this session's six issue worktrees are removed, and their merged local branches
