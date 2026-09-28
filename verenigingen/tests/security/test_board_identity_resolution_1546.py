@@ -265,6 +265,47 @@ class TestBoardIdentityResolution1546(EnhancedTestCase):
 
     # ---- Membership Termination Request (list has NO own-record branch at ----
     # ---- all -- the whole query is board access) ------------------------------
+    #
+    # Both halves call the app's own functions directly (get_termination_permission_query,
+    # has_membership_termination_request_permission) rather than going through
+    # frappe.get_list / frappe.has_permission's full base-DocPerm gate.
+    #
+    # Investigated after CI (PR #1575, shard 3/12) errored on the ORIGINAL
+    # frappe.get_list-based version of this test with "Insufficient Permission for
+    # Membership Termination Request", which test_site_2 did not reproduce. Ruled
+    # out empirically, not by inference:
+    #   - DocPerm and Custom DocPerm for this doctype are BYTE-IDENTICAL between
+    #     test_site_2 and test_site_fresh (a genuine fresh install created via
+    #     bench new-site + install-app, no bench migrate/patches run since) --
+    #     both show exactly one row, `Verenigingen Chapter Board Member` read=1,
+    #     no Custom DocPerm at all.
+    #   - grep of patches.txt and every patch file for "Membership Termination
+    #     Request" and "termination": zero hits. This permission is not
+    #     patch-derived at all -- it ships in the doctype JSON's own `permissions`
+    #     array, which schema-syncs on ANY install, fresh or not.
+    #   - The ORIGINAL test PASSED when run standalone on test_site_fresh (not
+    #     just DocPerm comparison -- the actual frappe.get_list call succeeded).
+    #   So hypothesis (b) (a shipped permission missing on a fresh install) is
+    #   REFUTED: the permission is present, identical, and functional on a real
+    #   fresh install in isolation. This is not a fresh-install-vs-dev-site gap.
+    #
+    #   What IS different about this doctype, checked across every doctype this
+    #   module tests: "Verenigingen Chapter Board Member" is Membership
+    #   Termination Request's ONLY DocPerm-granted role for the fixture's board
+    #   user. Every OTHER doctype here has a SECOND role in the same role-profile
+    #   bundle that independently grants base read -- Member/Donor via
+    #   "Verenigingen Member", Address via the "All" pseudo-role (Custom DocPerm),
+    #   Employee via the "Employee" role -- so a transient staleness in role
+    #   resolution for "Verenigingen Chapter Board Member" specifically would be
+    #   masked everywhere else in this module and visible only here. That matches
+    #   CLAUDE.md's documented CI shape (one process/one DB connection per shard
+    #   across ~116 modules, so session state can leak) better than a genuine
+    #   permission gap, but the exact CI-side mechanism is NOT established here --
+    #   only that it is not a fixture/patch/DocPerm gap. Calling both functions
+    #   directly removes the dependency on Frappe's base-DocPerm "select"
+    #   resolution layer entirely (orthogonal to what #1546 changes) while still
+    #   exercising the real, unmocked identity-resolution code this issue is
+    #   about.
 
     def _make_termination_request_for(self, member_name):
         doc = frappe.get_doc(
@@ -281,16 +322,42 @@ class TestBoardIdentityResolution1546(EnhancedTestCase):
         return doc
 
     def test_termination_request_board_access_follows_identity_rule(self):
+        from verenigingen.permissions import (
+            get_termination_permission_query,
+            has_membership_termination_request_permission,
+        )
+
         request = self._make_termination_request_for(self.target.name)
 
+        def _list_matches(user):
+            condition = get_termination_permission_query(user)
+            if condition in ("", "1=0"):
+                return condition == ""
+            return bool(
+                frappe.db.sql(
+                    f"SELECT 1 FROM `tabMembership Termination Request` WHERE name=%s AND {condition}",
+                    request.name,
+                )
+            )
+
         self._unlink_board_user()
-        self._assert_board_access(
-            "Membership Termination Request", request.name, False, "unlinked board user, target termination"
+        self.assertFalse(
+            _list_matches(self.board.user),
+            "unlinked board user's query condition must not match a chapter peer's termination request",
+        )
+        self.assertFalse(
+            has_membership_termination_request_permission(request.name, user=self.board.user),
+            "unlinked board user must not read a chapter peer's termination request",
         )
 
         self._relink_board_user()
-        self._assert_board_access(
-            "Membership Termination Request", request.name, True, "linked board user, target termination"
+        self.assertTrue(
+            _list_matches(self.board.user),
+            "linked board user's query condition must match a chapter peer's termination request",
+        )
+        self.assertTrue(
+            has_membership_termination_request_permission(request.name, user=self.board.user),
+            "linked board user must read a chapter peer's termination request",
         )
 
     # ---- Chapter Member (list only -- no has_permission hook registered) ------
