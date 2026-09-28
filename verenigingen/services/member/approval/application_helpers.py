@@ -1668,7 +1668,9 @@ def remove_pending_chapter_membership(member, chapter_name=None, elevated=False)
 
     Args:
         member: Member document (the applicant, already resolved by the caller).
-        chapter_name: Chapter to remove the applicant's own Pending row from.
+        chapter_name: Chapter to remove the applicant's own Pending row from. If
+            the Chapter no longer exists (an orphaned row), the row is deleted
+            directly and this still counts as removed -- see #1573 round 3.
         elevated: When True, the underlying Chapter save runs as a
             `system_operation` (see secure_operations.secure_document_operation) --
             it skips the ACTOR's own Chapter:write DocPerm check but nothing else
@@ -1678,7 +1680,9 @@ def remove_pending_chapter_membership(member, chapter_name=None, elevated=False)
             independently authorized the acting user for this specific
             application (#1573 maintainer ruling) -- this parameter widens WHO may
             write, not WHAT may be written, and only for this one applicant's own
-            Pending row.
+            Pending row. Has no bearing on the orphaned-row path above, which
+            never goes through secure_document_operation at all (there is no
+            Chapter document to check permissions against).
     """
     if not member:
         return False
@@ -1696,10 +1700,35 @@ def remove_pending_chapter_membership(member, chapter_name=None, elevated=False)
 
         # Check if chapter exists
         if not frappe.db.exists("Chapter", chapter_name):
-            frappe.logger().warning(
-                f"Chapter {chapter_name} does not exist, cannot remove pending membership"
+            # Orphaned row: the parent Chapter no longer exists (e.g. deleted
+            # directly, outside this member's own chapter-membership lifecycle).
+            # There is no document to save into consistency here -- a Chapter
+            # that doesn't exist can never be resaved -- so treating this as a
+            # retryable failure would mean nobody could EVER finish rejecting
+            # this applicant (#1573 round 3: the same "opposite harm" as round
+            # 1/2, reached through orphaned data instead of a permission gap).
+            # Delete the dangling row directly, scoped tightly to THIS member's
+            # OWN Pending row on THIS missing chapter -- never any other row --
+            # and count it as removed. Visible in the Error Log, not a failure.
+            frappe.db.delete(
+                "Chapter Member",
+                {
+                    "parenttype": "Chapter",
+                    "parent": chapter_name,
+                    "member": member.name,
+                    "status": "Pending",
+                },
             )
-            return False
+            frappe.log_error(
+                title="Orphaned pending chapter membership removed",
+                message=(
+                    f"Chapter {chapter_name} does not exist, but member {member.name} "
+                    f"held a Pending Chapter Member row pointing at it. Deleted the "
+                    f"orphaned row directly during cleanup rather than leaving it "
+                    f"permanently unremovable."
+                ),
+            )
+            return True
 
         # Get the chapter document
         chapter_doc = frappe.get_doc("Chapter", chapter_name)

@@ -1098,15 +1098,27 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
 
     def test_rejection_partial_failure_still_removes_others(self):
         """
-        Test that if one chapter removal fails, remaining chapters are still processed.
+        Test that an orphaned Chapter Member row (parent Chapter deleted, child
+        row left behind) does not block cleanup: both it and a valid chapter's
+        Pending row are removed.
 
         Simulates partial failure by creating a pending Chapter Member record
         pointing to a non-existent chapter (orphaned data), alongside a valid one.
+
+        #1573 round 3: an orphaned row can never be fixed by resaving its
+        Chapter (there is no Chapter to save), so remove_all_pending_chapter_
+        memberships deletes it directly and counts it as removed rather than
+        treating it as a retryable failure -- the latter would mean this
+        applicant could never be rejected by anyone, ever (see the "not
+        removed" assertion below, which is the regression this test now also
+        guards).
         """
         from verenigingen.utils.application_helpers import (
             create_pending_chapter_membership,
             remove_all_pending_chapter_memberships,
         )
+
+        self.expectErrorLog("Orphaned pending chapter membership removed")
 
         # Create pending member with valid chapter membership
         member = self.create_test_member(
@@ -1134,20 +1146,21 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
         )
         frappe.db.commit()
 
-        # Should still remove the valid chapter even though fake one will fail
+        # Should still remove the valid chapter, AND the orphaned one.
         removed = remove_all_pending_chapter_memberships(member)
         self.assertIn(
             self.test_chapter.name,
             removed,
-            "Valid chapter should still be removed despite fake chapter failure",
+            "Valid chapter should still be removed despite the orphaned row",
         )
 
-        # Clean up orphaned row
-        frappe.db.sql(
-            "DELETE FROM `tabChapter Member` WHERE parent = %s AND member = %s",
-            (fake_chapter_name, member.name),
+        # The orphan row itself must be gone, not just skipped -- #1573 round 3.
+        # Deleting it directly (there is no Chapter left to save) is what lets
+        # this applicant's rejection ever complete at all.
+        self.assertFalse(
+            frappe.db.exists("Chapter Member", {"parent": fake_chapter_name, "member": member.name}),
+            "the orphaned Pending Chapter Member row must be deleted, not left behind",
         )
-        frappe.db.commit()
 
 
 def run_tests():

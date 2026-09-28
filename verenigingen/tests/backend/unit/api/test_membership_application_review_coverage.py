@@ -441,30 +441,37 @@ class TestRejectMembershipApplicationChapterCleanup(EnhancedTestCase):
 
     def test_genuine_non_permission_cleanup_failure_still_aborts_with_generic_message(self):
         """(b) Control: elevation only lifts the ACTOR's permission check. A real,
-        non-permission failure (the chapter this Pending row points at no longer
-        exists) must still abort the reject atomically, and the caller-facing
-        message must name no chapter -- only the Error Log may.
+        non-permission failure while saving an EXISTING chapter must still abort
+        the reject atomically, and the caller-facing message must name no chapter
+        -- only the Error Log may.
 
-        Probe shortcut, disclosed: rather than reproduce a genuine mid-flight
-        chapter deletion race, this repoints the REAL Pending row the resubmit
-        flow created (not a mock of any function) onto a chapter name that does
-        not exist, via a direct frappe.db.set_value. That is exactly the
-        condition remove_pending_chapter_membership's own
-        `frappe.db.exists("Chapter", chapter_name)` guard defends against, and it
-        is independent of the elevation this round adds (the check runs before
-        secure_document_operation is even called).
+        #1573 round 3: this used to reuse the "chapter no longer exists" shape as
+        its stand-in for "genuine failure" -- but round 3 changed THAT shape to be
+        handled (the orphan is deleted and counted as removed, see the
+        TestChapterMembershipApprovalIntegration regression test), so it is no
+        longer a failure at all and would silently prove nothing here. Rewritten
+        to use a REAL Chapter business-rule validation failure instead:
+        ChapterValidator's PostalCodeValidator genuinely rejects a range pattern
+        whose start exceeds its end (postal_code_validator.py's
+        `_validate_range_pattern`) -- "Range start 9999 cannot be greater than
+        range end 1000". Setting other_chapter.postal_codes to "9999-1000" via a
+        direct frappe.db.set_value (disclosed: this stages the SETUP precondition
+        without going through Chapter.save() -- the mechanism under test is
+        Chapter.validate() itself, which genuinely runs and genuinely throws when
+        OUR code's cleanup save() reaches it) reproduces exactly that.
         """
         member = self._applicant_pending_in_both_chapters_via_resubmit()
 
-        stale_chapter_name = "NONEXISTENT-CHAPTER-1573-PROBE"
-        row_name = frappe.db.get_value(
-            "Chapter Member",
-            {"parent": self.other_chapter.name, "member": member.name},
-            "name",
+        frappe.db.set_value(
+            "Chapter", self.other_chapter.name, "postal_codes", "9999-1000", update_modified=False
         )
-        frappe.db.set_value("Chapter Member", row_name, "parent", stale_chapter_name, update_modified=False)
 
-        self.expectErrorLog("Chapter Removal Error", "Pending chapter cleanup incomplete")
+        self.expectErrorLog(
+            "Chapter Removal Error",
+            "Pending chapter cleanup incomplete",
+            "Secure Operation Failed",
+            "cannot be greater than",
+        )
 
         commit_calls = []
         original_commit = frappe.db.commit
@@ -486,20 +493,92 @@ class TestRejectMembershipApplicationChapterCleanup(EnhancedTestCase):
         )
 
         caller_message = str(ctx.exception)
-        for name in (self.own_chapter.name, self.other_chapter.name, stale_chapter_name):
+        for name in (self.own_chapter.name, self.other_chapter.name):
             self.assertNotIn(
                 name,
                 caller_message,
                 f"the caller-facing message must be generic and must not name {name}",
             )
 
-        # The chapter name IS still recorded -- just to the Error Log, not the caller.
+        # The failure IS still recorded -- just to the Error Log, not the caller.
+        # remove_pending_chapter_membership's own except-block calls
+        # frappe.log_error(f"...{str(e)}", "Chapter Removal Error") -- a swapped
+        # (title, message) call (the known #602-class trap), so the long dynamic
+        # string lands in `method` (truncated to 140 chars by ErrorLog.validate())
+        # and, because that overflow makes ErrorLog.validate() prepend the FULL
+        # method onto `error`, the real validation reason ends up in `error`
+        # regardless. Assert on `error`, empirically confirmed to hold it.
         log_row = frappe.db.get_value(
             "Error Log",
-            {"method": ["like", "%Pending chapter cleanup incomplete%"]},
+            {"error": ["like", "%cannot be greater than%"]},
             "error",
         )
-        self.assertIn(stale_chapter_name, log_row or "", "the chapter name must still reach the Error Log")
+        self.assertIn(
+            "cannot be greater than",
+            log_row or "",
+            "the real validation reason must still reach the Error Log",
+        )
+
+        # The Pending row on the still-existing (but invalid) chapter must
+        # survive -- the whole point of aborting rather than reporting success.
+        self.assertEqual(
+            frappe.db.get_value(
+                "Chapter Member", {"parent": self.other_chapter.name, "member": member.name}, "status"
+            ),
+            "Pending",
+            "a genuine (non-permission) cleanup failure must not silently drop the row",
+        )
+
+    def test_orphan_cleanup_is_scoped_to_this_member_and_leaves_other_members_rows_alone(self):
+        """Mutant (b) control (#1573 round 3): the orphan-delete inside
+        remove_pending_chapter_membership must be scoped to THIS member's own
+        Pending row on THIS missing chapter -- not just the missing parent
+        chapter name. A control row for a DIFFERENT member, pointing at the
+        SAME orphaned chapter name, must survive our member's rejection
+        untouched.
+        """
+        member = self._applicant_pending_in_both_chapters_via_resubmit()
+
+        stale_chapter_name = "NONEXISTENT-CHAPTER-1573-ORPHAN-SCOPE"
+        row_name = frappe.db.get_value(
+            "Chapter Member", {"parent": self.other_chapter.name, "member": member.name}, "name"
+        )
+        frappe.db.set_value("Chapter Member", row_name, "parent", stale_chapter_name, update_modified=False)
+
+        # A control row for an UNRELATED member, sharing the SAME orphaned
+        # parent chapter name. Inserted directly (there is no real Chapter left
+        # to append it through) -- the same technique
+        # test_chapter_membership_approval_integration.py's own pre-existing
+        # orphan regression test uses.
+        other_member = self.create_test_member(
+            first_name="OrphanControl",
+            last_name=f"Other{frappe.generate_hash(length=6)}",
+            email=f"orphan-control-{frappe.generate_hash(length=8)}@example.com",
+            birth_date=add_days(today(), -365 * 30),
+        )
+        control_row_name = frappe.generate_hash(length=10)
+        frappe.db.sql(
+            """INSERT INTO `tabChapter Member`
+               (name, parent, parenttype, parentfield, member, status, idx, enabled)
+               VALUES (%s, %s, 'Chapter', 'members', %s, 'Pending', 1, 1)""",
+            (control_row_name, stale_chapter_name, other_member.name),
+        )
+
+        self.expectErrorLog("Orphaned pending chapter membership removed")
+
+        with self.as_user(self.board.user):
+            result = reject_membership_application(member.name, reason="orphan scoping repro")
+
+        self.assertTrue(result.get("success"), f"reject must succeed once the orphan is cleaned up: {result}")
+
+        remaining = frappe.get_all("Chapter Member", filters={"member": member.name, "status": "Pending"})
+        self.assertEqual(remaining, [], f"a Pending row survived rejection: {remaining}")
+
+        self.assertTrue(
+            frappe.db.exists("Chapter Member", {"name": control_row_name}),
+            "cleanup must not delete another member's row just because it shares the "
+            "same (orphaned) parent chapter name",
+        )
 
     def test_unauthorized_caller_is_still_refused_at_the_entry_gate(self):
         """(c) Control: elevation must not widen WHO may call reject at all. A
