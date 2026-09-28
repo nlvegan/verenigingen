@@ -633,6 +633,53 @@ class TestMemberUtilsEndpoints(VereningingenTestCase):
             "application_status merely defaults to 'Pending'",
         )
 
+    def test_update_termination_status_display_clears_member_end_date_with_no_termination_request(self):
+        """#1554: member_end_date can be written by a path that never creates
+        a Membership Termination Request at all -- a raw `frappe.db.set_value`
+        (e.g. `mollie_debug_service._sync_single_member_end_date`) does not
+        depend on one existing. #1548's clearing logic sits entirely inside
+        `if executed_termination:`, so a member with NO termination request
+        of any kind never reached it, regardless of rejoin -- the stale value
+        stayed forever. member_since advancing past a stale member_end_date
+        must clear it on its own, independent of whether any termination
+        request backs that value.
+
+        Calls the hook directly (`mu.update_termination_status_display`),
+        matching every sibling test in this section -- the hook is a pure
+        function of doc state, not itself gated on request context. The
+        `frappe.db.set_value` write below stands in for the Mollie writer's
+        own bypass of before_save (see #1554); it is that writer's exact
+        mechanism, not a hand-rolled shortcut."""
+        member_doc = frappe.get_doc("Member", self.member.name)
+        member_doc.member_since = add_months(today(), -6)
+        member_doc.application_status = "Approved"
+        member_doc.status = "Active"
+        member_doc.save()
+
+        # The writer's own raw overwrite -- no Membership Termination
+        # Request exists for this member at all.
+        stale_end_date = add_months(today(), -3)
+        frappe.db.set_value(
+            "Member", member_doc.name, "member_end_date", stale_end_date, update_modified=False
+        )
+        member_doc.reload()
+        self.assertEqual(member_doc.member_end_date, getdate(stale_end_date))
+        self.assertEqual(
+            frappe.db.count("Membership Termination Request", {"member": member_doc.name}),
+            0,
+            "precondition: no termination request exists for this scenario",
+        )
+
+        # Real rejoin: member_since resets to AFTER the stale end date.
+        member_doc.member_since = today()
+        member_doc.status = "Active"
+        mu.update_termination_status_display(member_doc)
+        self.assertIsNone(
+            member_doc.member_end_date,
+            "A stale member_end_date with no termination request behind it must "
+            "still be cleared once member_since advances past it (#1554)",
+        )
+
     # ------------------------------------------------------------------ member id counter
 
     def test_get_next_member_id_preview_shape(self):

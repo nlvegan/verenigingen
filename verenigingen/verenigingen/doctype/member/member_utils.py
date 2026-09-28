@@ -655,6 +655,29 @@ def update_termination_status_display(doc, method=None):
                 member.status = member._termination_final_status
         return  # Skip database query and other logic
 
+    # #1554: member_end_date can be written by a path that never creates an
+    # executed Membership Termination Request at all -- a raw
+    # `frappe.db.set_value` (e.g. mollie_debug_service.
+    # _sync_single_member_end_date, syncing a Mollie subscription's
+    # cancellation date) bypasses before_save entirely and does not depend
+    # on one existing, and even when a request DOES exist, that raw write
+    # can leave member_end_date at a date that no longer matches the
+    # request's own (the below `== target_date` guard would then miss it).
+    # The `if executed_termination:` block below only ever reasons about a
+    # value tied to a specific request, so neither case was ever revisited
+    # on a later rejoin -- reproducing #1544's bug class through this field.
+    # Regardless of source, a member_end_date at or before the member's
+    # CURRENT member_since necessarily belongs to a membership period this
+    # member no longer holds (#1544's ruling: only the CURRENT membership's
+    # own termination counts), so clear it here, unconditionally, before
+    # reasoning about any specific termination request below.
+    if (
+        member.member_end_date
+        and member.member_since
+        and getdate(member.member_end_date) <= getdate(member.member_since)
+    ):
+        member.member_end_date = None
+
     # Get most recent executed termination
     executed_termination = frappe.get_all(
         "Membership Termination Request",
