@@ -114,6 +114,40 @@ def get_member_name_for_user(user_email: str) -> Optional[str]:
         raise
 
 
+def get_member_name_for_board_access(user_email: str) -> Optional[str]:
+    """
+    Resolve `user_email` to a Member name for a BOARD-ACCESS authorization
+    decision -- a Chapter Board Member permission_query_conditions/
+    has_permission check, or an internal helper answering "does this person
+    hold a board seat". Never use this for a member's own-record access, and
+    never for a non-authorization purpose (dashboards, routing, role-sync);
+    those keep using get_member_name_for_user.
+
+    Board access is decided on the explicit Member.user link ONLY. Unlike
+    get_member_name_for_user, this deliberately has NO Member.email fallback:
+    that fallback would let a User who merely shares an email address with an
+    unrelated Member inherit that Member's board seat (measured on veg11:
+    126 Members with `user` unset or mismatched while `email` matches an
+    existing User account). The same rationale was already applied to the
+    chapter-approval path by get_user_board_chapters(strict_user_link=True)
+    (services/chapter/chapter_permission_service.py). Maintainer ruling on
+    #1546: board identity is Member.user only, full stop, for every board
+    permission check.
+
+    Returns:
+        Member name/ID if `user_email` is linked via Member.user, None
+        otherwise.
+
+    Raises:
+        Any database error raised by the lookup. Not swallowed to None -- a
+        swallowed error here would silently mis-answer an authorization
+        question, same reasoning as get_member_name_for_user.
+    """
+    if not user_email:
+        return None
+    return frappe.db.get_value("Member", {"user": user_email}, "name")
+
+
 def get_current_user_member_name() -> Optional[str]:
     """
     Get member name/ID for the current user with standardized lookup pattern.
