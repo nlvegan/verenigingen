@@ -26,6 +26,7 @@ from verenigingen.services.billing.dues_schedule_permission_service import (
 )
 from verenigingen.services.termination.termination_integration import disable_chapter_memberships_safe
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.chapter_member_row import get_chapter_member_row
 from verenigingen.utils.constants import Roles
 
 
@@ -327,14 +328,6 @@ class TestBoardFinanceEnabledCheckAgreesAcrossChannels(_BasePermissionTest):
         edit_permitted = self.service.is_chapter_board_with_finance(member_name, board_user)
         return listed, doc_permitted, edit_permitted
 
-    def _cm_row_1562(self, member_name, chapter_name):
-        return frappe.db.get_value(
-            "Chapter Member",
-            {"member": member_name, "parent": chapter_name},
-            ["enabled", "status"],
-            as_dict=True,
-        )
-
     def test_positive_control_enabled_active_board_seat_has_access_on_all_channels(self):
         """Control: a genuinely enabled, Active board-finance seat must keep access on
         all three channels. This is the row an overly-broad ("always exclude") fix
@@ -343,7 +336,7 @@ class TestBoardFinanceEnabledCheckAgreesAcrossChannels(_BasePermissionTest):
         member, sched = self._member_with_active_schedule()
         board_user, chapter = self._make_chapter_with_finance_board(member.name)
 
-        cm_row = self._cm_row_1562(member.name, chapter.name)
+        cm_row = get_chapter_member_row(member.name, chapter.name)
         self.assertEqual(
             (cm_row.enabled, cm_row.status),
             (1, "Active"),
@@ -392,7 +385,7 @@ class TestBoardFinanceEnabledCheckAgreesAcrossChannels(_BasePermissionTest):
 
         chapter.member_manager.remove_member(member.name, leave_reason="left", notify=False)
 
-        cm_row = self._cm_row_1562(member.name, chapter.name)
+        cm_row = get_chapter_member_row(member.name, chapter.name)
         self.assertEqual(
             (cm_row.enabled, cm_row.status),
             (0, "Active"),
@@ -420,7 +413,7 @@ class TestBoardFinanceEnabledCheckAgreesAcrossChannels(_BasePermissionTest):
         disabled_count = disable_chapter_memberships_safe(member.name, today(), "Test termination #1562")
         self.assertEqual(disabled_count, 1, "fixture setup: disable_chapter_memberships_safe disabled 0 rows")
 
-        cm_row = self._cm_row_1562(member.name, chapter.name)
+        cm_row = get_chapter_member_row(member.name, chapter.name)
         self.assertEqual(
             (cm_row.enabled, cm_row.status),
             (0, "Inactive"),
@@ -461,14 +454,14 @@ class TestBoardFinanceEnabledCheckAgreesAcrossChannels(_BasePermissionTest):
         )
         self.assertTrue(result.get("success"), f"fixture setup: transfer failed: {result}")
 
-        source_row = self._cm_row_1562(member.name, source_chapter.name)
+        source_row = get_chapter_member_row(member.name, source_chapter.name)
         self.assertEqual(
             (source_row.enabled, source_row.status),
             (0, "Active"),
             "fixture setup: transfer did not leave the expected enabled=0/status=Active row "
             "on the source chapter",
         )
-        dest_row = self._cm_row_1562(member.name, dest_chapter.name)
+        dest_row = get_chapter_member_row(member.name, dest_chapter.name)
         self.assertEqual(
             (dest_row.enabled, dest_row.status),
             (1, "Active"),

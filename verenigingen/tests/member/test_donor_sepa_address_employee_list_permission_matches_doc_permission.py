@@ -41,6 +41,7 @@ from frappe.utils import add_days, today
 from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
 from verenigingen.services.termination.termination_integration import disable_chapter_memberships_safe
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.chapter_member_row import get_chapter_member_row
 
 
 class _ChapterBoardLinkedRecordListDocAgreement:
@@ -106,14 +107,6 @@ class _ChapterBoardLinkedRecordListDocAgreement:
             f"(listed={listed}, doc_permission={doc_ok})",
         )
 
-    def _cm_row(self, member_name, chapter_name):
-        return frappe.db.get_value(
-            "Chapter Member",
-            {"member": member_name, "parent": chapter_name},
-            ["enabled", "status"],
-            as_dict=True,
-        )
-
     # ---- writer-produced states --------------------------------------------
 
     def test_positive_control_active_member_of_own_chapter(self):
@@ -154,7 +147,7 @@ class _ChapterBoardLinkedRecordListDocAgreement:
         chapter_doc = frappe.get_doc("Chapter", self.chapter.name)
         chapter_doc.member_manager.remove_member(member.name, leave_reason="left", notify=False)
 
-        cm_row = self._cm_row(member.name, self.chapter.name)
+        cm_row = get_chapter_member_row(member.name, self.chapter.name)
         self.assertEqual(
             (cm_row.enabled, cm_row.status),
             (0, "Active"),
@@ -178,7 +171,7 @@ class _ChapterBoardLinkedRecordListDocAgreement:
         disabled_count = disable_chapter_memberships_safe(member.name, today(), "Test termination #1543")
         self.assertEqual(disabled_count, 1, "fixture setup: disable_chapter_memberships_safe disabled 0 rows")
 
-        cm_row = self._cm_row(member.name, self.chapter.name)
+        cm_row = get_chapter_member_row(member.name, self.chapter.name)
         self.assertEqual(
             (cm_row.enabled, cm_row.status),
             (0, "Inactive"),
@@ -217,14 +210,14 @@ class _ChapterBoardLinkedRecordListDocAgreement:
         )
         self.assertTrue(result.get("success"), f"fixture setup: transfer failed: {result}")
 
-        source_row = self._cm_row(member.name, self.chapter.name)
+        source_row = get_chapter_member_row(member.name, self.chapter.name)
         self.assertEqual(
             (source_row.enabled, source_row.status),
             (0, "Active"),
             "fixture setup: transfer did not leave the expected enabled=0/status=Active "
             "row on the source chapter",
         )
-        destination_row = self._cm_row(member.name, self.other_chapter.name)
+        destination_row = get_chapter_member_row(member.name, self.other_chapter.name)
         self.assertEqual(
             (destination_row.enabled, destination_row.status),
             (1, "Active"),
@@ -358,7 +351,7 @@ class TestEmployeeBoardListPermissionMatchesDocLevel(
         chapter_doc = frappe.get_doc("Chapter", self.chapter.name)
         chapter_doc.member_manager.remove_member(member.name, leave_reason="left", notify=False)
 
-        cm_row = self._cm_row(member.name, self.chapter.name)
+        cm_row = get_chapter_member_row(member.name, self.chapter.name)
         self.assertEqual(
             (cm_row.enabled, cm_row.status),
             (0, "Active"),
