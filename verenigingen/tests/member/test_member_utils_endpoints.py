@@ -12,8 +12,9 @@ factory (no business-logic mocking) and run as Administrator.
 """
 
 import frappe
-from frappe.utils import add_days, today
+from frappe.utils import add_days, add_months, get_datetime, getdate, now_datetime, today
 
+from verenigingen.tests.support.termination_request import execute_real_termination
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.verenigingen.doctype.member import member_utils as mu
 
@@ -360,6 +361,277 @@ class TestMemberUtilsEndpoints(VereningingenTestCase):
         member_doc.status = "Active"
         mu.update_termination_status_display(member_doc)
         self.assertEqual(member_doc.status, "Active")
+
+    # -------------------------------------------- #1544/#1548: hook scoping by member_since
+
+    def _insert_executed_termination(self, member_name, termination_date, execution_date=None,
+                                      termination_type="Voluntary"):
+        """A real (not mocked) Membership Termination Request row already in
+        the "Executed" state -- the hook under test only ever reads this via
+        `frappe.get_all(..., filters={"status": "Executed"})`, regardless of
+        docstatus, so a direct insert at that status is a faithful fixture
+        for exercising the hook in isolation from the full execution service
+        (that service itself is covered by test_termination_execution_service.py)."""
+        request = frappe.get_doc(
+            {
+                "doctype": "Membership Termination Request",
+                "member": member_name,
+                "termination_type": termination_type,
+                "termination_reason": "Test: #1544/#1548 hook scoping",
+                "termination_date": termination_date,
+                "execution_date": execution_date or termination_date,
+                "requested_by": frappe.session.user,
+                "request_date": termination_date,
+                "status": "Executed",
+                "executed_by": frappe.session.user,
+            }
+        )
+        request.insert()
+        self.track_doc("Membership Termination Request", request.name)
+        return request
+
+    def test_update_termination_status_display_normal_termination_still_applies(self):
+        """Regression guard: the ordinary case (termination AFTER member_since,
+        no rejoin) must still force the terminal status -- #1548's fix must
+        not weaken this, only the superseded-by-rejoin case."""
+        member_doc = frappe.get_doc("Member", self.member.name)
+        member_doc.member_since = add_months(today(), -24)
+        member_doc.application_status = "Approved"
+        member_doc.status = "Active"
+        member_doc.save()
+        self._insert_executed_termination(member_doc.name, add_months(today(), -12))
+
+        member_doc.reload()
+        mu.update_termination_status_display(member_doc)
+        self.assertEqual(member_doc.status, "Quit")
+
+    def test_update_termination_status_display_future_termination_date_still_applies(self):
+        """A termination_date in the future is still AFTER member_since, so it
+        is not "superseded" by the boundary this fix adds -- unaffected,
+        matching pre-existing behaviour (this function has never checked
+        whether the date has actually arrived yet)."""
+        member_doc = frappe.get_doc("Member", self.member.name)
+        member_doc.member_since = add_months(today(), -6)
+        member_doc.application_status = "Approved"
+        member_doc.status = "Active"
+        member_doc.save()
+        self._insert_executed_termination(member_doc.name, add_months(today(), 3))
+
+        member_doc.reload()
+        mu.update_termination_status_display(member_doc)
+        self.assertEqual(member_doc.status, "Quit")
+
+    def test_update_termination_status_display_null_member_since_still_applies(self):
+        """A missing member_since (data gap, e.g. an old import) is NOT
+        treated as evidence of supersession -- the fix must fail closed
+        (still reflect a real Executed termination) rather than silently
+        leaving a terminated member's status untouched."""
+        member_doc = frappe.get_doc("Member", self.member.name)
+        member_doc.member_since = None
+        member_doc.application_status = "Approved"
+        member_doc.status = "Active"
+        member_doc.save()
+        self._insert_executed_termination(member_doc.name, add_months(today(), -1))
+
+        member_doc.reload()
+        self.assertIsNone(member_doc.member_since)
+        mu.update_termination_status_display(member_doc)
+        self.assertEqual(member_doc.status, "Quit")
+
+    def test_update_termination_status_display_backdated_termination_still_applies(self):
+        """A termination recorded today but backdated to an earlier effective
+        date (termination_date < execution_date) -- ordinary practice, e.g.
+        "processed today, effective as of the member's actual resignation
+        date" -- must still apply as long as that effective date is after
+        member_since. Only a termination whose date predates member_since
+        entirely is treated as belonging to a prior, superseded membership."""
+        member_doc = frappe.get_doc("Member", self.member.name)
+        member_doc.member_since = add_months(today(), -24)
+        member_doc.application_status = "Approved"
+        member_doc.status = "Active"
+        member_doc.save()
+        self._insert_executed_termination(
+            member_doc.name,
+            termination_date=add_months(today(), -12),
+            execution_date=today(),
+        )
+
+        member_doc.reload()
+        mu.update_termination_status_display(member_doc)
+        self.assertEqual(member_doc.status, "Quit")
+
+    def test_update_termination_status_display_skips_when_termination_predates_member_since(self):
+        """The core #1548 fix: a real reapproval resets member_since to the
+        rejoin date, and the OLD termination (necessarily dated before that)
+        must no longer force a terminal status. Also clears the stale
+        member_end_date it left behind, for the same reason #1544 scopes its
+        own exclusion by member_since -- membership_analytics.py's retention
+        queries read member_end_date the same way."""
+        member_doc = frappe.get_doc("Member", self.member.name)
+        member_doc.member_since = add_months(today(), -24)
+        member_doc.application_status = "Approved"
+        member_doc.status = "Active"
+        member_doc.save()
+        old_termination_date = add_months(today(), -12)
+        self._insert_executed_termination(member_doc.name, old_termination_date)
+
+        member_doc.reload()
+        mu.update_termination_status_display(member_doc)
+        self.assertEqual(member_doc.status, "Quit")
+        # Raw member_end_date, not getdate(member_end_date) -- see the sibling
+        # misfire test's comment: getdate(None) returns today, not None.
+        self.assertEqual(member_doc.member_end_date, getdate(old_termination_date))
+
+        # Real rejoin: member_since resets to AFTER the old termination.
+        member_doc.member_since = today()
+        member_doc.application_status = "Approved"
+        member_doc.status = "Active"
+        mu.update_termination_status_display(member_doc)
+        self.assertEqual(
+            member_doc.status,
+            "Active",
+            "A termination predating the current member_since must not force Quit",
+        )
+        self.assertIsNone(
+            member_doc.member_end_date,
+            "The stale member_end_date from the superseded termination must be cleared",
+        )
+
+    def test_update_termination_status_display_manual_member_since_edit_also_supersedes(self):
+        """An admin manually correcting member_since forward past an old
+        termination (without going through the reapplication API) is treated
+        the same way -- the boundary is on the DATA, not on which code path
+        produced it."""
+        member_doc = frappe.get_doc("Member", self.member.name)
+        member_doc.member_since = add_months(today(), -24)
+        member_doc.application_status = "Approved"
+        member_doc.status = "Active"
+        member_doc.save()
+        self._insert_executed_termination(member_doc.name, add_months(today(), -12))
+
+        member_doc.reload()
+        # Manual correction: bump member_since forward past the termination,
+        # exactly as an admin editing the field in the Desk UI would.
+        member_doc.member_since = today()
+        member_doc.status = "Active"
+        mu.update_termination_status_display(member_doc)
+        self.assertEqual(member_doc.status, "Active")
+
+    def test_update_termination_status_display_skips_while_reapplication_pending(self):
+        """While a reapplication is Pending (member_since not yet reset --
+        that happens at approval), forcing a terminal status would drop the
+        applicant from get_pending_applications() (status='Pending' filter),
+        hiding a legitimate rejoin from reviewers. application_date is set to
+        AFTER the termination -- exactly what update_member_from_reapplication
+        does -- which is the positive signal that distinguishes this from the
+        Select-default misfire covered below."""
+        member_doc = frappe.get_doc("Member", self.member.name)
+        member_doc.member_since = add_months(today(), -24)
+        member_doc.application_status = "Approved"
+        member_doc.status = "Active"
+        member_doc.save()
+        old_termination_date = add_months(today(), -12)
+        self._insert_executed_termination(member_doc.name, old_termination_date)
+
+        member_doc.reload()
+        # Reapplication in progress: status set to Pending, member_since NOT
+        # yet reset (matches update_member_from_reapplication's own order),
+        # application_date set to now (also matches that function).
+        member_doc.status = "Pending"
+        member_doc.application_status = "Pending"
+        member_doc.application_date = now_datetime()
+        mu.update_termination_status_display(member_doc)
+        self.assertEqual(
+            member_doc.status,
+            "Pending",
+            "A Pending reapplication must not be reverted to Quit before it is reviewed",
+        )
+
+    def test_update_termination_status_display_same_day_reapplication_still_skips(self):
+        """Boundary: application_date on the SAME calendar day as the
+        termination's own effective date must still count as "the
+        reapplication postdates the termination". application_date is a
+        Datetime and the termination's date a Date, so a same-day
+        reapplication (processed hours after the termination, same calendar
+        day) has application_date > termination_date at the TIME level but
+        their DATE parts are equal -- getdate() truncates both to the date
+        part before comparing, so this collapses to an equality, not a
+        `>`. A reapplication can never actually precede the termination it
+        responds to, so this equality must still count: `>=` is required,
+        `>` would wrongly force Quit over the in-progress Pending status."""
+        member_doc = frappe.get_doc("Member", self.member.name)
+        member_doc.member_since = add_months(today(), -24)
+        member_doc.application_status = "Approved"
+        member_doc.status = "Active"
+        member_doc.save()
+        termination_date = add_months(today(), -12)
+        self._insert_executed_termination(member_doc.name, termination_date)
+
+        member_doc.reload()
+        member_doc.status = "Pending"
+        member_doc.application_status = "Pending"
+        # Same calendar day as termination_date, processed later that day.
+        member_doc.application_date = get_datetime(f"{termination_date} 23:59:59")
+        mu.update_termination_status_display(member_doc)
+        self.assertEqual(
+            member_doc.status,
+            "Pending",
+            "A same-day reapplication must still count as postdating the termination "
+            "(the `>=` boundary, not `>`)",
+        )
+
+    def test_update_termination_status_display_default_application_status_does_not_misfire(self):
+        """Regression (2nd independent review round, 2026-09-28): Member.
+        application_status is a Select with NO default, so Frappe auto-fills
+        its FIRST option, "Pending", for every member where it was never
+        explicitly written -- CSV/Mijnrood imports, and every test member made
+        by create_test_member() without passing application_status (as
+        self.member here is). That must not be misread as "a reapplication is
+        in progress": an ordinary, unrelated save on a member who was really
+        terminated long ago (and never rejoined) must not clear
+        member_end_date or leave status un-forced, just because
+        application_status happens to still read the Select default.
+
+        Drives a REAL termination via TerminationExecutionService (not a
+        hand-set status) -- matches the reviewer's own reproduction and
+        #1532/#1540's discipline."""
+        member_doc = frappe.get_doc("Member", self.member.name)
+        member_doc.member_since = add_days(today(), -1000)
+        # application_status deliberately left UNSET.
+        member_doc.status = "Active"
+        member_doc.save()
+        member_doc.reload()
+        self.assertEqual(
+            member_doc.application_status,
+            "Pending",
+            "precondition: an unwritten Select auto-fills its first option",
+        )
+
+        termination_date = add_days(today(), -400)
+        execute_real_termination(self, member_doc.name, termination_date)
+        member_doc.reload()
+        self.assertEqual(member_doc.status, "Quit")
+        # Compare the RAW member_end_date, not getdate(member_end_date):
+        # frappe.utils.getdate(None) returns TODAY, not None, so wrapping the
+        # actual value in getdate() would silently turn "member_end_date was
+        # never set / got cleared" into a same-shaped date mismatch instead of
+        # an obvious None -- exactly what masked the real failure reason in
+        # this test's own history (independent review, round 2).
+        self.assertEqual(member_doc.member_end_date, getdate(termination_date))
+
+        # An unrelated save (e.g. an admin editing an unrelated field) must
+        # NOT clear member_end_date or un-force status, just because
+        # application_status merely defaults to "Pending".
+        member_doc.notes = "Unrelated edit, not a reapplication"
+        member_doc.save()
+        member_doc.reload()
+        self.assertEqual(member_doc.status, "Quit")
+        self.assertEqual(
+            member_doc.member_end_date,
+            getdate(termination_date),
+            "member_end_date must survive an unrelated save on a member whose "
+            "application_status merely defaults to 'Pending'",
+        )
 
     # ------------------------------------------------------------------ member id counter
 

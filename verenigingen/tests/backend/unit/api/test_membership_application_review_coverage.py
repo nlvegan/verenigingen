@@ -591,3 +591,95 @@ class TestUpdatePaymentHistoryForInvoice(EnhancedTestCase):
             self.assertIsNone(
                 update_payment_history_for_invoice("NONEXISTENT-MEMBER-COV-12345", "NONEXISTENT-SINV-COV-12345")
             )
+
+
+class TestApproveMembershipApplicationTerminationGuard(EnhancedTestCase):
+    """#1544/#1548 follow-up: a Pending applicant can be terminated while
+    still under review (validate_termination_request() does not block it),
+    and approval unconditionally resets member_since to today -- which,
+    per #1544's own rule, makes that termination look superseded. But this
+    is NOT a genuine rejoin: a genuine rejoin's application_date is set to
+    now() by update_member_from_reapplication, strictly after the
+    termination it responds to; here the application predates the
+    termination, so approving would silently reactivate a member who was
+    terminated after they applied, with nobody having decided that should
+    happen. Refuse instead of guessing the product rule."""
+
+    def test_refuses_when_termination_postdates_application(self):
+        from verenigingen.api.membership_application_review import approve_membership_application
+        from verenigingen.tests.support.termination_request import execute_real_termination
+
+        membership_type = _ensure_membership_type()
+        member = self.create_test_member(
+            first_name="StalePending",
+            last_name="ThenTerminated",
+            email=f"stale.pending.{frappe.generate_hash(length=6)}@test.invalid",
+            birth_date="1990-01-01",
+            status="Pending",
+            application_status="Pending",
+            selected_membership_type=membership_type,
+        )
+        application_date = add_days(today(), -10)
+        frappe.db.set_value(
+            "Member", member.name, "application_date", application_date, update_modified=False
+        )
+
+        # Reachable: validate_termination_request() does not block creating
+        # (and executing) a termination against a still-Pending member.
+        termination_date = add_days(today(), -1)
+        execute_real_termination(self, member.name, termination_date)
+        member.reload()
+        self.assertEqual(member.status, "Quit")
+        self.assertEqual(member.application_status, "Pending", "sanity: application is still open")
+
+        with self.assertRaises(frappe.ValidationError):
+            approve_membership_application(
+                member_name=member.name,
+                membership_type=membership_type,
+                chapter=None,
+            )
+
+        member.reload()
+        self.assertEqual(
+            member.application_status,
+            "Pending",
+            "a refused approval must not have advanced application_status",
+        )
+
+    def test_approves_normally_when_application_postdates_termination(self):
+        """Control: the genuine rejoin case (application_date AFTER the
+        termination) must still approve normally -- the guard must not
+        refuse a real, legitimate reapplication."""
+        from verenigingen.api.membership_application_review import approve_membership_application
+        from verenigingen.tests.support.termination_request import execute_real_termination
+
+        membership_type = _ensure_membership_type()
+        member = self.create_test_member(
+            first_name="Rejoin",
+            last_name="ApprovesNormally",
+            email=f"rejoin.approves.{frappe.generate_hash(length=6)}@test.invalid",
+            birth_date="1990-01-01",
+            status="Active",
+            application_status="Approved",
+            selected_membership_type=membership_type,
+        )
+        execute_real_termination(self, member.name, add_days(today(), -100))
+        member.reload()
+        self.assertEqual(member.status, "Quit")
+
+        # Reapplication AFTER the termination -- the real, positive signal.
+        frappe.db.set_value(
+            "Member",
+            member.name,
+            {"application_status": "Pending", "application_date": today()},
+            update_modified=False,
+        )
+
+        result = approve_membership_application(
+            member_name=member.name,
+            membership_type=membership_type,
+            chapter=None,
+        )
+        self.assertTrue(result.get("success"), result)
+        member.reload()
+        self.assertEqual(member.application_status, "Approved")
