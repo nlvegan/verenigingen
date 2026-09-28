@@ -32,6 +32,11 @@ def create_member_named(test_case, payload, roles=("Verenigingen Member",)):
     there are 0 non-test frappe.rename_doc calls on Member anywhere in the
     app. No role can rename a Member through any UI or API path today.
 
+    Trailing digit in the email's local part matches
+    create_test_board_member's convention: the factory rewrites
+    Member.email unless the local part's last 5 characters contain one,
+    which would otherwise silently decouple Member.email from Member.user.
+
     Args:
         test_case: the calling TestCase instance (needs .factory and
             .track_doc(), both provided by VereningingenTestCase).

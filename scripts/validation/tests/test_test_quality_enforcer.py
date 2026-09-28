@@ -714,7 +714,13 @@ class WholeTreeTotalsTest(unittest.TestCase):
         # 332 -> 221 findings, 265 -> 199 keys: every key the detection fix
         # surfaced is now accounted for -- fixed with a real fixture, or
         # annotated -- with test_quality_baseline.txt untouched throughout
-        # (still 221/199, byte-identical `git diff`).
+        # (still 221/199, byte-identical `git diff`). Independent whole-branch
+        # review then narrowed `frappe.flags.`/`frappe.conf.` from a bare
+        # prefix to an enumerated alternation of exactly the names this PR's
+        # own annotations used (a bare prefix would also have exempted
+        # `frappe.flags.ignore_permissions = True` -- a real permission
+        # bypass -- with nothing more than a comment); the count here is
+        # unaffected since every annotated site used an enumerated name.
         self.assertEqual(221, len(self.findings), "finding count moved")
         self.assertEqual(199, len(tqe.counts_of(self.findings)), "key count moved")
 
@@ -1259,15 +1265,48 @@ class SecurityTierFlagsAndConfAllowlistTest(unittest.TestCase):
         self.assertEqual(["MOCK"], _kinds(src, "test_thing_security.py"))
 
     def test_flags_prefix_does_not_match_an_unrelated_attribute(self):
-        """Control: the pattern is a literal `frappe.flags.` prefix, not a
-        substring match -- an attribute merely CONTAINING 'flags' elsewhere in
-        the chain must not be exempted by accident."""
+        """Control: the pattern requires the literal `frappe.flags.` chain, not
+        a substring match -- an attribute merely CONTAINING 'flags' elsewhere
+        must not be exempted by accident."""
         src = (
             "class TestThing:\n"
             "    def test_it(self):\n"
             "        frappe.my_flags_helper = lambda *a, **k: None\n"
         )
         self.assertEqual(["MOCK"], _kinds(src, "test_thing_security.py"))
+
+    def test_a_justified_but_unenumerated_flag_is_still_blocked(self):
+        """Round-2 review of #1558: a BARE `frappe\\.flags\\.` prefix would
+        also exempt `frappe.flags.ignore_permissions = True` -- a real
+        framework permission bypass (see
+        frappe/email/doctype/email_group/email_group.py:132) -- with nothing
+        more than a comment. `ignore_permissions` is not one of the flags
+        this PR's own reassignments actually used, so it must stay blocked
+        even with a justification comment attached."""
+        src = (
+            "class TestThing:\n"
+            "    def test_it(self):\n"
+            "        # Mock justified: needed for the test\n"
+            "        frappe.flags.ignore_permissions = True\n"
+        )
+        # Also trips the separate ignore_permissions=True PERMISSION BYPASS
+        # check -- irrelevant here; MOCK is what proves this specific
+        # enumeration decision.
+        self.assertIn("MOCK", _kinds(src, "test_thing_security.py"))
+
+    def test_a_different_enumerated_flag_with_justification_passes(self):
+        """The enumeration covers more than just `in_test` -- confirm a
+        second, distinct name from the same list (`bulk_invoice_generation`,
+        used in test_integrated_security_payment_system.py) is ALSO eligible
+        for the exemption, not just the one name every other test here
+        happens to use."""
+        src = (
+            "class TestThing:\n"
+            "    def test_it(self):\n"
+            "        # Mock justified: drive the bulk-processing code path\n"
+            "        frappe.flags.bulk_invoice_generation = True\n"
+        )
+        self.assertEqual([], _kinds(src, "test_thing_security.py"))
 
 
 if __name__ == "__main__":

@@ -819,18 +819,29 @@ class TestQualityEnforcer:
                 r"patch\s*\(\s*['\"]frappe\.local(['\"\.])",
                 r"patch\s*\(\s*['\"]frappe\.request(['\"\.])",
                 r"patch\s*\(\s*['\"]frappe\.db\.",
-                # #1558 (maintainer ruling): `frappe.flags.*`/`frappe.conf.*` are
-                # Frappe runtime context in the same "plumbing" sense as
-                # session/local/request/db above -- toggling `in_test`,
-                # `in_background_job`, `in_scheduler` or `ignore_csrf` drives the
-                # boundary code through a scenario, it does not fake the
-                # boundary itself. Reassigning either (`frappe.flags.in_test =
-                # False`, `frappe.conf.ignore_csrf = 1`) still needs a real
-                # `# Mock justified:` comment naming why -- this only makes them
-                # ELIGIBLE for that exemption, the same as every other entry
-                # in this list.
-                r"patch\s*\(\s*['\"]frappe\.flags\.",
-                r"patch\s*\(\s*['\"]frappe\.conf\.",
+                # #1558 (maintainer ruling): specific `frappe.flags.*`/
+                # `frappe.conf.*` NAMES are Frappe runtime context in the same
+                # "plumbing" sense as session/local/request/db above --
+                # toggling `in_test`, `in_background_job`, `in_scheduler`,
+                # `in_import` or `bulk_invoice_generation` drives the boundary
+                # code through a scenario, it does not fake the boundary
+                # itself. Reassigning any of these still needs a real
+                # `# Mock justified:` comment naming why -- this only makes
+                # them ELIGIBLE for that exemption, the same as every other
+                # entry in this list.
+                #
+                # ENUMERATED, not a bare `frappe\.flags\.` prefix: round-2
+                # review of #1558 found that a bare prefix would ALSO exempt
+                # `frappe.flags.ignore_permissions = True` -- a real framework
+                # permission bypass (e.g.
+                # frappe/email/doctype/email_group/email_group.py:132) -- with
+                # nothing more than a comment. The list below is exactly the
+                # set `_reassign_targets()` found annotated across this PR's
+                # own files (grepped, not guessed); a name not on it is NOT
+                # exempt no matter what it's called, and must be added here
+                # deliberately (with its own review) before it can be.
+                r"patch\s*\(\s*['\"]frappe\.flags\.(in_test|in_background_job|in_scheduler|in_import|bulk_invoice_generation)['\"]",
+                r"patch\s*\(\s*['\"]frappe\.conf\.(ignore_csrf)['\"]",
                 r"patch\s*\(\s*['\"]frappe\.get_roles['\"]",
                 r"patch\s*\(\s*['\"]frappe\.get_doc['\"]",
                 r"patch\s*\(\s*['\"]frappe\.get_all['\"]",
