@@ -269,7 +269,6 @@ class TestValidationRegression(EnhancedTestCase):
             
             # Try importing with direct execution
             import importlib.util
-            sys.path.insert(0, str(scripts_path))
             spec = importlib.util.spec_from_file_location("field_validator", validator_path)
             validator_module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(validator_module)
