@@ -26,7 +26,6 @@ from frappe import _
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.constants import Roles
-from verenigingen.utils.member_utils import get_member_chapters
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
@@ -247,11 +246,24 @@ class DuesSchedulePermissionService(StatelessService):
         if not member_name:
             return False
 
-        # Get member's chapter through standardized utility
-        chapters = get_member_chapters(member_name, active_only=True)
+        # Get member's active, ENABLED chapters. get_member_chapters(active_only=True)
+        # only filters on status='Active' -- it has other callers (application status
+        # page, member portal, reports) that legitimately keep showing a chapter
+        # membership for informational/self-view purposes even after
+        # remove_member(permanent=False) leaves enabled=0/status='Active', so this
+        # board-finance permission gate queries Chapter Member directly instead of
+        # widening that shared utility's semantics (#1562, matching #1543's approach
+        # of keeping board-permission enabled checks local rather than touching a
+        # shared helper with unrelated callers). Mirrors the enabled=1 requirement in
+        # check_document_permission and get_permission_query_conditions below.
+        chapters = frappe.db.get_all(
+            "Chapter Member",
+            filters={"member": member_name, "status": "Active", "enabled": 1},
+            pluck="parent",
+        )
         if not chapters:
             return False
-        chapter = chapters[0]  # Use first active chapter
+        chapter = chapters[0]  # Use first active, enabled chapter
 
         # Get the user's member record
         user_member_name = frappe.db.get_value("Member", {"user": user}, "name")
@@ -334,10 +346,15 @@ class DuesSchedulePermissionService(StatelessService):
         # Check if user is chapter board member
         if hasattr(doc, "member") and doc.member and "Verenigingen Chapter Board Member" in user_roles:
             try:
-                # Get member's chapters
+                # Get member's chapters. #1562: enabled=1 required -- matches the
+                # list-side query in get_permission_query_conditions below. Without
+                # it, a member who left (remove_member(permanent=False), enabled=0/
+                # status='Active') or was terminated (disable_chapter_memberships_safe,
+                # enabled=0/status='Inactive') stayed doc-permitted for the source
+                # chapter's board.
                 member_chapters = frappe.db.get_all(
                     "Chapter Member",
-                    filters={"member": doc.member, "status": "Active"},
+                    filters={"member": doc.member, "status": "Active", "enabled": 1},
                     fields=["parent"],
                     pluck="parent",
                 )
@@ -409,12 +426,18 @@ class DuesSchedulePermissionService(StatelessService):
                         chapter_names = [frappe.db.escape(c[0]) for c in chapters]
                         escaped_member = frappe.db.escape(user_member)
                         # Allow templates OR records for members in their chapters OR their own
+                        # #1562: cm.enabled = 1 required -- see check_document_permission's
+                        # matching board-member query above. Without it, a member who left
+                        # (remove_member(permanent=False), enabled=0/status='Active') or was
+                        # terminated (disable_chapter_memberships_safe, enabled=0/
+                        # status='Inactive') stayed LISTED here for the source chapter's board.
                         return f"""(
                             `tabMembership Dues Schedule`.is_template = 1
                             OR `tabMembership Dues Schedule`.member IN (
                                 SELECT DISTINCT cm.member
                                 FROM `tabChapter Member` cm
                                 WHERE cm.parent IN ({','.join(chapter_names)})
+                                  AND cm.enabled = 1
                                   AND cm.status = 'Active'
                             )
                             OR `tabMembership Dues Schedule`.member = {escaped_member}
