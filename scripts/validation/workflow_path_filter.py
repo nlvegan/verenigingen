@@ -56,6 +56,17 @@ def _strip_trailing_comment(item: str) -> str:
     closing quote is reached (no preceding whitespace required there); in an
     unquoted scalar, `#` only starts a comment when preceded by whitespace,
     otherwise it is part of the scalar's own text (e.g. `path.py#tag`).
+
+    This only locates the comment boundary -- it does NOT model YAML's
+    quoted-scalar escaping, and neither does the dequote step that runs
+    after it. Measured divergences from `yaml.safe_load` (pre-existing,
+    not something #1560 set out to fix): a doubled single quote inside a
+    single-quoted scalar (`'it''s'`, YAML's escape for a literal quote)
+    resolves to `it`, not `it's`; a backslash-escaped double quote inside a
+    double-quoted scalar (`"a\"b"`) resolves to `a\`, not `a"b`; and a
+    flow-style item (`[a, b]`) is returned as the literal string `[a, b]`
+    rather than parsed as a nested list. No `paths:` entry in this repo's
+    workflow files uses any of these shapes.
     """
     if item and item[0] in "'\"":
         quote = item[0]
