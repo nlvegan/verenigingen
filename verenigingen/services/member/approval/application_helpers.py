@@ -1663,8 +1663,23 @@ def create_active_chapter_membership(member, chapter_name):
         return None
 
 
-def remove_pending_chapter_membership(member, chapter_name=None):
-    """Remove pending Chapter Member record when application is rejected"""
+def remove_pending_chapter_membership(member, chapter_name=None, elevated=False):
+    """Remove pending Chapter Member record when application is rejected
+
+    Args:
+        member: Member document (the applicant, already resolved by the caller).
+        chapter_name: Chapter to remove the applicant's own Pending row from.
+        elevated: When True, the underlying Chapter save runs as a
+            `system_operation` (see secure_operations.secure_document_operation) --
+            it skips the ACTOR's own Chapter:write DocPerm check but nothing else
+            (business-rule validation, the member-name/status scoping of which row
+            gets removed below, and this function's own chapter-existence check all
+            still apply). Only pass True from a caller that has ALREADY
+            independently authorized the acting user for this specific
+            application (#1573 maintainer ruling) -- this parameter widens WHO may
+            write, not WHAT may be written, and only for this one applicant's own
+            Pending row.
+    """
     if not member:
         return False
 
@@ -1706,8 +1721,14 @@ def remove_pending_chapter_membership(member, chapter_name=None):
             remove_result = secure_document_operation(
                 operation="save",
                 doc=chapter_doc,
-                justification=f"Remove pending chapter member {member.name} from {chapter_name}",
+                justification=(
+                    f"Remove pending chapter member {member.name} from {chapter_name} "
+                    f"(reviewer pre-authorized for this application, #1573)"
+                    if elevated
+                    else f"Remove pending chapter member {member.name} from {chapter_name}"
+                ),
                 required_permissions=["Chapter:write"],
+                system_operation=elevated,
             )
 
             if not remove_result.success:
@@ -1754,7 +1775,7 @@ def remove_pending_chapter_membership(member, chapter_name=None):
         return False
 
 
-def remove_all_pending_chapter_memberships(member):
+def remove_all_pending_chapter_memberships(member, elevated=False):
     """Find and remove ALL pending chapter memberships for a member.
 
     Queries the Chapter Member child table directly to find all chapters where
@@ -1762,19 +1783,29 @@ def remove_all_pending_chapter_memberships(member):
 
     Args:
         member: Member document
+        elevated: Passed through to remove_pending_chapter_membership -- see its
+            docstring. Only a caller that has ALREADY authorized the acting user
+            for THIS member's application should pass True (#1573 maintainer
+            ruling: reject_membership_application does, having just called
+            validate_chapter_permission_or_throw; nothing else in this codebase
+            calls this function).
 
     Returns:
         list: Chapter names where pending memberships were removed
 
     Raises:
-        frappe.ValidationError: if any chapter's cleanup save failed (#1573).
-            remove_pending_chapter_membership already swallows the underlying
-            error into a `False` return (it logs an Error Log entry itself), so
-            without this check a partial cleanup was silently reported as
-            complete -- the caller (reject_membership_application) never
-            inspected the return value, and a Pending Chapter Member row could
-            survive a rejection that reported success. Raising here lets the
-            caller's own transaction fail atomically instead.
+        frappe.ValidationError: if any chapter's cleanup save still failed after
+            the elevation above (#1573) -- e.g. the chapter no longer exists, or
+            a genuine validation error inside Chapter.save(). The caller-facing
+            message is DELIBERATELY GENERIC and names no chapter (a permission-
+            scoped caller could otherwise use chapter names in the error to infer
+            which chapters the applicant is Pending in, including ones the caller
+            cannot otherwise see); the chapter names are still recorded in the
+            Error Log via remove_pending_chapter_membership's own logging and the
+            log_error call just below. Raising at all (rather than reporting
+            partial success) lets the caller's own transaction fail atomically --
+            reject_membership_application does not commit before this cleanup
+            runs.
     """
     if not member:
         return []
@@ -1790,7 +1821,7 @@ def remove_all_pending_chapter_memberships(member):
     removed = []
     failed = []
     for record in pending_chapters:
-        if remove_pending_chapter_membership(member, record.chapter):
+        if remove_pending_chapter_membership(member, record.chapter, elevated=elevated):
             removed.append(record.chapter)
         else:
             failed.append(record.chapter)
@@ -1806,9 +1837,9 @@ def remove_all_pending_chapter_memberships(member):
         )
         frappe.throw(
             _(
-                "Could not remove the pending chapter membership from {0}. "
-                "The application rejection was not completed; please retry."
-            ).format(", ".join(failed))
+                "The application rejection could not be completed due to an "
+                "internal error. Please contact an administrator and try again."
+            )
         )
 
     return removed

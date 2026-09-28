@@ -859,10 +859,14 @@ def reject_membership_application(
             except frappe.LinkExistsError:
                 _throw_membership_deletion_blocked(membership)
 
-    # Remove pending chapter memberships
+    # Remove pending chapter memberships. Elevated: validate_chapter_permission_or_throw
+    # above has already authorized this caller to reject THIS application, so the
+    # cleanup removes every one of the applicant's own Pending rows -- including in
+    # chapters the caller does not personally manage -- rather than stranding rows
+    # the caller merely lacks board access to (#1573 maintainer ruling).
     from verenigingen.utils.application_helpers import remove_all_pending_chapter_memberships
 
-    remove_all_pending_chapter_memberships(member)
+    remove_all_pending_chapter_memberships(member, elevated=True)
 
     # Update CRM Lead status if exists
     if frappe.db.exists("Lead", {"member": member.name}):
