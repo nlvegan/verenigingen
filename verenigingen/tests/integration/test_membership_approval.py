@@ -390,6 +390,7 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
 
         # Real production path: approve, re-assigning the SAME chapter.
         with self.as_user(self.admin_user.email):
+            # Mock justified: External Service - email service, not business logic
             with patch('frappe.sendmail'):
                 result = approve_membership_application(
                     member_name=member.name,
