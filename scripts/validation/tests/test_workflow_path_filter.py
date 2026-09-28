@@ -30,25 +30,55 @@ spells neither shape above -- there is no AST node whose module string
 contains "scripts" at all. A second idiom loads a `scripts/` file by path
 with `importlib.util.spec_from_file_location(name, <path under scripts/>)`
 and never has an `ast.Import`/`ast.ImportFrom` node to find in the first
-place. Both are now detected: `_scripts_targets_from_syspath_hacks` pairs
-each `sys.path.insert`/`.append` call that resolves (via literal path
-segments only -- see `_literal_path_segments`) to a directory under
-`scripts/` with the *next* statement in the same block; if that statement
-is a bare import, it must resolve under that directory or the scan raises
-loudly (never silently omits the file, which would look identical to "no
-scripts/ dependency at all"). `_scripts_targets_from_spec_from_file_location`
-resolves the file-location call's path argument the same way and adds it
-if the target file exists on disk (quietly skipped if it does not, matching
-this module's existing `_module_to_path(...).is_file()` convention for a
-reference to a file that was never created, e.g. `field_validator.py` in
-`verenigingen/tests/backend/validation/test_validation_regression.py`).
-Deliberately narrow: it does not try to model arbitrary path arithmetic
-(`frappe.get_app_path(...)`, `Path(__file__).resolve().parents[N]`, `os.path
-.join`'s dynamic leading arguments are all treated as an opaque, ignored
-prefix) -- only the LITERAL string segments in the expression are read, and
-a match requires one of them to equal "scripts" exactly (never a substring
-match against arbitrary file text, which would flag e.g. a docstring merely
-*mentioning* "scripts").
+place. Both are now detected.
+
+`_scripts_targets_from_syspath_hacks` does NOT pair a `sys.path.insert`/
+`.append` call with only "the very next statement" -- an earlier version of
+this scan did, and that is wrong for real code: `verenigingen/tests/
+test_runner.py` puts the sys.path call and its `try: from X import * /
+except ImportError:` two constructs apart, and a stdlib import (or any
+other unrelated statement) between the call and the real one is completely
+ordinary. Instead, for each scope (the module body, and independently the
+body of every function/method in the file), the scope's statements are
+flattened in source order -- recursing into `if`/`try`/`with`/`for`/`while`
+bodies (including `orelse`/`finalbody`/except handlers) but NOT into a
+nested function/class body, which is a separate, deferred scope scanned on
+its own. Every bare import found ANYWHERE after a scripts-targeting
+sys.path call in that flattened scope is a resolution candidate; a name
+that resolves (as `<name>.py` or `<name>/__init__.py`) under the targeted
+directory is a real dependency, one that does not (stdlib, third-party) is
+silently ignored -- so a stdlib import sitting between the sys.path call
+and the real one, or several statements of unrelated code, never breaks
+detection. The scan fails LOUD only when the targeted directory exists on
+disk and NOT ONE subsequent candidate resolves under it -- a scripts/
+sys.path hack whose sys.path insertion serves no reachable import is
+suspicious by construction, and this must never look identical to "no
+scripts/ dependency at all". If the targeted directory does not exist on
+disk at all (`test_runner.py`'s `scripts/testing/runners/`, deleted or
+never created), the scan stays quiet, matching the plain "the file it names
+does not exist" convention `_scripts_targets_from_spec_from_file_location`
+already uses below.
+
+A same-file `NAME = <expr>` alias is resolved to the assignment NEAREST
+BEFORE (by source position) the point where `NAME` is actually used, never
+"the last assignment anywhere in the file" -- a later, unrelated
+reassignment of the same variable name (for something else entirely) must
+not silently steal the dependency out from under an earlier sys.path call
+that already captured the name's value at that point in the program.
+
+`_scripts_targets_from_spec_from_file_location` resolves the file-location
+call's path argument the same way and adds it if the target file exists on
+disk (quietly skipped if it does not, e.g. `field_validator.py` in
+`verenigingen/tests/backend/validation/test_validation_regression.py`,
+which has never existed -- see #1561).
+
+Both detectors are deliberately narrow: they do not try to model arbitrary
+path arithmetic (`frappe.get_app_path(...)`, `Path(__file__).resolve()
+.parents[N]`, `os.path.join`'s dynamic leading arguments are all treated as
+an opaque, ignored prefix) -- only the LITERAL string segments in the
+expression are read, and a match requires one of them to equal "scripts"
+exactly (never a substring match against arbitrary file text, which would
+flag e.g. a docstring merely *mentioning* "scripts").
 
 Scoped to `verenigingen/tests/`, not all of `verenigingen/`: any import in a
 file under `verenigingen/tests/` -- module-level or inside a test method --
@@ -131,11 +161,42 @@ def _path_to_dotted(path: Path) -> str:
     return ".".join(rel.with_suffix("").parts)
 
 
-def _literal_path_segments(node: ast.AST, aliases: dict) -> list[str]:
+def _collect_name_assignments(tree: ast.AST) -> list[tuple[int, str, ast.AST]]:
+    """`(lineno, name, assigned_expr)` for every simple `NAME = <expr>` in the
+    file, in source order. A NAME used more than once (e.g. reassigned later
+    for something unrelated) is resolved by the caller to whichever entry is
+    NEAREST BEFORE the point of use -- see `_nearest_assignment_before` --
+    never "whichever is last in this list"."""
+    assignments: list[tuple[int, str, ast.AST]] = []
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+        ):
+            assignments.append((node.lineno, node.targets[0].id, node.value))
+    return assignments
+
+
+def _nearest_assignment_before(
+    name: str, before_lineno: int, assignments: list[tuple[int, str, ast.AST]]
+) -> ast.AST | None:
+    best: tuple[int, ast.AST] | None = None
+    for lineno, assigned_name, expr in assignments:
+        if assigned_name != name or lineno >= before_lineno:
+            continue
+        if best is None or lineno > best[0]:
+            best = (lineno, expr)
+    return best[1] if best else None
+
+
+def _literal_path_segments(node: ast.AST, assignments: list) -> list[str]:
     """Best-effort literal string components of a path-building expression.
 
     Handles `a / "b" / "c"` (pathlib division), `os.path.join(a, "b", "c")`,
-    `Path(x)`/`str(x)` wrappers, and a same-file `NAME = <expr>` alias. Any
+    `Path(x)`/`str(x)` wrappers, and a same-file `NAME = <expr>` alias
+    (resolved to the assignment nearest before -- by source line -- the
+    `NAME` reference actually being resolved here, via `node.lineno`). Any
     other node (an f-string, a call this does not know, `__file__`,
     `frappe.get_app_path(...)`, `.resolve()`, `.parents[N]`, ...) contributes
     NO segments rather than guessing -- callers only care about the literal
@@ -145,13 +206,13 @@ def _literal_path_segments(node: ast.AST, aliases: dict) -> list[str]:
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return [node.value]
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
-        return _literal_path_segments(node.left, aliases) + _literal_path_segments(
-            node.right, aliases
+        return _literal_path_segments(node.left, assignments) + _literal_path_segments(
+            node.right, assignments
         )
     if isinstance(node, ast.Call):
         func = node.func
         if isinstance(func, ast.Name) and func.id in ("Path", "str") and node.args:
-            return _literal_path_segments(node.args[0], aliases)
+            return _literal_path_segments(node.args[0], assignments)
         if (
             isinstance(func, ast.Attribute)
             and isinstance(func.value, ast.Attribute)
@@ -160,17 +221,20 @@ def _literal_path_segments(node: ast.AST, aliases: dict) -> list[str]:
             if func.attr == "join":
                 segments: list[str] = []
                 for arg in node.args:
-                    segments += _literal_path_segments(arg, aliases)
+                    segments += _literal_path_segments(arg, assignments)
                 return segments
-            # os.path.abspath/normpath/realpath: transparent single-arg wrappers --
-            # `os.path.abspath(os.path.join(x, "scripts", "y"))` is exactly the shape
-            # test_permission_bypass_elimination_validation.py uses.
-            if func.attr in ("abspath", "normpath", "realpath") and node.args:
-                return _literal_path_segments(node.args[0], aliases)
+            # os.path.abspath/normpath/realpath/dirname: transparent single-arg
+            # wrappers -- `os.path.abspath(os.path.join(x, "scripts", "y"))` is
+            # test_permission_bypass_elimination_validation.py's shape;
+            # `os.path.dirname(os.path.dirname(__file__))` (opaque prefix,
+            # contributes nothing) is test_runner.py's.
+            if func.attr in ("abspath", "normpath", "realpath", "dirname") and node.args:
+                return _literal_path_segments(node.args[0], assignments)
         return []
     if isinstance(node, ast.Name):
-        if node.id in aliases:
-            return _literal_path_segments(aliases[node.id], aliases)
+        expr = _nearest_assignment_before(node.id, node.lineno, assignments)
+        if expr is not None:
+            return _literal_path_segments(expr, assignments)
         return []
     return []
 
@@ -187,22 +251,6 @@ def _scripts_subpath_after_marker(segments: list[str]) -> list[str] | None:
     return None if ".." in tail else tail
 
 
-def _collect_name_aliases(tree: ast.AST) -> dict:
-    """Map `NAME` -> its assigned expression, for every simple `NAME = <expr>`
-    in the file (module- or function-level). Good enough for the one-shot
-    `scripts_path = ...; validator_path = scripts_path / '...'` shape these
-    files use; a name assigned more than once keeps its last assignment."""
-    aliases: dict = {}
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Assign)
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-        ):
-            aliases[node.targets[0].id] = node.value
-    return aliases
-
-
 def _is_sys_path_mutation_call(node: ast.AST) -> bool:
     return (
         isinstance(node, ast.Call)
@@ -216,8 +264,8 @@ def _is_sys_path_mutation_call(node: ast.AST) -> bool:
     )
 
 
-def _scripts_dir_from_syspath_call(call: ast.Call, aliases: dict) -> Path | None:
-    segments = _literal_path_segments(call.args[-1], aliases)
+def _scripts_dir_from_syspath_call(call: ast.Call, assignments: list) -> Path | None:
+    segments = _literal_path_segments(call.args[-1], assignments)
     tail = _scripts_subpath_after_marker(segments)
     if tail is None:
         return None
@@ -240,61 +288,113 @@ def _bare_import_name(stmt: ast.AST) -> str | None:
     return None
 
 
+def _resolve_name_under_dir(name: str, directory: Path) -> Path | None:
+    """A file or PACKAGE named `name` directly under `directory`, or None."""
+    module_file = directory / f"{name}.py"
+    if module_file.is_file():
+        return module_file
+    package_init = directory / name / "__init__.py"
+    if package_init.is_file():
+        return package_init
+    return None
+
+
+def _flatten_leaf_statements(stmts: list) -> list:
+    """Every "leaf" statement in `stmts`, in source order, recursing into
+    `if`/`try`/`with`/`for`/`while` bodies (`body`, `orelse`, `finalbody`,
+    except handlers) so a statement several constructs away is still found in
+    its true textual order -- but NOT into a nested function/class body,
+    which is scanned independently as its own scope (see `_iter_scopes`)."""
+    out: list = []
+    for stmt in stmts:
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue  # separate, deferred scope -- scanned on its own
+        nested_fields = [
+            f for f in ("body", "orelse", "finalbody") if isinstance(getattr(stmt, f, None), list)
+        ]
+        handlers = getattr(stmt, "handlers", None) or []
+        if not nested_fields and not handlers:
+            out.append(stmt)
+            continue
+        for field in ("body", "orelse"):
+            child = getattr(stmt, field, None)
+            if isinstance(child, list):
+                out += _flatten_leaf_statements(child)
+        for handler in handlers:
+            out += _flatten_leaf_statements(handler.body)
+        finalbody = getattr(stmt, "finalbody", None)
+        if isinstance(finalbody, list):
+            out += _flatten_leaf_statements(finalbody)
+    return out
+
+
+def _iter_scopes(tree: ast.AST):
+    """Every independent "scope" a sys.path hack could run in: the module
+    body, and the body of every function/method in the file (however deeply
+    nested in classes) -- each flattened and searched on its own, since a
+    sys.path call inside one function has no bearing on imports in another."""
+    yield tree.body
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            yield node.body
+
+
 def _scripts_targets_from_syspath_hacks(
-    py_file: Path, tree: ast.AST, aliases: dict
+    py_file: Path, tree: ast.AST, assignments: list
 ) -> set[str]:
-    """Pair each scripts-targeting `sys.path.insert`/`.append` call with the
-    NEXT statement in its own block. Fail LOUD (raise) if that statement is a
-    bare import that does not resolve under the targeted directory -- the
-    whole point of #1550 is that silently finding nothing here looks
-    identical to "this file has no scripts/ dependency", which is exactly
-    the gap the workflow's paths: filter needs to never have again."""
+    """For each scripts-targeting `sys.path.insert`/`.append` call, consider
+    EVERY bare import that follows it (anywhere later in its flattened scope,
+    per `_flatten_leaf_statements`) as a resolution candidate. A candidate
+    that resolves under the targeted directory is a real dependency; one that
+    does not (stdlib, third-party) is silently ignored -- so a `import json`
+    or ten unrelated statements between the sys.path call and the real import
+    never breaks detection.
+
+    Fails LOUD (raises) only when the targeted directory EXISTS on disk and
+    NOT ONE subsequent candidate resolves under it -- a sys.path hack whose
+    insertion serves no reachable import is suspicious by construction, and
+    the whole point of #1550 is that this must never look identical to "this
+    file has no scripts/ dependency". If the targeted directory does not
+    exist at all (e.g. `verenigingen/tests/test_runner.py`'s
+    `scripts/testing/runners/`, never created), the scan stays quiet,
+    matching `_scripts_targets_from_spec_from_file_location`'s convention for
+    a target that was never created.
+    """
     found: set[str] = set()
 
-    def visit_block(stmts: list, next_after: ast.AST | None = None) -> None:
-        for i, stmt in enumerate(stmts):
-            # The statement textually following `stmt`, climbing out of an
-            # enclosing block via `next_after` when `stmt` is last in `stmts` --
-            # the codebase's `if X not in sys.path: sys.path.insert(...)`
-            # guard idiom (verenigingen/tests/unit/test_zabbix_churn_metric.py)
-            # puts the sys.path call alone in a 1-statement `If` body, with the
-            # paired bare import as the `If` node's own next SIBLING, not
-            # inside the `If` body at all.
-            local_next = stmts[i + 1] if i + 1 < len(stmts) else next_after
-
-            for field in ("body", "orelse", "finalbody"):
-                child = getattr(stmt, field, None)
-                if isinstance(child, list):
-                    visit_block(child, next_after=local_next)
-            for handler in getattr(stmt, "handlers", []) or []:
-                visit_block(handler.body, next_after=local_next)
-
+    for scope_body in _iter_scopes(tree):
+        flat = _flatten_leaf_statements(scope_body)
+        for i, stmt in enumerate(flat):
             if not (isinstance(stmt, ast.Expr) and _is_sys_path_mutation_call(stmt.value)):
                 continue
-            directory = _scripts_dir_from_syspath_call(stmt.value, aliases)
-            if directory is None:
+            directory = _scripts_dir_from_syspath_call(stmt.value, assignments)
+            if directory is None or not directory.is_dir():
                 continue
 
-            name = _bare_import_name(local_next) if local_next is not None else None
-            if name is None:
-                continue  # nothing importable immediately follows -- not our concern
+            resolved_any = False
+            for candidate in flat[i + 1 :]:
+                name = _bare_import_name(candidate)
+                if name is None:
+                    continue
+                resolved = _resolve_name_under_dir(name, directory)
+                if resolved is not None:
+                    found.add(_path_to_dotted(resolved))
+                    resolved_any = True
 
-            resolved = directory / f"{name}.py"
-            if not resolved.is_file():
+            if not resolved_any:
                 raise AssertionError(
-                    f"{py_file}: sys.path hack targets {directory} (a directory under "
-                    f"scripts/), but the very next import, {name!r}, does not resolve "
-                    f"to a file there ({resolved} does not exist). Either the import is "
-                    f"broken or this scan's pairing assumption is wrong -- a human needs "
-                    f"to look, not have this silently count as no scripts/ dependency."
+                    f"{py_file}: sys.path hack targets {directory} (an EXISTING directory "
+                    f"under scripts/), but no bare import anywhere later in this scope "
+                    f"resolves under it. Either the import this was meant to reach is "
+                    f"broken/renamed, or this scan's understanding of the file is wrong -- "
+                    f"a human needs to look, not have this silently count as no scripts/ "
+                    f"dependency."
                 )
-            found.add(_path_to_dotted(resolved))
 
-    visit_block(tree.body)
     return found
 
 
-def _scripts_targets_from_spec_from_file_location(tree: ast.AST, aliases: dict) -> set[str]:
+def _scripts_targets_from_spec_from_file_location(tree: ast.AST, assignments: list) -> set[str]:
     found: set[str] = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -312,7 +412,7 @@ def _scripts_targets_from_spec_from_file_location(tree: ast.AST, aliases: dict) 
                     path_arg = kw.value
         if path_arg is None:
             continue
-        segments = _literal_path_segments(path_arg, aliases)
+        segments = _literal_path_segments(path_arg, assignments)
         tail = _scripts_subpath_after_marker(segments)
         if not tail:
             continue
@@ -352,9 +452,9 @@ def _scripts_files_imported_by(py_file: Path) -> set[str]:
                     if _module_to_path(alias.name).is_file():
                         found.add(alias.name)
 
-    aliases = _collect_name_aliases(tree)
-    found |= _scripts_targets_from_syspath_hacks(py_file, tree, aliases)
-    found |= _scripts_targets_from_spec_from_file_location(tree, aliases)
+    assignments = _collect_name_assignments(tree)
+    found |= _scripts_targets_from_syspath_hacks(py_file, tree, assignments)
+    found |= _scripts_targets_from_spec_from_file_location(tree, assignments)
 
     return found
 
@@ -494,6 +594,99 @@ class TestSysPathHackAndImportlibDetection(unittest.TestCase):
             "from widget_validator import VALUE\n"
         )
         self.assertEqual(found, {"scripts.validation.widget_validator"})
+
+    def test_try_except_import_error_shape_is_detected(self):
+        """Mirrors verenigingen/tests/test_runner.py: the sys.path call sits at
+        module level, and the real import is nested inside a `try: ... except
+        ImportError: ...` TWO constructs away, not "the very next statement"."""
+        found = self._scan(
+            "import sys\n"
+            "from pathlib import Path\n"
+            'APP_ROOT = Path(__file__).resolve().parents[1]\n'
+            'sys.path.insert(0, str(APP_ROOT / "scripts" / "validation"))\n'
+            "\n"
+            "try:\n"
+            "    from widget_validator import VALUE\n"
+            "except ImportError:\n"
+            "    import unittest\n"
+        )
+        self.assertEqual(found, {"scripts.validation.widget_validator"})
+
+    def test_two_statements_later_is_still_detected(self):
+        found = self._scan(
+            "import sys\n"
+            "from pathlib import Path\n"
+            'APP_ROOT = Path(__file__).resolve().parents[1]\n'
+            'sys.path.insert(0, str(APP_ROOT / "scripts" / "validation"))\n'
+            "SOME_UNRELATED_CONSTANT = 42\n"
+            "another_unrelated_call = str(SOME_UNRELATED_CONSTANT)\n"
+            "import widget_validator\n"
+        )
+        self.assertEqual(found, {"scripts.validation.widget_validator"})
+
+    def test_stdlib_import_between_hack_and_real_import_does_not_crash(self):
+        """A false-alarm CRASH is as bad as a silent miss: an ordinary stdlib
+        import sitting between the sys.path call and the real one (isort
+        reordering, a debug `import json`, ...) must not make the scan raise,
+        and the real dependency must still be found."""
+        found = self._scan(
+            "import sys\n"
+            "from pathlib import Path\n"
+            'APP_ROOT = Path(__file__).resolve().parents[1]\n'
+            'sys.path.insert(0, str(APP_ROOT / "scripts" / "validation"))\n'
+            "import json\n"
+            "import widget_validator\n"
+        )
+        self.assertEqual(found, {"scripts.validation.widget_validator"})
+
+    def test_alias_reassigned_later_does_not_lose_the_dependency(self):
+        """`DIR` is resolved to the assignment NEAREST BEFORE the sys.path call
+        that uses it -- a later, unrelated reassignment of the same name (for
+        something else entirely) must not steal the dependency away."""
+        found = self._scan(
+            "import sys\n"
+            "from pathlib import Path\n"
+            'APP_ROOT = Path(__file__).resolve().parents[1]\n'
+            'DIR = APP_ROOT / "scripts" / "validation"\n'
+            "sys.path.insert(0, str(DIR))\n"
+            "import widget_validator\n"
+            "\n"
+            "# Later, unrelated reuse of the same name for something else entirely.\n"
+            'DIR = APP_ROOT / "other"\n'
+        )
+        self.assertEqual(found, {"scripts.validation.widget_validator"})
+
+    def test_missing_target_directory_is_quiet_until_it_and_the_module_exist(self):
+        """Mirrors verenigingen/tests/test_runner.py's `scripts/testing/runners/`,
+        which does not exist on disk: the scan must stay quiet (no dependency,
+        no raise) while the directory is missing, matching the importlib
+        detector's convention for a target that was never created -- and must
+        detect the dependency once that directory and module are created."""
+        source = (
+            "import sys\n"
+            "import os\n"
+            "\n"
+            "scripts_path = os.path.join(\n"
+            "    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),\n"
+            "    'scripts', 'sub', 'runners',\n"
+            ")\n"
+            "if scripts_path not in sys.path:\n"
+            "    sys.path.insert(0, scripts_path)\n"
+            "\n"
+            "try:\n"
+            "    from enhanced_test_runner import *\n"
+            "except ImportError:\n"
+            "    import unittest\n"
+        )
+        self.assertEqual(self._scan(source), set())
+
+        (self.root / "scripts" / "sub" / "runners").mkdir(parents=True)
+        (self.root / "scripts" / "sub" / "runners" / "enhanced_test_runner.py").write_text(
+            "VALUE = 1\n"
+        )
+        self.assertEqual(
+            self._scan(source), {"scripts.sub.runners.enhanced_test_runner"}
+        )
 
     def test_control_a_literal_scripts_substring_with_no_real_syspath_hack_is_not_flagged(self):
         """The plausible WRONG fix is matching the literal string "scripts" anywhere
