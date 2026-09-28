@@ -252,6 +252,12 @@ class TestChapterBoardPermissionsService(EnhancedTestCase):
         # transaction and sees this delete via ordinary read-your-own-writes
         # visibility, and it is the restore's INSERT -- not this delete --
         # that the drain below is being tested against.
+        #
+        # Same guard as test_reset_result_is_consistent_with_row_removal: a
+        # failed per-DocType save logs a "Failed to reset ..." / "Secure
+        # Operation Failed" Error Log for Membership (the shipped duplicate-
+        # DocPerm defect -- see #1589), which this reset call also triggers.
+        self.expectErrorLog("reset Chapter Board Member", "Secure Operation Failed", "Membership")
         reset_chapter_board_permissions()
         self.assertFalse(_board_perm_exists(doctype), "fixture setup: reset did not remove the row")
 
