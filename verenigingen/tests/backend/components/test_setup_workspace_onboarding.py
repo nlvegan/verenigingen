@@ -241,6 +241,9 @@ class TestInstallAndLinkOnboarding(FrappeTestCase):
         with contextlib.redirect_stdout(out):
             setup_mod.install_and_link_onboarding()
         self.assertNotIn("Failed to create custom field", out.getvalue())
+        # Positive control: the meta check found the field and skipped the insert.
+        # Without it, rewording the failure message above would pass silently.
+        self.assertIn("Workspace already has a module_onboarding field", out.getvalue())
 
         # Workspace must have a module_onboarding field: native since frappe
         # v16.50 (frappe#39927), otherwise the Custom Field this function adds.

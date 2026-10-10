@@ -237,16 +237,14 @@ class TestEboekhoudenWwwPagesCoverage(VereningingenTestCase):
         self.assertIn(mig.name, names)
 
     def test_status_success_check_branches_on_error_key_not_success(self):
-        """Proves the success-check fix, config-agnostic across environments.
+        """Proves the success-check fix on the no-token path (forced, see #1609).
 
         Before the fix the controller gated on `if dashboard_data.get("success")`.
         The underlying service NEVER returns a "success" key (asserted below), so
         that branch was always falsy and the page always showed "Unknown error".
-        The fix gates on `if "error" not in dashboard_data:`. We assert get_context
-        takes the correct branch for whatever the live service returns:
-        - connected (no "error" key) -> real data merged, no context.error
-        - unconnected (has "error" key, e.g. no token on CI) -> context.error set,
-          and recent_migrations is still populated from the DB regardless.
+        The fix gates on `if "error" not in dashboard_data:`. With no token the
+        service returns an "error" key, so get_context must set context.error to
+        it, and recent_migrations is still populated from the DB regardless.
         """
         self._make_migration(status="Completed", name_suffix="happy1")
         self._make_migration(status="Failed", name_suffix="happy2")
@@ -262,15 +260,10 @@ class TestEboekhoudenWwwPagesCoverage(VereningingenTestCase):
                 with self.assertNoErrorLog(ignore=_EXTERNAL_CONN_IGNORE):
                     ebs.get_context(context)
 
-        if "error" in data:
-            # Unconnected env (e.g. CI with no token): error surfaced, but the
-            # separate recent_migrations DB query still populates.
-            self.assertEqual(context.get("error"), data["error"])
-        else:
-            # Connected env: real dashboard data merged, no error surfaced.
-            self.assertIsNone(context.get("error"))
-            self.assertIn("migration_stats", context)
-            self.assertEqual(context.migration_stats["total"], frappe.db.count("E-Boekhouden Migration"))
+        # No token (forced above): the service reports an error, and the status
+        # page must surface it rather than "Unknown error".
+        self.assertIn("error", data)
+        self.assertEqual(context.get("error"), data["error"])
 
         # recent_migrations is always populated from the DB (separate query).
         self.assertIsInstance(context.recent_migrations, list)
