@@ -115,8 +115,11 @@ def get_requestable_volunteer_roles() -> list[str]:
             pluck="role",
         )
     )
+    # Desk access excludes service roles (webhook, background) nobody should hold as a volunteer.
     enabled = set(
-        frappe.get_all("Role", filters={"disabled": 0, "name": ["in", list(candidates)]}, pluck="name")
+        frappe.get_all(
+            "Role", filters={"disabled": 0, "desk_access": 1, "name": ["in", list(candidates)]}, pluck="name"
+        )
     )
     own_roles = set(frappe.get_roles())
     excluded = _NEVER_OFFERED_ROLES | _position_and_volunteer_profile_roles()
@@ -132,15 +135,23 @@ def get_requestable_volunteer_roles() -> list[str]:
 
 def _position_and_volunteer_profile_roles() -> set[str]:
     """Roles granted by any profile a chapter board or team can assign (the
-    configured ones and the calculator's defaults), plus the base volunteer
-    profile's, which every activation already grants."""
+    configured ones and the calculator's defaults), the national board and
+    treasurer profiles (a seat on the national chapter's board grants those, never
+    activation), plus the base volunteer profile's, which every activation
+    already grants."""
     from verenigingen.services.member.account.user_role_profile_calculator import (
         PROFILE_BOARD_MEMBER,
         PROFILE_TEAM_LEADER,
         PROFILE_VOLUNTEER,
     )
 
-    profiles = {PROFILE_BOARD_MEMBER, PROFILE_TEAM_LEADER, PROFILE_VOLUNTEER}
+    profiles = {
+        PROFILE_BOARD_MEMBER,
+        PROFILE_TEAM_LEADER,
+        PROFILE_VOLUNTEER,
+        "Verenigingen National Board Member",
+        "Verenigingen Treasurer",
+    }
     for doctype, field in (
         ("Chapter", "default_board_role_profile"),
         ("Chapter Role Profile Mapping", "role_profile"),

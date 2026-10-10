@@ -218,11 +218,18 @@ class TestRequestableVolunteerRoles(VereningingenTestCase):
         )
 
     def _position_and_volunteer_roles(self):
-        """Roles the default board / team leader profiles grant, plus the base
-        volunteer profile's (activation grants those already)."""
+        """Roles the board / team leader / national board profiles grant, plus the
+        base volunteer profile's (activation grants those already)."""
         return self._profile_roles(
-            "Verenigingen Chapter Board Member", "Verenigingen Team Leader", "Verenigingen Volunteer"
+            "Verenigingen Chapter Board Member",
+            "Verenigingen Team Leader",
+            "Verenigingen National Board Member",
+            "Verenigingen Treasurer",
+            "Verenigingen Volunteer",
         )
+
+    def _deskless_roles(self):
+        return set(frappe.get_all("Role", filters={"desk_access": 0}, pluck="name"))
 
     def _user_with_profile(self, role_profile):
         """A user whose roles come from a real Role Profile, as an activator's do."""
@@ -254,6 +261,29 @@ class TestRequestableVolunteerRoles(VereningingenTestCase):
         self.assertTrue(roles)
         self.assertFalse(excluded & set(roles), excluded & set(roles))
 
+    def test_national_board_and_treasurer_roles_are_never_offered(self):
+        """Granted only by a seat on the national chapter's board, never from here."""
+        national = self._profile_roles("Verenigingen National Board Member", "Verenigingen Treasurer")
+        self.assertTrue(
+            {"Verenigingen National Board Member", "Verenigingen Treasurer"} <= national, national
+        )
+
+        roles = api.get_requestable_volunteer_roles()
+
+        self.assertTrue(roles)
+        self.assertFalse(national & set(roles), national & set(roles))
+
+    def test_roles_without_desk_access_are_never_offered(self):
+        deskless = self._deskless_roles()
+        # Control: a service role really sits in a Verenigingen profile.
+        self.assertIn("Verenigingen Webhook User", deskless)
+        self.assertIn("Verenigingen Webhook User", self._profile_roles("Verenigingen Webhook User"))
+
+        roles = api.get_requestable_volunteer_roles()
+
+        self.assertTrue(roles)
+        self.assertFalse(deskless & set(roles), deskless & set(roles))
+
     def test_a_profile_mapped_onto_a_chapter_stops_being_offered(self):
         self.assertIn("Verenigingen Auditor", api.get_requestable_volunteer_roles())
         chapter = self.create_test_chapter()
@@ -277,7 +307,10 @@ class TestRequestableVolunteerRoles(VereningingenTestCase):
             roles = api.get_requestable_volunteer_roles()
 
         self.assertTrue(roles)
-        self.assertEqual(set(roles), held - self.NEVER_OFFERED - self._position_and_volunteer_roles())
+        self.assertEqual(
+            set(roles),
+            held - self.NEVER_OFFERED - self._position_and_volunteer_roles() - self._deskless_roles(),
+        )
         # Offered to Administrator, but not part of this user's profile.
         self.assertNotIn("Verenigingen Auditor", roles)
 
