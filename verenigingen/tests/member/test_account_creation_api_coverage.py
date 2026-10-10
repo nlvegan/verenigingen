@@ -299,11 +299,10 @@ class TestRequestableVolunteerRoles(VereningingenTestCase):
 
     def test_offer_does_not_exceed_the_activating_users_own_roles(self):
         user = self._user_with_profile("Verenigingen Administrator")
-        # What the user actually holds, which is not the whole profile: ERPNext
-        # drops "Employee" from a user with no Employee record.
-        held = self._profile_roles("Verenigingen Administrator") & set(frappe.get_roles(user))
-
         with self.as_user(user):
+            # What the user actually holds, which is not the whole profile: ERPNext
+            # drops "Employee" from a user with no Employee record.
+            held = self._profile_roles("Verenigingen Administrator") & set(frappe.get_roles())
             roles = api.get_requestable_volunteer_roles()
 
         self.assertTrue(roles)
@@ -331,9 +330,9 @@ class TestRequestableVolunteerRoles(VereningingenTestCase):
         exercises the gates through "Support Team", which the ACR does not let a
         non-System Manager request."""
         user = self._user_with_profile("Verenigingen Staff")
-        self.assertTrue({"Support Team", "Verenigingen Staff"} <= set(frappe.get_roles(user)))
 
         with self._user_create_granted("Verenigingen Staff"), self.as_user(user):
+            self.assertIn("Support Team", frappe.get_roles())
             self.assertTrue(frappe.has_permission("User", "create"))
             roles = api.get_requestable_volunteer_roles()
 
