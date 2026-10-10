@@ -106,6 +106,9 @@ fixtures = [
                     "Verenigingen Staff",
                     "Verenigingen System Administrator",
                     "Verenigingen Auditor",
+                    "Verenigingen Administrator",
+                    "Verenigingen National Board Member",
+                    "Verenigingen Webhook User",
                 ],
             ]
         ],

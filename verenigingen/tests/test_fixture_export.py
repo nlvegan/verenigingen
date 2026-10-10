@@ -245,5 +245,42 @@ class TestExportFixturesDoesNotClobberCustomFields(unittest.TestCase):
         )
 
 
+def _shipped_role_profiles():
+    path = frappe.get_app_path("verenigingen", "fixtures", "role_profile.json")
+    with open(path) as f:
+        return {p["name"]: {r["role"] for r in p.get("roles", [])} for p in json.load(f)}
+
+
+class TestRoleProfileFixture(unittest.TestCase):
+    """fixtures/role_profile.json is imported whole on migrate, but
+    `bench export-fixtures` rewrites it from the filter in hooks/fixtures.py.
+    A profile the filter does not name is silently dropped by the next export,
+    along with any role changes made to it.
+    """
+
+    def test_every_shipped_role_profile_is_declared_for_export(self):
+        declared = set()
+        for entry in frappe.get_hooks("fixtures", app_name="verenigingen"):
+            if isinstance(entry, dict) and entry.get("doctype") == "Role Profile":
+                for field, operator, names in entry["filters"]:
+                    if field == "name" and operator == "in":
+                        declared |= set(names)
+
+        undeclared = set(_shipped_role_profiles()) - declared
+        self.assertFalse(
+            undeclared,
+            f"Role Profiles shipped in fixtures/role_profile.json but missing from the "
+            f"export filter in hooks/fixtures.py (the next export drops them): {undeclared}",
+        )
+
+    def test_hr_roles_are_granted_by_the_admin_treasurer_staff_and_national_board_profiles(self):
+        profiles = _shipped_role_profiles()
+
+        self.assertIn("HR Manager", profiles["Verenigingen Administrator"])
+        for profile in ("Verenigingen Treasurer", "Verenigingen Staff", "Verenigingen National Board Member"):
+            with self.subTest(profile=profile):
+                self.assertIn("HR User", profiles[profile])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -167,6 +167,9 @@
       },
       {
         "role": "Expense Approver"
+      },
+      {
+        "role": "HR User"
       }
     ]
   },
@@ -209,6 +212,9 @@
       },
       {
         "role": "Auditor"
+      },
+      {
+        "role": "HR User"
       }
     ]
   },
@@ -270,6 +276,9 @@
       },
       {
         "role": "Projects User"
+      },
+      {
+        "role": "HR Manager"
       }
     ]
   },
@@ -305,6 +314,9 @@
       },
       {
         "role": "Purchase User"
+      },
+      {
+        "role": "HR User"
       }
     ]
   },
