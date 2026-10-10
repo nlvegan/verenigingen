@@ -11,6 +11,9 @@
 # the relevant counts do not drift. We never assert "created N" for the workspace
 # functions because on an installed test site the records already exist.
 
+import contextlib
+import io
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -232,12 +235,18 @@ class TestInstallAndLinkOnboarding(FrappeTestCase):
     """install_and_link_onboarding() — custom field + MO doc + workspace link."""
 
     def test_install_creates_custom_field_and_links_workspace(self):
-        setup_mod.install_and_link_onboarding()
+        # Its failures are swallowed and only printed, so the printout is the
+        # one channel that shows a step went wrong.
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            setup_mod.install_and_link_onboarding()
+        self.assertNotIn("Failed to create custom field", out.getvalue())
 
-        # The module_onboarding custom field must exist on Workspace.
+        # Workspace must have a module_onboarding field: native since frappe
+        # v16.50 (frappe#39927), otherwise the Custom Field this function adds.
         self.assertTrue(
-            frappe.db.exists("Custom Field", {"dt": "Workspace", "fieldname": "module_onboarding"}),
-            "module_onboarding custom field should be created on Workspace",
+            frappe.get_meta("Workspace").has_field("module_onboarding"),
+            "Workspace should have a module_onboarding field (native or custom)",
         )
         # The Module Onboarding document must exist (created via reinstall if absent).
         self.assertTrue(frappe.db.exists("Module Onboarding", "Verenigingen"))
