@@ -441,6 +441,27 @@ class Chapter(Document):
                     if not frappe.db.exists("Chapter Role", row.chapter_role):
                         frappe.throw(_("Chapter Role '{0}' does not exist").format(row.chapter_role))
 
+        self._validate_mapped_board_profiles()
+
+    def _validate_mapped_board_profiles(self):
+        """Board members edit this mapping, and it decides their own roles (#1616)."""
+        from verenigingen.services.member.account.role_profile_mapping_guard import validate_mapped_profiles
+
+        mapped = {self.default_board_role_profile} | {
+            row.role_profile for row in self.board_role_specific_profiles or []
+        }
+        previous = set()
+        if not self.is_new():
+            previous = {frappe.db.get_value("Chapter", self.name, "default_board_role_profile")} | set(
+                frappe.get_all(
+                    "Chapter Role Profile Mapping",
+                    filters={"parenttype": "Chapter", "parent": self.name},
+                    pluck="role_profile",
+                )
+            )
+        national = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
+        validate_mapped_profiles(mapped, previous, national_allowed=bool(national) and national == self.name)
+
     def validate_chapter_access(self):
         """
         Validate chapter access permissions to prevent unauthorized edits.

@@ -324,7 +324,27 @@ class TeamValidationService(StatelessService):
                     if not frappe.db.exists("Team Role", row.team_role):
                         frappe.throw(_("Team Role '{0}' does not exist").format(row.team_role))
 
+        self._validate_mapped_profiles(team_doc)
         return True
+
+    def _validate_mapped_profiles(self, team_doc):
+        """A team lead edits this mapping, and it decides their own roles (#1616).
+        The national board profiles never belong on a team."""
+        from verenigingen.services.member.account.role_profile_mapping_guard import validate_mapped_profiles
+
+        mapped = {team_doc.default_role_profile} | {
+            row.role_profile for row in team_doc.role_specific_profiles or []
+        }
+        previous = set()
+        if not team_doc.is_new():
+            previous = {frappe.db.get_value("Team", team_doc.name, "default_role_profile")} | set(
+                frappe.get_all(
+                    "Team Role Profile Assignment",
+                    filters={"parenttype": "Team", "parent": team_doc.name},
+                    pluck="role_profile",
+                )
+            )
+        validate_mapped_profiles(mapped, previous, national_allowed=False)
 
     def validate_dates(self, team_doc):
         """Validate start and end dates"""
