@@ -29,6 +29,8 @@ No business-logic mocking; external e-Boekhouden connectivity is left real
 data dict without an "error" key).
 """
 
+import contextlib
+
 import frappe
 from frappe.utils import now_datetime
 
@@ -44,6 +46,30 @@ _EXTERNAL_CONN_IGNORE = [
     "Error getting session token",
     "E-Boekhouden",
 ]
+
+SETTINGS = "E-Boekhouden Settings"
+
+
+@contextlib.contextmanager
+def _no_eboekhouden_token():
+    """Make "no token" true inside the block instead of inheriting it (#1609).
+
+    Other tests write E-Boekhouden Settings.api_token in several shapes (a plain
+    value, "", a saved password) and leave them behind, and each shape fails
+    differently: no stored password -> "Password not found for E-Boekhouden
+    Settings ..." (ignored above); a stored one that decrypts to "" -> "API token
+    is required for REST API access" (not ignored). So the result depended on
+    which tests shared the shard. Undone by a savepoint rollback, not a commit:
+    the callers enter this AFTER their own commit, and nothing inside commits.
+    """
+    frappe.db.savepoint("no_eboekhouden_token")
+    frappe.db.delete("__Auth", {"doctype": SETTINGS, "name": SETTINGS, "fieldname": "api_token"})
+    frappe.db.set_single_value(SETTINGS, "api_token", None)
+    try:
+        yield
+    finally:
+        frappe.db.rollback(save_point="no_eboekhouden_token")
+        frappe.clear_document_cache(SETTINGS, SETTINGS)
 
 
 class TestEboekhoudenWwwPagesCoverage(VereningingenTestCase):
@@ -196,11 +222,11 @@ class TestEboekhoudenWwwPagesCoverage(VereningingenTestCase):
         mig = self._make_migration(status="Completed", name_suffix="status")
         frappe.db.commit()
 
-        with self.set_user("Administrator"):
+        with self.set_user("Administrator"), _no_eboekhouden_token():
             context = frappe._dict()
-            # If the test site has an E-Boekhouden token configured, the live
-            # connection attempt logs a (real) network/session error. That is the
-            # genuine no-connectivity path, not a controller bug -- ignore it.
+            # With no token the dashboard service logs "Password not found for
+            # E-Boekhouden Settings ...". That is the genuine no-connectivity
+            # path, not a controller bug -- ignore it.
             with self.assertNoErrorLog(ignore=_EXTERNAL_CONN_IGNORE):
                 ebs.get_context(context)
 
@@ -226,14 +252,15 @@ class TestEboekhoudenWwwPagesCoverage(VereningingenTestCase):
         self._make_migration(status="Failed", name_suffix="happy2")
         frappe.db.commit()
 
-        # Root cause: the service never returns a "success" key.
-        data = frappe.call("verenigingen.e_boekhouden.utils.eboekhouden_api.get_dashboard_data_api")
-        self.assertNotIn("success", data, "old `dashboard_data.get('success')` check was always falsy")
+        with _no_eboekhouden_token():
+            # Root cause: the service never returns a "success" key.
+            data = frappe.call("verenigingen.e_boekhouden.utils.eboekhouden_api.get_dashboard_data_api")
+            self.assertNotIn("success", data, "old `dashboard_data.get('success')` check was always falsy")
 
-        with self.set_user("Administrator"):
-            context = frappe._dict()
-            with self.assertNoErrorLog(ignore=_EXTERNAL_CONN_IGNORE):
-                ebs.get_context(context)
+            with self.set_user("Administrator"):
+                context = frappe._dict()
+                with self.assertNoErrorLog(ignore=_EXTERNAL_CONN_IGNORE):
+                    ebs.get_context(context)
 
         if "error" in data:
             # Unconnected env (e.g. CI with no token): error surfaced, but the
