@@ -100,9 +100,10 @@ def get_requestable_volunteer_roles() -> list[str]:
     """Roles the current user may add when activating a volunteer.
 
     Candidates are the roles the association's own ("Verenigingen ...") Role
-    Profiles grant. The offer never exceeds the caller's own roles, and keeps
-    only roles the Account Creation Request would accept from this caller, so
-    nothing offered can fail the request on permissions.
+    Profiles grant, minus every role a board or team position grants: those are
+    assigned only through that chapter or team. The offer never exceeds the
+    caller's own roles, and keeps only roles the Account Creation Request would
+    accept from this caller, so nothing offered can fail the request on permissions.
     """
     if not frappe.has_permission("User", "create"):
         return []
@@ -118,13 +119,40 @@ def get_requestable_volunteer_roles() -> list[str]:
         frappe.get_all("Role", filters={"disabled": 0, "name": ["in", list(candidates)]}, pluck="name")
     )
     own_roles = set(frappe.get_roles())
+    excluded = _NEVER_OFFERED_ROLES | _position_and_volunteer_profile_roles()
 
     request = frappe.new_doc("Account Creation Request")
     manager = AccountCreationManager(None)
     return sorted(
         role
-        for role in (candidates & enabled & own_roles) - _NEVER_OFFERED_ROLES
+        for role in (candidates & enabled & own_roles) - excluded
         if request.can_request_role(role) and manager.can_assign_role(role)
+    )
+
+
+def _position_and_volunteer_profile_roles() -> set[str]:
+    """Roles granted by any profile a chapter board or team can assign (the
+    configured ones and the calculator's defaults), plus the base volunteer
+    profile's, which every activation already grants."""
+    from verenigingen.services.member.account.user_role_profile_calculator import (
+        PROFILE_BOARD_MEMBER,
+        PROFILE_TEAM_LEADER,
+        PROFILE_VOLUNTEER,
+    )
+
+    profiles = {PROFILE_BOARD_MEMBER, PROFILE_TEAM_LEADER, PROFILE_VOLUNTEER}
+    for doctype, field in (
+        ("Chapter", "default_board_role_profile"),
+        ("Chapter Role Profile Mapping", "role_profile"),
+        ("Team", "default_role_profile"),
+        ("Team Role Profile Assignment", "role_profile"),
+    ):
+        profiles.update(frappe.get_all(doctype, filters={field: ["is", "set"]}, pluck=field, distinct=True))
+
+    return set(
+        frappe.get_all(
+            "Has Role", filters={"parenttype": "Role Profile", "parent": ["in", list(profiles)]}, pluck="role"
+        )
     )
 
 
