@@ -192,3 +192,65 @@ class TestAccountCreationApiCoverage(VereningingenTestCase):
         # Our capped request must not appear in retried set.
         retried_names = [r["name"] for r in data.get("retried_requests", [])]
         self.assertNotIn(request.name, retried_names)
+
+
+class TestRequestableVolunteerRoles(VereningingenTestCase):
+    """The Activate Volunteer dialog's "Additional Roles" options.
+
+    It used to offer two hardcoded names ("Volunteer Team Member" / "Volunteer
+    Team Leader") that are not Roles at all, so picking one failed the request.
+    """
+
+    # Never offered: automatic or system-level roles, and the base role the
+    # dialog always adds.
+    NEVER_OFFERED = {"Administrator", "Guest", "All", "Desk User", "System Manager", "Verenigingen Volunteer"}
+
+    def _user_with_profile(self, role_profile):
+        """A user whose roles come from a real Role Profile, as an activator's do."""
+        email = f"req-roles-{frappe.generate_hash(length=8)}@example.com"
+        user = self.create_test_user(email)
+        user.append("role_profiles", {"role_profile": role_profile})
+        user.save(ignore_permissions=True)
+        return user.name
+
+    def test_administrator_is_offered_real_roles_only(self):
+        roles = api.get_requestable_volunteer_roles()
+
+        self.assertIn("Verenigingen Chapter Board Member", roles)
+        self.assertIn("Verenigingen Treasurer", roles)
+        self.assertNotIn("Volunteer Team Member", roles)
+        self.assertNotIn("Volunteer Team Leader", roles)
+        self.assertFalse(self.NEVER_OFFERED & set(roles), roles)
+        for role in roles:
+            self.assertFalse(frappe.db.get_value("Role", role, "disabled"), role)
+
+    def test_offer_does_not_exceed_the_activating_users_own_roles(self):
+        user = self._user_with_profile("Verenigingen Administrator")
+        profile_roles = set(
+            frappe.get_all(
+                "Has Role",
+                filters={"parenttype": "Role Profile", "parent": "Verenigingen Administrator"},
+                pluck="role",
+            )
+        )
+
+        # What the user actually holds, which is not the whole profile: ERPNext
+        # drops "Employee" from a user with no Employee record.
+        held = profile_roles & set(frappe.get_roles(user))
+
+        with self.as_user(user):
+            roles = api.get_requestable_volunteer_roles()
+
+        self.assertTrue(roles)
+        self.assertEqual(set(roles), held - self.NEVER_OFFERED)
+        # Offered to Administrator (above), but not part of this user's profile.
+        self.assertNotIn("Verenigingen Treasurer", roles)
+
+    def test_user_who_cannot_create_users_is_offered_nothing(self):
+        user = self._user_with_profile("Verenigingen Staff")
+
+        with self.as_user(user):
+            self.assertFalse(frappe.has_permission("User", "create"))
+            roles = api.get_requestable_volunteer_roles()
+
+        self.assertEqual(roles, [])

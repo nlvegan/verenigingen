@@ -89,6 +89,45 @@ def process_account_creation_request(request_name: str) -> OperationResult[Dict[
         )
 
 
+# Never offered as an additional volunteer role: automatic or system-level roles,
+# and the base role every activation already requests.
+_NEVER_OFFERED_ROLES = {"Administrator", "Guest", "All", "Desk User", Roles.SYSTEM_MANAGER, Roles.VOLUNTEER}
+
+
+@frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
+def get_requestable_volunteer_roles() -> list[str]:
+    """Roles the current user may add when activating a volunteer.
+
+    Candidates are the roles the association's own ("Verenigingen ...") Role
+    Profiles grant. The offer never exceeds the caller's own roles, and keeps
+    only roles the Account Creation Request would accept from this caller, so
+    nothing offered can fail the request on permissions.
+    """
+    if not frappe.has_permission("User", "create"):
+        return []
+
+    candidates = set(
+        frappe.get_all(
+            "Has Role",
+            filters={"parenttype": "Role Profile", "parent": ["like", "Verenigingen %"]},
+            pluck="role",
+        )
+    )
+    enabled = set(
+        frappe.get_all("Role", filters={"disabled": 0, "name": ["in", list(candidates)]}, pluck="name")
+    )
+    own_roles = set(frappe.get_roles())
+
+    request = frappe.new_doc("Account Creation Request")
+    manager = AccountCreationManager(None)
+    return sorted(
+        role
+        for role in (candidates & enabled & own_roles) - _NEVER_OFFERED_ROLES
+        if request.can_request_role(role) and manager.can_assign_role(role)
+    )
+
+
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 def queue_account_creation_for_member(
