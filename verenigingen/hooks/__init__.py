@@ -2,6 +2,7 @@
 """Verenigingen application hooks configuration.
 
 This package organizes hooks by concern into focused submodules:
+- apps_screen.py: Tile on the desk's Apps screen
 - assets.py: CSS/JS includes
 - doctypes.py: DocType JS mappings
 - doc_events.py: Document event handlers
@@ -19,6 +20,7 @@ and test compared to a monolithic hooks.py file.
 # =============================================================================
 # IMPORTS FROM SUBMODULES
 # =============================================================================
+from verenigingen.hooks.apps_screen import add_to_apps_screen
 from verenigingen.hooks.assets import (
     app_include_css,
     app_include_js,

@@ -7,6 +7,7 @@ This directory contains the Frappe hooks configuration for the Verenigingen app,
 ```
 hooks/
 ├── __init__.py      # Entry point - imports from submodules, app metadata
+├── apps_screen.py   # Tile on the desk Apps screen (add_to_apps_screen)
 ├── assets.py        # CSS/JS includes (app_include_css, app_include_js, etc.)
 ├── doctypes.py      # DocType JS mappings (doctype_js)
 ├── doc_events.py    # Document event handlers (validate, on_submit, etc.)

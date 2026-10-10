@@ -2261,3 +2261,27 @@ def get_expense_claim_permission_query(user):
 
     # Users without proper roles see no records
     return "1=0"
+
+
+# Roles that get the Verenigingen tile on the desk's Apps screen. Narrower than who may open the
+# workspace on purpose: "Verenigingen Member" and "Verenigingen Volunteer" carry desk access, so
+# every member is a System User and a desk-access gate would show the tile to all of them.
+# "Verenigingen Member Manager" exists only as a site-created role; it is listed so it is not lost.
+APPS_SCREEN_ROLES = frozenset(
+    {
+        Roles.SYSTEM_MANAGER,
+        Roles.VERENIGINGEN_ADMIN,
+        Roles.VERENIGINGEN_STAFF,
+        Roles.FINANCIAL_MANAGER,
+        Roles.AUDITOR,
+        Roles.CHAPTER_BOARD_MEMBER,
+        "Verenigingen Treasurer",
+        "Verenigingen National Board Member",
+        "Verenigingen Member Manager",
+    }
+)
+
+
+def check_app_permission():
+    """`has_permission` for the `add_to_apps_screen` hook: whether this user sees the tile."""
+    return bool(APPS_SCREEN_ROLES.intersection(frappe.get_roles()))
