@@ -42,6 +42,7 @@ class TestWorkspaceValidatorEnhanced(VereningingenTestCase):
         ws.title = title
         ws.label = title
         ws.public = 1
+        ws.module = "Verenigingen"
         for link in links:
             ws.append("links", link)
         ws.insert(ignore_permissions=True, ignore_links=True)
