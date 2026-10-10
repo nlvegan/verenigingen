@@ -325,9 +325,11 @@ class TestRequestableVolunteerRoles(VereningingenTestCase):
 
     def test_non_system_manager_with_user_create_is_offered_only_what_the_acr_accepts(self):
         """Only System Manager creates Users on a stock site, so the ACR's own role
-        gates are otherwise unreachable here. Grant User create to Staff to reach them:
-        Staff holds "Support Team" and "Verenigingen Staff", neither of which the
-        ACR lets a non-System Manager request."""
+        gates are otherwise unreachable here. Grant User create to Staff to reach them.
+        Of the Staff profile's roles only "Support Team" survives the position-profile
+        exclusion ("Verenigingen Staff" sits in the national board profiles), so this
+        exercises the gates through "Support Team", which the ACR does not let a
+        non-System Manager request."""
         user = self._user_with_profile("Verenigingen Staff")
         self.assertTrue({"Support Team", "Verenigingen Staff"} <= set(frappe.get_roles(user)))
 
