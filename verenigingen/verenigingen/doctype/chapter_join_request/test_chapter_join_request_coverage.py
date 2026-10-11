@@ -329,6 +329,102 @@ class TestChapterJoinRequestCoverage(EnhancedTestCase):
         req_ok.reload()
         self.assertEqual(req_ok.status, "Approved")
 
+    # ----- failure reason surfaced to the approver (#1591) -------------------
+
+    def _approval_error(self, req):
+        """Approve through the real controller and return the thrown message."""
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            req.approve_request()
+        return str(ctx.exception)
+
+    def test_approve_already_member_surfaces_the_real_reason(self):
+        """#1591: a request approved after the member joined the chapter by another
+        route must say the member is already in the chapter, not 'Unknown error'.
+
+        Real flow: the request is submitted while the member has no row (the
+        validators refuse otherwise), then the member is added via
+        ChapterMembershipManager, then the request is approved.
+        """
+        from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
+
+        req = self._make_request(self.test_member)
+        joined = ChapterMembershipManager.assign_member_to_chapter(
+            member_id=self.test_member.name, chapter_name=self.test_chapter.name, notify=False
+        )
+        self.assertTrue(joined["success"], joined)
+
+        message = self._approval_error(req)
+
+        self.assertNotIn("Unknown error", message)
+        self.assertIn("already in this chapter", message)
+
+    def _suspended_member_with_disabled_row_and_request(self, member):
+        """Return a pending request for `member`, whose row is disabled and who is Suspended.
+
+        Real writers throughout: the row is created by ChapterMembershipManager,
+        disabled by the termination writer (disable_chapter_memberships_safe), and the
+        member is suspended by suspend_member_safe. No db.set_value.
+        """
+        from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
+        from verenigingen.services.termination.termination_integration import (
+            disable_chapter_memberships_safe,
+            suspend_member_safe,
+        )
+
+        req = self._make_request(member)
+        ChapterMembershipManager.assign_member_to_chapter(
+            member_id=member.name, chapter_name=self.test_chapter.name, notify=False
+        )
+        disable_chapter_memberships_safe(member.name, today(), "join request test")
+        suspend_member_safe(member.name, "join request test", suspend_user=False)
+        self.assertEqual(frappe.db.get_value("Member", member.name, "status"), "Suspended")
+        row = frappe.db.get_value(
+            "Chapter Member",
+            {"parent": self.test_chapter.name, "member": member.name},
+            ["enabled", "status"],
+            as_dict=True,
+        )
+        self.assertEqual((row.enabled, row.status), (0, "Inactive"))
+        return req
+
+    def test_approve_not_reenabled_member_surfaces_the_real_reason(self):
+        """#1591/#1564: a disabled row whose member is currently Suspended is refused by
+        add_member with action 'not_reenabled'; an approver who can read the Member must
+        see why, status included."""
+        req = self._suspended_member_with_disabled_row_and_request(self.test_member2)
+
+        message = self._approval_error(req)
+
+        self.assertNotIn("Unknown error", message)
+        self.assertIn("was not re-enabled", message)
+        self.assertIn("Suspended", message)
+
+    def test_approve_not_reenabled_does_not_disclose_status_to_unreadable_member(self):
+        """#1590: surfacing the not_reenabled message must not WIDEN what the approver
+        can learn. A board approver who fails has_permission(Member, read) on the target
+        (its row is disabled) gets the refusal WITHOUT the member's status.
+
+        Probe shortcut: approve_request is called directly as the board user; over HTTP
+        approve_join_request is @critical_api, which a Chapter-Board-only profile does
+        not clear (#1590), so this models a board seat held by a user who does.
+        """
+        board = self.create_test_board_member(self.test_chapter.name)
+        req = self._suspended_member_with_disabled_row_and_request(self.test_member2)
+        # Control: the approver really cannot read this Member, and the reason is real.
+        self.assertFalse(frappe.has_permission("Member", "read", doc=self.test_member2.name, user=board.user))
+
+        approver_before = frappe.session.user
+        frappe.set_user(board.user)
+        try:
+            message = self._approval_error(req)
+        finally:
+            frappe.set_user(approver_before)
+
+        self.assertNotIn("Unknown error", message)
+        self.assertIn("could not be re-enabled", message)
+        self.assertNotIn("Suspended", message)
+        self.assertNotIn(self.test_member2.name, message)
+
 
 if __name__ == "__main__":
     unittest.main()
