@@ -84,10 +84,9 @@ class TestEmployeeUserLinkSecurityFixed(EnhancedTestCase):
         frappe.clear_cache(user=self.admin_user.email)
         frappe.clear_cache(user=self.limited_user.email)
 
-        # Ensure HR Manager can create Employee. The app's custom_docperm fixture
-        # grants HR Manager/HR User create on Employee, but that fixture is not
-        # fully synced on the isolated test site (only the restrictive rows are
-        # present), so admin_user (HR Manager) would otherwise be denied and
+        # Ensure HR Manager can create Employee. Stock DocPerm grants HR Manager/HR User
+        # create on Employee, but the isolated test site may carry a truncated Custom DocPerm
+        # set (setup/custom_docperm_setup.py repairs these on migrate), so admin_user (HR Manager) would otherwise be denied and
         # create_employee_for_approved_volunteer() would return None.
         self._ensure_employee_create_permission()
 

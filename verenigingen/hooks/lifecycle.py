@@ -15,6 +15,9 @@ after_install = [
     "verenigingen.setup.execute_after_install",
     "verenigingen.setup.security_setup.setup_all_security",
     "verenigingen.setup.critical_operation_rules_setup.setup_critical_operation_rules",
+    # Our grants on core DocTypes and Custom DocPerm hygiene -- see #1621/#1622. Replaces the
+    # retired custom_docperm.json fixture, whose raw inserts hid every stock DocPerm row.
+    "verenigingen.setup.custom_docperm_setup.apply_custom_permissions",
     # Raw-SQL SEPA operations tables (notification log/preferences, distributed
     # lock, rollback tracking) -- see #1510. Not DocTypes, so nothing else
     # creates them; a fresh site (every CI shard) never runs patches.txt or a
@@ -57,6 +60,10 @@ after_migrate = [
     # above. Also here (idempotent, IF NOT EXISTS) so an existing site that
     # was installed before this hook existed converges on the next migrate.
     "verenigingen.verenigingen_payments.utils.shared.sepa_ops_tables.ensure_sepa_ops_tables",
+    # Re-derive Custom DocPerm state on every migrate: repairs sets truncated by the retired
+    # fixture and makes our own DocTypes' JSON permissions win over frozen Custom DocPerm
+    # rows (#1621/#1622). Last, so every role it grants to already exists.
+    "verenigingen.setup.custom_docperm_setup.apply_custom_permissions",
 ]
 
 # Run before test suite executes

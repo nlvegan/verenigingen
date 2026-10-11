@@ -1384,7 +1384,8 @@ def has_employee_permission(doc, user=None, ptype=None):
     have disjoint coverage -- frappe/model/db_query.py calls frappe.has_permission
     WITHOUT a doc, so the hook never runs for lists, and frappe.client.get calls
     doc.check_permission() (frappe/client.py:104), which never consults the query --
-    so doc-level access fell entirely to DocPerms. fixtures/custom_docperm.json
+    so doc-level access fell entirely to DocPerms. setup/custom_docperm_setup.py (formerly
+    fixtures/custom_docperm.json)
     grants the ERPNext `Employee` role read with no if_owner, and 8 of the 11 role
     profiles hand out that role, so any volunteer could read any Employee record by
     name (date of birth, personal email, phone, address) while seeing none of them
