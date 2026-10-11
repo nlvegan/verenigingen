@@ -287,6 +287,27 @@ class MijnRoodSyncSettings(Document):
 
         self._validate_status_mapping()
         self._validate_role_mapping()
+        self._validate_mapped_role_profiles()
+
+    def _validate_mapped_role_profiles(self):
+        """A Verenigingen Administrator edits this table; the sync hands the profile to
+        the Account Creation Request it queues (#1618)."""
+        from verenigingen.services.member.account.role_profile_mapping_guard import validate_mapped_profiles
+
+        previous = {
+            (row.mijnrood_role, row.role_profile)
+            for row in frappe.get_all(
+                "MijnRood Role Mapping",
+                filters={"parenttype": self.doctype, "parent": self.name},
+                fields=["mijnrood_role", "role_profile"],
+            )
+        }
+        validate_mapped_profiles(
+            {(row.mijnrood_role, row.role_profile) for row in self.role_mapping or []},
+            previous,
+            national_allowed=False,
+            system_mapping=bool(self.flags.get("system_profile_mapping")),
+        )
 
     def _validate_role_mapping(self):
         """Validate role mapping child table entries."""
