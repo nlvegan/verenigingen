@@ -132,6 +132,30 @@ class TestChapterBoardProfileMapping(EnhancedTestCase):
         self.assertEqual(frappe.db.get_value("Chapter", self.chapter.name, "introduction"), "Edited by the board")
 
 
+    def test_board_member_cannot_widen_an_existing_mapping_to_the_default_slot(self):
+        """An admin mapped PLAIN_PROFILE to one chapter role only. Moving it to the
+        default slot hands its roles to the whole board, the editor included."""
+        seat = self.create_test_board_member(self.chapter.name)
+        other_role = frappe.get_doc(
+            {
+                "doctype": "Chapter Role",
+                "role_name": f"Guard Narrow Role {frappe.generate_hash(length=6)}",
+                "permissions_level": "Basic",
+                "is_active": 1,
+            }
+        ).insert()
+        doc = frappe.get_doc("Chapter", self.chapter.name)
+        doc.enable_board_role_specific_profiles = 1
+        doc.append("board_role_specific_profiles", {"chapter_role": other_role.name, "role_profile": PLAIN_PROFILE})
+        doc.save()
+
+        with self.as_user(seat.user):
+            self.assertNotIn("Verenigingen Auditor", frappe.get_roles())
+            with self.assertRaisesRegex(frappe.ValidationError, "Verenigingen Auditor"):
+                self._save_default(PLAIN_PROFILE)
+
+        self.assertFalse(frappe.db.get_value("Chapter", self.chapter.name, "default_board_role_profile"))
+
     def test_existing_national_mapping_does_not_block_a_save_after_the_national_chapter_moves(self):
         frappe.db.set_single_value("Verenigingen Settings", "national_board_chapter", self.chapter.name)
         self._save_default(NATIONAL_PROFILE)

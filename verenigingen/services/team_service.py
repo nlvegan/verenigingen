@@ -332,18 +332,19 @@ class TeamValidationService(StatelessService):
         The national board profiles never belong on a team."""
         from verenigingen.services.member.account.role_profile_mapping_guard import validate_mapped_profiles
 
-        mapped = {team_doc.default_role_profile} | {
-            row.role_profile for row in team_doc.role_specific_profiles or []
+        mapped = {("default", team_doc.default_role_profile)} | {
+            (row.team_role, row.role_profile) for row in team_doc.role_specific_profiles or []
         }
         previous = set()
         if not team_doc.is_new():
-            previous = {frappe.db.get_value("Team", team_doc.name, "default_role_profile")} | set(
-                frappe.get_all(
+            previous = {("default", frappe.db.get_value("Team", team_doc.name, "default_role_profile"))} | {
+                (row.team_role, row.role_profile)
+                for row in frappe.get_all(
                     "Team Role Profile Assignment",
                     filters={"parenttype": "Team", "parent": team_doc.name},
-                    pluck="role_profile",
+                    fields=["team_role", "role_profile"],
                 )
-            )
+            }
         validate_mapped_profiles(
             mapped,
             previous,

@@ -24,22 +24,27 @@ NATIONAL_PROFILES = frozenset({"Verenigingen National Board Member", "Vereniging
 _UNRESTRICTED_ROLES = frozenset({Roles.SYSTEM_MANAGER, "Administrator"})
 
 
-def validate_mapped_profiles(profiles, previous_profiles, *, national_allowed, system_mapping=False):
+def validate_mapped_profiles(mappings, previous_mappings, *, national_allowed, system_mapping=False):
     """Refuse a mapping that would hand out more than it should.
 
-    Only profiles newly added in this save are checked, so a mapping already in
-    place (set by an administrator, or before the national chapter changed) never
-    blocks an unrelated save.
+    Only what is new in this save is checked, so a mapping already in place (set
+    by an administrator, or before the national chapter changed) never blocks an
+    unrelated save. "New" is per slot for the editor's-roles check: moving a
+    profile an administrator mapped to one chapter role into the default slot
+    hands it to the whole board, so that counts as new.
 
     Args:
-        profiles: every Role Profile the document maps after this save.
-        previous_profiles: the ones it mapped before (empty on insert).
+        mappings: every (slot, Role Profile) pair the document maps after this
+            save; slot is "default" or the chapter/team role.
+        previous_mappings: the pairs it mapped before (empty on insert).
         national_allowed: True only for the chapter set as national_board_chapter.
         system_mapping: set by system code that maps a fixed profile of its own
             choosing (chapter provisioning, the default MijnRood teams), never one
             taken from user input. Skips the editor's-roles check only.
     """
-    new_profiles = {p for p in profiles if p} - {p for p in previous_profiles if p}
+    mappings = {(slot, p) for slot, p in mappings if p}
+    previous_mappings = {(slot, p) for slot, p in previous_mappings if p}
+    new_profiles = {p for _slot, p in mappings} - {p for _slot, p in previous_mappings}
     for profile in sorted(new_profiles):
         if profile in NATIONAL_PROFILES and not national_allowed:
             frappe.throw(
@@ -47,7 +52,7 @@ def validate_mapped_profiles(profiles, previous_profiles, *, national_allowed, s
             )
 
     if not system_mapping:
-        _validate_editor_holds_roles(new_profiles)
+        _validate_editor_holds_roles({p for _slot, p in mappings - previous_mappings})
 
 
 def _validate_editor_holds_roles(new_profiles):

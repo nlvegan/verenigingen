@@ -447,18 +447,21 @@ class Chapter(Document):
         """Board members edit this mapping, and it decides their own roles (#1616)."""
         from verenigingen.services.member.account.role_profile_mapping_guard import validate_mapped_profiles
 
-        mapped = {self.default_board_role_profile} | {
-            row.role_profile for row in self.board_role_specific_profiles or []
+        mapped = {("default", self.default_board_role_profile)} | {
+            (row.chapter_role, row.role_profile) for row in self.board_role_specific_profiles or []
         }
         previous = set()
         if not self.is_new():
-            previous = {frappe.db.get_value("Chapter", self.name, "default_board_role_profile")} | set(
-                frappe.get_all(
+            previous = {
+                ("default", frappe.db.get_value("Chapter", self.name, "default_board_role_profile"))
+            } | {
+                (row.chapter_role, row.role_profile)
+                for row in frappe.get_all(
                     "Chapter Role Profile Mapping",
                     filters={"parenttype": "Chapter", "parent": self.name},
-                    pluck="role_profile",
+                    fields=["chapter_role", "role_profile"],
                 )
-            )
+            }
         national = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
         validate_mapped_profiles(
             mapped,
