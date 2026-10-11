@@ -344,7 +344,12 @@ class TeamValidationService(StatelessService):
                     pluck="role_profile",
                 )
             )
-        validate_mapped_profiles(mapped, previous, national_allowed=False)
+        validate_mapped_profiles(
+            mapped,
+            previous,
+            national_allowed=False,
+            system_mapping=bool(team_doc.flags.get("system_profile_mapping")),
+        )
 
     def validate_dates(self, team_doc):
         """Validate start and end dates"""

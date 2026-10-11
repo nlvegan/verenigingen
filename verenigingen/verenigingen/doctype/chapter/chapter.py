@@ -460,7 +460,12 @@ class Chapter(Document):
                 )
             )
         national = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
-        validate_mapped_profiles(mapped, previous, national_allowed=bool(national) and national == self.name)
+        validate_mapped_profiles(
+            mapped,
+            previous,
+            national_allowed=bool(national) and national == self.name,
+            system_mapping=bool(self.flags.get("system_profile_mapping")),
+        )
 
     def validate_chapter_access(self):
         """

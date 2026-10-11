@@ -119,6 +119,8 @@ def ensure_chapter(
         )
         chapter._csv_import = True
         chapter.flags.ignore_workflow = True
+        # The board profile above is fixed here, not caller input (#1616).
+        chapter.flags.system_profile_mapping = True
         # Security: System-internal provisioning from authoritative sync data
         chapter.insert(ignore_permissions=True)
         # Commit immediately: background jobs triggered by member assignment

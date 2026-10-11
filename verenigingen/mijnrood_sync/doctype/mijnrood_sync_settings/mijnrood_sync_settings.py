@@ -666,6 +666,8 @@ class MijnRoodSyncSettings(Document):
                     spec["name"],
                 )
             team = frappe.get_doc(doc_data)
+            # The role profile comes from the fixed spec above, not user input (#1616).
+            team.flags.system_profile_mapping = True
             team.insert()
             frappe.logger().info(
                 "Created default team %s (role profile: %s)", team.name, spec["role_profile"]

@@ -96,9 +96,9 @@ class TestChapterBoardProfileMapping(EnhancedTestCase):
 
     def test_board_member_cannot_map_a_profile_granting_roles_they_lack(self):
         seat = self.create_test_board_member(self.chapter.name)
-        self.assertNotIn("Verenigingen Auditor", frappe.get_roles(seat.user))
 
         with self.as_user(seat.user):
+            self.assertNotIn("Verenigingen Auditor", frappe.get_roles())
             with self.assertRaisesRegex(frappe.ValidationError, "Verenigingen Auditor"):
                 self._save_default(PLAIN_PROFILE)
 
@@ -122,9 +122,9 @@ class TestChapterBoardProfileMapping(EnhancedTestCase):
         self.assertEqual(
             frappe.db.get_value("Chapter", self.chapter.name, "default_board_role_profile"), PLAIN_PROFILE
         )
-        self.assertNotIn("Verenigingen Auditor", frappe.get_roles(seat.user))
 
         with self.as_user(seat.user):
+            self.assertNotIn("Verenigingen Auditor", frappe.get_roles())
             doc = frappe.get_doc("Chapter", self.chapter.name)
             doc.introduction = "Edited by the board"
             doc.save()
@@ -132,20 +132,82 @@ class TestChapterBoardProfileMapping(EnhancedTestCase):
         self.assertEqual(frappe.db.get_value("Chapter", self.chapter.name, "introduction"), "Edited by the board")
 
 
+    def test_existing_national_mapping_does_not_block_a_save_after_the_national_chapter_moves(self):
+        frappe.db.set_single_value("Verenigingen Settings", "national_board_chapter", self.chapter.name)
+        self._save_default(NATIONAL_PROFILE)
+        frappe.db.set_single_value("Verenigingen Settings", "national_board_chapter", None)
+
+        doc = frappe.get_doc("Chapter", self.chapter.name)
+        doc.introduction = "Edited after the national chapter moved"
+        doc.save()
+
+        self.assertEqual(
+            frappe.db.get_value("Chapter", self.chapter.name, "default_board_role_profile"), NATIONAL_PROFILE
+        )
+
+    def test_provisioning_by_a_non_system_manager_still_creates_the_chapter(self):
+        """ensure_chapter maps a fixed profile of its own; the caller's roles do not matter."""
+        from verenigingen.services.chapter.chapter_provisioning_service import ensure_chapter
+
+        email = f"staff-{frappe.generate_hash(length=8)}@example.com"
+        frappe.get_doc(
+            {
+                "doctype": "User",
+                "email": email,
+                "first_name": "Staff",
+                "send_welcome_email": 0,
+                "roles": [{"role": "Verenigingen Staff"}],
+            }
+        ).insert()
+        name = f"Guard Provisioned {frappe.generate_hash(length=6)}"
+
+        with self.as_user(email):
+            self.assertNotIn("System Manager", frappe.get_roles())
+            created = ensure_chapter(name, default_region=self.chapter.region)
+
+        if created:
+            self.addCleanup(frappe.delete_doc, "Chapter", created, force=True)
+        self.assertEqual(created, name)
+        self.assertEqual(
+            frappe.db.get_value("Chapter", name, "default_board_role_profile"), "Verenigingen Chapter Board Member"
+        )
+
+
 class TestTeamProfileMapping(EnhancedTestCase):
     def setUp(self):
         super().setUp()
         self.team = self.create_test_team()
 
-    def _save_default(self, profile):
+    def _save_team_default(self, profile):
         doc = frappe.get_doc("Team", self.team.name)
         doc.default_role_profile = profile
         doc.save()
 
     def test_administrator_may_map_a_system_profile_as_landelijk_beheer_does(self):
-        self._save_default(SYSTEM_PROFILE)
+        self._save_team_default(SYSTEM_PROFILE)
 
         self.assertEqual(frappe.db.get_value("Team", self.team.name, "default_role_profile"), SYSTEM_PROFILE)
+
+    def test_default_mijnrood_teams_are_created_by_a_non_system_manager(self):
+        """_ensure_default_teams maps fixed profiles (Landelijk Beheer -> Verenigingen
+        Administrator); a Verenigingen Administrator without System Manager runs it."""
+        self.assertFalse(frappe.db.exists("Team", "Landelijk Beheer"))
+        email = f"vadmin-{frappe.generate_hash(length=8)}@example.com"
+        frappe.get_doc(
+            {
+                "doctype": "User",
+                "email": email,
+                "first_name": "VAdmin",
+                "send_welcome_email": 0,
+                "roles": [{"role": "Verenigingen Administrator"}],
+            }
+        ).insert()
+
+        with self.as_user(email):
+            self.assertNotIn("System Manager", frappe.get_roles())
+            frappe.get_doc("MijnRood Sync Settings")._ensure_default_teams()
+
+        self.assertEqual(frappe.db.get_value("Team", "Landelijk Beheer", "default_role_profile"), SYSTEM_PROFILE)
 
     def test_team_editor_cannot_map_a_profile_granting_roles_they_lack(self):
         # A Verenigingen Administrator without System Manager may edit any team.
@@ -159,17 +221,17 @@ class TestTeamProfileMapping(EnhancedTestCase):
                 "roles": [{"role": "Verenigingen Administrator"}],
             }
         ).insert()
-        self.assertNotIn("System Manager", frappe.get_roles(email))
         with self.as_user(email):
+            self.assertNotIn("System Manager", frappe.get_roles())
             self.assertTrue(frappe.has_permission("Team", "write", doc=self.team.name))
             with self.assertRaisesRegex(frappe.ValidationError, "Verenigingen Auditor"):
-                self._save_default(PLAIN_PROFILE)
+                self._save_team_default(PLAIN_PROFILE)
 
     def test_national_profile_is_refused_on_a_team(self):
         with self.assertRaisesRegex(frappe.ValidationError, "national"):
-            self._save_default(NATIONAL_PROFILE)
+            self._save_team_default(NATIONAL_PROFILE)
 
     def test_plain_profile_is_allowed_for_administrator(self):
-        self._save_default(PLAIN_PROFILE)
+        self._save_team_default(PLAIN_PROFILE)
 
         self.assertEqual(frappe.db.get_value("Team", self.team.name, "default_role_profile"), PLAIN_PROFILE)
