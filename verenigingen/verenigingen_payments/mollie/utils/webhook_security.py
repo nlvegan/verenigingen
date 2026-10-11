@@ -122,7 +122,7 @@ def authenticate_mollie_webhook() -> str:
 # - Sales Invoice (read-only, below): the invoice that entry is allocated against
 #
 # The two are not alike in how they are granted: Payment Entry comes directly from the
-# literal "Verenigingen Webhook User" role (fixtures/custom_docperm.json grants
+# literal "Verenigingen Webhook User" role (setup/custom_docperm_setup.py grants
 # create/write/submit), whereas Sales Invoice arrives only through Accounts User in that
 # user's role PROFILE (fixtures/role_profile.json). Both are visible to the check below
 # because it evaluates the session user's EFFECTIVE roles - which is exactly why listing

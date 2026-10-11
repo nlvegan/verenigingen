@@ -258,7 +258,7 @@ After every migration (`bench migrate`), the `after_migrate` hooks run additiona
 - Runs performance optimization patches
 - Syncs document category options from Settings into DocField metadata
 
-Fixtures (defined in `vereinigingen/hooks/fixtures.py`) are also imported during install. These include Property Setters, Custom DocPerms, Workflow definitions, Roles, Role Profiles, Workspaces, Dashboard Charts, and the background service user account.
+Fixtures (defined in `vereinigingen/hooks/fixtures.py`) are also imported during install. These include Property Setters, Workflow definitions, Roles, Role Profiles, Workspaces, Dashboard Charts, and the background service user account. Custom DocPerm grants are not fixtures: `setup/custom_docperm_setup.py` applies them on install and migrate.
 
 ### Step 5: Verification and Initial Access
 

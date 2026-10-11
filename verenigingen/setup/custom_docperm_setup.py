@@ -34,7 +34,8 @@ from frappe.utils import cint
 APP = "verenigingen"
 
 # (doctype, role, ptypes granted). All at permlevel 0, not if_owner. Lifted verbatim from the
-# retired fixtures/custom_docperm.json.
+# retired fixtures/custom_docperm.json, minus its DocType row (meta.py skips custom perms for
+# DocType itself, so that row never had any effect).
 CORE_GRANTS = (
     ("Mode of Payment", "Verenigingen Webhook User", ("read",)),
     ("Company", "Verenigingen Webhook User", ("read",)),
@@ -75,7 +76,6 @@ CORE_GRANTS = (
         "Verenigingen Staff",
         ("read", "write", "create", "report", "export", "share", "print", "email"),
     ),
-    ("DocType", "Verenigingen Chapter Board Member", ("read", "select")),
     ("Employee", "Employee", ("read", "report", "print", "email")),
     (
         "Employee",

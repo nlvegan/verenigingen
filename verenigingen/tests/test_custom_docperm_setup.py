@@ -9,16 +9,12 @@ Probe shortcuts, stated up front: the "JSON changed" step edits the DocPerm tabl
 frozen state itself is created through the REAL path (``add_permission``).
 """
 
-import json
-import os
-
 import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import cint
 
 PERM_FIELDS = ("read", "write", "create", "delete", "submit", "cancel", "amend", "report",
                "export", "import", "share", "print", "email", "select")
-LEGACY_FIXTURE = "custom_docperm.json"
 
 
 def _effective(doctype):
@@ -31,22 +27,8 @@ def _roles(doctype):
 
 
 def _run_permission_sync():
-    """What the app does on install/migrate for permissions.
+    from verenigingen.setup.custom_docperm_setup import apply_custom_permissions
 
-    Before the fix there is no such function and the app's fixture file is the only
-    mechanism; importing that file is exactly what `migrate` did for it.
-    """
-    path = frappe.get_app_path("verenigingen", "fixtures", LEGACY_FIXTURE)
-    if os.path.exists(path):
-        # What fixture import does with these rows: a plain insert, no copy_perms. Done by
-        # hand because data_import.import_doc commits, which the per-test rollback cannot undo.
-        with open(path) as f:
-            for row in json.load(f):
-                frappe.get_doc(row).insert(ignore_if_duplicate=True)
-    try:
-        from verenigingen.setup.custom_docperm_setup import apply_custom_permissions
-    except ImportError:
-        return
     apply_custom_permissions()
 
 
@@ -120,6 +102,23 @@ class TestCustomDocPermSetup(FrappeTestCase):
         self.assertTrue(dropped)
         _run_permission_sync()
         self.assertFalse(dropped & _roles("Company"), "curated set must not get stock rows back")
+
+    def test_grant_raises_missing_flag_and_keeps_existing_extra_flag(self):
+        # An EXISTING (role, 0, 0) row, seeded through the real path (add_permission copies the
+        # stock rows first): Customer/Verenigingen Staff has delete=1 (not granted by us) and
+        # write=0 (granted). The sync must raise write and must not lower delete.
+        from frappe.permissions import add_permission
+
+        self._drop_custom("Customer")
+        add_permission("Customer", "Verenigingen Staff", 0, "read")
+        name = frappe.db.get_value(
+            "Custom DocPerm", {"parent": "Customer", "role": "Verenigingen Staff", "permlevel": 0}
+        )
+        frappe.db.set_value("Custom DocPerm", name, {"write": 0, "delete": 1})
+        _run_permission_sync()
+        rows = [p for p in _effective("Customer") if p.role == "Verenigingen Staff"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual((cint(rows[0].write), cint(rows[0].create), cint(rows[0].delete)), (1, 1, 1))
 
     def test_grants_are_idempotent(self):
         self._drop_custom("Company")
