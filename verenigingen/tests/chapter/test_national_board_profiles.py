@@ -42,6 +42,14 @@ class TestNationalBoardProfiles(VereningingenTestCase):
     # ------------------------------------------------------------------ helpers
 
     def _chapter_role_labelled(self, label):
+        # The treasurer seat is recognised by its exact name, so those two are not suffixed.
+        if label in ("Treasurer", "Penningmeester"):
+            if not frappe.db.exists("Chapter Role", label):
+                frappe.get_doc(
+                    {"doctype": "Chapter Role", "role_name": label, "permissions_level": "Basic", "is_active": 1}
+                ).insert()
+                self.track_doc("Chapter Role", label)
+            return label
         name = f"{label} {frappe.generate_hash(length=6)}"
         frappe.get_doc(
             {"doctype": "Chapter Role", "role_name": name, "permissions_level": "Basic", "is_active": 1}
@@ -80,6 +88,16 @@ class TestNationalBoardProfiles(VereningingenTestCase):
         seat = self._hold_a_board_seat(self.national, "Penningmeester")
 
         self.assertIn(NATIONAL_TREASURER, self._profiles(seat))
+
+    def test_accounting_sounding_seats_are_not_the_treasurer(self):
+        """The treasurer profile grants accounting roles; only the treasurer seat may get it."""
+        for label in ("Finance Officer", "Controller", "Financial Controller", "Accounting Committee"):
+            seat = self._hold_a_board_seat(self.national, label)
+
+            profiles = self._profiles(seat)
+
+            self.assertIn(NATIONAL_MEMBER, profiles, label)
+            self.assertNotIn(NATIONAL_TREASURER, profiles, label)
 
     def test_any_other_seat_on_the_national_board_gets_the_national_board_member_profile(self):
         seat = self._hold_a_board_seat(self.national, "Secretary")

@@ -387,18 +387,22 @@ def get_board_member_profiles(user: str, member: str) -> list:
     return profiles
 
 
+_NATIONAL_TREASURER_ROLE_NAMES = frozenset({"treasurer", "penningmeester"})
+
+
 def _national_board_profile(chapter_name: str, chapter_role: str):
     """(priority, profile) a seat gets for sitting on the national chapter's board, else None.
 
-    The treasurer seat is the one the accounting keyword rule of
-    get_profile_priority_for_role() already calls special (role name only: the
-    national profile's own name contains "treasurer"). Every other seat is a
-    plain national board member.
+    The treasurer seat is recognised by its exact Chapter Role name (Chapter Role has
+    no treasurer flag). The substring keyword rule of get_profile_priority_for_role()
+    is not used: it only orders profiles, and would hand the accounting profile to
+    "Finance Officer" or "Controller" seats. Every other seat is a plain national
+    board member.
     """
     national_chapter = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
     if not national_chapter or national_chapter != chapter_name:
         return None
-    if get_profile_priority_for_role(chapter_role, None) == PRIORITY_SPECIAL_ACCOUNTING:
+    if (chapter_role or "").strip().casefold() in _NATIONAL_TREASURER_ROLE_NAMES:
         return (PRIORITY_SPECIAL_ACCOUNTING, NATIONAL_TREASURER_PROFILE)
     return (PRIORITY_BOARD_ROLE_SPECIFIC, NATIONAL_BOARD_MEMBER_PROFILE)
 
