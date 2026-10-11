@@ -410,12 +410,12 @@ class TestChapterJoinRequestCoverage(EnhancedTestCase):
         """
         board = self.create_test_board_member(self.test_chapter.name)
         req = self._suspended_member_with_disabled_row_and_request(self.test_member2)
-        # Control: the approver really cannot read this Member, and the reason is real.
-        self.assertFalse(frappe.has_permission("Member", "read", doc=self.test_member2.name, user=board.user))
-
         approver_before = frappe.session.user
         frappe.set_user(board.user)
         try:
+            # Control: the approver really cannot read this Member (checked after the
+            # switch, so it resolves through the board user's own permission cache).
+            self.assertFalse(frappe.has_permission("Member", "read", doc=self.test_member2.name))
             message = self._approval_error(req)
         finally:
             frappe.set_user(approver_before)
