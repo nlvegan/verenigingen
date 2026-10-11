@@ -2034,11 +2034,11 @@ def install_and_link_onboarding():
     try:
         print("   🚀 Setting up onboarding...")
 
-        # First, ensure the module_onboarding custom field exists on Workspace
+        # First, ensure Workspace has a module_onboarding field. Frappe ships one
+        # natively since v16.50 (frappe#39927); a Custom Field of the same name is
+        # then refused, so only add it on older Frappe.
         try:
-            existing_field = frappe.db.exists(
-                "Custom Field", {"dt": "Workspace", "fieldname": "module_onboarding"}
-            )
+            existing_field = frappe.get_meta("Workspace").has_field("module_onboarding")
             if not existing_field:
                 custom_field = frappe.get_doc(
                     {
@@ -2056,7 +2056,7 @@ def install_and_link_onboarding():
                 frappe.clear_cache()
                 print("   ✓ Added module_onboarding custom field to Workspace")
             else:
-                print("   ✓ Module onboarding custom field already exists")
+                print("   ✓ Workspace already has a module_onboarding field")
         except Exception as e:
             print(f"   ⚠️ Failed to create custom field: {str(e)}")
 
