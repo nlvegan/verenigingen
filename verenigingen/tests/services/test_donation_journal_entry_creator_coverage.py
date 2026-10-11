@@ -27,6 +27,7 @@ import frappe
 from frappe.utils import flt, getdate, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.ledger_failure_accounts import make_balance_restricted_account
 from verenigingen.verenigingen_payments.services.donation_journal_entry_creator import (
     DonationJournalEntryCreator,
 )
@@ -216,9 +217,11 @@ class TestDonationJournalEntryCreatorMoneyPath(_DonationJEFixtureMixin, Enhanced
         """See #385/#(this fix): a failed submit is NOT a draft.
 
         db_update() already wrote docstatus=1 before on_submit's GL posting threw
-        (income_account here is a Group Account, which GLEntry.on_update rejects
-        AFTER inserting the row -- same mechanism as
-        test_secure_operations_partial_write.py). Before this fix,
+        (income_account here must keep a Debit balance, which GLEntry.on_update
+        rejects AFTER inserting the credit row -- same mechanism as
+        test_secure_operations_partial_write.py; see
+        tests/fixtures/ledger_failure_accounts.py for why it is not a Group
+        Account any more). Before this fix,
         _create_journal_entry logged "(draft)" and returned je.name anyway, so the
         Donation got linked to an entry that never posted and
         find_journal_entry_by_reference() would report the payment_id as already
@@ -230,11 +233,7 @@ class TestDonationJournalEntryCreatorMoneyPath(_DonationJEFixtureMixin, Enhanced
             find_journal_entry_by_reference,
         )
 
-        group_income_account = frappe.get_value(
-            "Account", {"company": COMPANY, "root_type": "Income", "is_group": 1}, "name"
-        )
-        self.assertTrue(group_income_account, "Test company has no Income group account")
-        self.creator._config["income_account"] = group_income_account
+        self.creator._config["income_account"] = make_balance_restricted_account(COMPANY, "Income", "Debit")
 
         amount = 25.00
         payment_id = f"tr_{frappe.generate_hash(length=12)}"

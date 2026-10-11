@@ -66,10 +66,12 @@ def create_termination_workflow_corrected():
             },
         )
 
-        # State 5: Executed
+        # State 5: Executed. Draft (0) like the rest: Membership Termination Request
+        # is not submittable, so a submitted state could never be entered (the
+        # transition would call submit() on it) and Frappe rejects the Workflow.
         workflow_doc.append(
             "states",
-            {"state": "Executed", "doc_status": "1", "allow_edit": "System Manager"},  # Single role only
+            {"state": "Executed", "doc_status": "0", "allow_edit": "System Manager"},  # Single role only
         )
 
         # Add transitions with SINGLE roles only

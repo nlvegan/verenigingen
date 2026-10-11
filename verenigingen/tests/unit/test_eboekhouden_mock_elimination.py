@@ -63,7 +63,7 @@ class TestEBoekhoudenMockElimination(EnhancedTestCase):
             except Exception:
                 # Fallback - use any existing bank account
                 existing_bank = frappe.get_all("Account", 
-                    filters={"account_type": "Bank", "company": self.test_company["name"]}, 
+                    filters={"account_type": "Bank", "company": self.test_company["name"], "is_group": 0}, 
                     limit=1)
                 if existing_bank:
                     self.test_bank_account = frappe.get_doc("Account", existing_bank[0].name)
