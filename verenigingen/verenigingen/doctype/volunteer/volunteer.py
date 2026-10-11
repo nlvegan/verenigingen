@@ -63,7 +63,7 @@ import frappe
 from frappe import _
 from frappe.contacts.address_and_contact import load_address_and_contact
 from frappe.model.document import Document
-from frappe.utils import getdate, today
+from frappe.utils import cint, getdate, today
 
 from verenigingen.services.member.utils.member_age_service import calculate_member_age
 from verenigingen.services.volunteer.status_derivation_service import (
@@ -753,6 +753,20 @@ def create_volunteer_from_member(
         # Get member data
         member = frappe.get_doc("Member", member_name)
 
+        # frappe.call delivers form args as strings, so an unticked box arrives as "0",
+        # which is truthy.
+        create_user_account = cint(create_user_account)
+
+        # Refuse activation up front: the ACR needs an email, and a volunteer created
+        # first would leave the caller retrying against "already exists".
+        if create_user_account and not member.email:
+            return {
+                "success": False,
+                "error": _(
+                    "Member {0} has no email address. Add one before activating as a full volunteer."
+                ).format(member_name),
+            }
+
         # Determine volunteer name
         if not volunteer_name:
             if member.full_name:
@@ -852,9 +866,9 @@ def create_volunteer_from_member(
         frappe.db.set_value("Member", member_name, "volunteer_record", volunteer.name, update_modified=False)
 
         # Queue account creation if requested
-        account_request_name = None
+        account_request_name = account_creation_error = None
         if create_user_account:
-            account_request_name = _queue_volunteer_account_creation(
+            account_request_name, account_creation_error = _queue_volunteer_account_creation(
                 member_name=member_name, volunteer_name=volunteer.name, roles=roles, role_profile=role_profile
             )
 
@@ -869,6 +883,10 @@ def create_volunteer_from_member(
             result["account_creation_queued"] = True
             result["account_request"] = account_request_name
             result["message"] += f". User account creation queued (request: {account_request_name})"
+        elif create_user_account:
+            # The volunteer exists either way; say plainly that activation did not happen.
+            result["account_creation_queued"] = False
+            result["account_creation_error"] = account_creation_error
 
         return result
 
@@ -893,7 +911,8 @@ def _queue_volunteer_account_creation(member_name, volunteer_name, roles=None, r
         role_profile: Explicit Role Profile to assign (default: None, ACR infers from role)
 
     Returns:
-        str: Account Creation Request name if successful, None otherwise
+        tuple: (Account Creation Request name, None) if queued, (None, reason) if not.
+        A refusal is logged here, because nothing else records it.
     """
     try:
         from verenigingen.utils.account_creation_manager import queue_account_creation_for_member
@@ -909,48 +928,25 @@ def _queue_volunteer_account_creation(member_name, volunteer_name, roles=None, r
             except json.JSONDecodeError:
                 roles = [roles]
 
-        # Queue account creation via centralized manager
-        # Returns OperationResult or dict (if decorated function serializes it)
+        # The decorator serializes the OperationResult, so this is a dict here.
         result = queue_account_creation_for_member(
             member_name=member_name, roles=roles, role_profile=role_profile, priority="Normal"
         )
 
-        # Handle both OperationResult (has .success) and dict (from decorator serialization)
-        is_success = (
-            result.success
-            if hasattr(result, "success")
-            else result.get("success", False)
-            if isinstance(result, dict)
-            else False
-        )
+        if result.get("success"):
+            return (result.get("data") or {}).get("request_name"), None
 
-        if result and is_success:
-            data = result.data if hasattr(result, "data") else result.get("data", {})
-            request_name = data.get("request_name") if data else None
-            frappe.logger().info(
-                f"Queued account creation for volunteer {volunteer_name} "
-                f"(member: {member_name}, request: {request_name})"
-            )
-            return request_name
-        else:
-            error_msg = (
-                result.error_message
-                if hasattr(result, "error_message")
-                else result.get("message", "Unknown error")
-                if isinstance(result, dict)
-                else "Unknown error"
-            )
-            frappe.logger().warning(
-                f"Failed to queue account creation for volunteer {volunteer_name}: {error_msg}"
-            )
-            return None
-
+        error = result.get("error") or {}
+        reason = "; ".join([error.get("message") or _("Unknown error")] + (error.get("errors") or []))
     except Exception as e:
-        frappe.log_error(
-            f"Error queuing account creation for volunteer {volunteer_name}: {str(e)}",
-            "Volunteer Account Creation Queue Error",
-        )
-        return None
+        reason = str(e)
+
+    frappe.log_error(
+        title="Volunteer Account Creation Queue Error",
+        message=f"Account creation was not queued for volunteer {volunteer_name} "
+        f"(member {member_name}): {reason}",
+    )
+    return None, reason
 
 
 @frappe.whitelist()
