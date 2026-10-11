@@ -148,8 +148,9 @@ class TestAccountCreationApi(VereningingenTestCase):
 
         for _attempt in range(AccountCreationRequest.MAX_RETRIES):
             api.retry_failed_request(request.name)
-            # frappe.enqueue only runs inline in some environments (CI); where a
-            # worker owns the job, run the queued request ourselves.
+            # frappe.enqueue never runs inline under test (call_directly needs
+            # `now` or not in_test), and CI has no workers, so run the queued
+            # request ourselves.
             if frappe.db.get_value("Account Creation Request", request.name, "status") != "Failed":
                 api.process_account_creation_request(request.name)
             # the retried pipeline fails again for the same malformed email
@@ -187,6 +188,21 @@ class TestAccountCreationApi(VereningingenTestCase):
         self.assertLess(
             frappe.db.get_value("Account Creation Request", request.name, "retry_count") or 0,
             3,
+        )
+        result = api.queue_account_creation_for_member(self.member.name)
+        self.assertIn("already exists", self._fail_msg(result))
+        self.assertIn(request.name, " ".join(self._fail_errors(result)))
+
+    def test_queue_member_open_acr_with_spent_retry_count_still_blocks(self):
+        """Control for #1614: ``schedule_retry`` leaves an OPEN (Requested) ACR with
+        retry_count == MAX_RETRIES. Only status Failed may be treated as spent.
+        Seeds retry_count directly (the real writer is schedule_retry, which also
+        enqueues a job this test must not start)."""
+        request = self._insert_acr()
+        frappe.db.set_value("Account Creation Request", request.name, "retry_count", 3)
+        self.assertEqual(
+            frappe.db.get_value("Account Creation Request", request.name, "status"),
+            "Requested",
         )
         result = api.queue_account_creation_for_member(self.member.name)
         self.assertIn("already exists", self._fail_msg(result))

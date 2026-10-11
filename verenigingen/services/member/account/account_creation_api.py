@@ -172,9 +172,12 @@ def _find_blocking_request(source_record: str):
 
     Open requests block. So does a Failed request that can still be retried
     (``retry_failed_request`` is its recovery path). A Failed request whose retries
-    are spent (``retry_count`` >= ``MAX_RETRIES``) is a dead end: ``retry_processing``
-    refuses it and ``retry_all_failed_requests`` filters it out, so blocking on it
-    would leave the member permanently un-activatable (#1614).
+    are spent (``retry_count`` >= ``MAX_RETRIES``) is a dead end for the interactive
+    paths: ``retry_processing`` refuses it and ``retry_all_failed_requests`` filters it
+    out, so blocking on it would leave the member permanently un-activatable (#1614).
+    Not unreachable for every ACR: one linked to a Bulk Operation Tracker is still
+    re-run by the hourly ``bulk_retry_processor`` with no retry_count cap. That is
+    harmless here, since the pipeline links to an existing User rather than duplicating.
     """
     from verenigingen.verenigingen.doctype.account_creation_request.account_creation_request import (
         AccountCreationRequest,
