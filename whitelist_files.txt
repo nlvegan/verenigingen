@@ -262,7 +262,6 @@
 ./verenigingen/services/billing/dues_schedule_auto_creator.py
 ./verenigingen/services/billing/dues_schedule_health_manager.py
 ./verenigingen/services/billing/invoice_management.py
-./verenigingen/services/chapter/chapter_board_permissions.py
 ./verenigingen/services/chapter/chapter_role_events.py
 ./verenigingen/services/chapter/chapter_role_profile_manager.py
 ./verenigingen/services/chapter/chapter_security.py

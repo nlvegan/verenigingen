@@ -147,7 +147,6 @@ From `hooks/scheduler.py`:
 #### Chapter Access Control
 
 - `services/chapter/chapter_permission_service.py` -- Chapter permission enforcement
-- `services/chapter/chapter_board_permissions.py` -- Board-specific permissions
 - `services/chapter/chapter_security.py` -- Chapter security operations
 - `services/chapter/chapter_role_profile_manager.py` -- Role profile assignment for board members
 
@@ -183,7 +182,7 @@ From `.pre-commit-config.yaml`:
 - **Security framework**: `utils/security/` (19 modules)
 - **Permissions**: `hooks/permissions.py` (15 query conditions + 12 has_permission)
 - **Permission module**: `permissions.py` (centralized permission functions)
-- **Chapter security**: `services/chapter/chapter_security.py`, `chapter_permission_service.py`, `chapter_board_permissions.py`
+- **Chapter security**: `services/chapter/chapter_security.py`, `chapter_permission_service.py`
 - **Account security**: `services/member/account/` (5 modules)
 - **Security tests**: `tests/backend/security/`, `tests/security/`
 - **Audit script**: `scripts/analysis/detailed_security_audit.py`
