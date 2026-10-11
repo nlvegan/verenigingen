@@ -27,6 +27,10 @@ from frappe import _
 from frappe.utils import now_datetime
 
 from verenigingen.constants.profile_mappings import ROLE_MODULE_MAPPING
+from verenigingen.services.member.account.role_profile_mapping_guard import (
+    NATIONAL_BOARD_MEMBER_PROFILE,
+    NATIONAL_TREASURER_PROFILE,
+)
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
@@ -351,6 +355,12 @@ def get_board_member_profiles(user: str, member: str) -> list:
                         profiles.append((PRIORITY_BOARD_DEFAULT, chapter_config["default_profile"]))
                         continue
 
+                # No explicit mapping: a seat on the national chapter's board is national (#1615)
+                national = _national_board_profile(position.parent, position.chapter_role)
+                if national and frappe.db.exists("Role Profile", national[1]):
+                    profiles.append(national)
+                    continue
+
                 # Ultimate fallback to hardcoded default (validate it exists)
                 if frappe.db.exists("Role Profile", PROFILE_BOARD_MEMBER):
                     profiles.append((PRIORITY_BOARD_DEFAULT, PROFILE_BOARD_MEMBER))
@@ -375,6 +385,22 @@ def get_board_member_profiles(user: str, member: str) -> list:
         )
 
     return profiles
+
+
+def _national_board_profile(chapter_name: str, chapter_role: str):
+    """(priority, profile) a seat gets for sitting on the national chapter's board, else None.
+
+    The treasurer seat is the one the accounting keyword rule of
+    get_profile_priority_for_role() already calls special (role name only: the
+    national profile's own name contains "treasurer"). Every other seat is a
+    plain national board member.
+    """
+    national_chapter = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
+    if not national_chapter or national_chapter != chapter_name:
+        return None
+    if get_profile_priority_for_role(chapter_role, None) == PRIORITY_SPECIAL_ACCOUNTING:
+        return (PRIORITY_SPECIAL_ACCOUNTING, NATIONAL_TREASURER_PROFILE)
+    return (PRIORITY_BOARD_ROLE_SPECIFIC, NATIONAL_BOARD_MEMBER_PROFILE)
 
 
 def get_team_profiles(user: str, member: str) -> list:

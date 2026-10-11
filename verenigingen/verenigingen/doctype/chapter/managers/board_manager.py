@@ -1290,11 +1290,15 @@ class BoardManager(BaseManager):
 
     def _board_conferred_profiles(self) -> set:
         """Role profiles this chapter's board seats can confer."""
+        from verenigingen.services.member.account.role_profile_mapping_guard import NATIONAL_PROFILES
         from verenigingen.services.member.account.user_role_profile_calculator import (
             PROFILE_BOARD_MEMBER,
         )
 
         profiles = {PROFILE_BOARD_MEMBER}
+        national = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
+        if national and national == self.chapter_doc.name:
+            profiles |= NATIONAL_PROFILES
         if self.chapter_doc.get("default_board_role_profile"):
             profiles.add(self.chapter_doc.default_board_role_profile)
         if self.chapter_doc.get("enable_board_role_specific_profiles"):

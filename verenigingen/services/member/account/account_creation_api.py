@@ -139,19 +139,14 @@ def _position_and_volunteer_profile_roles() -> set[str]:
     treasurer profiles (a seat on the national chapter's board grants those, never
     activation), plus the base volunteer profile's, which every activation
     already grants."""
+    from verenigingen.services.member.account.role_profile_mapping_guard import NATIONAL_PROFILES
     from verenigingen.services.member.account.user_role_profile_calculator import (
         PROFILE_BOARD_MEMBER,
         PROFILE_TEAM_LEADER,
         PROFILE_VOLUNTEER,
     )
 
-    profiles = {
-        PROFILE_BOARD_MEMBER,
-        PROFILE_TEAM_LEADER,
-        PROFILE_VOLUNTEER,
-        "Verenigingen National Board Member",
-        "Verenigingen Treasurer",
-    }
+    profiles = {PROFILE_BOARD_MEMBER, PROFILE_TEAM_LEADER, PROFILE_VOLUNTEER, *NATIONAL_PROFILES}
     for doctype, field in (
         ("Chapter", "default_board_role_profile"),
         ("Chapter Role Profile Mapping", "role_profile"),

@@ -18,7 +18,9 @@ from frappe import _
 from verenigingen.utils.constants import Roles
 
 # Granted only by a seat on the national chapter's board.
-NATIONAL_PROFILES = frozenset({"Verenigingen National Board Member", "Verenigingen Treasurer"})
+NATIONAL_BOARD_MEMBER_PROFILE = "Verenigingen National Board Member"
+NATIONAL_TREASURER_PROFILE = "Verenigingen Treasurer"
+NATIONAL_PROFILES = frozenset({NATIONAL_BOARD_MEMBER_PROFILE, NATIONAL_TREASURER_PROFILE})
 
 # Holders of these may map any profile; they could grant themselves anything anyway.
 _UNRESTRICTED_ROLES = frozenset({Roles.SYSTEM_MANAGER, "Administrator"})
