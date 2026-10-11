@@ -45,6 +45,7 @@ class TestWorkspaceHealth(VereningingenTestCase):
                 "title": name,
                 "type": "Workspace",
                 "public": 1,
+                "module": "Verenigingen",
                 "custom": 1,
                 "content": content,
                 "links": links,

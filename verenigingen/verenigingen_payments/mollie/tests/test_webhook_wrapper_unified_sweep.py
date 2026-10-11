@@ -155,17 +155,18 @@ class WrapperSweepBase(EnhancedTestCase):
         if payment_id:
             je.cheque_no = payment_id
             je.cheque_date = today()
-            # A cheque_no gives global search something to index, which calls
-            # JournalEntry.get_title() -> self.accounts[0]. Without a row that is an
-            # IndexError at insert, not a validation message.
-            je.append(
-                "accounts",
-                {
-                    "account": self._bank_account(),
-                    "debit_in_account_currency": 25.0,
-                    "credit_in_account_currency": 0,
-                },
-            )
+        # Global search indexing calls JournalEntry.get_title() -> self.accounts[0],
+        # so without a row insert dies with an IndexError, not a validation message.
+        # It used to index only when cheque_no was set; since ERPNext #59694 also
+        # indexes `remark`, which every Journal Entry gets, it always does.
+        je.append(
+            "accounts",
+            {
+                "account": self._bank_account(),
+                "debit_in_account_currency": 25.0,
+                "credit_in_account_currency": 0,
+            },
+        )
         je.flags.ignore_validate = True
         je.flags.ignore_mandatory = True
         je.insert(ignore_permissions=True, ignore_mandatory=True)

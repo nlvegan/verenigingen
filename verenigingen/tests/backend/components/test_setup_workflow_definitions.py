@@ -270,10 +270,12 @@ class TestTerminationWorkflowCreation(FrappeTestCase):
         self.assertEqual(doc.is_active, 1)
         self.assertEqual([s.state for s in doc.states], WORKFLOW_STATES)
         self.assertEqual(len(doc.transitions), 10)
-        # "Executed" is the only submitted state; everything else stays draft.
+        # Every state is draft: Membership Termination Request is not submittable,
+        # and Frappe refuses a Workflow that gives such a DocType a submitted state.
+        self.assertFalse(frappe.get_meta(TARGET_DOCTYPE).is_submittable)
         self.assertEqual(
             {s.state: s.doc_status for s in doc.states},
-            {"Draft": "0", "Pending": "0", "Approved": "0", "Rejected": "0", "Executed": "1"},
+            {"Draft": "0", "Pending": "0", "Approved": "0", "Rejected": "0", "Executed": "0"},
         )
 
 
