@@ -122,6 +122,86 @@ class TestAccountCreationApi(VereningingenTestCase):
         result = api.queue_account_creation_for_member(self.member.name)
         self.assertIn("already exists", self._fail_msg(result))
 
+    def _fail_via_real_pipeline(self, **acr_overrides):
+        """Reach a Failed ACR through the real processor (no ``set_value``): an ACR
+        whose own email is malformed makes user creation raise inside
+        ``process_account_creation_request``, which calls ``mark_failed``. The Member
+        keeps its valid email, so a fresh request for the member would succeed."""
+        self.expectErrorLog(
+            "Account Creation Request Processing Error",
+            "User Creation Failed",
+            "Retry Failed Request Error",
+        )
+        request = self._insert_acr(email="not-a-valid-email-format", **acr_overrides)
+        api.process_account_creation_request(request.name)
+        self.assertEqual(
+            frappe.db.get_value("Account Creation Request", request.name, "status"),
+            "Failed",
+        )
+        return request
+
+    def _exhaust_retries_via_real_flow(self, request):
+        """Drive ``retry_failed_request`` (the only recovery path) until the cap."""
+        from verenigingen.verenigingen.doctype.account_creation_request.account_creation_request import (
+            AccountCreationRequest,
+        )
+
+        for _attempt in range(AccountCreationRequest.MAX_RETRIES):
+            api.retry_failed_request(request.name)
+            # frappe.enqueue only runs inline in some environments (CI); where a
+            # worker owns the job, run the queued request ourselves.
+            if frappe.db.get_value("Account Creation Request", request.name, "status") != "Failed":
+                api.process_account_creation_request(request.name)
+            # the retried pipeline fails again for the same malformed email
+            self.assertEqual(
+                frappe.db.get_value("Account Creation Request", request.name, "status"),
+                "Failed",
+            )
+        return AccountCreationRequest.MAX_RETRIES
+
+    def test_queue_member_failed_acr_at_max_retries_does_not_block_new_request(self):
+        """#1614. A Failed ACR whose retries are spent can never be retried
+        (``retry_processing`` refuses, ``retry_all_failed_requests`` filters it
+        out), so it must not block a fresh request for the member forever."""
+        request = self._fail_via_real_pipeline()
+        cap = self._exhaust_retries_via_real_flow(request)
+        self.assertEqual(
+            frappe.db.get_value("Account Creation Request", request.name, "retry_count"),
+            cap,
+        )
+        # Premise: the dead end is real -- the retry path refuses this request.
+        retry = api.retry_failed_request(request.name)
+        self.assertFalse(retry["success"])
+
+        result = api.queue_account_creation_for_member(self.member.name)
+        self._track_user(self.member.email)
+        data = self._ok(result)
+        self.track_doc("Account Creation Request", data["request_name"])
+        self.assertNotEqual(data["request_name"], request.name)
+
+    def test_queue_member_failed_acr_with_retries_left_still_blocks(self):
+        """Control for #1614: a Failed ACR that CAN still be retried keeps blocking
+        (retry is the recovery), so the fix must key on spent retries, not on
+        status Failed alone."""
+        request = self._fail_via_real_pipeline()
+        self.assertLess(
+            frappe.db.get_value("Account Creation Request", request.name, "retry_count") or 0,
+            3,
+        )
+        result = api.queue_account_creation_for_member(self.member.name)
+        self.assertIn("already exists", self._fail_msg(result))
+        self.assertIn(request.name, " ".join(self._fail_errors(result)))
+
+    def test_queue_member_spent_failed_acr_does_not_hide_an_open_one(self):
+        """Control for #1614: a spent Failed ACR next to an OPEN one must still
+        refuse, naming the open one."""
+        failed = self._fail_via_real_pipeline()
+        self._exhaust_retries_via_real_flow(failed)
+        open_request = self._insert_acr()  # status Requested
+        result = api.queue_account_creation_for_member(self.member.name)
+        self.assertIn("already exists", self._fail_msg(result))
+        self.assertIn(open_request.name, " ".join(self._fail_errors(result)))
+
     def test_queue_member_role_profile_inferred_for_volunteer_role(self):
         # Passing the Volunteer role (and no explicit role_profile) must infer the
         # Volunteer role_profile, which flags employee-record creation.
@@ -221,6 +301,24 @@ class TestAccountCreationApi(VereningingenTestCase):
         self.track_doc("Account Creation Request", existing.name)
         result = api.queue_account_creation_for_volunteer(volunteer.name)
         self.assertIn("already exists", self._fail_msg(result))
+
+    def test_queue_volunteer_failed_acr_at_max_retries_does_not_block_new_request(self):
+        """#1614, sibling: ``queue_account_creation_for_volunteer`` carries the same
+        dedup rule, so a spent Failed Volunteer ACR must not block it either."""
+        volunteer = self._make_volunteer()
+        email = frappe.db.get_value("Volunteer", volunteer.name, "email")
+        failed = self._fail_via_real_pipeline(
+            request_type="Volunteer",
+            source_record=volunteer.name,
+            role_profile="Verenigingen Volunteer",
+            requested_roles=[{"role": "Verenigingen Volunteer"}],
+        )
+        self._exhaust_retries_via_real_flow(failed)
+        result = api.queue_account_creation_for_volunteer(volunteer.name)
+        self._track_user(email)
+        data = self._ok(result)
+        self.track_doc("Account Creation Request", data["request_name"])
+        self.assertNotEqual(data["request_name"], failed.name)
 
     def test_queue_volunteer_happy_path(self):
         volunteer = self._make_volunteer()
